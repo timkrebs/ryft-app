@@ -113,7 +113,7 @@ struct RootView: View {
             TodayView()
                 .tabItem { Label("Today", systemImage: "house.fill") }
                 .tag(AppTab.today)
-            FeaturePlaceholder(title: "Sleep")
+            SleepView()
                 .tabItem { Label("Sleep", systemImage: "moon.fill") }
                 .tag(AppTab.sleep)
             FeaturePlaceholder(title: "Strain")
