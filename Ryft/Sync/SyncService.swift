@@ -1,0 +1,85 @@
+// Drains HealthKit into the backend, page by page, persisting each anchor only
+// after its page was accepted. Safe to call from foreground, background
+// delivery and a BGAppRefreshTask alike; concurrent calls coalesce.
+import Foundation
+import HealthKit
+import UIKit
+
+@MainActor
+final class SyncService: ObservableObject {
+    static let shared = SyncService()
+
+    @Published private(set) var isSyncing = false
+    @Published private(set) var progress = ""
+    @Published private(set) var lastError: String?
+    @Published private(set) var lastUploaded = 0
+
+    private let hk = HealthKitManager.shared
+    private let api = APIClient.shared
+    private let settings = Settings.shared
+    private var inFlight: Task<Void, Never>?
+
+    func syncNow() async {
+        if let t = inFlight { await t.value; return }
+        let t = Task { await run() }
+        inFlight = t
+        await t.value
+        inFlight = nil
+    }
+
+    private func run() async {
+        guard settings.isConfigured else { lastError = APIError.notConfigured.localizedDescription; return }
+        isSyncing = true
+        lastError = nil
+        lastUploaded = 0
+        defer { isSyncing = false; progress = "" }
+
+        do {
+            for spec in hk.quantities {
+                var more = true
+                while more {
+                    progress = "Reading \(spec.type.rawValue)…"
+                    let page = try await hk.quantityPage(spec)
+                    try await upload(HealthDelta(samples: page.items))
+                    if let a = page.anchor { hk.save(anchor: a, for: spec.type.rawValue) }
+                    more = page.more
+                }
+            }
+            var more = true
+            while more {
+                progress = "Reading sleep…"
+                let page = try await hk.sleepPage()
+                try await upload(HealthDelta(sleep: page.items))
+                if let a = page.anchor { hk.save(anchor: a, for: "sleep") }
+                more = page.more
+            }
+            more = true
+            while more {
+                progress = "Reading workouts…"
+                let page = try await hk.workoutPage()
+                try await upload(HealthDelta(workouts: page.items))
+                if let a = page.anchor { hk.save(anchor: a, for: "workouts") }
+                more = page.more
+            }
+            settings.lastSync = .now
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    private func upload(_ delta: HealthDelta) async throws {
+        guard !delta.isEmpty else { return }
+        progress = "Uploading \(delta.count) records…"
+        let req = SyncRequest(deviceId: settings.deviceId, deviceName: UIDevice.current.name,
+                              samples: delta.samples, sleep: delta.sleep, workouts: delta.workouts)
+        let resp = try await api.sync(req)
+        lastUploaded += resp.samples + resp.sleep + resp.workouts
+    }
+
+    /// Forget anchors and re-upload the backfill window. Use after changing
+    /// `backfillDays` or if the backend database was recreated.
+    func fullResync() async {
+        hk.resetAnchors()
+        await syncNow()
+    }
+}
