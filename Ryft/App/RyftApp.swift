@@ -122,22 +122,9 @@ struct RootView: View {
             InsightsView()
                 .tabItem { Label("Insights", systemImage: "chart.bar.fill") }
                 .tag(AppTab.insights)
-            SettingsView()
+            ProfileView()
                 .tabItem { Label("Profile", systemImage: "person.fill") }
                 .tag(AppTab.profile)
-        }
-    }
-}
-
-/// Temporary stand-in while the feature screens are built.
-private struct FeaturePlaceholder: View {
-    let title: LocalizedStringKey
-
-    var body: some View {
-        NavigationStack {
-            ScreenScaffold {
-                Card { Text(title).font(.ryft(.title)).foregroundStyle(Theme.textPrimary) }
-            }
         }
     }
 }
