@@ -12,6 +12,8 @@ settings:
   base:
     SWIFT_VERSION: "5.10"
     DEVELOPMENT_TEAM: ""   # your Apple team ID
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
 targets:
   Ryft:
     type: application
@@ -27,7 +29,10 @@ targets:
       path: Ryft/Info.plist
       properties:
         CFBundleDisplayName: Ryft
-        UILaunchScreen: {}
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: Background
         NSHealthShareUsageDescription: Ryft reads heart rate, HRV, sleep and workouts from Apple Health to compute your recovery, strain and sleep scores on your own server.
         NSHealthUpdateUsageDescription: Ryft does not write to Apple Health.
         UIBackgroundModes: [fetch, processing]
@@ -35,7 +40,29 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true   # lets you point at http://<lan-ip> during development
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Satoshi (Fontshare, ITF Free Font License). Not committed — run
+        # scripts/fetch-fonts.sh. Missing files are ignored and Font.ryft falls
+        # back to SF Pro Rounded.
+        UIAppFonts: [Satoshi-Regular.otf, Satoshi-Medium.otf, Satoshi-Bold.otf]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.timkrebs.ryft
         TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
+        SWIFT_EMIT_LOC_STRINGS: YES
+    scheme:
+      testTargets: [RyftTests]
+  RyftTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: RyftTests
+    dependencies:
+      - target: Ryft
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.timkrebs.ryft.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Ryft.app/Ryft
+        BUNDLE_LOADER: $(TEST_HOST)

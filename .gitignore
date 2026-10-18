@@ -4,3 +4,8 @@ build/
 DerivedData/
 xcuserdata/
 *.xcuserstate
+# Satoshi is free to embed but may not be redistributed via repositories (ITF FFL §02).
+# Fetch locally with scripts/fetch-fonts.sh.
+Ryft/Resources/Fonts/*.otf
+Ryft/Resources/Fonts/*.ttf
+.build/

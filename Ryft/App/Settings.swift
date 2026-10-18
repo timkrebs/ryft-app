@@ -20,6 +20,20 @@ final class Settings: ObservableObject {
     @Published var lastSync: Date? {
         didSet { defaults.set(lastSync, forKey: "lastSync") }
     }
+    /// Serve the built-in mock history instead of the platform. On by default
+    /// in the simulator (HealthKit has no data there); also settable with the
+    /// launch argument `-demoMode YES`.
+    @Published var demoMode: Bool {
+        didSet { defaults.set(demoMode, forKey: "demoMode") }
+    }
+    @Published var appearance: Appearance {
+        didSet { defaults.set(appearance.rawValue, forKey: "appearance") }
+    }
+
+    enum Appearance: String, CaseIterable, Identifiable {
+        case dark, light, system
+        var id: String { rawValue }
+    }
 
     let deviceId: UUID
 
@@ -28,6 +42,14 @@ final class Settings: ObservableObject {
         ingestURLString = defaults.string(forKey: "ingestURL") ?? ""
         apiKey = Keychain.get("ryft.apiKey")
         lastSync = defaults.object(forKey: "lastSync") as? Date
+        #if targetEnvironment(simulator)
+        let demoDefault = true
+        #else
+        let demoDefault = false
+        #endif
+        // `bool(forKey:)` also understands "YES"/"NO" strings from launch arguments.
+        demoMode = defaults.object(forKey: "demoMode") != nil ? defaults.bool(forKey: "demoMode") : demoDefault
+        appearance = defaults.string(forKey: "appearance").flatMap(Appearance.init(rawValue:)) ?? .dark
         if let s = defaults.string(forKey: "deviceId"), let id = UUID(uuidString: s) {
             deviceId = id
         } else {

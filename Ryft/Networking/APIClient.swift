@@ -10,14 +10,41 @@ enum APIError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .notConfigured: return "Set the server URL and API key in Settings."
-        case .http(let code, let body): return "Server returned \(code): \(body)"
+        case .notConfigured: return String(localized: "Add your server URL and API key in Profile.")
+        case .http(401, _), .http(403, _): return String(localized: "The server didn't accept the API key.")
+        case .http(let code, let message):
+            return message.isEmpty ? String(localized: "The server returned \(code).") : message
         case .transport(let e): return e.localizedDescription
         }
     }
+
+    /// The platform doesn't serve this endpoint (yet) — callers degrade gracefully.
+    var isNotFound: Bool {
+        if case .http(let code, _) = self { return code == 404 || code == 405 || code == 501 }
+        return false
+    }
 }
 
-final class APIClient {
+extension Error {
+    var isEndpointMissing: Bool { (self as? APIError)?.isNotFound ?? false }
+}
+
+/// Everything the UI reads. `APIClient` talks to the platform; `MockDataSource`
+/// serves the realistic history used by previews and the simulator demo mode.
+protocol RyftDataSource {
+    func me() async throws -> User
+    func patchMe(_ p: UserPatch) async throws -> User
+    func days(from: Date, to: Date) async throws -> [DailyScore]
+    func day(_ date: Date) async throws -> DayDetail
+    func sleep(range: SleepRangeKind) async throws -> SleepRange
+    func workouts(from: Date, to: Date) async throws -> [Workout]
+    func workout(id: UUID) async throws -> WorkoutDetail
+    func trends(metric: TrendMetric, range: TrendRange) async throws -> TrendSeries
+    func insights() async throws -> [Insight]
+    func recompute(from: Date, to: Date) async throws
+}
+
+final class APIClient: RyftDataSource {
     static let shared = APIClient()
 
     private let settings = Settings.shared
@@ -33,13 +60,9 @@ final class APIClient {
     static let jsonDecoder: JSONDecoder = {
         let d = JSONDecoder()
         d.keyDecodingStrategy = .convertFromSnakeCase
-        let frac = ISO8601DateFormatter()
-        frac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
         d.dateDecodingStrategy = .custom { decoder in
             let s = try decoder.singleValueContainer().decode(String.self)
-            if let date = frac.date(from: s) ?? plain.date(from: s) { return date }
+            if let date = DateParsing.rfc3339(s) { return date }
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "bad date \(s)"))
         }
         return d
@@ -74,15 +97,40 @@ final class APIClient {
         try await send("GET", path: "/v1/days/\(Self.dayString(date))", body: Optional<Int>.none)
     }
 
+    func sleep(range: SleepRangeKind) async throws -> SleepRange {
+        try await send("GET", path: "/v1/sleep?range=\(range.rawValue)", body: Optional<Int>.none)
+    }
+
+    func workouts(from: Date, to: Date) async throws -> [Workout] {
+        try await send("GET", path: "/v1/workouts?from=\(Self.dayString(from))&to=\(Self.dayString(to))", body: Optional<Int>.none)
+    }
+
+    func workout(id: UUID) async throws -> WorkoutDetail {
+        try await send("GET", path: "/v1/workouts/\(id.uuidString.lowercased())", body: Optional<Int>.none)
+    }
+
+    func trends(metric: TrendMetric, range: TrendRange) async throws -> TrendSeries {
+        try await send("GET", path: "/v1/trends?metric=\(metric.rawValue)&range=\(range.rawValue)", body: Optional<Int>.none)
+    }
+
+    func insights() async throws -> [Insight] {
+        try await send("GET", path: "/v1/insights", body: Optional<Int>.none)
+    }
+
+    /// 202 Accepted; the body (if any) is ignored.
     func recompute(from: Date, to: Date) async throws {
-        struct Ack: Decodable { let status: String }
-        let _: Ack = try await send("POST", path: "/v1/recompute",
-                                    body: RecomputeRequest(from: Self.dayString(from), to: Self.dayString(to)))
+        _ = try await data("POST", path: "/v1/recompute",
+                           body: RecomputeRequest(from: Self.dayString(from), to: Self.dayString(to)))
     }
 
     // MARK: plumbing
 
     private func send<B: Encodable, R: Decodable>(_ method: String, path: String, body: B?, base: URL? = nil) async throws -> R {
+        let data = try await data(method, path: path, body: body, base: base)
+        return try Self.jsonDecoder.decode(R.self, from: data)
+    }
+
+    private func data<B: Encodable>(_ method: String, path: String, body: B?, base: URL? = nil) async throws -> Data {
         guard let root = base ?? settings.apiURL, let key = settings.apiKey, !key.isEmpty,
               let url = URL(string: path, relativeTo: root) else {
             throw APIError.notConfigured
@@ -103,15 +151,14 @@ final class APIClient {
         }
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {
-            throw APIError.http(code, String(data: data, encoding: .utf8) ?? "")
+            let message = (try? Self.jsonDecoder.decode(APIErrorBody.self, from: data))?.error
+                ?? String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            throw APIError.http(code, message)
         }
-        return try Self.jsonDecoder.decode(R.self, from: data)
+        return data
     }
 
     static func dayString(_ d: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.timeZone = .current
-        return f.string(from: d)
+        DayFormat.string(from: d)
     }
 }
