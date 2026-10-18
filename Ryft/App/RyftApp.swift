@@ -116,7 +116,7 @@ struct RootView: View {
             SleepView()
                 .tabItem { Label("Sleep", systemImage: "moon.fill") }
                 .tag(AppTab.sleep)
-            FeaturePlaceholder(title: "Strain")
+            StrainView()
                 .tabItem { Label("Strain", systemImage: "bolt.fill") }
                 .tag(AppTab.strain)
             FeaturePlaceholder(title: "Insights")
