@@ -110,7 +110,7 @@ struct RootView: View {
 
     var body: some View {
         TabView(selection: $state.selectedTab) {
-            FeaturePlaceholder(title: "Today")
+            TodayView()
                 .tabItem { Label("Today", systemImage: "house.fill") }
                 .tag(AppTab.today)
             FeaturePlaceholder(title: "Sleep")

@@ -28,6 +28,7 @@ struct MetricTile: View {
                 Image(systemName: systemImage)
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(tint)
+                    .frame(height: 22) // symbols differ in height; keep tiles aligned
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
