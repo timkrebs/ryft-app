@@ -1,0 +1,11 @@
+// Release build settings. Copy to Config/Release.xcconfig (git-ignored) and fill in:
+//
+//   cp Config/Release.xcconfig.example Config/Release.xcconfig
+//
+// `//` starts a comment in xcconfig files, so URLs are written as https:/$()/host.
+
+SUPABASE_URL = https:/$()/YOUR-PROJECT-REF.supabase.co
+SUPABASE_ANON_KEY = YOUR-ANON-KEY
+
+RYFT_API_URL = https:/$()/ryft.example.com
+RYFT_INGEST_URL =

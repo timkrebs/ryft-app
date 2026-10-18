@@ -19,6 +19,7 @@ UDID=$(xcrun simctl list devices available | grep -E "^ +$DEVICE \(" | head -1 \
 [ -n "$UDID" ] || { echo "No simulator named $DEVICE" >&2; exit 1; }
 DEVICE=$UDID
 
+for c in Debug Release; do [ -f "Config/$c.xcconfig" ] || cp "Config/$c.xcconfig.example" "Config/$c.xcconfig"; done
 xcodegen generate >/dev/null
 xcodebuild -scheme Ryft -destination "platform=iOS Simulator,id=$DEVICE" \
   -derivedDataPath "$DD" CODE_SIGNING_ALLOWED=NO build >/dev/null

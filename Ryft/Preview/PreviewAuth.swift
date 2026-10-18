@@ -1,0 +1,109 @@
+// An in-memory AuthClientProtocol for previews and unit tests: no network,
+// no Keychain. Tests script it (errors, events) and read back what was called.
+import Foundation
+import Auth
+
+final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: Session?
+    private var continuations: [AsyncStream<(event: AuthChangeEvent, session: Session?)>.Continuation] = []
+
+    // Scripted behaviour.
+    var signInSession: Session
+    var validSessionError: Error?
+    var refreshError: Error?
+    var refreshedToken = "refreshed-token"
+
+    // What happened.
+    private(set) var refreshCount = 0
+    private(set) var signOutCount = 0
+    private(set) var savedFullNames: [String] = []
+
+    init(session: Session? = nil, signInSession: Session = .preview()) {
+        stored = session
+        self.signInSession = signInSession
+    }
+
+    var currentSession: Session? { locked { stored } }
+
+    var authStateChanges: AsyncStream<(event: AuthChangeEvent, session: Session?)> {
+        let (stream, continuation) = AsyncStream<(event: AuthChangeEvent, session: Session?)>.makeStream()
+        locked {
+            continuations.append(continuation)
+            continuation.yield((.initialSession, stored))
+        }
+        return stream
+    }
+
+    /// Simulates the SDK reporting a change (e.g. a revoked refresh token → `.signedOut`).
+    func emit(_ event: AuthChangeEvent, _ session: Session?) {
+        let targets = locked { () -> [AsyncStream<(event: AuthChangeEvent, session: Session?)>.Continuation] in
+            stored = session
+            return continuations
+        }
+        for c in targets { c.yield((event, session)) }
+    }
+
+    func validSession() async throws -> Session {
+        try locked {
+            if let validSessionError { throw validSessionError }
+            guard let stored else { throw AuthError.sessionMissing }
+            return stored
+        }
+    }
+
+    func refreshSession() async throws -> Session {
+        try locked {
+            refreshCount += 1
+            if let refreshError { throw refreshError }
+            guard var s = stored else { throw AuthError.sessionMissing }
+            s.accessToken = refreshedToken
+            stored = s
+            return s
+        }
+    }
+
+    func signInWithApple(idToken: String, nonce: String) async throws -> Session {
+        let s = locked { stored = signInSession; return signInSession }
+        emit(.signedIn, s)
+        return s
+    }
+
+    func setFullName(_ name: String) async throws {
+        locked { savedFullNames.append(name) }
+    }
+
+    func signOut() async throws {
+        locked { signOutCount += 1 }
+        emit(.signedOut, nil)
+    }
+
+    private func locked<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
+    }
+}
+
+extension Session {
+    /// A non-expiring fake session for previews and tests.
+    static func preview(id: UUID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+                        email: String? = "tim@privaterelay.appleid.com",
+                        accessToken: String = "preview-token") -> Session {
+        let user = Auth.User(id: id, appMetadata: ["provider": "apple"],
+                             userMetadata: ["full_name": "Tim Krebs"], aud: "authenticated",
+                             email: email, createdAt: .now, updatedAt: .now)
+        return Session(accessToken: accessToken, tokenType: "bearer", expiresIn: 3600,
+                       expiresAt: Date.distantFuture.timeIntervalSince1970, refreshToken: "preview-refresh",
+                       user: user)
+    }
+}
+
+extension AuthService {
+    /// Signed in with a fake session (or signed out, for onboarding previews).
+    static func preview(signedIn: Bool = true) -> AuthService {
+        AuthService(client: MockAuthClient(session: signedIn ? .preview() : nil),
+                    defaults: UserDefaults(suiteName: "ryft.preview.auth") ?? .standard,
+                    wipeLocalData: {})
+    }
+}

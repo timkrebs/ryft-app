@@ -1,6 +1,8 @@
 // Drains HealthKit into the backend, page by page, persisting each anchor only
 // after its page was accepted. Safe to call from foreground, background
-// delivery and a BGAppRefreshTask alike; concurrent calls coalesce.
+// delivery and a BGAppRefreshTask alike; concurrent calls coalesce. Needs a
+// signed-in caller: the SDK restores the session from the Keychain without UI,
+// so background runs work too.
 import Foundation
 import HealthKit
 import UIKit
@@ -17,6 +19,7 @@ final class SyncService: ObservableObject {
     private let hk = HealthKitManager.shared
     private let api = APIClient.shared
     private let settings = Settings.shared
+    private var auth: AuthService { .shared }
     private var inFlight: Task<Void, Never>?
 
     func syncNow() async {
@@ -28,6 +31,7 @@ final class SyncService: ObservableObject {
     }
 
     private func run() async {
+        guard auth.isSignedIn else { lastError = APIError.signedOut.localizedDescription; return }
         guard settings.isConfigured else { lastError = APIError.notConfigured.localizedDescription; return }
         isSyncing = true
         lastError = nil

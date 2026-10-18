@@ -1,7 +1,11 @@
 .PHONY: project build test icon fonts screenshots
 
-project:
+project: Config/Debug.xcconfig Config/Release.xcconfig
 	xcodegen generate
+
+# Fresh clone: start from the examples (placeholder values; sign-in stays off until filled in).
+Config/%.xcconfig:
+	cp $@.example $@
 
 build: project
 	xcodebuild -scheme Ryft -destination 'generic/platform=iOS Simulator' build

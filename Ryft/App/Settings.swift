@@ -1,6 +1,8 @@
-// Persisted app settings. The API key lives in the Keychain; everything else
-// in UserDefaults. `deviceId` is minted once per install and sent with every
-// sync so the backend can tell devices apart.
+// Persisted app settings in UserDefaults. Who the caller is lives in
+// AuthService (the Supabase SDK keeps the session in the Keychain); the app
+// stores no tokens itself, except the Debug-only developer API key.
+// `deviceId` is minted once per install and sent with every sync so the
+// backend can tell devices apart.
 import Foundation
 import Security
 
@@ -13,9 +15,6 @@ final class Settings: ObservableObject {
     }
     @Published var ingestURLString: String {
         didSet { defaults.set(ingestURLString, forKey: "ingestURL") }
-    }
-    @Published var apiKey: String? {
-        didSet { Keychain.set(apiKey, for: "ryft.apiKey") }
     }
     @Published var lastSync: Date? {
         didSet { defaults.set(lastSync, forKey: "lastSync") }
@@ -35,12 +34,28 @@ final class Settings: ObservableObject {
         var id: String { rawValue }
     }
 
+    #if DEBUG
+    /// Developer mode for a `docker compose` platform running with `AUTH_MODE=apikey`:
+    /// a static bearer replaces the Supabase session. Not compiled into Release.
+    @Published var apiKeyMode: Bool {
+        didSet { defaults.set(apiKeyMode, forKey: "dev.apiKeyMode") }
+    }
+    @Published var devAPIKey: String {
+        didSet { Keychain.set(devAPIKey.isEmpty ? nil : devAPIKey, for: "ryft.dev.apiKey") }
+    }
+    #endif
+
     let deviceId: UUID
 
     private init() {
-        apiURLString = defaults.string(forKey: "apiURL") ?? "https://ryft.example.com"
-        ingestURLString = defaults.string(forKey: "ingestURL") ?? ""
-        apiKey = Keychain.get("ryft.apiKey")
+        // Defaults come from Config/*.xcconfig (RYFT_API_URL, RYFT_INGEST_URL) via Info.plist.
+        apiURLString = defaults.string(forKey: "apiURL") ?? Bundle.configValue("RyftAPIURL") ?? "https://ryft.example.com"
+        ingestURLString = defaults.string(forKey: "ingestURL") ?? Bundle.configValue("RyftIngestURL") ?? ""
+        // The shared API key is gone (Supabase Auth); drop it once from the Keychain.
+        if !defaults.bool(forKey: "migrated.apiKeyRemoved") {
+            Keychain.set(nil, for: "ryft.apiKey")
+            defaults.set(true, forKey: "migrated.apiKeyRemoved")
+        }
         lastSync = defaults.object(forKey: "lastSync") as? Date
         #if targetEnvironment(simulator)
         let demoDefault = true
@@ -50,6 +65,10 @@ final class Settings: ObservableObject {
         // `bool(forKey:)` also understands "YES"/"NO" strings from launch arguments.
         demoMode = defaults.object(forKey: "demoMode") != nil ? defaults.bool(forKey: "demoMode") : demoDefault
         appearance = defaults.string(forKey: "appearance").flatMap(Appearance.init(rawValue:)) ?? .dark
+        #if DEBUG
+        apiKeyMode = defaults.bool(forKey: "dev.apiKeyMode")
+        devAPIKey = Keychain.get("ryft.dev.apiKey") ?? "dev-api-key-change-me" // compose default
+        #endif
         if let s = defaults.string(forKey: "deviceId"), let id = UUID(uuidString: s) {
             deviceId = id
         } else {
@@ -63,7 +82,8 @@ final class Settings: ObservableObject {
         let s = ingestURLString.trimmingCharacters(in: .whitespaces)
         return s.isEmpty ? apiURL : URL(string: s)
     }
-    var isConfigured: Bool { apiURL != nil && !(apiKey ?? "").isEmpty }
+    /// A platform URL is set. Whether there is a caller is `AuthService.isSignedIn`.
+    var isConfigured: Bool { apiURL?.host != nil }
 }
 
 enum Keychain {

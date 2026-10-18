@@ -28,6 +28,7 @@ final class AppState: ObservableObject {
     static let historyDays = 90
 
     private let settings: Settings
+    private let auth: AuthService
     private let cache: ResponseCache
     private let sourceOverride: RyftDataSource?
     private var dayCache: [String: DayDetail] = [:]
@@ -36,9 +37,10 @@ final class AppState: ObservableObject {
     private var workoutCache: [UUID: WorkoutDetail] = [:]
     private let defaults = UserDefaults.standard
 
-    init(settings: Settings = .shared, source: RyftDataSource? = nil, cache: ResponseCache = .shared,
-         restoreCache: Bool = true) {
+    init(settings: Settings = .shared, auth: AuthService? = nil, source: RyftDataSource? = nil,
+         cache: ResponseCache = .shared, restoreCache: Bool = true) {
         self.settings = settings
+        self.auth = auth ?? .shared
         self.cache = cache
         self.sourceOverride = source
         // `-RyftTab sleep` selects the initial tab (handy for screenshots).
@@ -56,9 +58,9 @@ final class AppState: ObservableObject {
         sourceOverride ?? (settings.demoMode ? MockDataSource.shared : APIClient.shared)
     }
 
-    /// There's something to load from: a configured server, demo mode or an injected source.
+    /// There's something to load from: a signed-in caller and a server URL, demo mode or an injected source.
     var hasDataSource: Bool {
-        !previewUnconfigured && (sourceOverride != nil || settings.demoMode || settings.isConfigured)
+        !previewUnconfigured && (sourceOverride != nil || settings.demoMode || (auth.isSignedIn && settings.isConfigured))
     }
 
     /// Previews of the empty/unconfigured state.
@@ -73,12 +75,15 @@ final class AppState: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         let src = source
+        let account = auth.accountID
         do {
             let from = DayFormat.shift(.now, days: -(Self.historyDays - 1))
             async let detail = src.day(.now)
             async let days = src.days(from: from, to: .now)
             async let me = src.me()
             let (d, h, u) = try await (detail, days, me)
+            // Signed out (or switched account) while this was in flight: drop it.
+            guard auth.accountID == account else { return }
             today = d
             history = h.sorted { $0.day < $1.day }
             user = u
@@ -98,11 +103,22 @@ final class AppState: ObservableObject {
 
     /// Pull-to-refresh: upload new Health data, then reload.
     func syncAndRefresh(using sync: SyncService) async {
-        if !isDemo && settings.isConfigured { await sync.syncNow() }
+        if !isDemo && auth.isSignedIn && settings.isConfigured { await sync.syncNow() }
         await refresh()
     }
 
-    /// Forget everything (server or demo mode changed).
+    /// `GET /v1/me` on its own. Called once right after sign-in, before the
+    /// first sync: the platform creates the user row there.
+    func loadUser() async {
+        guard hasDataSource else { return }
+        do {
+            user = try await source.me()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Forget everything (account, server or demo mode changed).
     func reset() {
         today = nil
         history = []

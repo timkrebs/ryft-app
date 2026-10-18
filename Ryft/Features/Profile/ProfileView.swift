@@ -4,11 +4,11 @@ import UIKit
 /// Account, body settings, data/sync and about. Replaces the scaffold's SettingsView.
 struct ProfileView: View {
     @EnvironmentObject private var settings: Settings
+    @EnvironmentObject private var auth: AuthService
     @EnvironmentObject private var sync: SyncService
     @EnvironmentObject private var state: AppState
     @Environment(\.openURL) private var openURL
 
-    @State private var apiKeyDraft = ""
     @State private var connection: ConnectionResult?
     @State private var testing = false
     @State private var maxHR = 190
@@ -16,6 +16,7 @@ struct ProfileView: View {
     @State private var recomputeStatus: String?
     @State private var recomputing = false
     @State private var showResyncConfirm = false
+    @State private var showSignOutConfirm = false
     @State private var healthStatus: HealthKitManager.AccessStatus = .unknown
 
     private enum ConnectionResult {
@@ -37,10 +38,7 @@ struct ProfileView: View {
                 about
             }
         }
-        .onAppear {
-            apiKeyDraft = settings.apiKey ?? ""
-            applyUser()
-        }
+        .onAppear { applyUser() }
         .onChange(of: state.user) { applyUser() }
         .task { healthStatus = await HealthKitManager.shared.accessStatus() }
         .confirmationDialog("Re-upload the last 90 days of Health data?", isPresented: $showResyncConfirm,
@@ -55,12 +53,35 @@ struct ProfileView: View {
         } message: {
             Text("This uploads everything again. It can take a few minutes on the first run.")
         }
+        .confirmationDialog("Sign out of RYFT?", isPresented: $showSignOutConfirm, titleVisibility: .visible) {
+            Button("Sign out", role: .destructive) {
+                Task { await auth.signOut() }
+            }
+        } message: {
+            Text("Cached scores and Health sync progress are removed from this iPhone. Your data stays on your RYFT platform.")
+        }
     }
 
     // MARK: account
 
     private var account: some View {
         ProfileSection(title: "Account") {
+            if auth.isSignedIn {
+                StatRow(title: "Signed in", value: auth.identityDescription)
+            } else {
+                StatRow(title: "Signed in", value: String(localized: "No"), valueColor: Theme.textSecondary)
+                Text("Turn off Demo data to sign in with Apple.")
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textTertiary)
+            }
+            if let u = state.user {
+                StatRow(title: "Name", value: u.name)
+                StatRow(title: "Timezone", value: u.tz,
+                        detail: u.tz == TimeZone.current.identifier ? nil
+                            : String(localized: "Phone: \(TimeZone.current.identifier)"))
+            }
+            Divider().overlay(Theme.separator)
+
             FieldLabel("Server URL")
             TextField("https://ryft.example.com", text: $settings.apiURLString)
                 .ryftField()
@@ -71,13 +92,11 @@ struct ProfileView: View {
                 .ryftField()
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
-            FieldLabel("API key")
-            SecureField("Bearer token", text: $apiKeyDraft)
-                .ryftField()
-                .textContentType(.password)
-                .onSubmit { settings.apiKey = apiKeyDraft }
+            #if DEBUG
+            developerAPIKey
+            #endif
 
-            PrimaryButton(title: "Save & test connection", busy: testing) { await saveAndTest() }
+            PrimaryButton(title: "Test connection", style: .secondary, busy: testing) { await testConnection() }
 
             switch connection {
             case .ok(let text):
@@ -90,22 +109,48 @@ struct ProfileView: View {
                 EmptyView()
             }
 
-            if let u = state.user {
+            if auth.isSignedIn {
                 Divider().overlay(Theme.separator)
-                StatRow(title: "Connected as", value: u.name)
-                StatRow(title: "Timezone", value: u.tz,
-                        detail: u.tz == TimeZone.current.identifier ? nil
-                            : String(localized: "Phone: \(TimeZone.current.identifier)"))
+                PrimaryButton(title: "Sign out", style: .destructive) { showSignOutConfirm = true }
+                // "Delete my data…" belongs here once the platform serves DELETE /v1/me
+                // (not in ../plattform/docs/API.md yet), so the row stays hidden.
             }
         }
     }
 
-    private func saveAndTest() async {
+    #if DEBUG
+    /// Developer only: a static bearer for a local platform running `AUTH_MODE=apikey`.
+    @ViewBuilder
+    private var developerAPIKey: some View {
+        Toggle(isOn: $settings.apiKeyMode) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("API key mode")
+                    .font(.ryft(.body))
+                    .foregroundStyle(Theme.textPrimary)
+                Text("Debug builds only. Sends a static bearer instead of your Apple sign-in, for a platform started with AUTH_MODE=apikey.")
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textTertiary)
+            }
+        }
+        .tint(Theme.accent)
+        if settings.apiKeyMode {
+            FieldLabel("API key")
+            SecureField("Bearer token", text: $settings.devAPIKey)
+                .ryftField()
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+        }
+    }
+    #endif
+
+    private func testConnection() async {
         testing = true
         defer { testing = false }
-        settings.apiKey = apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard settings.isConfigured else {
             connection = .failed(APIError.notConfigured.localizedDescription)
+            return
+        }
+        guard auth.isSignedIn else {
+            connection = .failed(APIError.signedOut.localizedDescription)
             return
         }
         do {
@@ -206,7 +251,7 @@ struct ProfileView: View {
                 }
                 PrimaryButton(title: "Full re-sync", style: .destructive) { showResyncConfirm = true }
             }
-            .disabled(sync.isSyncing || !settings.isConfigured || settings.demoMode)
+            .disabled(sync.isSyncing || !settings.isConfigured || !auth.isSignedIn || settings.demoMode)
 
             Divider().overlay(Theme.separator)
             Toggle(isOn: Binding(get: { settings.demoMode }, set: { on in

@@ -1,3 +1,5 @@
+// xcode: set sdk=iOS
+
 import SwiftUI
 import BackgroundTasks
 import UIKit
@@ -5,6 +7,7 @@ import UIKit
 @main
 struct RyftApp: App {
     @StateObject private var settings = Settings.shared
+    @StateObject private var auth = AuthService.shared
     @StateObject private var sync = SyncService.shared
     @StateObject private var state = AppState()
     @Environment(\.scenePhase) private var scenePhase
@@ -24,11 +27,17 @@ struct RyftApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(settings)
+                .environmentObject(auth)
                 .environmentObject(sync)
                 .environmentObject(state)
                 .preferredColorScheme(settings.appearance.colorScheme)
                 .tint(Theme.accent)
-                .task { await bootstrap() }
+                // Signed out, or a different account: forget the previous user's screens.
+                .onChange(of: auth.accountID) { old, _ in
+                    if old != nil { state.reset() }
+                }
+                // Runs at launch (restored session) and again after each sign-in.
+                .task(id: auth.accountID) { await bootstrap() }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
@@ -44,6 +53,10 @@ struct RyftApp: App {
             await state.refresh()
             return
         }
+        // Onboarding first; HealthKit is asked for right after sign-in.
+        guard auth.isSignedIn else { return }
+        // First sign-in: `GET /v1/me` creates the platform user before anything syncs.
+        if state.user == nil { await state.loadUser() }
         try? await HealthKitManager.shared.requestAuthorization()
         await HealthKitManager.shared.enableBackgroundDelivery()
         HealthKitManager.shared.startObserving {
@@ -105,10 +118,24 @@ extension Settings.Appearance {
     }
 }
 
+/// Onboarding until there's a session (or demo data), then the tabs.
 struct RootView: View {
     @EnvironmentObject private var state: AppState
+    @EnvironmentObject private var auth: AuthService
+    @EnvironmentObject private var settings: Settings
 
     var body: some View {
+        ZStack {
+            if auth.isSignedIn || settings.demoMode {
+                tabs.transition(.opacity)
+            } else {
+                OnboardingView().transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: auth.isSignedIn || settings.demoMode)
+    }
+
+    private var tabs: some View {
         TabView(selection: $state.selectedTab) {
             TodayView()
                 .tabItem { Label("Today", systemImage: "house.fill") }

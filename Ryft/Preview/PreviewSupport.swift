@@ -19,10 +19,13 @@ struct SchemePair<Content: View>: View {
 }
 
 extension View {
-    /// Injects the environment objects every screen expects, backed by mock data.
+    /// Injects the environment objects every screen expects, backed by mock
+    /// data and a fake signed-in session (no Supabase, no network).
     @MainActor
-    func previewEnvironment(_ state: AppState? = nil, scheme: ColorScheme = .dark) -> some View {
+    func previewEnvironment(_ state: AppState? = nil, auth: AuthService? = nil,
+                            scheme: ColorScheme = .dark) -> some View {
         environmentObject(Settings.shared)
+            .environmentObject(auth ?? AuthService.preview())
             .environmentObject(SyncService.shared)
             .environmentObject(state ?? AppState.preview())
             .preferredColorScheme(scheme)

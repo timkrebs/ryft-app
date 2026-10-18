@@ -113,7 +113,7 @@ struct SetupCard: View {
                 VStack(alignment: .leading, spacing: 10) {
                     SetupStep(number: 1, text: "Let Garmin Connect write to Apple Health (Garmin Connect → More → Settings → Apple Health).")
                     SetupStep(number: 2, text: "Allow RYFT to read Health data when asked.")
-                    SetupStep(number: 3, text: "Enter your RYFT server URL and API key in Profile.")
+                    SetupStep(number: 3, text: "Check your RYFT server URL in Profile.")
                 }
                 Button(action: action) {
                     Text("Open Profile")

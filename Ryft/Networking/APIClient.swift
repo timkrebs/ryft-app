@@ -1,17 +1,20 @@
 // HTTP client for the Go backend. Two base URLs because ingest and api are
 // separate services; behind the Ingress they share one host, so by default
-// `ingestURL` falls back to `apiURL`.
+// `ingestURL` falls back to `apiURL`. The bearer is the Supabase access token
+// (AuthService); a 401 forces one token refresh and one retry.
 import Foundation
 
 enum APIError: LocalizedError {
     case notConfigured
+    case signedOut
     case http(Int, String)
     case transport(Error)
 
     var errorDescription: String? {
         switch self {
-        case .notConfigured: return String(localized: "Add your server URL and API key in Profile.")
-        case .http(401, _), .http(403, _): return String(localized: "The server didn't accept the API key.")
+        case .notConfigured: return String(localized: "Add your RYFT server URL in Profile.")
+        case .signedOut: return String(localized: "You're signed out. Sign in to continue.")
+        case .http(401, _), .http(403, _): return String(localized: "The server didn't accept your sign-in.")
         case .http(let code, let message):
             return message.isEmpty ? String(localized: "The server returned \(code).") : message
         case .transport(let e): return e.localizedDescription
@@ -27,6 +30,15 @@ enum APIError: LocalizedError {
 
 extension Error {
     var isEndpointMissing: Bool { (self as? APIError)?.isNotFound ?? false }
+}
+
+/// Supplies the bearer token. `AuthService` in the app, a stub in tests.
+protocol AccessTokenProvider: AnyObject, Sendable {
+    func accessToken() async throws -> String
+    /// Forces a refresh, for the retry after a 401.
+    func refreshedAccessToken() async throws -> String
+    /// Called when the retry was rejected too.
+    func rejectedAfterRefresh() async
 }
 
 /// Everything the UI reads. `APIClient` talks to the platform; `MockDataSource`
@@ -48,13 +60,23 @@ final class APIClient: RyftDataSource {
     static let shared = APIClient()
 
     private let settings = Settings.shared
-    private let session: URLSession = {
+    private let session: URLSession
+    private let tokens: AccessTokenProvider?
+
+    static let defaultConfiguration: URLSessionConfiguration = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 60
         c.timeoutIntervalForResource = 300 // first backfill can be tens of MB
         c.waitsForConnectivity = true
-        return URLSession(configuration: c)
+        return c
     }()
+
+    /// `tokens` defaults to `AuthService.shared`, resolved per request on the main actor.
+    init(session: URLSession = URLSession(configuration: APIClient.defaultConfiguration),
+         tokens: AccessTokenProvider? = nil) {
+        self.session = session
+        self.tokens = tokens
+    }
 
     // Go emits RFC3339 with nanoseconds; Foundation's default .iso8601 rejects fractions.
     static let jsonDecoder: JSONDecoder = {
@@ -130,32 +152,47 @@ final class APIClient: RyftDataSource {
         return try Self.jsonDecoder.decode(R.self, from: data)
     }
 
-    private func data<B: Encodable>(_ method: String, path: String, body: B?, base: URL? = nil) async throws -> Data {
-        guard let root = base ?? settings.apiURL, let key = settings.apiKey, !key.isEmpty,
+    func data<B: Encodable>(_ method: String, path: String, body: B?, base: URL? = nil) async throws -> Data {
+        guard let root = base ?? settings.apiURL, root.host != nil,
               let url = URL(string: path, relativeTo: root) else {
             throw APIError.notConfigured
         }
         var req = URLRequest(url: url)
         req.httpMethod = method
-        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = try Self.jsonEncoder.encode(body)
         }
-        let (data, resp): (Data, URLResponse)
-        do {
-            (data, resp) = try await session.data(for: req)
-        } catch {
-            throw APIError.transport(error)
+        let tokens = await tokenProvider()
+        var (data, code) = try await perform(req, bearer: try await tokens.accessToken())
+        if code == 401 {
+            // The token may have been revoked or rotated server-side: refresh once and retry once.
+            (data, code) = try await perform(req, bearer: try await tokens.refreshedAccessToken())
+            if code == 401 { await tokens.rejectedAfterRefresh() }
         }
-        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {
             let message = (try? Self.jsonDecoder.decode(APIErrorBody.self, from: data))?.error
                 ?? String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             throw APIError.http(code, message)
         }
         return data
+    }
+
+    private func perform(_ request: URLRequest, bearer: String) async throws -> (Data, Int) {
+        var req = request
+        req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+        do {
+            let (data, resp) = try await session.data(for: req)
+            return (data, (resp as? HTTPURLResponse)?.statusCode ?? 0)
+        } catch {
+            throw APIError.transport(error)
+        }
+    }
+
+    private func tokenProvider() async -> AccessTokenProvider {
+        if let tokens { return tokens }
+        return await AuthService.shared
     }
 
     static func dayString(_ d: Date) -> String {
