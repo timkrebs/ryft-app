@@ -107,12 +107,18 @@ final class AppState: ObservableObject {
         await refresh()
     }
 
-    /// `GET /v1/me` on its own. Called once right after sign-in, before the
-    /// first sync: the platform creates the user row there.
-    func loadUser() async {
+    /// Right after sign-in, before the first sync: `GET /v1/me` creates the
+    /// user on the platform, then `PATCH /v1/me` sets the phone's timezone
+    /// (new users start in Europe/Berlin, which defines every day boundary).
+    func loadUserAfterSignIn() async {
         guard hasDataSource else { return }
         do {
-            user = try await source.me()
+            var u = try await source.me()
+            let tz = TimeZone.current.identifier
+            if u.tz != tz {
+                u = try await source.patchMe(UserPatch(tz: tz))
+            }
+            user = u
         } catch {
             self.error = error.localizedDescription
         }

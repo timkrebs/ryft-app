@@ -13,11 +13,20 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
     var validSessionError: Error?
     var refreshError: Error?
     var refreshedToken = "refreshed-token"
+    /// Email sign-in/sign-up/reset/link failures.
+    var emailError: Error?
+    /// `true` models a project with "Confirm email" on: sign-up returns no session.
+    var requiresEmailConfirmation = false
 
     // What happened.
     private(set) var refreshCount = 0
     private(set) var signOutCount = 0
     private(set) var savedFullNames: [String] = []
+    private(set) var signUps: [(email: String, fullName: String)] = []
+    private(set) var resetEmails: [String] = []
+    private(set) var resentEmails: [String] = []
+    private(set) var updatedPasswords: [String] = []
+    private(set) var openedLinks: [URL] = []
 
     init(session: Session? = nil, signInSession: Session = .preview()) {
         stored = session
@@ -73,6 +82,49 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
         locked { savedFullNames.append(name) }
     }
 
+    func signUp(email: String, password: String, fullName: String, redirectTo: URL) async throws -> Session? {
+        try locked { () throws -> Void in
+            if let emailError { throw emailError }
+            signUps.append((email, fullName))
+        }
+        if requiresEmailConfirmation { return nil }
+        return try await signInWithApple(idToken: "", nonce: "")
+    }
+
+    func signIn(email: String, password: String) async throws -> Session {
+        if let e = locked({ emailError }) { throw e }
+        return try await signInWithApple(idToken: "", nonce: "")
+    }
+
+    func resendSignUpConfirmation(email: String, redirectTo: URL) async throws {
+        try locked {
+            if let emailError { throw emailError }
+            resentEmails.append(email)
+        }
+    }
+
+    func resetPassword(email: String, redirectTo: URL) async throws {
+        try locked {
+            if let emailError { throw emailError }
+            resetEmails.append(email)
+        }
+    }
+
+    func updatePassword(_ password: String) async throws {
+        try locked {
+            if let emailError { throw emailError }
+            updatedPasswords.append(password)
+        }
+    }
+
+    func session(from url: URL) async throws -> Session {
+        try locked { () throws -> Void in
+            openedLinks.append(url)
+            if let emailError { throw emailError }
+        }
+        return try await signInWithApple(idToken: "", nonce: "")
+    }
+
     func signOut() async throws {
         locked { signOutCount += 1 }
         emit(.signedOut, nil)
@@ -89,8 +141,8 @@ extension Session {
     /// A non-expiring fake session for previews and tests.
     static func preview(id: UUID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
                         email: String? = "tim@privaterelay.appleid.com",
-                        accessToken: String = "preview-token") -> Session {
-        let user = Auth.User(id: id, appMetadata: ["provider": "apple"],
+                        accessToken: String = "preview-token", provider: String = "apple") -> Session {
+        let user = Auth.User(id: id, appMetadata: ["provider": .string(provider)],
                              userMetadata: ["full_name": "Tim Krebs"], aud: "authenticated",
                              email: email, createdAt: .now, updatedAt: .now)
         return Session(accessToken: accessToken, tokenType: "bearer", expiresIn: 3600,
@@ -104,6 +156,6 @@ extension AuthService {
     static func preview(signedIn: Bool = true) -> AuthService {
         AuthService(client: MockAuthClient(session: signedIn ? .preview() : nil),
                     defaults: UserDefaults(suiteName: "ryft.preview.auth") ?? .standard,
-                    wipeLocalData: {})
+                    wipeLocalData: {}, deleteRemoteAccount: {})
     }
 }

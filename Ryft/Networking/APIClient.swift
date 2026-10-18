@@ -54,6 +54,8 @@ protocol RyftDataSource {
     func trends(metric: TrendMetric, range: TrendRange) async throws -> TrendSeries
     func insights() async throws -> [Insight]
     func recompute(from: Date, to: Date) async throws
+    /// Erases the account (data, then the Supabase user).
+    func deleteMe() async throws -> AccountDeleted
 }
 
 final class APIClient: RyftDataSource {
@@ -109,6 +111,10 @@ final class APIClient: RyftDataSource {
 
     func patchMe(_ p: UserPatch) async throws -> User {
         try await send("PATCH", path: "/v1/me", body: p)
+    }
+
+    func deleteMe() async throws -> AccountDeleted {
+        try await send("DELETE", path: "/v1/me", body: Optional<Int>.none)
     }
 
     func days(from: Date, to: Date) async throws -> [DailyScore] {

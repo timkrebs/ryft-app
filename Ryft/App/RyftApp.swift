@@ -38,6 +38,10 @@ struct RyftApp: App {
                 }
                 // Runs at launch (restored session) and again after each sign-in.
                 .task(id: auth.accountID) { await bootstrap() }
+                // ryft://auth/callback — email confirmation and password reset (PKCE).
+                .onOpenURL { url in
+                    Task { await auth.handle(url) }
+                }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
@@ -53,10 +57,10 @@ struct RyftApp: App {
             await state.refresh()
             return
         }
-        // Onboarding first; HealthKit is asked for right after sign-in.
+        // Welcome first; HealthKit is asked for right after sign-in.
         guard auth.isSignedIn else { return }
-        // First sign-in: `GET /v1/me` creates the platform user before anything syncs.
-        if state.user == nil { await state.loadUser() }
+        // First sign-in: create the platform user and set its timezone before anything syncs.
+        if state.user == nil { await state.loadUserAfterSignIn() }
         try? await HealthKitManager.shared.requestAuthorization()
         await HealthKitManager.shared.enableBackgroundDelivery()
         HealthKitManager.shared.startObserving {
@@ -118,7 +122,7 @@ extension Settings.Appearance {
     }
 }
 
-/// Onboarding until there's a session (or demo data), then the tabs.
+/// Welcome until there's a session (or demo data), then the tabs.
 struct RootView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var auth: AuthService
@@ -129,10 +133,14 @@ struct RootView: View {
             if auth.isSignedIn || settings.demoMode {
                 tabs.transition(.opacity)
             } else {
-                OnboardingView().transition(.opacity)
+                WelcomeView().transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.3), value: auth.isSignedIn || settings.demoMode)
+        // A password-reset link signed the user in; ask for the new password now.
+        .sheet(isPresented: $auth.needsNewPassword) {
+            SetNewPasswordView(mode: .recovery)
+        }
     }
 
     private var tabs: some View {

@@ -17,13 +17,13 @@ struct AppleSignInButton: View {
         .frame(height: 52)
         .clipShape(Capsule())
         .overlay {
-            if auth.isSigningIn {
+            if auth.isWorking {
                 Capsule()
                     .fill(.background.opacity(0.6))
                     .overlay { ProgressView().tint(Theme.textPrimary) }
             }
         }
-        .disabled(auth.isSigningIn)
+        .disabled(auth.isWorking)
     }
 }
 

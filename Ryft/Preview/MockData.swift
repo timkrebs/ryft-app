@@ -12,7 +12,8 @@ enum MockData {
     static let restingHR = 50.0
 
     static let user = User(id: UUID(uuidString: "6F1C2B8E-1D3A-4E55-9C61-2B0F7E4A9D10") ?? UUID(),
-                           name: "Tim", tz: TimeZone.current.identifier, maxHr: maxHR, sleepBaseMin: 480)
+                           name: "Tim", email: "tim@example.com", provider: "email",
+                           tz: TimeZone.current.identifier, maxHr: maxHR, sleepBaseMin: 480)
 
     /// Oldest first; the last element is today.
     static let history: [DailyScore] = nights.map(\.score)
@@ -247,7 +248,8 @@ struct MockDataSource: RyftDataSource {
     func me() async throws -> User { MockData.user }
 
     func patchMe(_ p: UserPatch) async throws -> User {
-        User(id: MockData.user.id, name: MockData.user.name, tz: p.tz ?? MockData.user.tz,
+        User(id: MockData.user.id, name: MockData.user.name, email: MockData.user.email,
+             provider: MockData.user.provider, tz: p.tz ?? MockData.user.tz,
              maxHr: p.maxHr ?? MockData.user.maxHr, sleepBaseMin: p.sleepBaseMin ?? MockData.user.sleepBaseMin)
     }
 
@@ -276,4 +278,6 @@ struct MockDataSource: RyftDataSource {
     func insights() async throws -> [Insight] { MockData.insights }
 
     func recompute(from: Date, to: Date) async throws {}
+
+    func deleteMe() async throws -> AccountDeleted { AccountDeleted(status: "deleted", authUserDeleted: true) }
 }

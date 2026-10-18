@@ -16,7 +16,9 @@ struct ProfileView: View {
     @State private var recomputeStatus: String?
     @State private var recomputing = false
     @State private var showResyncConfirm = false
-    @State private var showSignOutConfirm = false
+    @State private var showLogOutConfirm = false
+    @State private var showDeleteConfirm = false
+    @State private var showChangePassword = false
     @State private var healthStatus: HealthKitManager.AccessStatus = .unknown
 
     private enum ConnectionResult {
@@ -56,12 +58,23 @@ struct ProfileView: View {
         } message: {
             Text("This uploads everything again. It can take a few minutes on the first run.")
         }
-        .confirmationDialog("Sign out of RYFT?", isPresented: $showSignOutConfirm, titleVisibility: .visible) {
-            Button("Sign out", role: .destructive) {
+        .confirmationDialog("Log out of RYFT?", isPresented: $showLogOutConfirm, titleVisibility: .visible) {
+            Button("Log out", role: .destructive) {
                 Task { await auth.signOut() }
             }
         } message: {
-            Text("Cached scores and Health sync progress are removed from this iPhone. Your data stays on your RYFT platform.")
+            Text("Cached scores and Health sync progress are removed from this iPhone. Your account and data stay on the RYFT platform.")
+        }
+        .alert("Delete your RYFT account?", isPresented: $showDeleteConfirm) {
+            Button("Delete account", role: .destructive) {
+                Task { await auth.deleteAccount() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes your account and everything RYFT stores for you: all synced Health samples, sleep, workouts, scores, devices and your profile. It can't be undone. Apple Health on this iPhone isn't touched.")
+        }
+        .sheet(isPresented: $showChangePassword) {
+            SetNewPasswordView(mode: .change)
         }
     }
 
@@ -70,25 +83,71 @@ struct ProfileView: View {
     private var account: some View {
         ProfileSection(title: "Account") {
             if auth.isSignedIn {
-                StatRow(title: "Signed in", value: auth.identityDescription)
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(accountTitle)
+                            .font(.ryft(.headline))
+                            .foregroundStyle(Theme.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if let email = accountEmail, email != accountTitle {
+                            Text(email)
+                                .font(.ryft(.caption))
+                                .foregroundStyle(Theme.textSecondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    if let badge = providerBadge {
+                        ProviderBadge(title: badge.title, systemImage: badge.systemImage)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                if let u = state.user {
+                    StatRow(title: "Timezone", value: u.tz,
+                            detail: u.tz == TimeZone.current.identifier ? nil
+                                : String(localized: "Phone: \(TimeZone.current.identifier)"))
+                }
+                Divider().overlay(Theme.separator)
+                if provider == "email" {
+                    PrimaryButton(title: "Change password", style: .secondary) { showChangePassword = true }
+                }
+                PrimaryButton(title: "Log out", style: .secondary) { showLogOutConfirm = true }
+                PrimaryButton(title: "Delete account", style: .destructive, busy: auth.isWorking) {
+                    showDeleteConfirm = true
+                }
+                if let error = auth.errorMessage {
+                    InlineMessage(message: error, systemImage: "exclamationmark.circle")
+                }
             } else {
                 StatRow(title: "Signed in", value: String(localized: "No"), valueColor: Theme.textSecondary)
-                Text("Turn off Demo data to sign in with Apple.")
+                Text("Turn off Demo data to log in or create an account.")
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textTertiary)
             }
-            if let u = state.user {
-                StatRow(title: "Name", value: u.name)
-                StatRow(title: "Timezone", value: u.tz,
-                        detail: u.tz == TimeZone.current.identifier ? nil
-                            : String(localized: "Phone: \(TimeZone.current.identifier)"))
-            }
-            if auth.isSignedIn {
-                Divider().overlay(Theme.separator)
-                PrimaryButton(title: "Sign out", style: .destructive) { showSignOutConfirm = true }
-                // "Delete my data…" belongs here once the platform serves DELETE /v1/me
-                // (not in ../plattform/docs/API.md yet), so the row stays hidden.
-            }
+        }
+    }
+
+    /// `User.name` → email → "Apple ID".
+    private var accountTitle: String {
+        if let name = state.user?.name, !name.isEmpty { return name }
+        return accountEmail ?? auth.identityDescription
+    }
+
+    private var accountEmail: String? {
+        let email = state.user?.email ?? auth.user?.email
+        return email?.isEmpty == false ? email : nil
+    }
+
+    /// The platform's `User.provider`, else the session's `app_metadata.provider`.
+    private var provider: String? { state.user?.provider ?? auth.provider }
+
+    private var providerBadge: (title: LocalizedStringKey, systemImage: String)? {
+        switch provider {
+        case "apple": return ("Apple", "apple.logo")
+        case "email": return ("Email", "envelope.fill")
+        default: return nil
         }
     }
 
@@ -356,6 +415,20 @@ private struct FieldLabel: View {
             .font(.ryft(.caption))
             .foregroundStyle(Theme.textSecondary)
             .padding(.bottom, -6)
+    }
+}
+
+private struct ProviderBadge: View {
+    let title: LocalizedStringKey
+    let systemImage: String
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .font(.ryft(.caption))
+            .foregroundStyle(Theme.textSecondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Theme.surfaceRaised, in: Capsule())
     }
 }
 

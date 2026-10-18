@@ -599,7 +599,12 @@ struct Insight: Codable, Hashable, Identifiable {
 
 struct User: Codable, Hashable {
     let id: UUID
+    /// `""` until the sign-in provided a name (`user_metadata.full_name`).
     let name: String
+    /// From the token; for Sign in with Apple possibly a private relay address.
+    var email: String? = nil
+    /// Sign-in provider, e.g. `apple` or `email`.
+    var provider: String? = nil
     let tz: String
     let maxHr: Int
     let sleepBaseMin: Int
@@ -619,6 +624,13 @@ struct RecomputeRequest: Codable {
 /// `{"error": "…"}` bodies.
 struct APIErrorBody: Codable {
     let error: String
+}
+
+/// `DELETE /v1/me`.
+struct AccountDeleted: Codable, Equatable {
+    let status: String
+    /// `false` if Supabase couldn't be reached; the platform retries on its own.
+    let authUserDeleted: Bool
 }
 
 // MARK: - Helpers
