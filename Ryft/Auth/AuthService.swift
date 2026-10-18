@@ -125,6 +125,8 @@ final class AuthService: ObservableObject {
     @Published private(set) var user: Auth.User?
     @Published private(set) var isWorking = false
     @Published var errorMessage: String?
+    /// Status and request ID when a platform call (Delete account) failed.
+    @Published private(set) var errorDetails: String?
     /// A password-reset link was opened: show "Set new password".
     @Published var needsNewPassword = false
 
@@ -381,12 +383,14 @@ final class AuthService: ObservableObject {
     @discardableResult
     func deleteAccount() async -> Bool {
         errorMessage = nil
+        errorDetails = nil
         isWorking = true
         defer { isWorking = false }
         do {
             try await deleteRemoteAccount()
         } catch {
             errorMessage = error.localizedDescription
+            errorDetails = error.diagnosticDetails
             return false
         }
         await signOut()

@@ -242,10 +242,11 @@ struct AuthServiceTests {
 
     @Test func failedDeleteKeepsTheAccount() async {
         let client = MockAuthClient(session: .preview())
-        let auth = make(client) { throw APIError.http(503, "database unavailable") }
+        let auth = make(client) { throw APIError.http(503, "database unavailable", requestID: "rid-1") }
         #expect(await auth.deleteAccount() == false)
         #expect(auth.isSignedIn)
         #expect(client.signOutCount == 0)
-        #expect(auth.errorMessage != nil)
+        #expect(auth.errorMessage == "RYFT is catching up. Try again in a moment.")
+        #expect(auth.errorDetails == "HTTP 503 · Request ID rid-1")
     }
 }

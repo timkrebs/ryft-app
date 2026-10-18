@@ -6,6 +6,7 @@ struct ProfileView: View {
     @EnvironmentObject private var settings: Settings
     @EnvironmentObject private var auth: AuthService
     @EnvironmentObject private var sync: SyncService
+    @ObservedObject private var apiStatus = APIStatus.shared
     @EnvironmentObject private var state: AppState
     @Environment(\.openURL) private var openURL
 
@@ -118,7 +119,7 @@ struct ProfileView: View {
                     showDeleteConfirm = true
                 }
                 if let error = auth.errorMessage {
-                    InlineMessage(message: error, systemImage: "exclamationmark.circle")
+                    InlineMessage(message: error, systemImage: "exclamationmark.circle", details: auth.errorDetails)
                 }
             } else {
                 StatRow(title: "Signed in", value: String(localized: "No"), valueColor: Theme.textSecondary)
@@ -196,6 +197,26 @@ struct ProfileView: View {
                     .foregroundStyle(Theme.textPrimary)
             }
             .tint(Theme.accent)
+            if settings.showRequestIDs {
+                if apiStatus.failures.isEmpty {
+                    Text("No failed requests since launch.")
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                ForEach(apiStatus.failures) { f in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(verbatim: "\(f.status) \(f.method) \(f.path)")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(Theme.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(verbatim: "\(f.requestID ?? "–") · \(f.date.formatted(date: .omitted, time: .standard))")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(Theme.textTertiary)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
 
             PrimaryButton(title: "Test connection", style: .secondary, busy: testing) { await testConnection() }
             switch connection {
@@ -308,8 +329,11 @@ struct ProfileView: View {
                         .foregroundStyle(Theme.textSecondary)
                 }
             }
-            if let e = sync.lastError, !settings.demoMode {
-                InlineMessage(message: e, systemImage: "exclamationmark.arrow.triangle.2.circlepath")
+            if let notice = apiStatus.retryNotice {
+                InlineMessage(message: notice, systemImage: "clock.arrow.circlepath")
+            } else if let e = sync.lastError, !settings.demoMode {
+                InlineMessage(message: e, systemImage: "exclamationmark.arrow.triangle.2.circlepath",
+                              details: sync.lastErrorDetails)
             }
             HStack(spacing: 10) {
                 PrimaryButton(title: "Sync now", style: .secondary, busy: sync.isSyncing) {

@@ -29,9 +29,12 @@ struct InlineMessage: View {
     let message: String
     var systemImage = "wifi.exclamationmark"
     var retryTitle: LocalizedStringKey = "Try again"
+    /// Status and request ID behind a "Details" toggle (for support and server logs).
+    var details: String? = nil
     var retry: (() async -> Void)? = nil
 
     @State private var retrying = false
+    @State private var showDetails = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -44,22 +47,39 @@ struct InlineMessage: View {
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                if let retry {
-                    Button {
-                        Task {
-                            retrying = true
-                            await retry()
-                            retrying = false
+                if retry != nil || details != nil {
+                    HStack(spacing: 18) {
+                        if let retry {
+                            Button {
+                                Task {
+                                    retrying = true
+                                    await retry()
+                                    retrying = false
+                                }
+                            } label: {
+                                if retrying {
+                                    ProgressView().controlSize(.small).tint(Theme.accent)
+                                } else {
+                                    Text(retryTitle).font(.ryft(.callout)).foregroundStyle(Theme.accent)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(retrying)
                         }
-                    } label: {
-                        if retrying {
-                            ProgressView().controlSize(.small).tint(Theme.accent)
-                        } else {
-                            Text(retryTitle).font(.ryft(.callout)).foregroundStyle(Theme.accent)
+                        if details != nil {
+                            Button(showDetails ? "Hide details" : "Details") { showDetails.toggle() }
+                                .font(.ryft(.callout))
+                                .foregroundStyle(Theme.textTertiary)
+                                .buttonStyle(.plain)
                         }
                     }
-                    .buttonStyle(.plain)
-                    .disabled(retrying)
+                }
+                if showDetails, let details {
+                    Text(details)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(Theme.textTertiary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 0)
@@ -153,7 +173,8 @@ private struct SetupStep: View {
 #Preview("Status", traits: .sizeThatFitsLayout) {
     SchemePair {
         VStack(spacing: 16) {
-            InlineMessage(message: "Couldn't reach your RYFT server. Showing what was loaded earlier.", retry: {})
+            InlineMessage(message: "Couldn't reach RYFT. Showing what was loaded earlier.",
+                          details: "HTTP 503 · Request ID 01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c", retry: {})
             UpdatedLabel(date: .now.addingTimeInterval(-300))
             SetupCard {}
         }

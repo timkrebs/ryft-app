@@ -5,6 +5,7 @@ struct TodayView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var sync: SyncService
     @EnvironmentObject private var settings: Settings
+    @ObservedObject private var apiStatus = APIStatus.shared
 
     private var score: DailyScore? { state.today?.score }
 
@@ -101,14 +102,18 @@ struct TodayView: View {
 
     @ViewBuilder
     private var status: some View {
-        if let error = state.error {
+        if let notice = apiStatus.retryNotice {
+            InlineMessage(message: notice, systemImage: "clock.arrow.circlepath")
+        } else if let error = state.error {
             InlineMessage(message: state.today == nil
                           ? error
                           : String(localized: "Couldn't refresh just now — showing your last loaded data."),
+                          details: state.errorDetails,
                           retry: { await state.syncAndRefresh(using: sync) })
         } else if !state.isDemo, let syncError = sync.lastError, settings.isConfigured {
             InlineMessage(message: String(localized: "Health sync paused: \(syncError)"),
                           systemImage: "heart.text.square",
+                          details: sync.lastErrorDetails,
                           retry: { await state.syncAndRefresh(using: sync) })
         }
         UpdatedLabel(date: state.lastUpdated, isLoading: state.isLoading || sync.isSyncing, isDemo: state.isDemo)

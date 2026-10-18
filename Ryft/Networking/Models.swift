@@ -624,6 +624,8 @@ struct RecomputeRequest: Codable {
 /// `{"error": "…"}` bodies.
 struct APIErrorBody: Codable {
     let error: String
+    /// Same as the `X-Request-ID` header; optional because a proxy may answer on its own.
+    var requestId: String? = nil
 }
 
 /// `DELETE /v1/me`.

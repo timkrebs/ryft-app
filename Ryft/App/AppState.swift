@@ -20,6 +20,8 @@ final class AppState: ObservableObject {
     /// False when insights were computed on-device because `/v1/insights` is missing.
     @Published var insightsFromPlatform = true
     @Published var error: String?
+    /// Status and request ID of `error`, for the inline message's Details.
+    @Published var errorDetails: String?
     @Published var isLoading = false
     @Published var lastUpdated: Date?
     @Published var selectedTab: AppTab
@@ -91,6 +93,7 @@ final class AppState: ObservableObject {
             dayCache[d.score.day] = d
             await loadInsights(from: src)
             error = nil
+            errorDetails = nil
             lastUpdated = .now
             if !isDemo {
                 cache.save(TodaySnapshot(today: d, history: history, user: u, insights: insights, fetchedAt: .now),
@@ -98,6 +101,7 @@ final class AppState: ObservableObject {
             }
         } catch {
             self.error = error.localizedDescription
+            self.errorDetails = error.diagnosticDetails
         }
     }
 
@@ -121,6 +125,7 @@ final class AppState: ObservableObject {
             user = u
         } catch {
             self.error = error.localizedDescription
+            self.errorDetails = error.diagnosticDetails
         }
     }
 
@@ -131,6 +136,7 @@ final class AppState: ObservableObject {
         user = nil
         insights = []
         error = nil
+        errorDetails = nil
         lastUpdated = nil
         invalidateCaches()
         cache.clear()
@@ -141,6 +147,7 @@ final class AppState: ObservableObject {
             user = try await source.patchMe(patch)
         } catch {
             self.error = error.localizedDescription
+            self.errorDetails = error.diagnosticDetails
         }
     }
 
