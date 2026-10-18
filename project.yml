@@ -11,7 +11,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.10"
-    DEVELOPMENT_TEAM: ""   # your Apple team ID
+    DEVELOPMENT_TEAM: M77SKHKG63   # Apple team ID (Xcode → Settings → Accounts); HealthKit apps must be signed
+    CODE_SIGN_STYLE: Automatic
     MARKETING_VERSION: "1.0"
     CURRENT_PROJECT_VERSION: "1"
 targets:

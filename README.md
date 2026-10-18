@@ -49,7 +49,10 @@ them the app falls back to SF Pro Rounded automatically and still builds.
 - **Background Modes**: **Background fetch** (and **Background processing**)
 - BGTask identifier `dev.timkrebs.ryft.refresh` (Info.plist → `BGTaskSchedulerPermittedIdentifiers`)
 
-Set your team in `project.yml` (`DEVELOPMENT_TEAM`) or in Xcode before running on a device.
+Signing uses `DEVELOPMENT_TEAM` in `project.yml` (currently the personal team `M77SKHKG63`, automatic
+signing). HealthKit apps must be signed, so change this to your own team ID if you fork the
+project. Always build `Ryft.xcodeproj` (run `xcodegen generate` first); a plain folder window in
+Xcode compiles files in isolation and reports bogus "Cannot find type … in scope" errors.
 
 Garmin Connect must write to Apple Health: *Garmin Connect → More → Settings → Apple Health*.
 
