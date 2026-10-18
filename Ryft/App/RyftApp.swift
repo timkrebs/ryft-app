@@ -119,7 +119,7 @@ struct RootView: View {
             StrainView()
                 .tabItem { Label("Strain", systemImage: "bolt.fill") }
                 .tag(AppTab.strain)
-            FeaturePlaceholder(title: "Insights")
+            InsightsView()
                 .tabItem { Label("Insights", systemImage: "chart.bar.fill") }
                 .tag(AppTab.insights)
             SettingsView()
