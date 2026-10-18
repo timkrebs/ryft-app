@@ -1,0 +1,17 @@
+{
+  "score": {
+    "day": "2026-10-18", "recovery": 71, "strain": 9.8, "sleep_performance": 88,
+    "sleep_need_min": 470, "sleep_actual_min": 420, "sleep_debt_min": 50,
+    "hrv_ms": 58.4, "rhr": 52, "resp_rate": null, "spo2": null, "calibrating": false,
+    "details": {
+      "recovery": {"hrv_z": 0.4, "rhr_z": -0.2},
+      "trimp": 88, "hr_minutes": 64,
+      "zone_minutes": [20.5, 18, 9, 3, 0],
+      "sleep_stages": {"deep": 90, "rem": 84, "core": 246, "awake": 18, "inbed": 0},
+      "sleep_has_stages": true, "yesterday_strain": 11.2, "baseline_days": 30, "workouts": 0,
+      "sleep_start": "2026-10-17T23:10:00+02:00", "sleep_end": "2026-10-18T06:38:00+02:00"
+    },
+    "computed_at": "2026-10-18T07:10:00.000000001Z"
+  },
+  "workouts": []
+}

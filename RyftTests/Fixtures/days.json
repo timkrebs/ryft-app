@@ -1,0 +1,15 @@
+[
+  {
+    "day": "2026-10-17", "readiness": 84, "state": "balanced", "recovery": 82, "strain": 12.4,
+    "sleep_performance": 82, "sleep_need_min": 486, "sleep_actual_min": 468, "sleep_debt_min": 25,
+    "hrv_ms": 66.2, "rhr": 50, "resp_rate": 14.1, "spo2": 96, "calibrating": false,
+    "details": {"trimp": 112, "zone_minutes": [31, 25, 16, 6, 2], "baseline_days": 30},
+    "computed_at": "2026-10-17T07:22:41.123456789+02:00"
+  },
+  {
+    "day": "2026-10-18", "readiness": null, "state": "calibrating", "recovery": null, "strain": null,
+    "sleep_performance": null, "sleep_need_min": 480, "sleep_actual_min": null, "sleep_debt_min": null,
+    "hrv_ms": null, "rhr": null, "resp_rate": null, "spo2": null, "calibrating": true,
+    "details": {"baseline_days": 3}, "computed_at": "2026-10-18T07:01:00Z"
+  }
+]

@@ -1,0 +1,5 @@
+[
+  {"id": "a1", "severity": "info", "title": "HRV above your baseline", "body": "Your HRV is 12% above average.", "metric": "hrv", "day": "2026-10-18"},
+  {"id": 42, "severity": "warn", "title": "Strain outpacing recovery", "body": "Plan a lighter day.", "metric": null, "day": null},
+  {"id": "c3", "severity": "critical", "title": "Unknown severity falls back", "body": ""}
+]

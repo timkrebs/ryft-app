@@ -1,0 +1,25 @@
+{
+  "score": {
+    "day": "2026-10-18", "readiness": 84, "state": "balanced", "recovery": 82, "strain": 12.4,
+    "sleep_performance": 82.0, "sleep_need_min": 486, "sleep_actual_min": 468, "sleep_debt_min": 25,
+    "hrv_ms": 66, "rhr": 50, "resp_rate": 14.2, "spo2": 96, "calibrating": false, "details": {},
+    "computed_at": "2026-10-18T07:22:41.5+02:00"
+  },
+  "sleep": {
+    "start": "2026-10-17T22:50:00+02:00", "end": "2026-10-18T07:00:00+02:00",
+    "total_min": 468, "in_bed_min": 490, "efficiency": 0.955,
+    "stages": [
+      {"stage": "deep", "min": 112, "pct": 23.4},
+      {"stage": "light", "min": 261, "pct": 54.6},
+      {"stage": "rem", "min": 95, "pct": 19.9},
+      {"stage": "awake", "min": 10, "pct": 2.1}
+    ],
+    "quality": 82, "quality_label": "Good", "has_stages": true
+  },
+  "workouts": [
+    {"id": "00000000-0000-4000-8000-000000000891", "activity": "running",
+     "start": "2026-10-18T06:40:00Z", "end": "2026-10-18T07:32:00Z",
+     "avg_hr": 148, "max_hr": 176, "energy_kcal": 540, "distance_m": 8400,
+     "source": "Garmin Connect", "strain": 10.6}
+  ]
+}

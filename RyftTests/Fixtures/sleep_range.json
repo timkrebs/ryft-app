@@ -1,0 +1,10 @@
+{
+  "range": "week",
+  "days": [
+    {"day": "2026-10-16", "total_min": 431, "stages": [{"stage": "deep", "min": 95, "pct": 21}, {"stage": "light", "min": 250, "pct": 56}, {"stage": "rem", "min": 86, "pct": 19}, {"stage": "awake", "min": 17, "pct": 4}], "quality": 78},
+    {"day": "2026-10-17", "total_min": null, "stages": [], "quality": null},
+    {"day": "2026-10-18", "total_min": 468, "stages": {"deep": 112, "core": 261, "rem": 95, "awake": 10}, "quality": 82, "start": "2026-10-17T22:50:00+02:00"}
+  ],
+  "avg_total_min": 449.5,
+  "avg_quality": 80
+}

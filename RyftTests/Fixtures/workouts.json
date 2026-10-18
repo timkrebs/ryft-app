@@ -1,0 +1,4 @@
+[
+  {"id": "00000000-0000-4000-8000-000000000891", "activity": "running", "start": "2026-10-18T06:40:00Z", "end": "2026-10-18T07:32:00Z", "avg_hr": 148, "max_hr": 176, "energy_kcal": 540, "distance_m": 8400, "source": "Garmin Connect", "strain": 10.6},
+  {"id": "00000000-0000-4000-8000-000000000892", "activity": "strength", "start": "2026-10-17T18:10:00Z", "end": "2026-10-17T19:00:00Z", "source": "Garmin Connect"}
+]
