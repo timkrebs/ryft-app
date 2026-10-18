@@ -1,16 +1,19 @@
-.PHONY: project build test icon fonts screenshots
+.PHONY: project config build test icon fonts screenshots
 
-project: Config/Debug.xcconfig Config/Release.xcconfig
+# Ryft.xcodeproj is the source of truth (CLAUDE.md). `make project` is only for a
+# fresh clone without it; it drops anything set in Xcode since.
+project: config
 	xcodegen generate
 
-# Fresh clone: start from the examples (placeholder values; sign-in stays off until filled in).
+# Local xcconfigs from the examples (both include the committed Production.xcconfig).
+config: Config/Debug.xcconfig Config/Release.xcconfig
 Config/%.xcconfig:
 	cp $@.example $@
 
-build: project
+build: config
 	xcodebuild -scheme Ryft -destination 'generic/platform=iOS Simulator' build
 
-test: project
+test: config
 	xcodebuild -scheme Ryft -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 
 icon:

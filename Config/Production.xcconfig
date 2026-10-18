@@ -1,0 +1,15 @@
+// Production values, baked into every build. Committed on purpose: all three are
+// publishable. The platform's RLS and revoked grants mean the Supabase Data API
+// exposes nothing, and the app only talks to Supabase Auth.
+//
+// Fill in once (Supabase → Project Settings → API / API Keys):
+//   <project-ref>  the ref in https://<ref>.supabase.co
+//   publishable    sb_publishable_… (or the legacy anon key)
+//
+// `//` starts a comment in xcconfig files, hence https:/$()/host.
+// Info.plist exposes them as RyftAPIURL, RyftSupabaseURL, RyftSupabasePublishableKey.
+// Config/Debug.xcconfig (git-ignored) includes this file and may override any of them.
+
+RYFT_API_URL = https:/$()/api.ryftapp.de
+RYFT_SUPABASE_URL = https:/$()/<project-ref>.supabase.co
+RYFT_SUPABASE_PUBLISHABLE_KEY = <publishable (anon) key>

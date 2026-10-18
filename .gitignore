@@ -10,5 +10,6 @@ Ryft/Resources/Fonts/*.otf
 Ryft/Resources/Fonts/*.ttf
 .build/
 docs/screenshots/*-tmp.png
-# Supabase project values; copy Config/*.xcconfig.example (see README → Supabase).
+# Local overrides; copy Config/*.xcconfig.example. Production.xcconfig is committed.
 Config/*.xcconfig
+!Config/Production.xcconfig

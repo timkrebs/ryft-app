@@ -36,6 +36,9 @@ struct ProfileView: View {
                 data
                 appearance
                 about
+                #if DEBUG
+                developer
+                #endif
             }
         }
         .onAppear { applyUser() }
@@ -80,24 +83,62 @@ struct ProfileView: View {
                         detail: u.tz == TimeZone.current.identifier ? nil
                             : String(localized: "Phone: \(TimeZone.current.identifier)"))
             }
-            Divider().overlay(Theme.separator)
+            if auth.isSignedIn {
+                Divider().overlay(Theme.separator)
+                PrimaryButton(title: "Sign out", style: .destructive) { showSignOutConfirm = true }
+                // "Delete my data…" belongs here once the platform serves DELETE /v1/me
+                // (not in ../plattform/docs/API.md yet), so the row stays hidden.
+            }
+        }
+    }
 
-            FieldLabel("Server URL")
-            TextField("https://ryft.example.com", text: $settings.apiURLString)
-                .ryftField()
-                .keyboardType(.URL).textContentType(.URL)
-                .textInputAutocapitalization(.never).autocorrectionDisabled()
-            FieldLabel("Ingest URL (optional)")
-            TextField("Defaults to the server URL", text: $settings.ingestURLString)
+    // MARK: developer (Debug builds only)
+
+    #if DEBUG
+    /// Platform overrides for a compose stack, API key mode (`AUTH_MODE=apikey`),
+    /// request IDs of recent failures and a connection test. Not in Release.
+    private var developer: some View {
+        ProfileSection(title: "Developer") {
+            Text("Debug builds only.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textTertiary)
+            FieldLabel("API URL override")
+            TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftapp.de", text: $settings.devAPIURLOverride)
                 .ryftField()
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
-            #if DEBUG
-            developerAPIKey
-            #endif
+            FieldLabel("Ingest URL override (compose: :8081)")
+            TextField("Same host as the API", text: $settings.devIngestURLOverride)
+                .ryftField()
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+
+            Toggle(isOn: $settings.apiKeyMode) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("API key mode")
+                        .font(.ryft(.body))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text("Sends a static bearer instead of your session, for a platform started with AUTH_MODE=apikey.")
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textTertiary)
+                }
+            }
+            .tint(Theme.accent)
+            if settings.apiKeyMode {
+                FieldLabel("API key")
+                SecureField("Bearer token", text: $settings.devAPIKey)
+                    .ryftField()
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+            }
+
+            Toggle(isOn: $settings.showRequestIDs) {
+                Text("Show request IDs")
+                    .font(.ryft(.body))
+                    .foregroundStyle(Theme.textPrimary)
+            }
+            .tint(Theme.accent)
 
             PrimaryButton(title: "Test connection", style: .secondary, busy: testing) { await testConnection() }
-
             switch connection {
             case .ok(let text):
                 Label(text, systemImage: "checkmark.circle.fill")
@@ -108,39 +149,8 @@ struct ProfileView: View {
             case nil:
                 EmptyView()
             }
-
-            if auth.isSignedIn {
-                Divider().overlay(Theme.separator)
-                PrimaryButton(title: "Sign out", style: .destructive) { showSignOutConfirm = true }
-                // "Delete my data…" belongs here once the platform serves DELETE /v1/me
-                // (not in ../plattform/docs/API.md yet), so the row stays hidden.
-            }
         }
     }
-
-    #if DEBUG
-    /// Developer only: a static bearer for a local platform running `AUTH_MODE=apikey`.
-    @ViewBuilder
-    private var developerAPIKey: some View {
-        Toggle(isOn: $settings.apiKeyMode) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("API key mode")
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textPrimary)
-                Text("Debug builds only. Sends a static bearer instead of your Apple sign-in, for a platform started with AUTH_MODE=apikey.")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textTertiary)
-            }
-        }
-        .tint(Theme.accent)
-        if settings.apiKeyMode {
-            FieldLabel("API key")
-            SecureField("Bearer token", text: $settings.devAPIKey)
-                .ryftField()
-                .textInputAutocapitalization(.never).autocorrectionDisabled()
-        }
-    }
-    #endif
 
     private func testConnection() async {
         testing = true
@@ -155,16 +165,13 @@ struct ProfileView: View {
         }
         do {
             let user = try await APIClient.shared.me()
-            connection = .ok(String(localized: "Connected as \(user.name)"))
-            if settings.demoMode {
-                settings.demoMode = false
-                state.reset()
-            }
+            connection = .ok(String(localized: "Connected as \(user.name.isEmpty ? user.id.uuidString : user.name)"))
             await state.syncAndRefresh(using: sync)
         } catch {
             connection = .failed(error.localizedDescription)
         }
     }
+    #endif
 
     // MARK: body
 
@@ -310,9 +317,6 @@ struct ProfileView: View {
                 .padding(.vertical, 10)
             StatRow(title: "Version", value: Self.version)
             Divider().overlay(Theme.separator)
-            if settings.isConfigured, let url = settings.apiURL {
-                LinkRow(title: "Your RYFT server", url: url)
-            }
             LinkRow(title: "Garmin Connect and Apple Health", url: URL(string: "https://support.garmin.com/?q=apple%20health"))
             LinkRow(title: "Apple Health privacy", url: URL(string: "https://www.apple.com/legal/privacy/data/en/health-app/"))
             LinkRow(title: "Satoshi typeface (Fontshare)", url: URL(string: "https://www.fontshare.com/fonts/satoshi"))

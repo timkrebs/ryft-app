@@ -1,4 +1,5 @@
-# XcodeGen spec: `brew install xcodegen && xcodegen generate` produces Ryft.xcodeproj.
+# Documentation only: Ryft.xcodeproj is the source of truth (see CLAUDE.md); don't
+# regenerate it. Original XcodeGen spec: `brew install xcodegen && xcodegen generate` produces Ryft.xcodeproj.
 # Or create an empty iOS App in Xcode named "Ryft", delete its ContentView, drag the
 # Ryft/ folder in, then add the HealthKit capability (with Background Delivery), the
 # Background Modes → Background fetch capability, Sign in with Apple, and the
@@ -13,11 +14,11 @@ packages:
   Supabase:
     url: https://github.com/supabase/supabase-swift
     from: 2.55.4
-# Real values live in the git-ignored Config/*.xcconfig (copy the .example files;
-# `make project` does that for you on a fresh clone).
+# Release uses the committed production values; Debug includes them and may
+# override them in the git-ignored Config/Debug.xcconfig.
 configFiles:
   Debug: Config/Debug.xcconfig
-  Release: Config/Release.xcconfig
+  Release: Config/Production.xcconfig
 settings:
   base:
     SWIFT_VERSION: "5.10"
@@ -47,13 +48,16 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # Filled from Config/*.xcconfig so no project values are hard-coded in Swift.
-        RyftSupabaseURL: $(SUPABASE_URL)
-        RyftSupabaseAnonKey: $(SUPABASE_ANON_KEY)
         RyftAPIURL: $(RYFT_API_URL)
-        RyftIngestURL: $(RYFT_INGEST_URL)
+        RyftSupabaseURL: $(RYFT_SUPABASE_URL)
+        RyftSupabasePublishableKey: $(RYFT_SUPABASE_PUBLISHABLE_KEY)
+        CFBundleURLTypes:   # ryft://auth/callback — Supabase email confirmation and password reset
+          - CFBundleURLName: dev.timkrebs.ryft.auth
+            CFBundleURLSchemes: [ryft]
+            CFBundleTypeRole: Viewer
         UILaunchScreen:
           UIColorName: Background
-        NSHealthShareUsageDescription: Ryft reads heart rate, HRV, sleep and workouts from Apple Health to compute your recovery, strain and sleep scores on your own server.
+        NSHealthShareUsageDescription: Ryft reads heart rate, HRV, sleep, steps, active energy and workouts from Apple Health to compute your recovery, strain and sleep scores on the RYFT platform.
         NSHealthUpdateUsageDescription: Ryft does not write to Apple Health.
         UIBackgroundModes: [fetch, processing]
         BGTaskSchedulerPermittedIdentifiers: [dev.timkrebs.ryft.refresh]

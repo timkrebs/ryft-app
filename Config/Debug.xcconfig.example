@@ -1,17 +1,15 @@
-// Debug build settings. Copy to Config/Debug.xcconfig (git-ignored) and fill in:
+// Debug build settings. Copy to Config/Debug.xcconfig (git-ignored):
 //
 //   cp Config/Debug.xcconfig.example Config/Debug.xcconfig
 //
-// `//` starts a comment in xcconfig files, so URLs are written as https:/$()/host.
-// project.yml copies these values into Info.plist (RyftSupabaseURL, …) and
-// SupabaseConfig / Settings read them from there.
+// Starts from the production values; uncomment to point Debug builds elsewhere,
+// e.g. a docker compose platform (`//` is a comment, hence https:/$()/host).
 
-// Supabase → Project Settings → API: Project URL and the anon (publishable) key.
-SUPABASE_URL = https:/$()/YOUR-PROJECT-REF.supabase.co
-SUPABASE_ANON_KEY = YOUR-ANON-KEY
+#include "Production.xcconfig"
 
-// Default RYFT platform URLs on a fresh install (still editable in Profile → Account).
-// With docker compose use your Mac's LAN IP: http:/$()/192.168.1.20:8082 and :8081.
-// Leave RYFT_INGEST_URL empty when ingest and api share one host behind the Ingress.
-RYFT_API_URL = https:/$()/ryft.example.com
-RYFT_INGEST_URL =
+// RYFT_API_URL = http:/$()/192.168.1.20:8082
+// RYFT_SUPABASE_URL = https:/$()/<other-project-ref>.supabase.co
+// RYFT_SUPABASE_PUBLISHABLE_KEY = <other publishable key>
+//
+// A compose platform runs AUTH_MODE=apikey: turn on Profile → Developer → API key mode
+// and set the ingest override (:8081) there too. Compose serves ingest on its own port.

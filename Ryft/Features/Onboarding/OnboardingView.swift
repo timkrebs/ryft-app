@@ -33,9 +33,8 @@ struct OnboardingView: View {
 
     private var signIn: some View {
         VStack(spacing: 14) {
-            if !auth.isConfigured {
-                InlineMessage(message: String(localized: "Sign-in isn't set up in this build. Add the Supabase values to Config/*.xcconfig."),
-                              systemImage: "key")
+            if let problem = SupabaseConfig.problem {
+                InlineMessage(message: problem, systemImage: "key")
             }
             AppleSignInButton()
                 .disabled(!auth.isConfigured)

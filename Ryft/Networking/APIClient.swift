@@ -12,7 +12,7 @@ enum APIError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .notConfigured: return String(localized: "Add your RYFT server URL in Profile.")
+        case .notConfigured: return SupabaseConfig.problem ?? String(localized: "This build has no RYFT server configured.")
         case .signedOut: return String(localized: "You're signed out. Sign in to continue.")
         case .http(401, _), .http(403, _): return String(localized: "The server didn't accept your sign-in.")
         case .http(let code, let message):

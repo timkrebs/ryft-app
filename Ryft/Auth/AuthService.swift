@@ -32,7 +32,7 @@ struct SupabaseAuthClient: AuthClientProtocol {
 
     init(config: SupabaseConfig) {
         client = AuthClient(url: config.authURL,
-                            headers: ["apikey": config.anonKey],
+                            headers: ["apikey": config.publishableKey],
                             localStorage: KeychainLocalStorage(), // AfterFirstUnlock: readable in background sync
                             emitLocalSessionAsInitialSession: true)
     }
@@ -183,7 +183,7 @@ final class AuthService: ObservableObject {
     /// the platform reads.
     func signInWithApple(idToken: String, nonce: String, fullName: PersonNameComponents?) async {
         guard let client else {
-            errorMessage = String(localized: "Sign-in isn't set up in this build. Add the Supabase values to Config/*.xcconfig.")
+            errorMessage = SupabaseConfig.problem ?? String(localized: "Sign-in isn't set up in this build.")
             return
         }
         isSigningIn = true
@@ -245,11 +245,11 @@ final class AuthService: ObservableObject {
     private static let lastUserKey = "auth.lastUserID"
 
     /// Live wipe: cached API responses, HealthKit anchors (the next account
-    /// re-syncs the full backfill) and the last-sync date.
+    /// re-syncs the full backfill) and per-user UserDefaults.
     static func wipeSharedLocalData() {
         ResponseCache.shared.clear()
         HealthKitManager.shared.resetAnchors()
-        Settings.shared.lastSync = nil
+        Settings.shared.clearPerUserState()
     }
 }
 
