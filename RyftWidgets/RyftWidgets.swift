@@ -98,6 +98,8 @@ private struct LockScreenView: View {
             }
         }
         .padding(16)
+        // Also painted here: the tint alone isn't applied in every presentation.
+        .background(Brand.graphite)
     }
 }
 
