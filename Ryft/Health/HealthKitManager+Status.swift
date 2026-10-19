@@ -4,9 +4,7 @@
 import HealthKit
 
 extension HealthKitManager {
-    enum AccessStatus {
-        case unavailable, notAsked, asked, unknown
-    }
+    typealias AccessStatus = HealthAccess
 
     func accessStatus() async -> AccessStatus {
         guard Self.isAvailable else { return .unavailable }

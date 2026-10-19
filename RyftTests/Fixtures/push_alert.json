@@ -1,0 +1,5 @@
+{ "aps": { "alert": { "title-loc-key": "MORNING_SCORE_TITLE", "title-loc-args": ["82%"],
+                      "loc-key": "MORNING_SCORE_BODY_BALANCED", "loc-args": ["78"] },
+           "sound": "default", "category": "MORNING_SCORE", "thread-id": "MORNING_SCORE",
+           "mutable-content": 1 },
+  "ryft": { "category": "MORNING_SCORE", "day": "2026-10-19", "url": "https://ryftapp.de/day/2026-10-19" } }

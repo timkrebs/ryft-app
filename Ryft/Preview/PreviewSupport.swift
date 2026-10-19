@@ -24,7 +24,8 @@ extension View {
     @MainActor
     func previewEnvironment(_ state: AppState? = nil, auth: AuthService? = nil,
                             scheme: ColorScheme = .dark, online: Bool = true) -> some View {
-        environmentObject(Settings.shared)
+        environment(\.appEnvironment, .preview(online: online))
+            .environmentObject(Settings.shared)
             .environmentObject(auth ?? AuthService.preview())
             .environmentObject(SyncService.shared)
             .environmentObject(state ?? AppState.preview())

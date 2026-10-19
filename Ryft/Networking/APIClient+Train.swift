@@ -35,9 +35,7 @@ protocol TrainDataSource {
 
 enum TrainSource {
     /// The platform, or the in-memory mock in demo mode.
-    static var current: TrainDataSource {
-        Settings.shared.demoMode ? MockTrainSource.shared as TrainDataSource : APIClient.shared
-    }
+    @MainActor static var current: TrainDataSource { AppEnvironment.live.api }
 }
 
 extension APIClient: TrainDataSource {
