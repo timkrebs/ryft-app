@@ -10,6 +10,9 @@ struct RyftApp: App {
     @StateObject private var auth = AuthService.shared
     @StateObject private var sync = SyncService.shared
     @StateObject private var state = AppState()
+    @StateObject private var trainLibrary = TrainLibrary.shared
+    @StateObject private var trainSync = TrainSyncService.shared
+    @StateObject private var trainCoordinator = TrainCoordinator.shared
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -30,6 +33,9 @@ struct RyftApp: App {
                 .environmentObject(auth)
                 .environmentObject(sync)
                 .environmentObject(state)
+                .environmentObject(trainLibrary)
+                .environmentObject(trainSync)
+                .environmentObject(trainCoordinator)
                 .preferredColorScheme(settings.appearance.colorScheme)
                 .tint(Theme.accent)
                 // Signed out, or a different account: forget the previous user's screens.
@@ -38,18 +44,29 @@ struct RyftApp: App {
                 }
                 // Runs at launch (restored session) and again after each sign-in.
                 .task(id: auth.accountID) { await bootstrap() }
-                // ryft://auth/callback — email confirmation and password reset (PKCE).
+                // ryft://auth/callback — email confirmation and password reset (PKCE);
+                // ryft://train/session — the rest timer Live Activity.
                 .onOpenURL { url in
+                    if trainCoordinator.handle(url) { return }
                     Task { await auth.handle(url) }
                 }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 Task { await state.syncAndRefresh(using: sync) }
+                Task { await refreshTrain() }
             } else if phase == .background {
                 Self.scheduleRefresh()
             }
         }
+    }
+
+    /// Queued sessions go up first; then the library, plans and today's plan.
+    private func refreshTrain() async {
+        guard settings.demoMode || auth.isSignedIn else { return }
+        trainCoordinator.refreshActive()
+        await trainSync.flush()
+        await trainLibrary.refresh()
     }
 
     private func bootstrap() async {
@@ -127,6 +144,7 @@ struct RootView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var auth: AuthService
     @EnvironmentObject private var settings: Settings
+    @EnvironmentObject private var train: TrainCoordinator
 
     var body: some View {
         ZStack {
@@ -137,6 +155,8 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: auth.isSignedIn || settings.demoMode)
+        // The live workout, from Today, Strain or the Live Activity.
+        .fullScreenCover(item: $train.live) { SessionView(controller: $0) }
         // A password-reset link signed the user in; ask for the new password now.
         .sheet(isPresented: $auth.needsNewPassword) {
             SetNewPasswordView(mode: .recovery)

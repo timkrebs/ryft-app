@@ -28,6 +28,9 @@ extension View {
             .environmentObject(auth ?? AuthService.preview())
             .environmentObject(SyncService.shared)
             .environmentObject(state ?? AppState.preview())
+            .environmentObject(TrainPreview.library)
+            .environmentObject(TrainPreview.sync)
+            .environmentObject(TrainPreview.coordinator)
             .preferredColorScheme(scheme)
             .tint(Theme.accent)
     }
