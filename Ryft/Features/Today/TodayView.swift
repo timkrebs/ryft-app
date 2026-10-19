@@ -6,6 +6,7 @@ struct TodayView: View {
     @EnvironmentObject private var sync: SyncService
     @EnvironmentObject private var settings: Settings
     @ObservedObject private var apiStatus = APIStatus.shared
+    @EnvironmentObject private var connectivity: ConnectivityMonitor
 
     private var score: DailyScore? { state.today?.score }
 
@@ -39,6 +40,9 @@ struct TodayView: View {
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
+            if !connectivity.isOnline {
+                OfflinePill().padding(.top, 4)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 8)
@@ -119,6 +123,24 @@ struct TodayView: View {
         }
         UpdatedLabel(date: state.lastUpdated, isLoading: state.isLoading || sync.isSyncing, isDemo: state.isDemo)
     }
+}
+
+/// "Offline": the numbers are the last loaded ones; sync resumes on reconnect.
+struct OfflinePill: View {
+    var body: some View {
+        Label("Offline", systemImage: "wifi.slash")
+            .font(.ryft(.caption))
+            .foregroundStyle(Theme.textSecondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Theme.surface, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
+            .accessibilityLabel(Text("Offline. Showing your last loaded data."))
+    }
+}
+
+#Preview("Today · offline") {
+    TodayView().previewEnvironment(AppState.preview(), online: false)
 }
 
 #Preview("Today · dark") {

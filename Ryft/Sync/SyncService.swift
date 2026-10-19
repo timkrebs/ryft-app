@@ -35,6 +35,8 @@ final class SyncService: ObservableObject {
     private func run() async {
         guard auth.isSignedIn else { lastError = APIError.signedOut.localizedDescription; return }
         guard settings.isConfigured else { lastError = APIError.notConfigured.localizedDescription; return }
+        // Offline: nothing to send; the anchors stay and the next reconnect resumes.
+        guard ConnectivityMonitor.shared.isOnline else { return }
         isSyncing = true
         lastError = nil
         lastErrorDetails = nil

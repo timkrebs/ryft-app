@@ -13,6 +13,7 @@ struct RyftApp: App {
     @StateObject private var trainLibrary = TrainLibrary.shared
     @StateObject private var trainSync = TrainSyncService.shared
     @StateObject private var trainCoordinator = TrainCoordinator.shared
+    @StateObject private var connectivity = ConnectivityMonitor.shared
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -43,11 +44,18 @@ struct RyftApp: App {
                 .environmentObject(trainLibrary)
                 .environmentObject(trainSync)
                 .environmentObject(trainCoordinator)
+                .environmentObject(connectivity)
                 .preferredColorScheme(settings.appearance.colorScheme)
                 .tint(Theme.accent)
                 // Signed out, or a different account: forget the previous user's screens.
                 .onChange(of: auth.accountID) { old, _ in
                     if old != nil { state.reset() }
+                }
+                // Back online: upload what HealthKit collected meanwhile, then reload.
+                .onChange(of: connectivity.isOnline) { _, online in
+                    guard online else { return }
+                    Task { await state.syncAndRefresh(using: sync) }
+                    Task { await refreshTrain() }
                 }
                 // Runs at launch (restored session) and again after each sign-in.
                 .task(id: auth.accountID) { await bootstrap() }

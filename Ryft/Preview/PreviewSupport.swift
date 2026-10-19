@@ -23,7 +23,7 @@ extension View {
     /// data and a fake signed-in session (no Supabase, no network).
     @MainActor
     func previewEnvironment(_ state: AppState? = nil, auth: AuthService? = nil,
-                            scheme: ColorScheme = .dark) -> some View {
+                            scheme: ColorScheme = .dark, online: Bool = true) -> some View {
         environmentObject(Settings.shared)
             .environmentObject(auth ?? AuthService.preview())
             .environmentObject(SyncService.shared)
@@ -31,6 +31,7 @@ extension View {
             .environmentObject(TrainPreview.library)
             .environmentObject(TrainPreview.sync)
             .environmentObject(TrainPreview.coordinator)
+            .environmentObject(ConnectivityMonitor.preview(online: online))
             .preferredColorScheme(scheme)
             .tint(Theme.accent)
     }

@@ -72,7 +72,7 @@ struct APIClientStatusTests {
         config.protocolClasses = [StubURLProtocol.self]
         let sleeps = self.sleeps
         return APIClient(session: URLSession(configuration: config), tokens: tokens,
-                         sleep: { sleeps.record($0) })
+                         sleep: { sleeps.record($0) }, baseURL: base)
     }
 
     private func get(_ c: APIClient) async throws -> Data {
@@ -164,6 +164,55 @@ struct APIClientStatusTests {
         StubURLProtocol.script([.init(status: 429, headers: ["Retry-After": "1"]), .init(status: 200)])
         _ = try await get(client())
         #expect(sleeps.waits == [1])
+    }
+
+    @Test func plainTextRateLimitFromTheEdgeIsHandled() async throws {
+        // The per-IP limit answers before any token check, with a text body.
+        StubURLProtocol.script([.init(status: 429, headers: ["Retry-After": "3", "Content-Type": "text/plain"],
+                                      body: Data("Too Many Requests".utf8)),
+                                .init(status: 200)])
+        _ = try await get(client())
+        #expect(sleeps.waits == [3])
+    }
+
+    @Test func plainTextRateLimitTwiceSurfacesTheCalmMessage() async {
+        StubURLProtocol.script(Array(repeating: .init(status: 429, headers: ["Retry-After": "1"],
+                                                      body: Data("Too Many Requests".utf8)), count: 2))
+        await #expect {
+            try await get(client())
+        } throws: { error in
+            (error as? APIError)?.status == 429
+                && error.localizedDescription == "Too many requests. Try again in a minute."
+        }
+    }
+
+    @Test func conflictOnASessionPutReturnsTheServerCopy() async throws {
+        let server = try Fixture.data("train_session")
+        StubURLProtocol.script([.init(status: 409, body: server)])
+        let local = try Fixture.decode(TrainSession.self, "train_session")
+        let result = try await client().putSession(local)
+        guard case .conflict(let copy) = result else {
+            Issue.record("expected .conflict, got \(result)")
+            return
+        }
+        #expect(copy.id == local.id)
+        #expect(StubURLProtocol.requests.first?.httpMethod == "PUT")
+        #expect(tokens.rejections == 0)
+    }
+
+    @Test func requestsCarryAcceptLanguage() async throws {
+        StubURLProtocol.script([.init(status: 200)])
+        _ = try await get(client())
+        #expect(StubURLProtocol.requests.first?.value(forHTTPHeaderField: "Accept-Language")?.isEmpty == false)
+    }
+
+    @Test func appleAuthorizationRetriesA503OnlyOnce() async {
+        StubURLProtocol.script(Array(repeating: .init(status: 503, headers: ["Retry-After": "2"]), count: 3))
+        await #expect {
+            try await client().postAppleAuthorization(code: "c1b2")
+        } throws: { ($0 as? APIError)?.status == 503 }
+        #expect(StubURLProtocol.requests.count == 2)
+        #expect(sleeps.waits == [2])
     }
 
     @Test func payloadTooLargeIsThrownForSyncToShrink() async {

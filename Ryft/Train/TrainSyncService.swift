@@ -8,7 +8,6 @@
 //
 // Nothing here touches HealthKit; sessions aren't written to Health in v1.
 import Foundation
-import Network
 
 @MainActor
 final class TrainSyncService: ObservableObject {
@@ -25,10 +24,11 @@ final class TrainSyncService: ObservableObject {
     private let remoteProvider: () -> TrainDataSource
     private let debounce: Duration
     private var debounceTask: Task<Void, Never>?
-    private var monitor: NWPathMonitor?
     /// The op being sent right now; a change meanwhile queues a fresh `put`.
     private var inFlightSeq: Int?
     private var flushAgain = false
+    /// Off in tests: they drive "offline" through the stub URLProtocol instead.
+    private let monitorsNetwork: Bool
 
     /// Conflict rounds per upload before the op is set aside.
     static let maxConflictRounds = 3
@@ -38,6 +38,7 @@ final class TrainSyncService: ObservableObject {
         self.store = store ?? .shared
         self.remoteProvider = remote ?? { TrainSource.current }
         self.debounce = debounce
+        self.monitorsNetwork = monitorsNetwork
         pendingCount = self.store.pendingOps().count
         if monitorsNetwork { startMonitoring() }
     }
@@ -108,6 +109,7 @@ final class TrainSyncService: ObservableObject {
 
     /// Sends queued ops in order until the queue is empty or the network fails.
     func flush() async {
+        guard !monitorsNetwork || ConnectivityMonitor.shared.isOnline else { return }
         guard !isFlushing else {
             flushAgain = true
             return
@@ -200,17 +202,12 @@ final class TrainSyncService: ObservableObject {
     // MARK: network
 
     private func startMonitoring() {
-        let m = NWPathMonitor()
-        m.pathUpdateHandler = { [weak self] path in
-            let online = path.status == .satisfied
-            Task { @MainActor in
-                guard let self else { return }
-                let cameBack = online && !self.isOnline
-                self.isOnline = online
-                if cameBack || (online && self.pendingCount > 0) { await self.flush() }
-            }
+        let connectivity = ConnectivityMonitor.shared
+        isOnline = connectivity.isOnline
+        connectivity.onChange { [weak self] online in
+            guard let self else { return }
+            self.isOnline = online
+            if online { Task { await self.flush() } }
         }
-        m.start(queue: DispatchQueue(label: "dev.timkrebs.ryft.train.path"))
-        monitor = m
     }
 }

@@ -74,6 +74,8 @@ final class AppState: ObservableObject {
 
     func refresh() async {
         guard hasDataSource else { return }
+        // Offline: keep what's on screen (the cached snapshot); no request, no error.
+        guard isDemo || ConnectivityMonitor.shared.isOnline else { return }
         isLoading = true
         defer { isLoading = false }
         let src = source
