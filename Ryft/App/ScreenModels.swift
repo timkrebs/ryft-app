@@ -13,13 +13,23 @@ final class ScreenModels {
     let insights: InsightsViewModel
     let profile: ProfileViewModel
     let trainToday: TrainTodayViewModel
+    let coordinator: SyncCoordinator
+    private let state: AppState
 
-    init(state: AppState, sync: SyncService, store: TrainStore, library: TrainLibrary) {
-        today = TodayViewModel(state: state, sync: sync)
+    init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, store: TrainStore, library: TrainLibrary) {
+        self.coordinator = coordinator
+        self.state = state
+        today = TodayViewModel(state: state, sync: sync, coordinator: coordinator)
         sleep = SleepViewModel(state: state)
         strain = StrainViewModel(state: state, store: store)
         insights = InsightsViewModel(state: state)
-        profile = ProfileViewModel(state: state, sync: sync)
+        profile = ProfileViewModel(state: state, sync: sync, coordinator: coordinator)
         trainToday = TrainTodayViewModel(library: library, store: store, clock: state.env.clock)
+    }
+
+    /// Pull to refresh on any tab: upload, wait for scoring, reload everything.
+    func pullToRefresh() async {
+        await coordinator.run(.userInitiated)
+        await state.refresh(force: true)
     }
 }

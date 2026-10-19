@@ -372,6 +372,41 @@ final class Repository {
         changed()
     }
 
+    /// Every cached series refetches the next time it's shown (new scores came in).
+    func markTrendsStale() {
+        var d = FetchDescriptor<CachedTrend>()
+        d.fetchLimit = 500
+        for row in (try? context.fetch(d)) ?? [] { row.fetchedAt = .distantPast }
+        changed()
+    }
+
+    /// Nightly (`BGProcessingTask`): days beyond a year, workouts and Train
+    /// documents nobody opened for 30 days, series older than a week. What's
+    /// gone is fetched again when needed.
+    @discardableResult
+    func compact() -> Int {
+        let cutoffDay = calendar.startOfDay(for: DayFormat.shift(now, days: -365))
+        let month = now.addingTimeInterval(-30 * 86_400)
+        let week = now.addingTimeInterval(-7 * 86_400)
+        var removed = 0
+        func count<T: PersistentModel>(_ d: FetchDescriptor<T>) -> Int { (try? context.fetchCount(d)) ?? 0 }
+        let oldDays = FetchDescriptor<CachedDay>(predicate: #Predicate { $0.date < cutoffDay })
+        removed += count(oldDays)
+        try? context.delete(model: CachedDay.self, where: #Predicate { $0.date < cutoffDay })
+        let oldWorkouts = FetchDescriptor<CachedWorkout>(predicate: #Predicate { $0.fetchedAt < month })
+        removed += count(oldWorkouts)
+        try? context.delete(model: CachedWorkout.self, where: #Predicate { $0.fetchedAt < month })
+        let oldTrends = FetchDescriptor<CachedTrend>(predicate: #Predicate { $0.fetchedAt < week })
+        removed += count(oldTrends)
+        try? context.delete(model: CachedTrend.self, where: #Predicate { $0.fetchedAt < week })
+        let prefix = "train.history."
+        let oldDocs = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key.starts(with: prefix) && $0.fetchedAt < month })
+        removed += count(oldDocs)
+        try? context.delete(model: CachedDocument.self, where: #Predicate { $0.key.starts(with: prefix) && $0.fetchedAt < month })
+        changed()
+        return removed
+    }
+
     /// The store changed underneath (sign-out wiped it): forget decoded values.
     func invalidate() {
         memo = [:]

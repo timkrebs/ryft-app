@@ -8,11 +8,13 @@ import Observation
 final class ProfileViewModel {
     private let state: AppState
     private let sync: SyncService
+    private let coordinator: SyncCoordinator
     private let apiStatus: APIStatus
 
-    init(state: AppState, sync: SyncService, apiStatus: APIStatus? = nil) {
+    init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, apiStatus: APIStatus? = nil) {
         self.state = state
         self.sync = sync
+        self.coordinator = coordinator
         self.apiStatus = apiStatus ?? .shared
     }
 
@@ -152,7 +154,10 @@ final class ProfileViewModel {
 
     var canSync: Bool { !sync.isSyncing && settings.isConfigured && auth.isSignedIn && !settings.demoMode }
 
-    func syncNow() async { await state.syncAndRefresh(using: sync) }
+    func syncNow() async {
+        await coordinator.run(.userInitiated)
+        await state.refresh(force: true)
+    }
 
     /// Forget the anchors, upload 90 days again, rescore them, reload.
     func fullResync() async {
@@ -216,7 +221,7 @@ final class ProfileViewModel {
         do {
             let user = try await env.liveAPI.me()
             connection = .ok(String(localized: "Connected as \(user.name.isEmpty ? user.id.uuidString : user.name)"))
-            await state.syncAndRefresh(using: sync)
+            await syncNow()
         } catch {
             connection = .failed(error.localizedDescription)
         }

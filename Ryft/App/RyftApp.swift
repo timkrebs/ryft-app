@@ -13,6 +13,8 @@ struct RyftApp: App {
     @State private var sync = SyncService.shared
     @State private var state: AppState
     @State private var screens: ScreenModels
+    /// Every sync runs through it: one in flight, priorities, cancellation.
+    private let coordinator: SyncCoordinator
     @State private var trainLibrary = TrainLibrary.shared
     @State private var trainSync = TrainSyncService.shared
     @State private var trainCoordinator = TrainCoordinator.shared
@@ -23,17 +25,17 @@ struct RyftApp: App {
         let state = AppState(env: .live)
         // The JSON response cache of earlier versions moves into SwiftData once.
         LegacyCacheMigration.runOnce(into: state.repository, train: .shared, defaults: .standard)
+        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: .shared), clock: AppEnvironment.live.clock)
+        self.coordinator = coordinator
         _state = State(initialValue: state)
-        _screens = State(initialValue: ScreenModels(state: state, sync: .shared, store: .shared, library: .shared))
+        _screens = State(initialValue: ScreenModels(state: state, sync: .shared, coordinator: coordinator,
+                                                    store: .shared, library: .shared))
         // A build without its platform values stops here (Debug) or shows only the
         // misconfigured-build screen (Release, RootView). Never a fallback host.
         PlatformConfig.checkAtLaunch()
-        // Opportunistic refresh when iOS gives us background time (in addition
-        // to HealthKit background delivery). Identifier must match Info.plist →
-        // BGTaskSchedulerPermittedIdentifiers.
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.refreshTaskID, using: nil) { task in
-            guard let task = task as? BGAppRefreshTask else { return }
-            Self.handleRefresh(task)
+        // Background refresh (in addition to HealthKit delivery) and the nightly cache compaction.
+        BackgroundWork.register(coordinator: coordinator) { [repository = state.repository] in
+            repository.compact()
         }
         Self.configureAppearance()
         #if DEBUG
@@ -59,12 +61,13 @@ struct RyftApp: App {
                 .tint(Theme.accent)
                 // Signed out, or a different account: forget the previous user's screens.
                 .onChange(of: auth.accountID) { old, _ in
+                    Task { await coordinator.cancel() }
                     if old != nil { state.reset() }
                 }
                 // Back online: upload what HealthKit collected meanwhile, then reload.
                 .onChange(of: connectivity.isOnline) { _, online in
                     guard online else { return }
-                    Task { await state.syncAndRefresh(using: sync, force: false) }
+                    Task { await coordinator.run(.reconnect) }
                     Task { await refreshTrain() }
                 }
                 // Runs at launch (restored session) and again after each sign-in.
@@ -80,10 +83,13 @@ struct RyftApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                Task { await state.syncAndRefresh(using: sync, force: false) }
+                Task { await coordinator.run(.appActive) }
                 Task { await refreshTrain() }
             } else if phase == .background {
-                Self.scheduleRefresh()
+                // Foreground work stops; the system's background tasks take over.
+                Task { await coordinator.cancel() }
+                BackgroundWork.scheduleRefresh()
+                BackgroundWork.scheduleCompaction()
             }
         }
     }
@@ -97,8 +103,6 @@ struct RyftApp: App {
     }
 
     private func bootstrap() async {
-        // Every sync that touched days reloads Today once scoring caught up.
-        sync.onDaysTouched = { [state] days in await state.refresh(touched: days) }
         guard env.health.isAvailable, !env.isDemo else {
             await state.refresh()
             return
@@ -114,32 +118,15 @@ struct RyftApp: App {
         }
         try? await env.health.requestAuthorization()
         await env.health.enableBackgroundDelivery()
-        env.health.startObserving { [sync] in
-            await sync.syncNow()
+        env.health.startObserving { [coordinator] in
+            await coordinator.run(.healthKit)
         }
-        await state.syncAndRefresh(using: sync, force: false)
+        await coordinator.run(.appActive)
     }
 
     private struct BootstrapKey: Equatable {
         let account: String?
         let healthIntroDone: Bool
-    }
-
-    // MARK: background refresh
-
-    static let refreshTaskID = "dev.timkrebs.ryft.refresh"
-
-    static func scheduleRefresh() {
-        let req = BGAppRefreshTaskRequest(identifier: refreshTaskID)
-        req.earliestBeginDate = Date(timeIntervalSinceNow: 2 * 3600)
-        try? BGTaskScheduler.shared.submit(req)
-    }
-
-    static func handleRefresh(_ task: BGAppRefreshTask) {
-        scheduleRefresh()
-        let work = Task { await SyncService.shared.syncNow() }
-        task.expirationHandler = { work.cancel() }
-        Task { await work.value; task.setTaskCompleted(success: true) }
     }
 
     // MARK: appearance

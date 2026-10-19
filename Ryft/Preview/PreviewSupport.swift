@@ -28,8 +28,10 @@ extension View {
         let state = state ?? AppState.preview(online: online, auth: auth)
         let sync = SyncService(env: state.env)
         return environment(\.appEnvironment, state.env)
-            .environment(ScreenModels(state: state, sync: sync, store: TrainPreview.store,
-                                      library: TrainPreview.library))
+            .environment(ScreenModels(state: state, sync: sync,
+                                      coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
+                                                                   clock: state.env.clock),
+                                      store: TrainPreview.store, library: TrainPreview.library))
             .environment(Settings.shared)
             .environment(state.env.auth)
             .environment(sync)

@@ -21,10 +21,7 @@ final class SyncService {
     private(set) var lastUploaded = 0
     /// Days the last sync queued for rescoring (`days_touched`).
     private(set) var lastDaysTouched: [String] = []
-    /// Called after a sync that touched days (foreground or background); the app
-    /// waits for scoring and reloads Today.
-    var onDaysTouched: (([String]) async -> Void)?
-    /// Scoring usually finishes within a few seconds of the upload.
+    /// Scoring usually finishes within a few seconds of an upload or recompute.
     static let rescoreDelay: Duration = .seconds(3)
 
     private let env: AppEnvironment
@@ -33,25 +30,39 @@ final class SyncService {
     private var api: PlatformAPI { env.liveAPI }
     private var settings: Settings { env.settings }
     private var auth: AuthService { env.auth }
-    private var inFlight: Task<Void, Never>?
+    private var inFlight: Task<[String], Error>?
 
     init(env: AppEnvironment) {
         self.env = env
     }
 
+    /// Uploads and keeps any error for the screens (Profile → Re-sync, tests).
     func syncNow() async {
-        if let t = inFlight { await t.value; return }
-        let t = Task { await run() }
-        inFlight = t
-        await t.value
-        inFlight = nil
+        _ = try? await upload()
     }
 
-    private func run() async {
-        guard auth.isSignedIn else { lastError = APIError.signedOut.localizedDescription; return }
-        guard settings.isConfigured else { lastError = APIError.notConfigured.localizedDescription; return }
+    /// Uploads what HealthKit has that the platform hasn't and returns the days
+    /// queued for rescoring. Concurrent calls share one upload. `SyncCoordinator`
+    /// waits for scoring and refreshes afterwards.
+    func upload() async throws -> [String] {
+        if let t = inFlight { return try await t.value }
+        let t = Task { try await run() }
+        inFlight = t
+        defer { inFlight = nil }
+        return try await t.value
+    }
+
+    private func run() async throws -> [String] {
+        guard auth.isSignedIn else {
+            lastError = APIError.signedOut.localizedDescription
+            throw APIError.signedOut
+        }
+        guard settings.isConfigured else {
+            lastError = APIError.notConfigured.localizedDescription
+            throw APIError.notConfigured
+        }
         // Offline: nothing to send; the anchors stay and the next reconnect resumes.
-        guard env.connectivity.isOnline else { return }
+        guard env.connectivity.isOnline else { return [] }
         health.migrateLegacyAnchors()
         isSyncing = true
         lastError = nil
@@ -78,16 +89,11 @@ final class SyncService {
         } catch {
             lastError = error.localizedDescription
             lastErrorDetails = error.diagnosticDetails
+            lastDaysTouched = touched.sorted()
+            throw error
         }
         lastDaysTouched = touched.sorted()
-        if !touched.isEmpty, let onDaysTouched {
-            let days = lastDaysTouched
-            let clock = env.clock
-            Task {
-                try? await clock.sleep(for: Self.rescoreDelay)
-                await onDaysTouched(days)
-            }
-        }
+        return lastDaysTouched
     }
 
     /// Smallest page a 413 can shrink to; below that the error is real.
