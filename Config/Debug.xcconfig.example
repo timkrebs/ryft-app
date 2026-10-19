@@ -7,6 +7,9 @@
 
 #include "Production.xcconfig"
 
+// Debug only: allow plain HTTP to local-network hosts (docker compose on the LAN).
+INFOPLIST_PREPROCESSOR_DEFINITIONS = RYFT_LOCAL_NETWORKING=1
+
 // RYFT_API_URL = http:/$()/192.168.1.20:8082
 // RYFT_SUPABASE_URL = https:/$()/<other-project-ref>.supabase.co
 // RYFT_SUPABASE_PUBLISHABLE_KEY = <other publishable key>

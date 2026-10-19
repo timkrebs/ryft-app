@@ -93,7 +93,7 @@ final class Settings: ObservableObject {
         #if DEBUG
         if let url = Self.url(devAPIURLOverride) { return url }
         #endif
-        return Bundle.configValue("RyftAPIURL").flatMap(Self.url)
+        return PlatformConfig.apiURL
     }
 
     /// One host serves `/v1/sync` and the API (Debug: or the compose ingest override).

@@ -28,18 +28,9 @@ struct SupabaseConfig: Equatable {
     /// the project's redirect URLs (Authentication → URL Configuration).
     static let redirectURL = URL(string: "ryft://auth/callback")!
 
-    /// The build settings that are missing, for an in-app message.
-    static func missingSettings(info: [String: Any]? = Bundle.main.infoDictionary) -> [String] {
-        [("RyftAPIURL", "RYFT_API_URL"),
-         ("RyftSupabaseURL", "RYFT_SUPABASE_URL"),
-         ("RyftSupabasePublishableKey", "RYFT_SUPABASE_PUBLISHABLE_KEY")]
-            .filter { Bundle.configValue($0.0, in: info) == nil }
-            .map(\.1)
-    }
-
-    /// "This build is missing …", or `nil` when everything is set.
+    /// "This build is missing …", or `nil` when everything is set (see PlatformConfig).
     static var problem: String? {
-        let missing = missingSettings()
+        let missing = PlatformConfig.missing
         guard !missing.isEmpty else { return nil }
         return String(localized: "This build is missing \(missing.formatted(.list(type: .and))). Fill them in Config/Production.xcconfig and rebuild.")
     }

@@ -11,5 +11,11 @@
 // Config/Debug.xcconfig (git-ignored) includes this file and may override any of them.
 
 RYFT_API_URL = https:/$()/api.ryftapp.de
-RYFT_SUPABASE_URL = https:/$()/<project-ref>.supabase.co
-RYFT_SUPABASE_PUBLISHABLE_KEY = <publishable (anon) key>
+RYFT_SUPABASE_URL = https:/$()/ydgbemufggwnegbnjhkm.supabase.co
+RYFT_SUPABASE_PUBLISHABLE_KEY = sb_publishable_naDyZ9ZtrYe_VDcNx62sTw_KzybSx4r
+
+// Info.plist is preprocessed so App Transport Security stays HTTPS-only unless a
+// configuration opts in (Debug.xcconfig: RYFT_LOCAL_NETWORKING for a LAN compose stack).
+// -traditional keeps the `//` in the plist's DOCTYPE URL from being read as a comment.
+INFOPLIST_PREPROCESS = YES
+INFOPLIST_OTHER_PREPROCESSOR_FLAGS = -traditional

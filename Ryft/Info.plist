@@ -41,11 +41,13 @@
 	<array>
 		<string>x-apple-health</string>
 	</array>
+#if RYFT_LOCAL_NETWORKING
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+#endif
 	<key>NSHealthShareUsageDescription</key>
 	<string>Ryft reads heart rate, HRV, sleep, steps, active energy and workouts from Apple Health to compute your recovery, strain and sleep scores on the RYFT platform.</string>
 	<key>NSHealthUpdateUsageDescription</key>

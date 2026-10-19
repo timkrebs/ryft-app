@@ -16,6 +16,9 @@ struct RyftApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        // A build without its platform values stops here (Debug) or shows only the
+        // misconfigured-build screen (Release, RootView). Never a fallback host.
+        PlatformConfig.checkAtLaunch()
         // Opportunistic refresh when iOS gives us background time (in addition
         // to HealthKit background delivery). Identifier must match Info.plist →
         // BGTaskSchedulerPermittedIdentifiers.
@@ -152,7 +155,9 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            if auth.isSignedIn || settings.demoMode {
+            if !PlatformConfig.isComplete {
+                MisconfiguredBuildView()
+            } else if auth.isSignedIn || settings.demoMode {
                 tabs.transition(.opacity)
             } else {
                 WelcomeView().transition(.opacity)
