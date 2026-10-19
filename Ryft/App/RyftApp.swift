@@ -21,6 +21,8 @@ struct RyftApp: App {
 
     init() {
         let state = AppState(env: .live)
+        // The JSON response cache of earlier versions moves into SwiftData once.
+        LegacyCacheMigration.runOnce(into: state.repository, train: .shared, defaults: .standard)
         _state = State(initialValue: state)
         _screens = State(initialValue: ScreenModels(state: state, sync: .shared, store: .shared, library: .shared))
         // A build without its platform values stops here (Debug) or shows only the
@@ -62,7 +64,7 @@ struct RyftApp: App {
                 // Back online: upload what HealthKit collected meanwhile, then reload.
                 .onChange(of: connectivity.isOnline) { _, online in
                     guard online else { return }
-                    Task { await state.syncAndRefresh(using: sync) }
+                    Task { await state.syncAndRefresh(using: sync, force: false) }
                     Task { await refreshTrain() }
                 }
                 // Runs at launch (restored session) and again after each sign-in.
@@ -78,7 +80,7 @@ struct RyftApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                Task { await state.syncAndRefresh(using: sync) }
+                Task { await state.syncAndRefresh(using: sync, force: false) }
                 Task { await refreshTrain() }
             } else if phase == .background {
                 Self.scheduleRefresh()
@@ -96,7 +98,7 @@ struct RyftApp: App {
 
     private func bootstrap() async {
         // Every sync that touched days reloads Today once scoring caught up.
-        sync.onDaysTouched = { [state] _ in await state.refresh() }
+        sync.onDaysTouched = { [state] days in await state.refresh(touched: days) }
         guard env.health.isAvailable, !env.isDemo else {
             await state.refresh()
             return
@@ -115,7 +117,7 @@ struct RyftApp: App {
         env.health.startObserving { [sync] in
             await sync.syncNow()
         }
-        await state.syncAndRefresh(using: sync)
+        await state.syncAndRefresh(using: sync, force: false)
     }
 
     private struct BootstrapKey: Equatable {

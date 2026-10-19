@@ -17,18 +17,15 @@ final class TrainLibrary {
 
     let store: TrainStore
     private let remoteProvider: () -> TrainDataSource
-    private let cache: ResponseCache
     private var histories: [UUID: ExerciseHistory] = [:]
 
-    init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil, cache: ResponseCache = .shared,
-         restore: Bool = true) {
+    init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil, restore: Bool = true) {
         self.store = store ?? .shared
         self.remoteProvider = remote ?? { TrainSource.current }
-        self.cache = cache
         if restore {
             exercises = self.store.exercises()
-            catalog = cache.load(PlansOverview.self, key: Self.catalogKey)
-            today = cache.load(PlanToday.self, key: Self.todayKey)
+            catalog = self.store.document(PlansOverview.self, key: Self.catalogKey)
+            today = self.store.document(PlanToday.self, key: Self.todayKey)
         }
     }
 
@@ -68,7 +65,7 @@ final class TrainLibrary {
             exercises = store.exercises()
             let c = try await src.plans()
             catalog = c
-            cache.save(c, as: Self.catalogKey)
+            store.saveDocument(c, key: Self.catalogKey)
             try await loadToday(from: src)
             error = nil
             errorDetails = nil
@@ -80,7 +77,7 @@ final class TrainLibrary {
 
     private func loadToday(from src: TrainDataSource) async throws {
         today = try await src.planToday()
-        if let today { cache.save(today, as: Self.todayKey) } else { cache.remove(Self.todayKey) }
+        if let today { store.saveDocument(today, key: Self.todayKey) } else { store.removeDocument(key: Self.todayKey) }
     }
 
     /// Plan detail (days → exercises), cached afterwards.
@@ -106,16 +103,16 @@ final class TrainLibrary {
         do {
             let h = try await remote.exerciseHistory(id: exerciseID)
             histories[exerciseID] = h
-            cache.save(h, as: "train.history.\(exerciseID.uuidString)")
+            store.saveDocument(h, key: Self.historyKey(exerciseID))
             return h
         } catch {
-            return cache.load(ExerciseHistory.self, key: "train.history.\(exerciseID.uuidString)")
+            return store.document(ExerciseHistory.self, key: Self.historyKey(exerciseID))
         }
     }
 
     /// Already-loaded history, for instant paint.
     func cachedHistory(for exerciseID: UUID) -> ExerciseHistory? {
-        histories[exerciseID] ?? cache.load(ExerciseHistory.self, key: "train.history.\(exerciseID.uuidString)")
+        histories[exerciseID] ?? store.document(ExerciseHistory.self, key: Self.historyKey(exerciseID))
     }
 
     /// History shows new numbers after a session.
@@ -130,9 +127,9 @@ final class TrainLibrary {
         let remoteList: [SessionSummary]
         if let fresh = try? await remote.sessions(from: from, to: .now) {
             remoteList = fresh
-            cache.save(fresh, as: Self.sessionsKey)
+            store.saveDocument(fresh, key: Self.sessionsKey)
         } else {
-            remoteList = cache.load([SessionSummary].self, key: Self.sessionsKey) ?? []
+            remoteList = store.document([SessionSummary].self, key: Self.sessionsKey) ?? []
         }
         return Self.merged(local: store.completedSessions(from: from).map(\.summary), remote: remoteList)
     }
@@ -140,7 +137,7 @@ final class TrainLibrary {
     /// Sessions already known for instant paint.
     func cachedSessions() -> [SessionSummary] {
         Self.merged(local: store.completedSessions().map(\.summary),
-                    remote: cache.load([SessionSummary].self, key: Self.sessionsKey) ?? [])
+                    remote: store.document([SessionSummary].self, key: Self.sessionsKey) ?? [])
     }
 
     static func merged(local: [SessionSummary], remote: [SessionSummary]) -> [SessionSummary] {
@@ -257,7 +254,7 @@ final class TrainLibrary {
         let src = remote
         guard let c = try? await src.plans() else { return }
         catalog = c
-        cache.save(c, as: Self.catalogKey)
+        store.saveDocument(c, key: Self.catalogKey)
         try? await loadToday(from: src)
     }
 
@@ -276,6 +273,7 @@ final class TrainLibrary {
     }
 
     private static let sessionsKey = "train.sessions"
+    private static func historyKey(_ id: UUID) -> String { "train.history.\(id.uuidString)" }
     private static let pausedKey = "train.pausedPlanID"
     private static let catalogKey = "train.plans"
     private static let todayKey = "train.today"

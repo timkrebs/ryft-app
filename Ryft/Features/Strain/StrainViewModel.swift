@@ -11,7 +11,6 @@ final class StrainViewModel {
     private let store: TrainStore
 
     var date: Date
-    private(set) var detail: DayDetail?
     private(set) var isLoading = false
     private(set) var error: String?
 
@@ -35,6 +34,9 @@ final class StrainViewModel {
 
     private var calendar: Calendar { .current }
     private var today: Date { calendar.startOfDay(for: state.env.clock.now()) }
+
+    /// The selected day as cached (SwiftData); `load()` revalidates it.
+    var detail: DayDetail? { state.cachedDayDetail(for: date) }
 
     var isToday: Bool { calendar.isDate(date, inSameDayAs: today) }
     var title: String { Fmt.dayTitle(date, today: today) }
@@ -84,15 +86,14 @@ final class StrainViewModel {
         date = calendar.startOfDay(for: day)
     }
 
-    /// Cached detail at once, then the platform's.
+    /// Revalidates the selected day (no request when it's cached and fresh).
     func load() async {
         error = nil
-        detail = state.cachedDayDetail(for: date)
         guard state.hasDataSource else { return }
         isLoading = detail == nil
         defer { isLoading = false }
         do {
-            detail = try await state.dayDetail(for: date)
+            _ = try await state.dayDetail(for: date)
         } catch {
             if detail == nil { self.error = error.localizedDescription }
         }
@@ -105,7 +106,7 @@ final class StrainViewModel {
 final class WorkoutDetailViewModel {
     let workout: Workout
     private let state: AppState
-    private(set) var detail: WorkoutDetail?
+    private(set) var loaded = false
 
     struct Stat: Identifiable, Equatable {
         let title: String
@@ -146,12 +147,17 @@ final class WorkoutDetailViewModel {
         guard let hr = detail?.hr, hr.count > 1 else { return nil }
         return hr
     }
-    var isLoading: Bool { detail == nil }
+    /// Cached curve and zones (SwiftData), once fetched.
+    var detail: WorkoutDetail? { state.cachedWorkoutDetail(workout) }
+    var isLoading: Bool { detail == nil && !loaded }
     var zones: [Double]? {
         guard let z = detail?.zoneMin, z.count == 5 else { return nil }
         return z
     }
 
     /// Without a detail endpoint answer, the list's fields stand in.
-    func load() async { detail = await state.workoutDetail(workout) }
+    func load() async {
+        _ = await state.workoutDetail(workout)
+        loaded = true
+    }
 }

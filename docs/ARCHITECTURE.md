@@ -125,3 +125,62 @@ cache, so nothing leaks between parallel suites. Covered states:
 - sync paused
 - recompute waiting for scoring on the clock
 - validation on Save
+
+## 3. Offline-first persistence (SwiftData)
+
+**One container.** Train already had a SwiftData container (`TrainStore`); it now also
+holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
+
+| Model | What it holds |
+| --- | --- |
+| `CachedDay` | a day's `DailyScore` and, once opened, its `DayDetail` |
+| `CachedTrend` | one row per metric × range |
+| `CachedInsight` | one row per card, in the platform's order |
+| `CachedUser` | the signed-in user |
+| `CachedSleepRange` | week / month |
+| `CachedWorkout` | the HR curve and zones |
+| `CachedDocument` | Train's plans overview, today's prescription, exercise histories, sessions list |
+
+- Rows keep the wire JSON (the API's own coder) and their fetch time.
+- `RepositoryStorageTests` round-trips every cached type against its `API.md` fixture.
+
+**The rule.** Views read only from SwiftData.
+- `Repository` (`Ryft/Persistence/Repository.swift`) is the only writer: it fetches from the
+  `PlatformAPI` and writes the store.
+- `AppState` exposes the cached values (`today`, `history`, `user`, `insights`,
+  `readinessWeek`, `cachedDayDetail(for:)`, …) as reads of the Repository.
+- View models compute what they show from those reads; `load()` only *revalidates*.
+- The Repository bumps an observable `revision` on every write. Reads touch it, so SwiftUI
+  re-renders when the store changes. Decoded values are memoized per revision.
+
+**Freshness** (`Repository.Policy`): cache-first, stale-while-revalidate.
+
+| Data | Fresh for |
+| --- | --- |
+| Today | 5 min |
+| A past day | 24 h, counted from a fetch after the day ended |
+| Trends | 1 h |
+| Insights | 5 min |
+| User | 1 h |
+| Sleep ranges | 1 h |
+| Workout details | 24 h |
+
+- Browsing history never requests a day that is cached and fresh.
+- Pull to refresh forces everything. A sync forces the days it touched (`days_touched`).
+- App active and reconnect refresh only what's stale.
+
+**Offline and failures.**
+- Offline, nothing is requested and the cache is served.
+- A failure keeps the cached copy; only without one does a screen show an error.
+- A response that arrives after the account changed is dropped.
+
+**Accounts and demo.**
+- Sign-out wipes the whole store (`Persistence.wipe`), and `AppState.reset()` invalidates
+  the Repository's memo.
+- Demo data goes to a separate in-memory store, so it never mixes with an account's.
+
+**Migration.** `LegacyCacheMigration` imports the old `ResponseCache` JSON files
+(Caches/ryft-responses) once on first launch, then deletes them. `ResponseCache` is gone.
+
+**Memory.** Every fetch has a descriptor with a predicate and `fetchLimit`: 1 for lookups,
+`Repository.maxHistoryRows` (400) for history, 50 insights. There are no full-table loads.

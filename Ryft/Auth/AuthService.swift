@@ -513,10 +513,9 @@ final class AuthService {
     /// Live wipe: cached API responses, HealthKit anchors (the next account
     /// re-syncs the full backfill) and per-user UserDefaults.
     static func wipeSharedLocalData() {
-        ResponseCache.shared.clear()
         HealthKitManager.shared.resetAnchors()
         Settings.shared.clearPerUserState()
-        // Logged sessions, the offline library and queued uploads are per account.
+        // Cached read models, logged sessions, the offline library and queued uploads are per account.
         TrainStore.shared.wipe()
         TrainLibrary.shared.wipe()
         RestActivityController.shared.end()

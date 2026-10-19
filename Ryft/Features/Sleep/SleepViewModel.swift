@@ -32,8 +32,6 @@ final class SleepViewModel {
         .flatMap(SleepMode.init(rawValue:)) ?? .day
     /// The night shown in Day mode, identified by the morning it ended.
     private(set) var date: Date
-    private(set) var detail: DayDetail?
-    private(set) var range: SleepRange?
     private(set) var isLoading = false
     private(set) var error: String?
 
@@ -45,6 +43,10 @@ final class SleepViewModel {
     private var today: Date { Calendar.current.startOfDay(for: state.env.clock.now()) }
 
     var isToday: Bool { Calendar.current.isDate(date, inSameDayAs: today) }
+
+    /// The night as cached (SwiftData); `load()` revalidates it.
+    var detail: DayDetail? { state.cachedDayDetail(for: date) }
+    var range: SleepRange? { mode.rangeKind.flatMap(state.cachedSleepRange) }
     var sleep: SleepDetail? { detail?.sleep }
     var score: DailyScore? { detail?.score }
     var hasNoHealthData: Bool { state.hasNoHealthData }
@@ -68,22 +70,20 @@ final class SleepViewModel {
         await load()
     }
 
+    /// Revalidates what the mode shows (no request when cached and fresh).
     func load() async {
         error = nil
+        guard state.hasDataSource else { return }
         if let kind = mode.rangeKind {
-            if range?.range != kind.rawValue { range = nil }
-            isLoading = true
-            range = await state.sleepRange(kind)
+            isLoading = range == nil
+            _ = await state.sleepRange(kind)
             isLoading = false
             return
         }
-        // Instant paint from cache, then refresh.
-        detail = state.cachedDayDetail(for: date)
-        guard state.hasDataSource else { return }
         isLoading = detail == nil
         defer { isLoading = false }
         do {
-            detail = try await state.dayDetail(for: date)
+            _ = try await state.dayDetail(for: date)
         } catch {
             if detail == nil { self.error = error.localizedDescription }
         }

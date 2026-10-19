@@ -2,14 +2,13 @@ import Foundation
 import Testing
 @testable import Ryft
 
-/// A signed-in test graph, its read state (with a throwaway response cache) and the clock.
+/// A signed-in test graph (in-memory store), its read state and the clock.
 @MainActor
 private func makeState(api: MockPlatformAPI = MockPlatformAPI(), health: MockHealthStore = MockHealthStore(),
                        now: Date = .now, online: Bool = true) -> (AppEnvironment, AppState, TestClock) {
     let clock = TestClock(now: now)
     let env = AppEnvironment.test(api: api, health: health, clock: clock, online: online)
-    let cache = ResponseCache(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
-    return (env, AppState(env: env, cache: cache, restoreCache: false), clock)
+    return (env, AppState(env: env), clock)
 }
 
 private func day(_ offset: Int, from date: Date = .now) -> String {
@@ -61,10 +60,11 @@ struct TodayViewModelTests {
 
     @Test func failureWithDataSaysItsTheLastLoaded() async {
         let api = MockPlatformAPI()
-        let (env, state, _) = makeState(api: api)
+        let (env, state, clock) = makeState(api: api)
         let vm = TodayViewModel(state: state, sync: SyncService(env: env), apiStatus: APIStatus())
         await state.refresh()
         api.failure = APIError.http(503, "")
+        clock.advance(by: .seconds(6 * 60)) // today's 5 minutes are over: it asks again
 
         await state.refresh()
 
@@ -283,8 +283,7 @@ struct InsightsViewModelTests {
     @Test func noDataSourceLoadsNothing() async {
         let api = MockPlatformAPI()
         let env = AppEnvironment.test(api: api, auth: .preview(signedIn: false))
-        let state = AppState(env: env, cache: ResponseCache(directory: FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)), restoreCache: false)
+        let state = AppState(env: env)
         let vm = InsightsViewModel(state: state)
         await vm.load()
         #expect(api.calls.isEmpty)
@@ -356,9 +355,7 @@ struct ProfileViewModelTests {
 @MainActor
 struct TrainViewModelTests {
     private func library(_ api: MockPlatformAPI = MockPlatformAPI()) -> TrainLibrary {
-        TrainLibrary(store: TrainStore(inMemory: true), remote: { api },
-                     cache: ResponseCache(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
-                     restore: false)
+        TrainLibrary(store: TrainStore(inMemory: true), remote: { api }, restore: false)
     }
 
     @Test func historyGroupsByWeekNewestFirst() async {
