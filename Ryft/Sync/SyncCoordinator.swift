@@ -15,6 +15,8 @@ protocol SyncSteps: AnyObject {
     func refreshInsights() async throws
     /// Nothing new was uploaded: only what's stale is refreshed.
     func refreshStale() async
+    /// The pipeline moved on (`SyncMachine`): awaiting scores, refreshing, done, failed, idle (cancelled).
+    func report(_ phase: SyncPhase)
 }
 
 /// Runs syncs as one pipeline with explicit dependencies:
@@ -146,13 +148,17 @@ actor SyncCoordinator {
                 outcome.touched = touched
                 guard !touched.isEmpty else {
                     try Task.checkCancellation()
+                    await steps.report(.refreshing)
                     await steps.refreshStale()
+                    await steps.report(.done)
                     return outcome
                 }
+                await steps.report(.awaitingScores)
                 outcome.polls = try await awaitScoring(touched, since: started, steps, clock)
             }
             outcome.touched = touched
             try Task.checkCancellation()
+            await steps.report(.refreshing)
             try await steps.refreshDays(touched)
             // Trends and insights depend on the days, not on each other.
             try await withThrowingTaskGroup(of: Void.self) { group in
@@ -160,10 +166,13 @@ actor SyncCoordinator {
                 group.addTask { try await steps.refreshInsights() }
                 try await group.waitForAll()
             }
+            await steps.report(.done)
         } catch is CancellationError {
             outcome.cancelled = true
+            await steps.report(.idle)
         } catch {
             outcome.error = error.localizedDescription
+            await steps.report(.failed)
         }
         return outcome
     }
@@ -247,5 +256,9 @@ final class LiveSyncSteps: SyncSteps {
 
     func refreshStale() async {
         await state.refresh()
+    }
+
+    func report(_ phase: SyncPhase) {
+        sync.advance(to: phase)
     }
 }

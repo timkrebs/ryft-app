@@ -1,4 +1,5 @@
 import Foundation
+import GameplayKit
 import SwiftUI
 
 /// Which number the keypad is editing.
@@ -17,6 +18,12 @@ final class SessionController: Identifiable {
     let session: LocalSession
     let sync: TrainSyncService
     private var store: TrainStore { sync.store }
+
+    /// The workout's phase (`LiveSessionMachine`): active, resting, paused, finishing,
+    /// completed or discarded. The rest timer moves it between active and resting.
+    private(set) var phase: LiveSessionPhase = .idle
+    @ObservationIgnored private var machine: GKTableMachine<LiveSessionPhase>!
+    var isFinishing: Bool { phase == .finishing }
 
     private(set) var rest: RestTimer
     var focus: SetFocus?
@@ -43,7 +50,32 @@ final class SessionController: Identifiable {
         self.sync = sync
         self.liveActivity = liveActivity
         rest = RestTimer(endsAt: session.restEndsAt, total: session.restTotal, now: .now)
+        machine = LiveSessionMachine.make { [weak self] to, _ in self?.phase = to }
+        machine.enter(.active)
+        followRest()
         startTicker()
+    }
+
+    /// Resting while the timer runs, active otherwise (unless paused or ending).
+    private func followRest() {
+        guard let machine else { return }
+        if rest.isRunning {
+            if phase == .active { machine.enter(.resting) }
+        } else if phase == .resting {
+            machine.enter(.active)
+        }
+    }
+
+    /// The app went to the background mid-workout.
+    func pause() {
+        machine.enter(.paused)
+    }
+
+    /// Back in the app: resting again if the timer still runs.
+    func resume() {
+        guard phase == .paused else { return }
+        machine.enter(.active)
+        followRest()
     }
 
     func stop() {
@@ -334,11 +366,14 @@ final class SessionController: Identifiable {
             }
         }
         rest.start(seconds: ex.restSec, now: .now)
+        followRest()
         persistRest(exercise: ex.name)
     }
 
     func adjustRest(by delta: TimeInterval) {
-        if rest.adjust(by: delta, now: .now) {
+        let ranOut = rest.adjust(by: delta, now: .now)
+        followRest()
+        if ranOut {
             restEnded()
         } else {
             persistRest(exercise: nil)
@@ -347,6 +382,7 @@ final class SessionController: Identifiable {
 
     func skipRest() {
         rest.skip()
+        followRest()
         session.restEndsAt = nil
         session.restTotal = 0
         liveActivity?.end()
@@ -354,6 +390,7 @@ final class SessionController: Identifiable {
 
     func dismissRestBanner() {
         rest.dismiss()
+        followRest()
     }
 
     private func persistRest(exercise: String?) {
@@ -381,6 +418,7 @@ final class SessionController: Identifiable {
                 guard let self else { return }
                 if self.rest.isRunning, self.rest.endsAt.map({ $0 <= .now }) == true {
                     self.rest.tick(now: .now)
+                    self.followRest()
                     self.restEnded()
                 }
             }
@@ -391,6 +429,8 @@ final class SessionController: Identifiable {
 
     /// The server's numbers, or `nil` when offline ("will sync").
     func finish(bodyweightKg: Double? = nil) async -> TrainSession? {
+        guard machine.enter(.finishing) else { return nil }
+        defer { machine.enter(.completed) }
         stop()
         rest.skip()
         liveActivity?.end()
@@ -407,6 +447,7 @@ final class SessionController: Identifiable {
     }
 
     func discard() {
+        machine.enter(.discarded)
         stop()
         liveActivity?.end()
         sync.discard(session)

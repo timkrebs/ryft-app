@@ -1,3 +1,4 @@
+import GameplayKit
 import SwiftUI
 import UIKit
 
@@ -6,8 +7,50 @@ import UIKit
 /// usable (empty states, Profile → Data → Allow access).
 struct HealthPermissionView: View {
     @Environment(\.appEnvironment) private var env
-    @Environment(Settings.self) private var settings
-    @State private var asking = false
+
+    var body: some View {
+        HealthPermissionScreen(model: HealthOnboardingViewModel(env: env))
+    }
+}
+
+/// "Connect Apple Health" as a state machine (`HealthOnboardingMachine`): explain →
+/// requesting → granted → firstSync, or denied ("Not now", or the request failed).
+/// Both ends mark the intro as done; RootView then shows the tabs and the first sync starts.
+@MainActor
+@Observable
+final class HealthOnboardingViewModel {
+    private let env: AppEnvironment
+    private(set) var phase: HealthOnboardingPhase = .explain
+    @ObservationIgnored private var machine: GKTableMachine<HealthOnboardingPhase>!
+
+    init(env: AppEnvironment) {
+        self.env = env
+        machine = HealthOnboardingMachine.make { [weak self] to, _ in
+            self?.phase = to
+            if to == .denied || to == .firstSync { self?.env.settings.healthIntroDone = true }
+        }
+    }
+
+    var isRequesting: Bool { phase == .requesting }
+
+    /// The system sheet. HealthKit never says what was allowed for reading, only that it was answered.
+    func connect() async {
+        guard machine.enter(.requesting) else { return }
+        do {
+            try await env.health.requestAuthorization()
+            let answered = await env.health.accessStatus() != .notAsked
+            machine.enter(answered ? .granted : .denied)
+        } catch {
+            machine.enter(.denied)
+        }
+        if phase == .granted { machine.enter(.firstSync) }
+    }
+
+    func notNow() { machine.enter(.denied) }
+}
+
+private struct HealthPermissionScreen: View {
+    @State var model: HealthOnboardingViewModel
     @State private var legal: LegalPage?
 
     var body: some View {
@@ -46,19 +89,14 @@ struct HealthPermissionView: View {
                 Spacer(minLength: 12)
                 VStack(spacing: 10) {
                     Button {
-                        Task {
-                            asking = true
-                            try? await env.health.requestAuthorization()
-                            asking = false
-                            settings.healthIntroDone = true
-                        }
+                        Task { await model.connect() }
                     } label: {
-                        if asking { ProgressView().tint(Theme.onAccent) } else { Text("Continue") }
+                        if model.isRequesting { ProgressView().tint(Theme.onAccent) } else { Text("Continue") }
                     }
                     .buttonStyle(TealButtonStyle())
-                    .disabled(asking)
+                    .disabled(model.isRequesting)
                     .accessibilityIdentifier("health.continue")
-                    Button("Not now") { settings.healthIntroDone = true }
+                    Button("Not now") { model.notNow() }
                         .font(.ryft(.body))
                         .foregroundStyle(Theme.textSecondary)
                         .frame(maxWidth: .infinity, minHeight: 44)
