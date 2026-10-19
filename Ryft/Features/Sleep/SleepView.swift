@@ -274,42 +274,39 @@ struct SleepRangeSection: View {
         let hasUnstaged = bars.contains { $0.stage == Self.asleep }
         let names = Self.stageOrder.map(\.title) + (hasUnstaged ? [Self.asleep] : [])
         let colors = Self.stageOrder.map(Theme.color(for:)) + (hasUnstaged ? [Theme.accentSecondary] : [])
-        let isMonth = range.range == SleepRangeKind.month.rawValue
+        let window: ChartWindow = range.range == SleepRangeKind.month.rawValue ? .month : .week
+        let end = range.to.flatMap(DayFormat.date(from:)) ?? range.days.last?.date ?? .now
+        let totals = range.days.map { TrendPoint(day: $0.day, value: $0.totalMin.map(Double.init)) }
+        // Stacked heights per night, so the scale covers the tallest bar.
+        let heights = Dictionary(grouping: bars, by: \.date).values.map { $0.reduce(0) { $0 + $1.hours } }
+        let scale = ChartStyle.niceScale(heights + [range.avgTotalMin.map { Double($0) / 60 }].compactMap { $0 } + [0],
+                                         steps: ChartStyle.hourSteps)
         return Card {
-            VStack(alignment: .leading, spacing: 14) {
-                CardHeader(title: "Sleep per night")
+            VStack(alignment: .leading, spacing: 12) {
+                ChartHeader(spec: .sleepMin, value: totals.last?.value, delta: .vsSevenDayMean(totals),
+                            window: window.title)
                 Chart {
                     ForEach(bars) { b in
                         BarMark(x: .value("Night", b.date, unit: .day), y: .value("Hours", b.hours))
                             .foregroundStyle(by: .value("Stage", b.stage))
-                            .cornerRadius(isMonth ? 2 : 4)
+                            .cornerRadius(1)
                     }
                     if let avg = range.avgTotalMin {
-                        RuleMark(y: .value("Average", Double(avg) / 60))
-                            .foregroundStyle(Theme.textTertiary)
-                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                        BaselineRule(value: Double(avg) / 60,
+                                     label: String(localized: "avg \(Fmt.duration(minutes: avg))"))
                     }
                 }
                 .chartForegroundStyleScale(domain: names, range: colors)
                 .chartLegend(position: .bottom, alignment: .leading, spacing: 12)
+                // Bars fill whole day bins: the domain runs to the end of the last day.
+                .chartXScale(domain: window.start(endingAt: end)...DayFormat.shift(Calendar.current.startOfDay(for: end), days: 1))
+                .chartYScale(domain: scale.domain)
                 .chartXAxis {
-                    AxisMarks(values: .stride(by: .day, count: isMonth ? 7 : 1)) { _ in
-                        AxisValueLabel(format: isMonth ? .dateTime.day().month(.abbreviated) : .dateTime.weekday(.narrow))
-                            .font(.ryft(.caption))
-                            .foregroundStyle(Theme.textTertiary)
-                    }
+                    ChartStyle.xAxis(window.ticks(endingAt: end), format: window.format, centered: window == .week)
                 }
-                .chartYAxis {
-                    AxisMarks(position: .trailing, values: .automatic(desiredCount: 4)) { value in
-                        AxisGridLine().foregroundStyle(Theme.separator)
-                        AxisValueLabel {
-                            if let h = value.as(Double.self) {
-                                Text("\(Int(h))h").font(.ryft(.caption)).foregroundStyle(Theme.textTertiary)
-                            }
-                        }
-                    }
-                }
+                .chartYAxis { ChartStyle.yAxis(scale.ticks, unit: "h") { $0.formatted(.number.precision(.fractionLength(0...1))) } }
                 .frame(height: 200)
+                .chartAppear()
                 .accessibilityLabel(Text("Sleep per night"))
                 .accessibilityValue(Text("Average \(Fmt.duration(minutes: range.avgTotalMin))"))
             }

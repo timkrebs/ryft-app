@@ -18,7 +18,7 @@ struct WorkoutDetailView: View {
                     Card {
                         VStack(alignment: .leading, spacing: 16) {
                             CardHeader(title: "Heart-rate zones")
-                            ZoneMinutesView(minutes: zones)
+                            ZoneBar(minutes: zones)
                         }
                     }
                 }
@@ -90,7 +90,9 @@ struct WorkoutDetailView: View {
     private var heartRate: some View {
         Card {
             VStack(alignment: .leading, spacing: 14) {
-                CardHeader(title: "Heart rate", trailing: workout.avgHr.map { LocalizedStringKey("avg \(Int($0.rounded())) bpm") })
+                ChartHeader(spec: .heartRate, value: workout.avgHr, deltaReference: nil,
+                            window: Fmt.duration(seconds: workout.duration),
+                            valueOverride: workout.avgHr.map { String(localized: "avg \(Int($0.rounded())) bpm") })
                 if let hr = detail?.hr, hr.count > 1 {
                     HeartRateChart(points: hr, average: workout.avgHr)
                 } else if detail == nil {
@@ -106,69 +108,77 @@ struct WorkoutDetailView: View {
     }
 }
 
+/// Beats per minute over the workout: 1.5 pt linear line, no fill, the average
+/// as a dashed reference, the peak marked, nice bpm bounds, clock-time ticks.
 private struct HeartRateChart: View {
     let points: [HRPoint]
     let average: Double?
 
     @State private var selection: Date?
 
-    private var domain: ClosedRange<Double> {
-        let values = points.map(\.bpm)
-        return ((values.min() ?? 60) - 10)...((values.max() ?? 180) + 10)
-    }
-
     private var selected: HRPoint? {
         guard let selection else { return nil }
         return points.min { abs($0.t.timeIntervalSince(selection)) < abs($1.t.timeIntervalSince(selection)) }
     }
 
+    private var timeTicks: [Date] {
+        guard let first = points.first?.t, let last = points.last?.t else { return [] }
+        let minutes = last.timeIntervalSince(first) / 60
+        // 10 / 15 / 30 / 60-minute steps, at most five ticks, on round clock times.
+        let step = [10.0, 15, 30, 60, 120].first { minutes / $0 <= 4 } ?? 120
+        let start = (first.timeIntervalSinceReferenceDate / (step * 60)).rounded(.up) * step * 60
+        return stride(from: start, through: last.timeIntervalSinceReferenceDate, by: step * 60)
+            .map { Date(timeIntervalSinceReferenceDate: $0) }
+    }
+
     var body: some View {
-        let domain = domain
+        let spec = MetricSpec.heartRate
+        let scale = ChartStyle.scale(for: points.map(\.bpm) + [average].compactMap { $0 }, spec: spec)
+        let peak = points.max { $0.bpm < $1.bpm }
+        let selected = selected
         Chart {
-            ForEach(points, id: \.t) { p in
-                AreaMark(x: .value("Time", p.t), yStart: .value("Floor", domain.lowerBound), yEnd: .value("BPM", p.bpm))
-                    .interpolationMethod(.monotone)
-                    .foregroundStyle(Theme.alert.opacity(0.1))
-                LineMark(x: .value("Time", p.t), y: .value("BPM", p.bpm))
-                    .interpolationMethod(.monotone)
-                    .foregroundStyle(Theme.alert)
-                    .lineStyle(StrokeStyle(lineWidth: 1.6))
-            }
             if let average {
-                RuleMark(y: .value("Average", average))
-                    .foregroundStyle(Theme.textTertiary)
-                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                BaselineRule(value: average, label: String(localized: "avg \(Int(average.rounded())) bpm"))
+            }
+            ForEach(points, id: \.t) { p in
+                LineMark(x: .value("Time", p.t), y: .value("BPM", p.bpm))
+                    .interpolationMethod(.linear)
+                    .foregroundStyle(spec.color)
+                    .lineStyle(ChartStyle.line)
             }
             if let s = selected {
                 RuleMark(x: .value("Time", s.t))
                     .foregroundStyle(Theme.textTertiary)
-                    .annotation(position: .top, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
-                        Text("\(Int(s.bpm)) bpm · \(Fmt.time(s.t))")
-                            .font(.ryft(.caption))
-                            .monospacedDigit()
+                    .lineStyle(StrokeStyle(lineWidth: 1))
+                    .annotation(position: .top, spacing: 4,
+                                overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
+                        ScrubReadout(value: "\(Int(s.bpm)) bpm", date: Fmt.time(s.t),
+                                     delta: average.map { avg in
+                                         let d = Int((s.bpm - avg).rounded())
+                                         return String(localized: "\(d >= 0 ? "+" : "−")\(abs(d)) vs average")
+                                     })
+                    }
+                PointMark(x: .value("Time", s.t), y: .value("BPM", s.bpm))
+                    .foregroundStyle(spec.color)
+                    .symbolSize(ChartStyle.marker)
+            } else if let peak {
+                PointMark(x: .value("Time", peak.t), y: .value("BPM", peak.bpm))
+                    .foregroundStyle(spec.color)
+                    .symbolSize(ChartStyle.marker)
+                    .annotation(position: .top, spacing: 3) {
+                        Text("peak \(Int(peak.bpm))")
+                            .font(ChartStyle.axisFont)
                             .foregroundStyle(Theme.textPrimary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Theme.surfaceRaised, in: Capsule())
                     }
             }
         }
-        .chartYScale(domain: domain)
+        .chartYScale(domain: scale.domain)
+        .chartXScale(domain: (points.first?.t ?? .now)...(points.last?.t ?? .now))
         .chartXSelection(value: $selection)
-        .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: 4)) { _ in
-                AxisValueLabel(format: .dateTime.hour().minute())
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textTertiary)
-            }
-        }
-        .chartYAxis {
-            AxisMarks(position: .trailing, values: .automatic(desiredCount: 4)) { _ in
-                AxisGridLine().foregroundStyle(Theme.separator)
-                AxisValueLabel().font(.ryft(.caption)).foregroundStyle(Theme.textTertiary)
-            }
-        }
+        .chartXAxis { ChartStyle.xAxis(timeTicks, format: .dateTime.hour().minute()) }
+        .chartYAxis { ChartStyle.yAxis(scale.ticks, unit: "bpm", label: spec.axis) }
         .frame(height: 180)
+        .chartAppear()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Heart rate over time"))
         .accessibilityValue(Text("Peak \(Int(points.map(\.bpm).max() ?? 0)) bpm"))

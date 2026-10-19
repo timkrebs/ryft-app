@@ -106,7 +106,7 @@ struct StrainView: View {
                         Text(day.formatted(.dateTime.weekday(.narrow)))
                             .font(.ryft(.caption))
                             .foregroundStyle(selected ? Theme.textPrimary : Theme.textTertiary)
-                        ScoreRing(progress: strain.map { $0 / Self.maxStrain }, size: 36, lineWidth: 3, glow: false,
+                        ScoreRing(progress: strain.map { $0 / Self.maxStrain }, size: 36, lineWidth: 3, color: Theme.metricStrain,
                                   accessibilityLabel: Text(day.formatted(.dateTime.weekday(.wide))),
                                   accessibilityValue: Text("Strain \(Fmt.strain(strain))")) {
                             Text(strain.map { String(Int($0.rounded())) } ?? Fmt.placeholder)
@@ -126,26 +126,13 @@ struct StrainView: View {
         }
     }
 
+    /// Day strain on the 0–21 scale, ticks at 10 / 14 / 18, against the 7 days before.
     private var ring: some View {
-        let strain = score?.strain
-        return ScoreRing(progress: strain.map { $0 / Self.maxStrain }, size: 200, lineWidth: 10,
-                         accessibilityLabel: Text("Strain"),
-                         accessibilityValue: strain.map { Text("\(Fmt.strain($0)) of 21") } ?? Text("No data")) {
-            VStack(spacing: 4) {
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: 16))
-                    .foregroundStyle(Theme.accent)
-                CountingText(value: strain, format: Fmt.strain)
-                    .font(.ryftNumber(size: 50))
-                    .foregroundStyle(strain == nil ? Theme.textTertiary : Theme.textPrimary)
-                Text("Day strain · of 21")
-                    .font(.ryftNumber(size: 9, weight: .medium))
-                    .textCase(.uppercase)
-                    .tracking(1.4)
-                    .foregroundStyle(Theme.textSecondary)
-            }
-        }
-        .id(model.date) // re-run the ring animation per day
+        let prior = (1...7).compactMap { state.score(for: DayFormat.shift(model.date, days: -$0))?.strain }
+        return MetricGauge(spec: .strain, value: score?.strain, size: .large,
+                           delta: .against(score?.strain, prior: prior),
+                           title: String(localized: "Day strain"))
+            .id(model.date) // settle the arc again per day
     }
 
     /// Steps and active energy for the day (`DayDetail.strain`, else the score).
@@ -154,8 +141,10 @@ struct StrainView: View {
         let steps = dayStrain?.steps ?? score?.steps
         let kcal = dayStrain?.activeKcal ?? score?.activeKcal
         return HStack(spacing: 10) {
-            MetricTile(title: "Steps", value: Fmt.integer(steps.map(Double.init)), systemImage: "figure.walk")
-            MetricTile(title: "Active kcal", value: Fmt.integer(kcal.map(Double.init)), systemImage: "flame")
+            MetricTile(title: "Steps", value: Fmt.integer(steps.map(Double.init)), systemImage: "figure.walk",
+                       tint: MetricSpec.steps.color)
+            MetricTile(title: "Active kcal", value: Fmt.integer(kcal.map(Double.init)), systemImage: "flame",
+                       tint: MetricSpec.activeKcal.color)
         }
     }
 
@@ -164,7 +153,7 @@ struct StrainView: View {
         return Card {
             VStack(alignment: .leading, spacing: 16) {
                 CardHeader(title: "Heart-rate zones", trailing: dayStrain.map { "TRIMP \($0.trimp)" }.map { LocalizedStringKey($0) })
-                ZoneMinutesView(minutes: dayStrain?.zoneMin.map(Double.init))
+                ZoneBar(minutes: dayStrain?.zoneMin.map(Double.init))
             }
         }
     }

@@ -24,6 +24,27 @@ is the auth session, and `Set` is `SessionSet` as in the mirror.
    - **Proposal:** return the paused enrolment too, e.g. as `active` with
      `status: "paused"`, or a separate `paused: Enrollment?`.
 
+## Charts and gauges (open, 2026-10-19)
+
+The Today / chart redesign asked for fields `API.md` doesn't have. The app doesn't
+invent them; these are the stand-ins until the platform serves them.
+
+1. **Strain band on the score: `DailyScore.strain_band`.** A string (`light`,
+   `moderate`, `high`, `all_out`) from the platform's own thresholds. Until then the app
+   derives the band from `strain` at 10 / 14 / 18 (`MetricSpec.strainBand`).
+2. **Strain target: `DailyScore.strain_target_lo` / `strain_target_hi`.** Numbers on
+   the 0–21 scale: the range recommended for today given recovery. `MetricGauge` has
+   the target arc built in, but it stays empty until these exist.
+3. **Baseline spread: σ for HRV and resting HR.** For example `hrv_baseline_sd_ms` /
+   `rhr_baseline_sd` on `DailyScore`, and `baseline_sd` on `GET /v1/trends` for `hrv`
+   and `rhr`: the standard deviation over the same 30 days as the baseline. The
+   personal-range bands would then be baseline ± σ. Until then they use the 30-day
+   trend's `min` / `max` (Insights), and `RangeBar` shades the inter-quartile range of
+   the 30-day points.
+4. **Respiratory rate and SpO₂ trends.** `GET /v1/trends?metric=resp_rate|spo2`, so
+   `RangeBar` can show them against a personal range like HRV and resting HR.
+   `DailyScore` already has today's values.
+
 ## Resolved by API.md (2026-10-19)
 
 - `PlanSummary` and `SessionSummary` are their own shapes. They are mirrored.

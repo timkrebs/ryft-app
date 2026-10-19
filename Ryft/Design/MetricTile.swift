@@ -26,7 +26,6 @@ struct MetricTile: View {
                     .foregroundStyle(Theme.textPrimary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
-                    .contentTransition(.numericText())
                 Image(systemName: systemImage)
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(tint)

@@ -32,6 +32,13 @@ enum Theme {
     static let warning = Color("Warning")
     static let alert = Color("Alert")
 
+    // MARK: metric colours (charts and gauges)
+
+    /// Blue: strain.
+    static let metricStrain = Color("MetricStrain")
+    /// Indigo: sleep performance and time asleep.
+    static let metricSleep = Color("MetricSleep")
+
     // MARK: sleep stages
 
     static let stageDeep = Color("StageDeep")
@@ -94,5 +101,6 @@ enum Theme {
 
     // MARK: motion
 
-    static let ringAnimation = Animation.easeOut(duration: 0.8)
+    /// Gauges and charts settle in 250 ms; no springs, no count-ups.
+    static let ringAnimation = Animation.easeOut(duration: 0.25)
 }

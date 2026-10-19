@@ -51,26 +51,13 @@ struct TodayView: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// Readiness on its 0–100 scale with band ticks, the band word and the change
+    /// against the days before (from the 7-day trend).
     private var readinessRing: some View {
-        let readiness = score?.readiness
-        return ScoreRing(progress: readiness.map { Double($0) / 100 }, size: 220, lineWidth: 11,
-                         accessibilityLabel: Text("Readiness"),
-                         accessibilityValue: readiness.map { Text("\($0) of 100") } ?? Text("No score yet")) {
-            VStack(spacing: 6) {
-                RyftMark()
-                    .frame(width: 24, height: 24)
-                    .foregroundStyle(Theme.textPrimary)
-                CountingText(value: readiness.map(Double.init))
-                    .font(.ryftNumber(size: 58))
-                    .foregroundStyle(readiness == nil ? Theme.textTertiary : Theme.textPrimary)
-                Text("Overall readiness")
-                    .font(.ryftNumber(size: 9, weight: .medium))
-                    .textCase(.uppercase)
-                    .tracking(1.6)
-                    .foregroundStyle(Theme.textSecondary)
-            }
-        }
-        .padding(.vertical, 4)
+        MetricGauge(spec: .readiness, value: score?.readiness.map(Double.init), size: .large,
+                    delta: .vsSevenDayMean(state.readinessWeek?.points ?? []),
+                    title: String(localized: "Overall readiness"), showsMark: true)
+            .padding(.vertical, 4)
     }
 
     private var tiles: some View {
@@ -79,7 +66,7 @@ struct TodayView: View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
         return layout {
             MetricTile(title: "Sleep", value: Fmt.duration(minutes: sleepMin), systemImage: "moon.fill",
-                       tint: Theme.stageLight, accessibilityHint: "Opens Sleep") {
+                       tint: Theme.metricSleep, accessibilityHint: "Opens Sleep") {
                 state.selectedTab = .sleep
             }
             MetricTile(title: "Recovery", value: Fmt.percent(score?.recovery), systemImage: "heart",
@@ -88,7 +75,7 @@ struct TodayView: View {
                 state.selectedTab = .insights
             }
             MetricTile(title: "Strain", value: Fmt.strain(score?.strain), systemImage: "bolt.fill",
-                       accessibilityHint: "Opens Strain") {
+                       tint: Theme.metricStrain, accessibilityHint: "Opens Strain") {
                 state.selectedTab = .strain
             }
         }
@@ -100,10 +87,10 @@ struct TodayView: View {
             state.selectedTab = .insights
         } label: {
             Card {
-                VStack(alignment: .leading, spacing: 14) {
-                    CardHeader(title: "Trends", trailing: "7 days", showsChevron: true)
-                    TrendChart(points: state.readinessWeek?.points ?? [],
-                               title: String(localized: "Readiness, last 7 days"), height: 84)
+                VStack(alignment: .leading, spacing: 12) {
+                    CardHeader(title: "Trends", showsChevron: true)
+                    TrendChart(points: state.readinessWeek?.points ?? [], spec: .readiness, window: .week,
+                               interactive: false, height: 110)
                 }
             }
         }
