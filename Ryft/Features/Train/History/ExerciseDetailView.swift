@@ -95,17 +95,7 @@ struct ExerciseDetailView: View {
                 CardHeader(title: "Personal records")
                 ForEach(PRKind.allCases, id: \.self) { kind in
                     if let pr = prs.first(where: { $0.kind == kind }) {
-                        HStack {
-                            PRBadge(record: pr)
-                        }
-                        .overlay(alignment: .bottomLeading) {
-                            Text(pr.achievedAt.formatted(.dateTime.day().month(.abbreviated).year()))
-                                .font(.system(size: 10))
-                                .foregroundStyle(Theme.textTertiary)
-                                .offset(x: 44, y: 12)
-                                .accessibilityHidden(true)
-                        }
-                        .padding(.bottom, 6)
+                        PRBadge(record: pr, showsDate: true)
                     }
                 }
             }

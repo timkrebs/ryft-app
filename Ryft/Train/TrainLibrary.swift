@@ -114,6 +114,49 @@ final class TrainLibrary: ObservableObject {
     /// History shows new numbers after a session.
     func invalidateHistories() { histories = [:] }
 
+    // MARK: sessions
+
+    /// Finished sessions of the last `days`, newest first: the server's list
+    /// plus anything logged here that hasn't reached it yet (the local copy wins).
+    func sessions(days: Int = 90) async -> [TrainSession] {
+        let from = DayFormat.shift(Calendar.current.startOfDay(for: .now), days: -(days - 1))
+        let remoteList: [TrainSession]
+        if let fresh = try? await remote.sessions(from: from, to: .now) {
+            remoteList = fresh
+            cache.save(fresh, as: Self.sessionsKey)
+        } else {
+            remoteList = cache.load([TrainSession].self, key: Self.sessionsKey) ?? []
+        }
+        return Self.merged(local: store.completedSessions(from: from).map(\.wire), remote: remoteList)
+    }
+
+    /// Sessions already known for instant paint.
+    func cachedSessions() -> [TrainSession] {
+        Self.merged(local: store.completedSessions().map(\.wire),
+                    remote: cache.load([TrainSession].self, key: Self.sessionsKey) ?? [])
+    }
+
+    static func merged(local: [TrainSession], remote: [TrainSession]) -> [TrainSession] {
+        let localIDs = Set(local.map(\.id))
+        return (local + remote.filter { !localIDs.contains($0.id) && $0.status == .completed })
+            .sorted { $0.startedAt > $1.startedAt }
+    }
+
+    /// A whole session (the list may carry summaries without exercises).
+    func session(id: UUID) async -> TrainSession? {
+        if let local = store.session(id: id) { return local.wire }
+        return try? await remote.session(id: id)
+    }
+
+    /// The most recent finished session, for "Repeat last session".
+    func lastSession() async -> TrainSession? {
+        var latest = cachedSessions().first
+        if latest == nil { latest = await sessions(days: 30).first }
+        guard let latest else { return nil }
+        if !latest.exercises.isEmpty { return latest }
+        return await session(id: latest.id)
+    }
+
     // MARK: actions (online; the screen shows the error)
 
     func createExercise(_ e: Exercise) async -> Exercise? {
@@ -208,6 +251,7 @@ final class TrainLibrary: ObservableObject {
         histories = [:]
     }
 
+    private static let sessionsKey = "train.sessions"
     private static let catalogKey = "train.plans"
     private static let todayKey = "train.today"
 }
