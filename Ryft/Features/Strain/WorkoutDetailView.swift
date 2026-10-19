@@ -172,6 +172,9 @@ private struct HeartRateChart: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Heart rate over time"))
         .accessibilityValue(Text("Peak \(Int(points.map(\.bpm).max() ?? 0)) bpm"))
+        .accessibilityChartDescriptor(SeriesChartDescriptor(title: String(localized: "Heart rate"), valueName: "bpm",
+                                                            points: points.map { ($0.t, $0.bpm) },
+                                                            valueText: { "\(Int($0)) bpm" }))
     }
 }
 

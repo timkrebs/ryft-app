@@ -63,13 +63,17 @@ struct InlineMessage: View {
                                     Text(retryTitle).font(.ryft(.callout)).foregroundStyle(Theme.accent)
                                 }
                             }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
                             .buttonStyle(.plain)
                             .disabled(retrying)
                         }
                         if details != nil {
                             Button(showDetails ? "Hide details" : "Details") { showDetails.toggle() }
                                 .font(.ryft(.callout))
-                                .foregroundStyle(Theme.textTertiary)
+                                .foregroundStyle(Theme.textSecondary)
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
                                 .buttonStyle(.plain)
                         }
                     }
@@ -144,7 +148,7 @@ struct SetupCard: View {
                 Button(action: action) {
                     Text("Open Profile")
                         .font(.ryft(.body))
-                        .foregroundStyle(Theme.graphite)
+                        .foregroundStyle(Theme.onAccent)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 13)
                         .background(Theme.accent, in: Capsule())

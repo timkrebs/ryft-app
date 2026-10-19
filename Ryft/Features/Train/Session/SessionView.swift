@@ -164,10 +164,10 @@ struct SessionView: View {
                 confirmFinish = true
             } label: {
                 Group {
-                    if finishing { ProgressView().tint(Theme.graphite) } else { Text("Finish") }
+                    if finishing { ProgressView().tint(Theme.onAccent) } else { Text("Finish") }
                 }
                 .font(.ryft(.headline))
-                .foregroundStyle(Theme.graphite)
+                .foregroundStyle(Theme.onAccent)
                 .padding(.horizontal, 18)
                 .frame(minHeight: 48)
                 .background(Theme.accent, in: Capsule())

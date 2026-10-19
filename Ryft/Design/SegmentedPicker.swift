@@ -19,8 +19,7 @@ struct SegmentedPicker<Value: Hashable>: View {
                         .font(.ryft(.callout))
                         .foregroundStyle(isSelected ? Theme.textPrimary : Theme.textSecondary)
                         .lineLimit(1)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 9)
+                        .frame(maxWidth: .infinity, minHeight: 44)
                         .background {
                             if isSelected {
                                 Capsule()

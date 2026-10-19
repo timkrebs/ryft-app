@@ -80,7 +80,7 @@ struct RestTimerView: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 14, weight: .semibold))
             }
-            .foregroundStyle(Theme.graphite)
+            .foregroundStyle(Theme.onAccent)
             .padding(16)
             .frame(minHeight: 56)
             .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous))
@@ -96,7 +96,10 @@ struct RestTimerView: View {
             Text(title)
                 .font(.ryftNumber(size: 17))
                 .monospacedDigit()
-                .foregroundStyle(prominent ? Theme.graphite : Theme.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7) // "Überspringen" in German
+                .padding(.horizontal, 8)
+                .foregroundStyle(prominent ? Theme.onAccent : Theme.textPrimary)
                 .frame(maxWidth: .infinity, minHeight: 56)
                 .background(prominent ? Theme.accent : Theme.surfaceRaised, in: Capsule())
         }
@@ -221,7 +224,7 @@ struct NumberPad: View {
                     Text(title).font(.ryft(.headline))
                 }
             }
-            .foregroundStyle(prominent ? Theme.graphite : Theme.textPrimary)
+            .foregroundStyle(prominent ? Theme.onAccent : Theme.textPrimary)
             .frame(maxWidth: .infinity, minHeight: 56)
             .background(prominent ? Theme.accent : Theme.surfaceRaised,
                         in: RoundedRectangle(cornerRadius: 14, style: .continuous))

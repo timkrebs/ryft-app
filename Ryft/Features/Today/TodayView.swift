@@ -7,6 +7,7 @@ struct TodayView: View {
     @EnvironmentObject private var settings: Settings
     @ObservedObject private var apiStatus = APIStatus.shared
     @EnvironmentObject private var connectivity: ConnectivityMonitor
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var score: DailyScore? { state.today?.score }
 
@@ -74,13 +75,16 @@ struct TodayView: View {
 
     private var tiles: some View {
         let sleepMin = score?.sleepActualMin ?? state.today?.sleep?.totalMin
-        return HStack(spacing: 10) {
+        // Three columns truncate at accessibility sizes; stack the tiles there.
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
+        return layout {
             MetricTile(title: "Sleep", value: Fmt.duration(minutes: sleepMin), systemImage: "moon.fill",
                        tint: Theme.stageLight, accessibilityHint: "Opens Sleep") {
                 state.selectedTab = .sleep
             }
             MetricTile(title: "Recovery", value: Fmt.percent(score?.recovery), systemImage: "heart",
-                       tint: Theme.band(forScore: score?.recovery), accessibilityHint: "Opens Insights") {
+                       tint: Theme.band(forScore: score?.recovery),
+                       caption: Theme.bandLabel(forScore: score?.recovery), accessibilityHint: "Opens Insights") {
                 state.selectedTab = .insights
             }
             MetricTile(title: "Strain", value: Fmt.strain(score?.strain), systemImage: "bolt.fill",
@@ -88,6 +92,7 @@ struct TodayView: View {
                 state.selectedTab = .strain
             }
         }
+        .fixedSize(horizontal: false, vertical: !typeSize.isAccessibilitySize)
     }
 
     private var trends: some View {

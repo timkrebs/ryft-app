@@ -570,7 +570,7 @@ struct PrimaryButton: View {
 
     private var foreground: Color {
         switch style {
-        case .primary: return Theme.graphite
+        case .primary: return Theme.onAccent
         case .secondary: return Theme.textPrimary
         case .destructive: return Theme.alert
         }

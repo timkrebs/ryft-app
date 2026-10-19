@@ -202,6 +202,9 @@ struct E1RMChart: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Estimated one-rep max, last 90 days"))
         .accessibilityValue(Text(summary))
+        .accessibilityChartDescriptor(SeriesChartDescriptor(title: String(localized: "Estimated 1RM"), valueName: "kg",
+                                                            points: points.map { ($0.date, $0.value) },
+                                                            valueText: { Fmt.kg($0) }))
     }
 
     private var summary: String {

@@ -40,7 +40,7 @@ struct SetRow: View {
             } label: {
                 Image(systemName: "checkmark")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(set.isCompleted ? Theme.graphite : Theme.textTertiary)
+                    .foregroundStyle(set.isCompleted ? Theme.onAccent : Theme.textTertiary)
                     .frame(width: 56, height: 56)
                     .background(set.isCompleted ? Theme.accent : Theme.surfaceRaised,
                                 in: RoundedRectangle(cornerRadius: 14, style: .continuous))

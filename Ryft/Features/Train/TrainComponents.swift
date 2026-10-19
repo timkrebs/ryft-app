@@ -112,7 +112,7 @@ struct TealButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.ryft(.headline))
-            .foregroundStyle(prominent ? Theme.graphite : Theme.accent)
+            .foregroundStyle(prominent ? Theme.onAccent : Theme.accent)
             .frame(maxWidth: .infinity, minHeight: 56)
             .background(prominent ? Theme.accent : Theme.accent.opacity(0.14), in: Capsule())
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
@@ -180,7 +180,7 @@ struct WorkoutInProgressBanner: View {
                     Spacer()
                     Text("Resume")
                         .font(.ryft(.callout))
-                        .foregroundStyle(Theme.graphite)
+                        .foregroundStyle(Theme.onAccent)
                         .padding(.horizontal, 16)
                         .frame(minHeight: 40)
                         .background(Theme.accent, in: Capsule())

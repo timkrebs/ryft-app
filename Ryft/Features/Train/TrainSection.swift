@@ -150,15 +150,15 @@ struct StartWorkoutSheet: View {
             HStack(spacing: 14) {
                 Image(systemName: systemImage)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(prominent ? Theme.graphite : Theme.accent)
+                    .foregroundStyle(prominent ? Theme.onAccent : Theme.accent)
                     .frame(width: 44, height: 44)
-                    .background(prominent ? Theme.graphite.opacity(0.12) : Theme.accent.opacity(0.12), in: Circle())
+                    .background(prominent ? Theme.onAccent.opacity(0.12) : Theme.accent.opacity(0.12), in: Circle())
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title).font(.ryft(.headline))
                     Text(detail).font(.ryft(.caption)).lineLimit(2)
                         .opacity(0.8)
                 }
-                .foregroundStyle(prominent ? Theme.graphite : Theme.textPrimary)
+                .foregroundStyle(prominent ? Theme.onAccent : Theme.textPrimary)
                 Spacer()
                 if let chevron {
                     Image(systemName: chevron).foregroundStyle(Theme.textTertiary)

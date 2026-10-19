@@ -159,9 +159,9 @@ struct FilterChip: View {
         Button(action: action) {
             Text(title)
                 .font(.ryft(.callout))
-                .foregroundStyle(selected ? Theme.graphite : Theme.textSecondary)
+                .foregroundStyle(selected ? Theme.onAccent : Theme.textSecondary)
                 .padding(.horizontal, 14)
-                .frame(minHeight: 36)
+                .frame(minHeight: 44)
                 .background(selected ? Theme.accent : Theme.surface, in: Capsule())
         }
         .buttonStyle(.plain)

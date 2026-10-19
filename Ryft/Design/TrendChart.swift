@@ -53,6 +53,9 @@ struct TrendChart: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(title))
         .accessibilityValue(Text(accessibilitySummary))
+        .accessibilityChartDescriptor(SeriesChartDescriptor(title: title, valueName: title,
+                                                            points: data.map { ($0.date, $0.value) },
+                                                            valueText: valueText))
     }
 
     private var chart: some View {

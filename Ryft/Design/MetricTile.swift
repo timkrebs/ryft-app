@@ -6,6 +6,8 @@ struct MetricTile: View {
     let value: String
     let systemImage: String
     var tint: Color = Theme.accent
+    /// A word under the icon, e.g. the recovery band.
+    var caption: LocalizedStringKey? = nil
     var accessibilityHint: LocalizedStringKey? = nil
     var action: (() -> Void)? = nil
 
@@ -29,8 +31,15 @@ struct MetricTile: View {
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(tint)
                     .frame(height: 22) // symbols differ in height; keep tiles aligned
+                if let caption {
+                    Text(caption)
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity) // a row of tiles shares one height
             .padding(.vertical, 16)
             .padding(.horizontal, 8)
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
@@ -39,7 +48,7 @@ struct MetricTile: View {
         .disabled(action == nil)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(title))
-        .accessibilityValue(Text(value == Fmt.placeholder ? String(localized: "No data") : value))
+        .accessibilityValue(value == Fmt.placeholder ? Text("No data") : caption.map { Text("\(value), \(Text($0))") } ?? Text(value))
         .accessibilityHint(accessibilityHint.map { Text($0) } ?? Text(""))
         .accessibilityAddTraits(action == nil ? [] : .isButton)
     }
@@ -49,8 +58,9 @@ struct MetricTile: View {
     SchemePair {
         HStack(spacing: 10) {
             MetricTile(title: "Sleep", value: "7h 48m", systemImage: "moon.fill", action: {})
-            MetricTile(title: "Recovery", value: "82%", systemImage: "heart", action: {})
+            MetricTile(title: "Recovery", value: "82%", systemImage: "heart", caption: "High", action: {})
             MetricTile(title: "Strain", value: Fmt.placeholder, systemImage: "bolt.fill", action: {})
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
