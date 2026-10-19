@@ -2,16 +2,17 @@ import Foundation
 import SwiftData
 import OSLog
 
-/// The SwiftData container for Train: sessions being logged, the offline
-/// library and the upload outbox. On disk in the app, in memory for tests and
-/// previews. Everything runs on the main context; documents are small.
+/// The app's SwiftData container: Train's sessions being logged, its offline
+/// library and upload outbox, and (`ReadModels.swift`) every platform read model
+/// the Repository caches. On disk in the app, in memory for tests, previews and
+/// demo data. Everything runs on the main context; documents are small.
 @MainActor
 final class TrainStore {
     static let shared = TrainStore()
 
     static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "train")
     static let schema = Schema([LocalSession.self, LocalSessionExercise.self, LocalSet.self,
-                                CachedExercise.self, CachedPlan.self, PendingTrainOp.self])
+                                CachedExercise.self, CachedPlan.self, PendingTrainOp.self] + readModels)
 
     let container: ModelContainer
     var context: ModelContext { container.mainContext }
@@ -165,6 +166,13 @@ final class TrainStore {
         try? context.delete(model: CachedExercise.self)
         try? context.delete(model: CachedPlan.self)
         try? context.delete(model: PendingTrainOp.self)
+        try? context.delete(model: CachedDay.self)
+        try? context.delete(model: CachedTrend.self)
+        try? context.delete(model: CachedInsight.self)
+        try? context.delete(model: CachedUser.self)
+        try? context.delete(model: CachedSleepRange.self)
+        try? context.delete(model: CachedWorkout.self)
+        try? context.delete(model: CachedDocument.self)
         save()
     }
 }

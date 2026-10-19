@@ -9,9 +9,20 @@ final class InsightsViewModel {
     private let state: AppState
 
     var range: TrendRange = .month
-    private(set) var series: [TrendMetric: TrendSeries] = [:]
+
+    /// Each metric's series for the selected range, as cached (SwiftData).
+    var series: [TrendMetric: TrendSeries] {
+        Dictionary(uniqueKeysWithValues: TrendMetric.allCases.compactMap { m in
+            state.cachedTrend(m, range: range).map { (m, $0) }
+        })
+    }
+
     /// 30-day series behind the personal-range bands (HRV, resting HR), whatever the range.
-    private(set) var monthly: [TrendMetric: TrendSeries] = [:]
+    var monthly: [TrendMetric: TrendSeries] {
+        Dictionary(uniqueKeysWithValues: TrendMetric.allCases.filter(\.showsPersonalRange).compactMap { m in
+            state.cachedTrend(m, range: .month).map { (m, $0) }
+        })
+    }
 
     init(state: AppState) {
         self.state = state
@@ -45,24 +56,20 @@ final class InsightsViewModel {
         return lo...hi
     }
 
+    /// Revalidates every series (each skipped while fresh, 1 h) and the 30-day bands.
     func load() async {
-        // Instant paint from what's already loaded, then the platform's series.
-        for m in TrendMetric.allCases where series[m]?.range != range.rawValue {
-            series[m] = state.cachedTrend(m, range: range)
-        }
         guard state.hasDataSource else { return }
         let state = state
         let r = range
-        await withTaskGroup(of: (TrendMetric, TrendSeries).self) { group in
+        await withTaskGroup(of: Void.self) { group in
             for m in TrendMetric.allCases {
-                group.addTask { await (m, state.trend(m, range: r)) }
+                group.addTask { _ = await state.trend(m, range: r) }
             }
-            for await (m, s) in group where s.range == r.rawValue || s.range.isEmpty {
-                series[m] = s
+            if r != .month {
+                for m in TrendMetric.allCases where m.showsPersonalRange {
+                    group.addTask { _ = await state.trend(m, range: .month) }
+                }
             }
-        }
-        for m in TrendMetric.allCases where m.showsPersonalRange {
-            monthly[m] = r == .month ? series[m] : await state.trend(m, range: .month)
         }
     }
 }

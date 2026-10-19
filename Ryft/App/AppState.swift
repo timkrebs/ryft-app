@@ -1,10 +1,9 @@
-// Read-side cache of what the API returns. Views bind to this; SyncService
-// writes to HealthKit→backend, this reads backend→UI.
-//
-// The last successful Today payload (with its 7-day readiness trend) is
-// persisted to Caches/ so the app renders instantly at launch and offline.
-// Every endpoint exists on the platform; a failed call leaves the screen
-// empty with an inline message instead of computing numbers on the phone.
+// The read side, as the screens see it: what the platform says, served from
+// SwiftData through the Repository (offline-first). Views and view models read
+// these properties, which never wait for the network; loads only revalidate.
+// SyncService writes HealthKit → platform; this reads platform → UI.
+// A failed call keeps the cached data with an inline message; the phone never
+// computes scores itself.
 import Foundation
 import Observation
 
@@ -15,43 +14,64 @@ enum AppTab: String, CaseIterable, Hashable {
 @MainActor
 @Observable
 final class AppState {
-    var today: DayDetail?
-    var history: [DailyScore] = []   // last 90 days, oldest first
-    var user: User?
-    var insights: [Insight] = []
-    /// Today's "Trends" card: `GET /v1/trends?metric=readiness&range=7d`.
-    var readinessWeek: TrendSeries?
     var error: String?
     /// Status and request ID of `error`, for the inline message's Details.
     var errorDetails: String?
     var isLoading = false
-    var lastUpdated: Date?
     var selectedTab: AppTab
     private(set) var dismissedInsightIDs: Set<String> = []
 
     static let historyDays = 90
 
     let env: AppEnvironment
+    let repository: Repository
     private var settings: Settings { env.settings }
     private var auth: AuthService { env.auth }
-    private let cache: ResponseCache
-    private var dayCache: [String: DayDetail] = [:]
-    private var trendCache: [String: TrendSeries] = [:]
-    private var sleepCache: [SleepRangeKind: SleepRange] = [:]
-    private var workoutCache: [UUID: WorkoutDetail] = [:]
     private var defaults: UserDefaults { env.defaults }
 
-    init(env: AppEnvironment, cache: ResponseCache = .shared, restoreCache: Bool = true) {
+    init(env: AppEnvironment, repository: Repository? = nil) {
         self.env = env
-        self.cache = cache
+        self.repository = repository ?? Repository(env: env)
         // `-RyftTab sleep` selects the initial tab (handy for screenshots).
         selectedTab = UserDefaults.standard.string(forKey: "RyftTab").flatMap(AppTab.init(rawValue:)) ?? .today
         dismissedInsightIDs = loadDismissed()
-        if restoreCache, !env.isDemo,
-           let snap = cache.load(TodaySnapshot.self, key: Self.snapshotKey) {
-            apply(snap)
-        }
     }
+
+    private var now: Date { env.clock.now() }
+    private var todayKey: String { DayFormat.string(from: now) }
+
+    // MARK: what the screens read (SwiftData)
+
+    /// Today's detail. Setting it writes the store (previews, tests).
+    var today: DayDetail? {
+        get { repository.day(todayKey) }
+        set { if let newValue { repository.store(detail: newValue) } }
+    }
+
+    /// The last 90 days, oldest first. Setting it replaces the cached scores.
+    var history: [DailyScore] {
+        get { repository.history(from: DayFormat.shift(now, days: -(Self.historyDays - 1)), to: now) }
+        set { repository.replaceScores(newValue) }
+    }
+
+    var user: User? {
+        get { repository.user() }
+        set { if let newValue { repository.store(user: newValue) } }
+    }
+
+    var insights: [Insight] {
+        get { repository.insights() }
+        set { repository.store(insights: newValue) }
+    }
+
+    /// Today's "Trends" card: `GET /v1/trends?metric=readiness&range=7d`.
+    var readinessWeek: TrendSeries? {
+        get { repository.trend(.readiness, .week) }
+        set { if let newValue { repository.store(trend: newValue, metric: .readiness, range: .week) } }
+    }
+
+    /// When today was last fetched ("Updated 07:15"); survives relaunches.
+    var lastUpdated: Date? { repository.detailFetchedAt(todayKey) }
 
     // MARK: source
 
@@ -69,52 +89,41 @@ final class AppState {
 
     // MARK: loading
 
-    func refresh() async {
+    /// Revalidates Today: the day, 90 days of scores, the user, the readiness week
+    /// and the insights, each only when stale. `force` (pull to refresh) and
+    /// `touched` (days a sync queued for rescoring) fetch regardless.
+    func refresh(force: Bool = false, touched: [String] = []) async {
         guard hasDataSource else { return }
-        // Offline: keep what's on screen (the cached snapshot); no request, no error.
+        // Offline: keep what's on screen (the cache); no request, no error.
         guard isDemo || env.connectivity.isOnline else { return }
         isLoading = true
         defer { isLoading = false }
-        let src = source
-        let account = auth.accountID
+        let now = now
+        let rescored = force || !touched.isEmpty
         do {
-            let now = env.clock.now()
-            let from = DayFormat.shift(now, days: -(Self.historyDays - 1))
-            async let detail = src.day(now)
-            async let days = src.days(from: from, to: now)
-            async let me = src.me()
-            let (d, h, u) = try await (detail, days, me)
-            // Signed out (or switched account) while this was in flight: drop it.
-            guard auth.accountID == account else { return }
-            today = d
-            history = h.sorted { $0.day < $1.day }
-            user = u
-            invalidateCaches()
-            dayCache[d.score.day] = d
-            async let week = try? src.trends(metric: .readiness, range: .week)
-            await loadInsights(from: src)
-            if let w = await week {
-                readinessWeek = w
-                trendCache[Self.trendKey(.readiness, .week)] = w
+            async let day: DayDetail? = repository.refreshDay(now, force: rescored)
+            async let days: Void = repository.refreshHistory(from: DayFormat.shift(now, days: -(Self.historyDays - 1)),
+                                                             to: now, force: rescored)
+            async let me: Void = repository.refreshUser(force: force)
+            _ = try await (day, days, me)
+            for key in touched where key != DayFormat.string(from: now) {
+                if let date = DayFormat.date(from: key) { _ = try? await repository.refreshDay(date, force: true) }
             }
+            try? await repository.refreshTrend(.readiness, .week, force: rescored)
+            try? await repository.refreshInsights(force: rescored)
             error = nil
             errorDetails = nil
-            lastUpdated = env.clock.now()
-            if !isDemo {
-                cache.save(TodaySnapshot(today: d, history: history, user: u, insights: insights,
-                                         readinessWeek: readinessWeek, fetchedAt: env.clock.now()),
-                           as: Self.snapshotKey)
-            }
         } catch {
             self.error = error.localizedDescription
             self.errorDetails = error.diagnosticDetails
         }
     }
 
-    /// Pull-to-refresh: upload new Health data, then reload.
-    func syncAndRefresh(using sync: SyncService) async {
+    /// Upload new Health data, then reload: everything (pull to refresh, `force`)
+    /// or only what's stale (app active, back online).
+    func syncAndRefresh(using sync: SyncService, force: Bool = true) async {
         if !isDemo && auth.isSignedIn && settings.isConfigured { await sync.syncNow() }
-        await refresh()
+        await refresh(force: force)
     }
 
     /// Right after sign-in, before the first sync: `GET /v1/me` creates the
@@ -135,18 +144,12 @@ final class AppState {
         }
     }
 
-    /// Forget everything (account, server or demo mode changed).
+    /// Forget what's shown (account changed, demo mode switched). Sign-out wipes
+    /// the account's store; demo data is cleared here.
     func reset() {
-        today = nil
-        history = []
-        user = nil
-        insights = []
-        readinessWeek = nil
         error = nil
         errorDetails = nil
-        lastUpdated = nil
-        invalidateCaches()
-        cache.clear()
+        if isDemo { repository.clear() } else { repository.invalidate() }
     }
 
     func updateUser(_ patch: UserPatch) async {
@@ -158,60 +161,47 @@ final class AppState {
         }
     }
 
-    // MARK: per-screen data (cached, with fallbacks)
+    // MARK: per-screen data (cache-first, revalidated)
 
+    /// The day's detail: the cached copy when fresh, else the platform's. Offline
+    /// with a cached copy it returns the copy; without one it throws.
     func dayDetail(for date: Date) async throws -> DayDetail {
-        let key = DayFormat.string(from: date)
-        if let cached = dayCache[key] { return cached }
-        let d = try await source.day(date)
-        dayCache[key] = d
-        return d
+        if let d = try await repository.refreshDay(date) { return d }
+        throw APIError.transport(URLError(.notConnectedToInternet))
     }
 
-    /// Cached day detail without hitting the network (for instant first paint).
+    /// The cached detail (stale or not), without the network.
     func cachedDayDetail(for date: Date) -> DayDetail? {
-        dayCache[DayFormat.string(from: date)]
+        repository.day(DayFormat.string(from: date))
     }
 
-    /// `nil` when the platform couldn't be reached; the screen says so.
+    func cachedSleepRange(_ kind: SleepRangeKind) -> SleepRange? { repository.sleepRange(kind) }
+
+    /// Revalidates a sleep range; `nil` when there's none cached and the platform couldn't be reached.
     func sleepRange(_ kind: SleepRangeKind) async -> SleepRange? {
-        if let cached = sleepCache[kind] { return cached }
-        guard let r = try? await source.sleep(range: kind) else { return nil }
-        sleepCache[kind] = r
-        return r
+        try? await repository.refreshSleepRange(kind)
+        return repository.sleepRange(kind)
     }
 
-    /// An empty series (not cached) when the platform couldn't be reached.
+    /// Revalidates a series; an empty one when there's none cached and the platform couldn't be reached.
     func trend(_ metric: TrendMetric, range: TrendRange) async -> TrendSeries {
-        let key = Self.trendKey(metric, range)
-        if let cached = trendCache[key] { return cached }
-        guard let s = try? await source.trends(metric: metric, range: range) else {
-            return TrendSeries(metric: metric.rawValue, range: range.rawValue, points: [],
-                               avg: nil, min: nil, max: nil, baseline: nil)
-        }
-        trendCache[key] = s
-        return s
+        try? await repository.refreshTrend(metric, range)
+        return repository.trend(metric, range)
+            ?? TrendSeries(metric: metric.rawValue, range: range.rawValue, points: [],
+                           avg: nil, min: nil, max: nil, baseline: nil)
     }
 
-    /// Already-loaded series, for instant paint.
+    /// The cached series, for instant paint.
     func cachedTrend(_ metric: TrendMetric, range: TrendRange) -> TrendSeries? {
-        trendCache[Self.trendKey(metric, range)]
+        repository.trend(metric, range)
     }
 
-    private static func trendKey(_ metric: TrendMetric, _ range: TrendRange) -> String {
-        "\(metric.rawValue)-\(range.rawValue)"
-    }
+    func cachedWorkoutDetail(_ w: Workout) -> WorkoutDetail? { repository.workout(w.id) }
 
+    /// The workout's curve and zones; without them (no endpoint, offline) the list's fields.
     func workoutDetail(_ w: Workout) async -> WorkoutDetail {
-        if let cached = workoutCache[w.id] { return cached }
-        do {
-            let d = try await source.workout(id: w.id)
-            workoutCache[w.id] = d
-            return d
-        } catch {
-            // No detail endpoint: show what the list gave us.
-            return WorkoutDetail(workout: w)
-        }
+        try? await repository.refreshWorkout(w.id)
+        return repository.workout(w.id) ?? WorkoutDetail(workout: w)
     }
 
     /// Loaded, and nothing in the history came from Apple Health: access may be
@@ -223,8 +213,7 @@ final class AppState {
     }
 
     func score(for date: Date) -> DailyScore? {
-        let key = DayFormat.string(from: date)
-        return history.last { $0.day == key }
+        repository.score(DayFormat.string(from: date))
     }
 
     // MARK: insights
@@ -254,26 +243,7 @@ final class AppState {
 
     // MARK: private
 
-    private static let snapshotKey = "today"
     private static let dismissedKey = "insights.dismissed"
-
-    private func apply(_ snap: TodaySnapshot) {
-        today = snap.today
-        history = snap.history
-        user = snap.user
-        insights = snap.insights
-        readinessWeek = snap.readinessWeek
-        if let w = snap.readinessWeek { trendCache[Self.trendKey(.readiness, .week)] = w }
-        lastUpdated = snap.fetchedAt
-        if let d = snap.today { dayCache[d.score.day] = d }
-    }
-
-    private func invalidateCaches() {
-        dayCache = [:]
-        trendCache = [:]
-        sleepCache = [:]
-        workoutCache = [:]
-    }
 }
 
 // MARK: - previews
@@ -282,7 +252,7 @@ extension AppState {
     /// Pre-filled with mock data so previews render without awaiting anything.
     static func preview(empty: Bool = false, calibrating: Bool = false, online: Bool = true,
                         auth: AuthService? = nil) -> AppState {
-        let s = AppState(env: .preview(online: online, auth: auth), restoreCache: false)
+        let s = AppState(env: .preview(online: online, auth: auth))
         guard !empty else {
             s.previewUnconfigured = true
             return s
@@ -291,14 +261,12 @@ extension AppState {
         s.user = MockData.user
         s.insights = MockData.insights
         s.readinessWeek = MockData.trend(.readiness, range: .week)
-        s.lastUpdated = .now.addingTimeInterval(-300)
         var detail = MockData.todayDetail
         if calibrating {
             detail.score = MockData.calibratingScore
             s.history = Array(MockData.history.suffix(4))
         }
         s.today = detail
-        s.dayCache[detail.score.day] = detail
         return s
     }
 }
