@@ -107,9 +107,9 @@ struct ZoneMinutesView: View {
 /// A row in Strain's activity list.
 enum ActivityItem: Identifiable {
     /// A workout, with its logged Train session when `session_id` matches.
-    case workout(Workout, TrainSession?)
+    case workout(Workout, SessionSummary?)
     /// A logged session no workout points at (yet).
-    case session(TrainSession)
+    case session(SessionSummary)
 
     var id: UUID {
         switch self {
@@ -130,7 +130,7 @@ enum ActivityItem: Identifiable {
 /// with a logged session shows the dumbbell, the session's title and its load.
 struct ActivityRow: View {
     let workout: Workout
-    var session: TrainSession? = nil
+    var session: SessionSummary? = nil
 
     private var title: String {
         if let session, !session.title.isEmpty { return session.title }
@@ -178,7 +178,7 @@ struct ActivityRow: View {
 
 /// A logged session in Strain's list: dumbbell, title, time · duration · volume, load.
 struct SessionActivityRow: View {
-    let session: TrainSession
+    let session: SessionSummary
 
     var body: some View {
         HStack(spacing: 14) {
@@ -212,7 +212,7 @@ struct SessionActivityRow: View {
 
     private var subtitle: String {
         var parts = [Fmt.time(session.startedAt)]
-        if let end = session.endedAt { parts.append(Fmt.duration(seconds: end.timeIntervalSince(session.startedAt))) }
+        if let min = session.durationMin { parts.append(Fmt.duration(minutes: min)) }
         if let v = session.volumeKg { parts.append(Fmt.volume(v)) }
         return parts.joined(separator: " · ")
     }
@@ -239,7 +239,8 @@ struct StrainPill: View {
             ZoneMinutesView(minutes: MockData.todayDetail.strain?.zoneMin.map(Double.init))
             ZoneMinutesView(minutes: nil)
             ForEach(MockData.todayDetail.workouts) { ActivityRow(workout: $0) }
-            if let s = MockTrain.history.last, let w = MockData.allWorkouts.first(where: { $0.sessionId == s.id }) {
+            if let s = MockTrain.history.last.map(SessionSummary.init),
+               let w = MockData.allWorkouts.first(where: { $0.sessionId == s.id }) {
                 ActivityRow(workout: w, session: s)
                 SessionActivityRow(session: s)
             }

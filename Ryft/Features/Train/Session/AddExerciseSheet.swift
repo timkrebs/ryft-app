@@ -9,12 +9,12 @@ struct AddExerciseSheet: View {
     @EnvironmentObject private var library: TrainLibrary
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
-    @State private var muscle: String?
+    @State private var muscle: Muscle?
     @State private var kind: ExerciseKind?
     @State private var showsCustom = false
 
-    private var muscles: [String] {
-        Array(Set(library.exercises.flatMap(\.primaryMuscles))).sorted { Muscle.title($0) < Muscle.title($1) }
+    private var muscles: [Muscle] {
+        Array(Set(library.exercises.flatMap(\.primaryMuscles))).sorted { $0.title < $1.title }
     }
 
     private var kinds: [ExerciseKind] {
@@ -84,8 +84,8 @@ struct AddExerciseSheet: View {
             ScrollView(.horizontal) {
                 HStack(spacing: 8) {
                     FilterChip(title: String(localized: "All muscles"), selected: muscle == nil) { muscle = nil }
-                    ForEach(muscles, id: \.self) { m in
-                        FilterChip(title: Muscle.title(m), selected: muscle == m) { muscle = muscle == m ? nil : m }
+                    ForEach(muscles) { m in
+                        FilterChip(title: m.title, selected: muscle == m) { muscle = muscle == m ? nil : m }
                     }
                 }
             }
@@ -123,7 +123,7 @@ struct ExerciseRow: View {
                             .foregroundStyle(Theme.accentSecondary)
                     }
                 }
-                Text(([exercise.kind.title] + exercise.primaryMuscles.map(Muscle.title)).joined(separator: " · "))
+                Text(([exercise.kind.title] + exercise.primaryMuscles.map(\.title)).joined(separator: " · "))
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
@@ -177,13 +177,12 @@ struct CustomExerciseForm: View {
     @EnvironmentObject private var library: TrainLibrary
     @Environment(\.dismiss) private var dismiss
     @State private var kind: ExerciseKind = .dumbbell
-    @State private var muscle = "chest"
+    @State private var muscle: Muscle = .chest
     @State private var loadType: LoadType = .weight
     @State private var unilateral = false
     @State private var saving = false
 
-    private static let muscles = ["chest", "back", "shoulders", "quads", "hamstrings", "glutes", "biceps", "triceps",
-                                  "core", "calves", "traps", "forearms"]
+    private static let muscles = Muscle.allCases.sorted { $0.title < $1.title }
 
     private var trimmed: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -200,7 +199,7 @@ struct CustomExerciseForm: View {
                         ForEach(ExerciseKind.allCases) { Text($0.title).tag($0) }
                     }
                     Picker("Main muscle", selection: $muscle) {
-                        ForEach(Self.muscles, id: \.self) { Text(Muscle.title($0)).tag($0) }
+                        ForEach(Self.muscles) { Text($0.title).tag($0) }
                     }
                     Picker("Logged as", selection: $loadType) {
                         ForEach([LoadType.weight, .bodyweight, .time, .distance], id: \.self) { Text($0.title).tag($0) }

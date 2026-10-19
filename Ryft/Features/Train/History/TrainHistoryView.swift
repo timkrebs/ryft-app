@@ -3,12 +3,12 @@ import SwiftUI
 /// Finished sessions by week, with each week's volume and muscular load.
 struct TrainHistoryView: View {
     @EnvironmentObject private var library: TrainLibrary
-    @State private var sessions: [TrainSession] = []
+    @State private var sessions: [SessionSummary] = []
     @State private var loaded = false
 
     private struct Week: Identifiable {
         let start: Date
-        var sessions: [TrainSession]
+        var sessions: [SessionSummary]
         var id: Date { start }
         var volume: Double { sessions.compactMap(\.volumeKg).reduce(0, +) }
         var load: Double? {
@@ -76,7 +76,7 @@ struct TrainHistoryView: View {
 
 /// History row: dumbbell, title, day · duration · volume, load chip.
 struct SessionRow: View {
-    let session: TrainSession
+    let session: SessionSummary
 
     var body: some View {
         HStack(spacing: 14) {
@@ -109,7 +109,7 @@ struct SessionRow: View {
 
     private var subtitle: String {
         var parts = [session.startedAt.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))]
-        if let end = session.endedAt { parts.append(Fmt.duration(seconds: end.timeIntervalSince(session.startedAt))) }
+        if let min = session.durationMin { parts.append(Fmt.duration(minutes: min)) }
         if let v = session.volumeKg { parts.append(Fmt.volume(v)) }
         return parts.joined(separator: " · ")
     }
@@ -156,7 +156,7 @@ struct SessionDetailView: View {
         }
     }
 
-    private func exerciseCard(_ e: TrainSessionExercise) -> some View {
+    private func exerciseCard(_ e: SessionExercise) -> some View {
         let name = library.exercise(id: e.exerciseId)?.name ?? String(localized: "Exercise")
         return NavigationLink(value: TrainRoute.exercise(e.exerciseId)) {
             Card {
@@ -191,7 +191,7 @@ struct SessionDetailView: View {
 
 enum SetText {
     /// "100 kg × 5", "× 8", "45 s".
-    static func short(_ s: TrainSet) -> String {
+    static func short(_ s: SessionSet) -> String {
         if let d = s.durationSec, s.reps == nil { return String(localized: "\(d) s") }
         switch (s.weightKg, s.reps) {
         case let (kg?, r?): return "\(Fmt.kg(kg)) × \(r)"

@@ -78,23 +78,27 @@ extension PRKind {
     }
 }
 
-enum Muscle {
-    /// Display name for an API muscle id ("quads").
-    static func title(_ id: String) -> String {
-        switch id {
-        case "chest": return String(localized: "Chest")
-        case "back": return String(localized: "Back")
-        case "shoulders": return String(localized: "Shoulders")
-        case "quads": return String(localized: "Quads")
-        case "hamstrings": return String(localized: "Hamstrings")
-        case "glutes": return String(localized: "Glutes")
-        case "biceps": return String(localized: "Biceps")
-        case "triceps": return String(localized: "Triceps")
-        case "core": return String(localized: "Core")
-        case "calves": return String(localized: "Calves")
-        case "traps": return String(localized: "Traps")
-        case "forearms": return String(localized: "Forearms")
-        default: return id.replacingOccurrences(of: "_", with: " ").capitalized
+extension Muscle {
+    var title: String {
+        switch self {
+        case .chest: return String(localized: "Chest")
+        case .lats: return String(localized: "Lats")
+        case .upperBack: return String(localized: "Upper back")
+        case .traps: return String(localized: "Traps")
+        case .frontDelts: return String(localized: "Front delts")
+        case .sideDelts: return String(localized: "Side delts")
+        case .rearDelts: return String(localized: "Rear delts")
+        case .biceps: return String(localized: "Biceps")
+        case .triceps: return String(localized: "Triceps")
+        case .forearms: return String(localized: "Forearms")
+        case .abs: return String(localized: "Abs")
+        case .obliques: return String(localized: "Obliques")
+        case .lowerBack: return String(localized: "Lower back")
+        case .glutes: return String(localized: "Glutes")
+        case .quads: return String(localized: "Quads")
+        case .hamstrings: return String(localized: "Hamstrings")
+        case .adductors: return String(localized: "Adductors")
+        case .calves: return String(localized: "Calves")
         }
     }
 }

@@ -15,7 +15,7 @@ enum SessionMerge {
         out.workoutId = local.workoutId ?? server.workoutId
 
         let serverExercises = Dictionary(server.exercises.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        var exercises: [TrainSessionExercise] = local.exercises.map { mine in
+        var exercises: [SessionExercise] = local.exercises.map { mine in
             guard let theirs = serverExercises[mine.id] else { return mine }
             var merged = mine
             merged.sets = mergeSets(mine.sets, theirs.sets, deleted: deletedSetIDs)
@@ -31,8 +31,8 @@ enum SessionMerge {
         return out
     }
 
-    static func mergeSets(_ mine: [TrainSet], _ theirs: [TrainSet], deleted: Set<UUID>) -> [TrainSet] {
-        var byID: [UUID: TrainSet] = [:]
+    static func mergeSets(_ mine: [SessionSet], _ theirs: [SessionSet], deleted: Set<UUID>) -> [SessionSet] {
+        var byID: [UUID: SessionSet] = [:]
         for s in theirs where !deleted.contains(s.id) { byID[s.id] = s }
         for s in mine {
             if let other = byID[s.id], other.updatedAt > s.updatedAt { continue }

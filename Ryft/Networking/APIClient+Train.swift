@@ -1,6 +1,4 @@
-// Train endpoints (exercises, plans, sessions). Paths follow the platform's M3b
-// brief until `API.md` carries them; see `docs/API_REQUESTS.md` for the open
-// points (pausing an enrolment, deleting a set mid-session).
+// Train endpoints (exercises, plans, sessions): API.md → Train.
 import Foundation
 
 /// Result of `PUT /v1/sessions/{id}`.
@@ -12,23 +10,26 @@ enum SessionPutResult: Equatable {
 
 protocol TrainDataSource {
     func exercises() async throws -> [Exercise]
+    /// Same `id` again updates it (safe to retry).
     func createExercise(_ e: Exercise) async throws -> Exercise
     func exerciseHistory(id: UUID) async throws -> ExerciseHistory
 
-    func plans() async throws -> PlanCatalog
+    func plans() async throws -> PlansOverview
     func plan(id: UUID) async throws -> Plan
     func savePlan(_ p: Plan) async throws -> Plan
     func deletePlan(id: UUID) async throws
+    /// Makes the plan the active one, or resumes it where it stopped if it was paused.
     func enroll(planID: UUID) async throws -> Enrollment
-    func setEnrollment(paused: Bool) async throws -> Enrollment
-    func leaveEnrollment() async throws
-    /// `nil` when nothing is planned today (`204`).
+    /// Pauses the active enrolment (also fine when there is none).
+    func pauseEnrollment() async throws
+    /// `nil` without an active enrolment (`204`).
     func planToday() async throws -> PlanToday?
 
-    func sessions(from: Date, to: Date) async throws -> [TrainSession]
+    func sessions(from: Date, to: Date) async throws -> [SessionSummary]
     func session(id: UUID) async throws -> TrainSession
     func putSession(_ s: TrainSession) async throws -> SessionPutResult
-    func completeSession(id: UUID, bodyweightKg: Double?) async throws -> CompletedSession
+    /// The session with `muscular_trimp`, `strain`, `volume_kg`, `prs` and `workout_id`.
+    func completeSession(id: UUID, _ body: SessionComplete) async throws -> TrainSession
     func deleteSession(id: UUID) async throws
 }
 
@@ -47,14 +48,14 @@ extension APIClient: TrainDataSource {
     }
 
     func createExercise(_ e: Exercise) async throws -> Exercise {
-        try await send("POST", path: "/v1/exercises", body: e)
+        try await send("POST", path: "/v1/exercises", body: ExerciseInput(e))
     }
 
     func exerciseHistory(id: UUID) async throws -> ExerciseHistory {
         try await send("GET", path: "/v1/exercises/\(Self.idPath(id))/history?limit=50", body: Optional<Int>.none)
     }
 
-    func plans() async throws -> PlanCatalog {
+    func plans() async throws -> PlansOverview {
         try await send("GET", path: "/v1/plans", body: Optional<Int>.none)
     }
 
@@ -74,13 +75,7 @@ extension APIClient: TrainDataSource {
         try await send("POST", path: "/v1/plans/\(Self.idPath(planID))/enroll", body: Optional<Int>.none)
     }
 
-    /// Requested in `docs/API_REQUESTS.md` (the brief has no pause endpoint).
-    func setEnrollment(paused: Bool) async throws -> Enrollment {
-        struct Patch: Encodable { let status: EnrollmentStatus }
-        return try await send("PATCH", path: "/v1/plans/enrollment", body: Patch(status: paused ? .paused : .active))
-    }
-
-    func leaveEnrollment() async throws {
+    func pauseEnrollment() async throws {
         _ = try await data("DELETE", path: "/v1/plans/enrollment", body: Optional<Int>.none)
     }
 
@@ -90,7 +85,7 @@ extension APIClient: TrainDataSource {
         return try Self.jsonDecoder.decode(PlanToday.self, from: r.data)
     }
 
-    func sessions(from: Date, to: Date) async throws -> [TrainSession] {
+    func sessions(from: Date, to: Date) async throws -> [SessionSummary] {
         try await send("GET", path: "/v1/sessions?from=\(Self.dayString(from))&to=\(Self.dayString(to))",
                        body: Optional<Int>.none)
     }
@@ -105,9 +100,8 @@ extension APIClient: TrainDataSource {
         return r.status == 409 ? .conflict(copy) : .saved(copy)
     }
 
-    func completeSession(id: UUID, bodyweightKg: Double?) async throws -> CompletedSession {
-        try await send("POST", path: "/v1/sessions/\(Self.idPath(id))/complete",
-                       body: SessionCompleteRequest(bodyweightKg: bodyweightKg))
+    func completeSession(id: UUID, _ body: SessionComplete) async throws -> TrainSession {
+        try await send("POST", path: "/v1/sessions/\(Self.idPath(id))/complete", body: body)
     }
 
     func deleteSession(id: UUID) async throws {

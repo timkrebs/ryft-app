@@ -73,7 +73,7 @@ struct StrainView: View {
         let cal = Calendar.current
         let start = cal.startOfDay(for: model.date)
         let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
-        let local = trainSync.store.completedSessions(from: start, to: end).map(\.wire)
+        let local = trainSync.store.completedSessions(from: start, to: end).map(\.summary)
         let sessions = TrainLibrary.merged(local: local, remote: model.detail?.strain?.sessions ?? [])
         let workouts = model.detail?.workouts ?? []
         var linked = Set<UUID>()

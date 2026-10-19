@@ -127,6 +127,7 @@ struct TrainSyncTests {
         #expect(a.pendingCompletion)
         #expect(a.status == .completed)
         #expect(service.pendingCount == 3)
+        let finishedAt = try #require(a.endedAt)
 
         // Back online: PUT A, PUT B, then complete A — in the order they were queued.
         TrainStubURLProtocol.reset()
@@ -137,14 +138,21 @@ struct TrainSyncTests {
         #expect(service.pendingCount == 0)
         #expect(service.isOnline)
         #expect(!a.pendingCompletion)
-        #expect(a.strain == 11.2)
-        #expect(a.muscularTrimp == 84.6)
+        #expect(a.status == .completed)
+        #expect(a.strain == 10.6)
+        #expect(a.muscularTrimp == 55.3)
         #expect(a.prs.count == 2)
 
-        // The PUT for A carried both sets checked off offline.
+        // The PUT for A carried both sets checked off offline, still `in_progress`:
+        // the platform takes `completed` only from `…/complete`.
         let putA = try APIClient.jsonDecoder.decode(TrainSession.self, from: TrainStubURLProtocol.requests[0].body)
         #expect(putA.exercises[0].sets.compactMap(\.reps) == [5, 5])
-        #expect(putA.status == .completed)
+        #expect(putA.status == .inProgress)
+        #expect(putA.deviceId == Settings.shared.deviceId)
+        // …and complete sends the workout's own end time, not the replay time.
+        let complete = try APIClient.jsonDecoder.decode(SessionComplete.self, from: TrainStubURLProtocol.requests[2].body)
+        let sentEnd = try #require(complete.endedAt)
+        #expect(abs(sentEnd.timeIntervalSince(finishedAt)) < 1)
     }
 
     @Test func changesAreDebouncedIntoOnePut() async throws {
@@ -175,9 +183,9 @@ struct TrainSyncTests {
         // The server's copy: an older version of `mine`, a set from another device, and one deleted here.
         var server = a.wire
         server.exercises[0].sets = [
-            TrainSet(id: mine.id, setIndex: 0, reps: 3, weightKg: 100, completedAt: t1, updatedAt: t1),
-            TrainSet(id: UUID(), setIndex: 2, reps: 6, weightKg: 95, completedAt: t3, updatedAt: t3),
-            TrainSet(id: deletedHere, setIndex: 3, reps: 1, weightKg: 20, completedAt: t1, updatedAt: t1),
+            SessionSet(id: mine.id, setIndex: 0, reps: 3, weightKg: 100, completedAt: t1, updatedAt: t1),
+            SessionSet(id: UUID(), setIndex: 2, reps: 6, weightKg: 95, completedAt: t3, updatedAt: t3),
+            SessionSet(id: deletedHere, setIndex: 3, reps: 1, weightKg: 20, completedAt: t1, updatedAt: t1),
         ]
         let fromOtherDevice = server.exercises[0].sets[1].id
         TrainStubURLProtocol.script([.status(409, try APIClient.jsonEncoder.encode(server)), .echo])
@@ -224,37 +232,37 @@ struct SessionMergeTests {
     let t1 = Date(timeIntervalSinceReferenceDate: 800_000_000)
     var t2: Date { t1.addingTimeInterval(60) }
 
-    private func doc(_ sets: [TrainSet], exerciseID: UUID = UUID(uuidString: "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f01")!) -> TrainSession {
+    private func doc(_ sets: [SessionSet], exerciseID: UUID = UUID(uuidString: "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f01")!) -> TrainSession {
         TrainSession(id: UUID(uuidString: "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e01")!, title: "Upper A", startedAt: t1,
                      status: .inProgress,
-                     exercises: [TrainSessionExercise(id: exerciseID, exerciseId: MockTrain.bench.id, position: 0, sets: sets)])
+                     exercises: [SessionExercise(id: exerciseID, exerciseId: MockTrain.bench.id, position: 0, sets: sets)])
     }
 
     @Test func newerServerSetWins() {
         let id = UUID()
-        let merged = SessionMerge.merge(local: doc([TrainSet(id: id, setIndex: 0, reps: 5, updatedAt: t1)]),
-                                        server: doc([TrainSet(id: id, setIndex: 0, reps: 6, updatedAt: t2)]))
+        let merged = SessionMerge.merge(local: doc([SessionSet(id: id, setIndex: 0, reps: 5, updatedAt: t1)]),
+                                        server: doc([SessionSet(id: id, setIndex: 0, reps: 6, updatedAt: t2)]))
         #expect(merged.exercises[0].sets.map(\.reps) == [6])
     }
 
     @Test func tieKeepsTheLocalSet() {
         let id = UUID()
-        let merged = SessionMerge.merge(local: doc([TrainSet(id: id, setIndex: 0, reps: 5, updatedAt: t1)]),
-                                        server: doc([TrainSet(id: id, setIndex: 0, reps: 6, updatedAt: t1)]))
+        let merged = SessionMerge.merge(local: doc([SessionSet(id: id, setIndex: 0, reps: 5, updatedAt: t1)]),
+                                        server: doc([SessionSet(id: id, setIndex: 0, reps: 6, updatedAt: t1)]))
         #expect(merged.exercises[0].sets.map(\.reps) == [5])
     }
 
     @Test func serverOnlyExerciseIsKeptInPosition() {
         var server = doc([])
-        server.exercises.append(TrainSessionExercise(exerciseId: MockTrain.row.id, position: 1,
-                                                     sets: [TrainSet(setIndex: 0, reps: 8, updatedAt: t1)]))
-        let merged = SessionMerge.merge(local: doc([TrainSet(setIndex: 0, reps: 5, updatedAt: t1)]), server: server)
+        server.exercises.append(SessionExercise(exerciseId: MockTrain.row.id, position: 1,
+                                                     sets: [SessionSet(setIndex: 0, reps: 8, updatedAt: t1)]))
+        let merged = SessionMerge.merge(local: doc([SessionSet(setIndex: 0, reps: 5, updatedAt: t1)]), server: server)
         #expect(merged.exercises.map(\.exerciseId) == [MockTrain.bench.id, MockTrain.row.id])
     }
 
     @Test func setsComeBackInOrder() {
-        let merged = SessionMerge.merge(local: doc([TrainSet(setIndex: 2, updatedAt: t1), TrainSet(setIndex: 0, updatedAt: t1)]),
-                                        server: doc([TrainSet(setIndex: 1, updatedAt: t1)]))
+        let merged = SessionMerge.merge(local: doc([SessionSet(setIndex: 2, updatedAt: t1), SessionSet(setIndex: 0, updatedAt: t1)]),
+                                        server: doc([SessionSet(setIndex: 1, updatedAt: t1)]))
         #expect(merged.exercises[0].sets.map(\.setIndex) == [0, 1, 2])
     }
 

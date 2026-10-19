@@ -62,13 +62,21 @@ final class LocalSession {
     /// Live volume of the checked-off working sets.
     var liveVolumeKg: Double { Volume.of(allSets.map(\.wire)) }
 
-    /// The whole document for `PUT /v1/sessions/{id}`.
+    /// The whole document for `PUT /v1/sessions/{id}`. The platform takes
+    /// `completed` only for a session it already completed, so one finished
+    /// here but waiting for `…/complete` goes up as `in_progress`.
     var wire: TrainSession {
-        TrainSession(id: id, title: title, startedAt: startedAt, endedAt: endedAt, status: status,
+        TrainSession(id: id, title: title, startedAt: startedAt, endedAt: endedAt, status: wireStatus,
                      planDayId: planDayId, workoutId: workoutId, notes: notes, bodyweightKg: bodyweightKg,
                      muscularTrimp: muscularTrimp, strain: strain, volumeKg: volumeKg,
-                     exercises: orderedExercises.map(\.wire))
+                     deviceId: Settings.shared.deviceId, exercises: orderedExercises.map(\.wire), prs: prs)
     }
+
+    var wireStatus: SessionStatus {
+        status == .completed && pendingCompletion ? .inProgress : status
+    }
+
+    var summary: SessionSummary { SessionSummary(wire) }
 
     /// Takes a server document into the local copy. Sets and exercises are
     /// upserted by id and never removed: anything logged locally while the
@@ -76,7 +84,10 @@ final class LocalSession {
     func apply(_ doc: TrainSession, names: (UUID) -> Exercise?, in context: ModelContext) {
         title = doc.title
         endedAt = doc.endedAt ?? endedAt
-        status = doc.status
+        // Never back to in progress: a session finished here goes up as in_progress
+        // until `…/complete` (see `wireStatus`).
+        if !(status == .completed && doc.status == .inProgress) { status = doc.status }
+        if !doc.prs.isEmpty { prs = doc.prs }
         workoutId = doc.workoutId ?? workoutId
         bodyweightKg = doc.bodyweightKg ?? bodyweightKg
         muscularTrimp = doc.muscularTrimp ?? muscularTrimp
@@ -130,7 +141,7 @@ final class LocalSessionExercise {
     var targetKg: Double?
     var targetKindRaw: String?
     var targetValue: Double?
-    /// `[TrainSet]` from last time, shown ghosted.
+    /// `[SessionSet]` from last time, shown ghosted.
     var lastTimeData: Data?
     var session: LocalSession?
     @Relationship(deleteRule: .cascade, inverse: \LocalSet.exercise)
@@ -155,8 +166,8 @@ final class LocalSessionExercise {
 
     var orderedSets: [LocalSet] { sets.sorted { $0.setIndex < $1.setIndex } }
 
-    var lastTime: [TrainSet] {
-        get { lastTimeData.flatMap { try? APIClient.jsonDecoder.decode([TrainSet].self, from: $0) } ?? [] }
+    var lastTime: [SessionSet] {
+        get { lastTimeData.flatMap { try? APIClient.jsonDecoder.decode([SessionSet].self, from: $0) } ?? [] }
         set { lastTimeData = newValue.isEmpty ? nil : try? APIClient.jsonEncoder.encode(newValue) }
     }
 
@@ -179,9 +190,9 @@ final class LocalSessionExercise {
         return (targetRepsMin, targetKg ?? last.last?.weightKg)
     }
 
-    var wire: TrainSessionExercise {
-        TrainSessionExercise(id: id, exerciseId: exerciseId, position: position, notes: notes,
-                             sets: orderedSets.map(\.wire))
+    var wire: SessionExercise {
+        SessionExercise(id: id, exerciseId: exerciseId, planExerciseId: planExerciseId, position: position,
+                        notes: notes, sets: orderedSets.map(\.wire))
     }
 }
 
@@ -209,14 +220,14 @@ final class LocalSet {
         self.updatedAt = updatedAt
     }
 
-    convenience init(_ s: TrainSet) {
+    convenience init(_ s: SessionSet) {
         self.init(id: s.id, setIndex: s.setIndex)
         update(from: s)
     }
 
     var isCompleted: Bool { completedAt != nil }
 
-    func update(from s: TrainSet) {
+    func update(from s: SessionSet) {
         setIndex = s.setIndex
         reps = s.reps
         weightKg = s.weightKg
@@ -228,8 +239,8 @@ final class LocalSet {
         updatedAt = s.updatedAt
     }
 
-    var wire: TrainSet {
-        TrainSet(id: id, setIndex: setIndex, reps: reps, weightKg: weightKg, rpe: rpe, durationSec: durationSec,
+    var wire: SessionSet {
+        SessionSet(id: id, setIndex: setIndex, reps: reps, weightKg: weightKg, rpe: rpe, durationSec: durationSec,
                  distanceM: distanceM, isWarmup: isWarmup, completedAt: completedAt, updatedAt: updatedAt)
     }
 }

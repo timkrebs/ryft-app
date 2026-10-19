@@ -12,7 +12,7 @@ final class TrainCoordinator: ObservableObject {
     /// Presented full screen while set.
     @Published var live: SessionController?
     /// Shown after Finish, over whatever screen the user returns to.
-    @Published var summary: SessionSummary?
+    @Published var summary: FinishSummary?
     @Published var showsStart = false
 
     let sync: TrainSyncService
@@ -100,7 +100,7 @@ final class TrainCoordinator: ObservableObject {
         let result = await controller.finish(bodyweightKg: bodyweightKg)
         active = nil
         // Shown over the session; Done closes both (`summaryDone`).
-        summary = SessionSummary(sessionID: s.id, completed: result)
+        summary = FinishSummary(sessionID: s.id, completed: result)
         await library.sessionCompleted()
     }
 
@@ -117,9 +117,9 @@ final class TrainCoordinator: ObservableObject {
 }
 
 /// What the summary sheet shows: the server's answer, or "will sync".
-struct SessionSummary: Identifiable {
+struct FinishSummary: Identifiable {
     let sessionID: UUID
-    var completed: CompletedSession?
+    var completed: TrainSession?
     var id: UUID { sessionID }
 }
 

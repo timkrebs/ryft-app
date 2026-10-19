@@ -2,7 +2,7 @@
 // and queued at once; the queue is replayed in order.
 //
 //   set change ──▶ outbox `put` (coalesced) ──2 s debounce──▶ PUT /v1/sessions/{id}
-//   finish     ──▶ outbox `put`, `complete` ──now──▶ PUT, POST …/complete
+//   finish     ──▶ outbox `put` (still in_progress), `complete` ──now──▶ PUT, POST …/complete {ended_at}
 //   409        ──▶ merge with the server copy by set id (later updated_at) ──▶ PUT again
 //   offline    ──▶ ops stay queued; NWPathMonitor (and app active) replays them
 //
@@ -18,7 +18,7 @@ final class TrainSyncService: ObservableObject {
     @Published private(set) var isFlushing = false
     @Published private(set) var lastError: String?
     /// The latest completion the server answered, for the summary sheet.
-    @Published private(set) var lastCompletion: CompletedSession?
+    @Published private(set) var lastCompletion: TrainSession?
 
     let store: TrainStore
     private let remoteProvider: () -> TrainDataSource
@@ -57,7 +57,7 @@ final class TrainSyncService: ObservableObject {
     /// Finish: upload the last state and complete. Returns the server's answer,
     /// or `nil` when offline (the session is marked `pendingCompletion`).
     @discardableResult
-    func finish(_ s: LocalSession, bodyweightKg: Double? = nil) async -> CompletedSession? {
+    func finish(_ s: LocalSession, bodyweightKg: Double? = nil) async -> TrainSession? {
         let now = Date.now
         s.status = .completed
         s.endedAt = now
@@ -71,7 +71,7 @@ final class TrainSyncService: ObservableObject {
         debounceTask?.cancel()
         await flush()
         guard !s.pendingCompletion else { return nil }
-        return CompletedSession(session: s.wire, prs: s.prs)
+        return s.wire
     }
 
     /// Discard (after confirmation): gone locally; a `DELETE` if the server has a copy.
@@ -161,8 +161,11 @@ final class TrainSyncService: ObservableObject {
             try await put(s)
         case .complete:
             guard let s = store.session(id: op.sessionId) else { return }
-            let done = try await remote.completeSession(id: s.id, bodyweightKg: op.bodyweightKg)
-            s.apply(done.session, names: store.exercise(id:), in: store.context)
+            // `ended_at` from here: the queue may replay this long after the workout.
+            let done = try await remote.completeSession(id: s.id, SessionComplete(bodyweightKg: op.bodyweightKg,
+                                                                                endedAt: s.endedAt))
+            s.pendingCompletion = false
+            s.apply(done, names: store.exercise(id:), in: store.context)
             s.prs = done.prs
             s.pendingCompletion = false
             store.save()

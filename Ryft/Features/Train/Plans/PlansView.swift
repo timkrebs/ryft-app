@@ -14,12 +14,18 @@ extension PlanExercise {
     }
 }
 
+/// "Hypertrophy · 4 days/week · repeating".
+private func planSummaryText(goal: PlanGoal, daysPerWeek: Int, weeks: Int?) -> String {
+    let length = weeks.map { String(localized: "\($0) weeks") } ?? String(localized: "repeating")
+    return [goal.title, String(localized: "\(daysPerWeek) days/week"), length].joined(separator: " · ")
+}
+
+extension PlanSummary {
+    var summaryText: String { planSummaryText(goal: goal, daysPerWeek: daysPerWeek, weeks: weeks) }
+}
+
 extension Plan {
-    /// "Hypertrophy · 4 days/week · repeating".
-    var summaryText: String {
-        let length = weeks.map { String(localized: "\($0) weeks") } ?? String(localized: "repeating")
-        return [goal.title, String(localized: "\(daysPerWeek) days/week"), length].joined(separator: " · ")
-    }
+    var summaryText: String { planSummaryText(goal: goal, daysPerWeek: daysPerWeek, weeks: weeks) }
 
     static func blank() -> Plan {
         Plan(name: "", goal: .general, weeks: nil, daysPerWeek: 3, description: "", progression: .linear,
@@ -40,18 +46,20 @@ extension Plan {
     }
 }
 
-/// Built-in templates, the user's plans and the active enrolment.
+/// Built-in templates, the user's plans and the active (or paused) enrolment.
 struct PlansView: View {
     @EnvironmentObject private var library: TrainLibrary
     @State private var editing: Plan?
-    @State private var confirmLeave = false
     @State private var working = false
+
+    /// The plan the card is about: the active one, else the paused one.
+    private var currentPlanID: UUID? { library.activeEnrollment?.planId ?? library.pausedPlanID }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Metrics.sectionSpacing) {
-                if let e = library.activeEnrollment {
-                    activeCard(e)
+                if let id = currentPlanID {
+                    currentCard(planID: id)
                 }
                 if let error = library.error {
                     InlineMessage(message: error, details: library.errorDetails, retry: { await library.refresh() })
@@ -74,32 +82,33 @@ struct PlansView: View {
         .refreshable { await library.refresh() }
         .task { if library.catalog == nil { await library.refresh() } }
         .sheet(item: $editing) { PlanBuilderView(plan: $0) }
-        .confirmationDialog("Leave \(library.activePlan?.name ?? String(localized: "this plan"))?",
-                            isPresented: $confirmLeave, titleVisibility: .visible) {
-            Button("Leave plan", role: .destructive) { Task { await library.leavePlan() } }
-        } message: {
-            Text("Logged workouts stay. Today's plan is gone until you enrol again.")
-        }
     }
 
-    private func activeCard(_ e: Enrollment) -> some View {
-        let plan = library.activePlan
+    private func currentCard(planID: UUID) -> some View {
+        let paused = library.isPaused
+        let name = library.catalog?.summary(id: planID)?.name ?? library.plan(id: planID)?.name
         return Card {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
-                    Text(e.status == .paused ? "Paused" : "Active").ryftLabelStyle(e.status == .paused ? Theme.warning : Theme.accent)
+                    Text(paused ? "Paused" : "Active").ryftLabelStyle(paused ? Theme.warning : Theme.accent)
                     Spacer()
-                    Text("Week \(e.currentWeek)")
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textSecondary)
+                    if let e = library.activeEnrollment {
+                        Text("Week \(e.currentWeek)")
+                            .font(.ryft(.caption))
+                            .foregroundStyle(Theme.textSecondary)
+                    }
                 }
-                NavigationLink(value: TrainRoute.plan(e.planId)) {
+                NavigationLink(value: TrainRoute.plan(planID)) {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(plan?.name ?? String(localized: "Your plan"))
+                            Text(name ?? String(localized: "Your plan"))
                                 .font(.ryft(.headline))
                                 .foregroundStyle(Theme.textPrimary)
-                            if let today = library.today {
+                            if paused {
+                                Text("Resume continues where you stopped.")
+                                    .font(.ryft(.callout))
+                                    .foregroundStyle(Theme.textSecondary)
+                            } else if let today = library.today {
                                 Text("Next: \(today.day.name)")
                                     .font(.ryft(.callout))
                                     .foregroundStyle(Theme.textSecondary)
@@ -111,34 +120,28 @@ struct PlansView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                HStack(spacing: 10) {
-                    Button(e.status == .paused ? "Resume" : "Pause") {
-                        Task {
-                            working = true
-                            await library.setPaused(e.status != .paused)
-                            working = false
-                        }
+                Button(paused ? "Resume" : "Pause") {
+                    Task {
+                        working = true
+                        await library.setPaused(!paused)
+                        working = false
                     }
-                    .buttonStyle(TealButtonStyle(prominent: false))
-                    .disabled(working)
-                    Button("Leave") { confirmLeave = true }
-                        .font(.ryft(.headline))
-                        .foregroundStyle(Theme.textSecondary)
-                        .frame(minWidth: 88, minHeight: 56)
                 }
+                .buttonStyle(TealButtonStyle(prominent: paused))
+                .disabled(working)
             }
         }
     }
 
     @ViewBuilder
-    private func section(_ title: LocalizedStringKey, plans: [Plan]) -> some View {
+    private func section(_ title: LocalizedStringKey, plans: [PlanSummary]) -> some View {
         if !plans.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 TrainSectionTitle(title: title)
                 ForEach(plans) { p in
                     NavigationLink(value: TrainRoute.plan(p.id)) {
                         TrainLinkRow(title: p.name, detail: p.summaryText,
-                                     systemImage: library.activeEnrollment?.planId == p.id ? "checkmark.circle.fill" : "list.bullet.rectangle")
+                                     systemImage: currentPlanID == p.id ? "checkmark.circle.fill" : "list.bullet.rectangle")
                     }
                     .buttonStyle(PressableButtonStyle())
                 }
@@ -160,7 +163,8 @@ struct PlanDetailView: View {
     @State private var confirmDelete = false
     @State private var working = false
 
-    private var isActive: Bool { library.activeEnrollment?.planId == planID }
+    /// Active or paused: this plan is the one the user is on.
+    private var isCurrent: Bool { (library.activeEnrollment?.planId ?? library.pausedPlanID) == planID }
 
     private var weeks: [Int] { Array(Set(plan?.days.compactMap(\.week) ?? [])).sorted() }
 
@@ -200,7 +204,7 @@ struct PlanDetailView: View {
         .confirmationDialog("Switch to \(plan?.name ?? "")?", isPresented: $confirmSwitch, titleVisibility: .visible) {
             Button("Switch plan") { Task { await enroll() } }
         } message: {
-            Text("\(library.activePlan?.name ?? String(localized: "Your current plan")) stops; this one starts at week 1. Logged workouts stay.")
+            Text("\(library.activePlanName ?? String(localized: "Your current plan")) is paused; this one starts at week 1. Logged workouts stay.")
         }
         .confirmationDialog("Delete \(plan?.name ?? "")?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete plan", role: .destructive) {
@@ -218,7 +222,7 @@ struct PlanDetailView: View {
             Text(p.summaryText)
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.accent)
-            Text(p.progression.type.title)
+            Text(p.progressionType.title)
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textSecondary)
             if !p.description.isEmpty {
@@ -233,15 +237,15 @@ struct PlanDetailView: View {
     @ViewBuilder
     private func actions(_ p: Plan) -> some View {
         VStack(spacing: 10) {
-            if isActive, let e = library.activeEnrollment {
-                Button(e.status == .paused ? "Resume plan" : "Pause plan") {
+            if isCurrent {
+                Button(library.isPaused ? "Resume plan" : "Pause plan") {
                     Task {
                         working = true
-                        await library.setPaused(e.status != .paused)
+                        await library.setPaused(!library.isPaused)
                         working = false
                     }
                 }
-                .buttonStyle(TealButtonStyle(prominent: false))
+                .buttonStyle(TealButtonStyle(prominent: library.isPaused))
             } else {
                 Button(library.activeEnrollment == nil ? "Start this plan" : "Switch to this plan") {
                     if library.activeEnrollment == nil { Task { await enroll() } } else { confirmSwitch = true }

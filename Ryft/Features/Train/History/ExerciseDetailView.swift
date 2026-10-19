@@ -13,9 +13,9 @@ struct ExerciseDetailView: View {
     private var exercise: Exercise? { library.exercise(id: exerciseID) }
 
     /// The chart window: the last 90 days.
-    private var points: [TrendPoint] {
+    private var points: [E1RMPoint] {
         let from = DayFormat.string(from: DayFormat.shift(.now, days: -89))
-        return (history?.e1rm ?? []).filter { $0.day >= from && $0.value != nil }
+        return (history?.e1rm ?? []).filter { $0.day >= from }
     }
 
     var body: some View {
@@ -44,12 +44,12 @@ struct ExerciseDetailView: View {
     private var header: some View {
         VStack(spacing: 4) {
             Text("Estimated 1RM").ryftLabelStyle()
-            Text(points.last?.value.map { Fmt.kg($0) } ?? Fmt.placeholder)
+            Text(points.last.map { Fmt.kg($0.value) } ?? Fmt.placeholder)
                 .font(.ryftNumber(size: 44))
                 .monospacedDigit()
                 .foregroundStyle(Theme.textPrimary)
             if let e = exercise {
-                Text(([e.kind.title] + e.primaryMuscles.map(Muscle.title)).joined(separator: " · "))
+                Text(([e.kind.title] + e.primaryMuscles.map(\.title)).joined(separator: " · "))
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textSecondary)
             }
@@ -124,10 +124,10 @@ struct ExerciseDetailView: View {
         }
     }
 
-    private func row(_ entry: ExerciseHistory.Entry) -> some View {
+    private func row(_ entry: ExerciseHistorySession) -> some View {
         let working = entry.sets.filter { !$0.isWarmup }
         return HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(entry.date.formatted(.dateTime.day().month(.abbreviated)))
+            Text(entry.startedAt.formatted(.dateTime.day().month(.abbreviated)))
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
                 .frame(width: 58, alignment: .leading)
@@ -153,29 +153,27 @@ struct ExerciseDetailView: View {
 
 /// e1RM over time with the best as a dashed rule.
 struct E1RMChart: View {
-    let points: [TrendPoint]
+    let points: [E1RMPoint]
     var best: Double?
 
-    private var values: [Double] { points.compactMap(\.value) }
+    private var values: [Double] { points.map(\.value) }
 
     var body: some View {
         let lo = (values.min() ?? 0), hi = max(values.max() ?? 1, best ?? 0)
         let pad = max(2.5, (hi - lo) * 0.15)
         Chart {
             ForEach(points) { p in
-                if let v = p.value {
-                    AreaMark(x: .value("Day", p.date), yStart: .value("Base", lo - pad), yEnd: .value("e1RM", v))
+                    AreaMark(x: .value("Day", p.date), yStart: .value("Base", lo - pad), yEnd: .value("e1RM", p.value))
                         .foregroundStyle(LinearGradient(colors: [Theme.accent.opacity(0.25), Theme.accent.opacity(0)],
                                                         startPoint: .top, endPoint: .bottom))
                         .interpolationMethod(.monotone)
-                    LineMark(x: .value("Day", p.date), y: .value("e1RM", v))
+                    LineMark(x: .value("Day", p.date), y: .value("e1RM", p.value))
                         .foregroundStyle(Theme.accent)
                         .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
                         .interpolationMethod(.monotone)
-                    PointMark(x: .value("Day", p.date), y: .value("e1RM", v))
+                    PointMark(x: .value("Day", p.date), y: .value("e1RM", p.value))
                         .foregroundStyle(Theme.accent)
                         .symbolSize(18)
-                }
             }
             if let best {
                 RuleMark(y: .value("Best", best))

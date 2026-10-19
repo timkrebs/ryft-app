@@ -91,6 +91,10 @@ struct DailyScore: Codable, Identifiable, Hashable {
     var strain: Double?
     var steps: Int?
     var activeKcal: Int?
+    /// Minutes of logged strength training that day.
+    var strengthMin: Int?
+    /// Σ reps × kg of the day's sessions.
+    var volumeKg: Double?
     var sleepPerformance: Int?
     var sleepNeedMin: Int?
     var sleepActualMin: Int?
@@ -117,7 +121,8 @@ struct DailyScore: Codable, Identifiable, Hashable {
     }
 
     init(day: String, readiness: Int? = nil, state: ReadinessState? = nil, recovery: Int? = nil,
-         strain: Double? = nil, steps: Int? = nil, activeKcal: Int? = nil, sleepPerformance: Int? = nil,
+         strain: Double? = nil, steps: Int? = nil, activeKcal: Int? = nil, strengthMin: Int? = nil,
+         volumeKg: Double? = nil, sleepPerformance: Int? = nil,
          sleepNeedMin: Int? = nil, sleepActualMin: Int? = nil, sleepDebtMin: Int? = nil, hrvMs: Double? = nil,
          rhr: Double? = nil, respRate: Double? = nil, spo2: Double? = nil, hrvBaselineMs: Double? = nil,
          rhrBaseline: Double? = nil, baselineDays: Int = 0, calibrating: Bool = false, computedAt: Date? = nil) {
@@ -128,6 +133,8 @@ struct DailyScore: Codable, Identifiable, Hashable {
         self.strain = strain
         self.steps = steps
         self.activeKcal = activeKcal
+        self.strengthMin = strengthMin
+        self.volumeKg = volumeKg
         self.sleepPerformance = sleepPerformance
         self.sleepNeedMin = sleepNeedMin
         self.sleepActualMin = sleepActualMin
@@ -144,7 +151,7 @@ struct DailyScore: Codable, Identifiable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case day, readiness, state, recovery, strain, steps, activeKcal, sleepPerformance, sleepNeedMin,
+        case day, readiness, state, recovery, strain, steps, activeKcal, strengthMin, volumeKg, sleepPerformance, sleepNeedMin,
              sleepActualMin, sleepDebtMin, hrvMs, rhr, respRate, spo2, hrvBaselineMs, rhrBaseline,
              baselineDays, calibrating, computedAt
     }
@@ -158,6 +165,8 @@ struct DailyScore: Codable, Identifiable, Hashable {
         strain = try c.decodeIfPresent(Double.self, forKey: .strain)
         steps = try c.decodeLenientInt(.steps)
         activeKcal = try c.decodeLenientInt(.activeKcal)
+        strengthMin = try c.decodeLenientInt(.strengthMin)
+        volumeKg = try c.decodeIfPresent(Double.self, forKey: .volumeKg)
         sleepPerformance = try c.decodeLenientInt(.sleepPerformance)
         sleepNeedMin = try c.decodeLenientInt(.sleepNeedMin)
         sleepActualMin = try c.decodeLenientInt(.sleepActualMin)
@@ -449,8 +458,10 @@ struct DayStrain: Codable, Hashable {
     let zoneMin: [Int]
     var steps: Int?
     var activeKcal: Int?
+    /// Muscular load of the day's sessions (TRIMP-equivalent), part of `trimp`.
+    var muscularTrimp: Int? = nil
     /// Train sessions logged that day.
-    var sessions: [TrainSession]? = nil
+    var sessions: [SessionSummary]? = nil
 }
 
 struct DayDetail: Codable, Hashable {
@@ -550,6 +561,8 @@ struct TrendPoint: Codable, Hashable, Identifiable {
 struct TrendSeries: Codable, Hashable {
     let metric: String
     let range: String
+    var from: String? = nil
+    var to: String? = nil
     var points: [TrendPoint]
     var avg: Double?
     var min: Double?
@@ -566,12 +579,14 @@ struct TrendSeries: Codable, Hashable {
         self.baseline = baseline
     }
 
-    enum CodingKeys: String, CodingKey { case metric, range, points, avg, min, max, baseline }
+    enum CodingKeys: String, CodingKey { case metric, range, from, to, points, avg, min, max, baseline }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         metric = try c.decodeIfPresent(String.self, forKey: .metric) ?? ""
         range = try c.decodeIfPresent(String.self, forKey: .range) ?? ""
+        from = try c.decodeIfPresent(String.self, forKey: .from)
+        to = try c.decodeIfPresent(String.self, forKey: .to)
         points = try c.decodeIfPresent([TrendPoint].self, forKey: .points) ?? []
         avg = try c.decodeIfPresent(Double.self, forKey: .avg)
         min = try c.decodeIfPresent(Double.self, forKey: .min)
@@ -674,11 +689,13 @@ struct AppleAuthorization: Codable {
 
 // MARK: - Train
 //
-// Exercises, plans and logged strength sessions. Every id is a client-generated
-// UUID. Until `API.md` carries the Train section these follow the platform's
-// M3b brief (`plattform/CLAUDE_FOLLOWUP_TRAIN.md` §1 and §4); gaps are listed
-// in `docs/API_REQUESTS.md`. Unknown enum values decode to a neutral case so a
-// new server value never breaks the screen.
+// Exercises, plans and logged sessions: API.md → Train and its Swift mirror.
+// Every id is a UUID; sessions, their exercises and sets, custom exercises and
+// plans get theirs from the app. Two names differ from the mirror: `Session`
+// is `TrainSession` here (Supabase's `Session` is the auth session), and
+// `SessionComplete` keeps the mirror's name. Closed enums decode leniently: an
+// unknown value falls back to a neutral case (or is dropped from a list), so a
+// new server value never breaks a screen.
 
 enum ExerciseKind: String, Codable, CaseIterable, Identifiable {
     case barbell, dumbbell, kettlebell, bodyweight, machine, cable, cardio
@@ -697,13 +714,32 @@ enum LoadType: String, Codable {
     }
 }
 
+/// The platform's muscle names (`primary_muscles`, `secondary_muscles`, `?muscle=`).
+enum Muscle: String, Codable, CaseIterable, Identifiable {
+    case chest, lats, traps, biceps, triceps, forearms, abs, obliques, glutes, quads, hamstrings, adductors, calves
+    case upperBack = "upper_back", frontDelts = "front_delts", sideDelts = "side_delts", rearDelts = "rear_delts"
+    case lowerBack = "lower_back"
+    var id: String { rawValue }
+}
+
+extension KeyedDecodingContainer {
+    /// A list of closed-enum values; unknown ones are dropped.
+    func decodeLenientList<T: RawRepresentable & Decodable>(_ type: T.Type, _ key: Key) throws -> [T]
+    where T.RawValue == String {
+        (try decodeIfPresent([String].self, forKey: key) ?? []).compactMap(T.init(rawValue:))
+    }
+}
+
 struct Exercise: Codable, Hashable, Identifiable {
     let id: UUID
     var slug: String
+    /// In the request's `Accept-Language`.
     var name: String
+    var nameEn: String
+    var nameDe: String
     var kind: ExerciseKind
-    var primaryMuscles: [String]
-    var secondaryMuscles: [String]
+    var primaryMuscles: [Muscle]
+    var secondaryMuscles: [Muscle]
     var equipment: [String]
     var loadType: LoadType
     var bodyweightFactor: Double
@@ -711,12 +747,15 @@ struct Exercise: Codable, Hashable, Identifiable {
     var isCustom: Bool
     var archived: Bool
 
-    init(id: UUID = UUID(), slug: String, name: String, kind: ExerciseKind, primaryMuscles: [String],
-         secondaryMuscles: [String] = [], equipment: [String] = [], loadType: LoadType = .weight,
-         bodyweightFactor: Double = 0, isUnilateral: Bool = false, isCustom: Bool = false, archived: Bool = false) {
+    init(id: UUID = UUID(), slug: String, name: String, nameDe: String? = nil, kind: ExerciseKind,
+         primaryMuscles: [Muscle], secondaryMuscles: [Muscle] = [], equipment: [String] = [],
+         loadType: LoadType = .weight, bodyweightFactor: Double = 0, isUnilateral: Bool = false,
+         isCustom: Bool = false, archived: Bool = false) {
         self.id = id
         self.slug = slug
         self.name = name
+        self.nameEn = name
+        self.nameDe = nameDe ?? name
         self.kind = kind
         self.primaryMuscles = primaryMuscles
         self.secondaryMuscles = secondaryMuscles
@@ -729,8 +768,8 @@ struct Exercise: Codable, Hashable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, slug, name, kind, primaryMuscles, secondaryMuscles, equipment, loadType, bodyweightFactor,
-             isUnilateral, isCustom, archived
+        case id, slug, name, nameEn, nameDe, kind, primaryMuscles, secondaryMuscles, equipment, loadType,
+             bodyweightFactor, isUnilateral, isCustom, archived
     }
 
     init(from decoder: Decoder) throws {
@@ -738,15 +777,44 @@ struct Exercise: Codable, Hashable, Identifiable {
         id = try c.decode(UUID.self, forKey: .id)
         slug = try c.decodeIfPresent(String.self, forKey: .slug) ?? ""
         name = try c.decode(String.self, forKey: .name)
+        nameEn = try c.decodeIfPresent(String.self, forKey: .nameEn) ?? name
+        nameDe = try c.decodeIfPresent(String.self, forKey: .nameDe) ?? name
         kind = try c.decodeIfPresent(ExerciseKind.self, forKey: .kind) ?? .machine
-        primaryMuscles = try c.decodeIfPresent([String].self, forKey: .primaryMuscles) ?? []
-        secondaryMuscles = try c.decodeIfPresent([String].self, forKey: .secondaryMuscles) ?? []
+        primaryMuscles = try c.decodeLenientList(Muscle.self, .primaryMuscles)
+        secondaryMuscles = try c.decodeLenientList(Muscle.self, .secondaryMuscles)
         equipment = try c.decodeIfPresent([String].self, forKey: .equipment) ?? []
         loadType = try c.decodeIfPresent(LoadType.self, forKey: .loadType) ?? .weight
         bodyweightFactor = try c.decodeIfPresent(Double.self, forKey: .bodyweightFactor) ?? 0
         isUnilateral = try c.decodeIfPresent(Bool.self, forKey: .isUnilateral) ?? false
         isCustom = try c.decodeIfPresent(Bool.self, forKey: .isCustom) ?? false
         archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+    }
+}
+
+/// `POST /v1/exercises` (create a custom exercise; same `id` again updates it).
+struct ExerciseInput: Codable {
+    let id: UUID
+    let name: String
+    var nameDe: String?
+    let kind: ExerciseKind
+    let primaryMuscles: [Muscle]
+    var secondaryMuscles: [Muscle]?
+    var equipment: [String]?
+    let loadType: LoadType
+    var bodyweightFactor: Double?
+    var isUnilateral: Bool?
+
+    init(_ e: Exercise) {
+        id = e.id
+        name = e.name
+        nameDe = e.nameDe == e.name ? nil : e.nameDe
+        kind = e.kind
+        primaryMuscles = e.primaryMuscles
+        secondaryMuscles = e.secondaryMuscles
+        equipment = e.equipment
+        loadType = e.loadType
+        bodyweightFactor = e.loadType == .bodyweight ? e.bodyweightFactor : nil
+        isUnilateral = e.isUnilateral
     }
 }
 
@@ -768,7 +836,7 @@ enum ProgressionType: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-/// `plans.progression`, e.g. `{"type":"linear","increment_kg":2.5,"on_fail":"repeat","deload_after":3}`.
+/// `{"type":"linear","increment_kg":2.5,"on_fail":"repeat","deload_after":3}`, `{"type":"percent"}`, `{"type":"none"}`.
 struct Progression: Codable, Hashable {
     var type: ProgressionType
     var incrementKg: Double? = nil
@@ -800,7 +868,8 @@ enum TargetKind: String, Codable, CaseIterable, Identifiable {
 
 struct PlanExercise: Codable, Hashable, Identifiable {
     let id: UUID
-    /// Resolved exercise (name, kind, muscles).
+    var exerciseId: UUID
+    /// Resolved, read-only (ignored on `PUT`).
     var exercise: Exercise
     var position: Int
     var sets: Int
@@ -815,6 +884,7 @@ struct PlanExercise: Codable, Hashable, Identifiable {
     init(id: UUID = UUID(), exercise: Exercise, position: Int, sets: Int, repsMin: Int, repsMax: Int,
          targetKind: TargetKind, targetValue: Double?, restSec: Int, supersetGroup: Int? = nil, notes: String = "") {
         self.id = id
+        self.exerciseId = exercise.id
         self.exercise = exercise
         self.position = position
         self.sets = sets
@@ -828,13 +898,15 @@ struct PlanExercise: Codable, Hashable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, exercise, position, sets, repsMin, repsMax, targetKind, targetValue, restSec, supersetGroup, notes
+        case id, exerciseId, exercise, position, sets, repsMin, repsMax, targetKind, targetValue, restSec,
+             supersetGroup, notes
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
         exercise = try c.decode(Exercise.self, forKey: .exercise)
+        exerciseId = try c.decodeIfPresent(UUID.self, forKey: .exerciseId) ?? exercise.id
         position = try c.decodeLenientInt(.position) ?? 0
         sets = try c.decodeLenientInt(.sets) ?? 1
         repsMin = try c.decodeLenientInt(.repsMin) ?? 1
@@ -875,22 +947,27 @@ struct PlanDay: Codable, Hashable, Identifiable {
     }
 }
 
-/// `GET /v1/plans/{id}`. The list (`PlanSummary`) is the same object without `days`.
+/// `GET /v1/plans/{id}`; `PUT` sends the same document.
 struct Plan: Codable, Hashable, Identifiable {
     let id: UUID
+    /// Built-in plans only.
+    var slug: String?
     var name: String
     var goal: PlanGoal
     /// `nil`: repeating.
     var weeks: Int?
     var daysPerWeek: Int
     var description: String
-    var progression: Progression
+    /// `nil` = none.
+    var progression: Progression?
     var isBuiltin: Bool
+    var archived: Bool
     var days: [PlanDay]
 
-    init(id: UUID = UUID(), name: String, goal: PlanGoal, weeks: Int?, daysPerWeek: Int, description: String,
-         progression: Progression, isBuiltin: Bool, days: [PlanDay]) {
+    init(id: UUID = UUID(), slug: String? = nil, name: String, goal: PlanGoal, weeks: Int?, daysPerWeek: Int,
+         description: String, progression: Progression?, isBuiltin: Bool, archived: Bool = false, days: [PlanDay]) {
         self.id = id
+        self.slug = slug
         self.name = name
         self.goal = goal
         self.weeks = weeks
@@ -898,24 +975,77 @@ struct Plan: Codable, Hashable, Identifiable {
         self.description = description
         self.progression = progression
         self.isBuiltin = isBuiltin
+        self.archived = archived
         self.days = days
     }
 
+    var progressionType: ProgressionType { progression?.type ?? .none }
+
     enum CodingKeys: String, CodingKey {
-        case id, name, goal, weeks, daysPerWeek, description, progression, isBuiltin, days
+        case id, slug, name, goal, weeks, daysPerWeek, description, progression, isBuiltin, archived, days
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
+        slug = try c.decodeIfPresent(String.self, forKey: .slug)
         name = try c.decode(String.self, forKey: .name)
         goal = try c.decodeIfPresent(PlanGoal.self, forKey: .goal) ?? .general
         weeks = try c.decodeLenientInt(.weeks)
         daysPerWeek = try c.decodeLenientInt(.daysPerWeek) ?? 3
         description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
-        progression = (try? c.decodeIfPresent(Progression.self, forKey: .progression)) ?? .none
+        progression = try? c.decodeIfPresent(Progression.self, forKey: .progression)
         isBuiltin = try c.decodeIfPresent(Bool.self, forKey: .isBuiltin) ?? false
+        archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
         days = try c.decodeIfPresent([PlanDay].self, forKey: .days) ?? []
+    }
+}
+
+/// `GET /v1/plans` list entries: a plan without its days, plus counts.
+struct PlanSummary: Codable, Hashable, Identifiable {
+    let id: UUID
+    var slug: String?
+    var name: String
+    var goal: PlanGoal
+    var weeks: Int?
+    var daysPerWeek: Int
+    var description: String
+    var isBuiltin: Bool
+    var archived: Bool
+    var dayCount: Int
+    var exerciseCount: Int
+
+    init(_ p: Plan) {
+        id = p.id
+        slug = p.slug
+        name = p.name
+        goal = p.goal
+        weeks = p.weeks
+        daysPerWeek = p.daysPerWeek
+        description = p.description
+        isBuiltin = p.isBuiltin
+        archived = p.archived
+        dayCount = p.days.count
+        exerciseCount = p.days.reduce(0) { $0 + $1.exercises.count }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, slug, name, goal, weeks, daysPerWeek, description, isBuiltin, archived, dayCount, exerciseCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        slug = try c.decodeIfPresent(String.self, forKey: .slug)
+        name = try c.decode(String.self, forKey: .name)
+        goal = try c.decodeIfPresent(PlanGoal.self, forKey: .goal) ?? .general
+        weeks = try c.decodeLenientInt(.weeks)
+        daysPerWeek = try c.decodeLenientInt(.daysPerWeek) ?? 3
+        description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
+        isBuiltin = try c.decodeIfPresent(Bool.self, forKey: .isBuiltin) ?? false
+        archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+        dayCount = try c.decodeLenientInt(.dayCount) ?? 0
+        exerciseCount = try c.decodeLenientInt(.exerciseCount) ?? 0
     }
 }
 
@@ -931,18 +1061,20 @@ struct Enrollment: Codable, Hashable, Identifiable {
     let id: UUID
     let planId: UUID
     var startedAt: Date
+    /// 1-based.
     var currentWeek: Int
+    /// 0-based: the next plan day to train.
     var currentDayIndex: Int
     var status: EnrollmentStatus
 }
 
 /// `GET /v1/plans`.
-struct PlanCatalog: Codable, Hashable {
-    var builtin: [Plan]
-    var mine: [Plan]
+struct PlansOverview: Codable, Hashable {
+    var builtin: [PlanSummary]
+    var mine: [PlanSummary]
     var active: Enrollment?
 
-    init(builtin: [Plan], mine: [Plan], active: Enrollment?) {
+    init(builtin: [PlanSummary], mine: [PlanSummary], active: Enrollment?) {
         self.builtin = builtin
         self.mine = mine
         self.active = active
@@ -952,14 +1084,16 @@ struct PlanCatalog: Codable, Hashable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        builtin = try c.decodeIfPresent([Plan].self, forKey: .builtin) ?? []
-        mine = try c.decodeIfPresent([Plan].self, forKey: .mine) ?? []
+        builtin = try c.decodeIfPresent([PlanSummary].self, forKey: .builtin) ?? []
+        mine = try c.decodeIfPresent([PlanSummary].self, forKey: .mine) ?? []
         active = try c.decodeIfPresent(Enrollment.self, forKey: .active)
     }
+
+    func summary(id: UUID) -> PlanSummary? { (builtin + mine).first { $0.id == id } }
 }
 
-/// One logged set. `updated_at` decides conflicts (later wins).
-struct TrainSet: Codable, Hashable, Identifiable {
+/// One logged set (`Set` in API.md). `updated_at` is the app's clock and decides conflicts.
+struct SessionSet: Codable, Hashable, Identifiable {
     let id: UUID
     var setIndex: Int
     var reps: Int?
@@ -1008,35 +1142,48 @@ struct TrainSet: Codable, Hashable, Identifiable {
 /// `GET /v1/plans/today` → `targets[]`: the prescription for one plan exercise.
 struct PlanTarget: Codable, Hashable {
     let planExerciseId: UUID
+    var exerciseId: UUID
     var sets: Int
     var repsMin: Int
     var repsMax: Int
+    var targetKind: TargetKind
+    /// Rounded to 2.5 kg; `nil` for RPE and bodyweight targets (and % 1RM without history).
     var targetKg: Double?
-    var lastTime: [TrainSet]
+    var restSec: Int
+    var lastTime: [SessionSet]
 
-    init(planExerciseId: UUID, sets: Int, repsMin: Int, repsMax: Int, targetKg: Double?, lastTime: [TrainSet] = []) {
+    init(planExerciseId: UUID, exerciseId: UUID, sets: Int, repsMin: Int, repsMax: Int, targetKind: TargetKind,
+         targetKg: Double?, restSec: Int, lastTime: [SessionSet] = []) {
         self.planExerciseId = planExerciseId
+        self.exerciseId = exerciseId
         self.sets = sets
         self.repsMin = repsMin
         self.repsMax = repsMax
+        self.targetKind = targetKind
         self.targetKg = targetKg
+        self.restSec = restSec
         self.lastTime = lastTime
     }
 
-    enum CodingKeys: String, CodingKey { case planExerciseId, sets, repsMin, repsMax, targetKg, lastTime }
+    enum CodingKeys: String, CodingKey {
+        case planExerciseId, exerciseId, sets, repsMin, repsMax, targetKind, targetKg, restSec, lastTime
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         planExerciseId = try c.decode(UUID.self, forKey: .planExerciseId)
+        exerciseId = try c.decodeIfPresent(UUID.self, forKey: .exerciseId) ?? planExerciseId
         sets = try c.decodeLenientInt(.sets) ?? 1
         repsMin = try c.decodeLenientInt(.repsMin) ?? 1
         repsMax = try c.decodeLenientInt(.repsMax) ?? repsMin
+        targetKind = try c.decodeIfPresent(TargetKind.self, forKey: .targetKind) ?? .kg
         targetKg = try c.decodeIfPresent(Double.self, forKey: .targetKg)
-        lastTime = try c.decodeIfPresent([TrainSet].self, forKey: .lastTime) ?? []
+        restSec = try c.decodeLenientInt(.restSec) ?? 120
+        lastTime = try c.decodeIfPresent([SessionSet].self, forKey: .lastTime) ?? []
     }
 }
 
-/// `GET /v1/plans/today`; `204` (nothing planned) is `nil` on the client.
+/// `GET /v1/plans/today`; `204` (no active enrolment) is `nil` on the client.
 struct PlanToday: Codable, Hashable {
     var enrollment: Enrollment
     var day: PlanDay
@@ -1055,95 +1202,36 @@ enum SessionStatus: String, Codable {
     }
 }
 
-struct TrainSessionExercise: Codable, Hashable, Identifiable {
+struct SessionExercise: Codable, Hashable, Identifiable {
     let id: UUID
     var exerciseId: UUID
+    /// The plan exercise it fulfils, for progression.
+    var planExerciseId: UUID?
     var position: Int
     var notes: String
-    var sets: [TrainSet]
+    var sets: [SessionSet]
 
-    init(id: UUID = UUID(), exerciseId: UUID, position: Int, notes: String = "", sets: [TrainSet]) {
+    init(id: UUID = UUID(), exerciseId: UUID, planExerciseId: UUID? = nil, position: Int, notes: String = "",
+         sets: [SessionSet]) {
         self.id = id
         self.exerciseId = exerciseId
+        self.planExerciseId = planExerciseId
         self.position = position
         self.notes = notes
         self.sets = sets
     }
 
-    enum CodingKeys: String, CodingKey { case id, exerciseId, position, notes, sets }
+    enum CodingKeys: String, CodingKey { case id, exerciseId, planExerciseId, position, notes, sets }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
         exerciseId = try c.decode(UUID.self, forKey: .exerciseId)
+        planExerciseId = try c.decodeIfPresent(UUID.self, forKey: .planExerciseId)
         position = try c.decodeLenientInt(.position) ?? 0
         notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
-        sets = try c.decodeIfPresent([TrainSet].self, forKey: .sets) ?? []
+        sets = try c.decodeIfPresent([SessionSet].self, forKey: .sets) ?? []
     }
-}
-
-/// `PUT /v1/sessions/{id}` sends the whole document; `GET` returns it. The list
-/// (`SessionSummary`) is the same object; `exercises` may be absent there.
-struct TrainSession: Codable, Hashable, Identifiable {
-    let id: UUID
-    var title: String
-    var startedAt: Date
-    var endedAt: Date?
-    var status: SessionStatus
-    var planDayId: UUID?
-    var workoutId: UUID?
-    var notes: String
-    var bodyweightKg: Double?
-    var muscularTrimp: Double?
-    var strain: Double?
-    var volumeKg: Double?
-    var exercises: [TrainSessionExercise]
-
-    init(id: UUID = UUID(), title: String, startedAt: Date, endedAt: Date? = nil, status: SessionStatus,
-         planDayId: UUID? = nil, workoutId: UUID? = nil, notes: String = "", bodyweightKg: Double? = nil,
-         muscularTrimp: Double? = nil, strain: Double? = nil, volumeKg: Double? = nil,
-         exercises: [TrainSessionExercise]) {
-        self.id = id
-        self.title = title
-        self.startedAt = startedAt
-        self.endedAt = endedAt
-        self.status = status
-        self.planDayId = planDayId
-        self.workoutId = workoutId
-        self.notes = notes
-        self.bodyweightKg = bodyweightKg
-        self.muscularTrimp = muscularTrimp
-        self.strain = strain
-        self.volumeKg = volumeKg
-        self.exercises = exercises
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id, title, startedAt, endedAt, status, planDayId, workoutId, notes, bodyweightKg, muscularTrimp,
-             strain, volumeKg, exercises
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(UUID.self, forKey: .id)
-        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
-        startedAt = try c.decode(Date.self, forKey: .startedAt)
-        endedAt = try? c.decodeIfPresent(Date.self, forKey: .endedAt)
-        status = try c.decodeIfPresent(SessionStatus.self, forKey: .status) ?? .completed
-        planDayId = try c.decodeIfPresent(UUID.self, forKey: .planDayId)
-        workoutId = try c.decodeIfPresent(UUID.self, forKey: .workoutId)
-        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
-        bodyweightKg = try c.decodeIfPresent(Double.self, forKey: .bodyweightKg)
-        muscularTrimp = try c.decodeIfPresent(Double.self, forKey: .muscularTrimp)
-        strain = try c.decodeIfPresent(Double.self, forKey: .strain)
-        volumeKg = try c.decodeIfPresent(Double.self, forKey: .volumeKg)
-        exercises = try c.decodeIfPresent([TrainSessionExercise].self, forKey: .exercises) ?? []
-    }
-}
-
-/// `POST /v1/sessions/{id}/complete` body.
-struct SessionCompleteRequest: Codable {
-    var bodyweightKg: Double?
 }
 
 enum PRKind: String, Codable, CaseIterable {
@@ -1161,77 +1249,187 @@ struct PersonalRecord: Codable, Hashable {
     let exerciseId: UUID
     let kind: PRKind
     let value: Double
+    /// The set that set the record (the first one, on a tie).
+    var setId: UUID?
+    var sessionId: UUID?
     let achievedAt: Date
 }
 
-/// `POST /v1/sessions/{id}/complete` → the Session (with `muscular_trimp`,
-/// `strain`, `workout_id`) plus the PRs it set.
-struct CompletedSession: Codable, Hashable {
-    var session: TrainSession
+/// `Session` in API.md: the `PUT /v1/sessions/{id}` body and every session
+/// response, the `409` body included. After `…/complete` it carries
+/// `muscular_trimp`, `strain`, `volume_kg`, `prs` and `workout_id`.
+struct TrainSession: Codable, Hashable, Identifiable {
+    let id: UUID
+    var title: String
+    var startedAt: Date
+    var endedAt: Date?
+    var status: SessionStatus
+    var planDayId: UUID?
+    var workoutId: UUID?
+    var notes: String
+    var bodyweightKg: Double?
+    var muscularTrimp: Double?
+    /// 0–21: the muscular load alone on the strain scale.
+    var strain: Double?
+    var volumeKg: Double?
+    var deviceId: UUID?
+    var exercises: [SessionExercise]
+    /// Records this session set; `[]` before completion.
     var prs: [PersonalRecord]
+    /// Server time of the last change (ignored on `PUT`).
+    var updatedAt: Date?
 
-    init(session: TrainSession, prs: [PersonalRecord]) {
-        self.session = session
+    init(id: UUID = UUID(), title: String, startedAt: Date, endedAt: Date? = nil, status: SessionStatus,
+         planDayId: UUID? = nil, workoutId: UUID? = nil, notes: String = "", bodyweightKg: Double? = nil,
+         muscularTrimp: Double? = nil, strain: Double? = nil, volumeKg: Double? = nil, deviceId: UUID? = nil,
+         exercises: [SessionExercise], prs: [PersonalRecord] = [], updatedAt: Date? = nil) {
+        self.id = id
+        self.title = title
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.status = status
+        self.planDayId = planDayId
+        self.workoutId = workoutId
+        self.notes = notes
+        self.bodyweightKg = bodyweightKg
+        self.muscularTrimp = muscularTrimp
+        self.strain = strain
+        self.volumeKg = volumeKg
+        self.deviceId = deviceId
+        self.exercises = exercises
         self.prs = prs
+        self.updatedAt = updatedAt
     }
 
-    private enum Extra: String, CodingKey { case prs }
+    enum CodingKeys: String, CodingKey {
+        case id, title, startedAt, endedAt, status, planDayId, workoutId, notes, bodyweightKg, muscularTrimp,
+             strain, volumeKg, deviceId, exercises, prs, updatedAt
+    }
 
     init(from decoder: Decoder) throws {
-        session = try TrainSession(from: decoder)
-        prs = try decoder.container(keyedBy: Extra.self).decodeIfPresent([PersonalRecord].self, forKey: .prs) ?? []
-    }
-
-    func encode(to encoder: Encoder) throws {
-        try session.encode(to: encoder)
-        var c = encoder.container(keyedBy: Extra.self)
-        try c.encode(prs, forKey: .prs)
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        startedAt = try c.decode(Date.self, forKey: .startedAt)
+        endedAt = try? c.decodeIfPresent(Date.self, forKey: .endedAt)
+        status = try c.decodeIfPresent(SessionStatus.self, forKey: .status) ?? .completed
+        planDayId = try c.decodeIfPresent(UUID.self, forKey: .planDayId)
+        workoutId = try c.decodeIfPresent(UUID.self, forKey: .workoutId)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        bodyweightKg = try c.decodeIfPresent(Double.self, forKey: .bodyweightKg)
+        muscularTrimp = try c.decodeIfPresent(Double.self, forKey: .muscularTrimp)
+        strain = try c.decodeIfPresent(Double.self, forKey: .strain)
+        volumeKg = try c.decodeIfPresent(Double.self, forKey: .volumeKg)
+        deviceId = try c.decodeIfPresent(UUID.self, forKey: .deviceId)
+        exercises = try c.decodeIfPresent([SessionExercise].self, forKey: .exercises) ?? []
+        prs = try c.decodeIfPresent([PersonalRecord].self, forKey: .prs) ?? []
+        updatedAt = try? c.decodeIfPresent(Date.self, forKey: .updatedAt)
     }
 }
 
-/// `GET /v1/exercises/{id}/history`.
-struct ExerciseHistory: Codable, Hashable {
-    struct Entry: Codable, Hashable {
-        /// The session's day (`YYYY-MM-DD`) or start time.
-        let date: Date
-        var sets: [TrainSet]
+/// `GET /v1/sessions` entries and `DayStrain.sessions`.
+struct SessionSummary: Codable, Hashable, Identifiable {
+    let id: UUID
+    var title: String
+    var startedAt: Date
+    var endedAt: Date?
+    var status: SessionStatus
+    var planDayId: UUID?
+    var workoutId: UUID?
+    /// `nil` while in progress.
+    var durationMin: Int?
+    var exerciseCount: Int
+    /// Completed working sets.
+    var setCount: Int
+    var volumeKg: Double?
+    var muscularTrimp: Double?
+    var strain: Double?
+    var prCount: Int
 
-        init(date: Date, sets: [TrainSet]) {
-            self.date = date
-            self.sets = sets
-        }
-
-        enum CodingKeys: String, CodingKey { case date, sets }
-
-        init(from decoder: Decoder) throws {
-            let c = try decoder.container(keyedBy: CodingKeys.self)
-            let raw = try c.decode(String.self, forKey: .date)
-            guard let d = DateParsing.rfc3339(raw) ?? DayFormat.date(from: raw) else {
-                throw DecodingError.dataCorruptedError(forKey: .date, in: c, debugDescription: "bad date \(raw)")
-            }
-            date = d
-            sets = try c.decodeIfPresent([TrainSet].self, forKey: .sets) ?? []
-        }
+    init(_ s: TrainSession) {
+        id = s.id
+        title = s.title
+        startedAt = s.startedAt
+        endedAt = s.endedAt
+        status = s.status
+        planDayId = s.planDayId
+        workoutId = s.workoutId
+        durationMin = s.endedAt.map { Int(($0.timeIntervalSince(s.startedAt) / 60).rounded()) }
+        exerciseCount = s.exercises.count
+        setCount = s.exercises.flatMap(\.sets).filter { !$0.isWarmup && $0.completedAt != nil }.count
+        volumeKg = s.volumeKg
+        muscularTrimp = s.muscularTrimp
+        strain = s.strain
+        prCount = s.prs.count
     }
 
-    var prs: [PersonalRecord]
-    var sessions: [Entry]
-    /// Best estimated 1RM per day, oldest first.
-    var e1rm: [TrendPoint]
+    enum CodingKeys: String, CodingKey {
+        case id, title, startedAt, endedAt, status, planDayId, workoutId, durationMin, exerciseCount, setCount,
+             volumeKg, muscularTrimp, strain, prCount
+    }
 
-    init(prs: [PersonalRecord], sessions: [Entry], e1rm: [TrendPoint]) {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        startedAt = try c.decode(Date.self, forKey: .startedAt)
+        endedAt = try? c.decodeIfPresent(Date.self, forKey: .endedAt)
+        status = try c.decodeIfPresent(SessionStatus.self, forKey: .status) ?? .completed
+        planDayId = try c.decodeIfPresent(UUID.self, forKey: .planDayId)
+        workoutId = try c.decodeIfPresent(UUID.self, forKey: .workoutId)
+        durationMin = try c.decodeLenientInt(.durationMin)
+        exerciseCount = try c.decodeLenientInt(.exerciseCount) ?? 0
+        setCount = try c.decodeLenientInt(.setCount) ?? 0
+        volumeKg = try c.decodeIfPresent(Double.self, forKey: .volumeKg)
+        muscularTrimp = try c.decodeIfPresent(Double.self, forKey: .muscularTrimp)
+        strain = try c.decodeIfPresent(Double.self, forKey: .strain)
+        prCount = try c.decodeLenientInt(.prCount) ?? 0
+    }
+}
+
+/// `POST /v1/sessions/{id}/complete` body. Send `ended_at` when completing from the offline queue.
+struct SessionComplete: Codable {
+    var bodyweightKg: Double?
+    var endedAt: Date?
+}
+
+struct E1RMPoint: Codable, Hashable, Identifiable {
+    let day: String
+    let value: Double
+    var id: String { day }
+    var date: Date { DayFormat.date(from: day) ?? .now }
+}
+
+struct ExerciseHistorySession: Codable, Hashable {
+    let sessionId: UUID
+    /// The session's local day, `YYYY-MM-DD`.
+    let date: String
+    let startedAt: Date
+    var sets: [SessionSet]
+}
+
+/// `GET /v1/exercises/{id}/history`: sessions newest first, e1RM oldest first.
+struct ExerciseHistory: Codable, Hashable {
+    let exerciseId: UUID
+    var prs: [PersonalRecord]
+    var sessions: [ExerciseHistorySession]
+    var e1rm: [E1RMPoint]
+
+    init(exerciseId: UUID, prs: [PersonalRecord], sessions: [ExerciseHistorySession], e1rm: [E1RMPoint]) {
+        self.exerciseId = exerciseId
         self.prs = prs
         self.sessions = sessions
         self.e1rm = e1rm
     }
 
-    enum CodingKeys: String, CodingKey { case prs, sessions, e1rm }
+    enum CodingKeys: String, CodingKey { case exerciseId, prs, sessions, e1rm }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        exerciseId = try c.decode(UUID.self, forKey: .exerciseId)
         prs = try c.decodeIfPresent([PersonalRecord].self, forKey: .prs) ?? []
-        sessions = try c.decodeIfPresent([Entry].self, forKey: .sessions) ?? []
-        e1rm = try c.decodeIfPresent([TrendPoint].self, forKey: .e1rm) ?? []
+        sessions = try c.decodeIfPresent([ExerciseHistorySession].self, forKey: .sessions) ?? []
+        e1rm = try c.decodeIfPresent([E1RMPoint].self, forKey: .e1rm) ?? []
     }
 }
 

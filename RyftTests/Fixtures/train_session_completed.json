@@ -1,11 +1,35 @@
-{"id": "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e01", "title": "Upper A", "started_at": "2026-10-19T17:02:00Z",
- "ended_at": "2026-10-19T17:58:30Z", "status": "completed", "plan_day_id": "6a1b2c3d-4e5f-4a6b-9c7d-8e9f0a1b2c01",
- "workout_id": "00000000-0000-4000-8000-000000000891", "notes": "Felt strong", "bodyweight_kg": 80.5,
- "muscular_trimp": 84.6, "strain": 11.2, "volume_kg": 4250,
- "exercises": [],
- "prs": [
-  {"exercise_id": "0b9a3c1e-5d2f-4a71-9e0c-3f6d1a2b4c02", "kind": "e1rm", "value": 116.7,
-   "achieved_at": "2026-10-19T17:09:12Z"},
-  {"exercise_id": "0b9a3c1e-5d2f-4a71-9e0c-3f6d1a2b4c02", "kind": "max_weight", "value": 100,
-   "achieved_at": "2026-10-19T17:09:12Z"}
- ]}
+{
+  "id": "a7f2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+  "title": "Upper A",
+  "started_at": "2026-10-18T17:02:00Z",
+  "ended_at": "2026-10-18T18:01:00Z",
+  "status": "completed",
+  "plan_day_id": "6a1b2c3d-4e5f-4a6b-9c7d-8e9f0a1b2c01",
+  "workout_id": "00000000-0000-4000-8000-000000000891",
+  "notes": "Felt strong",
+  "bodyweight_kg": 80,
+  "muscular_trimp": 55.3,
+  "strain": 10.6,
+  "volume_kg": 7420,
+  "device_id": "1d2e3f40-5a6b-4c7d-8e9f-a0b1c2d3e4f5",
+  "exercises": [],
+  "prs": [
+    {
+      "exercise_id": "0b9a3c1e-5d2f-4a71-9e0c-3f6d1a2b4c02",
+      "kind": "e1rm",
+      "value": 116.7,
+      "set_id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a01",
+      "session_id": "a7f2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "achieved_at": "2026-10-18T17:09:30Z"
+    },
+    {
+      "exercise_id": "0b9a3c1e-5d2f-4a71-9e0c-3f6d1a2b4c02",
+      "kind": "max_weight",
+      "value": 100,
+      "set_id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a01",
+      "session_id": "a7f2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "achieved_at": "2026-10-18T17:09:30Z"
+    }
+  ],
+  "updated_at": "2026-10-18T18:01:02Z"
+}

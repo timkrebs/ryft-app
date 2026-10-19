@@ -13,7 +13,7 @@ enum E1RM {
     }
 
     /// Best estimate over the working sets (warm-ups don't count).
-    static func best(of sets: [TrainSet]) -> Double? {
+    static func best(of sets: [SessionSet]) -> Double? {
         sets.filter { !$0.isWarmup }.compactMap { estimate(weightKg: $0.weightKg, reps: $0.reps) }.max()
     }
 
@@ -23,7 +23,7 @@ enum E1RM {
 
 enum Volume {
     /// Σ reps × kg over completed working sets.
-    static func of(_ sets: [TrainSet]) -> Double {
+    static func of(_ sets: [SessionSet]) -> Double {
         sets.filter { !$0.isWarmup && $0.completedAt != nil }
             .reduce(0) { $0 + Double($1.reps ?? 0) * ($1.weightKg ?? 0) }
     }

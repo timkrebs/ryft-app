@@ -389,7 +389,7 @@ final class SessionController: ObservableObject, Identifiable {
     // MARK: finish
 
     /// The server's numbers, or `nil` when offline ("will sync").
-    func finish(bodyweightKg: Double? = nil) async -> CompletedSession? {
+    func finish(bodyweightKg: Double? = nil) async -> TrainSession? {
         stop()
         rest.skip()
         liveActivity?.end()

@@ -31,6 +31,8 @@ struct DecodingTests {
         #expect(full.strain == 12.4)
         #expect(full.steps == 9412)
         #expect(full.activeKcal == 612)
+        #expect(full.strengthMin == 59 && full.volumeKg == 7420)
+        #expect(days[1].strengthMin == nil)
         #expect(full.hrvBaselineMs == 53.1)
         #expect(full.rhrBaseline == 50.2)
         #expect(full.baselineDays == 30)
@@ -66,6 +68,9 @@ struct DecodingTests {
         #expect(strain.hrMin == 912)
         #expect(strain.zoneMin == [12, 24, 37, 7, 0])
         #expect(strain.steps == 9412)
+        #expect(strain.muscularTrimp == 55)
+        #expect(strain.sessions?.first?.title == "Upper A")
+        #expect(strain.sessions?.first?.durationMin == 59)
         #expect(d.workouts.first?.strain == 14.9)
         #expect(d.workouts.first?.distanceM == 11800)
     }
@@ -96,6 +101,7 @@ struct DecodingTests {
         let w = try Fixture.decode([Workout].self, "workouts")
         #expect(w.count == 2)
         #expect(w[1].avgHr == nil && w[1].strain == nil && w[1].energyKcal == nil) // omitted fields
+        #expect(w[0].sessionId == nil && w[0].muscularLoad == nil)
         #expect(w[0].duration == 70 * 60)
     }
 
@@ -139,6 +145,18 @@ struct DecodingTests {
         let d = try Fixture.decode(AccountDeleted.self, "account_deleted")
         #expect(d.status == "deleted")
         #expect(d.authUserDeleted)
+        #expect(d.appleTokenRevoked == true)
+        // Email accounts: no Apple token was stored.
+        let email = try APIClient.jsonDecoder.decode(AccountDeleted.self, from: Data(
+            #"{"status":"deleted","auth_user_deleted":false,"apple_token_revoked":null}"#.utf8))
+        #expect(email.appleTokenRevoked == nil && !email.authUserDeleted)
+    }
+
+    @Test func appleAuthorization() throws {
+        let a = try Fixture.decode(AppleAuthorization.self, "apple_authorization")
+        #expect(a.code.hasPrefix("c1b2"))
+        let body = try #require(String(data: APIClient.jsonEncoder.encode(a), encoding: .utf8))
+        #expect(body.hasPrefix("{\"code\":"))
     }
 
     @Test func cacheRoundTripKeepsTypedFields() throws {

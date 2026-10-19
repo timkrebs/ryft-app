@@ -117,7 +117,7 @@ struct PlanBuilderView: View {
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Progression").ryftLabelStyle()
-                    SegmentedPicker(selection: Binding(get: { plan.progression.type },
+                    SegmentedPicker(selection: Binding(get: { plan.progressionType },
                                                        set: { plan.progression = .of($0) }),
                                     options: ProgressionType.allCases) { type in
                         switch type {
@@ -139,7 +139,7 @@ struct PlanBuilderView: View {
     }
 
     private var progressionHelp: String {
-        switch plan.progression.type {
+        switch plan.progressionType {
         case .linear: return String(localized: "+2.5 kg after every set is done; the same weight after a miss; 10 % lighter after three misses.")
         case .percent: return String(localized: "Weights follow % of your estimated 1RM, rounded to 2.5 kg.")
         case .none: return String(localized: "Targets stay as you set them.")

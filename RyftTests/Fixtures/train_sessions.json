@@ -1,0 +1,34 @@
+[
+  {
+    "id": "a7f2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+    "title": "Upper A",
+    "started_at": "2026-10-18T17:02:00Z",
+    "ended_at": "2026-10-18T18:01:00Z",
+    "status": "completed",
+    "plan_day_id": "6a1b2c3d-4e5f-4a6b-9c7d-8e9f0a1b2c01",
+    "workout_id": "00000000-0000-4000-8000-000000000891",
+    "duration_min": 59,
+    "exercise_count": 5,
+    "set_count": 19,
+    "volume_kg": 7420,
+    "muscular_trimp": 55.3,
+    "strain": 10.6,
+    "pr_count": 2
+  },
+  {
+    "id": "c9b4e5f6-7081-4c9d-8e1f-2a3b4c5d6e7f",
+    "title": "Workout",
+    "started_at": "2026-10-19T07:30:00Z",
+    "ended_at": null,
+    "status": "in_progress",
+    "plan_day_id": null,
+    "workout_id": null,
+    "duration_min": null,
+    "exercise_count": 1,
+    "set_count": 2,
+    "volume_kg": null,
+    "muscular_trimp": null,
+    "strain": null,
+    "pr_count": 0
+  }
+]

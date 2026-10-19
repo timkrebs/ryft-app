@@ -1,25 +1,85 @@
-{"id": "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e01", "title": "Upper A", "started_at": "2026-10-19T17:02:00Z",
- "ended_at": null, "status": "in_progress", "plan_day_id": "6a1b2c3d-4e5f-4a6b-9c7d-8e9f0a1b2c01",
- "workout_id": null, "notes": "", "bodyweight_kg": 80.5, "muscular_trimp": null, "strain": null, "volume_kg": null,
- "exercises": [
-  {"id": "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f01", "exercise_id": "0b9a3c1e-5d2f-4a71-9e0c-3f6d1a2b4c02",
-   "position": 0, "notes": "",
-   "sets": [
-    {"id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a00", "set_index": 0, "reps": 5, "weight_kg": 60, "rpe": null,
-     "duration_sec": null, "distance_m": null, "is_warmup": true,
-     "completed_at": "2026-10-19T17:05:40Z", "updated_at": "2026-10-19T17:05:40Z"},
-    {"id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a01", "set_index": 1, "reps": 5, "weight_kg": 100, "rpe": 8.5,
-     "duration_sec": null, "distance_m": null, "is_warmup": false,
-     "completed_at": "2026-10-19T17:09:12.120Z", "updated_at": "2026-10-19T17:09:12.120Z"},
-    {"id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a02", "set_index": 2, "reps": null, "weight_kg": null, "rpe": null,
-     "duration_sec": null, "distance_m": null, "is_warmup": false,
-     "completed_at": null, "updated_at": "2026-10-19T17:02:00Z"}
-   ]},
-  {"id": "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f02", "exercise_id": "0b9a3c1e-5d2f-4a71-9e0c-3f6d1a2b4c24",
-   "position": 1, "notes": "45 s holds",
-   "sets": [
-    {"id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a10", "set_index": 0, "reps": null, "weight_kg": null, "rpe": null,
-     "duration_sec": 45, "distance_m": null, "is_warmup": false,
-     "completed_at": "2026-10-19T17:30:00Z", "updated_at": "2026-10-19T17:30:00Z"}
-   ]}
- ]}
+{
+  "id": "a7f2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+  "title": "Upper A",
+  "started_at": "2026-10-18T17:02:00Z",
+  "ended_at": null,
+  "status": "in_progress",
+  "plan_day_id": "6a1b2c3d-4e5f-4a6b-9c7d-8e9f0a1b2c01",
+  "workout_id": null,
+  "notes": "",
+  "bodyweight_kg": 80,
+  "muscular_trimp": null,
+  "strain": null,
+  "volume_kg": null,
+  "device_id": "1d2e3f40-5a6b-4c7d-8e9f-a0b1c2d3e4f5",
+  "exercises": [
+    {
+      "id": "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f01",
+      "exercise_id": "0b9a3c1e-5d2f-4a71-9e0c-3f6d1a2b4c02",
+      "plan_exercise_id": "8f0e1d2c-3b4a-4596-8877-665544332201",
+      "position": 0,
+      "notes": "",
+      "sets": [
+        {
+          "id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a00",
+          "set_index": 0,
+          "reps": 5,
+          "weight_kg": 60,
+          "rpe": null,
+          "duration_sec": null,
+          "distance_m": null,
+          "is_warmup": true,
+          "completed_at": "2026-10-18T17:05:40Z",
+          "updated_at": "2026-10-18T17:05:40Z"
+        },
+        {
+          "id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a01",
+          "set_index": 1,
+          "reps": 5,
+          "weight_kg": 100,
+          "rpe": 8,
+          "duration_sec": null,
+          "distance_m": null,
+          "is_warmup": false,
+          "completed_at": "2026-10-18T17:09:30Z",
+          "updated_at": "2026-10-18T17:09:31.120Z"
+        },
+        {
+          "id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a02",
+          "set_index": 2,
+          "reps": null,
+          "weight_kg": null,
+          "rpe": null,
+          "duration_sec": null,
+          "distance_m": null,
+          "is_warmup": false,
+          "completed_at": null,
+          "updated_at": "2026-10-18T17:02:00Z"
+        }
+      ]
+    },
+    {
+      "id": "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f02",
+      "exercise_id": "0b9a3c1e-5d2f-4a71-9e0c-3f6d1a2b4c24",
+      "plan_exercise_id": null,
+      "position": 1,
+      "notes": "45 s holds",
+      "sets": [
+        {
+          "id": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a10",
+          "set_index": 0,
+          "reps": null,
+          "weight_kg": null,
+          "rpe": null,
+          "duration_sec": 45,
+          "distance_m": null,
+          "is_warmup": false,
+          "completed_at": "2026-10-18T17:30:00Z",
+          "updated_at": "2026-10-18T17:30:00Z"
+        }
+      ]
+    }
+  ],
+  "prs": [],
+  "updated_at": "2026-10-18T17:30:01.402Z"
+}

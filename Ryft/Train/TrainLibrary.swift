@@ -7,7 +7,7 @@ final class TrainLibrary: ObservableObject {
     static let shared = TrainLibrary()
 
     @Published private(set) var exercises: [Exercise] = []
-    @Published private(set) var catalog: PlanCatalog?
+    @Published private(set) var catalog: PlansOverview?
     @Published private(set) var today: PlanToday?
     @Published private(set) var isLoading = false
     @Published var error: String?
@@ -25,7 +25,7 @@ final class TrainLibrary: ObservableObject {
         self.cache = cache
         if restore {
             exercises = self.store.exercises()
-            catalog = cache.load(PlanCatalog.self, key: Self.catalogKey)
+            catalog = cache.load(PlansOverview.self, key: Self.catalogKey)
             today = cache.load(PlanToday.self, key: Self.todayKey)
         }
     }
@@ -34,14 +34,20 @@ final class TrainLibrary: ObservableObject {
 
     var activeEnrollment: Enrollment? { catalog?.active }
 
+    /// The active plan's detail, once loaded (`loadPlan`).
     var activePlan: Plan? {
         guard let id = activeEnrollment?.planId else { return nil }
         return plan(id: id)
     }
 
-    func plan(id: UUID) -> Plan? {
-        store.plan(id: id) ?? (catalog.map { $0.builtin + $0.mine } ?? []).first { $0.id == id }
+    /// The active plan's name, from the overview (no detail needed).
+    var activePlanName: String? {
+        guard let id = activeEnrollment?.planId else { return nil }
+        return catalog?.summary(id: id)?.name ?? store.plan(id: id)?.name
     }
+
+    /// A plan's detail from the offline cache.
+    func plan(id: UUID) -> Plan? { store.plan(id: id) }
 
     func exercise(id: UUID) -> Exercise? {
         exercises.first { $0.id == id } ?? store.exercise(id: id)
@@ -59,7 +65,6 @@ final class TrainLibrary: ObservableObject {
             store.cache(exercises: list)
             exercises = store.exercises()
             let c = try await src.plans()
-            store.cache(plans: c.builtin + c.mine)
             catalog = c
             cache.save(c, as: Self.catalogKey)
             try await loadToday(from: src)
@@ -118,25 +123,25 @@ final class TrainLibrary: ObservableObject {
 
     /// Finished sessions of the last `days`, newest first: the server's list
     /// plus anything logged here that hasn't reached it yet (the local copy wins).
-    func sessions(days: Int = 90) async -> [TrainSession] {
+    func sessions(days: Int = 90) async -> [SessionSummary] {
         let from = DayFormat.shift(Calendar.current.startOfDay(for: .now), days: -(days - 1))
-        let remoteList: [TrainSession]
+        let remoteList: [SessionSummary]
         if let fresh = try? await remote.sessions(from: from, to: .now) {
             remoteList = fresh
             cache.save(fresh, as: Self.sessionsKey)
         } else {
-            remoteList = cache.load([TrainSession].self, key: Self.sessionsKey) ?? []
+            remoteList = cache.load([SessionSummary].self, key: Self.sessionsKey) ?? []
         }
-        return Self.merged(local: store.completedSessions(from: from).map(\.wire), remote: remoteList)
+        return Self.merged(local: store.completedSessions(from: from).map(\.summary), remote: remoteList)
     }
 
     /// Sessions already known for instant paint.
-    func cachedSessions() -> [TrainSession] {
-        Self.merged(local: store.completedSessions().map(\.wire),
-                    remote: cache.load([TrainSession].self, key: Self.sessionsKey) ?? [])
+    func cachedSessions() -> [SessionSummary] {
+        Self.merged(local: store.completedSessions().map(\.summary),
+                    remote: cache.load([SessionSummary].self, key: Self.sessionsKey) ?? [])
     }
 
-    static func merged(local: [TrainSession], remote: [TrainSession]) -> [TrainSession] {
+    static func merged(local: [SessionSummary], remote: [SessionSummary]) -> [SessionSummary] {
         let localIDs = Set(local.map(\.id))
         return (local + remote.filter { !localIDs.contains($0.id) && $0.status == .completed })
             .sorted { $0.startedAt > $1.startedAt }
@@ -153,7 +158,6 @@ final class TrainLibrary: ObservableObject {
         var latest = cachedSessions().first
         if latest == nil { latest = await sessions(days: 30).first }
         guard let latest else { return nil }
-        if !latest.exercises.isEmpty { return latest }
         return await session(id: latest.id)
     }
 
@@ -204,17 +208,35 @@ final class TrainLibrary: ObservableObject {
     /// Enrol (switching replaces the active plan; the screen confirms first).
     @discardableResult
     func enroll(in p: Plan) async -> Bool {
-        await perform { _ = try await $0.enroll(planID: p.id) }
+        let ok = await perform { _ = try await $0.enroll(planID: p.id) }
+        if ok { UserDefaults.standard.removeObject(forKey: Self.pausedKey) }
+        return ok
     }
 
+    /// The plan paused last. `GET /v1/plans` only reports the active enrolment,
+    /// so the app remembers what Resume should continue.
+    var pausedPlanID: UUID? {
+        if let e = activeEnrollment, e.status == .paused { return e.planId }
+        guard activeEnrollment == nil else { return nil }
+        return UserDefaults.standard.string(forKey: Self.pausedKey).flatMap(UUID.init(uuidString:))
+    }
+
+    var isPaused: Bool { pausedPlanID != nil }
+
+    /// Pause: `DELETE /v1/plans/enrollment`. Resume: enrolling in the same plan
+    /// again continues where it stopped.
     @discardableResult
     func setPaused(_ paused: Bool) async -> Bool {
-        await perform { _ = try await $0.setEnrollment(paused: paused) }
-    }
-
-    @discardableResult
-    func leavePlan() async -> Bool {
-        await perform { try await $0.leaveEnrollment() }
+        if paused {
+            guard let planID = activeEnrollment?.planId else { return false }
+            let ok = await perform { try await $0.pauseEnrollment() }
+            if ok { UserDefaults.standard.set(planID.uuidString, forKey: Self.pausedKey) }
+            return ok
+        }
+        guard let planID = pausedPlanID else { return false }
+        let ok = await perform { _ = try await $0.enroll(planID: planID) }
+        if ok { UserDefaults.standard.removeObject(forKey: Self.pausedKey) }
+        return ok
     }
 
     private func perform(_ action: (TrainDataSource) async throws -> Void) async -> Bool {
@@ -232,7 +254,6 @@ final class TrainLibrary: ObservableObject {
     private func reloadCatalog() async {
         let src = remote
         guard let c = try? await src.plans() else { return }
-        store.cache(plans: c.builtin + c.mine)
         catalog = c
         cache.save(c, as: Self.catalogKey)
         try? await loadToday(from: src)
@@ -248,10 +269,12 @@ final class TrainLibrary: ObservableObject {
         exercises = []
         catalog = nil
         today = nil
+        UserDefaults.standard.removeObject(forKey: Self.pausedKey)
         histories = [:]
     }
 
     private static let sessionsKey = "train.sessions"
+    private static let pausedKey = "train.pausedPlanID"
     private static let catalogKey = "train.plans"
     private static let todayKey = "train.today"
 }

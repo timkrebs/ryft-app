@@ -1,25 +1,130 @@
 {
-  "score": { "day": "2026-10-18", "readiness": 84, "state": "balanced", "recovery": 82, "strain": 12.4,
-    "steps": 9412, "active_kcal": 612, "sleep_performance": 87, "sleep_need_min": 538, "sleep_actual_min": 468, "sleep_debt_min": 35,
-    "hrv_ms": 58.2, "rhr": 48.9, "resp_rate": 14.6, "spo2": 96.4,
-    "hrv_baseline_ms": 53.1, "rhr_baseline": 50.2, "baseline_days": 30, "calibrating": false,
-    "details": {}, "computed_at": "2026-10-18T07:15:02.123456Z" },
-  "sleep": {
-    "start": "2026-10-17T21:00:00Z", "end": "2026-10-18T05:12:00Z",
-    "total_min": 468, "in_bed_min": 492, "efficiency": 95,
-    "stages": [ {"stage":"deep","min":112,"pct":24}, {"stage":"light","min":261,"pct":56},
-                {"stage":"rem","min":95,"pct":20},  {"stage":"awake","min":10,"pct":2} ],
-    "quality": 82, "quality_label": "good", "has_stages": true,
-    "segments": [ {"stage":"light","start":"2026-10-17T21:12:00Z","end":"2026-10-17T21:40:00Z"},
-                  {"stage":"deep","start":"2026-10-17T21:40:00Z","end":"2026-10-17T22:35:00Z"},
-                  {"stage":"asleep","start":"2026-10-17T22:35:00Z","end":"2026-10-17T22:50:00Z"},
-                  {"stage":"rem","start":"2026-10-17T22:50:00Z","end":"2026-10-17T23:10:00Z"},
-                  {"stage":"awake","start":"2026-10-17T23:10:00Z","end":"2026-10-17T23:15:00Z"} ]
+  "score": {
+    "day": "2026-10-18",
+    "readiness": 84,
+    "state": "balanced",
+    "recovery": 82,
+    "strain": 12.4,
+    "steps": 9412,
+    "active_kcal": 612,
+    "sleep_performance": 87,
+    "sleep_need_min": 538,
+    "sleep_actual_min": 468,
+    "sleep_debt_min": 35,
+    "hrv_ms": 58.2,
+    "rhr": 48.9,
+    "resp_rate": 14.6,
+    "spo2": 96.4,
+    "hrv_baseline_ms": 53.1,
+    "rhr_baseline": 50.2,
+    "baseline_days": 30,
+    "calibrating": false,
+    "details": {},
+    "computed_at": "2026-10-18T07:15:02.123456Z"
   },
-  "strain": { "trimp": 99, "hr_min": 912, "zone_min": [12, 24, 37, 7, 0], "steps": 9412, "active_kcal": 612 },
+  "sleep": {
+    "start": "2026-10-17T21:00:00Z",
+    "end": "2026-10-18T05:12:00Z",
+    "total_min": 468,
+    "in_bed_min": 492,
+    "efficiency": 95,
+    "stages": [
+      {
+        "stage": "deep",
+        "min": 112,
+        "pct": 24
+      },
+      {
+        "stage": "light",
+        "min": 261,
+        "pct": 56
+      },
+      {
+        "stage": "rem",
+        "min": 95,
+        "pct": 20
+      },
+      {
+        "stage": "awake",
+        "min": 10,
+        "pct": 2
+      }
+    ],
+    "quality": 82,
+    "quality_label": "good",
+    "has_stages": true,
+    "segments": [
+      {
+        "stage": "light",
+        "start": "2026-10-17T21:12:00Z",
+        "end": "2026-10-17T21:40:00Z"
+      },
+      {
+        "stage": "deep",
+        "start": "2026-10-17T21:40:00Z",
+        "end": "2026-10-17T22:35:00Z"
+      },
+      {
+        "stage": "asleep",
+        "start": "2026-10-17T22:35:00Z",
+        "end": "2026-10-17T22:50:00Z"
+      },
+      {
+        "stage": "rem",
+        "start": "2026-10-17T22:50:00Z",
+        "end": "2026-10-17T23:10:00Z"
+      },
+      {
+        "stage": "awake",
+        "start": "2026-10-17T23:10:00Z",
+        "end": "2026-10-17T23:15:00Z"
+      }
+    ]
+  },
+  "strain": {
+    "trimp": 99,
+    "hr_min": 912,
+    "zone_min": [
+      12,
+      24,
+      37,
+      7,
+      0
+    ],
+    "steps": 9412,
+    "active_kcal": 612,
+    "muscular_trimp": 55,
+    "sessions": [
+      {
+        "id": "a7f2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "title": "Upper A",
+        "started_at": "2026-10-18T17:02:00Z",
+        "ended_at": "2026-10-18T18:01:00Z",
+        "status": "completed",
+        "plan_day_id": "6a1b2c3d-4e5f-4a6b-9c7d-8e9f0a1b2c01",
+        "workout_id": "00000000-0000-4000-8000-000000000891",
+        "duration_min": 59,
+        "exercise_count": 5,
+        "set_count": 19,
+        "volume_kg": 7420,
+        "muscular_trimp": 55.3,
+        "strain": 10.6,
+        "pr_count": 2
+      }
+    ]
+  },
   "workouts": [
-    { "id": "3f6c3c3e-5d55-4b9e-a0f1-0d6c7b3c9a10", "activity": "running", "start": "2026-10-17T17:30:00Z",
-      "end": "2026-10-17T18:40:00Z", "avg_hr": 151.6, "max_hr": 178, "energy_kcal": 640, "distance_m": 11800,
-      "source": "Garmin Connect", "strain": 14.9 }
+    {
+      "id": "3f6c3c3e-5d55-4b9e-a0f1-0d6c7b3c9a10",
+      "activity": "running",
+      "start": "2026-10-17T17:30:00Z",
+      "end": "2026-10-17T18:40:00Z",
+      "avg_hr": 151.6,
+      "max_hr": 178,
+      "energy_kcal": 640,
+      "distance_m": 11800,
+      "source": "Garmin Connect",
+      "strain": 14.9
+    }
   ]
 }

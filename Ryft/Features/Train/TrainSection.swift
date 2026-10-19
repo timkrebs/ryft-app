@@ -39,9 +39,14 @@ struct TrainSection: View {
     }
 
     private var plansDetail: String? {
-        guard let e = library.activeEnrollment else { return String(localized: "Pick a plan or build your own") }
-        let name = library.activePlan?.name ?? ""
-        return e.status == .paused ? String(localized: "\(name) · paused") : String(localized: "\(name) · week \(e.currentWeek)")
+        if let e = library.activeEnrollment, e.status == .active {
+            return String(localized: "\(library.activePlanName ?? "") · week \(e.currentWeek)")
+        }
+        if let paused = library.pausedPlanID {
+            let name = library.catalog?.summary(id: paused)?.name ?? library.plan(id: paused)?.name ?? ""
+            return String(localized: "\(name) · paused")
+        }
+        return String(localized: "Pick a plan or build your own")
     }
 
     private var historyDetail: String? {
@@ -225,10 +230,10 @@ struct TrainTodayCard: View {
         }
     }
 
-    /// "Done · load 84.6 · 2 PRs".
+    /// "Done · load 11.2 · 2 PRs": the session's `strain`, the muscular load on the strain scale.
     private func doneText(_ s: LocalSession) -> String {
         var parts = [String(localized: "Done")]
-        if let load = s.muscularTrimp { parts.append(String(localized: "load \(Fmt.load(load))")) }
+        if let load = s.strain { parts.append(String(localized: "load \(Fmt.load(load))")) }
         let prs = s.prs.count
         if prs > 0 { parts.append(String(localized: "\(prs) PRs")) }
         return parts.joined(separator: " · ")

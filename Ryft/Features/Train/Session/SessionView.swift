@@ -260,7 +260,7 @@ struct ReorderSheet: View {
 
 /// After Finish: duration, volume, muscular load, strain, PRs, notes → Done.
 struct SessionSummarySheet: View {
-    let summary: SessionSummary
+    let summary: FinishSummary
     @EnvironmentObject private var sync: TrainSyncService
     @EnvironmentObject private var library: TrainLibrary
     @Environment(\.dismiss) private var dismiss
@@ -271,12 +271,12 @@ struct SessionSummarySheet: View {
     private var session: LocalSession? { sync.store.session(id: summary.sessionID) }
 
     /// The server's answer: at finish, or later from the queue.
-    private var completed: CompletedSession? {
-        summary.completed ?? sync.lastCompletion.flatMap { $0.session.id == summary.sessionID ? $0 : nil }
+    private var completed: TrainSession? {
+        summary.completed ?? sync.lastCompletion.flatMap { $0.id == summary.sessionID ? $0 : nil }
     }
 
     var body: some View {
-        let doc = completed?.session ?? session?.wire
+        let doc = completed ?? session?.wire
         let prs = completed?.prs ?? session?.prs ?? []
         NavigationStack {
             ScrollView {
@@ -383,7 +383,7 @@ struct SessionSummarySheet: View {
     let s = MockTrain.liveSession(in: TrainPreview.store)
     s.status = .completed
     s.endedAt = .now
-    return SessionSummarySheet(summary: SessionSummary(sessionID: s.id, completed: MockTrain.completed))
+    return SessionSummarySheet(summary: FinishSummary(sessionID: s.id, completed: MockTrain.completed))
         .previewEnvironment()
 }
 
@@ -392,6 +392,6 @@ struct SessionSummarySheet: View {
     s.status = .completed
     s.endedAt = .now
     s.pendingCompletion = true
-    return SessionSummarySheet(summary: SessionSummary(sessionID: s.id, completed: nil))
+    return SessionSummarySheet(summary: FinishSummary(sessionID: s.id, completed: nil))
         .previewEnvironment(scheme: .light)
 }

@@ -23,18 +23,18 @@ struct E1RMTests {
     }
 
     @Test func bestIgnoresWarmups() {
-        let sets = [TrainSet(setIndex: 0, reps: 12, weightKg: 140, isWarmup: true),
-                    TrainSet(setIndex: 1, reps: 5, weightKg: 100),
-                    TrainSet(setIndex: 2, reps: 8, weightKg: 90)]
+        let sets = [SessionSet(setIndex: 0, reps: 12, weightKg: 140, isWarmup: true),
+                    SessionSet(setIndex: 1, reps: 5, weightKg: 100),
+                    SessionSet(setIndex: 2, reps: 8, weightKg: 90)]
         #expect(E1RM.best(of: sets) == 100 * (1 + 5.0 / 30)) // 116.7 beats 90 × 1.267 = 114
     }
 
     @Test func volumeCountsCompletedWorkingSets() {
         let done = Date.now
-        let sets = [TrainSet(setIndex: 0, reps: 5, weightKg: 60, isWarmup: true, completedAt: done),
-                    TrainSet(setIndex: 1, reps: 5, weightKg: 100, completedAt: done),
-                    TrainSet(setIndex: 2, reps: 5, weightKg: 100, completedAt: done),
-                    TrainSet(setIndex: 3, reps: 5, weightKg: 100)] // not checked off
+        let sets = [SessionSet(setIndex: 0, reps: 5, weightKg: 60, isWarmup: true, completedAt: done),
+                    SessionSet(setIndex: 1, reps: 5, weightKg: 100, completedAt: done),
+                    SessionSet(setIndex: 2, reps: 5, weightKg: 100, completedAt: done),
+                    SessionSet(setIndex: 3, reps: 5, weightKg: 100)] // not checked off
         #expect(Volume.of(sets) == 1000)
     }
 

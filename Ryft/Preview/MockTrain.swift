@@ -22,42 +22,42 @@ enum MockTrain {
 
     // MARK: library
 
-    private static func ex(_ n: Int, _ slug: String, _ name: String, _ kind: ExerciseKind, _ primary: [String],
-                           _ secondary: [String] = [], equipment: [String] = [], load: LoadType = .weight,
-                           bw: Double = 0, unilateral: Bool = false) -> Exercise {
-        Exercise(id: uuid(1, n), slug: slug, name: name, kind: kind, primaryMuscles: primary,
+    private static func ex(_ n: Int, _ slug: String, _ name: String, _ de: String, _ kind: ExerciseKind,
+                           _ primary: [Muscle], _ secondary: [Muscle] = [], equipment: [String] = [],
+                           load: LoadType = .weight, bw: Double = 0, unilateral: Bool = false) -> Exercise {
+        Exercise(id: uuid(1, n), slug: slug, name: name, nameDe: de, kind: kind, primaryMuscles: primary,
                  secondaryMuscles: secondary, equipment: equipment.isEmpty ? [kind.rawValue] : equipment,
                  loadType: load, bodyweightFactor: bw, isUnilateral: unilateral)
     }
 
-    static let squat = ex(1, "back-squat", "Back squat", .barbell, ["quads", "glutes"], ["hamstrings", "core"], equipment: ["barbell", "rack"])
-    static let bench = ex(2, "bench-press", "Bench press", .barbell, ["chest"], ["triceps", "shoulders"], equipment: ["barbell", "bench"])
-    static let deadlift = ex(3, "deadlift", "Deadlift", .barbell, ["hamstrings", "glutes", "back"], ["forearms", "traps"])
-    static let ohp = ex(4, "overhead-press", "Overhead press", .barbell, ["shoulders"], ["triceps", "core"])
-    static let row = ex(5, "barbell-row", "Barbell row", .barbell, ["back"], ["biceps", "forearms"])
-    static let pullUp = ex(6, "pull-up", "Pull-up", .bodyweight, ["back"], ["biceps"], equipment: ["bar"], load: .bodyweight, bw: 1)
-    static let dip = ex(7, "dip", "Dip", .bodyweight, ["chest", "triceps"], ["shoulders"], equipment: ["dip bars"], load: .bodyweight, bw: 1)
-    static let inclineDB = ex(8, "incline-dumbbell-press", "Incline dumbbell press", .dumbbell, ["chest"], ["shoulders", "triceps"], equipment: ["dumbbells", "bench"])
-    static let dbRow = ex(9, "dumbbell-row", "One-arm dumbbell row", .dumbbell, ["back"], ["biceps"], unilateral: true)
-    static let lateral = ex(10, "lateral-raise", "Lateral raise", .dumbbell, ["shoulders"])
-    static let curl = ex(11, "biceps-curl", "Biceps curl", .dumbbell, ["biceps"], ["forearms"])
-    static let pushdown = ex(12, "triceps-pushdown", "Triceps pushdown", .cable, ["triceps"])
-    static let facePull = ex(13, "face-pull", "Face pull", .cable, ["shoulders"], ["traps"])
-    static let pulldown = ex(14, "lat-pulldown", "Lat pulldown", .cable, ["back"], ["biceps"])
-    static let legPress = ex(15, "leg-press", "Leg press", .machine, ["quads"], ["glutes"])
-    static let rdl = ex(16, "romanian-deadlift", "Romanian deadlift", .barbell, ["hamstrings"], ["glutes", "back"])
-    static let splitSquat = ex(17, "bulgarian-split-squat", "Bulgarian split squat", .dumbbell, ["quads", "glutes"], unilateral: true)
-    static let legCurl = ex(18, "leg-curl", "Leg curl", .machine, ["hamstrings"])
-    static let calfRaise = ex(19, "calf-raise", "Standing calf raise", .machine, ["calves"])
-    static let frontSquat = ex(20, "front-squat", "Front squat", .barbell, ["quads"], ["core", "glutes"])
-    static let snatch = ex(21, "snatch", "Snatch", .barbell, ["quads", "glutes", "shoulders"], ["traps", "back"])
-    static let cleanJerk = ex(22, "clean-and-jerk", "Clean & jerk", .barbell, ["quads", "glutes", "shoulders"], ["traps", "triceps"])
-    static let swing = ex(23, "kettlebell-swing", "Kettlebell swing", .kettlebell, ["glutes", "hamstrings"], ["core"])
-    static let plank = ex(24, "plank", "Plank", .bodyweight, ["core"], equipment: ["mat"], load: .time, bw: 0.5)
-    static let erg = ex(25, "rowing-erg", "Rowing erg", .cardio, ["back", "quads"], equipment: ["rower"], load: .distance)
-    static let hipThrust = ex(26, "hip-thrust", "Hip thrust", .barbell, ["glutes"], ["hamstrings"])
-    static let pushUp = ex(27, "push-up", "Push-up", .bodyweight, ["chest"], ["triceps", "shoulders"], equipment: ["mat"], load: .bodyweight, bw: 0.65)
-    static let cableFly = ex(28, "cable-fly", "Cable fly", .cable, ["chest"])
+    static let squat = ex(1, "back-squat", "Back squat", "Kniebeuge", .barbell, [.quads, .glutes], [.hamstrings, .adductors, .lowerBack], equipment: ["barbell", "rack"])
+    static let bench = ex(2, "bench-press", "Bench press", "Bankdrücken", .barbell, [.chest], [.triceps, .frontDelts], equipment: ["barbell", "bench"])
+    static let deadlift = ex(3, "deadlift", "Deadlift", "Kreuzheben", .barbell, [.hamstrings, .glutes, .lowerBack], [.forearms, .traps])
+    static let ohp = ex(4, "overhead-press", "Overhead press", "Schulterdrücken", .barbell, [.frontDelts], [.triceps, .sideDelts])
+    static let row = ex(5, "barbell-row", "Barbell row", "Langhantelrudern", .barbell, [.upperBack, .lats], [.biceps, .rearDelts])
+    static let pullUp = ex(6, "pull-up", "Pull-up", "Klimmzug", .bodyweight, [.lats], [.biceps, .upperBack], equipment: ["pullup_bar"], load: .bodyweight, bw: 1)
+    static let dip = ex(7, "dip", "Dip", "Dip", .bodyweight, [.chest, .triceps], [.frontDelts], equipment: ["dip_bars"], load: .bodyweight, bw: 1)
+    static let inclineDB = ex(8, "incline-dumbbell-press", "Incline dumbbell press", "Schrägbankdrücken mit Kurzhanteln", .dumbbell, [.chest], [.frontDelts, .triceps], equipment: ["dumbbells", "bench"])
+    static let dbRow = ex(9, "dumbbell-row", "One-arm dumbbell row", "Einarmiges Kurzhantelrudern", .dumbbell, [.lats, .upperBack], [.biceps], unilateral: true)
+    static let lateral = ex(10, "lateral-raise", "Lateral raise", "Seitheben", .dumbbell, [.sideDelts])
+    static let curl = ex(11, "biceps-curl", "Biceps curl", "Bizepscurl", .dumbbell, [.biceps], [.forearms])
+    static let pushdown = ex(12, "triceps-pushdown", "Triceps pushdown", "Trizepsdrücken am Kabel", .cable, [.triceps])
+    static let facePull = ex(13, "face-pull", "Face pull", "Face Pull", .cable, [.rearDelts], [.traps, .upperBack])
+    static let pulldown = ex(14, "lat-pulldown", "Lat pulldown", "Latziehen", .cable, [.lats], [.biceps])
+    static let legPress = ex(15, "leg-press", "Leg press", "Beinpresse", .machine, [.quads], [.glutes])
+    static let rdl = ex(16, "romanian-deadlift", "Romanian deadlift", "Rumänisches Kreuzheben", .barbell, [.hamstrings], [.glutes, .lowerBack])
+    static let splitSquat = ex(17, "bulgarian-split-squat", "Bulgarian split squat", "Bulgarische Kniebeuge", .dumbbell, [.quads, .glutes], unilateral: true)
+    static let legCurl = ex(18, "leg-curl", "Leg curl", "Beinbeuger", .machine, [.hamstrings])
+    static let calfRaise = ex(19, "calf-raise", "Standing calf raise", "Wadenheben stehend", .machine, [.calves])
+    static let frontSquat = ex(20, "front-squat", "Front squat", "Frontkniebeuge", .barbell, [.quads], [.abs, .glutes])
+    static let snatch = ex(21, "snatch", "Snatch", "Reißen", .barbell, [.quads, .glutes, .frontDelts], [.traps, .upperBack])
+    static let cleanJerk = ex(22, "clean-and-jerk", "Clean & jerk", "Stoßen", .barbell, [.quads, .glutes, .frontDelts], [.traps, .triceps])
+    static let swing = ex(23, "kettlebell-swing", "Kettlebell swing", "Kettlebell-Swing", .kettlebell, [.glutes, .hamstrings], [.abs])
+    static let plank = ex(24, "plank", "Plank", "Unterarmstütz", .bodyweight, [.abs], [.obliques], equipment: ["mat"], load: .time, bw: 0.5)
+    static let erg = ex(25, "rowing-erg", "Rowing erg", "Rudergerät", .cardio, [.lats, .quads], equipment: ["rower"], load: .distance)
+    static let hipThrust = ex(26, "hip-thrust", "Hip thrust", "Hip Thrust", .barbell, [.glutes], [.hamstrings])
+    static let pushUp = ex(27, "push-up", "Push-up", "Liegestütz", .bodyweight, [.chest], [.triceps, .frontDelts], equipment: ["mat"], load: .bodyweight, bw: 0.64)
+    static let cableFly = ex(28, "cable-fly", "Cable fly", "Kabelzug-Fliegende", .cable, [.chest])
 
     static let exercises: [Exercise] = [
         squat, bench, deadlift, ohp, row, pullUp, dip, inclineDB, dbRow, lateral, curl, pushdown, facePull, pulldown,
@@ -165,17 +165,10 @@ enum MockTrain {
                                        startedAt: DayFormat.shift(Calendar.current.startOfDay(for: .now), days: -38),
                                        currentWeek: 6, currentDayIndex: 0, status: .active)
 
-    static func summary(_ p: Plan) -> Plan {
-        var s = p
-        s.days = []
-        return s
-    }
-
-    static func catalog(enrolled: Bool = true, paused: Bool = false) -> PlanCatalog {
-        var e = enrollment
-        if paused { e.status = .paused }
-        return PlanCatalog(builtin: plans.filter(\.isBuiltin).map(summary), mine: plans.filter { !$0.isBuiltin }.map(summary),
-                           active: enrolled ? e : nil)
+    static func catalog(enrolled: Bool = true) -> PlansOverview {
+        PlansOverview(builtin: plans.filter(\.isBuiltin).map(PlanSummary.init),
+                      mine: plans.filter { !$0.isBuiltin }.map(PlanSummary.init),
+                      active: enrolled ? enrollment : nil)
     }
 
     static var planToday: PlanToday { planToday(for: upperA, enrollment: enrollment) }
@@ -188,8 +181,10 @@ enum MockTrain {
             case .pct1rm: bestE1RM(for: e.exercise.id).map { Self.roundTo2_5($0 * (e.targetValue ?? 70) / 100) }
             default: last.compactMap(\.weightKg).max()
             }
-            return PlanTarget(planExerciseId: e.id, sets: e.sets, repsMin: e.repsMin, repsMax: e.repsMax,
-                              targetKg: kg, lastTime: last)
+            return PlanTarget(planExerciseId: e.id, exerciseId: e.exerciseId, sets: e.sets, repsMin: e.repsMin,
+                              repsMax: e.repsMax, targetKind: e.targetKind,
+                              targetKg: e.targetKind == .rpe || e.targetKind == .bodyweight ? nil : kg,
+                              restSec: e.restSec, lastTime: last.filter { !$0.isWarmup })
         }
         return PlanToday(enrollment: enrollment, day: day, targets: targets)
     }
@@ -214,26 +209,26 @@ enum MockTrain {
             // +~12 % over the 90 days, rounded to plates.
             let progress = 0.88 + 0.12 * Double(i) / Double(MockData.historyDays)
             var t = start
-            var exercises: [TrainSessionExercise] = []
+            var exercises: [SessionExercise] = []
             for (pos, pe) in day.exercises.enumerated() {
                 let base = pe.targetValue.flatMap { pe.targetKind == .kg ? $0 : nil } ?? workingWeight(for: pe.exercise)
                 let kg = base.map { roundTo2_5($0 * progress) }
-                var sets: [TrainSet] = []
+                var sets: [SessionSet] = []
                 if pos == 0, let kg {
                     t += 90
-                    sets.append(TrainSet(id: uuid(7, count * 100 + pos * 10), setIndex: 0, reps: 5, weightKg: roundTo2_5(kg * 0.6),
+                    sets.append(SessionSet(id: uuid(7, count * 100 + pos * 10), setIndex: 0, reps: 5, weightKg: roundTo2_5(kg * 0.6),
                                          isWarmup: true, completedAt: t, updatedAt: t))
                 }
                 for n in 0..<pe.sets {
                     t += 45 + Double(pe.restSec)
                     let missed = n == pe.sets - 1 && rng.next(in: 0...1) < 0.2
                     let reps = missed ? max(1, pe.repsMin - 1) : (rng.next(in: 0...1) < 0.5 ? pe.repsMin : pe.repsMax)
-                    sets.append(TrainSet(id: uuid(7, count * 100 + pos * 10 + n + 1), setIndex: sets.count, reps: reps,
+                    sets.append(SessionSet(id: uuid(7, count * 100 + pos * 10 + n + 1), setIndex: sets.count, reps: reps,
                                          weightKg: kg, rpe: n == pe.sets - 1 ? 8.5 : nil,
                                          durationSec: pe.exercise.loadType == .time ? 45 : nil,
                                          completedAt: t, updatedAt: t))
                 }
-                exercises.append(TrainSessionExercise(id: uuid(8, count * 10 + pos), exerciseId: pe.exercise.id,
+                exercises.append(SessionExercise(id: uuid(8, count * 10 + pos), exerciseId: pe.exercise.id,
                                                       position: pos, sets: sets))
             }
             var s = TrainSession(id: historySessionID(dayIndex: i), title: day.name, startedAt: start, endedAt: t + 60,
@@ -267,7 +262,7 @@ enum MockTrain {
         }
     }
 
-    static func lastSets(for exerciseID: UUID) -> [TrainSet] {
+    static func lastSets(for exerciseID: UUID) -> [SessionSet] {
         history.last { $0.exercises.contains { $0.exerciseId == exerciseID } }?
             .exercises.first { $0.exerciseId == exerciseID }?.sets ?? []
     }
@@ -276,20 +271,22 @@ enum MockTrain {
         E1RM.best(of: history.flatMap { $0.exercises.filter { $0.exerciseId == exerciseID }.flatMap(\.sets) })
     }
 
-    static func sessions(on day: String) -> [TrainSession] {
-        history.filter { DayFormat.string(from: $0.startedAt) == day }
+    static func sessions(on day: String) -> [SessionSummary] {
+        history.filter { DayFormat.string(from: $0.startedAt) == day }.map(SessionSummary.init)
     }
 
     static func exerciseHistory(for id: UUID, sessions: [TrainSession]) -> ExerciseHistory {
         let relevant = sessions.filter { $0.status == .completed && $0.exercises.contains { $0.exerciseId == id } }
             .sorted { $0.startedAt < $1.startedAt }
         let entries = relevant.map { s in
-            ExerciseHistory.Entry(date: s.startedAt, sets: s.exercises.filter { $0.exerciseId == id }.flatMap(\.sets))
+            ExerciseHistorySession(sessionId: s.id, date: DayFormat.string(from: s.startedAt), startedAt: s.startedAt,
+                                   sets: s.exercises.filter { $0.exerciseId == id }.flatMap(\.sets))
         }
         let points = entries.compactMap { e in
-            E1RM.best(of: e.sets).map { TrendPoint(day: DayFormat.string(from: e.date), value: E1RM.rounded($0)) }
+            E1RM.best(of: e.sets).map { E1RMPoint(day: e.date, value: ($0 * 10).rounded() / 10) }
         }
-        return ExerciseHistory(prs: MockTrainScoring.records(for: id, in: entries), sessions: entries.reversed(), e1rm: points)
+        return ExerciseHistory(exerciseId: id, prs: MockTrainScoring.records(for: id, in: entries),
+                               sessions: entries.reversed(), e1rm: points)
     }
 
     // MARK: previews
@@ -312,14 +309,15 @@ enum MockTrain {
         return s
     }
 
-    /// A finished session with its completion, for the summary sheet.
-    static var completed: CompletedSession {
+    /// A finished session as `…/complete` returns it, for the summary sheet.
+    static var completed: TrainSession {
         var s = history[history.count - 1]
         s.notes = "Felt strong, last set grindy."
-        return CompletedSession(session: s, prs: [
-            PersonalRecord(exerciseId: bench.id, kind: .e1rm, value: 96.5, achievedAt: .now),
-            PersonalRecord(exerciseId: row.id, kind: .maxWeight, value: 70, achievedAt: .now),
-        ])
+        s.prs = [
+            PersonalRecord(exerciseId: bench.id, kind: .e1rm, value: 96.5, sessionId: s.id, achievedAt: .now),
+            PersonalRecord(exerciseId: row.id, kind: .maxWeight, value: 70, sessionId: s.id, achievedAt: .now),
+        ]
+        return s
     }
 }
 
@@ -347,9 +345,9 @@ enum MockTrainScoring {
         ((21 * (1 - exp(-t / 120))) * 10).rounded() / 10
     }
 
-    static func records(for id: UUID, in entries: [ExerciseHistory.Entry]) -> [PersonalRecord] {
+    static func records(for id: UUID, in entries: [ExerciseHistorySession]) -> [PersonalRecord] {
         var out: [PersonalRecord] = []
-        let all = entries.flatMap { e in e.sets.filter { !$0.isWarmup }.map { (e.date, $0) } }
+        let all = entries.flatMap { e in e.sets.filter { !$0.isWarmup }.map { (e.startedAt, $0) } }
         if let best = all.max(by: { (E1RM.estimate(weightKg: $0.1.weightKg, reps: $0.1.reps) ?? 0)
                                     < (E1RM.estimate(weightKg: $1.1.weightKg, reps: $1.1.reps) ?? 0) }),
            let v = E1RM.estimate(weightKg: best.1.weightKg, reps: best.1.reps) {
@@ -391,9 +389,10 @@ actor MockTrainSource: TrainDataSource {
 
     private var allPlans: [Plan] { MockTrain.plans.filter(\.isBuiltin) + myPlans }
 
-    func plans() async throws -> PlanCatalog {
-        PlanCatalog(builtin: allPlans.filter(\.isBuiltin).map(MockTrain.summary),
-                    mine: myPlans.map(MockTrain.summary), active: enrollment)
+    func plans() async throws -> PlansOverview {
+        PlansOverview(builtin: allPlans.filter(\.isBuiltin).map(PlanSummary.init),
+                      mine: myPlans.map(PlanSummary.init),
+                      active: enrollment?.status == .active ? enrollment : nil)
     }
 
     func plan(id: UUID) async throws -> Plan {
@@ -414,20 +413,21 @@ actor MockTrainSource: TrainDataSource {
         if enrollment?.planId == id { enrollment = nil }
     }
 
+    /// A paused enrolment in the same plan resumes where it stopped (200), else week 1 day 0 (201).
     func enroll(planID: UUID) async throws -> Enrollment {
+        if var e = enrollment, e.planId == planID {
+            e.status = .active
+            enrollment = e
+            return e
+        }
         let e = Enrollment(id: UUID(), planId: planID, startedAt: .now, currentWeek: 1, currentDayIndex: 0, status: .active)
         enrollment = e
         return e
     }
 
-    func setEnrollment(paused: Bool) async throws -> Enrollment {
-        guard var e = enrollment else { throw APIError.http(404, "no active plan") }
-        e.status = paused ? .paused : .active
-        enrollment = e
-        return e
+    func pauseEnrollment() async throws {
+        enrollment?.status = .paused
     }
-
-    func leaveEnrollment() async throws { enrollment = nil }
 
     func planToday() async throws -> PlanToday? {
         guard let e = enrollment, e.status == .active,
@@ -444,8 +444,9 @@ actor MockTrainSource: TrainDataSource {
         return MockTrain.planToday(for: day, enrollment: e)
     }
 
-    func sessions(from: Date, to: Date) async throws -> [TrainSession] {
-        sessions.values.filter { $0.startedAt >= from && $0.startedAt <= to }.sorted { $0.startedAt > $1.startedAt }
+    func sessions(from: Date, to: Date) async throws -> [SessionSummary] {
+        sessions.values.filter { $0.startedAt >= from && $0.startedAt <= to }
+            .sorted { $0.startedAt > $1.startedAt }.map(SessionSummary.init)
     }
 
     func session(id: UUID) async throws -> TrainSession {
@@ -454,18 +455,23 @@ actor MockTrainSource: TrainDataSource {
     }
 
     func putSession(_ s: TrainSession) async throws -> SessionPutResult {
+        // `completed` only for a session that already is (API.md); finishing is `…/complete`.
+        if s.status == .completed, sessions[s.id]?.status != .completed {
+            throw APIError.http(422, "use /complete to finish a session")
+        }
         // The platform merges by set id while in progress.
         let merged = sessions[s.id].map { SessionMerge.merge(local: s, server: $0) } ?? s
         sessions[s.id] = merged
         return .saved(merged)
     }
 
-    func completeSession(id: UUID, bodyweightKg: Double?) async throws -> CompletedSession {
+    func completeSession(id: UUID, _ body: SessionComplete) async throws -> TrainSession {
         guard var s = sessions[id] else { throw APIError.http(404, "session not found") }
+        guard s.status != .discarded else { throw APIError.http(409, "session discarded") }
         let before = Array(sessions.values.filter { $0.id != id && $0.status == .completed })
         s.status = .completed
-        s.endedAt = s.endedAt ?? .now
-        s.bodyweightKg = bodyweightKg ?? s.bodyweightKg
+        s.endedAt = body.endedAt ?? s.endedAt ?? .now
+        s.bodyweightKg = body.bodyweightKg ?? s.bodyweightKg
         let load = MockTrainScoring.load(of: s)
         s.muscularTrimp = load
         s.strain = MockTrainScoring.strain(forTrimp: load)
@@ -476,10 +482,11 @@ actor MockTrainSource: TrainDataSource {
             let earlier = before.flatMap { $0.exercises.filter { $0.exerciseId == e.exerciseId }.flatMap(\.sets) }
             let working = e.sets.filter { !$0.isWarmup && $0.completedAt != nil }
             if let now = E1RM.best(of: working), now > (E1RM.best(of: earlier) ?? 0) {
-                prs.append(PersonalRecord(exerciseId: e.exerciseId, kind: .e1rm, value: E1RM.rounded(now), achievedAt: .now))
+                prs.append(PersonalRecord(exerciseId: e.exerciseId, kind: .e1rm, value: (now * 10).rounded() / 10,
+                                          sessionId: id, achievedAt: .now))
             }
             if let kg = working.compactMap(\.weightKg).max(), kg > (earlier.filter { !$0.isWarmup }.compactMap(\.weightKg).max() ?? 0) {
-                prs.append(PersonalRecord(exerciseId: e.exerciseId, kind: .maxWeight, value: kg, achievedAt: .now))
+                prs.append(PersonalRecord(exerciseId: e.exerciseId, kind: .maxWeight, value: kg, sessionId: id, achievedAt: .now))
             }
         }
         if var e = enrollment, let day = s.planDayId,
@@ -487,7 +494,9 @@ actor MockTrainSource: TrainDataSource {
             e.currentDayIndex += 1
             enrollment = e
         }
-        return CompletedSession(session: s, prs: prs)
+        s.prs = prs
+        sessions[id] = s
+        return s
     }
 
     func deleteSession(id: UUID) async throws { sessions[id] = nil }

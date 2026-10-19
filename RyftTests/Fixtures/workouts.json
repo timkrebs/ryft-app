@@ -1,7 +1,25 @@
 [
-  { "id": "3f6c3c3e-5d55-4b9e-a0f1-0d6c7b3c9a10", "activity": "running", "start": "2026-10-17T17:30:00Z",
-    "end": "2026-10-17T18:40:00Z", "avg_hr": 151.6, "max_hr": 178, "energy_kcal": 640, "distance_m": 11800,
-    "source": "Garmin Connect", "strain": 14.9 },
-  { "id": "9b2d4a77-0c1e-4f3a-8e55-2a7d6c1b0e42", "activity": "other", "start": "2026-10-18T12:00:00Z",
-    "end": "2026-10-18T12:25:00Z", "source": "Garmin Connect" }
+  {
+    "id": "3f6c3c3e-5d55-4b9e-a0f1-0d6c7b3c9a10",
+    "activity": "running",
+    "start": "2026-10-17T17:30:00Z",
+    "end": "2026-10-17T18:40:00Z",
+    "avg_hr": 151.6,
+    "max_hr": 178,
+    "energy_kcal": 640,
+    "distance_m": 11800,
+    "source": "Garmin Connect",
+    "strain": 14.9,
+    "muscular_load": null,
+    "session_id": null
+  },
+  {
+    "id": "9b2d4a77-0c1e-4f3a-8e55-2a7d6c1b0e42",
+    "activity": "other",
+    "start": "2026-10-18T12:00:00Z",
+    "end": "2026-10-18T12:25:00Z",
+    "source": "Garmin Connect",
+    "muscular_load": null,
+    "session_id": null
+  }
 ]
