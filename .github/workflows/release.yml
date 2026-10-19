@@ -1,0 +1,76 @@
+# Manual release: bump VERSION (MARKETING_VERSION), tag vX.Y.Z, archive that tag
+# and upload it to TestFlight's internal group. Submitting for App Review stays a
+# person's decision in App Store Connect (docs/CI.md).
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to raise
+        type: choice
+        options: [patch, minor, major]
+        default: minor
+      version:
+        description: Or an explicit version (e.g. 1.4.0); overrides bump
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      notes: ${{ steps.bump.outputs.notes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: bump
+        env:
+          BUMP: ${{ inputs.bump }}
+          EXPLICIT: ${{ inputs.version }}
+        run: |
+          current="$(tr -d '[:space:]' < VERSION)"
+          if [ -n "$EXPLICIT" ]; then
+            next="$EXPLICIT"
+          else
+            IFS=. read -r major minor patch <<< "$current"
+            case "$BUMP" in
+              major) next="$((major + 1)).0.0" ;;
+              minor) next="$major.$((minor + 1)).0" ;;
+              patch) next="$major.$minor.$((patch + 1))" ;;
+            esac
+          fi
+          echo "$next" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::Bad version $next"; exit 1; }
+          git rev-parse -q --verify "v$next" >/dev/null && { echo "::error::v$next exists"; exit 1; }
+          last="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+          echo "$next" > VERSION
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "release: $next"
+          git tag "v$next"
+          git push origin HEAD "v$next"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          {
+            echo "notes<<EOF"
+            echo "RYFT $next"
+            git log --no-merges --pretty='- %s' -n 40 ${last:+$last..}HEAD~1
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  testflight:
+    needs: bump
+    uses: ./.github/workflows/_testflight.yml
+    with:
+      ref: v${{ needs.bump.outputs.version }}
+      group: Internal
+      notes: ${{ needs.bump.outputs.notes }}
+    secrets: inherit

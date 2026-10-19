@@ -1,6 +1,45 @@
-# Status — 2026-10-19
+# Status — 2026-10-20
 
-## Platform parity (WHOOP's iOS stack) — §1–§8 done
+## Platform parity (WHOOP's iOS stack) — §1–§9 written; device and CI checks open
+
+### Done-when checklist (brief §10)
+
+| Criterion | State |
+| --- | --- |
+| Every view model and state machine tested | ✅ 318 unit tests, all green in Xcode |
+| Offline history works | ✅ in tests (`RepositoryOfflineTests`, SwiftData read models); ⏳ device check: airplane mode, relaunch, scroll 90 days |
+| Sandbox push arrives | ⛔ blocked: paid Developer Program, APNs key on the platform, Push capability, NSE target (see §7 below) |
+| A universal link opens the right screen | ✅ router tested for every path; `ryft://` works now; ⛔ `https://` needs `applinks:ryftapp.de` and the platform's AASA paths |
+| Flags toggle without a rebuild | ✅ observation test; ⏳ device check: flip a flag on the platform, return to the app |
+| CI green, one nightly TestFlight build | ⏳ workflows written, not yet run: no GitHub remote push from here, and the ASC secrets and paid team are missing (`docs/CI.md`) |
+| Docs: ARCHITECTURE.md, CI.md, STATUS.md | ✅ |
+
+### §9 — CI/CD
+
+- `.xcode-version` (27.1) and four workflows in `.github/workflows/`:
+  - `ios.yml`: PRs and main
+  - `nightly.yml`: Internal group
+  - `weekly.yml`: External group, Mondays 07:00 Berlin
+  - `release.yml`: manual, raises `VERSION`
+
+  They share `_testflight.yml` and `.github/actions/setup`.
+- Signing: `-allowProvisioningUpdates` with the ASC API key (not fastlane match). The
+  secrets are `ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_KEY_P8`.
+- `scripts/testflight.py` handles What to Test, groups and beta review over the App
+  Store Connect API, with the standard library only.
+- `VERSION` is the marketing version. It's passed to xcodebuild, so the pbxproj isn't
+  edited. The build number is the run ID.
+- `.swiftformat` and `.swiftlint.yml`, plus `make style` and `make format`.
+- **`.gitignore` no longer ignores `*.xcodeproj/`.** Until now the project wasn't in
+  git, so a fresh clone (or CI) had nothing to build. It's committed with this section;
+  `xcuserdata` stays ignored.
+- **Not verified here:** SwiftFormat and SwiftLint weren't run locally (the agent's
+  shell was unavailable at the time). Run `make style` once; if it reports anything,
+  `make format` and commit. The workflows haven't run yet: the first PR is the test.
+  The macOS runner image needs Xcode 27.1; otherwise change `runs-on` or
+  `.xcode-version`.
+
+### §1–§8
 
 Design notes are in `docs/ARCHITECTURE.md` (one section per brief section). Each
 section is its own commit, and every commit has green tests and zero warnings in our

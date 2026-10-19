@@ -1,0 +1,65 @@
+# Mondays 07:00 Berlin: the newest processed build to the external TestFlight
+# group, with the week's changes as What to Test (docs/CI.md). No rebuild.
+name: Weekly external TestFlight
+
+on:
+  schedule:
+    # Cron is UTC: 05:00 is 07:00 in summer (CEST), 06:00 is 07:00 in winter (CET).
+    - cron: "0 5 * * 1"
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # the testflight-external tag
+
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+jobs:
+  external:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+    steps:
+      - name: Only at 07:00 Berlin
+        id: hour
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$(TZ=Europe/Berlin date +%H)" = "07" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Not 07:00 in Berlin ($(TZ=Europe/Berlin date +%H:%M)); the other schedule entry runs."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.hour.outputs.run == 'true'
+        with:
+          fetch-depth: 0
+      - name: Newest processed build
+        if: steps.hour.outputs.run == 'true'
+        run: echo "BUILD=$(python3 scripts/testflight.py latest-build)" >> "$GITHUB_ENV"
+      - name: Notes since the last external build
+        if: steps.hour.outputs.run == 'true'
+        run: |
+          to="build/$BUILD"
+          git rev-parse -q --verify "$to" >/dev/null || to=HEAD
+          from="$(git rev-parse -q --verify testflight-external || true)"
+          {
+            echo "This week in RYFT (build $BUILD):"
+            git log --no-merges --pretty='- %s' -n 40 ${from:+$from..}$to
+          } > "$RUNNER_TEMP/notes.txt"
+          cat "$RUNNER_TEMP/notes.txt"
+          echo "TO=$to" >> "$GITHUB_ENV"
+      - name: Distribute to External
+        if: steps.hour.outputs.run == 'true'
+        run: |
+          python3 scripts/testflight.py distribute --build "$BUILD" --group External \
+            --notes "$RUNNER_TEMP/notes.txt" --external
+      - name: Move the testflight-external tag
+        if: steps.hour.outputs.run == 'true'
+        run: |
+          git tag -f testflight-external "$TO"
+          git push -f origin testflight-external

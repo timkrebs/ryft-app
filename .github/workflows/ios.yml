@@ -1,0 +1,59 @@
+# Pull requests and main: style, strings, unit tests, the UI smoke test (docs/CI.md).
+name: iOS
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (strings, SwiftFormat, SwiftLint)
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SwiftFormat and SwiftLint
+        run: brew install swiftformat swiftlint
+      - name: Strings (English and German complete)
+        run: make lint
+      - name: SwiftFormat and SwiftLint
+        run: make style
+
+  test:
+    name: Build, unit tests, UI smoke
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Simulator
+        run: echo "DESTINATION=$(sh scripts/ci-simulator.sh)" >> "$GITHUB_ENV"
+      - name: Build for testing
+        run: |
+          set -o pipefail
+          mkdir -p build
+          xcodebuild build-for-testing -scheme Ryft -destination "$DESTINATION" \
+            -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO | tee build/build.log
+          ! grep -E "^/.*/(Ryft|RyftTests|RyftUITests|RyftWidgets)/.*: warning:" build/build.log
+      - name: Unit tests
+        run: |
+          xcodebuild test-without-building -scheme Ryft -destination "$DESTINATION" \
+            -derivedDataPath build/DerivedData -only-testing:RyftTests \
+            -resultBundlePath build/UnitTests.xcresult
+      - name: UI smoke
+        run: |
+          xcodebuild test-without-building -scheme Ryft -destination "$DESTINATION" \
+            -derivedDataPath build/DerivedData -only-testing:RyftUITests/StoreSmokeUITests \
+            -resultBundlePath build/UISmoke.xcresult
+      - name: Results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: build/*.xcresult
+          retention-days: 7

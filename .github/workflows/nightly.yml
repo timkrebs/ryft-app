@@ -1,0 +1,51 @@
+# Every night: main to TestFlight's internal group, when main changed (docs/CI.md).
+name: Nightly TestFlight
+
+on:
+  schedule:
+    - cron: "0 1 * * *"   # 01:00 UTC (02:00 / 03:00 Berlin)
+  workflow_dispatch:
+
+permissions:
+  contents: write   # the build/<number> tag
+
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      notes: ${{ steps.check.outputs.notes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: check
+        # Skipped when nothing landed since the last uploaded build (a manual run always builds).
+        run: |
+          last="$(git tag --list 'build/*' --sort=-creatordate | head -n1)"
+          range="${last:+$last..}HEAD"
+          count="$(git rev-list --count $range)"
+          if [ "$count" -gt 0 ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo "notes<<EOF"
+            echo "Nightly $(date -u +%Y-%m-%d) from $(git rev-parse --short HEAD)"
+            git log --no-merges --pretty='- %s' -n 30 $range
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  testflight:
+    needs: changes
+    if: needs.changes.outputs.changed == 'true'
+    uses: ./.github/workflows/_testflight.yml
+    with:
+      group: Internal
+      notes: ${{ needs.changes.outputs.notes }}
+    secrets: inherit
