@@ -27,7 +27,15 @@ enum MockData {
         guard let night = nights.first(where: { $0.score.day == day }) else {
             return DayDetail(score: .empty(day: day), sleep: nil, workouts: [])
         }
-        return DayDetail(score: night.score, sleep: night.sleep, strain: night.strain, workouts: night.workouts)
+        var strain = night.strain
+        let sessions = MockTrain.sessions(on: day)
+        strain.sessions = sessions.isEmpty ? nil : sessions
+        let workouts = night.workouts.map { w in
+            var linked = w
+            linked.muscularLoad = sessions.first { $0.id == w.sessionId }?.muscularTrimp
+            return linked
+        }
+        return DayDetail(score: night.score, sleep: night.sleep, strain: strain, workouts: workouts)
     }
 
     static var allWorkouts: [Workout] { nights.flatMap(\.workouts) }
@@ -230,9 +238,13 @@ enum MockData {
         }
         func make(_ n: Int, _ activity: String, _ start: Date, minutes: Int, avg: Double, max: Double,
                   kcal: Double, km: Double?, strain: Double) -> Workout {
-            Workout(id: mockUUID(index * 10 + n), activity: activity, start: start,
-                    end: start.addingTimeInterval(Double(minutes) * 60), avgHr: avg, maxHr: max,
-                    energyKcal: kcal, distanceM: km.map { $0 * 1000 }, source: "Garmin Connect", strain: strain)
+            // Strength workouts belong to the Train session logged at the same time.
+            let session = activity == "strength" && MockTrain.hasHistorySession(dayIndex: index)
+                ? MockTrain.historySessionID(dayIndex: index) : nil
+            return Workout(id: mockUUID(index * 10 + n), activity: activity, start: start,
+                           end: start.addingTimeInterval(Double(minutes) * 60), avgHr: avg, maxHr: max,
+                           energyKcal: kcal, distanceM: km.map { $0 * 1000 }, source: "Garmin Connect", strain: strain,
+                           sessionId: session)
         }
         if isToday {
             return [

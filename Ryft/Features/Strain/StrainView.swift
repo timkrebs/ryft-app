@@ -24,8 +24,10 @@ final class StrainViewModel: ObservableObject {
 /// Strain ring for the selected day, week strip, zone minutes and activities.
 struct StrainView: View {
     @EnvironmentObject private var state: AppState
+    @EnvironmentObject private var coordinator: TrainCoordinator
+    @EnvironmentObject private var trainSync: TrainSyncService
     @StateObject private var model = StrainViewModel()
-    @State private var path: [Workout] = []
+    @State private var path = NavigationPath()
     /// `-RyftOpenWorkout YES` pushes the first workout once (screenshots).
     @State private var autoOpen = UserDefaults.standard.bool(forKey: "RyftOpenWorkout")
 
@@ -49,17 +51,39 @@ struct StrainView: View {
                 ring
                 movement
                 zones
+                if Calendar.current.isDateInToday(model.date) { TrainSection() }
                 activities
             }
             .navigationDestination(for: Workout.self) { WorkoutDetailView(workout: $0) }
+            .trainDestinations()
         }
+        .sheet(isPresented: $coordinator.showsStart) { StartWorkoutSheet() }
         .task(id: TaskKey(date: model.date, refreshed: state.lastUpdated)) {
             await model.load(state: state)
             if autoOpen, let first = model.detail?.workouts.first {
                 autoOpen = false
-                path = [first]
+                path.append(first)
             }
         }
+    }
+
+    /// The day's workouts, each merged with its logged session (`session_id`),
+    /// then sessions without a workout yet (e.g. still syncing).
+    private var activityItems: [ActivityItem] {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: model.date)
+        let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
+        let local = trainSync.store.completedSessions(from: start, to: end).map(\.wire)
+        let sessions = TrainLibrary.merged(local: local, remote: model.detail?.strain?.sessions ?? [])
+        let workouts = model.detail?.workouts ?? []
+        var linked = Set<UUID>()
+        var items: [ActivityItem] = workouts.map { w in
+            let s = sessions.first { $0.id == w.sessionId || $0.workoutId == w.id }
+            if let s { linked.insert(s.id) }
+            return .workout(w, s)
+        }
+        items += sessions.filter { !linked.contains($0.id) }.map(ActivityItem.session)
+        return items.sorted { $0.start < $1.start }
     }
 
     private struct TaskKey: Equatable {
@@ -149,8 +173,8 @@ struct StrainView: View {
     private var activities: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Activities").ryftLabelStyle()
-            let workouts = model.detail?.workouts ?? []
-            if workouts.isEmpty {
+            let items = activityItems
+            if items.isEmpty {
                 if let error = model.error {
                     InlineMessage(message: error, retry: { await model.load(state: state) })
                 } else if model.isLoading {
@@ -160,9 +184,15 @@ struct StrainView: View {
                                   systemImage: "figure.walk")
                 }
             } else {
-                ForEach(workouts) { w in
-                    NavigationLink(value: w) { ActivityRow(workout: w) }
-                        .buttonStyle(PressableButtonStyle())
+                ForEach(items) { item in
+                    switch item {
+                    case .workout(let w, let session):
+                        NavigationLink(value: w) { ActivityRow(workout: w, session: session) }
+                            .buttonStyle(PressableButtonStyle())
+                    case .session(let s):
+                        NavigationLink(value: TrainRoute.session(s.id)) { SessionActivityRow(session: s) }
+                            .buttonStyle(PressableButtonStyle())
+                    }
                 }
             }
         }

@@ -64,6 +64,7 @@ struct StartWorkoutSheet: View {
     @EnvironmentObject private var coordinator: TrainCoordinator
     @Environment(\.dismiss) private var dismiss
     @State private var last: TrainSession?
+    @State private var plan: Plan?
     @State private var showsDays = false
 
     var body: some View {
@@ -85,7 +86,7 @@ struct StartWorkoutSheet: View {
                             coordinator.repeatSession(last)
                         }
                     }
-                    if let plan = library.activePlan, !plan.days.isEmpty {
+                    if let plan, !plan.days.isEmpty {
                         option(title: String(localized: "A day from \(plan.name)"),
                                detail: plan.days.map(\.name).joined(separator: " · "),
                                systemImage: "list.bullet", chevron: showsDays ? "chevron.up" : "chevron.down") {
@@ -132,7 +133,7 @@ struct StartWorkoutSheet: View {
             .task {
                 last = await library.lastSession()
                 // The active plan's days, for "A day from …".
-                if let id = library.activeEnrollment?.planId { _ = await library.loadPlan(id: id) }
+                if let id = library.activeEnrollment?.planId { plan = await library.loadPlan(id: id) }
             }
         }
         .presentationDetents([.medium, .large])

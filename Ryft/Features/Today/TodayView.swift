@@ -16,6 +16,7 @@ struct TodayView: View {
                     greeting
                     readinessRing
                     tiles
+                    TrainTodayCard()
                     trends
                     status
                 } else {

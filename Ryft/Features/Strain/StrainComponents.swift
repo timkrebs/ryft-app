@@ -104,19 +104,48 @@ struct ZoneMinutesView: View {
     }
 }
 
-/// Activity list row: icon, name, duration · avg HR, strain pill.
+/// A row in Strain's activity list.
+enum ActivityItem: Identifiable {
+    /// A workout, with its logged Train session when `session_id` matches.
+    case workout(Workout, TrainSession?)
+    /// A logged session no workout points at (yet).
+    case session(TrainSession)
+
+    var id: UUID {
+        switch self {
+        case .workout(let w, _): return w.id
+        case .session(let s): return s.id
+        }
+    }
+
+    var start: Date {
+        switch self {
+        case .workout(let w, _): return w.start
+        case .session(let s): return s.startedAt
+        }
+    }
+}
+
+/// Activity list row: icon, name, duration · avg HR, strain pill. A workout
+/// with a logged session shows the dumbbell, the session's title and its load.
 struct ActivityRow: View {
     let workout: Workout
+    var session: TrainSession? = nil
+
+    private var title: String {
+        if let session, !session.title.isEmpty { return session.title }
+        return ActivityStyle.name(for: workout.activity)
+    }
 
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: ActivityStyle.icon(for: workout.activity))
+            Image(systemName: session == nil ? ActivityStyle.icon(for: workout.activity) : "dumbbell.fill")
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(Theme.accent)
                 .frame(width: 44, height: 44)
                 .background(Theme.accent.opacity(0.12), in: Circle())
             VStack(alignment: .leading, spacing: 4) {
-                Text(ActivityStyle.name(for: workout.activity))
+                Text(title)
                     .font(.ryft(.body))
                     .foregroundStyle(Theme.textPrimary)
                 Text(subtitle)
@@ -127,6 +156,9 @@ struct ActivityRow: View {
                     .foregroundStyle(Theme.textSecondary)
             }
             Spacer()
+            if session != nil || workout.muscularLoad != nil {
+                LoadChip(load: session?.muscularTrimp ?? workout.muscularLoad)
+            }
             StrainPill(strain: workout.strain)
             Image(systemName: "chevron.right")
                 .font(.system(size: 12, weight: .semibold))
@@ -140,6 +172,48 @@ struct ActivityRow: View {
     private var subtitle: String {
         var parts = [Fmt.time(workout.start), Fmt.duration(seconds: workout.duration)]
         if let hr = workout.avgHr { parts.append(String(localized: "\(Int(hr.rounded())) bpm")) }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// A logged session in Strain's list: dumbbell, title, time · duration · volume, load.
+struct SessionActivityRow: View {
+    let session: TrainSession
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "dumbbell.fill")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 44, height: 44)
+                .background(Theme.accent.opacity(0.12), in: Circle())
+            VStack(alignment: .leading, spacing: 4) {
+                Text(session.title.isEmpty ? String(localized: "Workout") : session.title)
+                    .font(.ryft(.body))
+                    .foregroundStyle(Theme.textPrimary)
+                Text(subtitle)
+                    .font(.ryft(.caption))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Spacer()
+            LoadChip(load: session.muscularTrimp)
+            StrainPill(strain: session.strain)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.textTertiary)
+        }
+        .padding(14)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    private var subtitle: String {
+        var parts = [Fmt.time(session.startedAt)]
+        if let end = session.endedAt { parts.append(Fmt.duration(seconds: end.timeIntervalSince(session.startedAt))) }
+        if let v = session.volumeKg { parts.append(Fmt.volume(v)) }
         return parts.joined(separator: " · ")
     }
 }
@@ -165,6 +239,10 @@ struct StrainPill: View {
             ZoneMinutesView(minutes: MockData.todayDetail.strain?.zoneMin.map(Double.init))
             ZoneMinutesView(minutes: nil)
             ForEach(MockData.todayDetail.workouts) { ActivityRow(workout: $0) }
+            if let s = MockTrain.history.last, let w = MockData.allWorkouts.first(where: { $0.sessionId == s.id }) {
+                ActivityRow(workout: w, session: s)
+                SessionActivityRow(session: s)
+            }
         }
     }
 }
