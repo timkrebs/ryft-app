@@ -14,15 +14,19 @@ final class ScreenModels {
     let profile: ProfileViewModel
     let trainToday: TrainTodayViewModel
     let coordinator: SyncCoordinator
+    let push: PushRegistrar
+    let router: DeepLinkRouter
     private let state: AppState
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, store: TrainStore, library: TrainLibrary) {
         self.coordinator = coordinator
         self.state = state
-        today = TodayViewModel(state: state, sync: sync, coordinator: coordinator)
+        push = PushRegistrar(env: state.env)
+        today = TodayViewModel(state: state, sync: sync, coordinator: coordinator, push: push)
         sleep = SleepViewModel(state: state)
         strain = StrainViewModel(state: state, store: store)
         insights = InsightsViewModel(state: state)
+        router = DeepLinkRouter(state: state, sleep: sleep, strain: strain, insights: insights)
         profile = ProfileViewModel(state: state, sync: sync, coordinator: coordinator)
         trainToday = TrainTodayViewModel(library: library, store: store, clock: state.env.clock)
     }

@@ -45,6 +45,22 @@ invent them; these are the stand-ins until the platform serves them.
    `RangeBar` can show them against a personal range like HRV and resting HR.
    `DailyScore` already has today's values.
 
+## Universal links (open, 2026-10-19)
+
+1. **`applinks` for every deep-link path.** `apple-app-site-association` on
+   `ryftapp.de` lists `applinks` only for `/auth/*` (OPERATIONS.md). The push
+   notifications' `ryft.url` and the app's `DeepLinkRouter` also use these paths:
+   - `/day/*`
+   - `/sleep/*`
+   - `/insights/*`
+   - `/train/session/*`
+   - `/train/plan/*`
+
+   Until they're listed, iOS opens those URLs in Safari. A notification tap still
+   works, because the app reads `ryft.url` itself.
+   - **Proposal:** add the five path patterns next to `/auth/*`. Optionally give
+     each a small web page ("Open in RYFT") for phones without the app.
+
 ## Resolved by API.md (2026-10-19)
 
 - `PlanSummary` and `SessionSummary` are their own shapes. They are mirrored.

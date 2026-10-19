@@ -6,6 +6,8 @@ import UIKit
 
 @main
 struct RyftApp: App {
+    /// APNs callbacks, the silent refresh and notification taps.
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     /// Every dependency, built once (`docs/ARCHITECTURE.md`).
     private let env = AppEnvironment.live
     @State private var settings = Settings.shared
@@ -28,8 +30,11 @@ struct RyftApp: App {
         let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: .shared), clock: AppEnvironment.live.clock)
         self.coordinator = coordinator
         _state = State(initialValue: state)
-        _screens = State(initialValue: ScreenModels(state: state, sync: .shared, coordinator: coordinator,
-                                                    store: .shared, library: .shared))
+        let screens = ScreenModels(state: state, sync: .shared, coordinator: coordinator,
+                                   store: .shared, library: .shared)
+        _screens = State(initialValue: screens)
+        // Sign-out first deletes this phone's push registration, while the session still works.
+        AuthService.shared.beforeSignOut = { [push = screens.push] in await push.signOut() }
         // A build without its platform values stops here (Debug) or shows only the
         // misconfigured-build screen (Release, RootView). Never a fallback host.
         PlatformConfig.checkAtLaunch()
@@ -60,9 +65,21 @@ struct RyftApp: App {
                 .preferredColorScheme(settings.appearance.colorScheme)
                 .tint(Theme.accent)
                 // Signed out, or a different account: forget the previous user's screens.
-                .onChange(of: auth.accountID) { old, _ in
+                .onChange(of: auth.accountID) { old, new in
                     Task { await coordinator.cancel() }
                     if old != nil { state.reset() }
+                    guard new != nil else { return }
+                    // A link that arrived signed out; this account's push registration.
+                    screens.router.openPending()
+                    Task { await screens.push.refresh() }
+                }
+                // The first successful sync unlocks the push pre-prompt on Today.
+                .onChange(of: sync.phase) { _, phase in
+                    if phase == .done { screens.push.syncSucceeded() }
+                }
+                .task {
+                    appDelegate.handlers = PushHandlers(registrar: screens.push, router: screens.router,
+                                                        coordinator: coordinator)
                 }
                 // Back online: upload what HealthKit collected meanwhile, then reload.
                 .onChange(of: connectivity.isOnline) { _, online in
@@ -74,17 +91,22 @@ struct RyftApp: App {
                 .task(id: BootstrapKey(account: auth.accountID, healthIntroDone: settings.healthIntroDone)) {
                     await bootstrap()
                 }
-                // ryft://auth/callback — email confirmation and password reset (PKCE);
-                // ryft://train/session — the rest timer Live Activity.
+                // ryft://train/session — the rest timer Live Activity; everything else
+                // (universal links, ryft://…, the auth callback) goes through the router.
                 .onOpenURL { url in
                     if trainCoordinator.handle(url) { return }
-                    Task { await auth.handle(url) }
+                    Task {
+                        if await screens.router.open(url) { return }
+                        _ = await auth.handle(url)
+                    }
                 }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 Task { await coordinator.run(.appActive) }
                 Task { await refreshTrain() }
+                // Allowed in Settings meanwhile, a new token or language: tell the platform.
+                Task { await screens.push.refresh() }
             } else if phase == .background {
                 // Foreground work stops; the system's background tasks take over.
                 Task { await coordinator.cancel() }

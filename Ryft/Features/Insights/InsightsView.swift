@@ -16,28 +16,41 @@ struct InsightsView: View {
 
     private var model: InsightsViewModel { screens.insights }
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         NavigationStack {
-            ScreenScaffold {
-                Text("Insights")
-                    .font(.ryft(.title))
-                    .foregroundStyle(Theme.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                // Guideline 1.4.1: observations, not diagnoses; see a doctor for concerns.
-                Label("RYFT is a wellness tool, not a medical device. Talk to a doctor about health concerns.",
-                      systemImage: "stethoscope")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                insights
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Trends").ryftLabelStyle()
-                    SegmentedPicker(selection: Bindable(model).range, options: TrendRange.allCases,
-                                    title: InsightsViewModel.rangeTitle)
+            ScrollViewReader { proxy in
+                ScreenScaffold {
+                    Text("Insights")
+                        .font(.ryft(.title))
+                        .foregroundStyle(Theme.textPrimary)
+                        .accessibilityAddTraits(.isHeader)
+                    // Guideline 1.4.1: observations, not diagnoses; see a doctor for concerns.
+                    Label("RYFT is a wellness tool, not a medical device. Talk to a doctor about health concerns.",
+                          systemImage: "stethoscope")
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    insights
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Trends").ryftLabelStyle()
+                        SegmentedPicker(selection: Bindable(model).range, options: TrendRange.allCases,
+                                        title: InsightsViewModel.rangeTitle)
+                    }
+                    ForEach(TrendMetric.allCases) { metric in
+                        TrendCard(metric: metric, range: model.range, series: model.series[metric],
+                                  band: model.band(for: metric))
+                            .id(metric)
+                    }
                 }
-                ForEach(TrendMetric.allCases) { metric in
-                    TrendCard(metric: metric, range: model.range, series: model.series[metric],
-                              band: model.band(for: metric))
+                // A deep link to a metric: scroll its trend into view.
+                .task(id: model.focusedMetric) {
+                    guard let metric = model.focusedMetric else { return }
+                    withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.standard)) {
+                        proxy.scrollTo(metric, anchor: .top)
+                    }
+                    model.focusedMetric = nil
                 }
             }
         }

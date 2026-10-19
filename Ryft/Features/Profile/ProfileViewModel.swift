@@ -167,6 +167,11 @@ final class ProfileViewModel {
         await state.refresh()
     }
 
+    // MARK: notifications
+
+    /// Behind `push.enabled`; the preferences belong to a platform account.
+    var showsNotifications: Bool { env.flags.isOn(.pushEnabled) && auth.isSignedIn && !settings.demoMode }
+
     // MARK: demo data
 
     var demoMode: Bool { settings.demoMode }

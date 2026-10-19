@@ -1,5 +1,57 @@
 # Status — 2026-10-19
 
+## Platform parity (WHOOP's iOS stack) — §1–§7 done
+
+Design notes are in `docs/ARCHITECTURE.md` (one section per brief section). Each
+section is its own commit, and every commit has green tests and zero warnings in our
+code.
+
+| § | What | Tests |
+| --- | --- | --- |
+| 1 | Protocol seams, `AppEnvironment` live / preview / test | `EnvironmentTests` |
+| 2 | `@Observable` view model per screen | `ViewModelTests` |
+| 3 | SwiftData read models behind `Repository`, TTLs, migration, wipe on sign-out | `RepositoryTests` |
+| 4 | `SyncCoordinator` actor, `BGProcessingTask` compaction, calendar reminders | `SyncCoordinatorTests` |
+| 5 | GameplayKit state machines: sync, auth, live session, Health onboarding | `StateMachine*Tests` |
+| 6 | Component catalog (Debug), `Theme.Motion`, coach marks, Health illustration | previews |
+| 7 | Push registration, silent refresh, categories, loc-keys, deep links, Profile → Notifications | `PushAndDeepLinkTests` (36) |
+
+- **Tests:** 303 pass, run in Xcode.
+- **§5 flake fixed:** `LocalSessionExercise.sets` is an unordered SwiftData relationship, so
+  the rest-timer test now picks two distinct sets.
+- **In-memory stores:** each `TrainStore(inMemory:)` now gets its own name, so parallel
+  tests no longer share one.
+
+### §7 — open / blocked on Apple configuration
+
+- **Notification Service Extension target.** Xcode's target-template tool doesn't offer
+  this template, and the pbxproj isn't edited by hand. To add it:
+  1. In Xcode, choose File → New → Target → Notification Service Extension, named
+     `RyftNotificationService` and embedded in Ryft.
+  2. Replace the generated `NotificationService.swift` and `Info.plist` with the ones in
+     `RyftNotificationService/`.
+  3. Add `Ryft/Push/NotificationRing.swift` to the new target's membership.
+
+  Until then, alerts arrive without the ring and the text is unchanged.
+- **Push capability (`aps-environment`).** This needs the paid Apple Developer Program,
+  plus the platform's APNs key (`../plattform` STATUS). Once both exist, add the Push
+  Notifications capability in Xcode. Registration code, preferences and the silent
+  refresh are ready, and `remote-notification` is in `UIBackgroundModes`.
+- **Universal links.** The working copy has an empty `com.apple.developer.associated-domains`
+  in `Ryft.entitlements`, an uncommitted local change that isn't mine. Universal links
+  need `applinks:ryftapp.de` back, and the platform's AASA needs the new paths
+  (`docs/API_REQUESTS.md` → Universal links). `ryft://…` links and notification taps
+  work without either.
+- **Device-only checks (not done here):**
+  - a sandbox push arrives and opens the right screen
+  - a silent push refreshes the day
+  - a universal link from Notes or Safari opens the app
+  - the ring appears once the extension exists
+
+  All of §7 is verified in unit tests and previews only.
+- **`push.enabled`** defaults to off (API.md), so the pre-prompt card and Profile →
+  Notifications stay hidden until the flag is on for the account. §8 makes it remote.
+
 ## Chart language and instrument components — done
 
 The brief's sections 1–2 are done; its Today layout section never arrived.

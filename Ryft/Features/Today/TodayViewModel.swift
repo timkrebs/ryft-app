@@ -10,6 +10,7 @@ final class TodayViewModel {
     private let sync: SyncService
     private let coordinator: SyncCoordinator
     private let apiStatus: APIStatus
+    private let push: PushRegistrar?
 
     /// The one message under the cards, in priority order.
     enum Status: Equatable {
@@ -23,11 +24,13 @@ final class TodayViewModel {
     /// First-run coach marks: gauge → physiology → trends.
     let coachMarks: CoachMarks
 
-    init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, apiStatus: APIStatus? = nil) {
+    init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, push: PushRegistrar? = nil,
+         apiStatus: APIStatus? = nil) {
         coachMarks = CoachMarks(defaults: state.env.defaults)
         self.state = state
         self.sync = sync
         self.coordinator = coordinator
+        self.push = push
         self.apiStatus = apiStatus ?? .shared
     }
 
@@ -84,4 +87,12 @@ final class TodayViewModel {
     }
 
     func open(_ tab: AppTab) { state.selectedTab = tab }
+
+    // MARK: push pre-prompt
+
+    /// After the first sync, before iOS asked; never on top of the coach marks.
+    var showsPushPrompt: Bool { (push?.showsPrePrompt ?? false) && !showsCoachMarks }
+
+    func enablePush() async { await push?.accept() }
+    func dismissPushPrompt() { push?.dismissPrompt() }
 }
