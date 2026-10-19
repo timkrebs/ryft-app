@@ -29,7 +29,7 @@ struct StrainView: View {
                 ring
                 movement
                 zones
-                if model.isToday { TrainSection() }
+                if model.isToday && model.showsTrain { TrainSection() }
                 activities
             }
             .navigationDestination(for: Workout.self) { WorkoutDetailView(workout: $0) }

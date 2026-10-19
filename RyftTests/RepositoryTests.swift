@@ -106,7 +106,8 @@ struct RepositoryFreshnessTests {
 struct RepositoryOfflineTests {
     @Test func offlineRequestsNothingAndServesTheCache() async throws {
         let api = MockPlatformAPI()
-        let (repo, clock, env) = makeRepo(api: api)
+        // Mid-morning, so the hour below never crosses midnight.
+        let (repo, clock, env) = makeRepo(api: api, now: Date(timeIntervalSince1970: 1_792_400_000))
         try await repo.refreshDay(clock.now())
         env.connectivityMonitor.update(false)
         clock.advance(by: .seconds(3600)) // stale

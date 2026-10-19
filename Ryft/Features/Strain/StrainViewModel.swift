@@ -41,6 +41,8 @@ final class StrainViewModel {
     var detail: DayDetail? { state.cachedDayDetail(for: date) }
 
     var isToday: Bool { calendar.isDate(date, inSameDayAs: today) }
+    /// Strength training behind `train.enabled`.
+    var showsTrain: Bool { state.env.flags.isOn(.trainEnabled) }
     var title: String { Fmt.dayTitle(date, today: today) }
     var hasNoHealthData: Bool { state.hasNoHealthData }
 
