@@ -35,7 +35,7 @@ struct Hypnogram: View {
                 RectangleMark(xStart: .value("Start", seg.start), xEnd: .value("End", seg.end),
                               yStart: .value("Row", y - 0.32), yEnd: .value("Row", y + 0.32))
                     .foregroundStyle(color(seg.stage))
-                    .cornerRadius(3)
+                    .cornerRadius(1)
             }
         }
         .chartYScale(domain: -0.5...Double(Self.rows.count) - 0.5)
@@ -44,21 +44,26 @@ struct Hypnogram: View {
                 AxisValueLabel {
                     if let i = value.as(Double.self) {
                         Text(Self.rows[Self.rows.count - 1 - Int(i)].title)
-                            .font(.ryft(.caption))
+                            .font(ChartStyle.axisFont)
                             .foregroundStyle(Theme.textTertiary)
                     }
                 }
             }
         }
         .chartXAxis {
-            AxisMarks(values: .stride(by: .hour, count: 2)) { _ in
-                AxisGridLine().foregroundStyle(Theme.separator)
-                AxisValueLabel(format: .dateTime.hour())
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textTertiary)
+            AxisMarks(values: .stride(by: .hour, count: 2)) { value in
+                AxisGridLine(stroke: ChartStyle.grid).foregroundStyle(Theme.separator)
+                AxisValueLabel {
+                    if let d = value.as(Date.self) {
+                        Text(ChartStyle.hourLabel(d))
+                            .font(ChartStyle.axisFont)
+                            .foregroundStyle(Theme.textTertiary)
+                    }
+                }
             }
         }
         .frame(height: height)
+        .chartAppear()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Hypnogram"))
         .accessibilityValue(Text(summary))

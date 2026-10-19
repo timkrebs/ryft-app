@@ -18,6 +18,8 @@ enum RyftTextStyle {
     case caption
     /// Small uppercase tracked section label. Use with `.ryftLabelStyle()`.
     case label
+    /// Chart axis ticks and annotations (caption2). Pair with `.monospacedDigit()`.
+    case axis
     /// The RYFT wordmark.
     case wordmark
 
@@ -32,6 +34,7 @@ enum RyftTextStyle {
         case .callout: return 14
         case .caption: return 12
         case .label: return 11
+        case .axis: return 10
         case .wordmark: return 17
         }
     }
@@ -40,7 +43,7 @@ enum RyftTextStyle {
         switch self {
         case .display, .numberLarge, .metric: return .medium
         case .title, .headline, .wordmark: return .medium
-        case .body, .callout, .caption: return .regular
+        case .body, .callout, .caption, .axis: return .regular
         case .label: return .medium
         }
     }
@@ -54,7 +57,7 @@ enum RyftTextStyle {
         case .body: return .body
         case .callout: return .callout
         case .caption: return .caption
-        case .label: return .caption2
+        case .label, .axis: return .caption2
         case .wordmark: return .headline
         }
     }

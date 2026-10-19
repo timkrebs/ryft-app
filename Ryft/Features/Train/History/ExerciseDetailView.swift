@@ -75,7 +75,10 @@ struct ExerciseDetailView: View {
     private var chartCard: some View {
         Card {
             VStack(alignment: .leading, spacing: 14) {
-                CardHeader(title: "e1RM", trailing: "90 days")
+                ChartHeader(spec: .e1rm, value: points.last?.value,
+                            delta: points.count >= 2 ? MetricDelta(current: points[points.count - 1].value,
+                                                                   reference: points[points.count - 2].value) : nil,
+                            deltaReference: String(localized: "vs last"), window: ChartWindow.quarter.title)
                 if points.count >= 2 {
                     E1RMChart(points: points, best: history?.prs.first { $0.kind == .e1rm }?.value)
                         .frame(height: 180)
@@ -151,7 +154,9 @@ struct ExerciseDetailView: View {
     }
 }
 
-/// e1RM over time with the best as a dashed rule.
+/// e1RM over the last 90 days: 1.5 pt linear line, markers at the latest
+/// session and the window's best, the PR as a dashed reference, nice kg bounds,
+/// monthly ticks.
 struct E1RMChart: View {
     let points: [E1RMPoint]
     var best: Double?
@@ -159,46 +164,46 @@ struct E1RMChart: View {
     private var values: [Double] { points.map(\.value) }
 
     var body: some View {
-        let lo = (values.min() ?? 0), hi = max(values.max() ?? 1, best ?? 0)
-        let pad = max(2.5, (hi - lo) * 0.15)
+        let spec = MetricSpec.e1rm
+        let window = ChartWindow.quarter
+        let scale = ChartStyle.scale(for: values + [best].compactMap { $0 }, spec: spec)
+        let last = points.last
+        let top = points.max { $0.value < $1.value }
         Chart {
-            ForEach(points) { p in
-                    AreaMark(x: .value("Day", p.date), yStart: .value("Base", lo - pad), yEnd: .value("e1RM", p.value))
-                        .foregroundStyle(LinearGradient(colors: [Theme.accent.opacity(0.25), Theme.accent.opacity(0)],
-                                                        startPoint: .top, endPoint: .bottom))
-                        .interpolationMethod(.monotone)
-                    LineMark(x: .value("Day", p.date), y: .value("e1RM", p.value))
-                        .foregroundStyle(Theme.accent)
-                        .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                        .interpolationMethod(.monotone)
-                    PointMark(x: .value("Day", p.date), y: .value("e1RM", p.value))
-                        .foregroundStyle(Theme.accent)
-                        .symbolSize(18)
-            }
             if let best {
-                RuleMark(y: .value("Best", best))
-                    .foregroundStyle(Theme.warning.opacity(0.8))
-                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                    .annotation(position: .top, alignment: .leading) {
-                        Text("PR \(Fmt.kgNumber(best))")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(Theme.warning)
+                BaselineRule(value: best, label: String(localized: "PR \(Fmt.kg(best))"))
+            }
+            ForEach(points) { p in
+                LineMark(x: .value("Day", p.date), y: .value("e1RM", p.value))
+                    .interpolationMethod(.linear)
+                    .foregroundStyle(spec.color)
+                    .lineStyle(ChartStyle.line)
+            }
+            if let top, top.date != last?.date {
+                PointMark(x: .value("Day", top.date), y: .value("e1RM", top.value))
+                    .symbol {
+                        Circle()
+                            .strokeBorder(spec.color, lineWidth: 1)
+                            .background(Circle().fill(Theme.surface))
+                            .frame(width: ChartStyle.marker.width, height: ChartStyle.marker.height)
+                    }
+            }
+            if let last {
+                PointMark(x: .value("Day", last.date), y: .value("e1RM", last.value))
+                    .foregroundStyle(spec.color)
+                    .symbolSize(ChartStyle.marker)
+                    .annotation(position: .top, spacing: 3) {
+                        Text(Fmt.kgNumber(last.value))
+                            .font(ChartStyle.axisFont)
+                            .foregroundStyle(Theme.textPrimary)
                     }
             }
         }
-        .chartYScale(domain: (lo - pad)...(hi + pad))
-        .chartXAxis {
-            AxisMarks(values: .stride(by: .month)) { _ in
-                AxisValueLabel(format: .dateTime.month(.abbreviated))
-                    .foregroundStyle(Theme.textTertiary)
-            }
-        }
-        .chartYAxis {
-            AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { _ in
-                AxisGridLine().foregroundStyle(Theme.separator)
-                AxisValueLabel().foregroundStyle(Theme.textTertiary)
-            }
-        }
+        .chartXScale(domain: window.domain(endingAt: .now))
+        .chartYScale(domain: scale.domain)
+        .chartXAxis { ChartStyle.xAxis(window.ticks(endingAt: .now), format: window.format) }
+        .chartYAxis { ChartStyle.yAxis(scale.ticks, unit: "kg", label: spec.axis) }
+        .chartAppear()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Estimated one-rep max, last 90 days"))
         .accessibilityValue(Text(summary))

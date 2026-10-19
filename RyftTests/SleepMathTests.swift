@@ -11,13 +11,14 @@ struct SleepMathTests {
         #expect(shares.compactMap(\.pct).reduce(0, +) == 100)
     }
 
-    @Test(arguments: [
-        [SleepStageKind.deep: 1, .light: 1, .rem: 1],
-        [.deep: 7, .light: 333, .rem: 1, .awake: 59],
-        [.light: 420],
-    ])
-    func alwaysSumsTo100(minutes: [SleepStageKind: Int]) {
-        #expect(SleepMath.shares(minutes).compactMap(\.pct).reduce(0, +) == 100)
+    /// Minutes as [deep, light, rem, awake]. Arrays, not dictionaries: a dictionary's
+    /// order (and so the case's name) changes per process, and the runner then waits
+    /// for test IDs that never report.
+    @Test(arguments: [[1, 1, 1, 0], [7, 333, 1, 59], [0, 420, 0, 0]])
+    func alwaysSumsTo100(minutes: [Int]) {
+        let night = Dictionary(uniqueKeysWithValues: zip([SleepStageKind.deep, .light, .rem, .awake], minutes))
+            .filter { $0.value > 0 }
+        #expect(SleepMath.shares(night).compactMap(\.pct).reduce(0, +) == 100)
     }
 
     @Test func emptyNightIsAllZero() {

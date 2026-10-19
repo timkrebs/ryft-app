@@ -43,67 +43,6 @@ enum ActivityStyle {
     }
 }
 
-/// Five HRR zones as a stacked bar plus a legend with minutes.
-struct ZoneMinutesView: View {
-    /// Minutes in zones 1–5; nil or empty renders a placeholder.
-    let minutes: [Double]?
-
-    private static let labels = ["50–60%", "60–70%", "70–80%", "80–90%", "90%+"]
-
-    private var values: [Double] {
-        guard let minutes, minutes.count == 5 else { return [] }
-        return minutes
-    }
-
-    var body: some View {
-        let total = values.reduce(0, +)
-        VStack(alignment: .leading, spacing: 14) {
-            GeometryReader { geo in
-                HStack(spacing: 2) {
-                    if total <= 0 {
-                        Rectangle().fill(Theme.surfaceRaised)
-                    } else {
-                        ForEach(values.indices, id: \.self) { i in
-                            if values[i] > 0 {
-                                Rectangle()
-                                    .fill(Theme.zones[i])
-                                    .frame(width: max(2, (geo.size.width - 8) * values[i] / total))
-                            }
-                        }
-                    }
-                }
-            }
-            .frame(height: 14)
-            .clipShape(Capsule())
-
-            HStack(spacing: 0) {
-                ForEach(0..<5, id: \.self) { i in
-                    VStack(spacing: 4) {
-                        HStack(spacing: 4) {
-                            Circle().fill(Theme.zones[i]).frame(width: 7, height: 7)
-                            Text("Z\(i + 1)")
-                                .font(.ryft(.caption))
-                                .foregroundStyle(Theme.textSecondary)
-                        }
-                        Text(values.isEmpty ? Fmt.placeholder : Fmt.duration(minutes: Int(values[i].rounded())))
-                            .font(.ryft(.callout))
-                            .monospacedDigit()
-                            .foregroundStyle(Theme.textPrimary)
-                        Text(Self.labels[i])
-                            .font(.system(size: 9))
-                            .foregroundStyle(Theme.textTertiary)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Heart-rate zones"))
-        .accessibilityValue(Text(values.isEmpty ? String(localized: "No data")
-            : values.enumerated().map { "Zone \($0.offset + 1): \(Int($0.element.rounded())) min" }.joined(separator: ", ")))
-    }
-}
-
 /// A row in Strain's activity list.
 enum ActivityItem: Identifiable {
     /// A workout, with its logged Train session when `session_id` matches.
@@ -236,8 +175,6 @@ struct StrainPill: View {
 #Preview("Strain components", traits: .sizeThatFitsLayout) {
     SchemePair {
         VStack(spacing: 14) {
-            ZoneMinutesView(minutes: MockData.todayDetail.strain?.zoneMin.map(Double.init))
-            ZoneMinutesView(minutes: nil)
             ForEach(MockData.todayDetail.workouts) { ActivityRow(workout: $0) }
             if let s = MockTrain.history.last.map(SessionSummary.init),
                let w = MockData.allWorkouts.first(where: { $0.sessionId == s.id }) {

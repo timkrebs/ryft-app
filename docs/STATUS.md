@@ -1,5 +1,34 @@
 # Status — 2026-10-19
 
+## Chart language and instrument components — done
+
+The brief's sections 1–2 are done; its Today layout section never arrived.
+
+- **Chart language.** `ChartStyle` + `MetricSpec`, documented in `docs/CHART_STYLE.md`.
+  - Applied to the trend charts (Today, Insights), sleep per night, both hypnograms,
+    workout heart rate and e1RM.
+  - catmullRom, area fills, gradients, the ring glow and count-ups are removed.
+- **New components** (`Design/`), each with dark and light previews:
+  - `MetricGauge`: now on Today (readiness) and Strain (day strain), replacing the 220 /
+    200 pt rings.
+  - `RangeBar`, `DeltaLabel`.
+  - `ZoneBar`: replaces `ZoneMinutesView`.
+  - `MiniHypnogram`.
+- **Colours.** `MetricStrain` (blue) and `MetricSleep` (indigo) were added, ≥ 4.5:1 in
+  both appearances.
+- **Not placed yet**: `RangeBar` and `MiniHypnogram` wait for the Today layout.
+- **API requests**: strain band, strain target, baseline σ, resp / SpO₂ trends (see
+  `docs/API_REQUESTS.md`). Until then the gauge's target arc stays empty and the bands use
+  the 30-day min / max.
+- **Tests**: 10 new chart tests (scales, ticks, deltas, range stats).
+  - A parameterized SleepMath test used dictionaries as arguments, so its case names
+    changed per process and Xcode waited for results that never came. It now uses arrays.
+  - Verified in Xcode: 174 passed, before that fix.
+  - Command-line `xcodebuild test` can't run from the agent's environment: the simulator
+    launch fails with "Pseudo Terminal Setup Error" (EPERM), and xcodebuild then doesn't
+    exit. Please run the tests once in Xcode.
+- **Strings**: German complete, stale keys removed (`make lint` passes).
+
 ## App Store readiness — done
 
 Audited on **2026-10-19** with **Xcode 27.1 (27A9275), iOS 27.1 SDK**. The audit used

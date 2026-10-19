@@ -1,47 +1,20 @@
 import SwiftUI
 
 extension TrendMetric {
-    var title: String {
-        switch self {
-        case .readiness: return String(localized: "Readiness")
-        case .recovery: return String(localized: "Recovery")
-        case .strain: return String(localized: "Strain")
-        case .sleep: return String(localized: "Sleep performance")
-        case .sleepMin: return String(localized: "Time asleep")
-        case .hrv: return String(localized: "HRV")
-        case .rhr: return String(localized: "Resting HR")
-        case .steps: return String(localized: "Steps")
-        case .activeKcal: return String(localized: "Active energy")
-        }
-    }
+    var title: String { spec.title }
+    var color: Color { spec.color }
+    func format(_ v: Double) -> String { spec.text(v) }
 
-    var color: Color {
-        switch self {
-        case .readiness, .strain, .hrv: return Theme.accent
-        case .recovery, .steps: return Theme.accentSecondary
-        case .sleep, .sleepMin: return Theme.stageLight
-        case .rhr: return Theme.alert
-        case .activeKcal: return Theme.warning
-        }
-    }
-
-    func format(_ v: Double) -> String {
-        switch self {
-        case .readiness, .steps: return Fmt.integer(v)
-        case .recovery, .sleep: return Fmt.percent(v)
-        case .strain: return Fmt.strain(v)
-        case .sleepMin: return Fmt.duration(minutes: Int(v.rounded()))
-        case .hrv: return "\(Fmt.integer(v)) ms"
-        case .rhr: return "\(Fmt.integer(v)) bpm"
-        case .activeKcal: return "\(Fmt.integer(v)) kcal"
-        }
-    }
+    /// Metrics with a personal baseline get the 30-day range as a band.
+    var showsPersonalRange: Bool { self == .hrv || self == .rhr }
 }
 
 @MainActor
 final class InsightsViewModel: ObservableObject {
     @Published var range: TrendRange = .month
     @Published private(set) var series: [TrendMetric: TrendSeries] = [:]
+    /// 30-day series behind the personal-range bands (HRV, resting HR), whatever the range.
+    @Published private(set) var monthly: [TrendMetric: TrendSeries] = [:]
 
     func load(state: AppState) async {
         // Instant paint from what's already loaded, then the platform's series.
@@ -57,6 +30,9 @@ final class InsightsViewModel: ObservableObject {
             for await (m, s) in group where s.range == range.rawValue || s.range.isEmpty {
                 series[m] = s
             }
+        }
+        for m in TrendMetric.allCases where m.showsPersonalRange {
+            monthly[m] = range == .month ? series[m] : await state.trend(m, range: .month)
         }
     }
 }
@@ -91,7 +67,8 @@ struct InsightsView: View {
                     }
                 }
                 ForEach(TrendMetric.allCases) { metric in
-                    TrendCard(metric: metric, series: model.series[metric])
+                    TrendCard(metric: metric, range: model.range, series: model.series[metric],
+                              monthly: model.monthly[metric])
                 }
             }
         }
@@ -126,35 +103,37 @@ struct InsightsView: View {
 
 private struct TrendCard: View {
     let metric: TrendMetric
+    let range: TrendRange
     let series: TrendSeries?
+    let monthly: TrendSeries?
+
+    /// The 30-day min–max until the API serves a σ (`docs/API_REQUESTS.md`).
+    private var band: ClosedRange<Double>? {
+        guard metric.showsPersonalRange, let lo = monthly?.min, let hi = monthly?.max, lo < hi else { return nil }
+        return lo...hi
+    }
 
     var body: some View {
         Card {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(metric.title)
-                        .font(.ryft(.headline))
-                        .foregroundStyle(Theme.textPrimary)
-                    Spacer()
-                    Text(latest.map(metric.format) ?? Fmt.placeholder)
-                        .font(.ryft(.headline))
-                        .monospacedDigit()
-                        .foregroundStyle(metric.color)
-                }
-                TrendChart(points: series?.points ?? [], title: metric.title, color: metric.color,
-                           baseline: metric == .hrv ? series?.baseline : nil,
-                           showsAxes: true, interactive: true, height: 150, valueText: metric.format)
+            VStack(alignment: .leading, spacing: 12) {
+                TrendChart(points: series?.points ?? [], spec: metric.spec, window: ChartWindow(range),
+                           end: series?.to.flatMap(DayFormat.date(from:)),
+                           baseline: metric.showsPersonalRange ? series?.baseline : nil,
+                           band: band, height: 150)
                 HStack(spacing: 16) {
                     summary("Avg", series?.avg)
                     summary("Min", series?.min)
                     summary("Max", series?.max)
                     Spacer()
+                    if band != nil {
+                        Text("Band: 30-day range")
+                            .font(ChartStyle.axisFont)
+                            .foregroundStyle(Theme.textTertiary)
+                    }
                 }
             }
         }
     }
-
-    private var latest: Double? { series?.points.last { $0.value != nil }?.value }
 
     private func summary(_ title: LocalizedStringKey, _ value: Double?) -> some View {
         HStack(spacing: 4) {
