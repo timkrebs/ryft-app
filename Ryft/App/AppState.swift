@@ -265,8 +265,9 @@ final class AppState {
 extension AppState {
     /// Pre-filled with mock data so previews render without awaiting anything.
     static func preview(empty: Bool = false, calibrating: Bool = false, online: Bool = true,
-                        auth: AuthService? = nil, coachMarks: Bool = false) -> AppState {
-        let s = AppState(env: .preview(online: online, auth: auth, coachMarks: coachMarks))
+                        auth: AuthService? = nil, coachMarks: Bool = false,
+                        flags: [FeatureFlag: Bool] = [:]) -> AppState {
+        let s = AppState(env: .preview(online: online, auth: auth, flags: flags, coachMarks: coachMarks))
         guard !empty else {
             s.previewUnconfigured = true
             return s

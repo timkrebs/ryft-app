@@ -1,6 +1,6 @@
 # Status — 2026-10-19
 
-## Platform parity (WHOOP's iOS stack) — §1–§7 done
+## Platform parity (WHOOP's iOS stack) — §1–§8 done
 
 Design notes are in `docs/ARCHITECTURE.md` (one section per brief section). Each
 section is its own commit, and every commit has green tests and zero warnings in our
@@ -15,8 +15,9 @@ code.
 | 5 | GameplayKit state machines: sync, auth, live session, Health onboarding | `StateMachine*Tests` |
 | 6 | Component catalog (Debug), `Theme.Motion`, coach marks, Health illustration | previews |
 | 7 | Push registration, silent refresh, categories, loc-keys, deep links, Profile → Notifications | `PushAndDeepLinkTests` (36) |
+| 8 | `FlagStore` + `FeatureFlags` actor: `GET /v1/config` at launch and every 6 h, SwiftData cache, Debug overrides, gates | `FeatureFlagsTests` (15) |
 
-- **Tests:** 303 pass, run in Xcode.
+- **Tests:** 318 pass, run in Xcode. `RepositoryOfflineTests` used the real time and failed after 23:00 (the advanced hour crossed midnight); it now uses a fixed morning time.
 - **§5 flake fixed:** `LocalSessionExercise.sets` is an unordered SwiftData relationship, so
   the rest-timer test now picks two distinct sets.
 - **In-memory stores:** each `TrainStore(inMemory:)` now gets its own name, so parallel
@@ -50,7 +51,14 @@ code.
 
   All of §7 is verified in unit tests and previews only.
 - **`push.enabled`** defaults to off (API.md), so the pre-prompt card and Profile →
-  Notifications stay hidden until the flag is on for the account. §8 makes it remote.
+  Notifications stay hidden until the flag is on for the account (`GET /v1/config`, or a
+  Debug override).
+- **§8 open:** `sleep.planner` and `coach.enabled` gate nothing yet; those features are
+  later milestones. The Today redesign is the hypnogram card, because the brief's Today
+  layout never arrived. The physiology card is separate. Both are verified in previews
+  and tests only. To check that a flag toggles without a rebuild on a device, flip it on
+  the platform (OPERATIONS.md → Feature flags), then reopen the app or use Debug →
+  Reload.
 
 ## Chart language and instrument components — done
 

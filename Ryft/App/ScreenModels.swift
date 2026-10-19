@@ -16,6 +16,8 @@ final class ScreenModels {
     let coordinator: SyncCoordinator
     let push: PushRegistrar
     let router: DeepLinkRouter
+    /// Remote flags (`GET /v1/config`); nil when the environment's flags are static (tests, previews).
+    let featureFlags: FeatureFlags?
     private let state: AppState
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, store: TrainStore, library: TrainLibrary) {
@@ -27,6 +29,14 @@ final class ScreenModels {
         strain = StrainViewModel(state: state, store: store)
         insights = InsightsViewModel(state: state)
         router = DeepLinkRouter(state: state, sleep: sleep, strain: strain, insights: insights)
+        let env = state.env
+        featureFlags = (env.flags as? FlagStore).map { store in
+            FeatureFlags(flags: store, clock: env.clock) {
+                // Flags are evaluated per user: nothing to ask before sign-in.
+                guard env.isDemo || env.auth.isSignedIn else { throw APIError.signedOut }
+                return try await env.api.config()
+            }
+        }
         profile = ProfileViewModel(state: state, sync: sync, coordinator: coordinator)
         trainToday = TrainTodayViewModel(library: library, store: store, clock: state.env.clock)
     }

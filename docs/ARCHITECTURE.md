@@ -358,3 +358,43 @@ ring code lives in `Ryft/Push`, so the app's tests cover it.
 - the registrar's pre-prompt, send-once, retry, re-register and sign-out
 - the sign-out hook
 - the notification settings VM
+
+## 8. Feature flags (`GET /v1/config`)
+
+- **`FlagStore`** (`Environment/FeatureFlags.swift`, `@MainActor @Observable`) is the
+  live `FeatureFlagProvider` in `AppEnvironment.live`. A flag resolves in this order:
+  1. a Debug override (stored in UserDefaults; Release ignores overrides)
+  2. the platform's value (`RemoteConfig.flags`, evaluated per user)
+  3. `FeatureFlag.compiledDefault`
+
+  `source(of:)` reports which of the three applied. The last config is a SwiftData
+  `CachedDocument` ("config") together with its fetch time, so an offline launch keeps
+  its flags. Sign-out wipes the cache with the other read models, and an account switch
+  calls `reset()`. Because the store is observable, a view that reads a flag re-renders
+  when a new config arrives, with no rebuild or relaunch.
+- **`FeatureFlags`** (an actor in `ScreenModels`) does the fetching:
+  - `run()` fetches at launch, then sleeps the config's `ttl_sec` (6 h) on the
+    environment's clock and fetches again.
+  - `refresh()` on a return to the foreground asks only when the config is due;
+    `refresh(force:)` runs after sign-in and from Debug.
+  - One request at a time; overlapping callers share it.
+  - A failure keeps what's cached.
+  - Before sign-in nothing is asked, because flags are per user.
+- **Gates:**
+
+  | Flag | Gates |
+  | --- | --- |
+  | `train.enabled` | Today's Train card, Strain's Train section |
+  | `today.redesign` | Today's redesign (last night's hypnogram); ships dark (off by default) |
+  | `physiology.card` | Today's HRV and resting-HR range bars over 30 days |
+  | `push.enabled` | the pre-prompt, push registration, Profile → Notifications |
+  | `sleep.planner`, `coach.enabled` | typed and visible in Debug; no feature exists yet |
+
+- **Debug:** Profile → Developer → Feature flags lists every flag with its value and
+  source, an override toggle, "Use the platform's value", and a forced reload.
+- **Tests:** `FeatureFlagsTests` covers:
+  - precedence, the cache across launches, reset and wipe, TTL
+  - observation on a remote change
+  - fetch when due, force, failure, overlapping refreshes sharing one request, and the
+    `run()` loop on `TestClock`
+  - every gate

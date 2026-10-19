@@ -88,6 +88,29 @@ final class TodayViewModel {
 
     func open(_ tab: AppTab) { state.selectedTab = tab }
 
+    // MARK: feature flags
+
+    var showsTrain: Bool { env.flags.isOn(.trainEnabled) }
+
+    /// The redesigned Today, shipped dark behind `today.redesign`: last night's
+    /// hypnogram under the tiles.
+    var showsRedesign: Bool { env.flags.isOn(.todayRedesign) }
+    var lastNight: SleepDetail? { state.today?.sleep }
+
+    /// `physiology.card`: HRV and resting HR against their 30-day range.
+    var showsPhysiology: Bool { env.flags.isOn(.physiologyCard) && hasDataSource }
+    var hrv: Double? { score?.hrvMs }
+    var rhr: Double? { score?.rhr }
+    var hrvSeries: TrendSeries? { state.cachedTrend(.hrv, range: .month) }
+    var rhrSeries: TrendSeries? { state.cachedTrend(.rhr, range: .month) }
+
+    /// The 30-day series behind the physiology card (cached, revalidated by TTL).
+    func loadPhysiology() async {
+        guard showsPhysiology else { return }
+        _ = await state.trend(.hrv, range: .month)
+        _ = await state.trend(.rhr, range: .month)
+    }
+
     // MARK: push pre-prompt
 
     /// After the first sync, before iOS asked; never on top of the coach marks.

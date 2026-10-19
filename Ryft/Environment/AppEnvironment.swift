@@ -57,7 +57,7 @@ final class AppEnvironment {
     static let live = AppEnvironment(
         settings: .shared, health: HealthKitManager.shared, liveAPI: APIClient.shared, demoAPI: MockPlatformAPI(),
         auth: .shared, persistence: TrainStore.shared, clock: SystemClock(), notifier: SystemNotifier(),
-        flags: StaticFlags(), connectivity: .shared)
+        flags: FlagStore.shared, connectivity: .shared)
 
     /// Previews: signed in, mock data, nothing leaves the process.
     static func preview(online: Bool = true, auth: AuthService? = nil,
