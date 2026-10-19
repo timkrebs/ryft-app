@@ -1,5 +1,59 @@
 # Status — 2026-10-19
 
+## App Store readiness — done
+
+Audited on **2026-10-19** with **Xcode 27.1 (27A9275), iOS 27.1 SDK**. The audit used
+Apple's current documentation, not memory. The checklist is `docs/APP_STORE.md`, and it has
+no open *fix* rows.
+
+- **Privacy** (`7cd708e`):
+  - `PrivacyInfo.xcprivacy`: no tracking, 7 linked data types, UserDefaults `CA92.1`.
+  - Health purpose string in en and de; the unused write string is removed.
+  - A "Connect Apple Health" explanation comes before the permission prompt.
+  - "No Health data yet" hint when access is denied.
+  - Privacy Policy and Terms in in-app Safari (Welcome, Create account, About).
+  - Export my data (JSON via the share sheet).
+  - Wellness disclaimer in About and on Insights.
+- **Release hygiene** (`9213d79`):
+  - `ITSAppUsesNonExemptEncryption = NO`; background modes `fetch` only.
+  - Graphite launch screen; no Mac or Vision Pro.
+  - Associated Domains `applinks:ryftapp.de`, with the universal-link auth callback.
+  - Version 1.0.0 with a timestamp build number.
+  - `make archive` with `scripts/ExportOptions.plist`, and a Licences screen.
+- **Accessibility** (`89e3d9a`):
+  - Audio Graph descriptors on the trend, e1RM and heart-rate charts.
+  - A recovery band word on Today.
+  - Light-mode contrast ≥ 4.5:1, with `OnAccent` for labels on teal.
+  - 44 pt targets.
+  - Today tiles stack at AX sizes.
+  - German complete; `make lint` → 0 problems.
+- **Smoke UI test**: `RyftUITests/StoreSmokeUITests.swift`.
+  - The demo walkthrough passes.
+  - The reviewer walkthrough (log in → tabs → Delete account → Cancel) skips without
+    credentials.
+  - The Train UI test still passes.
+- **Tests**: 164 unit tests and 2 UI tests passing, 1 skipped (iPhone 18 Pro simulator).
+  Zero warnings.
+
+## App Store readiness — open / user only
+
+Only the account holder can do these; the full list is in `docs/APP_STORE.md` §6.
+
+- **Uploadable ipa: not produced.** `make archive` builds and verifies an unsigned Release
+  archive. The export needs the paid Developer Program team (Personal Team can't sign
+  HealthKit background delivery, Sign in with Apple or Associated Domains for distribution).
+- **Privacy report**: Organizer → Generate Privacy Report on the signed archive. Compare it
+  with §1.
+- **Reviewer demo account** (30 days of synthetic data). Then run
+  `testReviewerWalkthroughCancelsDeletion` with `TEST_RUNNER_RYFT_DEMO_EMAIL` /
+  `TEST_RUNNER_RYFT_DEMO_PASSWORD`.
+- **Simulator only so far**: HealthKit permission flow, Instruments memory peak on the first
+  90-day sync, Network Link Conditioner, one iPad run (compatibility mode).
+- **Website**: `/privacy`, `/terms` and `/support` on ryftapp.de, and the AASA file for
+  `/auth/*`.
+- **App Store Connect**: age rating, App Privacy, Accessibility Nutrition Labels, DSA trader
+  status, review notes.
+
 ## Go-live pass (accounts, live host) — done
 
 This pass checked `CLAUDE_FOLLOWUP_APP_GOLIVE.md` against what an earlier session had built.

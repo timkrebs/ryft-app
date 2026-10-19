@@ -35,6 +35,10 @@ open Ryft.xcodeproj
 ```
 
 `make build` / `make test` build and test for the simulator from the command line.
+`make lint` checks that every string has German and no key is stale. `make archive`
+builds a Release archive with a timestamp build number and exports an App Store ipa
+(`scripts/ExportOptions.plist`; needs the paid team). The submission checklist is
+`docs/APP_STORE.md`.
 
 > **Package pin.** `swift-clocks` must stay at **1.1.0** (the version supabase-swift itself
 > pins). 1.1.1 moved to `swift-issue-reporting`, which collides with supabase-swift's
