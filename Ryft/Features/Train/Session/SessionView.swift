@@ -173,6 +173,7 @@ struct SessionView: View {
                 .background(Theme.accent, in: Capsule())
             }
             .disabled(finishing)
+            .accessibilityIdentifier("session.finish")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -330,6 +331,7 @@ struct SessionSummarySheet: View {
                     }
                     Button("Done") { done() }
                         .buttonStyle(TealButtonStyle())
+                        .accessibilityIdentifier("summary.done")
                 }
                 .padding(Theme.Metrics.screenPadding)
             }

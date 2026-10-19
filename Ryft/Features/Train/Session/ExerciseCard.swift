@@ -75,6 +75,7 @@ struct SetRow: View {
             controller.toggleWarmup(set)
         }
         .accessibilityAction(named: Text("Delete set")) { confirmDelete = true }
+        .accessibilityIdentifier("set.\(exercise.position).\(number)")
     }
 
     /// "Set 2 of 5, 8 reps at 80 kilograms, completed".

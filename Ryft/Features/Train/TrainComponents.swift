@@ -189,6 +189,7 @@ struct WorkoutInProgressBanner: View {
         }
         .buttonStyle(PressableButtonStyle())
         .accessibilityHint(Text("Opens the workout"))
+        .accessibilityIdentifier("train.resume")
     }
 }
 

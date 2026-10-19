@@ -24,6 +24,10 @@ struct RyftApp: App {
             Self.handleRefresh(task)
         }
         Self.configureAppearance()
+        #if DEBUG
+        // UI tests: `-RyftResetTrain YES` starts without sessions or a queue.
+        if UserDefaults.standard.bool(forKey: "RyftResetTrain") { TrainStore.shared.wipe() }
+        #endif
     }
 
     var body: some Scene {

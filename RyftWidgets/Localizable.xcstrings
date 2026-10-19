@@ -1,0 +1,42 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Done" : {
+      "comment" : "Live Activity button that opens the workout in the app.",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "machine_translated", "value" : "Fertig" } }
+      }
+    },
+    "Go" : {
+      "comment" : "Live Activity countdown once the rest is over.",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "machine_translated", "value" : "Los" } }
+      }
+    },
+    "Next: %@" : {
+      "comment" : "Live Activity: the next set, e.g. Next: Bench press · set 3 of 4.",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "machine_translated", "value" : "Als Nächstes: %@" } }
+      }
+    },
+    "Rest" : {
+      "comment" : "Dynamic Island label of the rest timer.",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "machine_translated", "value" : "Pause" } }
+      }
+    },
+    "REST" : {
+      "comment" : "Lock screen label of the rest timer (uppercase).",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "machine_translated", "value" : "PAUSE" } }
+      }
+    },
+    "REST OVER" : {
+      "comment" : "Lock screen label once the rest is over (uppercase).",
+      "localizations" : {
+        "de" : { "stringUnit" : { "state" : "machine_translated", "value" : "PAUSE VORBEI" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}
