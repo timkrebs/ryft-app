@@ -10,6 +10,7 @@ struct CreateAccountView: View {
     @State private var name = ""
     @State private var email = ""
     @State private var password = ""
+    @State private var legal: LegalPage?
 
     private var isValid: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -34,6 +35,8 @@ struct CreateAccountView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .onAppear { auth.errorMessage = nil }
+        // The Terms and Privacy Policy links open in-app.
+        .safariSheet($legal)
     }
 
     private func submit() async {

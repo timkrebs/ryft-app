@@ -24,6 +24,9 @@ enum Theme {
     static let separator = Color("Separator")
     /// Teal: rings, progress, active tab, highlights.
     static let accent = Color("Accent")
+    /// Text and icons on an Accent fill (buttons, checks): Graphite in dark mode,
+    /// white on the darker light-mode teal, so both reach 4.5:1.
+    static let onAccent = Color("OnAccent")
     /// Sage: muted positives, info insights.
     static let accentSecondary = Color("AccentSecondary")
     static let warning = Color("Warning")

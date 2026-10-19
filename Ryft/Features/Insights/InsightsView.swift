@@ -73,6 +73,12 @@ struct InsightsView: View {
                     .font(.ryft(.title))
                     .foregroundStyle(Theme.textPrimary)
                     .accessibilityAddTraits(.isHeader)
+                // Guideline 1.4.1: observations, not diagnoses; see a doctor for concerns.
+                Label("RYFT is a wellness tool, not a medical device. Talk to a doctor about health concerns.",
+                      systemImage: "stethoscope")
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 insights
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Trends").ryftLabelStyle()

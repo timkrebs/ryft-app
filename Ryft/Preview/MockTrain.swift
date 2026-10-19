@@ -150,7 +150,7 @@ enum MockTrain {
     })
 
     static let homeDumbbells = Plan(id: uuid(4, 5), name: "Home dumbbells", goal: .general, weeks: nil, daysPerWeek: 2,
-                                    description: "Short sessions for travel weeks.", progression: .none, isBuiltin: false, days: [
+                                    description: "Short sessions for travel weeks.", progression: Progression.none, isBuiltin: false, days: [
         PlanDay(id: uuid(2, 60), dayIndex: 0, name: "Full body", exercises: [
             pe(100, splitSquat, 0, 3, 10, 12, .rpe, 8, rest: 60, superset: 1),
             pe(101, pushUp, 1, 3, 12, 20, .bodyweight, nil, rest: 60, superset: 1),

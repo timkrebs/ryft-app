@@ -182,6 +182,7 @@ struct StrainView: View {
                 } else {
                     InlineMessage(message: String(localized: "No workouts recorded on this day."),
                                   systemImage: "figure.walk")
+                    if state.hasNoHealthData { HealthAccessHint() }
                 }
             } else {
                 ForEach(items) { item in

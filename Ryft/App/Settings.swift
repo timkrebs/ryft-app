@@ -23,6 +23,11 @@ final class Settings: ObservableObject {
     @Published var appearance: Appearance {
         didSet { defaults.set(appearance.rawValue, forKey: "appearance") }
     }
+    /// The "Connect Apple Health" explanation was shown (and answered) for this
+    /// account. Health access is only requested after it, never on a cold launch.
+    @Published var healthIntroDone: Bool {
+        didSet { defaults.set(healthIntroDone, forKey: "health.introDone") }
+    }
 
     enum Appearance: String, CaseIterable, Identifiable {
         case dark, light, system
@@ -73,6 +78,7 @@ final class Settings: ObservableObject {
         // `bool(forKey:)` also understands "YES"/"NO" strings from launch arguments.
         demoMode = defaults.object(forKey: "demoMode") != nil ? defaults.bool(forKey: "demoMode") : demoDefault
         appearance = defaults.string(forKey: "appearance").flatMap(Appearance.init(rawValue:)) ?? .dark
+        healthIntroDone = defaults.bool(forKey: "health.introDone")
         #if DEBUG
         devAPIURLOverride = defaults.string(forKey: "dev.apiURL") ?? ""
         devIngestURLOverride = defaults.string(forKey: "dev.ingestURL") ?? ""
@@ -112,6 +118,7 @@ final class Settings: ObservableObject {
     /// by AuthService.
     func clearPerUserState() {
         lastSync = nil
+        healthIntroDone = false
         defaults.removeObject(forKey: "insights.dismissed")
     }
 

@@ -49,9 +49,7 @@
 	</dict>
 #endif
 	<key>NSHealthShareUsageDescription</key>
-	<string>Ryft reads heart rate, HRV, sleep, steps, active energy and workouts from Apple Health to compute your recovery, strain and sleep scores on the RYFT platform.</string>
-	<key>NSHealthUpdateUsageDescription</key>
-	<string>Ryft does not write to Apple Health.</string>
+	<string>RYFT reads heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts to calculate your recovery, strain and sleep scores. The data is sent to your RYFT account and never used for advertising.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>RyftAPIURL</key>

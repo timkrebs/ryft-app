@@ -76,6 +76,7 @@ struct SleepView: View {
         } else {
             InlineMessage(message: String(localized: "No sleep recorded for this night."),
                           systemImage: "moon.zzz")
+            if state.hasNoHealthData { HealthAccessHint() }
         }
     }
 }

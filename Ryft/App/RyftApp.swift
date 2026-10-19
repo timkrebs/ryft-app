@@ -58,7 +58,9 @@ struct RyftApp: App {
                     Task { await refreshTrain() }
                 }
                 // Runs at launch (restored session) and again after each sign-in.
-                .task(id: auth.accountID) { await bootstrap() }
+                .task(id: BootstrapKey(account: auth.accountID, healthIntroDone: settings.healthIntroDone)) {
+                    await bootstrap()
+                }
                 // ryft://auth/callback — email confirmation and password reset (PKCE);
                 // ryft://train/session — the rest timer Live Activity.
                 .onOpenURL { url in
@@ -95,12 +97,22 @@ struct RyftApp: App {
         guard auth.isSignedIn else { return }
         // First sign-in: create the platform user and set its timezone before anything syncs.
         if state.user == nil { await state.loadUserAfterSignIn() }
+        // Health access only after the explanation screen (RootView); reruns when it's answered.
+        guard settings.healthIntroDone else {
+            await state.refresh()
+            return
+        }
         try? await HealthKitManager.shared.requestAuthorization()
         await HealthKitManager.shared.enableBackgroundDelivery()
         HealthKitManager.shared.startObserving {
             await SyncService.shared.syncNow()
         }
         await state.syncAndRefresh(using: sync)
+    }
+
+    private struct BootstrapKey: Equatable {
+        let account: String?
+        let healthIntroDone: Bool
     }
 
     // MARK: background refresh
@@ -174,17 +186,29 @@ struct RootView: View {
                 switch auth.state {
                 case .restoring: SplashView().transition(.opacity)
                 case .signedOut: WelcomeView().transition(.opacity)
+                case .signedIn where needsHealthIntro: HealthPermissionView().transition(.opacity)
                 case .signedIn: tabs.transition(.opacity)
                 }
             }
         }
         .animation(.easeInOut(duration: 0.3), value: settings.demoMode ? .signedIn : auth.state)
+        .animation(.easeInOut(duration: 0.3), value: needsHealthIntro)
+        // Someone who already answered the system prompt (an earlier version) skips the intro.
+        .task(id: auth.accountID) {
+            guard needsHealthIntro else { return }
+            if await HealthKitManager.shared.accessStatus() == .asked { settings.healthIntroDone = true }
+        }
         // The live workout, from Today, Strain or the Live Activity.
         .fullScreenCover(item: $train.live) { SessionView(controller: $0) }
         // A password-reset link signed the user in; ask for the new password now.
         .sheet(isPresented: $auth.needsNewPassword) {
             SetNewPasswordView(mode: .recovery)
         }
+    }
+
+    /// After sign-in, once per account: explain Apple Health before iOS asks.
+    private var needsHealthIntro: Bool {
+        HealthKitManager.isAvailable && !settings.healthIntroDone
     }
 
     private var tabs: some View {

@@ -17,6 +17,7 @@ struct TodayView: View {
                     greeting
                     readinessRing
                     tiles
+                    if state.hasNoHealthData { HealthAccessHint() }
                     TrainTodayCard()
                     trends
                     status

@@ -44,31 +44,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ryft reads heart rate, HRV, sleep, steps, active energy and workouts from Apple Health to compute your recovery, strain and sleep scores on the RYFT platform."
+            "value" : "RYFT reads heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts to calculate your recovery, strain and sleep scores. The data is sent to your RYFT account and never used for advertising."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "machine_translated",
-            "value" : "Ryft liest Herzfrequenz, HRV, Schlaf, Schritte, aktive Energie und Workouts aus Apple Health, um auf der RYFT-Plattform deine Erholung, Belastung und Schlafwerte zu berechnen."
-          }
-        }
-      }
-    },
-    "NSHealthUpdateUsageDescription" : {
-      "comment" : "Privacy - Health Update Usage Description",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ryft does not write to Apple Health."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "Ryft schreibt nicht in Apple Health."
+            "value" : "RYFT liest Herzfrequenz, HRV, Ruhepuls, Atemfrequenz, Blutsauerstoff, VO₂max, Schritte, aktive Energie, Schlaf und Workouts, um deine Erholungs-, Belastungs- und Schlafwerte zu berechnen. Die Daten werden an dein RYFT-Konto gesendet und nie für Werbung verwendet."
           }
         }
       }

@@ -216,6 +216,14 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Loaded, and nothing in the history came from Apple Health: access may be
+    /// off or the watch isn't writing to Health (HealthKit never says which).
+    var hasNoHealthData: Bool {
+        guard !isDemo, lastUpdated != nil, !isLoading else { return false }
+        return history.allSatisfy { $0.sleepActualMin == nil && $0.steps == nil && $0.hrvMs == nil && $0.strain == nil }
+            && (today?.workouts.isEmpty ?? true)
+    }
+
     func score(for date: Date) -> DailyScore? {
         let key = DayFormat.string(from: date)
         return history.last { $0.day == key }

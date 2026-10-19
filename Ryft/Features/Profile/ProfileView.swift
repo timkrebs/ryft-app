@@ -21,6 +21,10 @@ struct ProfileView: View {
     @State private var showDeleteConfirm = false
     @State private var showChangePassword = false
     @State private var healthStatus: HealthKitManager.AccessStatus = .unknown
+    @State private var legal: LegalPage?
+    @State private var exporting = false
+    @State private var exported: ExportedFile?
+    @State private var exportError: String?
 
     private enum ConnectionResult {
         case ok(String)
@@ -44,6 +48,8 @@ struct ProfileView: View {
                 #endif
             }
         }
+        .safariSheet($legal)
+        .sheet(item: $exported) { ShareSheet(items: [$0.url]).presentationDetents([.medium, .large]) }
         .onAppear { applyUser() }
         .onChange(of: state.user) { applyUser() }
         .task { healthStatus = await HealthKitManager.shared.accessStatus() }
@@ -310,7 +316,7 @@ struct ProfileView: View {
                         healthStatus = await HealthKitManager.shared.accessStatus()
                     }
                 }
-                PrimaryButton(title: "Open Health permissions", style: .secondary) { openHealth() }
+                PrimaryButton(title: "Open Health permissions", style: .secondary) { HealthLinks.open(with: openURL) }
             }
             Text("Garmin Connect must write to Apple Health (Garmin Connect → More → Settings → Apple Health), and RYFT must be allowed to read it (Health → Sharing → Apps → RYFT).")
                 .font(.ryft(.caption))
@@ -343,6 +349,14 @@ struct ProfileView: View {
             }
             .disabled(sync.isSyncing || !settings.isConfigured || !auth.isSignedIn || settings.demoMode)
 
+            if auth.isSignedIn || settings.demoMode {
+                PrimaryButton(title: "Export my data", style: .secondary, busy: exporting) { await export() }
+                    .accessibilityHint(Text("Creates a JSON file of your scores, workouts and sessions to share or save"))
+                if let exportError {
+                    InlineMessage(message: exportError, systemImage: "square.and.arrow.up")
+                }
+            }
+
             Divider().overlay(Theme.separator)
             Toggle(isOn: Binding(get: { settings.demoMode }, set: { on in
                 settings.demoMode = on
@@ -362,6 +376,18 @@ struct ProfileView: View {
         }
     }
 
+    private func export() async {
+        exporting = true
+        exportError = nil
+        defer { exporting = false }
+        do {
+            let archive = try await DataExport.archive(source: state.source, train: TrainSource.current)
+            exported = ExportedFile(url: try DataExport.write(archive))
+        } catch {
+            exportError = String(localized: "The export couldn't be created: \(error.localizedDescription)")
+        }
+    }
+
     private var healthStatusText: String {
         switch healthStatus {
         case .unavailable: return String(localized: "Not available")
@@ -371,13 +397,6 @@ struct ProfileView: View {
         }
     }
 
-    private func openHealth() {
-        if let health = URL(string: "x-apple-health://"), UIApplication.shared.canOpenURL(health) {
-            openURL(health)
-        } else if let app = URL(string: UIApplication.openSettingsURLString) {
-            openURL(app)
-        }
-    }
 
     // MARK: appearance & about
 
@@ -399,10 +418,30 @@ struct ProfileView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
             StatRow(title: "Version", value: Self.version)
+            Text("RYFT is a wellness tool, not a medical device. Talk to a doctor about health concerns.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Divider().overlay(Theme.separator)
+            LinkRow(title: "Privacy Policy", url: LegalPage.privacy.url)
+            LinkRow(title: "Terms of Use", url: LegalPage.terms.url)
+            NavigationLink {
+                LicensesView()
+            } label: {
+                HStack {
+                    Text("Licences").font(.ryft(.callout)).foregroundStyle(Theme.textPrimary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
             Divider().overlay(Theme.separator)
             LinkRow(title: "Garmin Connect and Apple Health", url: URL(string: "https://support.garmin.com/?q=apple%20health"))
             LinkRow(title: "Apple Health privacy", url: URL(string: "https://www.apple.com/legal/privacy/data/en/health-app/"))
-            LinkRow(title: "Satoshi typeface (Fontshare)", url: URL(string: "https://www.fontshare.com/fonts/satoshi"))
         }
     }
 
@@ -489,6 +528,7 @@ private struct LinkRow: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Theme.textTertiary)
                 }
+                .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }
         }

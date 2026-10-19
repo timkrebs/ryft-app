@@ -5,6 +5,7 @@ import SwiftUI
 /// (dark), like the brand board. After sign-in RootView switches to the tabs
 /// and bootstrap asks for HealthKit access.
 struct WelcomeView: View {
+    @State private var legal: LegalPage?
     @EnvironmentObject private var auth: AuthService
     @EnvironmentObject private var settings: Settings
     @State private var path: [AuthRoute] = []
@@ -74,10 +75,12 @@ struct WelcomeView: View {
             }
             .disabled(!auth.isConfigured)
             AuthErrorMessage()
-            Text("Your data is stored on the RYFT platform.")
+            Text("Your data is stored on the RYFT platform. [Privacy Policy](https://ryftapp.de/privacy)")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
+                .tint(Theme.textSecondary)
                 .multilineTextAlignment(.center)
+                .safariSheet($legal)
             #if DEBUG
             Button {
                 settings.apiKeyMode = true
