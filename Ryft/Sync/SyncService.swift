@@ -4,12 +4,12 @@
 // signed-in caller: the SDK restores the session from the Keychain without UI,
 // so background runs work too.
 import Foundation
-import HealthKit
 import UIKit
 
 @MainActor
 final class SyncService: ObservableObject {
-    static let shared = SyncService()
+    /// Migration shim: the live graph's instance (`docs/ARCHITECTURE.md`).
+    static let shared = SyncService(env: .live)
 
     @Published private(set) var isSyncing = false
     @Published private(set) var progress = ""
@@ -25,11 +25,17 @@ final class SyncService: ObservableObject {
     /// Scoring usually finishes within a few seconds of the upload.
     static let rescoreDelay: Duration = .seconds(3)
 
-    private let hk = HealthKitManager.shared
-    private let api = APIClient.shared
-    private let settings = Settings.shared
-    private var auth: AuthService { .shared }
+    private let env: AppEnvironment
+    private var health: HealthStore { env.health }
+    /// Always the account's platform: demo mode never syncs.
+    private var api: PlatformAPI { env.liveAPI }
+    private var settings: Settings { env.settings }
+    private var auth: AuthService { env.auth }
     private var inFlight: Task<Void, Never>?
+
+    init(env: AppEnvironment) {
+        self.env = env
+    }
 
     func syncNow() async {
         if let t = inFlight { await t.value; return }
@@ -43,46 +49,30 @@ final class SyncService: ObservableObject {
         guard auth.isSignedIn else { lastError = APIError.signedOut.localizedDescription; return }
         guard settings.isConfigured else { lastError = APIError.notConfigured.localizedDescription; return }
         // Offline: nothing to send; the anchors stay and the next reconnect resumes.
-        guard ConnectivityMonitor.shared.isOnline else { return }
-        hk.migrateLegacyAnchors()
+        guard env.connectivity.isOnline else { return }
+        health.migrateLegacyAnchors()
         isSyncing = true
         lastError = nil
         lastErrorDetails = nil
         lastUploaded = 0
         var touched = Set<String>()
         // A 413 shrinks pages for the rest of this sync only.
-        let pageSize = hk.pageSize
-        defer { isSyncing = false; progress = ""; hk.pageSize = pageSize }
+        let pageSize = health.pageSize
+        defer { isSyncing = false; progress = ""; health.pageSize = pageSize }
 
         do {
-            // On 413 the anchor isn't saved, so `continue` re-reads the same page, smaller.
-            for spec in hk.quantities {
+            for stream in health.streams {
                 var more = true
                 while more {
-                    progress = "Reading \(spec.type.rawValue)…"
-                    let page = try await hk.quantityPage(spec)
-                    guard try await upload(HealthDelta(samples: page.items), touched: &touched) else { continue }
-                    if let a = page.anchor { hk.save(anchor: a, for: spec.type.rawValue) }
+                    progress = "Reading \(stream.anchorID)…"
+                    let page = try await health.nextPage(stream)
+                    // On 413 the anchor isn't committed, so the loop re-reads the same page, smaller.
+                    guard try await upload(page.delta, touched: &touched) else { continue }
+                    health.commit(page, for: stream)
                     more = page.more
                 }
             }
-            var more = true
-            while more {
-                progress = "Reading sleep…"
-                let page = try await hk.sleepPage()
-                guard try await upload(HealthDelta(sleep: page.items), touched: &touched) else { continue }
-                if let a = page.anchor { hk.save(anchor: a, for: "sleep") }
-                more = page.more
-            }
-            more = true
-            while more {
-                progress = "Reading workouts…"
-                let page = try await hk.workoutPage()
-                guard try await upload(HealthDelta(workouts: page.items), touched: &touched) else { continue }
-                if let a = page.anchor { hk.save(anchor: a, for: "workouts") }
-                more = page.more
-            }
-            settings.lastSync = .now
+            settings.lastSync = env.clock.now()
         } catch {
             lastError = error.localizedDescription
             lastErrorDetails = error.diagnosticDetails
@@ -90,8 +80,9 @@ final class SyncService: ObservableObject {
         lastDaysTouched = touched.sorted()
         if !touched.isEmpty, let onDaysTouched {
             let days = lastDaysTouched
+            let clock = env.clock
             Task {
-                try? await Task.sleep(for: Self.rescoreDelay)
+                try? await clock.sleep(for: Self.rescoreDelay)
                 await onDaysTouched(days)
             }
         }
@@ -112,8 +103,8 @@ final class SyncService: ObservableObject {
             lastUploaded += resp.samples + resp.sleep + resp.workouts
             touched.formUnion(resp.daysTouched)
             return true
-        } catch let error as APIError where error.status == 413 && hk.pageSize > Self.minimumPageSize {
-            hk.pageSize = max(Self.minimumPageSize, hk.pageSize / 2)
+        } catch let error as APIError where error.status == 413 && health.pageSize > Self.minimumPageSize {
+            health.pageSize = max(Self.minimumPageSize, health.pageSize / 2)
             return false
         }
     }
@@ -121,7 +112,7 @@ final class SyncService: ObservableObject {
     /// Forget anchors and re-upload the backfill window. Use after changing
     /// `backfillDays` or if the backend database was recreated.
     func fullResync() async {
-        hk.resetAnchors()
+        health.resetAnchors()
         await syncNow()
     }
 }

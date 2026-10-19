@@ -1,2 +1,5 @@
 { "id": "5f0e8c1a-6c1b-4a4e-9d55-1f1d2f6a3b7c", "name": "Tim K", "email": "tim@example.com",
-  "provider": "apple", "tz": "Europe/Berlin", "max_hr": 190, "sleep_base_min": 460 }
+  "provider": "apple", "tz": "Europe/Berlin", "max_hr": 190, "sleep_base_min": 455,
+  "sleep_base_source": "learned", "sleep_base_learned_min": 455, "sleep_base_learned_at": "2026-10-18T02:00:04Z",
+  "notifications": { "categories": { "MORNING_SCORE": true, "SESSION_SCORED": true, "PR": false, "SYNC_STALE": true },
+                     "quiet_hours": { "from": "22:30", "to": "07:00" } } }

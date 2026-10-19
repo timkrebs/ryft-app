@@ -19,7 +19,56 @@ struct DecodingTests {
         #expect(u.provider == "apple")
         #expect(u.tz == "Europe/Berlin")
         #expect(u.maxHr == 190)
-        #expect(u.sleepBaseMin == 460)
+        #expect(u.sleepBaseMin == 455)
+        #expect(u.sleepBaseSource == .learned && u.sleepBaseLearnedMin == 455 && u.sleepBaseLearnedAt != nil)
+        #expect(u.notifications.isOn(.morningScore) && !u.notifications.isOn(.pr))
+        #expect(u.notifications.quietHours == QuietHours(from: "22:30", to: "07:00"))
+    }
+
+    @Test func userFromBeforeNotificationsDecodesWithDefaults() throws {
+        let json = #"{"id":"5f0e8c1a-6c1b-4a4e-9d55-1f1d2f6a3b7c","name":"","tz":"Europe/Berlin","max_hr":190,"sleep_base_min":460}"#
+        let u = try APIClient.jsonDecoder.decode(User.self, from: Data(json.utf8))
+        #expect(u.sleepBaseSource == .default)
+        #expect(NotificationCategory.allCases.allSatisfy(u.notifications.isOn))
+    }
+
+    @Test func remoteConfig() throws {
+        let c = try Fixture.decode(RemoteConfig.self, "remote_config")
+        #expect(c.flags["train.enabled"] == true && c.flags["today.redesign"] == false)
+        #expect(c.flags.count == 6)
+        #expect(c.ttlSec == 21600)
+    }
+
+    @Test func notificationPrefs() throws {
+        let p = try Fixture.decode(NotificationPrefs.self, "notification_prefs")
+        #expect(p.categories["PR"] == false)
+        #expect(p.quietHours?.from == "22:30")
+    }
+
+    @Test func notificationPatchLeavesOutClearsOrSetsQuietHours() throws {
+        func json(_ p: NotificationPatch) throws -> String {
+            try #require(String(data: APIClient.jsonEncoder.encode(p), encoding: .utf8))
+        }
+        #expect(try json(NotificationPatch(categories: ["PR": true])) == #"{"categories":{"PR":true}}"#)
+        #expect(try json(NotificationPatch(quietHours: .some(nil))) == #"{"quiet_hours":null}"#)
+        let set = try json(NotificationPatch(quietHours: QuietHours(from: "22:30", to: "07:00")))
+        #expect(set.contains(#""quiet_hours":{"#) && set.contains(#""from":"22:30""#))
+    }
+
+    @Test func pushRegistrationBody() throws {
+        let body = PushRegistration(token: "8a5ec41f", env: .sandbox, locale: "de-DE")
+        let json = try #require(String(data: APIClient.jsonEncoder.encode(body), encoding: .utf8))
+        #expect(json.contains(#""env":"sandbox""#) && json.contains(#""locale":"de-DE""#))
+    }
+
+    /// The `ryft` object of an alert and of the silent refresh (API.md → Push notifications).
+    @Test func pushInfo() throws {
+        struct Payload: Decodable { let ryft: RyftPushInfo }
+        let alert = try Fixture.decode(Payload.self, "push_alert").ryft
+        #expect(alert.category == "MORNING_SCORE" && alert.day == "2026-10-19")
+        #expect(alert.url == "https://ryftapp.de/day/2026-10-19" && alert.kind == nil)
+        let refresh = try Fixture.decode(Payload.self, "push_refresh").ryft
+        #expect(refresh.kind == "refresh" && refresh.category == nil && refresh.url == nil)
     }
 
     @Test func days() throws {

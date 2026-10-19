@@ -29,12 +29,14 @@ final class TrainSyncService: ObservableObject {
     private var flushAgain = false
     /// Off in tests: they drive "offline" through the stub URLProtocol instead.
     private let monitorsNetwork: Bool
+    private let connectivity: ConnectivityMonitor
 
     /// Conflict rounds per upload before the op is set aside.
     static let maxConflictRounds = 3
 
     init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil,
-         debounce: Duration = .seconds(2), monitorsNetwork: Bool = true) {
+         debounce: Duration = .seconds(2), monitorsNetwork: Bool = true, connectivity: ConnectivityMonitor? = nil) {
+        self.connectivity = connectivity ?? .shared
         self.store = store ?? .shared
         self.remoteProvider = remote ?? { TrainSource.current }
         self.debounce = debounce
@@ -109,7 +111,7 @@ final class TrainSyncService: ObservableObject {
 
     /// Sends queued ops in order until the queue is empty or the network fails.
     func flush() async {
-        guard !monitorsNetwork || ConnectivityMonitor.shared.isOnline else { return }
+        guard !monitorsNetwork || connectivity.isOnline else { return }
         guard !isFlushing else {
             flushAgain = true
             return
@@ -205,7 +207,6 @@ final class TrainSyncService: ObservableObject {
     // MARK: network
 
     private func startMonitoring() {
-        let connectivity = ConnectivityMonitor.shared
         isOnline = connectivity.isOnline
         connectivity.onChange { [weak self] online in
             guard let self else { return }

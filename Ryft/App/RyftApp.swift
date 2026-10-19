@@ -6,10 +6,12 @@ import UIKit
 
 @main
 struct RyftApp: App {
+    /// Every dependency, built once (`docs/ARCHITECTURE.md`).
+    private let env = AppEnvironment.live
     @StateObject private var settings = Settings.shared
     @StateObject private var auth = AuthService.shared
     @StateObject private var sync = SyncService.shared
-    @StateObject private var state = AppState()
+    @StateObject private var state = AppState(env: .live)
     @StateObject private var trainLibrary = TrainLibrary.shared
     @StateObject private var trainSync = TrainSyncService.shared
     @StateObject private var trainCoordinator = TrainCoordinator.shared
@@ -37,6 +39,7 @@ struct RyftApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .environment(\.appEnvironment, env)
                 .environmentObject(settings)
                 .environmentObject(auth)
                 .environmentObject(sync)
@@ -89,7 +92,7 @@ struct RyftApp: App {
     private func bootstrap() async {
         // Every sync that touched days reloads Today once scoring caught up.
         sync.onDaysTouched = { [state] _ in await state.refresh() }
-        guard HealthKitManager.isAvailable, !settings.demoMode else {
+        guard env.health.isAvailable, !env.isDemo else {
             await state.refresh()
             return
         }
@@ -102,10 +105,10 @@ struct RyftApp: App {
             await state.refresh()
             return
         }
-        try? await HealthKitManager.shared.requestAuthorization()
-        await HealthKitManager.shared.enableBackgroundDelivery()
-        HealthKitManager.shared.startObserving {
-            await SyncService.shared.syncNow()
+        try? await env.health.requestAuthorization()
+        await env.health.enableBackgroundDelivery()
+        env.health.startObserving { [sync] in
+            await sync.syncNow()
         }
         await state.syncAndRefresh(using: sync)
     }
@@ -170,6 +173,7 @@ extension Settings.Appearance {
 
 /// Welcome until there's a session (or demo data), then the tabs.
 struct RootView: View {
+    @Environment(\.appEnvironment) private var env
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var auth: AuthService
     @EnvironmentObject private var settings: Settings
@@ -196,7 +200,7 @@ struct RootView: View {
         // Someone who already answered the system prompt (an earlier version) skips the intro.
         .task(id: auth.accountID) {
             guard needsHealthIntro else { return }
-            if await HealthKitManager.shared.accessStatus() == .asked { settings.healthIntroDone = true }
+            if await env.health.accessStatus() == .asked { settings.healthIntroDone = true }
         }
         // The live workout, from Today, Strain or the Live Activity.
         .fullScreenCover(item: $train.live) { SessionView(controller: $0) }
@@ -208,7 +212,7 @@ struct RootView: View {
 
     /// After sign-in, once per account: explain Apple Health before iOS asks.
     private var needsHealthIntro: Bool {
-        HealthKitManager.isAvailable && !settings.healthIntroDone
+        env.health.isAvailable && !settings.healthIntroDone
     }
 
     private var tabs: some View {

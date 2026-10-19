@@ -29,26 +29,23 @@ final class AppState: ObservableObject {
 
     static let historyDays = 90
 
-    private let settings: Settings
-    private let auth: AuthService
+    private let env: AppEnvironment
+    private var settings: Settings { env.settings }
+    private var auth: AuthService { env.auth }
     private let cache: ResponseCache
-    private let sourceOverride: RyftDataSource?
     private var dayCache: [String: DayDetail] = [:]
     private var trendCache: [String: TrendSeries] = [:]
     private var sleepCache: [SleepRangeKind: SleepRange] = [:]
     private var workoutCache: [UUID: WorkoutDetail] = [:]
     private let defaults = UserDefaults.standard
 
-    init(settings: Settings = .shared, auth: AuthService? = nil, source: RyftDataSource? = nil,
-         cache: ResponseCache = .shared, restoreCache: Bool = true) {
-        self.settings = settings
-        self.auth = auth ?? .shared
+    init(env: AppEnvironment, cache: ResponseCache = .shared, restoreCache: Bool = true) {
+        self.env = env
         self.cache = cache
-        self.sourceOverride = source
         // `-RyftTab sleep` selects the initial tab (handy for screenshots).
         selectedTab = UserDefaults.standard.string(forKey: "RyftTab").flatMap(AppTab.init(rawValue:)) ?? .today
         dismissedInsightIDs = loadDismissed()
-        if restoreCache, source == nil, !settings.demoMode,
+        if restoreCache, !env.isDemo,
            let snap = cache.load(TodaySnapshot.self, key: Self.snapshotKey) {
             apply(snap)
         }
@@ -56,34 +53,33 @@ final class AppState: ObservableObject {
 
     // MARK: source
 
-    var source: RyftDataSource {
-        sourceOverride ?? (settings.demoMode ? MockDataSource.shared : APIClient.shared)
-    }
+    var source: PlatformAPI { env.api }
 
-    /// There's something to load from: a signed-in caller and a server URL, demo mode or an injected source.
+    /// There's something to load from: a signed-in caller and a server URL, or demo data.
     var hasDataSource: Bool {
-        !previewUnconfigured && (sourceOverride != nil || settings.demoMode || (auth.isSignedIn && settings.isConfigured))
+        !previewUnconfigured && (env.isDemo || (auth.isSignedIn && settings.isConfigured))
     }
 
     /// Previews of the empty/unconfigured state.
     private var previewUnconfigured = false
 
-    var isDemo: Bool { sourceOverride is MockDataSource || (sourceOverride == nil && settings.demoMode) }
+    var isDemo: Bool { env.isDemo }
 
     // MARK: loading
 
     func refresh() async {
         guard hasDataSource else { return }
         // Offline: keep what's on screen (the cached snapshot); no request, no error.
-        guard isDemo || ConnectivityMonitor.shared.isOnline else { return }
+        guard isDemo || env.connectivity.isOnline else { return }
         isLoading = true
         defer { isLoading = false }
         let src = source
         let account = auth.accountID
         do {
-            let from = DayFormat.shift(.now, days: -(Self.historyDays - 1))
-            async let detail = src.day(.now)
-            async let days = src.days(from: from, to: .now)
+            let now = env.clock.now()
+            let from = DayFormat.shift(now, days: -(Self.historyDays - 1))
+            async let detail = src.day(now)
+            async let days = src.days(from: from, to: now)
             async let me = src.me()
             let (d, h, u) = try await (detail, days, me)
             // Signed out (or switched account) while this was in flight: drop it.
@@ -101,10 +97,10 @@ final class AppState: ObservableObject {
             }
             error = nil
             errorDetails = nil
-            lastUpdated = .now
+            lastUpdated = env.clock.now()
             if !isDemo {
                 cache.save(TodaySnapshot(today: d, history: history, user: u, insights: insights,
-                                         readinessWeek: readinessWeek, fetchedAt: .now),
+                                         readinessWeek: readinessWeek, fetchedAt: env.clock.now()),
                            as: Self.snapshotKey)
             }
         } catch {
@@ -243,7 +239,7 @@ final class AppState: ObservableObject {
     }
 
     /// Keeps the previous cards if the call fails.
-    private func loadInsights(from src: RyftDataSource) async {
+    private func loadInsights(from src: PlatformAPI) async {
         if let fresh = try? await src.insights() { insights = fresh }
     }
 
@@ -283,7 +279,7 @@ final class AppState: ObservableObject {
 extension AppState {
     /// Pre-filled with mock data so previews render without awaiting anything.
     static func preview(empty: Bool = false, calibrating: Bool = false) -> AppState {
-        let s = AppState(source: MockDataSource.shared, restoreCache: false)
+        let s = AppState(env: .preview(), restoreCache: false)
         guard !empty else {
             s.previewUnconfigured = true
             return s

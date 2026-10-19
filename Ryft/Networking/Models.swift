@@ -642,6 +642,8 @@ struct Insight: Codable, Hashable, Identifiable {
 
 // MARK: - User
 
+enum SleepBaseSource: String, Codable, Hashable { case `default`, learned, manual }
+
 struct User: Codable, Hashable {
     let id: UUID
     /// `""` until the sign-in provided a name (`user_metadata.full_name`).
@@ -653,12 +655,107 @@ struct User: Codable, Hashable {
     let tz: String
     let maxHr: Int
     let sleepBaseMin: Int
+    var sleepBaseSource: SleepBaseSource = .default
+    var sleepBaseLearnedMin: Int? = nil
+    var sleepBaseLearnedAt: Date? = nil
+    var notifications: NotificationPrefs = .allOn
+
+    init(id: UUID, name: String, email: String? = nil, provider: String? = nil, tz: String, maxHr: Int,
+         sleepBaseMin: Int, sleepBaseSource: SleepBaseSource = .default, sleepBaseLearnedMin: Int? = nil,
+         sleepBaseLearnedAt: Date? = nil, notifications: NotificationPrefs = .allOn) {
+        self.id = id
+        self.name = name
+        self.email = email
+        self.provider = provider
+        self.tz = tz
+        self.maxHr = maxHr
+        self.sleepBaseMin = sleepBaseMin
+        self.sleepBaseSource = sleepBaseSource
+        self.sleepBaseLearnedMin = sleepBaseLearnedMin
+        self.sleepBaseLearnedAt = sleepBaseLearnedAt
+        self.notifications = notifications
+    }
+
+    // Cached copies from before these fields existed decode with their defaults.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        email = try c.decodeIfPresent(String.self, forKey: .email)
+        provider = try c.decodeIfPresent(String.self, forKey: .provider)
+        tz = try c.decode(String.self, forKey: .tz)
+        maxHr = try c.decode(Int.self, forKey: .maxHr)
+        sleepBaseMin = try c.decode(Int.self, forKey: .sleepBaseMin)
+        sleepBaseSource = try c.decodeIfPresent(SleepBaseSource.self, forKey: .sleepBaseSource) ?? .default
+        sleepBaseLearnedMin = try c.decodeIfPresent(Int.self, forKey: .sleepBaseLearnedMin)
+        sleepBaseLearnedAt = try c.decodeIfPresent(Date.self, forKey: .sleepBaseLearnedAt)
+        notifications = try c.decodeIfPresent(NotificationPrefs.self, forKey: .notifications) ?? .allOn
+    }
 }
 
-struct UserPatch: Codable {
+struct UserPatch: Codable {   // PATCH /v1/me, every field optional
     var tz: String? = nil
     var maxHr: Int? = nil
     var sleepBaseMin: Int? = nil
+    var sleepBaseManual: Bool? = nil
+}
+
+// MARK: remote config and push (API.md → GET /v1/config, push)
+
+struct RemoteConfig: Codable, Hashable {   // GET /v1/config
+    let flags: [String: Bool]     // open keys
+    let evaluatedAt: Date
+    let ttlSec: Int
+}
+
+enum NotificationCategory: String, Codable, CaseIterable, Identifiable {
+    case morningScore = "MORNING_SCORE", sessionScored = "SESSION_SCORED", pr = "PR", syncStale = "SYNC_STALE"
+    var id: String { rawValue }
+}
+
+struct QuietHours: Codable, Equatable, Hashable {
+    var from: String   // local "HH:MM"
+    var to: String
+}
+
+struct NotificationPrefs: Codable, Hashable {   // User.notifications, PATCH /v1/me/notifications
+    let categories: [String: Bool]    // keyed by NotificationCategory.rawValue
+    let quietHours: QuietHours?
+
+    /// The platform's default: every category on, no quiet hours.
+    static let allOn = NotificationPrefs(
+        categories: Dictionary(uniqueKeysWithValues: NotificationCategory.allCases.map { ($0.rawValue, true) }),
+        quietHours: nil)
+
+    func isOn(_ c: NotificationCategory) -> Bool { categories[c.rawValue] ?? true }
+}
+
+struct NotificationPatch: Encodable {   // PATCH /v1/me/notifications
+    var categories: [String: Bool]? = nil
+    /// nil: leave unchanged; .some(nil): clear; .some(q): set.
+    var quietHours: QuietHours?? = nil
+
+    enum CodingKeys: String, CodingKey { case categories, quietHours = "quiet_hours" }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(categories, forKey: .categories)
+        if let q = quietHours { try c.encode(q, forKey: .quietHours) }   // .some(nil) encodes null
+    }
+}
+
+enum PushEnvironment: String, Codable { case sandbox, production }
+
+struct PushRegistration: Encodable {   // POST /v1/devices/{id}/push
+    let token: String                   // hex
+    let env: PushEnvironment
+    let locale: String
+}
+
+struct RyftPushInfo: Decodable {   // userInfo["ryft"] of a notification
+    let category: String?          // absent on the silent refresh
+    let kind: String?              // "refresh" on the silent refresh
+    let day: String
+    let url: String?
 }
 
 struct RecomputeRequest: Codable {

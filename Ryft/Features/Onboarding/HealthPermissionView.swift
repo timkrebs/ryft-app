@@ -5,6 +5,7 @@ import UIKit
 /// where it goes — then the system's permission sheet. Declining keeps the app
 /// usable (empty states, Profile → Data → Allow access).
 struct HealthPermissionView: View {
+    @Environment(\.appEnvironment) private var env
     @EnvironmentObject private var settings: Settings
     @State private var asking = false
     @State private var legal: LegalPage?
@@ -47,7 +48,7 @@ struct HealthPermissionView: View {
                     Button {
                         Task {
                             asking = true
-                            try? await HealthKitManager.shared.requestAuthorization()
+                            try? await env.health.requestAuthorization()
                             asking = false
                             settings.healthIntroDone = true
                         }

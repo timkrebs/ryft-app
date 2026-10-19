@@ -1,0 +1,2 @@
+{ "categories": { "MORNING_SCORE": true, "SESSION_SCORED": true, "PR": false, "SYNC_STALE": true },
+  "quiet_hours": { "from": "22:30", "to": "07:00" } }

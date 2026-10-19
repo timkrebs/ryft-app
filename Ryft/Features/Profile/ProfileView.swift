@@ -3,6 +3,7 @@ import UIKit
 
 /// Account, body settings, data/sync and about. Replaces the scaffold's SettingsView.
 struct ProfileView: View {
+    @Environment(\.appEnvironment) private var env
     @EnvironmentObject private var settings: Settings
     @EnvironmentObject private var auth: AuthService
     @EnvironmentObject private var sync: SyncService
@@ -20,7 +21,7 @@ struct ProfileView: View {
     @State private var showLogOutConfirm = false
     @State private var showDeleteConfirm = false
     @State private var showChangePassword = false
-    @State private var healthStatus: HealthKitManager.AccessStatus = .unknown
+    @State private var healthStatus: HealthAccess = .unknown
     @State private var legal: LegalPage?
     @State private var exporting = false
     @State private var exported: ExportedFile?
@@ -52,7 +53,7 @@ struct ProfileView: View {
         .sheet(item: $exported) { ShareSheet(items: [$0.url]).presentationDetents([.medium, .large]) }
         .onAppear { applyUser() }
         .onChange(of: state.user) { applyUser() }
-        .task { healthStatus = await HealthKitManager.shared.accessStatus() }
+        .task { healthStatus = await env.health.accessStatus() }
         .confirmationDialog("Re-upload the last 90 days of Health data?", isPresented: $showResyncConfirm,
                             titleVisibility: .visible) {
             Button("Re-sync", role: .destructive) {
@@ -250,7 +251,7 @@ struct ProfileView: View {
             return
         }
         do {
-            let user = try await APIClient.shared.me()
+            let user = try await env.liveAPI.me()
             connection = .ok(String(localized: "Connected as \(user.name.isEmpty ? user.id.uuidString : user.name)"))
             await state.syncAndRefresh(using: sync)
         } catch {
@@ -312,8 +313,8 @@ struct ProfileView: View {
             HStack(spacing: 10) {
                 if healthStatus == .notAsked {
                     PrimaryButton(title: "Allow access", style: .secondary) {
-                        try? await HealthKitManager.shared.requestAuthorization()
-                        healthStatus = await HealthKitManager.shared.accessStatus()
+                        try? await env.health.requestAuthorization()
+                        healthStatus = await env.health.accessStatus()
                     }
                 }
                 PrimaryButton(title: "Open Health permissions", style: .secondary) { HealthLinks.open(with: openURL) }
@@ -381,7 +382,7 @@ struct ProfileView: View {
         exportError = nil
         defer { exporting = false }
         do {
-            let archive = try await DataExport.archive(source: state.source, train: TrainSource.current)
+            let archive = try await DataExport.archive(source: state.source, train: env.api)
             exported = ExportedFile(url: try DataExport.write(archive))
         } catch {
             exportError = String(localized: "The export couldn't be created: \(error.localizedDescription)")
