@@ -50,3 +50,11 @@ struct CreateAccountView: View {
     }
     .environmentObject(AuthService.preview(signedIn: false))
 }
+
+#Preview("Create account · light system") {
+    NavigationStack {
+        CreateAccountView(path: .constant([]))
+    }
+    .environmentObject(AuthService.preview(signedIn: false))
+    .preferredColorScheme(.light)
+}

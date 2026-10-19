@@ -1,5 +1,86 @@
 # Status — 2026-10-19
 
+## Go-live pass (accounts, live host) — done
+
+This pass checked `CLAUDE_FOLLOWUP_APP_GOLIVE.md` against what an earlier session had built.
+It added the missing pieces and brought the models in line with the current `API.md`,
+which now includes Train.
+
+- **Config.** The real Supabase URL and publishable key are in
+  `Config/Production.xcconfig`.
+  - `PlatformConfig` validates all three values. Placeholders and unexpanded values count as
+    missing, and Release also requires HTTPS.
+  - A missing value stops Debug at launch; Release shows only a "misconfigured build" screen.
+    There is no fallback host.
+  - ATS is HTTPS-only in Release. `Info.plist` is preprocessed, and only `Debug.xcconfig`
+    turns `NSAllowsLocalNetworking` on. Verified in the built Debug and Release plists.
+  - The Info.plist strings are now manual catalog entries, with German for the Health prompt.
+- **Auth gate.** `AuthService.state` is `.restoring` / `.signedOut` / `.signedIn`.
+  - `.restoring` shows a splash with the mark, and is skipped when a session is stored.
+  - The cause of the earlier flaky `authFailureOnTokenSignsOut` is fixed: a late
+    `.initialSession` re-applied the stored session after a sign-out.
+- **Sign-out reasons.** A second `401`, a revoked refresh token or a token failure show "You
+  were signed out" on Welcome.
+  - After a deletion Welcome says what was erased, and that the sign-in removal "will finish
+    in the background" when `auth_user_deleted` is false.
+  - A `503` on delete says nothing was deleted.
+- **Apple.** After Sign in with Apple the app sends `POST /v1/me/apple-authorization`, once,
+  with the authorization code.
+  - `422` and `501` are ignored; a `503` is retried once. The code is never logged.
+  - Also mirrored: `AccountDeleted.apple_token_revoked` and `AppleAuthorization`.
+- **Check your inbox** gained "Use another email".
+- **Requests** send `Accept-Language`, so exercise names follow the phone's language.
+- **ConnectivityMonitor**:
+  - Offline, nothing is requested and Today shows an "Offline" pill.
+  - Reconnecting syncs, refreshes and replays Train's queue.
+- **Sync**:
+  - HealthKit anchors are keyed by the signed-in user id; old anchors migrate once.
+  - After `days_touched`, the app waits ~3 s and reloads Today.
+  - "Updated hh:mm" comes from `computed_at`.
+- **Contract (`API.md` Swift mirror)**:
+  - `DailyScore.strength_min` / `volume_kg`, `DayStrain.muscular_trimp` / `sessions`,
+    `Trend.from` / `to`.
+  - All of Train: `Muscle` enum, `name_en` / `name_de`, `ExerciseInput`, `SessionSet`,
+    `SessionSummary`, `PlanSummary`, `PlansOverview`, `PlanTarget` fields, `PR.set_id` /
+    `session_id`, `ExerciseHistorySession`, `E1RMPoint`, `SessionComplete { ended_at }`.
+  - Naming difference: `Session` is `TrainSession`, because Supabase's `Session` is taken.
+  - Fixtures were rebuilt from the API.md examples.
+- **Bugs fixed by the contract.** A finished session was PUT as `completed`, which the
+  platform refuses.
+  - It is now PUT as `in_progress` until `…/complete` succeeds, and complete sends
+    `ended_at`.
+  - Pause is `DELETE /v1/plans/enrollment` and resume enrols again. The paused plan is
+    remembered locally: see `docs/API_REQUESTS.md`.
+  - The Today card's "load" is the session's `strain`.
+- **Tests**: 163 Swift Testing tests plus the UI test, all passing on the iPhone 18 Pro
+  simulator.
+  - New: platform config, the auth state machine and notices, the Apple code, plain-text
+    `429`, the `409` session body, `Accept-Language`, a single `503` retry, anchors per user.
+  - Fixtures for every new shape.
+- **German** for the new strings.
+- **Preview captures** in `docs/screenshots/`: Welcome (dark, light, signed-out notice),
+  Create account, Log in, Today (dark, light, offline), Profile, all in both schemes.
+- **Build**: zero warnings.
+
+## Go-live pass — open / blocked
+
+- **§6 device run: not done.** It needs a real iPhone with the Release config. Every device
+  build still fails at signing: `DEVELOPMENT_TEAM` is a free Personal Team, which can't
+  provision Sign in with Apple. Not run yet:
+  - fresh install → create account → confirm → HealthKit → first sync
+  - relaunch
+  - log out / Apple sign-in
+  - airplane mode
+  - delete account
+  - recording the request IDs of the first `/v1/sync` and `/v1/days/{today}`
+- **`make check-swift` in `../plattform`**: please run it against the new models. It compiles
+  the Swift mirror and decodes a live stack.
+- **Release configuration → `Config/Production.xcconfig`** must be set in Xcode (Project →
+  Info → Configurations). Until then Release uses the git-ignored `Config/Release.xcconfig`,
+  which includes Production, so a fresh clone needs `make config`.
+- **Supabase project**: please confirm `ryft://auth/callback` is in Authentication → URL
+  Configuration → Redirect URLs.
+
 ## M3b Train — done
 
 Built against the M3b shapes and the platform's Train brief
@@ -87,12 +168,10 @@ contract points are in `docs/API_REQUESTS.md`.
 
 ## M3b Train — open
 
-- **Switch to `API.md`** once the platform commits the Train contract. Then regenerate
-  `RyftTests/Fixtures/train_*.json` from its examples and resolve `docs/API_REQUESTS.md`:
-  - PlanSummary and SessionSummary shapes
-  - pausing an enrolment
-  - deleting a set mid-session (the server keeps omitted sets while `in_progress`)
-  - "load" on the Today card: `muscular_trimp` vs a strain-scale value
+- **Done in the go-live pass:** the app mirrors `API.md` → Train, and the fixtures are
+  rebuilt. Two points are still open in `docs/API_REQUESTS.md`:
+  - deleting a set mid-session
+  - a paused enrolment in `GET /v1/plans`
 - **Device test, not done.** Blocked by the signing issue below.
   - One real session in airplane mode; reconnect; verify it lands in `/v1/sessions` and the
     day's strain rises.
@@ -112,9 +191,7 @@ contract points are in `docs/API_REQUESTS.md`.
   Exercise names come from the server's `name` (the platform has `name_de`).
 - Intermediate Train commits reference each other (session ↔ history ↔ plans); only the last
   one builds on its own.
-- `AuthServiceTests/authFailureOnTokenSignsOut` failed once in a full parallel run and passes
-  alone and with its suite. It looks like a race on shared state in the auth tests, older
-  than Train. Watch it.
+- ~~`AuthServiceTests/authFailureOnTokenSignsOut` flake~~: fixed in the go-live pass.
 
 ## Blocked on Apple configuration (Train)
 
@@ -193,9 +270,6 @@ contract points are in `docs/API_REQUESTS.md`.
   until the project uses a paid team. Simulator builds and tests are unaffected. Then:
   - an App ID with Sign in with Apple and HealthKit
   - a Services ID, the Team ID, a Key ID and the `.p8` for Supabase's Apple provider
-- **Supabase values.** Fill `RYFT_SUPABASE_URL` and `RYFT_SUPABASE_PUBLISHABLE_KEY` in
-  `Config/Production.xcconfig`. They are placeholders, so Welcome currently says they're
-  missing.
 - **Supabase project settings.**
   - Add `ryft://auth/callback` to Authentication → URL Configuration → Redirect URLs.
   - Email provider on, minimum password length ≤ 10, Confirm email as wanted.
@@ -212,13 +286,13 @@ contract points are in `docs/API_REQUESTS.md`.
   - fresh install → Welcome → create account → inbox → confirm → HealthKit prompt → first
     90-day sync → Today
   - log out, log in with Apple, delete account, confirm the `401` afterwards
-  This is blocked by the signing issue above and the missing Supabase values. Everything
+  This is blocked by the signing issue above. Everything
   was verified with unit tests, previews and the simulator in demo mode only. No device
   screenshots yet.
 - **`make check-swift` in `../plattform`** should be run against the new models. It
   compiles the API.md Swift mirror and decodes a live stack.
-- **Apple token revocation on account deletion** isn't covered (platform side;
-  `SUPABASE.md` → Account deletion).
+- **Apple token revocation on account deletion**: the app now sends the authorization code;
+  revocation itself happens on the platform (`DELETE /v1/me`).
 - **Package pin**: `swift-clocks` must stay at 1.1.0 (see README). `Ryft.xcodeproj` is
   git-ignored, so the pin and the project settings aren't versioned. Consider tracking the
   project now that it's the source of truth.

@@ -129,6 +129,14 @@ private struct ValueLine: View {
         .environmentObject(Settings.shared)
 }
 
+#Preview("Welcome · signed out notice") {
+    let auth = AuthService.preview(signedIn: false)
+    auth.signOutNotice = AuthService.SignOutReason.sessionExpired.notice
+    return WelcomeView()
+        .environmentObject(auth)
+        .environmentObject(Settings.shared)
+}
+
 #Preview("Welcome · light system") {
     WelcomeView()
         .environmentObject(AuthService.preview(signedIn: false))

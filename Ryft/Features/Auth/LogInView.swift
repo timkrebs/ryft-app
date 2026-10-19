@@ -41,3 +41,11 @@ struct LogInView: View {
     }
     .environmentObject(AuthService.preview(signedIn: false))
 }
+
+#Preview("Log in · light system") {
+    NavigationStack {
+        LogInView(path: .constant([]))
+    }
+    .environmentObject(AuthService.preview(signedIn: false))
+    .preferredColorScheme(.light)
+}

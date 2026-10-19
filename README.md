@@ -44,20 +44,31 @@ open Ryft.xcodeproj
 
 ### Production configuration
 
-Three build-time values, all publishable, committed in **`Config/Production.xcconfig`**.
-Fill them in once:
+Three build-time values, all publishable, committed in **`Config/Production.xcconfig`**
+(all three are set):
 
-| Setting | Where from |
+| Setting | Value / where from |
 |---|---|
-| `RYFT_API_URL` | `https://api.ryftapp.de` (already set): serves `/v1/sync` and every other `/v1/*` route |
-| `RYFT_SUPABASE_URL` | Supabase → Project Settings → API → Project URL, `https://<project-ref>.supabase.co` |
-| `RYFT_SUPABASE_PUBLISHABLE_KEY` | Supabase → Project Settings → API Keys → publishable key (`sb_publishable_…`, or the legacy anon key) |
+| `RYFT_API_URL` | `https://api.ryftapp.de`: serves `/v1/sync` and every other `/v1/*` route |
+| `RYFT_SUPABASE_URL` | `https://ydgbemufggwnegbnjhkm.supabase.co` (Supabase → Project Settings → API) |
+| `RYFT_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_…` (Supabase → Project Settings → API Keys) |
 
 `//` starts a comment in xcconfig files, so URLs are written `https:/$()/host`. `Info.plist`
 exposes them as `RyftAPIURL`, `RyftSupabaseURL` and `RyftSupabasePublishableKey`; nothing is
 hard-coded in Swift. Committing them is fine: the platform's RLS and revoked grants mean
-Supabase's Data API exposes nothing, and the app talks only to Supabase Auth. While a value is
-missing, Welcome says which one instead of crashing (demo data still works).
+Supabase's Data API exposes nothing, and the app talks only to Supabase Auth.
+
+A build without them is broken, never silently pointed elsewhere (`App/PlatformConfig.swift`):
+- **Debug** stops at launch with the missing setting's name.
+- **Release** shows only a "This build is misconfigured" screen.
+- Release also requires `RYFT_API_URL` to be HTTPS.
+
+**App Transport Security** is HTTPS-only in Release. `Info.plist` is preprocessed
+(`INFOPLIST_PREPROCESS` in `Production.xcconfig`), and the `NSAllowsLocalNetworking` exception
+only exists where `Config/Debug.xcconfig` sets `INFOPLIST_PREPROCESSOR_DEFINITIONS =
+RYFT_LOCAL_NETWORKING=1`; the `.example` file does. Because a preprocessed plist can't be
+string-extracted, `Resources/InfoPlist.xcstrings` keeps its entries (display name, Health usage
+texts, with German) as manual entries.
 
 Release builds use the production values: point the Release configuration at
 `Config/Production.xcconfig` in Xcode (Project → Info → Configurations), or keep the
@@ -92,6 +103,10 @@ Prepare these in the Apple Developer account (paid membership):
     file (it can be downloaded only once)
   - in Supabase, the app's bundle ID `dev.timkrebs.ryft` in the provider's client IDs (the
     native flow sends an ID token for the bundle ID)
+- **Apple token revocation.** Right after Sign in with Apple the app sends the one-time
+  authorization code to `POST /v1/me/apple-authorization`, so `DELETE /v1/me` can revoke the
+  Apple grant as Apple requires. The platform needs its `APPLE_*` keys for that (`501`
+  otherwise, which the app ignores).
 - Signing: `DEVELOPMENT_TEAM` is `M77SKHKG63`, a free Personal Team. Personal Teams **can't**
   provision Sign in with Apple, so device builds fail ("Personal development teams … do not
   support the Sign In with Apple capability") until the project uses a paid team. Simulator
@@ -177,8 +192,10 @@ Debug builds have **Profile → Developer** (not compiled into Release). With
    - **Test connection**, then pull to refresh on Today
 3. **Show request IDs** lists recent failed requests with their `X-Request-ID`.
 
-Plain `http://` works for local addresses because `NSAllowsLocalNetworking` is set. Find the
-IP with `ipconfig getifaddr en0`. You can also set `RYFT_API_URL` in `Config/Debug.xcconfig`.
+Plain `http://` works for local addresses in Debug only: `Config/Debug.xcconfig` (from the
+`.example`) turns on `NSAllowsLocalNetworking`. A public host over plain HTTP is still blocked,
+so keep `RYFT_API_URL` on `https://` unless it's a LAN address. Find the IP with
+`ipconfig getifaddr en0`. You can also set `RYFT_API_URL` in `Config/Debug.xcconfig`.
 
 ## Architecture
 
@@ -215,8 +232,20 @@ scripts/       fetch-fonts.sh, render-icon.swift, screenshots.sh
   - `429`: waits and retries once.
   - `413`: halves the HealthKit page size for the rest of the sync.
   - Failures keep the request ID, shown under an inline message's **Details**.
-- **Offline.** The last successful Today payload (with the 7-day readiness trend) is written
-  to `Caches/ryft-responses/` and shown at launch with an "Updated 5 min ago" line.
+- **Auth gate.** `RootView` switches on `AuthService.state`:
+  - `.restoring`: a splash with the mark, while the SDK reads the Keychain (skipped when a
+    session is stored).
+  - `.signedOut`: Welcome, with a one-line notice after an expired session or a deletion.
+  - `.signedIn`: the tabs. Nothing personal is built before that.
+- **Offline.** `ConnectivityMonitor` (NWPathMonitor):
+  - Offline, nothing is requested and Today shows an "Offline" pill.
+  - Reconnecting syncs, refreshes and replays Train's queue.
+  - The last successful Today payload is written to `Caches/ryft-responses/` and shown at
+    launch.
+- **After a sync** that reports `days_touched`, the app waits ~3 s for scoring and reloads
+  Today. Its "Updated hh:mm" comes from the score's `computed_at`.
+- **HealthKit anchors** are keyed by the signed-in user id, so another account on the same
+  phone re-syncs from scratch.
 - **Nulls.** Fields can be `null` while the platform calibrates; every view shows "–".
 - **Train (local-first).** A workout is logged into SwiftData (`Train/Model/`) and survives
   app kills. Every set change is queued in a persisted outbox and sent 2 s later as a
