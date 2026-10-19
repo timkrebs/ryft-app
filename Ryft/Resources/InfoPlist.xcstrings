@@ -3,11 +3,17 @@
   "strings" : {
     "CFBundleDisplayName" : {
       "comment" : "Bundle display name",
-      "extractionState" : "extracted_with_value",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
-            "state" : "new",
+            "state" : "translated",
+            "value" : "Ryft"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "machine_translated",
             "value" : "Ryft"
           }
         }
@@ -15,11 +21,17 @@
     },
     "CFBundleName" : {
       "comment" : "Bundle name",
-      "extractionState" : "extracted_with_value",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
-            "state" : "new",
+            "state" : "translated",
+            "value" : "Ryft"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "machine_translated",
             "value" : "Ryft"
           }
         }
@@ -27,24 +39,36 @@
     },
     "NSHealthShareUsageDescription" : {
       "comment" : "Privacy - Health Share Usage Description",
-      "extractionState" : "extracted_with_value",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
-            "state" : "new",
+            "state" : "translated",
             "value" : "Ryft reads heart rate, HRV, sleep, steps, active energy and workouts from Apple Health to compute your recovery, strain and sleep scores on the RYFT platform."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "machine_translated",
+            "value" : "Ryft liest Herzfrequenz, HRV, Schlaf, Schritte, aktive Energie und Workouts aus Apple Health, um auf der RYFT-Plattform deine Erholung, Belastung und Schlafwerte zu berechnen."
           }
         }
       }
     },
     "NSHealthUpdateUsageDescription" : {
       "comment" : "Privacy - Health Update Usage Description",
-      "extractionState" : "extracted_with_value",
+      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
-            "state" : "new",
+            "state" : "translated",
             "value" : "Ryft does not write to Apple Health."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "machine_translated",
+            "value" : "Ryft schreibt nicht in Apple Health."
           }
         }
       }
