@@ -121,7 +121,8 @@ struct TodayView: View {
                           details: sync.lastErrorDetails,
                           retry: { await state.syncAndRefresh(using: sync) })
         }
-        UpdatedLabel(date: state.lastUpdated, isLoading: state.isLoading || sync.isSyncing, isDemo: state.isDemo)
+        UpdatedLabel(date: state.lastUpdated, isLoading: state.isLoading || sync.isSyncing, isDemo: state.isDemo,
+                     scoredAt: score?.computedAt)
     }
 }
 

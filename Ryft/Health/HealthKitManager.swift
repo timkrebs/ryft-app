@@ -19,6 +19,15 @@ struct HealthDelta {
     var count: Int { samples.count + sleep.count + workouts.count }
 }
 
+/// Who the per-user local state belongs to: the Supabase user id AuthService stores.
+enum AccountScope {
+    static let defaultsKey = "auth.lastUserID"
+
+    static func current(_ defaults: UserDefaults = .standard) -> String? {
+        defaults.string(forKey: defaultsKey)
+    }
+}
+
 final class HealthKitManager {
     static let shared = HealthKitManager()
     let store = HKHealthStore()
@@ -66,7 +75,24 @@ final class HealthKitManager {
 
     private let defaults = UserDefaults.standard
 
-    private func anchorKey(_ id: String) -> String { "hk.anchor.\(id)" }
+    /// Anchors belong to the signed-in user, so another account on this phone
+    /// starts its own 90-day backfill.
+    private func anchorKey(_ id: String) -> String {
+        "hk.anchor.\(AccountScope.current(defaults) ?? "signed-out").\(id)"
+    }
+
+    private var anchorIDs: [String] { quantities.map(\.type.rawValue) + ["sleep", "workouts"] }
+
+    /// Anchors from before they were per user move to the current user once.
+    func migrateLegacyAnchors() {
+        guard AccountScope.current(defaults) != nil else { return }
+        for id in anchorIDs {
+            let legacy = "hk.anchor.\(id)"
+            guard let data = defaults.data(forKey: legacy) else { continue }
+            if defaults.data(forKey: anchorKey(id)) == nil { defaults.set(data, forKey: anchorKey(id)) }
+            defaults.removeObject(forKey: legacy)
+        }
+    }
 
     func anchor(for id: String) -> HKQueryAnchor? {
         guard let data = defaults.data(forKey: anchorKey(id)) else { return nil }
@@ -79,10 +105,9 @@ final class HealthKitManager {
         }
     }
 
+    /// The current user's anchors (called on log out and account switch, before the new id is stored).
     func resetAnchors() {
-        for q in quantities { defaults.removeObject(forKey: anchorKey(q.type.rawValue)) }
-        defaults.removeObject(forKey: anchorKey("sleep"))
-        defaults.removeObject(forKey: anchorKey("workouts"))
+        for id in anchorIDs { defaults.removeObject(forKey: anchorKey(id)) }
     }
 
     /// Only applied on the first query for a type (no anchor yet).

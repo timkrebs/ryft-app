@@ -508,7 +508,7 @@ final class AuthService: ObservableObject {
         user = newSession?.user
     }
 
-    private static let lastUserKey = "auth.lastUserID"
+    private static let lastUserKey = AccountScope.defaultsKey
 
     /// Live wipe: cached API responses, HealthKit anchors (the next account
     /// re-syncs the full backfill) and per-user UserDefaults.

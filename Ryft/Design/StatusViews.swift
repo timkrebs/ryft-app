@@ -92,11 +92,14 @@ struct InlineMessage: View {
     }
 }
 
-/// "Updated 5 min ago" — refreshes itself every 30 s.
+/// "Updated 14:05" when the platform scored the day (`computed_at`), else
+/// "Updated 5 min ago" from the last fetch; refreshes itself every 30 s.
 struct UpdatedLabel: View {
     let date: Date?
     var isLoading = false
     var isDemo = false
+    /// `DailyScore.computedAt`; `0001-01-01` (not scored yet) is ignored.
+    var scoredAt: Date? = nil
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -110,6 +113,9 @@ struct UpdatedLabel: View {
     private func text(now: Date) -> String {
         if isLoading { return String(localized: "Updating…") }
         let prefix = isDemo ? String(localized: "Demo data · ") : ""
+        if let scoredAt, scoredAt > Date(timeIntervalSince1970: 0) {
+            return prefix + String(localized: "Updated \(Fmt.time(scoredAt))")
+        }
         guard let date else { return prefix + String(localized: "Not updated yet") }
         if now.timeIntervalSince(date) < 60 { return prefix + String(localized: "Updated just now") }
         let rel = date.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))

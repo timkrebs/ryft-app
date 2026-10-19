@@ -17,6 +17,13 @@ final class SyncService: ObservableObject {
     /// Status and request ID of `lastError`, for the inline message's Details.
     @Published private(set) var lastErrorDetails: String?
     @Published private(set) var lastUploaded = 0
+    /// Days the last sync queued for rescoring (`days_touched`).
+    @Published private(set) var lastDaysTouched: [String] = []
+    /// Called after a sync that touched days (foreground or background); the app
+    /// waits for scoring and reloads Today.
+    var onDaysTouched: (([String]) async -> Void)?
+    /// Scoring usually finishes within a few seconds of the upload.
+    static let rescoreDelay: Duration = .seconds(3)
 
     private let hk = HealthKitManager.shared
     private let api = APIClient.shared
@@ -37,10 +44,12 @@ final class SyncService: ObservableObject {
         guard settings.isConfigured else { lastError = APIError.notConfigured.localizedDescription; return }
         // Offline: nothing to send; the anchors stay and the next reconnect resumes.
         guard ConnectivityMonitor.shared.isOnline else { return }
+        hk.migrateLegacyAnchors()
         isSyncing = true
         lastError = nil
         lastErrorDetails = nil
         lastUploaded = 0
+        var touched = Set<String>()
         // A 413 shrinks pages for the rest of this sync only.
         let pageSize = hk.pageSize
         defer { isSyncing = false; progress = ""; hk.pageSize = pageSize }
@@ -52,7 +61,7 @@ final class SyncService: ObservableObject {
                 while more {
                     progress = "Reading \(spec.type.rawValue)…"
                     let page = try await hk.quantityPage(spec)
-                    guard try await upload(HealthDelta(samples: page.items)) else { continue }
+                    guard try await upload(HealthDelta(samples: page.items), touched: &touched) else { continue }
                     if let a = page.anchor { hk.save(anchor: a, for: spec.type.rawValue) }
                     more = page.more
                 }
@@ -61,7 +70,7 @@ final class SyncService: ObservableObject {
             while more {
                 progress = "Reading sleep…"
                 let page = try await hk.sleepPage()
-                guard try await upload(HealthDelta(sleep: page.items)) else { continue }
+                guard try await upload(HealthDelta(sleep: page.items), touched: &touched) else { continue }
                 if let a = page.anchor { hk.save(anchor: a, for: "sleep") }
                 more = page.more
             }
@@ -69,7 +78,7 @@ final class SyncService: ObservableObject {
             while more {
                 progress = "Reading workouts…"
                 let page = try await hk.workoutPage()
-                guard try await upload(HealthDelta(workouts: page.items)) else { continue }
+                guard try await upload(HealthDelta(workouts: page.items), touched: &touched) else { continue }
                 if let a = page.anchor { hk.save(anchor: a, for: "workouts") }
                 more = page.more
             }
@@ -78,6 +87,14 @@ final class SyncService: ObservableObject {
             lastError = error.localizedDescription
             lastErrorDetails = error.diagnosticDetails
         }
+        lastDaysTouched = touched.sorted()
+        if !touched.isEmpty, let onDaysTouched {
+            let days = lastDaysTouched
+            Task {
+                try? await Task.sleep(for: Self.rescoreDelay)
+                await onDaysTouched(days)
+            }
+        }
     }
 
     /// Smallest page a 413 can shrink to; below that the error is real.
@@ -85,7 +102,7 @@ final class SyncService: ObservableObject {
 
     /// `false` when the body was too large (413): `pageSize` is halved and the
     /// caller reads the page again. 503/429 are retried inside APIClient.
-    private func upload(_ delta: HealthDelta) async throws -> Bool {
+    private func upload(_ delta: HealthDelta, touched: inout Set<String>) async throws -> Bool {
         guard !delta.isEmpty else { return true }
         progress = "Uploading \(delta.count) records…"
         let req = SyncRequest(deviceId: settings.deviceId, deviceName: UIDevice.current.name,
@@ -93,6 +110,7 @@ final class SyncService: ObservableObject {
         do {
             let resp = try await api.sync(req)
             lastUploaded += resp.samples + resp.sleep + resp.workouts
+            touched.formUnion(resp.daysTouched)
             return true
         } catch let error as APIError where error.status == 413 && hk.pageSize > Self.minimumPageSize {
             hk.pageSize = max(Self.minimumPageSize, hk.pageSize / 2)

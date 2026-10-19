@@ -85,6 +85,8 @@ struct RyftApp: App {
     }
 
     private func bootstrap() async {
+        // Every sync that touched days reloads Today once scoring caught up.
+        sync.onDaysTouched = { [state] _ in await state.refresh() }
         guard HealthKitManager.isAvailable, !settings.demoMode else {
             await state.refresh()
             return
