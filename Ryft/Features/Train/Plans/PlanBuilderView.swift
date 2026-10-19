@@ -170,8 +170,8 @@ struct PlanBuilderView: View {
                         .font(.ryft(.caption)).foregroundStyle(Theme.alert)
                 }
                 let count = day.wrappedValue.exercises.count
-                ForEach(Array(day.exercises.enumerated()), id: \.element.id) { i, $ex in
-                    PlanExerciseEditor(exercise: $ex, isLast: i == count - 1,
+                ForEach(Array(day.exercises.enumerated()), id: \.element.id) { i, ex in
+                    PlanExerciseEditor(exercise: ex, isLast: i == count - 1,
                                        issues: attempted ? issues : [],
                                        linkedWithNext: linked(day.wrappedValue, i),
                                        onLink: { link(day, i, $0) },
