@@ -6,8 +6,8 @@ import SwiftUI
 /// and bootstrap asks for HealthKit access.
 struct WelcomeView: View {
     @State private var legal: LegalPage?
-    @EnvironmentObject private var auth: AuthService
-    @EnvironmentObject private var settings: Settings
+    @Environment(AuthService.self) private var auth
+    @Environment(Settings.self) private var settings
     @State private var path: [AuthRoute] = []
 
     var body: some View {
@@ -128,21 +128,21 @@ private struct ValueLine: View {
 // Welcome is always dark (Graphite), so the light previews match the dark ones by design.
 #Preview("Welcome") {
     WelcomeView()
-        .environmentObject(AuthService.preview(signedIn: false))
-        .environmentObject(Settings.shared)
+        .environment(AuthService.preview(signedIn: false))
+        .environment(Settings.shared)
 }
 
 #Preview("Welcome · signed out notice") {
     let auth = AuthService.preview(signedIn: false)
     auth.signOutNotice = AuthService.SignOutReason.sessionExpired.notice
     return WelcomeView()
-        .environmentObject(auth)
-        .environmentObject(Settings.shared)
+        .environment(auth)
+        .environment(Settings.shared)
 }
 
 #Preview("Welcome · light system") {
     WelcomeView()
-        .environmentObject(AuthService.preview(signedIn: false))
-        .environmentObject(Settings.shared)
+        .environment(AuthService.preview(signedIn: false))
+        .environment(Settings.shared)
         .preferredColorScheme(.light)
 }

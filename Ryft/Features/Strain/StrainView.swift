@@ -1,39 +1,17 @@
 import SwiftUI
 
-@MainActor
-final class StrainViewModel: ObservableObject {
-    @Published var date = Calendar.current.startOfDay(for: .now)
-    @Published private(set) var detail: DayDetail?
-    @Published private(set) var isLoading = false
-    @Published private(set) var error: String?
-
-    func load(state: AppState) async {
-        error = nil
-        detail = state.cachedDayDetail(for: date)
-        guard state.hasDataSource else { return }
-        isLoading = detail == nil
-        defer { isLoading = false }
-        do {
-            detail = try await state.dayDetail(for: date)
-        } catch {
-            if detail == nil { self.error = error.localizedDescription }
-        }
-    }
-}
-
 /// Strain ring for the selected day, week strip, zone minutes and activities.
 struct StrainView: View {
-    @EnvironmentObject private var state: AppState
-    @EnvironmentObject private var coordinator: TrainCoordinator
-    @EnvironmentObject private var trainSync: TrainSyncService
-    @StateObject private var model = StrainViewModel()
+    @Environment(AppState.self) private var state
+    @Environment(ScreenModels.self) private var screens
+    @Environment(TrainCoordinator.self) private var coordinator
     @State private var path = NavigationPath()
     /// `-RyftOpenWorkout YES` pushes the first workout once (screenshots).
     @State private var autoOpen = UserDefaults.standard.bool(forKey: "RyftOpenWorkout")
 
     static let maxStrain = 21.0
 
-    private var score: DailyScore? { model.detail?.score ?? state.score(for: model.date) }
+    private var model: StrainViewModel { screens.strain }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -43,7 +21,7 @@ struct StrainView: View {
                         .font(.ryft(.title))
                         .foregroundStyle(Theme.textPrimary)
                         .accessibilityAddTraits(.isHeader)
-                    Text(Fmt.dayTitle(model.date))
+                    Text(model.title)
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textSecondary)
                 }
@@ -51,39 +29,20 @@ struct StrainView: View {
                 ring
                 movement
                 zones
-                if Calendar.current.isDateInToday(model.date) { TrainSection() }
+                if model.isToday { TrainSection() }
                 activities
             }
             .navigationDestination(for: Workout.self) { WorkoutDetailView(workout: $0) }
             .trainDestinations()
         }
-        .sheet(isPresented: $coordinator.showsStart) { StartWorkoutSheet() }
+        .sheet(isPresented: Bindable(coordinator).showsStart) { StartWorkoutSheet() }
         .task(id: TaskKey(date: model.date, refreshed: state.lastUpdated)) {
-            await model.load(state: state)
+            await model.load()
             if autoOpen, let first = model.detail?.workouts.first {
                 autoOpen = false
                 path.append(first)
             }
         }
-    }
-
-    /// The day's workouts, each merged with its logged session (`session_id`),
-    /// then sessions without a workout yet (e.g. still syncing).
-    private var activityItems: [ActivityItem] {
-        let cal = Calendar.current
-        let start = cal.startOfDay(for: model.date)
-        let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
-        let local = trainSync.store.completedSessions(from: start, to: end).map(\.summary)
-        let sessions = TrainLibrary.merged(local: local, remote: model.detail?.strain?.sessions ?? [])
-        let workouts = model.detail?.workouts ?? []
-        var linked = Set<UUID>()
-        var items: [ActivityItem] = workouts.map { w in
-            let s = sessions.first { $0.id == w.sessionId || $0.workoutId == w.id }
-            if let s { linked.insert(s.id) }
-            return .workout(w, s)
-        }
-        items += sessions.filter { !linked.contains($0.id) }.map(ActivityItem.session)
-        return items.sorted { $0.start < $1.start }
     }
 
     private struct TaskKey: Equatable {
@@ -94,66 +53,56 @@ struct StrainView: View {
     // MARK: sections
 
     private var weekStrip: some View {
-        let days = (0..<7).reversed().map { DayFormat.shift(Calendar.current.startOfDay(for: .now), days: -$0) }
-        return HStack(spacing: 0) {
-            ForEach(days, id: \.self) { day in
-                let strain = state.score(for: day)?.strain
-                let selected = Calendar.current.isDate(day, inSameDayAs: model.date)
+        HStack(spacing: 0) {
+            ForEach(model.week) { day in
                 Button {
-                    model.date = day
+                    model.select(day.date)
                 } label: {
                     VStack(spacing: 6) {
-                        Text(day.formatted(.dateTime.weekday(.narrow)))
+                        Text(day.initial)
                             .font(.ryft(.caption))
-                            .foregroundStyle(selected ? Theme.textPrimary : Theme.textTertiary)
-                        ScoreRing(progress: strain.map { $0 / Self.maxStrain }, size: 36, lineWidth: 3, color: Theme.metricStrain,
-                                  accessibilityLabel: Text(day.formatted(.dateTime.weekday(.wide))),
-                                  accessibilityValue: Text("Strain \(Fmt.strain(strain))")) {
-                            Text(strain.map { String(Int($0.rounded())) } ?? Fmt.placeholder)
+                            .foregroundStyle(day.isSelected ? Theme.textPrimary : Theme.textTertiary)
+                        ScoreRing(progress: day.strain.map { $0 / Self.maxStrain }, size: 36, lineWidth: 3,
+                                  color: Theme.metricStrain,
+                                  accessibilityLabel: Text(day.name), accessibilityValue: Text(day.spokenValue)) {
+                            Text(day.shortValue)
                                 .font(.ryftNumber(size: 11))
                                 .foregroundStyle(Theme.textPrimary)
                         }
                     }
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity)
-                    .background(selected ? Theme.surface : .clear,
+                    .background(day.isSelected ? Theme.surface : .clear,
                                 in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityAddTraits(selected ? .isSelected : [])
+                .accessibilityAddTraits(day.isSelected ? .isSelected : [])
             }
         }
     }
 
     /// Day strain on the 0–21 scale, ticks at 10 / 14 / 18, against the 7 days before.
     private var ring: some View {
-        let prior = (1...7).compactMap { state.score(for: DayFormat.shift(model.date, days: -$0))?.strain }
-        return MetricGauge(spec: .strain, value: score?.strain, size: .large,
-                           delta: .against(score?.strain, prior: prior),
-                           title: String(localized: "Day strain"))
+        MetricGauge(spec: .strain, value: model.strain, size: .large, delta: model.strainDelta,
+                    title: String(localized: "Day strain"))
             .id(model.date) // settle the arc again per day
     }
 
     /// Steps and active energy for the day (`DayDetail.strain`, else the score).
     private var movement: some View {
-        let dayStrain = model.detail?.strain
-        let steps = dayStrain?.steps ?? score?.steps
-        let kcal = dayStrain?.activeKcal ?? score?.activeKcal
-        return HStack(spacing: 10) {
-            MetricTile(title: "Steps", value: Fmt.integer(steps.map(Double.init)), systemImage: "figure.walk",
-                       tint: MetricSpec.steps.color)
-            MetricTile(title: "Active kcal", value: Fmt.integer(kcal.map(Double.init)), systemImage: "flame",
+        HStack(spacing: 10) {
+            MetricTile(title: "Steps", value: model.stepsText, systemImage: "figure.walk", tint: MetricSpec.steps.color)
+            MetricTile(title: "Active kcal", value: model.activeKcalText, systemImage: "flame",
                        tint: MetricSpec.activeKcal.color)
         }
     }
 
     private var zones: some View {
-        let dayStrain = model.detail?.strain
-        return Card {
+        Card {
             VStack(alignment: .leading, spacing: 16) {
-                CardHeader(title: "Heart-rate zones", trailing: dayStrain.map { "TRIMP \($0.trimp)" }.map { LocalizedStringKey($0) })
-                ZoneBar(minutes: dayStrain?.zoneMin.map(Double.init))
+                CardHeader(title: "Heart-rate zones", trailing: model.trimpText.map { LocalizedStringKey($0) })
+                ZoneBar(minutes: model.zoneMinutes)
             }
         }
     }
@@ -162,16 +111,16 @@ struct StrainView: View {
     private var activities: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Activities").ryftLabelStyle()
-            let items = activityItems
+            let items = model.activities
             if items.isEmpty {
                 if let error = model.error {
-                    InlineMessage(message: error, retry: { await model.load(state: state) })
+                    InlineMessage(message: error, retry: { await model.load() })
                 } else if model.isLoading {
                     ProgressView().tint(Theme.accent).frame(maxWidth: .infinity)
                 } else {
                     InlineMessage(message: String(localized: "No workouts recorded on this day."),
                                   systemImage: "figure.walk")
-                    if state.hasNoHealthData { HealthAccessHint() }
+                    if model.hasNoHealthData { HealthAccessHint() }
                 }
             } else {
                 ForEach(items) { item in

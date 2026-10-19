@@ -5,27 +5,29 @@
 // API key. `deviceId` is minted once per install and sent with every sync so
 // the backend can tell devices apart.
 import Foundation
+import Observation
 import Security
 
-final class Settings: ObservableObject {
+@Observable
+final class Settings {
     static let shared = Settings()
     private let defaults = UserDefaults.standard
 
-    @Published var lastSync: Date? {
+    var lastSync: Date? {
         didSet { defaults.set(lastSync, forKey: "lastSync") }
     }
     /// Serve the built-in mock history instead of the platform. On by default
     /// in the simulator (HealthKit has no data there); also settable with the
     /// launch argument `-demoMode YES`.
-    @Published var demoMode: Bool {
+    var demoMode: Bool {
         didSet { defaults.set(demoMode, forKey: "demoMode") }
     }
-    @Published var appearance: Appearance {
+    var appearance: Appearance {
         didSet { defaults.set(appearance.rawValue, forKey: "appearance") }
     }
     /// The "Connect Apple Health" explanation was shown (and answered) for this
     /// account. Health access is only requested after it, never on a cold launch.
-    @Published var healthIntroDone: Bool {
+    var healthIntroDone: Bool {
         didSet { defaults.set(healthIntroDone, forKey: "health.introDone") }
     }
 
@@ -38,22 +40,22 @@ final class Settings: ObservableObject {
     // Profile → Developer. None of this is compiled into Release.
 
     /// Replaces the built-in API URL, e.g. `http://192.168.1.20:8082` for compose.
-    @Published var devAPIURLOverride: String {
+    var devAPIURLOverride: String {
         didSet { defaults.set(devAPIURLOverride, forKey: "dev.apiURL") }
     }
     /// Compose serves ingest on its own port (`:8081`); behind the Ingress it's the API host.
-    @Published var devIngestURLOverride: String {
+    var devIngestURLOverride: String {
         didSet { defaults.set(devIngestURLOverride, forKey: "dev.ingestURL") }
     }
     /// For a platform running `AUTH_MODE=apikey`: a static bearer replaces the Supabase session.
-    @Published var apiKeyMode: Bool {
+    var apiKeyMode: Bool {
         didSet { defaults.set(apiKeyMode, forKey: "dev.apiKeyMode") }
     }
-    @Published var devAPIKey: String {
+    var devAPIKey: String {
         didSet { Keychain.set(devAPIKey.isEmpty ? nil : devAPIKey, for: "ryft.dev.apiKey") }
     }
     /// Lists recent failed requests with their `X-Request-ID` in Profile → Developer.
-    @Published var showRequestIDs: Bool {
+    var showRequestIDs: Bool {
         didSet { defaults.set(showRequestIDs, forKey: "dev.showRequestIDs") }
     }
     #endif

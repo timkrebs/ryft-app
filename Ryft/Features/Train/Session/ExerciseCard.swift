@@ -3,7 +3,7 @@ import SwiftUI
 /// One set: number (tap: warm-up), kg, reps, RPE, check. 56 pt tall, large
 /// monospaced numbers; empty fields show last time / the target ghosted.
 struct SetRow: View {
-    @ObservedObject var controller: SessionController
+    var controller: SessionController
     let set: LocalSet
     let exercise: LocalSessionExercise
     let number: Int
@@ -118,7 +118,7 @@ struct SetRow: View {
 
 /// An exercise in the live session: name, target, last time, set rows, add set.
 struct ExerciseCard: View {
-    @ObservedObject var controller: SessionController
+    var controller: SessionController
     let exercise: LocalSessionExercise
     var onPlates: () -> Void
     var onHistory: () -> Void

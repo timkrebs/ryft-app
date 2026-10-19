@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Sends a reset link to `ryft://auth/callback`; opening it shows Set new password.
 struct ForgotPasswordView: View {
-    @EnvironmentObject private var auth: AuthService
+    @Environment(AuthService.self) private var auth
     @Binding var path: [AuthRoute]
     @State var email: String
 
@@ -26,5 +26,5 @@ struct ForgotPasswordView: View {
     NavigationStack {
         ForgotPasswordView(path: .constant([]), email: "tim@example.com")
     }
-    .environmentObject(AuthService.preview(signedIn: false))
+    .environment(AuthService.preview(signedIn: false))
 }

@@ -4,9 +4,9 @@ import SwiftUI
 /// monospaced numbers, haptics on set check and rest end, the screen stays on.
 /// Nothing destructive happens without a confirmation.
 struct SessionView: View {
-    @ObservedObject var controller: SessionController
-    @EnvironmentObject private var coordinator: TrainCoordinator
-    @EnvironmentObject private var sync: TrainSyncService
+    var controller: SessionController
+    @Environment(TrainCoordinator.self) private var coordinator
+    @Environment(TrainSyncService.self) private var sync
 
     @State private var showsAdd = false
     @State private var showsReorder = false
@@ -86,7 +86,7 @@ struct SessionView: View {
         .sheet(isPresented: $showsAdd) {
             AddExerciseSheet { controller.add($0) }
         }
-        .sheet(item: $coordinator.summary, onDismiss: { coordinator.summaryDone() }) {
+        .sheet(item: Bindable(coordinator).summary, onDismiss: { coordinator.summaryDone() }) {
             SessionSummarySheet(summary: $0)
         }
         .sheet(isPresented: $showsReorder) {
@@ -225,7 +225,7 @@ struct SessionView: View {
 
 /// Drag to reorder (the list is in edit mode).
 struct ReorderSheet: View {
-    @ObservedObject var controller: SessionController
+    var controller: SessionController
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -261,8 +261,8 @@ struct ReorderSheet: View {
 /// After Finish: duration, volume, muscular load, strain, PRs, notes → Done.
 struct SessionSummarySheet: View {
     let summary: FinishSummary
-    @EnvironmentObject private var sync: TrainSyncService
-    @EnvironmentObject private var library: TrainLibrary
+    @Environment(TrainSyncService.self) private var sync
+    @Environment(TrainLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var notes = ""

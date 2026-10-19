@@ -6,7 +6,7 @@ struct AddExerciseSheet: View {
     var title: LocalizedStringKey = "Add exercise"
     let onPick: (Exercise) -> Void
 
-    @EnvironmentObject private var library: TrainLibrary
+    @Environment(TrainLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var muscle: Muscle?
@@ -171,40 +171,39 @@ struct FilterChip: View {
 
 /// A user's own exercise; saved locally first, so it can be logged offline.
 struct CustomExerciseForm: View {
-    @State var name: String
     let onSave: (Exercise) -> Void
 
-    @EnvironmentObject private var library: TrainLibrary
+    @Environment(TrainLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
-    @State private var kind: ExerciseKind = .dumbbell
-    @State private var muscle: Muscle = .chest
-    @State private var loadType: LoadType = .weight
-    @State private var unilateral = false
+    @State private var draft: CustomExerciseDraft
     @State private var saving = false
 
     private static let muscles = Muscle.allCases.sorted { $0.title < $1.title }
 
-    private var trimmed: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+    init(name: String, onSave: @escaping (Exercise) -> Void) {
+        _draft = State(initialValue: CustomExerciseDraft(name: name))
+        self.onSave = onSave
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Name", text: $name)
+                    TextField("Name", text: $draft.name)
                         .font(.ryft(.body))
                         .textInputAutocapitalization(.words)
                 }
                 Section("Kind") {
-                    Picker("Kind", selection: $kind) {
+                    Picker("Kind", selection: $draft.kind) {
                         ForEach(ExerciseKind.allCases) { Text($0.title).tag($0) }
                     }
-                    Picker("Main muscle", selection: $muscle) {
+                    Picker("Main muscle", selection: $draft.muscle) {
                         ForEach(Self.muscles) { Text($0.title).tag($0) }
                     }
-                    Picker("Logged as", selection: $loadType) {
+                    Picker("Logged as", selection: $draft.loadType) {
                         ForEach([LoadType.weight, .bodyweight, .time, .distance], id: \.self) { Text($0.title).tag($0) }
                     }
-                    Toggle("One side at a time", isOn: $unilateral)
+                    Toggle("One side at a time", isOn: $draft.unilateral)
                 }
             }
             .scrollContentBackground(.hidden)
@@ -215,7 +214,7 @@ struct CustomExerciseForm: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { Task { await save() } }
-                        .disabled(trimmed.isEmpty || saving)
+                        .disabled(!draft.canSave || saving)
                 }
             }
         }
@@ -223,11 +222,7 @@ struct CustomExerciseForm: View {
 
     private func save() async {
         saving = true
-        let slug = trimmed.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }.joined(separator: "-")
-        let e = Exercise(slug: slug, name: trimmed, kind: kind, primaryMuscles: [muscle],
-                         equipment: [kind.rawValue], loadType: loadType,
-                         bodyweightFactor: loadType == .bodyweight ? 1 : 0, isUnilateral: unilateral, isCustom: true)
+        let e = draft.exercise
         let saved = await library.createExercise(e) ?? e
         saving = false
         onSave(saved)
@@ -237,18 +232,18 @@ struct CustomExerciseForm: View {
 
 #Preview("Add exercise · dark") {
     AddExerciseSheet { _ in }
-        .environmentObject(TrainPreview.library)
+        .environment(TrainPreview.library)
         .preferredColorScheme(.dark)
 }
 
 #Preview("Add exercise · light") {
     AddExerciseSheet { _ in }
-        .environmentObject(TrainPreview.library)
+        .environment(TrainPreview.library)
         .preferredColorScheme(.light)
 }
 
 #Preview("Custom exercise") {
     CustomExerciseForm(name: "Landmine press") { _ in }
-        .environmentObject(TrainPreview.library)
+        .environment(TrainPreview.library)
         .preferredColorScheme(.dark)
 }

@@ -1,14 +1,16 @@
 import Foundation
+import Observation
 import Network
 
 /// Whether there's a network path. Offline the app sends nothing (screens keep
 /// their cached data, Today shows "Offline"); on reconnect sync and refresh resume.
 @MainActor
-final class ConnectivityMonitor: ObservableObject {
+@Observable
+final class ConnectivityMonitor {
     static let shared = ConnectivityMonitor()
 
     /// Optimistic until the first path update arrives (a request then fails normally).
-    @Published private(set) var isOnline = true
+    private(set) var isOnline = true
 
     private let monitor = NWPathMonitor()
     private var handlers: [(Bool) -> Void] = []

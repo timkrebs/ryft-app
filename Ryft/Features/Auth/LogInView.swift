@@ -3,7 +3,7 @@ import SwiftUI
 /// Email + password. Errors stay calm and never say whether the email has an
 /// account ("Email or password is wrong").
 struct LogInView: View {
-    @EnvironmentObject private var auth: AuthService
+    @Environment(AuthService.self) private var auth
     @Binding var path: [AuthRoute]
 
     @State private var email = ""
@@ -39,13 +39,13 @@ struct LogInView: View {
     NavigationStack {
         LogInView(path: .constant([]))
     }
-    .environmentObject(AuthService.preview(signedIn: false))
+    .environment(AuthService.preview(signedIn: false))
 }
 
 #Preview("Log in · light system") {
     NavigationStack {
         LogInView(path: .constant([]))
     }
-    .environmentObject(AuthService.preview(signedIn: false))
+    .environment(AuthService.preview(signedIn: false))
     .preferredColorScheme(.light)
 }

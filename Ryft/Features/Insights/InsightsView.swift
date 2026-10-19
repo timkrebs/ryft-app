@@ -9,38 +9,12 @@ extension TrendMetric {
     var showsPersonalRange: Bool { self == .hrv || self == .rhr }
 }
 
-@MainActor
-final class InsightsViewModel: ObservableObject {
-    @Published var range: TrendRange = .month
-    @Published private(set) var series: [TrendMetric: TrendSeries] = [:]
-    /// 30-day series behind the personal-range bands (HRV, resting HR), whatever the range.
-    @Published private(set) var monthly: [TrendMetric: TrendSeries] = [:]
-
-    func load(state: AppState) async {
-        // Instant paint from what's already loaded, then the platform's series.
-        for m in TrendMetric.allCases where series[m]?.range != range.rawValue {
-            series[m] = state.cachedTrend(m, range: range)
-        }
-        guard state.hasDataSource else { return }
-        await withTaskGroup(of: (TrendMetric, TrendSeries).self) { group in
-            for m in TrendMetric.allCases {
-                let r = range
-                group.addTask { await (m, state.trend(m, range: r)) }
-            }
-            for await (m, s) in group where s.range == range.rawValue || s.range.isEmpty {
-                series[m] = s
-            }
-        }
-        for m in TrendMetric.allCases where m.showsPersonalRange {
-            monthly[m] = range == .month ? series[m] : await state.trend(m, range: .month)
-        }
-    }
-}
-
 /// Insight cards (dismissible for the day) and trend charts for every metric.
 struct InsightsView: View {
-    @EnvironmentObject private var state: AppState
-    @StateObject private var model = InsightsViewModel()
+    @Environment(AppState.self) private var state
+    @Environment(ScreenModels.self) private var screens
+
+    private var model: InsightsViewModel { screens.insights }
 
     var body: some View {
         NavigationStack {
@@ -58,21 +32,16 @@ struct InsightsView: View {
                 insights
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Trends").ryftLabelStyle()
-                    SegmentedPicker(selection: $model.range, options: TrendRange.allCases) { r in
-                        switch r {
-                        case .week: return String(localized: "7 days")
-                        case .month: return String(localized: "30 days")
-                        case .quarter: return String(localized: "90 days")
-                        }
-                    }
+                    SegmentedPicker(selection: Bindable(model).range, options: TrendRange.allCases,
+                                    title: InsightsViewModel.rangeTitle)
                 }
                 ForEach(TrendMetric.allCases) { metric in
                     TrendCard(metric: metric, range: model.range, series: model.series[metric],
-                              monthly: model.monthly[metric])
+                              band: model.band(for: metric))
                 }
             }
         }
-        .task(id: TaskKey(range: model.range, refreshed: state.lastUpdated)) { await model.load(state: state) }
+        .task(id: TaskKey(range: model.range, refreshed: state.lastUpdated)) { await model.load() }
     }
 
     private struct TaskKey: Equatable {
@@ -82,17 +51,13 @@ struct InsightsView: View {
 
     @ViewBuilder
     private var insights: some View {
-        let visible = state.visibleInsights
         VStack(spacing: 12) {
-            if visible.isEmpty {
-                InlineMessage(message: state.insights.isEmpty
-                              ? String(localized: "Nothing stands out today. Insights appear when your data shifts.")
-                              : String(localized: "All caught up for today."),
-                              systemImage: "checkmark.circle")
+            if let empty = model.emptyMessage {
+                InlineMessage(message: empty, systemImage: "checkmark.circle")
             } else {
-                ForEach(visible) { insight in
+                ForEach(model.visibleInsights) { insight in
                     InsightCard(insight: insight) {
-                        withAnimation(.easeOut(duration: 0.25)) { state.dismiss(insight) }
+                        withAnimation(.easeOut(duration: 0.25)) { model.dismiss(insight) }
                     }
                     .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
@@ -105,13 +70,7 @@ private struct TrendCard: View {
     let metric: TrendMetric
     let range: TrendRange
     let series: TrendSeries?
-    let monthly: TrendSeries?
-
-    /// The 30-day min–max until the API serves a σ (`docs/API_REQUESTS.md`).
-    private var band: ClosedRange<Double>? {
-        guard metric.showsPersonalRange, let lo = monthly?.min, let hi = monthly?.max, lo < hi else { return nil }
-        return lo...hi
-    }
+    let band: ClosedRange<Double>?
 
     var body: some View {
         Card {

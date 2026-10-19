@@ -6,7 +6,7 @@ import UIKit
 /// usable (empty states, Profile → Data → Allow access).
 struct HealthPermissionView: View {
     @Environment(\.appEnvironment) private var env
-    @EnvironmentObject private var settings: Settings
+    @Environment(Settings.self) private var settings
     @State private var asking = false
     @State private var legal: LegalPage?
 
@@ -130,13 +130,13 @@ enum HealthLinks {
 
 #Preview("Connect Apple Health · dark") {
     HealthPermissionView()
-        .environmentObject(Settings.shared)
+        .environment(Settings.shared)
         .preferredColorScheme(.dark)
 }
 
 #Preview("Connect Apple Health · light") {
     HealthPermissionView()
-        .environmentObject(Settings.shared)
+        .environment(Settings.shared)
         .preferredColorScheme(.light)
 }
 

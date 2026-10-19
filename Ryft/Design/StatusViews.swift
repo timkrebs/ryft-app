@@ -3,8 +3,8 @@ import SwiftUI
 /// Common screen frame: RYFT header at the top, scrolling content, Graphite
 /// background, pull-to-refresh (sync + reload).
 struct ScreenScaffold<Content: View>: View {
-    @EnvironmentObject private var state: AppState
-    @EnvironmentObject private var sync: SyncService
+    @Environment(AppState.self) private var state
+    @Environment(SyncService.self) private var sync
     @ViewBuilder var content: () -> Content
 
     var body: some View {

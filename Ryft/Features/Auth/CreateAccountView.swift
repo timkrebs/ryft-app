@@ -4,7 +4,7 @@ import SwiftUI
 /// Supabase project there's no session yet → Check your inbox; otherwise
 /// RootView switches to the tabs.
 struct CreateAccountView: View {
-    @EnvironmentObject private var auth: AuthService
+    @Environment(AuthService.self) private var auth
     @Binding var path: [AuthRoute]
 
     @State private var name = ""
@@ -51,13 +51,13 @@ struct CreateAccountView: View {
     NavigationStack {
         CreateAccountView(path: .constant([]))
     }
-    .environmentObject(AuthService.preview(signedIn: false))
+    .environment(AuthService.preview(signedIn: false))
 }
 
 #Preview("Create account · light system") {
     NavigationStack {
         CreateAccountView(path: .constant([]))
     }
-    .environmentObject(AuthService.preview(signedIn: false))
+    .environment(AuthService.preview(signedIn: false))
     .preferredColorScheme(.light)
 }

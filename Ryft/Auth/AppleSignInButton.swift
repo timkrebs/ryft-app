@@ -4,7 +4,7 @@ import SwiftUI
 /// The native Sign in with Apple button, wired to `AuthService`. White on
 /// dark backgrounds, black on light ones (Apple's guidelines).
 struct AppleSignInButton: View {
-    @EnvironmentObject private var auth: AuthService
+    @Environment(AuthService.self) private var auth
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -31,5 +31,5 @@ struct AppleSignInButton: View {
     SchemePair {
         AppleSignInButton()
     }
-    .environmentObject(AuthService.preview(signedIn: false))
+    .environment(AuthService.preview(signedIn: false))
 }

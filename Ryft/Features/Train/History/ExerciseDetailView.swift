@@ -6,54 +6,51 @@ struct ExerciseDetailView: View {
     let exerciseID: UUID
     var name: String? = nil
 
-    @EnvironmentObject private var library: TrainLibrary
-    @State private var history: ExerciseHistory?
-    @State private var loaded = false
+    @Environment(TrainLibrary.self) private var library
+    @Environment(\.appEnvironment) private var env
 
-    private var exercise: Exercise? { library.exercise(id: exerciseID) }
-
-    /// The chart window: the last 90 days.
-    private var points: [E1RMPoint] {
-        let from = DayFormat.string(from: DayFormat.shift(.now, days: -89))
-        return (history?.e1rm ?? []).filter { $0.day >= from }
+    var body: some View {
+        ExerciseDetailScreen(model: ExerciseDetailViewModel(exerciseID: exerciseID, name: name,
+                                                            library: library, clock: env.clock))
     }
+}
+
+/// Layout only; the first model handed in is kept for the screen's lifetime.
+private struct ExerciseDetailScreen: View {
+    @State var model: ExerciseDetailViewModel
 
     var body: some View {
         ScrollView {
             VStack(spacing: Theme.Metrics.sectionSpacing) {
                 header
                 chartCard
-                if let prs = history?.prs, !prs.isEmpty {
-                    prCard(prs)
+                if !model.records.isEmpty {
+                    prCard(model.records)
                 }
                 recentSets
             }
             .padding(Theme.Metrics.screenPadding)
         }
         .background(Theme.background.ignoresSafeArea())
-        .navigationTitle(exercise?.name ?? name ?? "")
+        .navigationTitle(model.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .task {
-            history = library.cachedHistory(for: exerciseID)
-            history = await library.history(for: exerciseID) ?? history
-            loaded = true
-        }
+        .task { await model.load() }
     }
 
     private var header: some View {
         VStack(spacing: 4) {
             Text("Estimated 1RM").ryftLabelStyle()
-            Text(points.last.map { Fmt.kg($0.value) } ?? Fmt.placeholder)
+            Text(model.current)
                 .font(.ryftNumber(size: 44))
                 .monospacedDigit()
                 .foregroundStyle(Theme.textPrimary)
-            if let e = exercise {
-                Text(([e.kind.title] + e.primaryMuscles.map(\.title)).joined(separator: " · "))
+            if let subtitle = model.subtitle {
+                Text(subtitle)
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textSecondary)
             }
-            if let change = change {
+            if let change = model.change {
                 Text(change)
                     .font(.ryft(.callout))
                     .monospacedDigit()
@@ -64,26 +61,16 @@ struct ExerciseDetailView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// "+6.5 kg in 90 days".
-    private var change: String? {
-        guard let first = points.first?.value, let last = points.last?.value, points.count > 1 else { return nil }
-        let delta = last - first
-        let sign = delta >= 0 ? "+" : "−"
-        return String(localized: "\(sign)\(Fmt.kg(abs(delta))) in 90 days")
-    }
-
     private var chartCard: some View {
         Card {
             VStack(alignment: .leading, spacing: 14) {
-                ChartHeader(spec: .e1rm, value: points.last?.value,
-                            delta: points.count >= 2 ? MetricDelta(current: points[points.count - 1].value,
-                                                                   reference: points[points.count - 2].value) : nil,
+                ChartHeader(spec: .e1rm, value: model.points.last?.value, delta: model.lastDelta,
                             deltaReference: String(localized: "vs last"), window: ChartWindow.quarter.title)
-                if points.count >= 2 {
-                    E1RMChart(points: points, best: history?.prs.first { $0.kind == .e1rm }?.value)
+                if model.hasTrend {
+                    E1RMChart(points: model.points, best: model.bestE1RM)
                         .frame(height: 180)
                 } else {
-                    Text(loaded ? String(localized: "Log this exercise twice to see a trend.") : String(localized: "Loading…"))
+                    Text(model.emptyChartText)
                         .font(.ryft(.callout))
                         .foregroundStyle(Theme.textSecondary)
                         .frame(maxWidth: .infinity, minHeight: 120)
@@ -107,19 +94,17 @@ struct ExerciseDetailView: View {
 
     @ViewBuilder
     private var recentSets: some View {
-        let entries = Array((history?.sessions ?? []).prefix(10))
+        let rows = model.recentRows
         VStack(alignment: .leading, spacing: 12) {
             Text("Recent sets").ryftLabelStyle()
-            if entries.isEmpty {
-                InlineMessage(message: loaded ? String(localized: "No sets logged for this exercise yet.")
-                                              : String(localized: "Loading…"),
-                              systemImage: "list.bullet")
+            if rows.isEmpty {
+                InlineMessage(message: model.emptySetsText, systemImage: "list.bullet")
             } else {
                 Card(padding: 0) {
                     VStack(spacing: 0) {
-                        ForEach(Array(entries.enumerated()), id: \.offset) { i, entry in
-                            if i > 0 { Divider().overlay(Theme.separator) }
-                            row(entry)
+                        ForEach(rows) { row in
+                            if row.id > 0 { Divider().overlay(Theme.separator) }
+                            rowView(row)
                         }
                     }
                 }
@@ -127,25 +112,24 @@ struct ExerciseDetailView: View {
         }
     }
 
-    private func row(_ entry: ExerciseHistorySession) -> some View {
-        let working = entry.sets.filter { !$0.isWarmup }
-        return HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(entry.startedAt.formatted(.dateTime.day().month(.abbreviated)))
+    private func rowView(_ row: ExerciseDetailViewModel.RecentRow) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(row.date)
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
                 .frame(width: 58, alignment: .leading)
-            Text(working.map(SetText.short).joined(separator: "  ·  "))
+            Text(row.sets)
                 .font(.ryft(.callout))
                 .monospacedDigit()
                 .foregroundStyle(Theme.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
-            if let best = E1RM.best(of: working) {
-                Text(Fmt.kgNumber(E1RM.rounded(best)))
+            if let best = row.bestText {
+                Text(best)
                     .font(.ryft(.callout))
                     .monospacedDigit()
                     .foregroundStyle(Theme.accent)
-                    .accessibilityLabel(Text("e1RM \(Fmt.kg(E1RM.rounded(best)))"))
+                    .accessibilityLabel(Text(row.bestSpoken ?? best))
             }
         }
         .padding(.horizontal, Theme.Metrics.cardPadding)

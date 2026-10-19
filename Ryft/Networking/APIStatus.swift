@@ -2,16 +2,18 @@
 // up" notice while APIClient waits out a 503, and the recent failures with
 // their request IDs (Profile → Developer, Debug builds).
 import Foundation
+import Observation
 import os
 
 @MainActor
-final class APIStatus: ObservableObject {
+@Observable
+final class APIStatus {
     static let shared = APIStatus()
 
     /// "RYFT is catching up, retrying in 12 s" while a 503 retry is pending.
-    @Published private(set) var retryNotice: String?
+    private(set) var retryNotice: String?
     /// Newest first, at most `maxFailures`.
-    @Published private(set) var failures: [RequestFailure] = []
+    private(set) var failures: [RequestFailure] = []
 
     static let maxFailures = 20
     nonisolated static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "api")

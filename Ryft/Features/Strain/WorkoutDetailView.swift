@@ -4,9 +4,18 @@ import Charts
 /// One workout: HR over time from `/v1/workouts/{id}`, zones, TRIMP, calories, distance.
 struct WorkoutDetailView: View {
     let workout: Workout
+    @Environment(AppState.self) private var state
 
-    @EnvironmentObject private var state: AppState
-    @State private var detail: WorkoutDetail?
+    var body: some View {
+        WorkoutDetailScreen(model: WorkoutDetailViewModel(workout: workout, state: state))
+    }
+}
+
+/// Layout only; the first model handed in is kept for the screen's lifetime.
+private struct WorkoutDetailScreen: View {
+    @State var model: WorkoutDetailViewModel
+
+    private var workout: Workout { model.workout }
 
     var body: some View {
         ScrollView {
@@ -14,7 +23,7 @@ struct WorkoutDetailView: View {
                 header
                 stats
                 heartRate
-                if let zones = detail?.zoneMin, zones.count == 5 {
+                if let zones = model.zones {
                     Card {
                         VStack(alignment: .leading, spacing: 16) {
                             CardHeader(title: "Heart-rate zones")
@@ -28,23 +37,23 @@ struct WorkoutDetailView: View {
         }
         .scrollIndicators(.hidden)
         .background(Theme.background.ignoresSafeArea())
-        .navigationTitle(ActivityStyle.name(for: workout.activity))
+        .navigationTitle(model.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .task { detail = await state.workoutDetail(workout) }
+        .task { await model.load() }
     }
 
     private var header: some View {
         VStack(spacing: 10) {
-            Image(systemName: ActivityStyle.icon(for: workout.activity))
+            Image(systemName: model.icon)
                 .font(.system(size: 26, weight: .medium))
                 .foregroundStyle(Theme.accent)
                 .frame(width: 64, height: 64)
                 .background(Theme.accent.opacity(0.12), in: Circle())
-            Text(ActivityStyle.name(for: workout.activity))
+            Text(model.title)
                 .font(.ryft(.title))
                 .foregroundStyle(Theme.textPrimary)
-            Text("\(workout.start.formatted(.dateTime.weekday(.wide).day().month())) · \(Fmt.time(workout.start))–\(Fmt.time(workout.end))")
+            Text(model.when)
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
             Text(workout.source)
@@ -58,19 +67,11 @@ struct WorkoutDetailView: View {
     private var stats: some View {
         let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10), GridItem(.flexible())]
         return LazyVGrid(columns: columns, spacing: 10) {
-            stat("Strain", Fmt.strain(workout.strain))
-            stat("Duration", Fmt.duration(seconds: workout.duration))
-            stat("TRIMP", Fmt.integer(detail?.trimp))
-            stat("Avg HR", Fmt.integer(workout.avgHr))
-            stat("Max HR", Fmt.integer(workout.maxHr))
-            stat("Calories", Fmt.integer(workout.energyKcal))
-            if workout.distanceM != nil {
-                stat("Distance", Fmt.distance(meters: workout.distanceM))
-            }
+            ForEach(model.stats) { stat($0.title, $0.value) }
         }
     }
 
-    private func stat(_ title: LocalizedStringKey, _ value: String) -> some View {
+    private func stat(_ title: String, _ value: String) -> some View {
         VStack(spacing: 6) {
             Text(title).ryftLabelStyle().lineLimit(1).minimumScaleFactor(0.8)
             Text(value)
@@ -91,11 +92,10 @@ struct WorkoutDetailView: View {
         Card {
             VStack(alignment: .leading, spacing: 14) {
                 ChartHeader(spec: .heartRate, value: workout.avgHr, deltaReference: nil,
-                            window: Fmt.duration(seconds: workout.duration),
-                            valueOverride: workout.avgHr.map { String(localized: "avg \(Int($0.rounded())) bpm") })
-                if let hr = detail?.hr, hr.count > 1 {
+                            window: model.durationText, valueOverride: model.averageText)
+                if let hr = model.heartRate {
                     HeartRateChart(points: hr, average: workout.avgHr)
-                } else if detail == nil {
+                } else if model.isLoading {
                     ProgressView().tint(Theme.accent).frame(maxWidth: .infinity, minHeight: 160)
                 } else {
                     Text("No heart-rate series available for this workout.")

@@ -67,16 +67,6 @@ enum Theme {
         }
     }
 
-    /// The band in words, so colour is never the only carrier of meaning.
-    static func bandLabel(forScore score: Int?) -> LocalizedStringKey? {
-        guard let score else { return nil }
-        switch score {
-        case 67...: return "High"
-        case 34...: return "Moderate"
-        default: return "Low"
-        }
-    }
-
     static func color(for severity: InsightSeverity) -> Color {
         switch severity {
         case .info: return accentSecondary
