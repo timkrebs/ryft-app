@@ -1,5 +1,6 @@
 .DS_Store
-*.xcodeproj/
+# Ryft.xcodeproj is committed: it's the source of truth (CLAUDE.md) and CI builds it.
+# Per-user state inside it stays out (xcuserdata below).
 build/
 DerivedData/
 xcuserdata/

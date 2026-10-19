@@ -398,3 +398,11 @@ ring code lives in `Ryft/Push`, so the app's tests cover it.
   - fetch when due, force, failure, overlapping refreshes sharing one request, and the
     `run()` loop on `TestClock`
   - every gate
+
+## 9. CI/CD
+
+The workflows, signing, secrets, versions and TestFlight distribution are documented in
+`docs/CI.md`. Two architectural points:
+- `MARKETING_VERSION` comes from the committed `VERSION` file on the xcodebuild command
+  line, so the pbxproj is never edited.
+- The build number is the CI run's ID.

@@ -1,0 +1,20 @@
+name: Set up Xcode and config
+description: Selects the Xcode in .xcode-version and creates the local xcconfigs from their examples.
+runs:
+  using: composite
+  steps:
+    - name: Select Xcode
+      shell: bash
+      run: |
+        version="$(tr -d '[:space:]' < .xcode-version)"
+        app="/Applications/Xcode_${version}.app"
+        if [ ! -d "$app" ]; then
+          echo "::error::Xcode $version is not on this runner (.xcode-version). Installed:"
+          ls -d /Applications/Xcode*.app
+          exit 1
+        fi
+        sudo xcode-select -s "$app/Contents/Developer"
+        xcodebuild -version
+    - name: Config
+      shell: bash
+      run: make config

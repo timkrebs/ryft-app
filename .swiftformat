@@ -1,0 +1,9 @@
+# SwiftFormat (docs/CI.md). CI runs `swiftformat --lint .`; `make format` applies it.
+# A deliberately small rule set the code already follows, so the check guards the
+# style instead of rewriting it. Widen it in its own commit: enable a rule here,
+# run `make format`, commit the result.
+--swiftversion 5.10
+--exclude build,.build,DerivedData,Ryft.xcodeproj
+--rules trailingSpace,linebreakAtEndOfFile,consecutiveBlankLines,duplicateImports,semicolons,todos,spaceAroundComments
+--indent 4
+--maxwidth 160

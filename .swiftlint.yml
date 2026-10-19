@@ -1,0 +1,45 @@
+# SwiftLint (docs/CI.md). CI fails on errors; warnings are reported, not fatal.
+included:
+  - Ryft
+  - RyftTests
+  - RyftUITests
+  - RyftWidgets
+  - RyftNotificationService
+excluded:
+  - build
+  - .build
+  - DerivedData
+
+disabled_rules:
+  # The code uses short, local names on purpose (x, d, s in maths and closures).
+  - identifier_name
+  - type_name
+  # SwiftUI views and view models are long; size is reviewed, not linted.
+  - type_body_length
+  - file_length
+  - function_body_length
+  - cyclomatic_complexity
+  - large_tuple
+  - nesting
+  # Trailing commas in multi-line literals are the house style.
+  - trailing_comma
+  # `Button { } label: { }` and similar SwiftUI forms.
+  - multiple_closures_with_trailing_closure
+  # Tracked in STATUS.md, not in lint output.
+  - todo
+
+opt_in_rules:
+  - empty_count
+  - first_where
+  - contains_over_first_not_nil
+  - redundant_nil_coalescing
+  - unused_import
+
+line_length:
+  warning: 160
+  error: 200
+  ignores_comments: true
+  ignores_urls: true
+
+force_try:
+  severity: warning   # tests decode fixtures with try!
