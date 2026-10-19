@@ -28,6 +28,18 @@ struct SupabaseConfig: Equatable {
     /// the project's redirect URLs (Authentication → URL Configuration).
     static let redirectURL = URL(string: "ryft://auth/callback")!
 
+    /// The universal-link form (Associated Domains `applinks:ryftapp.de`). Accepted
+    /// already; becomes `redirectURL` once ryftapp.de serves the
+    /// apple-app-site-association file and Supabase allows it (docs/APP_STORE.md).
+    static let universalRedirectURL = URL(string: "https://ryftapp.de/auth/callback")!
+
+    /// A confirmation or reset link, in either form.
+    static func isAuthCallback(_ url: URL) -> Bool {
+        if url.scheme == redirectURL.scheme, url.host == redirectURL.host { return true }
+        return url.scheme == "https" && url.host == universalRedirectURL.host
+            && url.path == universalRedirectURL.path
+    }
+
     /// "This build is missing …", or `nil` when everything is set (see PlatformConfig).
     static var problem: String? {
         let missing = PlatformConfig.missing

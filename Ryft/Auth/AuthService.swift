@@ -400,9 +400,7 @@ final class AuthService: ObservableObject {
     /// Returns whether the URL was ours.
     @discardableResult
     func handle(_ url: URL) async -> Bool {
-        guard url.scheme == SupabaseConfig.redirectURL.scheme, url.host == SupabaseConfig.redirectURL.host else {
-            return false
-        }
+        guard SupabaseConfig.isAuthCallback(url) else { return false }
         await run(.link) { client in
             let session = try await client.session(from: url)
             let recovering = Self.isRecoveryLink(url) || self.recoveryRequestedRecently
