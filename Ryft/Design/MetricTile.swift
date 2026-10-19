@@ -11,6 +11,8 @@ struct MetricTile: View {
     var accessibilityHint: LocalizedStringKey? = nil
     var action: (() -> Void)? = nil
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         Button {
             action?()
@@ -26,6 +28,9 @@ struct MetricTile: View {
                     .foregroundStyle(Theme.textPrimary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
+                    // A new score rolls its digits instead of jumping (off under Reduce Motion).
+                    .contentTransition(reduceMotion ? .identity : .numericText())
+                    .animation(Theme.Motion.respecting(reduceMotion), value: value)
                 Image(systemName: systemImage)
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(tint)

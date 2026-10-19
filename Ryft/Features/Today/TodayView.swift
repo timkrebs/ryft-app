@@ -5,23 +5,40 @@ import SwiftUI
 struct TodayView: View {
     @Environment(ScreenModels.self) private var screens
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var model: TodayViewModel { screens.today }
 
     var body: some View {
         NavigationStack {
-            ScreenScaffold {
-                if model.hasDataSource {
-                    greeting
-                    readinessRing
-                    tiles
-                    if model.showsHealthHint { HealthAccessHint() }
-                    TrainTodayCard()
-                    trends
-                    status
-                } else {
-                    greeting
-                    SetupCard { model.open(.profile) }
+            ScrollViewReader { proxy in
+                ScreenScaffold {
+                    if model.hasDataSource {
+                        greeting
+                        readinessRing
+                            .coachMarkTarget(.gauges)
+                            .id(CoachMarkTarget.gauges)
+                        tiles
+                            .coachMarkTarget(.physiology)
+                            .id(CoachMarkTarget.physiology)
+                        if model.showsHealthHint { HealthAccessHint() }
+                        TrainTodayCard()
+                        trends
+                            .coachMarkTarget(.trends)
+                            .id(CoachMarkTarget.trends)
+                        status
+                    } else {
+                        greeting
+                        SetupCard { model.open(.profile) }
+                    }
+                }
+                .coachMarks(model.coachMarks, enabled: model.showsCoachMarks)
+                // Each mark scrolls its target into view.
+                .onChange(of: model.coachMarks.step) { _, step in
+                    guard let step else { return }
+                    withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.slow)) {
+                        proxy.scrollTo(step, anchor: .center)
+                    }
                 }
             }
         }
@@ -138,6 +155,10 @@ struct OfflinePill: View {
 
 #Preview("Today · calibrating") {
     TodayView().previewEnvironment(.preview(calibrating: true))
+}
+
+#Preview("Today · coach marks") {
+    TodayView().previewEnvironment(.preview(coachMarks: true))
 }
 
 #Preview("Today · not set up") {

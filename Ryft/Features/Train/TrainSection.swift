@@ -83,7 +83,7 @@ struct StartWorkoutSheet: View {
                         option(title: String(localized: "A day from \(plan.name)"),
                                detail: plan.days.map(\.name).joined(separator: " · "),
                                systemImage: "list.bullet", chevron: showsDays ? "chevron.up" : "chevron.down") {
-                            withAnimation(.snappy) { showsDays.toggle() }
+                            withAnimation(Theme.Motion.quick) { showsDays.toggle() }
                         }
                         if showsDays {
                             ForEach(model.planDays) { day in

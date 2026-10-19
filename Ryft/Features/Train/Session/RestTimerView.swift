@@ -300,7 +300,7 @@ struct PlateCalculatorSheet: View {
 
     private func stepper(_ title: String, _ delta: Double) -> some View {
         Button {
-            withAnimation(.snappy) { target = max(PlateCalculator.barKg, min(500, target + delta)) }
+            withAnimation(Theme.Motion.quick) { target = max(PlateCalculator.barKg, min(500, target + delta)) }
         } label: {
             Text(title)
                 .font(.ryftNumber(size: 19))

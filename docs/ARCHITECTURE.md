@@ -262,3 +262,28 @@ Flows with many states and guards are explicit machines, not boolean combination
   - upload phases, offline, failure
   - rest timer ⇄ resting, pause, a single finish
   - onboarding connect / not now
+
+## 6. Component catalog and motion
+
+**Catalog.** `DebugComponentCatalog` (Debug builds only, Profile → Developer) shows
+every `Design/` component with mock data. Each one can be switched between dark and
+light and between the XS, L and AX3 text sizes, so you can check them without opening
+Xcode Previews.
+
+**Motion.** Every animation goes through `Theme.Motion`. Each one is easeOut, and
+nothing springs.
+
+| Token | Duration | Used for |
+| --- | --- | --- |
+| `quick` | 0.25 s | selection, toggles, the segmented picker |
+| `standard` | 0.4 s | value changes (`numericText`), cards appearing |
+| `slow` | 0.6 s | the gauge and strain-target arcs filling from zero |
+
+- `Theme.Motion.respecting(reduceMotion, _)` returns `nil` when Reduce Motion is on.
+  The value then changes without the animation.
+- Coach marks (`Design/CoachMarks.swift`) highlight three things on the first visit to
+  Today: the gauges, then the physiology card, then the trends. They scroll each one into
+  view, and their done flag is `coachMarks.today.done`. UI tests pass
+  `-coachMarks.today.done YES`, and `.preview(coachMarks: true)` shows them.
+- `HealthIllustration` is a 2 s loop on the Health permission screen. With Reduce
+  Motion on it is a still image.

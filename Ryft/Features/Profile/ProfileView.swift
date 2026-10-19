@@ -126,6 +126,15 @@ struct ProfileView: View {
             Text("Debug builds only.")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
+            NavigationLink {
+                DebugComponentCatalog()
+            } label: {
+                Label("Component catalog", systemImage: "square.grid.2x2")
+                    .font(.ryft(.body))
+                    .foregroundStyle(Theme.accent)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            }
+            .accessibilityIdentifier("dev.catalog")
             FieldLabel("API URL override")
             TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftapp.de", text: Bindable(settings).devAPIURLOverride)
                 .ryftField()

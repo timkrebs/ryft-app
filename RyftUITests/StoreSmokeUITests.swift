@@ -14,7 +14,7 @@ final class StoreSmokeUITests: XCTestCase {
 
     private func launch(demo: Bool) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
-        app.launchArguments = ["-demoMode", demo ? "YES" : "NO", "-RyftTab", "today", "-appearance", "dark"]
+        app.launchArguments = ["-demoMode", demo ? "YES" : "NO", "-RyftTab", "today", "-appearance", "dark", "-coachMarks.today.done", "YES"]
         app.launch()
         return app
     }
