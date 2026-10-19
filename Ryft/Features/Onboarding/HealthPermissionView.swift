@@ -56,10 +56,7 @@ private struct HealthPermissionScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                Image(systemName: "heart.text.square")
-                    .font(.system(size: 44, weight: .regular))
-                    .foregroundStyle(Theme.accent)
-                    .accessibilityHidden(true)
+                HealthIllustration()
                     .padding(.top, 32)
                 Text("Connect Apple Health")
                     .font(.ryft(.title))

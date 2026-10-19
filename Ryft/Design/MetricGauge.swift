@@ -84,8 +84,9 @@ struct MetricGauge: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(title ?? spec.title))
         .accessibilityValue(Text(spokenValue))
-        .onAppear(perform: animate)
-        .onChange(of: value) { animate() }
+        .onAppear { animate(fromZero: true) }
+        // A new value moves the arc on from where it was (strain filling up as the day goes).
+        .onChange(of: value) { animate(fromZero: false) }
     }
 
     @ViewBuilder
@@ -151,6 +152,8 @@ struct MetricGauge: View {
                 .foregroundStyle(value == nil ? Theme.textTertiary : Theme.textPrimary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
+                .contentTransition(reduceMotion ? .identity : .numericText(value: value ?? 0))
+                .animation(Theme.Motion.respecting(reduceMotion), value: value)
             if !spec.scaleLabel.isEmpty {
                 Text(spec.scaleLabel)
                     .font(.ryftNumber(size: size == .small ? 9 : 11))
@@ -169,13 +172,15 @@ struct MetricGauge: View {
         return parts.joined(separator: ", ")
     }
 
-    private func animate() {
+    /// First appearance fills from 0 (250 ms); later values move on from the current
+    /// arc (600 ms), so a growing strain visibly accumulates toward its target.
+    private func animate(fromZero: Bool) {
         let target = value.map(fraction) ?? 0
         if reduceMotion {
             shown = target
         } else {
-            shown = 0
-            withAnimation(Theme.ringAnimation) { shown = target }
+            if fromZero { shown = 0 }
+            withAnimation(fromZero ? Theme.ringAnimation : Theme.Motion.slow) { shown = target }
         }
     }
 }

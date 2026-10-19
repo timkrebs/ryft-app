@@ -9,7 +9,7 @@ final class TrainSessionUITests: XCTestCase {
     private func launch(resetTrain: Bool) -> XCUIApplication {
         // By bundle ID: the target has no TEST_TARGET_NAME (set it in Xcode to use `XCUIApplication()`).
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
-        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "strain", "-appearance", "dark"]
+        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "strain", "-appearance", "dark", "-coachMarks.today.done", "YES"]
         if resetTrain { app.launchArguments += ["-RyftResetTrain", "YES"] }
         app.launch()
         return app

@@ -93,4 +93,20 @@ enum Theme {
 
     /// Gauges and charts settle in 250 ms; no springs, no count-ups.
     static let ringAnimation = Animation.easeOut(duration: 0.25)
+
+    /// Every animation in the app: ease-out, 0.25–0.6 s, never a spring. Each explains a
+    /// change (a value moving, a panel appearing); Reduce Motion turns them off.
+    enum Motion {
+        /// Selection, small state changes.
+        static let quick = Animation.easeOut(duration: 0.25)
+        /// Panels and banners appearing.
+        static let standard = Animation.easeOut(duration: 0.4)
+        /// A value arc filling, a coach mark moving.
+        static let slow = Animation.easeOut(duration: 0.6)
+
+        /// `nil` (no animation) under Reduce Motion.
+        static func respecting(_ reduceMotion: Bool, _ animation: Animation = quick) -> Animation? {
+            reduceMotion ? nil : animation
+        }
+    }
 }

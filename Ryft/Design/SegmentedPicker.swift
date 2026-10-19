@@ -13,7 +13,7 @@ struct SegmentedPicker<Value: Hashable>: View {
             ForEach(options, id: \.self) { option in
                 let isSelected = option == selection
                 Button {
-                    withAnimation(.snappy(duration: 0.25)) { selection = option }
+                    withAnimation(Theme.Motion.quick) { selection = option }
                 } label: {
                     Text(title(option))
                         .font(.ryft(.callout))

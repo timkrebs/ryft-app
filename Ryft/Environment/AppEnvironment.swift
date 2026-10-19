@@ -61,13 +61,16 @@ final class AppEnvironment {
 
     /// Previews: signed in, mock data, nothing leaves the process.
     static func preview(online: Bool = true, auth: AuthService? = nil,
-                        flags: [FeatureFlag: Bool] = [:]) -> AppEnvironment {
+                        flags: [FeatureFlag: Bool] = [:], coachMarks: Bool = false) -> AppEnvironment {
         let api = MockPlatformAPI()
+        let defaults = UserDefaults(suiteName: "ryft.preview") ?? .standard
+        // Coach marks only in the preview that asks for them.
+        defaults.set(!coachMarks, forKey: CoachMarks.doneKey)
         return AppEnvironment(
             settings: .shared, health: MockHealthStore(), liveAPI: api, demoAPI: api, auth: auth ?? .preview(),
             persistence: TrainStore(inMemory: true), clock: SystemClock(), notifier: MockNotifier(),
             flags: StaticFlags(flags), connectivity: .preview(online: online),
-            defaults: UserDefaults(suiteName: "ryft.preview") ?? .standard, demoOverride: true)
+            defaults: defaults, demoOverride: true)
     }
 
     /// Unit tests: every dependency a mock the test can script and inspect.

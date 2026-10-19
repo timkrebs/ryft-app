@@ -63,6 +63,7 @@ actor SyncCoordinator {
     private let steps: SyncSteps
     private let clock: AppClock
     private var running: Task<Outcome, Never>?
+    private var runningID: UUID?
     private var queued: Task<Outcome, Never>?
     private var queuedTrigger: Trigger?
 
@@ -109,19 +110,23 @@ actor SyncCoordinator {
     }
 
     private func start(_ trigger: Trigger) -> Task<Outcome, Never> {
-        let task = Task(priority: trigger.priority) { [steps, clock] in
-            await Self.pipeline(trigger, steps: steps, clock: clock)
+        let id = UUID()
+        // The run clears itself before its outcome is returned, so `isRunning` is
+        // false as soon as anyone has the outcome.
+        let task = Task(priority: trigger.priority) { [weak self, steps, clock] in
+            let outcome = await Self.pipeline(trigger, steps: steps, clock: clock)
+            await self?.finished(id)
+            return outcome
         }
         running = task
-        Task { [weak self] in
-            _ = await task.value
-            await self?.finished(task)
-        }
+        runningID = id
         return task
     }
 
-    private func finished(_ task: Task<Outcome, Never>) {
-        if running == task { running = nil }
+    private func finished(_ id: UUID) {
+        guard runningID == id else { return }
+        running = nil
+        runningID = nil
     }
 
     /// A silent push's days join whatever else is waiting; any upload trigger wins over a push.

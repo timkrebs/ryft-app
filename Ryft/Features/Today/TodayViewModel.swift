@@ -20,7 +20,11 @@ final class TodayViewModel {
         case syncPaused(message: String, details: String?)
     }
 
+    /// First-run coach marks: gauge → physiology → trends.
+    let coachMarks: CoachMarks
+
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, apiStatus: APIStatus? = nil) {
+        coachMarks = CoachMarks(defaults: state.env.defaults)
         self.state = state
         self.sync = sync
         self.coordinator = coordinator
@@ -39,6 +43,9 @@ final class TodayViewModel {
     var showsHealthHint: Bool { state.hasNoHealthData }
 
     var readiness: Double? { score?.readiness.map(Double.init) }
+
+    /// Only once there's a score to point at.
+    var showsCoachMarks: Bool { hasDataSource && score != nil && coachMarks.step != nil }
     var readinessWeek: [TrendPoint] { state.readinessWeek?.points ?? [] }
     var readinessDelta: MetricDelta? { .vsSevenDayMean(readinessWeek) }
 

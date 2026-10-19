@@ -38,7 +38,7 @@ struct SessionView: View {
                 ScrollView {
                     VStack(spacing: 14) {
                         RestTimerView(controller: controller)
-                            .animation(.snappy, value: controller.rest.phase)
+                            .animation(Theme.Motion.standard, value: controller.rest.phase)
                         if !sync.isOnline {
                             Label("Offline — every set is saved on this phone and syncs later.",
                                   systemImage: "wifi.slash")
@@ -82,7 +82,7 @@ struct SessionView: View {
                     .transition(.move(edge: .bottom))
             }
         }
-        .animation(.snappy(duration: 0.25), value: controller.focus == nil)
+        .animation(Theme.Motion.quick, value: controller.focus == nil)
         .background(Theme.background.ignoresSafeArea())
         .modifier(KeepsScreenAwake())
         .sensoryFeedback(.success, trigger: controller.setsChecked)
@@ -289,7 +289,7 @@ struct SessionSummarySheet: View {
                             .foregroundStyle(prs.isEmpty ? Theme.accent : Theme.warning)
                             .symbolEffect(.bounce, value: celebrate)
                             .scaleEffect(celebrate || reduceMotion ? 1 : 0.6)
-                            .animation(reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.55).delay(0.15),
+                            .animation(reduceMotion ? nil : Theme.Motion.standard.delay(0.15),
                                        value: celebrate)
                         Text(prs.isEmpty ? String(localized: "Workout done")
                                          : String(localized: "\(prs.count) new PRs"))

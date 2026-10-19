@@ -18,7 +18,9 @@ final class TrainStore {
     var context: ModelContext { container.mainContext }
 
     init(inMemory: Bool = false) {
-        let config = ModelConfiguration("Train", schema: Self.schema, isStoredInMemoryOnly: inMemory)
+        // In memory, each instance gets its own name, so tests and previews never share a store.
+        let config = ModelConfiguration(inMemory ? "Train-\(UUID().uuidString)" : "Train", schema: Self.schema,
+                                        isStoredInMemoryOnly: inMemory)
         do {
             container = try ModelContainer(for: Self.schema, configurations: config)
         } catch {

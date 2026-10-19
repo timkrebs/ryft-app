@@ -106,13 +106,15 @@ struct StateMachineIntegrationTests {
         #expect(c.phase == .active)
 
         let ex = try #require(c.exercises.first)
-        let set = try #require(ex.sets.first)
-        c.toggleCheck(set, in: ex)
+        // A SwiftData relationship has no order: take two distinct sets once.
+        let sets = Array(ex.sets)
+        try #require(sets.count == 2)
+        c.toggleCheck(sets[0], in: ex)
         #expect(c.phase == .resting)
         c.skipRest()
         #expect(c.phase == .active)
 
-        c.toggleCheck(try #require(ex.sets.last), in: ex)
+        c.toggleCheck(sets[1], in: ex)
         c.pause()
         #expect(c.phase == .paused)
         c.resume()
