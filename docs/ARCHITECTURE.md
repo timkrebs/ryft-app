@@ -184,3 +184,47 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
 
 **Memory.** Every fetch has a descriptor with a predicate and `fetchLimit`: 1 for lookups,
 `Repository.maxHistoryRows` (400) for history, 50 insights. There are no full-table loads.
+
+## 4. Structured concurrency: one `SyncCoordinator`
+
+Every sync goes through `SyncCoordinator` (`Ryft/Sync/SyncCoordinator.swift`), an `actor`.
+That covers pull to refresh, app active, back online, HealthKit delivery, `BGAppRefreshTask`
+and the silent push. Ad-hoc tasks and `onDaysTouched` are gone. The pipeline is a dependency
+graph of `await`s and a `TaskGroup`:
+
+    upload ──▶ awaitScoring(days_touched, ≤ 3 polls: 3 s, 6 s, 12 s) ──▶ refreshDays ──┬─▶ refreshTrends
+                                                                                         └─▶ refreshInsights
+
+- **Stages.** They are a `SyncSteps` protocol.
+  - `LiveSyncSteps`: `SyncService.upload()` reads and uploads HealthKit page by page;
+    `isScored` compares `computed_at` with the upload start; refreshes go through the Repository.
+  - The tests use fakes on the `TestClock`.
+- **Nothing touched.** A sync that uploaded nothing only refreshes what's stale.
+- **Silent push.** It skips the upload and refreshes the pushed day.
+- **One in flight.** A trigger while a sync runs queues one rerun; later triggers join it.
+- **Priorities.** User-initiated, app active and reconnect run at `.userInitiated`;
+  background, HealthKit and push at `.utility`.
+- **Cancellation.** `cancel()` runs on sign-out (account change) and when the app goes to
+  the background. Waits are `clock.sleep`, so they throw `CancellationError` promptly.
+- **Backoff.** Transport errors and 5xx (after `APIClient`'s own 503/429 handling) retry
+  the upload at 2 s, then 4 s; 4xx don't.
+- **Time-scheduled work** (`Sync/ScheduledWork.swift`):
+  - `BGAppRefreshTask` runs a `.background` sync about every 2 h.
+  - `BGProcessingTask` runs nightly from 03:00 on power and compacts the cache:
+    - days older than a year
+    - workout details and exercise histories not fetched for 30 days
+    - series older than a week
+  - `ReminderScheduler` puts user-facing timers on a repeating `UNCalendarNotificationTrigger`
+    (bedtime, §7).
+- **Tests** (`SyncCoordinatorTests`, `ScheduledWorkTests`):
+  - stage order
+  - nothing uploaded
+  - poll limits and growth
+  - coalescing (four triggers → two uploads)
+  - cancellation mid-wait
+  - exponential backoff, and no retry on 4xx
+  - silent push
+  - priorities
+  - the 03:00 schedule
+  - the calendar trigger
+  - compaction

@@ -11,6 +11,12 @@ private func makeState(api: MockPlatformAPI = MockPlatformAPI(), health: MockHea
     return (env, AppState(env: env), clock)
 }
 
+/// The live pipeline over the test graph (fakes behind it, TestClock for its waits).
+@MainActor
+private func coordinator(_ state: AppState, _ sync: SyncService) -> SyncCoordinator {
+    SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: state.env.clock)
+}
+
 private func day(_ offset: Int, from date: Date = .now) -> String {
     DayFormat.string(from: DayFormat.shift(date, days: offset))
 }
@@ -24,7 +30,7 @@ private func day(_ offset: Int, from date: Date = .now) -> String {
 struct TodayViewModelTests {
     @Test func loadsTheBriefing() async {
         let (env, state, _) = makeState()
-        let vm = TodayViewModel(state: state, sync: SyncService(env: env), apiStatus: APIStatus())
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
         #expect(vm.readiness == nil)
         #expect(vm.sleepText == Fmt.placeholder)
 
@@ -41,7 +47,7 @@ struct TodayViewModelTests {
     @Test func greetingFollowsTheClock() {
         let morning = Calendar.current.date(bySettingHour: 7, minute: 0, second: 0, of: .now)!
         let (env, state, clock) = makeState(now: morning)
-        let vm = TodayViewModel(state: state, sync: SyncService(env: env), apiStatus: APIStatus())
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
         #expect(vm.greeting == String(localized: "Good morning,"))
         clock.set(Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: .now)!)
         #expect(vm.greeting == String(localized: "Good evening,"))
@@ -51,7 +57,7 @@ struct TodayViewModelTests {
         let api = MockPlatformAPI()
         api.failure = APIError.http(500, "")
         let (env, state, _) = makeState(api: api)
-        let vm = TodayViewModel(state: state, sync: SyncService(env: env), apiStatus: APIStatus())
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
 
         await state.refresh()
 
@@ -61,7 +67,7 @@ struct TodayViewModelTests {
     @Test func failureWithDataSaysItsTheLastLoaded() async {
         let api = MockPlatformAPI()
         let (env, state, clock) = makeState(api: api)
-        let vm = TodayViewModel(state: state, sync: SyncService(env: env), apiStatus: APIStatus())
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
         await state.refresh()
         api.failure = APIError.http(503, "")
         clock.advance(by: .seconds(6 * 60)) // today's 5 minutes are over: it asks again
@@ -79,7 +85,7 @@ struct TodayViewModelTests {
     @Test func offlineShowsThePillAndRequestsNothing() async {
         let api = MockPlatformAPI()
         let (env, state, _) = makeState(api: api, online: false)
-        let vm = TodayViewModel(state: state, sync: SyncService(env: env), apiStatus: APIStatus())
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
 
         await vm.refresh()
 
@@ -93,7 +99,7 @@ struct TodayViewModelTests {
         var detail = MockData.todayDetail
         detail.score = MockData.calibratingScore
         state.today = detail
-        let vm = TodayViewModel(state: state, sync: SyncService(env: env), apiStatus: APIStatus())
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
         #expect(vm.sentence == ReadinessCopy.sentence(score: MockData.calibratingScore))
         #expect(vm.readiness == nil)
     }
@@ -106,7 +112,7 @@ struct TodayViewModelTests {
         api.failNext = APIError.http(500, "")
         let (env, state, _) = makeState(api: api, health: health)
         let sync = SyncService(env: env)
-        let vm = TodayViewModel(state: state, sync: sync, apiStatus: APIStatus())
+        let vm = TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
 
         await sync.syncNow()
 
@@ -120,7 +126,7 @@ struct TodayViewModelTests {
 
     @Test func tilesOpenTheirTabs() {
         let (env, state, _) = makeState()
-        let vm = TodayViewModel(state: state, sync: SyncService(env: env), apiStatus: APIStatus())
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
         vm.open(.strain)
         #expect(state.selectedTab == .strain)
     }
@@ -297,7 +303,7 @@ struct InsightsViewModelTests {
 struct ProfileViewModelTests {
     @Test func accountFallsBackFromNameToEmail() {
         let (env, state, _) = makeState()
-        let vm = ProfileViewModel(state: state, sync: SyncService(env: env), apiStatus: APIStatus())
+        let vm = { let sync = SyncService(env: env); return ProfileViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
         state.user = User(id: UUID(), name: "", email: "a@b.c", provider: "email", tz: TimeZone.current.identifier,
                           maxHr: 185, sleepBaseMin: 450)
         #expect(vm.accountTitle == "a@b.c")
@@ -313,7 +319,7 @@ struct ProfileViewModelTests {
     @Test func recomputeWaitsForScoringOnTheClock() async {
         let api = MockPlatformAPI()
         let (env, state, clock) = makeState(api: api)
-        let vm = ProfileViewModel(state: state, sync: SyncService(env: env), apiStatus: APIStatus())
+        let vm = { let sync = SyncService(env: env); return ProfileViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
         let run = Task { await vm.applyAndRecompute() }
 
         #expect(await eventually { clock.pendingSleeps == 1 })
@@ -330,7 +336,7 @@ struct ProfileViewModelTests {
     @Test func failedRecomputeSaysWhy() async {
         let api = MockPlatformAPI()
         let (env, state, _) = makeState(api: api)
-        let vm = ProfileViewModel(state: state, sync: SyncService(env: env), apiStatus: APIStatus())
+        let vm = { let sync = SyncService(env: env); return ProfileViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
         api.failure = APIError.http(429, "")
         await vm.applyAndRecompute()
         #expect(vm.recomputeStatus == APIError.http(429, "").localizedDescription)
@@ -340,7 +346,7 @@ struct ProfileViewModelTests {
         let health = MockHealthStore()
         health.access = .notAsked
         let (env, state, _) = makeState(health: health)
-        let vm = ProfileViewModel(state: state, sync: SyncService(env: env), apiStatus: APIStatus())
+        let vm = { let sync = SyncService(env: env); return ProfileViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
         await vm.refreshHealthStatus()
         #expect(vm.canAskForHealth && vm.healthNeedsAttention)
         await vm.requestHealthAccess()

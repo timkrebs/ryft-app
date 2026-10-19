@@ -103,23 +103,6 @@ struct SyncSeamTests {
         #expect(health.committed.isEmpty)
         #expect(sync.lastError != nil)
     }
-
-    @Test func touchedDaysReloadAfterTheRescoreWaitOnTheClock() async {
-        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(1)]])
-        let api = MockPlatformAPI()
-        api.syncResponse = SyncResponse(samples: 1, sleep: 0, workouts: 0, daysTouched: ["2026-10-19"])
-        let clock = TestClock()
-        let sync = SyncService(env: .test(api: api, health: health, clock: clock))
-        var reloaded: [String]?
-        sync.onDaysTouched = { reloaded = $0 }
-
-        await sync.syncNow()
-        #expect(await eventually { clock.pendingSleeps != 0 })
-        #expect(reloaded == nil)
-        clock.advance(by: SyncService.rescoreDelay)
-        #expect(await eventually { reloaded != nil })
-        #expect(reloaded == ["2026-10-19"])
-    }
 }
 
 @Suite("Mock platform")

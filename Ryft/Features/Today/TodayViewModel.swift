@@ -8,6 +8,7 @@ import Observation
 final class TodayViewModel {
     private let state: AppState
     private let sync: SyncService
+    private let coordinator: SyncCoordinator
     private let apiStatus: APIStatus
 
     /// The one message under the cards, in priority order.
@@ -19,9 +20,10 @@ final class TodayViewModel {
         case syncPaused(message: String, details: String?)
     }
 
-    init(state: AppState, sync: SyncService, apiStatus: APIStatus? = nil) {
+    init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, apiStatus: APIStatus? = nil) {
         self.state = state
         self.sync = sync
+        self.coordinator = coordinator
         self.apiStatus = apiStatus ?? .shared
     }
 
@@ -67,8 +69,12 @@ final class TodayViewModel {
     var isDemo: Bool { state.isDemo }
     var scoredAt: Date? { score?.computedAt }
 
-    /// Pull to refresh and Retry: upload what HealthKit has, then reload.
-    func refresh() async { await state.syncAndRefresh(using: sync) }
+    /// Pull to refresh and Retry: upload what HealthKit has, wait for scoring, reload.
+    func refresh() async {
+        await coordinator.run(.userInitiated)
+        // Nothing new uploaded still means "show me the latest".
+        await state.refresh(force: true)
+    }
 
     func open(_ tab: AppTab) { state.selectedTab = tab }
 }

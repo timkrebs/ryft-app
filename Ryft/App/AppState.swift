@@ -119,11 +119,25 @@ final class AppState {
         }
     }
 
-    /// Upload new Health data, then reload: everything (pull to refresh, `force`)
-    /// or only what's stale (app active, back online).
-    func syncAndRefresh(using sync: SyncService, force: Bool = true) async {
-        if !isDemo && auth.isSignedIn && settings.isConfigured { await sync.syncNow() }
-        await refresh(force: force)
+    /// After a sync (or a silent push): the touched days, today and the 90-day
+    /// scores, regardless of their TTL. Errors show like a refresh's.
+    func refreshDays(_ touched: [String]) async throws {
+        guard hasDataSource else { return }
+        let now = now
+        do {
+            _ = try await repository.refreshDay(now, force: true)
+            for key in Set(touched) where key != DayFormat.string(from: now) {
+                if let date = DayFormat.date(from: key) { _ = try await repository.refreshDay(date, force: true) }
+            }
+            try await repository.refreshHistory(from: DayFormat.shift(now, days: -(Self.historyDays - 1)), to: now,
+                                                force: true)
+            error = nil
+            errorDetails = nil
+        } catch {
+            self.error = error.localizedDescription
+            self.errorDetails = error.diagnosticDetails
+            throw error
+        }
     }
 
     /// Right after sign-in, before the first sync: `GET /v1/me` creates the

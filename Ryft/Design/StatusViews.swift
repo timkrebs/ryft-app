@@ -3,8 +3,7 @@ import SwiftUI
 /// Common screen frame: RYFT header at the top, scrolling content, Graphite
 /// background, pull-to-refresh (sync + reload).
 struct ScreenScaffold<Content: View>: View {
-    @Environment(AppState.self) private var state
-    @Environment(SyncService.self) private var sync
+    @Environment(ScreenModels.self) private var screens
     @ViewBuilder var content: () -> Content
 
     var body: some View {
@@ -19,7 +18,7 @@ struct ScreenScaffold<Content: View>: View {
         }
         .scrollIndicators(.hidden)
         .background(Theme.background.ignoresSafeArea())
-        .refreshable { await state.syncAndRefresh(using: sync) }
+        .refreshable { await screens.pullToRefresh() }
         .toolbar(.hidden, for: .navigationBar)
     }
 }
