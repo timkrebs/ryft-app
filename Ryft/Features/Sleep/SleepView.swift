@@ -110,6 +110,14 @@ struct SleepDaySection: View {
         if sleep.hasStages, shares.contains(where: { $0.min > 0 }) {
             VStack(spacing: 14) {
                 StageBar(stages: shares, height: 28)
+                if !sleep.segments.isEmpty {
+                    Card {
+                        VStack(alignment: .leading, spacing: 12) {
+                            CardHeader(title: "Hypnogram")
+                            Hypnogram(segments: sleep.segments)
+                        }
+                    }
+                }
                 Card {
                     VStack(spacing: 14) {
                         ForEach(shares) { StageRow(share: $0) }
@@ -238,9 +246,9 @@ struct SleepRangeSection: View {
 
     private func averages(_ range: SleepRange) -> some View {
         HStack(spacing: 10) {
-            average(title: "Avg sleep", value: Fmt.duration(minutes: range.avgTotalMin.map { Int($0.rounded()) }))
+            average(title: "Avg sleep", value: Fmt.duration(minutes: range.avgTotalMin))
             average(title: "Avg quality", value: Fmt.percent(range.avgQuality))
-            average(title: "Nights", value: "\(range.days.filter { ($0.totalMin ?? 0) > 0 }.count)")
+            average(title: "Nights", value: "\(range.nights)")
         }
     }
 
@@ -265,7 +273,7 @@ struct SleepRangeSection: View {
         let hasUnstaged = bars.contains { $0.stage == Self.asleep }
         let names = Self.stageOrder.map(\.title) + (hasUnstaged ? [Self.asleep] : [])
         let colors = Self.stageOrder.map(Theme.color(for:)) + (hasUnstaged ? [Theme.accentSecondary] : [])
-        let isMonth = range.days.count > 10
+        let isMonth = range.range == SleepRangeKind.month.rawValue
         return Card {
             VStack(alignment: .leading, spacing: 14) {
                 CardHeader(title: "Sleep per night")
@@ -276,7 +284,7 @@ struct SleepRangeSection: View {
                             .cornerRadius(isMonth ? 2 : 4)
                     }
                     if let avg = range.avgTotalMin {
-                        RuleMark(y: .value("Average", avg / 60))
+                        RuleMark(y: .value("Average", Double(avg) / 60))
                             .foregroundStyle(Theme.textTertiary)
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
                     }
@@ -302,7 +310,7 @@ struct SleepRangeSection: View {
                 }
                 .frame(height: 200)
                 .accessibilityLabel(Text("Sleep per night"))
-                .accessibilityValue(Text("Average \(Fmt.duration(minutes: range.avgTotalMin.map { Int($0.rounded()) }))"))
+                .accessibilityValue(Text("Average \(Fmt.duration(minutes: range.avgTotalMin))"))
             }
         }
     }

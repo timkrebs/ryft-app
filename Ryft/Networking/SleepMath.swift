@@ -1,4 +1,5 @@
-// Pure sleep maths: stage percentages, quality labels, bedtime consistency.
+// Pure sleep maths: stage percentages and bedtime consistency. The platform
+// sends whole percentages (0–100, never fractions); these fill in only what's missing.
 import Foundation
 
 enum SleepMath {
@@ -24,20 +25,6 @@ enum SleepMath {
             leftover -= 1
         }
         return order.indices.map { StageShare(stage: order[$0], min: values[$0], pct: Double(rounded[$0])) }
-    }
-
-    /// Accepts a 0…1 fraction or a 0…100 percentage and returns 0…100.
-    static func percent(_ v: Double) -> Double {
-        v <= 1 ? v * 100 : v
-    }
-
-    static func qualityLabel(_ quality: Int) -> String {
-        switch quality {
-        case 85...: return String(localized: "Excellent")
-        case 70...: return String(localized: "Good")
-        case 50...: return String(localized: "Fair")
-        default: return String(localized: "Poor")
-        }
     }
 
     /// Standard deviation of bedtimes in minutes. Times are measured from noon

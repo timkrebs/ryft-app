@@ -19,11 +19,19 @@ struct ReadinessCopyTests {
     }
 
     @Test func nightsToGoFromBaselineDays() {
-        let s = DailyScore(day: "2026-10-18", calibrating: true, details: ["baseline_days": .number(5)])
+        let s = DailyScore(day: "2026-10-18", state: .calibrating, baselineDays: 5, calibrating: true)
         #expect(s.nightsToGo == 2)
         #expect(ReadinessCopy.sentence(score: s) == "Learning your baseline — 2 nights to go.")
-        // Without details it still asks for at least one night, never zero.
-        #expect(DailyScore(day: "2026-10-18", calibrating: true, details: ["baseline_days": .number(9)]).nightsToGo == 1)
+        // Never zero nights to go.
+        #expect(DailyScore(day: "2026-10-18", baselineDays: 9, calibrating: true).nightsToGo == 1)
+    }
+
+    /// D4: `calibrating` also when the baseline is complete but there's no readiness.
+    @Test func calibratingWithoutReadiness() {
+        let s = DailyScore(day: "2026-10-18", readiness: nil, state: .calibrating, baselineDays: 30, calibrating: false)
+        #expect(ReadinessCopy.sentence(score: s) == "No readiness yet today. It appears once last night has synced.")
+        // A cached payload without `state` reads the same way.
+        #expect(DailyScore(day: "2026-10-18", baselineDays: 30).resolvedState == .calibrating)
     }
 
     @Test func noScoreHasNeutralSentence() {

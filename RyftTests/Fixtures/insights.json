@@ -1,5 +1,7 @@
-[
-  {"id": "a1", "severity": "info", "title": "HRV above your baseline", "body": "Your HRV is 12% above average.", "metric": "hrv", "day": "2026-10-18"},
-  {"id": 42, "severity": "warn", "title": "Strain outpacing recovery", "body": "Plan a lighter day.", "metric": null, "day": null},
-  {"id": "c3", "severity": "critical", "title": "Unknown severity falls back", "body": ""}
-]
+[ { "id": "hrv-low-3d", "severity": "warn", "title": "HRV below your baseline for 3 nights",
+    "body": "Your overnight HRV has been under your 30-day baseline of 55 ms for 3 nights in a row (47 ms last night). Keep today light.",
+    "metric": "hrv", "day": "2026-10-18" },
+  { "id": "sleep-debt", "severity": "notice", "title": "Sleep debt building",
+    "body": "You're 1h 45m behind your sleep need this week.", "metric": "sleep", "day": "2026-10-18" },
+  { "id": "hrv-best-30d", "severity": "info", "title": "Best HRV in 30 days",
+    "body": "Last night's HRV of 66 ms is your highest in 30 days.", "metric": "hrv", "day": "2026-10-18" } ]

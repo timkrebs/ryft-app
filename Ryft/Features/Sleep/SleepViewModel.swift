@@ -34,7 +34,7 @@ final class SleepViewModel: ObservableObject {
     @Published private(set) var error: String?
 
     var isToday: Bool { Calendar.current.isDateInToday(date) }
-    var sleep: SleepDetail? { detail?.resolvedSleep }
+    var sleep: SleepDetail? { detail?.sleep }
 
     func step(by days: Int, state: AppState) async {
         let next = DayFormat.shift(date, days: days)

@@ -1,8 +1,10 @@
 # RYFT — iOS app
 
-*Your whole health.* RYFT reads your Garmin watch's data out of Apple Health, syncs it
-to your self-hosted RYFT platform (`../plattform`) and shows daily **Readiness, Sleep,
-Recovery and Strain**.
+*Your whole health.* RYFT reads your watch's data out of Apple Health, syncs it to the
+RYFT platform (`https://api.ryftapp.de`, source in `../plattform`) and shows daily
+**Readiness, Sleep, Recovery and Strain**. You create an account (email + password, or
+**Continue with Apple**), allow Health access, and see your data: no server address, no
+API key, no settings.
 
 | Today | Sleep | Strain | Insights | Profile |
 |---|---|---|---|---|
@@ -13,60 +15,127 @@ Screenshots come from the simulator with the built-in mock data (`scripts/screen
 
 ## Requirements
 
-- Xcode 16 or newer (built and tested with Xcode 27.1), iOS 17+ deployment target
-- [XcodeGen](https://github.com/yonaskolb/XcodeGen): `brew install xcodegen`
+- Xcode 16.3 or newer (supabase-swift needs Swift tools 6.1; built with Xcode 27.1), iOS 17+
+- A **paid Apple Developer Program** membership for device builds: the app uses Sign in
+  with Apple, which free Personal Teams can't provision (see *Apple developer setup*)
 - An iPhone for real data. HealthKit has no data in the simulator, which runs in demo mode.
+- One dependency: [supabase-swift](https://github.com/supabase/supabase-swift) 2.x, product
+  `Auth` only (Swift Package Manager, already in `Ryft.xcodeproj`)
 
 ## Setup
 
+`Ryft.xcodeproj` is the source of truth (see `CLAUDE.md`): open it and change targets,
+capabilities and packages in Xcode. `project.yml` only documents the original XcodeGen setup;
+don't regenerate the project from it.
+
 ```bash
 scripts/fetch-fonts.sh      # optional: Satoshi from Fontshare (see "Fonts")
-xcodegen generate           # creates Ryft.xcodeproj from project.yml
+make config                 # Config/Debug.xcconfig + Config/Release.xcconfig from the examples
 open Ryft.xcodeproj
 ```
 
-Or from the command line:
+`make build` / `make test` build and test for the simulator from the command line.
 
-```bash
-make build                  # xcodegen + xcodebuild for the simulator
-make test                   # unit tests (Swift Testing) on an iPhone 17 Pro simulator
-```
+> **Package pin.** `swift-clocks` must stay at **1.1.0** (the version supabase-swift itself
+> pins). 1.1.1 moved to `swift-issue-reporting`, which collides with supabase-swift's
+> `xctest-dynamic-overlay` ("multiple packages declare targets with a conflicting name:
+> IssueReporting"). The pin lives in `Ryft.xcodeproj/…/Package.resolved`; if SPM resolves
+> 1.1.1 again, set swift-clocks back to 1.1.0 there and resolve without updating.
+
+### Production configuration
+
+Three build-time values, all publishable, committed in **`Config/Production.xcconfig`**.
+Fill them in once:
+
+| Setting | Where from |
+|---|---|
+| `RYFT_API_URL` | `https://api.ryftapp.de` (already set): serves `/v1/sync` and every other `/v1/*` route |
+| `RYFT_SUPABASE_URL` | Supabase → Project Settings → API → Project URL, `https://<project-ref>.supabase.co` |
+| `RYFT_SUPABASE_PUBLISHABLE_KEY` | Supabase → Project Settings → API Keys → publishable key (`sb_publishable_…`, or the legacy anon key) |
+
+`//` starts a comment in xcconfig files, so URLs are written `https:/$()/host`. `Info.plist`
+exposes them as `RyftAPIURL`, `RyftSupabaseURL` and `RyftSupabasePublishableKey`; nothing is
+hard-coded in Swift. Committing them is fine: the platform's RLS and revoked grants mean
+Supabase's Data API exposes nothing, and the app talks only to Supabase Auth. While a value is
+missing, Welcome says which one instead of crashing (demo data still works).
+
+Release builds use the production values: point the Release configuration at
+`Config/Production.xcconfig` in Xcode (Project → Info → Configurations), or keep the
+git-ignored `Config/Release.xcconfig`, which just includes it. `Config/Debug.xcconfig`
+(git-ignored) includes the production file and may override any value, e.g. for a second
+Supabase project.
+
+### Supabase project
+
+The platform's `../plattform/docs/SUPABASE.md` has the full checklist. For the app:
+
+1. **Authentication → Sign In / Providers → Email**: enabled. Set the minimum password
+   length to **10** at most (the app requires 10). With *Confirm email* on, sign-up shows
+   "Check your inbox" and the link finishes the sign-in.
+2. **Authentication → URL Configuration → Redirect URLs**: add **`ryft://auth/callback`**.
+   Confirmation and password-reset links return there (PKCE). The app registers the `ryft`
+   URL scheme. The link must be opened on the iPhone that requested it, because the PKCE
+   code verifier lives in that phone's Keychain.
+3. **Authentication → Sign In / Providers → Apple**: see below.
+
+### Apple developer setup
+
+Prepare these in the Apple Developer account (paid membership):
+
+- **App ID** `dev.timkrebs.ryft` with the capabilities **Sign in with Apple**, **HealthKit**
+  (with background delivery) and the Background Modes the project already declares.
+- For Supabase's Apple provider:
+  - a **Services ID** (e.g. `dev.timkrebs.ryft.auth`), configured for Sign in with Apple
+    with the App ID above as primary
+  - your **Team ID** (Membership details)
+  - a **Key** with Sign in with Apple enabled: its **Key ID** and the downloaded **`.p8`**
+    file (it can be downloaded only once)
+  - in Supabase, the app's bundle ID `dev.timkrebs.ryft` in the provider's client IDs (the
+    native flow sends an ID token for the bundle ID)
+- Signing: `DEVELOPMENT_TEAM` is `M77SKHKG63`, a free Personal Team. Personal Teams **can't**
+  provision Sign in with Apple, so device builds fail ("Personal development teams … do not
+  support the Sign In with Apple capability") until the project uses a paid team. Simulator
+  builds work.
+
+### Capabilities
+
+Already in the project: **HealthKit** (with background delivery), **Background Modes**
+(background fetch and processing, BGTask `dev.timkrebs.ryft.refresh`), **Sign in with Apple**,
+and the **`ryft`** URL type.
+
+Garmin Connect must write to Apple Health: *Garmin Connect → More → Settings → Apple Health*.
 
 ### Fonts
 
 Headlines and UI use **Satoshi** (Fontshare, ITF Free Font License). The licence allows
 embedding the font in apps but **not** redistributing it through a repository, so the
 font files are git-ignored. `scripts/fetch-fonts.sh` downloads Regular/Medium/Bold into
-`Ryft/Resources/Fonts/`; they're registered via `UIAppFonts` in `project.yml`. Without
-them the app falls back to SF Pro Rounded automatically and still builds.
-
-### Capabilities
-
-`project.yml` already declares these. If you build the project by hand, add in
-*Signing & Capabilities*:
-
-- **HealthKit**, with **Background Delivery** checked
-- **Background Modes**: **Background fetch** (and **Background processing**)
-- BGTask identifier `dev.timkrebs.ryft.refresh` (Info.plist → `BGTaskSchedulerPermittedIdentifiers`)
-
-Signing uses `DEVELOPMENT_TEAM` in `project.yml` (currently the personal team `M77SKHKG63`, automatic
-signing). HealthKit apps must be signed, so change this to your own team ID if you fork the
-project. Always build `Ryft.xcodeproj` (run `xcodegen generate` first); a plain folder window in
-Xcode compiles files in isolation and reports bogus "Cannot find type … in scope" errors.
-
-Garmin Connect must write to Apple Health: *Garmin Connect → More → Settings → Apple Health*.
+`Ryft/Resources/Fonts/`. Without them the app falls back to SF Pro Rounded automatically.
 
 ## Running
 
+### Device
+
+1. Install, then **Create account** (or **Continue with Apple**, or **Log in**).
+2. Allow Health access when asked. The first sync uploads 90 days, then Today loads.
+3. After that, sync runs on every foreground, through HealthKit background delivery (sleep,
+   workouts, HRV) and through a `BGAppRefreshTask`. The SDK keeps the session in the
+   Keychain and refreshes it; relaunching goes straight to Today.
+
+**Profile → Account** has Change password (email accounts), Log out and Delete account.
+Log out drops the session, cached responses, HealthKit anchors and per-user settings, so
+another account on the same phone re-syncs from scratch. Delete account calls
+`DELETE /v1/me` (all data, then the Supabase user) and then logs out.
+
 ### Simulator (demo mode)
 
-Demo mode is on by default in the simulator. The app serves a deterministic 90-day
-history (`Ryft/Preview/MockData.swift`) whose "today" matches the brand board. You
-can toggle it in **Profile → Data → Demo data**, or with launch arguments:
+Demo mode is on by default in the simulator, and it skips Welcome. The app serves a
+deterministic 90-day history (`Ryft/Preview/MockData.swift`) whose "today" matches the brand
+board. Toggle it in **Profile → Data → Demo data**, or with launch arguments:
 
 | Argument | Effect |
 |---|---|
-| `-demoMode YES/NO` | Force demo data on or off |
+| `-demoMode YES/NO` | Force demo data on or off (`NO` shows Welcome) |
 | `-appearance dark/light/system` | Colour scheme (dark is the default) |
 | `-RyftTab today/sleep/strain/insights/profile` | Initial tab |
 | `-RyftSleepMode day/week/month` | Initial Sleep segment |
@@ -75,54 +144,57 @@ can toggle it in **Profile → Data → Demo data**, or with launch arguments:
 `scripts/screenshots.sh ["iPhone 17 Pro"]` builds the app, launches each tab in both
 colour schemes and writes PNGs to `docs/screenshots/`.
 
-### Device
+### Against a local platform (compose, `AUTH_MODE=apikey`)
 
-1. Run on your iPhone and allow Health access when asked.
-2. Open **Profile**, enter the server URL and API key, then tap **Save & test connection**.
-   This switches demo mode off, runs the first sync (90-day backfill) and loads Today.
-3. After that, sync runs on every foreground, through HealthKit background delivery
-   (sleep, workouts, HRV) and through a `BGAppRefreshTask`.
+Debug builds have **Profile → Developer** (not compiled into Release). With
+`-demoMode NO`, Welcome also offers "Developer: use an API key".
 
-### Pointing at a local platform
+1. Run the platform with `docker compose up` in `../plattform`. It uses
+   `AUTH_MODE=apikey` with `ALLOW_INSECURE_APIKEY_AUTH=true`.
+2. In **Profile → Developer**:
+   - **API URL override**: `http://<lan-ip>:8082` (the api service)
+   - **Ingest URL override**: `http://<lan-ip>:8081` (compose serves ingest on its own port)
+   - **API key mode** on, **API key** = the compose `API_KEY` (default `dev-api-key-change-me`;
+     `<API_KEY>:<uuid>` acts as another user)
+   - **Test connection**, then pull to refresh on Today
+3. **Show request IDs** lists recent failed requests with their `X-Request-ID`.
 
-Run the platform on your Mac (see `../plattform/README.md`) and use your Mac's LAN IP
-from the phone:
-
-- **Server URL**: `http://<lan-ip>:8082` (the api service)
-- **Ingest URL**: `http://<lan-ip>:8081`. With `docker compose` the ingest service runs
-  on its own port. Leave this field empty only when ingest and api share one host
-  behind the Kubernetes Ingress.
-- **API key**: the `API_KEY` the platform was started with (compose default: `dev-api-key-change-me`)
-
-Plain `http://` works for local addresses because `NSAllowsLocalNetworking` is set.
-Find the IP with `ipconfig getifaddr en0`.
+Plain `http://` works for local addresses because `NSAllowsLocalNetworking` is set. Find the
+IP with `ipconfig getifaddr en0`. You can also set `RYFT_API_URL` in `Config/Debug.xcconfig`.
 
 ## Architecture
 
 ```
 Ryft/
-  App/         entry point, AppState (read-side store + disk cache), Settings (Keychain), formatting
+  App/         entry, AppState (read-side store + disk cache), Settings, SupabaseConfig, formatting
+  Auth/        AuthService (Supabase Auth: Apple, email, links, deletion), AppleSignInButton
   Design/      Theme, Typography, RyftMark and components (ScoreRing, MetricTile, Card,
-               SegmentedPicker, StageBar, InsightCard, TrendChart, status views)
-  Features/    Today, Sleep, Strain (+ WorkoutDetail), Insights, Profile
-  Health/      HealthKitManager: anchored queries, background delivery (from the scaffold)
-  Sync/        SyncService: page → upload → persist anchor (from the scaffold)
-  Networking/  APIClient, v1 wire models, client-side fallbacks, response cache
-  Preview/     MockData + MockDataSource, preview helpers
-  Resources/   Fonts (fetched), string catalog
-RyftTests/     Swift Testing unit tests + JSON fixtures for every API shape
+               SegmentedPicker, StageBar, Hypnogram, InsightCard, TrendChart, status views)
+  Features/    Auth (Welcome, Create account, Log in, reset), Today, Sleep, Strain
+               (+ WorkoutDetail), Insights, Profile
+  Health/      HealthKitManager: anchored queries, background delivery
+  Sync/        SyncService: page → upload → persist anchor
+  Networking/  APIClient (status handling), APIStatus, v1 wire models, response cache
+  Preview/     MockData + MockDataSource, MockAuthClient, preview helpers
+  Resources/   Fonts (fetched), string catalogs (en, de)
+RyftTests/     Swift Testing unit tests + JSON fixtures from API.md
+Config/        Production.xcconfig (committed) + Debug/Release examples
 scripts/       fetch-fonts.sh, render-icon.swift, screenshots.sh
 ```
 
-- **Data flow.** `SyncService` drains HealthKit into `POST /v1/sync`. `AppState` reads the
-  API through a `RyftDataSource` (`APIClient` live, `MockDataSource` in demo mode and previews).
-- **Offline.** The last successful Today payload is written to `Caches/ryft-responses/`
-  and shown immediately at launch, with an "Updated 5 min ago" line.
-- **Graceful degradation.** Fields can be `null` while the platform calibrates, and every
-  view shows "–". If the platform doesn't serve `/v1/trends`, `/v1/sleep`,
-  `/v1/insights` or `/v1/workouts/{id}` yet, the app derives them from `/v1/days`
-  (`Networking/Derived.swift`). Without `readiness`/`state` it uses recovery and the
-  recovery bands. Without `DayDetail.sleep` it rebuilds the night from `score.details`.
-- **App icon.** `make icon` compiles `scripts/render-icon.swift` together with
-  `Ryft/Design/RyftMark.swift` and renders the light, dark and tinted 1024 px PNGs with
-  `ImageRenderer`, so the icon and the in-app mark share one geometry.
+- **Auth.** `AuthService` wraps the SDK behind `AuthClientProtocol`. The SDK persists and
+  refreshes the session; every request's bearer is its access token. `RootView` shows Welcome
+  without a session. On the first sign-in the app calls `GET /v1/me` (which creates the user)
+  and `PATCH /v1/me {"tz": …}`.
+- **Status handling** (`API.md` → Errors):
+  - `401`: refresh once and retry once; a second `401` logs out.
+  - `503`: never logs out; waits `Retry-After` (≤ 30 s, up to 3 times) and shows
+    "RYFT is catching up".
+  - `429`: waits and retries once.
+  - `413`: halves the HealthKit page size for the rest of the sync.
+  - Failures keep the request ID, shown under an inline message's **Details**.
+- **Offline.** The last successful Today payload (with the 7-day readiness trend) is written
+  to `Caches/ryft-responses/` and shown at launch with an "Updated 5 min ago" line.
+- **Nulls.** Fields can be `null` while the platform calibrates; every view shows "–".
+- **App icon.** `make icon` renders the light, dark and tinted 1024 px PNGs from
+  `Ryft/Design/RyftMark.swift`, so the icon and the in-app mark share one geometry.

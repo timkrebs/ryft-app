@@ -11,21 +11,26 @@ enum ReadinessCopy {
         }
     }
 
-    static func sentence(for state: ReadinessState?, nightsToGo: Int = 1) -> String {
+    /// The state sentence. `calibrating` covers two cases (API.md, D4): the
+    /// baseline is still being built (`baselineReady == false`, "N nights to
+    /// go"), or it's complete but today has no readiness yet (no recovery).
+    static func sentence(for state: ReadinessState?, nightsToGo: Int = 1, baselineReady: Bool = false) -> String {
         switch state {
         case .balanced: return String(localized: "Your health is in balance.")
         case .strained: return String(localized: "Take it a little easier today.")
         case .depleted: return String(localized: "Your body is asking for rest.")
         case .calibrating:
-            return nightsToGo == 1
-                ? String(localized: "Learning your baseline — 1 night to go.")
-                : String(localized: "Learning your baseline — \(nightsToGo) nights to go.")
+            if baselineReady {
+                return String(localized: "No readiness yet today. It appears once last night has synced.")
+            }
+            // Singular/plural forms live in Localizable.xcstrings.
+            return String(localized: "Learning your baseline — \(nightsToGo) nights to go.")
         case nil: return String(localized: "Your scores appear after the first synced night.")
         }
     }
 
     static func sentence(score: DailyScore?) -> String {
         guard let score else { return sentence(for: ReadinessState?.none) }
-        return sentence(for: score.resolvedState, nightsToGo: score.nightsToGo)
+        return sentence(for: score.resolvedState, nightsToGo: score.nightsToGo, baselineReady: !score.calibrating)
     }
 }

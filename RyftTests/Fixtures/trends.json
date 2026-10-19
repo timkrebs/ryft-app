@@ -1,5 +1,3 @@
-{
-  "metric": "hrv", "range": "7d",
-  "points": [{"day": "2026-10-12", "value": 58.1}, {"day": "2026-10-13", "value": null}, {"day": "2026-10-14", "value": 61}],
-  "avg": 59.6, "min": 58.1, "max": 61, "baseline": 57.9
-}
+{ "metric": "hrv", "range": "7d", "from": "2026-10-12", "to": "2026-10-18",
+  "points": [ {"day":"2026-10-12","value":47.4}, {"day":"2026-10-13","value":50.8}, {"day":"2026-10-15","value":57.6} ],
+  "avg": 51.7, "min": 47.1, "max": 57.6, "baseline": 52.3 }

@@ -1,15 +1,15 @@
 [
-  {
-    "day": "2026-10-17", "readiness": 84, "state": "balanced", "recovery": 82, "strain": 12.4,
-    "sleep_performance": 82, "sleep_need_min": 486, "sleep_actual_min": 468, "sleep_debt_min": 25,
-    "hrv_ms": 66.2, "rhr": 50, "resp_rate": 14.1, "spo2": 96, "calibrating": false,
-    "details": {"trimp": 112, "zone_minutes": [31, 25, 16, 6, 2], "baseline_days": 30},
-    "computed_at": "2026-10-17T07:22:41.123456789+02:00"
-  },
-  {
-    "day": "2026-10-18", "readiness": null, "state": "calibrating", "recovery": null, "strain": null,
-    "sleep_performance": null, "sleep_need_min": 480, "sleep_actual_min": null, "sleep_debt_min": null,
-    "hrv_ms": null, "rhr": null, "resp_rate": null, "spo2": null, "calibrating": true,
-    "details": {"baseline_days": 3}, "computed_at": "2026-10-18T07:01:00Z"
-  }
+  { "day": "2026-10-18", "readiness": 84, "state": "balanced", "recovery": 82, "strain": 12.4,
+    "steps": 9412, "active_kcal": 612, "sleep_performance": 87, "sleep_need_min": 538, "sleep_actual_min": 468, "sleep_debt_min": 35,
+    "hrv_ms": 58.2, "rhr": 48.9, "resp_rate": 14.6, "spo2": 96.4,
+    "hrv_baseline_ms": 53.1, "rhr_baseline": 50.2, "baseline_days": 30, "calibrating": false,
+    "details": { "baseline_days": 30, "trimp": 99, "hr_minutes": 912, "zone_minutes": [12, 24, 37, 7, 0],
+                 "sleep_start": "2026-10-17T23:00:00+02:00", "sleep_end": "2026-10-18T07:12:00+02:00",
+                 "sleep_has_stages": true, "recovery": { "hrv_z": 0.8 } },
+    "computed_at": "2026-10-18T07:15:02.123456Z" },
+  { "day": "2026-10-19", "readiness": null, "state": "calibrating", "recovery": null, "strain": null,
+    "steps": null, "active_kcal": null, "sleep_performance": null, "sleep_need_min": 480, "sleep_actual_min": null, "sleep_debt_min": null,
+    "hrv_ms": null, "rhr": null, "resp_rate": null, "spo2": null,
+    "hrv_baseline_ms": null, "rhr_baseline": null, "baseline_days": 3, "calibrating": true,
+    "details": {}, "computed_at": "2026-10-19T06:40:11Z" }
 ]

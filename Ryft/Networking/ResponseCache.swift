@@ -39,5 +39,6 @@ struct TodaySnapshot: Codable {
     var history: [DailyScore]
     var user: User?
     var insights: [Insight]
+    var readinessWeek: TrendSeries?
     var fetchedAt: Date
 }

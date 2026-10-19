@@ -1,10 +1,10 @@
 // Read-side cache of what the API returns. Views bind to this; SyncService
 // writes to HealthKit→backend, this reads backend→UI.
 //
-// The last successful Today payload is persisted to Caches/ so the app renders
-// instantly at launch and offline. Endpoints the platform doesn't serve yet
-// (trends, sleep ranges, insights, workout detail) fall back to data derived
-// from `/v1/days` — see Derived.swift.
+// The last successful Today payload (with its 7-day readiness trend) is
+// persisted to Caches/ so the app renders instantly at launch and offline.
+// Every endpoint exists on the platform; a failed call leaves the screen
+// empty with an inline message instead of computing numbers on the phone.
 import Foundation
 
 enum AppTab: String, CaseIterable, Hashable {
@@ -17,8 +17,8 @@ final class AppState: ObservableObject {
     @Published var history: [DailyScore] = []   // last 90 days, oldest first
     @Published var user: User?
     @Published var insights: [Insight] = []
-    /// False when insights were computed on-device because `/v1/insights` is missing.
-    @Published var insightsFromPlatform = true
+    /// Today's "Trends" card: `GET /v1/trends?metric=readiness&range=7d`.
+    @Published var readinessWeek: TrendSeries?
     @Published var error: String?
     /// Status and request ID of `error`, for the inline message's Details.
     @Published var errorDetails: String?
@@ -91,12 +91,18 @@ final class AppState: ObservableObject {
             user = u
             invalidateCaches()
             dayCache[d.score.day] = d
+            async let week = try? src.trends(metric: .readiness, range: .week)
             await loadInsights(from: src)
+            if let w = await week {
+                readinessWeek = w
+                trendCache[Self.trendKey(.readiness, .week)] = w
+            }
             error = nil
             errorDetails = nil
             lastUpdated = .now
             if !isDemo {
-                cache.save(TodaySnapshot(today: d, history: history, user: u, insights: insights, fetchedAt: .now),
+                cache.save(TodaySnapshot(today: d, history: history, user: u, insights: insights,
+                                         readinessWeek: readinessWeek, fetchedAt: .now),
                            as: Self.snapshotKey)
             }
         } catch {
@@ -135,6 +141,7 @@ final class AppState: ObservableObject {
         history = []
         user = nil
         insights = []
+        readinessWeek = nil
         error = nil
         errorDetails = nil
         lastUpdated = nil
@@ -166,34 +173,33 @@ final class AppState: ObservableObject {
         dayCache[DayFormat.string(from: date)]
     }
 
-    func sleepRange(_ kind: SleepRangeKind) async -> SleepRange {
+    /// `nil` when the platform couldn't be reached; the screen says so.
+    func sleepRange(_ kind: SleepRangeKind) async -> SleepRange? {
         if let cached = sleepCache[kind] { return cached }
-        let r: SleepRange
-        do {
-            r = try await source.sleep(range: kind)
-        } catch {
-            r = .derived(from: history, kind: kind)
-        }
+        guard let r = try? await source.sleep(range: kind) else { return nil }
         sleepCache[kind] = r
         return r
     }
 
+    /// An empty series (not cached) when the platform couldn't be reached.
     func trend(_ metric: TrendMetric, range: TrendRange) async -> TrendSeries {
-        let key = "\(metric.rawValue)-\(range.rawValue)"
+        let key = Self.trendKey(metric, range)
         if let cached = trendCache[key] { return cached }
-        let s: TrendSeries
-        do {
-            s = try await source.trends(metric: metric, range: range)
-        } catch {
-            s = .derived(from: history, metric: metric, range: range)
+        guard let s = try? await source.trends(metric: metric, range: range) else {
+            return TrendSeries(metric: metric.rawValue, range: range.rawValue, points: [],
+                               avg: nil, min: nil, max: nil, baseline: nil)
         }
         trendCache[key] = s
         return s
     }
 
-    /// Synchronous fallback series from the loaded history (no network).
-    func derivedTrend(_ metric: TrendMetric, range: TrendRange) -> TrendSeries {
-        trendCache["\(metric.rawValue)-\(range.rawValue)"] ?? .derived(from: history, metric: metric, range: range)
+    /// Already-loaded series, for instant paint.
+    func cachedTrend(_ metric: TrendMetric, range: TrendRange) -> TrendSeries? {
+        trendCache[Self.trendKey(metric, range)]
+    }
+
+    private static func trendKey(_ metric: TrendMetric, _ range: TrendRange) -> String {
+        "\(metric.rawValue)-\(range.rawValue)"
     }
 
     func workoutDetail(_ w: Workout) async -> WorkoutDetail {
@@ -226,14 +232,9 @@ final class AppState: ObservableObject {
                      forKey: Self.dismissedKey)
     }
 
+    /// Keeps the previous cards if the call fails.
     private func loadInsights(from src: RyftDataSource) async {
-        do {
-            insights = try await src.insights()
-            insightsFromPlatform = true
-        } catch {
-            insights = Insight.derived(from: history)
-            insightsFromPlatform = false
-        }
+        if let fresh = try? await src.insights() { insights = fresh }
     }
 
     private func loadDismissed() -> Set<String> {
@@ -253,6 +254,8 @@ final class AppState: ObservableObject {
         history = snap.history
         user = snap.user
         insights = snap.insights
+        readinessWeek = snap.readinessWeek
+        if let w = snap.readinessWeek { trendCache[Self.trendKey(.readiness, .week)] = w }
         lastUpdated = snap.fetchedAt
         if let d = snap.today { dayCache[d.score.day] = d }
     }
@@ -278,6 +281,7 @@ extension AppState {
         s.history = MockData.history
         s.user = MockData.user
         s.insights = MockData.insights
+        s.readinessWeek = MockData.trend(.readiness, range: .week)
         s.lastUpdated = .now.addingTimeInterval(-300)
         var detail = MockData.todayDetail
         if calibrating {

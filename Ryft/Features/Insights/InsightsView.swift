@@ -6,29 +6,34 @@ extension TrendMetric {
         case .readiness: return String(localized: "Readiness")
         case .recovery: return String(localized: "Recovery")
         case .strain: return String(localized: "Strain")
-        case .sleep: return String(localized: "Sleep")
+        case .sleep: return String(localized: "Sleep performance")
+        case .sleepMin: return String(localized: "Time asleep")
         case .hrv: return String(localized: "HRV")
         case .rhr: return String(localized: "Resting HR")
+        case .steps: return String(localized: "Steps")
+        case .activeKcal: return String(localized: "Active energy")
         }
     }
 
     var color: Color {
         switch self {
         case .readiness, .strain, .hrv: return Theme.accent
-        case .recovery: return Theme.accentSecondary
-        case .sleep: return Theme.stageLight
+        case .recovery, .steps: return Theme.accentSecondary
+        case .sleep, .sleepMin: return Theme.stageLight
         case .rhr: return Theme.alert
+        case .activeKcal: return Theme.warning
         }
     }
 
     func format(_ v: Double) -> String {
         switch self {
-        case .readiness: return Fmt.integer(v)
-        case .recovery: return Fmt.percent(v)
+        case .readiness, .steps: return Fmt.integer(v)
+        case .recovery, .sleep: return Fmt.percent(v)
         case .strain: return Fmt.strain(v)
-        case .sleep: return Fmt.duration(minutes: Int(v.rounded()))
+        case .sleepMin: return Fmt.duration(minutes: Int(v.rounded()))
         case .hrv: return "\(Fmt.integer(v)) ms"
         case .rhr: return "\(Fmt.integer(v)) bpm"
+        case .activeKcal: return "\(Fmt.integer(v)) kcal"
         }
     }
 }
@@ -39,9 +44,9 @@ final class InsightsViewModel: ObservableObject {
     @Published private(set) var series: [TrendMetric: TrendSeries] = [:]
 
     func load(state: AppState) async {
-        // Instant paint from the loaded history, then the platform's series.
+        // Instant paint from what's already loaded, then the platform's series.
         for m in TrendMetric.allCases where series[m]?.range != range.rawValue {
-            series[m] = state.derivedTrend(m, range: range)
+            series[m] = state.cachedTrend(m, range: range)
         }
         guard state.hasDataSource else { return }
         await withTaskGroup(of: (TrendMetric, TrendSeries).self) { group in
@@ -108,12 +113,6 @@ struct InsightsView: View {
                     }
                     .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
-            }
-            if !state.insightsFromPlatform && !state.insights.isEmpty {
-                Text("Computed on your phone from your daily scores.")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }

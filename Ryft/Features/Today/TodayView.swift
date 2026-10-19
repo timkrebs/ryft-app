@@ -45,7 +45,7 @@ struct TodayView: View {
     }
 
     private var readinessRing: some View {
-        let readiness = score?.readinessValue
+        let readiness = score?.readiness
         return ScoreRing(progress: readiness.map { Double($0) / 100 }, size: 220, lineWidth: 11,
                          accessibilityLabel: Text("Readiness"),
                          accessibilityValue: readiness.map { Text("\($0) of 100") } ?? Text("No score yet")) {
@@ -67,7 +67,7 @@ struct TodayView: View {
     }
 
     private var tiles: some View {
-        let sleepMin = score?.sleepActualMin ?? state.today?.resolvedSleep?.totalMin
+        let sleepMin = score?.sleepActualMin ?? state.today?.sleep?.totalMin
         return HStack(spacing: 10) {
             MetricTile(title: "Sleep", value: Fmt.duration(minutes: sleepMin), systemImage: "moon.fill",
                        tint: Theme.stageLight, accessibilityHint: "Opens Sleep") {
@@ -91,7 +91,7 @@ struct TodayView: View {
             Card {
                 VStack(alignment: .leading, spacing: 14) {
                     CardHeader(title: "Trends", trailing: "7 days", showsChevron: true)
-                    TrendChart(points: state.derivedTrend(.readiness, range: .week).points,
+                    TrendChart(points: state.readinessWeek?.points ?? [],
                                title: String(localized: "Readiness, last 7 days"), height: 84)
                 }
             }

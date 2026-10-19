@@ -162,7 +162,7 @@ struct StrainPill: View {
 #Preview("Strain components", traits: .sizeThatFitsLayout) {
     SchemePair {
         VStack(spacing: 14) {
-            ZoneMinutesView(minutes: MockData.todayScore.zoneMinutes)
+            ZoneMinutesView(minutes: MockData.todayDetail.strain?.zoneMin.map(Double.init))
             ZoneMinutesView(minutes: nil)
             ForEach(MockData.todayDetail.workouts) { ActivityRow(workout: $0) }
         }

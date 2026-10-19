@@ -1,0 +1,8 @@
+{
+  "score": { "day": "2026-10-20", "readiness": null, "state": "calibrating", "recovery": null, "strain": null,
+    "steps": null, "active_kcal": null, "sleep_performance": null, "sleep_need_min": null, "sleep_actual_min": null,
+    "sleep_debt_min": null, "hrv_ms": null, "rhr": null, "resp_rate": null, "spo2": null,
+    "hrv_baseline_ms": null, "rhr_baseline": null, "baseline_days": 0, "calibrating": false,
+    "details": {}, "computed_at": "0001-01-01T00:00:00Z" },
+  "sleep": null, "strain": null, "workouts": []
+}

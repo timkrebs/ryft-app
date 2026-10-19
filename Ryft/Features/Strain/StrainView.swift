@@ -47,6 +47,7 @@ struct StrainView: View {
                 }
                 weekStrip
                 ring
+                movement
                 zones
                 activities
             }
@@ -123,11 +124,23 @@ struct StrainView: View {
         .id(model.date) // re-run the ring animation per day
     }
 
+    /// Steps and active energy for the day (`DayDetail.strain`, else the score).
+    private var movement: some View {
+        let dayStrain = model.detail?.strain
+        let steps = dayStrain?.steps ?? score?.steps
+        let kcal = dayStrain?.activeKcal ?? score?.activeKcal
+        return HStack(spacing: 10) {
+            MetricTile(title: "Steps", value: Fmt.integer(steps.map(Double.init)), systemImage: "figure.walk")
+            MetricTile(title: "Active kcal", value: Fmt.integer(kcal.map(Double.init)), systemImage: "flame")
+        }
+    }
+
     private var zones: some View {
-        Card {
+        let dayStrain = model.detail?.strain
+        return Card {
             VStack(alignment: .leading, spacing: 16) {
-                CardHeader(title: "Heart-rate zones", trailing: score?.trimp.map { "TRIMP \(Int($0))" }.map { LocalizedStringKey($0) })
-                ZoneMinutesView(minutes: score?.zoneMinutes)
+                CardHeader(title: "Heart-rate zones", trailing: dayStrain.map { "TRIMP \($0.trimp)" }.map { LocalizedStringKey($0) })
+                ZoneMinutesView(minutes: dayStrain?.zoneMin.map(Double.init))
             }
         }
     }

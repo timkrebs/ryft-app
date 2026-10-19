@@ -139,9 +139,9 @@ struct TrendChart: View {
 #Preview("TrendChart", traits: .sizeThatFitsLayout) {
     SchemePair {
         VStack(spacing: 24) {
-            TrendChart(points: TrendSeries.derived(from: MockData.history, metric: .readiness, range: .week).points,
+            TrendChart(points: MockData.trend(.readiness, range: .week).points,
                        title: "Readiness", height: 90)
-            let hrv = TrendSeries.derived(from: MockData.history, metric: .hrv, range: .month)
+            let hrv = MockData.trend(.hrv, range: .month)
             TrendChart(points: hrv.points, title: "HRV", baseline: hrv.baseline, showsAxes: true,
                        interactive: true, height: 160)
         }

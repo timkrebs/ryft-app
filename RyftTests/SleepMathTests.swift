@@ -32,17 +32,15 @@ struct SleepMathTests {
         #expect(shares.first { $0.stage == .light }?.pct == 100)
     }
 
-    @Test func percentNormalisesFractions() {
-        #expect(SleepMath.percent(0.82) == 82)
-        #expect(SleepMath.percent(82) == 82)
-    }
-
-    @Test func serverPercentagesWin() {
-        let detail = SleepDetail(totalMin: 100, stages: [StageShare(stage: .deep, min: 50, pct: 0.4),
-                                                        StageShare(stage: .light, min: 50)])
+    @Test func serverPercentagesWinAndAreNeverRescaled() {
+        // Whole percentages only (API.md): 1 means 1 %, not 100 %.
+        let detail = SleepDetail(totalMin: 100, stages: [StageShare(stage: .deep, min: 50, pct: 40),
+                                                        StageShare(stage: .light, min: 50),
+                                                        StageShare(stage: .awake, min: 1, pct: 1)])
         let stages = detail.displayStages
         #expect(stages.first { $0.stage == .deep }?.pct == 40)
-        #expect(stages.first { $0.stage == .light }?.pct == 50)
+        #expect(stages.first { $0.stage == .light }?.pct != nil) // computed when missing
+        #expect(stages.first { $0.stage == .awake }?.pct == 1)
         #expect(stages.count == 4)
     }
 
@@ -51,9 +49,10 @@ struct SleepMathTests {
         #expect(d.efficiencyPercent == 90)
     }
 
-    @Test(arguments: [(90, "Excellent"), (82, "Good"), (60, "Fair"), (20, "Poor")])
-    func qualityLabels(quality: Int, expected: String) {
-        #expect(SleepMath.qualityLabel(quality) == expected)
+    /// The platform's bands: good ≥ 80, fair 60–79, poor < 60.
+    @Test(arguments: [(95, SleepQualityLabel.good), (80, .good), (79, .fair), (60, .fair), (59, .poor)])
+    func qualityLabels(quality: Int, expected: SleepQualityLabel) {
+        #expect(SleepQualityLabel(quality: quality) == expected)
     }
 
     @Test func bedtimeDeviationAcrossMidnight() throws {
