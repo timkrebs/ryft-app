@@ -1,0 +1,22 @@
+{"enrollment": {"id": "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b01", "plan_id": "5e2f1a3b-4c5d-4e6f-8a7b-9c0d1e2f3a01",
+                "started_at": "2026-09-11T06:00:00Z", "current_week": 6, "current_day_index": 0, "status": "active"},
+ "day": {"id": "6a1b2c3d-4e5f-4a6b-9c7d-8e9f0a1b2c01", "week": null, "day_index": 0, "name": "Upper A",
+   "exercises": [
+    {"id": "8f0e1d2c-3b4a-4596-8877-665544332201", "position": 0, "sets": 3, "reps_min": 5, "reps_max": 5,
+     "target_kind": "kg", "target_value": 100, "rest_sec": 180, "superset_group": null, "notes": "",
+     "exercise": {"id": "0b9a3c1e-5d2f-4a71-9e0c-3f6d1a2b4c02", "slug": "bench-press", "name": "Bench press",
+       "kind": "barbell", "primary_muscles": ["chest"], "secondary_muscles": ["triceps"], "equipment": ["barbell"],
+       "load_type": "weight", "bodyweight_factor": 0, "is_unilateral": false, "is_custom": false, "archived": false}}
+   ]},
+ "targets": [
+  {"plan_exercise_id": "8f0e1d2c-3b4a-4596-8877-665544332201", "sets": 3, "reps_min": 5, "reps_max": 5,
+   "target_kg": 100,
+   "last_time": [
+    {"id": "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c01", "set_index": 0, "reps": 5, "weight_kg": 97.5, "rpe": null,
+     "duration_sec": null, "distance_m": null, "is_warmup": false,
+     "completed_at": "2026-10-15T17:20:11.482913Z", "updated_at": "2026-10-15T17:20:11.482913Z"},
+    {"id": "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c02", "set_index": 1, "reps": 4, "weight_kg": 97.5, "rpe": 9,
+     "duration_sec": null, "distance_m": null, "is_warmup": false,
+     "completed_at": "2026-10-15T17:24:02Z", "updated_at": "2026-10-15T17:24:02Z"}
+   ]}
+ ]}

@@ -23,6 +23,10 @@ struct ResponseCache {
         return try? APIClient.jsonDecoder.decode(T.self, from: data)
     }
 
+    func remove(_ key: String) {
+        try? FileManager.default.removeItem(at: url(key))
+    }
+
     func clear() {
         try? FileManager.default.removeItem(at: directory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

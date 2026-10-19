@@ -439,6 +439,10 @@ final class AuthService: ObservableObject {
         ResponseCache.shared.clear()
         HealthKitManager.shared.resetAnchors()
         Settings.shared.clearPerUserState()
+        // Logged sessions, the offline library and queued uploads are per account.
+        TrainStore.shared.wipe()
+        TrainLibrary.shared.wipe()
+        RestActivityController.shared.end()
     }
 }
 

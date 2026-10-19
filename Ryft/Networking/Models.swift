@@ -54,6 +54,10 @@ struct Workout: Codable, Identifiable, Hashable {
     let distanceM: Double?
     let source: String
     var strain: Double?
+    /// Muscular load of the logged session attached to this workout (Train).
+    var muscularLoad: Double? = nil
+    /// The logged Train session this workout belongs to: the Strain list merges both into one row.
+    var sessionId: UUID? = nil
 
     var duration: TimeInterval { end.timeIntervalSince(start) }
 }
@@ -445,6 +449,8 @@ struct DayStrain: Codable, Hashable {
     let zoneMin: [Int]
     var steps: Int?
     var activeKcal: Int?
+    /// Train sessions logged that day.
+    var sessions: [TrainSession]? = nil
 }
 
 struct DayDetail: Codable, Hashable {
@@ -657,6 +663,569 @@ struct AccountDeleted: Codable, Equatable {
     let status: String
     /// `false` if Supabase couldn't be reached; the platform retries on its own.
     let authUserDeleted: Bool
+}
+
+// MARK: - Train
+//
+// Exercises, plans and logged strength sessions. Every id is a client-generated
+// UUID. Until `API.md` carries the Train section these follow the platform's
+// M3b brief (`plattform/CLAUDE_FOLLOWUP_TRAIN.md` §1 and §4); gaps are listed
+// in `docs/API_REQUESTS.md`. Unknown enum values decode to a neutral case so a
+// new server value never breaks the screen.
+
+enum ExerciseKind: String, Codable, CaseIterable, Identifiable {
+    case barbell, dumbbell, kettlebell, bodyweight, machine, cable, cardio
+    var id: String { rawValue }
+
+    init(from decoder: Decoder) throws {
+        self = ExerciseKind(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .machine
+    }
+}
+
+enum LoadType: String, Codable {
+    case weight, bodyweight, time, distance
+
+    init(from decoder: Decoder) throws {
+        self = LoadType(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .weight
+    }
+}
+
+struct Exercise: Codable, Hashable, Identifiable {
+    let id: UUID
+    var slug: String
+    var name: String
+    var kind: ExerciseKind
+    var primaryMuscles: [String]
+    var secondaryMuscles: [String]
+    var equipment: [String]
+    var loadType: LoadType
+    var bodyweightFactor: Double
+    var isUnilateral: Bool
+    var isCustom: Bool
+    var archived: Bool
+
+    init(id: UUID = UUID(), slug: String, name: String, kind: ExerciseKind, primaryMuscles: [String],
+         secondaryMuscles: [String] = [], equipment: [String] = [], loadType: LoadType = .weight,
+         bodyweightFactor: Double = 0, isUnilateral: Bool = false, isCustom: Bool = false, archived: Bool = false) {
+        self.id = id
+        self.slug = slug
+        self.name = name
+        self.kind = kind
+        self.primaryMuscles = primaryMuscles
+        self.secondaryMuscles = secondaryMuscles
+        self.equipment = equipment
+        self.loadType = loadType
+        self.bodyweightFactor = bodyweightFactor
+        self.isUnilateral = isUnilateral
+        self.isCustom = isCustom
+        self.archived = archived
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, slug, name, kind, primaryMuscles, secondaryMuscles, equipment, loadType, bodyweightFactor,
+             isUnilateral, isCustom, archived
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        slug = try c.decodeIfPresent(String.self, forKey: .slug) ?? ""
+        name = try c.decode(String.self, forKey: .name)
+        kind = try c.decodeIfPresent(ExerciseKind.self, forKey: .kind) ?? .machine
+        primaryMuscles = try c.decodeIfPresent([String].self, forKey: .primaryMuscles) ?? []
+        secondaryMuscles = try c.decodeIfPresent([String].self, forKey: .secondaryMuscles) ?? []
+        equipment = try c.decodeIfPresent([String].self, forKey: .equipment) ?? []
+        loadType = try c.decodeIfPresent(LoadType.self, forKey: .loadType) ?? .weight
+        bodyweightFactor = try c.decodeIfPresent(Double.self, forKey: .bodyweightFactor) ?? 0
+        isUnilateral = try c.decodeIfPresent(Bool.self, forKey: .isUnilateral) ?? false
+        isCustom = try c.decodeIfPresent(Bool.self, forKey: .isCustom) ?? false
+        archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+    }
+}
+
+enum PlanGoal: String, Codable, CaseIterable, Identifiable {
+    case strength, hypertrophy, weightlifting, general
+    var id: String { rawValue }
+
+    init(from decoder: Decoder) throws {
+        self = PlanGoal(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .general
+    }
+}
+
+enum ProgressionType: String, Codable, CaseIterable, Identifiable {
+    case linear, percent, none
+    var id: String { rawValue }
+
+    init(from decoder: Decoder) throws {
+        self = ProgressionType(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .none
+    }
+}
+
+/// `plans.progression`, e.g. `{"type":"linear","increment_kg":2.5,"on_fail":"repeat","deload_after":3}`.
+struct Progression: Codable, Hashable {
+    var type: ProgressionType
+    var incrementKg: Double? = nil
+    var onFail: String? = nil
+    var deloadAfter: Int? = nil
+
+    static let none = Progression(type: .none)
+    static let linear = Progression(type: .linear, incrementKg: 2.5, onFail: "repeat", deloadAfter: 3)
+    static let percent = Progression(type: .percent)
+
+    static func of(_ type: ProgressionType) -> Progression {
+        switch type {
+        case .linear: return .linear
+        case .percent: return .percent
+        case .none: return .none
+        }
+    }
+}
+
+/// How a plan exercise's load is prescribed.
+enum TargetKind: String, Codable, CaseIterable, Identifiable {
+    case pct1rm = "pct_1rm", rpe, kg, bodyweight
+    var id: String { rawValue }
+
+    init(from decoder: Decoder) throws {
+        self = TargetKind(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .kg
+    }
+}
+
+struct PlanExercise: Codable, Hashable, Identifiable {
+    let id: UUID
+    /// Resolved exercise (name, kind, muscles).
+    var exercise: Exercise
+    var position: Int
+    var sets: Int
+    var repsMin: Int
+    var repsMax: Int
+    var targetKind: TargetKind
+    var targetValue: Double?
+    var restSec: Int
+    var supersetGroup: Int?
+    var notes: String
+
+    init(id: UUID = UUID(), exercise: Exercise, position: Int, sets: Int, repsMin: Int, repsMax: Int,
+         targetKind: TargetKind, targetValue: Double?, restSec: Int, supersetGroup: Int? = nil, notes: String = "") {
+        self.id = id
+        self.exercise = exercise
+        self.position = position
+        self.sets = sets
+        self.repsMin = repsMin
+        self.repsMax = repsMax
+        self.targetKind = targetKind
+        self.targetValue = targetValue
+        self.restSec = restSec
+        self.supersetGroup = supersetGroup
+        self.notes = notes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, exercise, position, sets, repsMin, repsMax, targetKind, targetValue, restSec, supersetGroup, notes
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        exercise = try c.decode(Exercise.self, forKey: .exercise)
+        position = try c.decodeLenientInt(.position) ?? 0
+        sets = try c.decodeLenientInt(.sets) ?? 1
+        repsMin = try c.decodeLenientInt(.repsMin) ?? 1
+        repsMax = try c.decodeLenientInt(.repsMax) ?? repsMin
+        targetKind = try c.decodeIfPresent(TargetKind.self, forKey: .targetKind) ?? .kg
+        targetValue = try c.decodeIfPresent(Double.self, forKey: .targetValue)
+        restSec = try c.decodeLenientInt(.restSec) ?? 120
+        supersetGroup = try c.decodeLenientInt(.supersetGroup)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+    }
+}
+
+struct PlanDay: Codable, Hashable, Identifiable {
+    let id: UUID
+    /// `nil`: the same day every week.
+    var week: Int?
+    var dayIndex: Int
+    var name: String
+    var exercises: [PlanExercise]
+
+    init(id: UUID = UUID(), week: Int? = nil, dayIndex: Int, name: String, exercises: [PlanExercise]) {
+        self.id = id
+        self.week = week
+        self.dayIndex = dayIndex
+        self.name = name
+        self.exercises = exercises
+    }
+
+    enum CodingKeys: String, CodingKey { case id, week, dayIndex, name, exercises }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        week = try c.decodeLenientInt(.week)
+        dayIndex = try c.decodeLenientInt(.dayIndex) ?? 0
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        exercises = try c.decodeIfPresent([PlanExercise].self, forKey: .exercises) ?? []
+    }
+}
+
+/// `GET /v1/plans/{id}`. The list (`PlanSummary`) is the same object without `days`.
+struct Plan: Codable, Hashable, Identifiable {
+    let id: UUID
+    var name: String
+    var goal: PlanGoal
+    /// `nil`: repeating.
+    var weeks: Int?
+    var daysPerWeek: Int
+    var description: String
+    var progression: Progression
+    var isBuiltin: Bool
+    var days: [PlanDay]
+
+    init(id: UUID = UUID(), name: String, goal: PlanGoal, weeks: Int?, daysPerWeek: Int, description: String,
+         progression: Progression, isBuiltin: Bool, days: [PlanDay]) {
+        self.id = id
+        self.name = name
+        self.goal = goal
+        self.weeks = weeks
+        self.daysPerWeek = daysPerWeek
+        self.description = description
+        self.progression = progression
+        self.isBuiltin = isBuiltin
+        self.days = days
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, goal, weeks, daysPerWeek, description, progression, isBuiltin, days
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        goal = try c.decodeIfPresent(PlanGoal.self, forKey: .goal) ?? .general
+        weeks = try c.decodeLenientInt(.weeks)
+        daysPerWeek = try c.decodeLenientInt(.daysPerWeek) ?? 3
+        description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
+        progression = (try? c.decodeIfPresent(Progression.self, forKey: .progression)) ?? .none
+        isBuiltin = try c.decodeIfPresent(Bool.self, forKey: .isBuiltin) ?? false
+        days = try c.decodeIfPresent([PlanDay].self, forKey: .days) ?? []
+    }
+}
+
+enum EnrollmentStatus: String, Codable {
+    case active, paused, completed
+
+    init(from decoder: Decoder) throws {
+        self = EnrollmentStatus(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .active
+    }
+}
+
+struct Enrollment: Codable, Hashable, Identifiable {
+    let id: UUID
+    let planId: UUID
+    var startedAt: Date
+    var currentWeek: Int
+    var currentDayIndex: Int
+    var status: EnrollmentStatus
+}
+
+/// `GET /v1/plans`.
+struct PlanCatalog: Codable, Hashable {
+    var builtin: [Plan]
+    var mine: [Plan]
+    var active: Enrollment?
+
+    init(builtin: [Plan], mine: [Plan], active: Enrollment?) {
+        self.builtin = builtin
+        self.mine = mine
+        self.active = active
+    }
+
+    enum CodingKeys: String, CodingKey { case builtin, mine, active }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        builtin = try c.decodeIfPresent([Plan].self, forKey: .builtin) ?? []
+        mine = try c.decodeIfPresent([Plan].self, forKey: .mine) ?? []
+        active = try c.decodeIfPresent(Enrollment.self, forKey: .active)
+    }
+}
+
+/// One logged set. `updated_at` decides conflicts (later wins).
+struct TrainSet: Codable, Hashable, Identifiable {
+    let id: UUID
+    var setIndex: Int
+    var reps: Int?
+    var weightKg: Double?
+    var rpe: Double?
+    var durationSec: Int?
+    var distanceM: Double?
+    var isWarmup: Bool
+    var completedAt: Date?
+    var updatedAt: Date
+
+    init(id: UUID = UUID(), setIndex: Int, reps: Int? = nil, weightKg: Double? = nil, rpe: Double? = nil,
+         durationSec: Int? = nil, distanceM: Double? = nil, isWarmup: Bool = false, completedAt: Date? = nil,
+         updatedAt: Date = .now) {
+        self.id = id
+        self.setIndex = setIndex
+        self.reps = reps
+        self.weightKg = weightKg
+        self.rpe = rpe
+        self.durationSec = durationSec
+        self.distanceM = distanceM
+        self.isWarmup = isWarmup
+        self.completedAt = completedAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, setIndex, reps, weightKg, rpe, durationSec, distanceM, isWarmup, completedAt, updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        setIndex = try c.decodeLenientInt(.setIndex) ?? 0
+        reps = try c.decodeLenientInt(.reps)
+        weightKg = try c.decodeIfPresent(Double.self, forKey: .weightKg)
+        rpe = try c.decodeIfPresent(Double.self, forKey: .rpe)
+        durationSec = try c.decodeLenientInt(.durationSec)
+        distanceM = try c.decodeIfPresent(Double.self, forKey: .distanceM)
+        isWarmup = try c.decodeIfPresent(Bool.self, forKey: .isWarmup) ?? false
+        completedAt = try? c.decodeIfPresent(Date.self, forKey: .completedAt)
+        updatedAt = (try? c.decodeIfPresent(Date.self, forKey: .updatedAt)) ?? .distantPast
+    }
+}
+
+/// `GET /v1/plans/today` → `targets[]`: the prescription for one plan exercise.
+struct PlanTarget: Codable, Hashable {
+    let planExerciseId: UUID
+    var sets: Int
+    var repsMin: Int
+    var repsMax: Int
+    var targetKg: Double?
+    var lastTime: [TrainSet]
+
+    init(planExerciseId: UUID, sets: Int, repsMin: Int, repsMax: Int, targetKg: Double?, lastTime: [TrainSet] = []) {
+        self.planExerciseId = planExerciseId
+        self.sets = sets
+        self.repsMin = repsMin
+        self.repsMax = repsMax
+        self.targetKg = targetKg
+        self.lastTime = lastTime
+    }
+
+    enum CodingKeys: String, CodingKey { case planExerciseId, sets, repsMin, repsMax, targetKg, lastTime }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        planExerciseId = try c.decode(UUID.self, forKey: .planExerciseId)
+        sets = try c.decodeLenientInt(.sets) ?? 1
+        repsMin = try c.decodeLenientInt(.repsMin) ?? 1
+        repsMax = try c.decodeLenientInt(.repsMax) ?? repsMin
+        targetKg = try c.decodeIfPresent(Double.self, forKey: .targetKg)
+        lastTime = try c.decodeIfPresent([TrainSet].self, forKey: .lastTime) ?? []
+    }
+}
+
+/// `GET /v1/plans/today`; `204` (nothing planned) is `nil` on the client.
+struct PlanToday: Codable, Hashable {
+    var enrollment: Enrollment
+    var day: PlanDay
+    var targets: [PlanTarget]
+
+    func target(for planExercise: PlanExercise) -> PlanTarget? {
+        targets.first { $0.planExerciseId == planExercise.id }
+    }
+}
+
+enum SessionStatus: String, Codable {
+    case inProgress = "in_progress", completed, discarded
+
+    init(from decoder: Decoder) throws {
+        self = SessionStatus(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .completed
+    }
+}
+
+struct TrainSessionExercise: Codable, Hashable, Identifiable {
+    let id: UUID
+    var exerciseId: UUID
+    var position: Int
+    var notes: String
+    var sets: [TrainSet]
+
+    init(id: UUID = UUID(), exerciseId: UUID, position: Int, notes: String = "", sets: [TrainSet]) {
+        self.id = id
+        self.exerciseId = exerciseId
+        self.position = position
+        self.notes = notes
+        self.sets = sets
+    }
+
+    enum CodingKeys: String, CodingKey { case id, exerciseId, position, notes, sets }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        exerciseId = try c.decode(UUID.self, forKey: .exerciseId)
+        position = try c.decodeLenientInt(.position) ?? 0
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        sets = try c.decodeIfPresent([TrainSet].self, forKey: .sets) ?? []
+    }
+}
+
+/// `PUT /v1/sessions/{id}` sends the whole document; `GET` returns it. The list
+/// (`SessionSummary`) is the same object; `exercises` may be absent there.
+struct TrainSession: Codable, Hashable, Identifiable {
+    let id: UUID
+    var title: String
+    var startedAt: Date
+    var endedAt: Date?
+    var status: SessionStatus
+    var planDayId: UUID?
+    var workoutId: UUID?
+    var notes: String
+    var bodyweightKg: Double?
+    var muscularTrimp: Double?
+    var strain: Double?
+    var volumeKg: Double?
+    var exercises: [TrainSessionExercise]
+
+    init(id: UUID = UUID(), title: String, startedAt: Date, endedAt: Date? = nil, status: SessionStatus,
+         planDayId: UUID? = nil, workoutId: UUID? = nil, notes: String = "", bodyweightKg: Double? = nil,
+         muscularTrimp: Double? = nil, strain: Double? = nil, volumeKg: Double? = nil,
+         exercises: [TrainSessionExercise]) {
+        self.id = id
+        self.title = title
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.status = status
+        self.planDayId = planDayId
+        self.workoutId = workoutId
+        self.notes = notes
+        self.bodyweightKg = bodyweightKg
+        self.muscularTrimp = muscularTrimp
+        self.strain = strain
+        self.volumeKg = volumeKg
+        self.exercises = exercises
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, startedAt, endedAt, status, planDayId, workoutId, notes, bodyweightKg, muscularTrimp,
+             strain, volumeKg, exercises
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        startedAt = try c.decode(Date.self, forKey: .startedAt)
+        endedAt = try? c.decodeIfPresent(Date.self, forKey: .endedAt)
+        status = try c.decodeIfPresent(SessionStatus.self, forKey: .status) ?? .completed
+        planDayId = try c.decodeIfPresent(UUID.self, forKey: .planDayId)
+        workoutId = try c.decodeIfPresent(UUID.self, forKey: .workoutId)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        bodyweightKg = try c.decodeIfPresent(Double.self, forKey: .bodyweightKg)
+        muscularTrimp = try c.decodeIfPresent(Double.self, forKey: .muscularTrimp)
+        strain = try c.decodeIfPresent(Double.self, forKey: .strain)
+        volumeKg = try c.decodeIfPresent(Double.self, forKey: .volumeKg)
+        exercises = try c.decodeIfPresent([TrainSessionExercise].self, forKey: .exercises) ?? []
+    }
+}
+
+/// `POST /v1/sessions/{id}/complete` body.
+struct SessionCompleteRequest: Codable {
+    var bodyweightKg: Double?
+}
+
+enum PRKind: String, Codable, CaseIterable {
+    case e1rm
+    case maxWeight = "max_weight"
+    case maxReps = "max_reps"
+    case maxVolume = "max_volume"
+
+    init(from decoder: Decoder) throws {
+        self = PRKind(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .e1rm
+    }
+}
+
+struct PersonalRecord: Codable, Hashable {
+    let exerciseId: UUID
+    let kind: PRKind
+    let value: Double
+    let achievedAt: Date
+}
+
+/// `POST /v1/sessions/{id}/complete` → the Session (with `muscular_trimp`,
+/// `strain`, `workout_id`) plus the PRs it set.
+struct CompletedSession: Codable, Hashable {
+    var session: TrainSession
+    var prs: [PersonalRecord]
+
+    init(session: TrainSession, prs: [PersonalRecord]) {
+        self.session = session
+        self.prs = prs
+    }
+
+    private enum Extra: String, CodingKey { case prs }
+
+    init(from decoder: Decoder) throws {
+        session = try TrainSession(from: decoder)
+        prs = try decoder.container(keyedBy: Extra.self).decodeIfPresent([PersonalRecord].self, forKey: .prs) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        try session.encode(to: encoder)
+        var c = encoder.container(keyedBy: Extra.self)
+        try c.encode(prs, forKey: .prs)
+    }
+}
+
+/// `GET /v1/exercises/{id}/history`.
+struct ExerciseHistory: Codable, Hashable {
+    struct Entry: Codable, Hashable {
+        /// The session's day (`YYYY-MM-DD`) or start time.
+        let date: Date
+        var sets: [TrainSet]
+
+        init(date: Date, sets: [TrainSet]) {
+            self.date = date
+            self.sets = sets
+        }
+
+        enum CodingKeys: String, CodingKey { case date, sets }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let raw = try c.decode(String.self, forKey: .date)
+            guard let d = DateParsing.rfc3339(raw) ?? DayFormat.date(from: raw) else {
+                throw DecodingError.dataCorruptedError(forKey: .date, in: c, debugDescription: "bad date \(raw)")
+            }
+            date = d
+            sets = try c.decodeIfPresent([TrainSet].self, forKey: .sets) ?? []
+        }
+    }
+
+    var prs: [PersonalRecord]
+    var sessions: [Entry]
+    /// Best estimated 1RM per day, oldest first.
+    var e1rm: [TrendPoint]
+
+    init(prs: [PersonalRecord], sessions: [Entry], e1rm: [TrendPoint]) {
+        self.prs = prs
+        self.sessions = sessions
+        self.e1rm = e1rm
+    }
+
+    enum CodingKeys: String, CodingKey { case prs, sessions, e1rm }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        prs = try c.decodeIfPresent([PersonalRecord].self, forKey: .prs) ?? []
+        sessions = try c.decodeIfPresent([Entry].self, forKey: .sessions) ?? []
+        e1rm = try c.decodeIfPresent([TrendPoint].self, forKey: .e1rm) ?? []
+    }
 }
 
 // MARK: - Helpers

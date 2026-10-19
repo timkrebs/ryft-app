@@ -1,0 +1,14 @@
+{"builtin": [
+   {"id": "5e2f1a3b-4c5d-4e6f-8a7b-9c0d1e2f3a01", "name": "Upper/Lower 4×", "goal": "hypertrophy", "weeks": null,
+    "days_per_week": 4, "description": "Four days, upper and lower body alternating.",
+    "progression": {"type": "linear", "increment_kg": 2.5, "on_fail": "repeat", "deload_after": 3}, "is_builtin": true},
+   {"id": "5e2f1a3b-4c5d-4e6f-8a7b-9c0d1e2f3a03", "name": "Weightlifting 4×", "goal": "weightlifting", "weeks": 8,
+    "days_per_week": 4, "description": "Snatch, clean & jerk, squats and pulls at % 1RM.",
+    "progression": {"type": "percent"}, "is_builtin": true}
+ ],
+ "mine": [
+   {"id": "5e2f1a3b-4c5d-4e6f-8a7b-9c0d1e2f3a05", "name": "Home dumbbells", "goal": "general", "weeks": null,
+    "days_per_week": 2, "description": "", "progression": {"type": "none"}, "is_builtin": false}
+ ],
+ "active": {"id": "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b01", "plan_id": "5e2f1a3b-4c5d-4e6f-8a7b-9c0d1e2f3a01",
+            "started_at": "2026-09-11T06:00:00Z", "current_week": 6, "current_day_index": 0, "status": "active"}}

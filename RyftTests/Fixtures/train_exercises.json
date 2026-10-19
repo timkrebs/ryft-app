@@ -1,0 +1,11 @@
+[
+  {"id": "0b9a3c1e-5d2f-4a71-9e0c-3f6d1a2b4c01", "slug": "back-squat", "name": "Back squat", "kind": "barbell",
+   "primary_muscles": ["quads", "glutes"], "secondary_muscles": ["hamstrings", "core"], "equipment": ["barbell", "rack"],
+   "load_type": "weight", "bodyweight_factor": 0, "is_unilateral": false, "is_custom": false, "archived": false},
+  {"id": "0b9a3c1e-5d2f-4a71-9e0c-3f6d1a2b4c06", "slug": "pull-up", "name": "Pull-up", "kind": "bodyweight",
+   "primary_muscles": ["back"], "secondary_muscles": ["biceps"], "equipment": ["bar"],
+   "load_type": "bodyweight", "bodyweight_factor": 1.0, "is_unilateral": false, "is_custom": false, "archived": false},
+  {"id": "7c1d0e2f-3a4b-4c5d-8e6f-9a0b1c2d3e4f", "slug": "landmine-press", "name": "Landmine press", "kind": "sled",
+   "primary_muscles": ["shoulders"], "secondary_muscles": [], "equipment": [],
+   "load_type": "weight", "bodyweight_factor": 0, "is_unilateral": true, "is_custom": true, "archived": false}
+]

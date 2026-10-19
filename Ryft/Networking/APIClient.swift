@@ -89,6 +89,8 @@ final class APIClient: RyftDataSource {
     private let session: URLSession
     private let tokens: AccessTokenProvider?
     private let sleep: @Sendable (Int) async throws -> Void
+    /// Replaces the configured API URL (tests).
+    private let baseURL: URL?
 
     /// 503 retries per request before giving up, and the longest wait honoured.
     static let maxUnavailableRetries = 3
@@ -107,8 +109,10 @@ final class APIClient: RyftDataSource {
     /// main actor. `sleep` waits out `Retry-After` (tests skip the wait).
     init(session: URLSession = URLSession(configuration: APIClient.defaultConfiguration),
          tokens: AccessTokenProvider? = nil,
-         sleep: @escaping @Sendable (Int) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }) {
+         sleep: @escaping @Sendable (Int) async throws -> Void = { try await Task.sleep(for: .seconds($0)) },
+         baseURL: URL? = nil) {
         self.session = session
+        self.baseURL = baseURL
         self.tokens = tokens
         self.sleep = sleep
     }
@@ -186,13 +190,20 @@ final class APIClient: RyftDataSource {
 
     // MARK: plumbing
 
-    private func send<B: Encodable, R: Decodable>(_ method: String, path: String, body: B?, base: URL? = nil) async throws -> R {
+    func send<B: Encodable, R: Decodable>(_ method: String, path: String, body: B?, base: URL? = nil) async throws -> R {
         let data = try await data(method, path: path, body: body, base: base)
         return try Self.jsonDecoder.decode(R.self, from: data)
     }
 
     func data<B: Encodable>(_ method: String, path: String, body: B?, base: URL? = nil) async throws -> Data {
-        guard let root = base ?? settings.apiURL, root.host != nil,
+        try await exchange(method, path: path, body: body, base: base).data
+    }
+
+    /// Like `data`, but statuses in `accepting` are returned instead of thrown —
+    /// e.g. `409` on `PUT /v1/sessions/{id}`, whose body is the server's copy.
+    func exchange<B: Encodable>(_ method: String, path: String, body: B?, base: URL? = nil,
+                                accepting: Set<Int> = []) async throws -> (status: Int, data: Data) {
+        guard let root = base ?? baseURL ?? settings.apiURL, root.host != nil,
               let url = URL(string: path, relativeTo: root) else {
             throw APIError.notConfigured
         }
@@ -209,9 +220,9 @@ final class APIClient: RyftDataSource {
         while true {
             let (data, response) = try await perform(req, bearer: bearer)
             let code = response?.statusCode ?? 0
-            if (200..<300).contains(code) {
+            if (200..<300).contains(code) || accepting.contains(code) {
                 if unavailable > 0 { await APIStatus.shared.finishedWaiting() }
-                return data
+                return (code, data)
             }
             let retryAfter = response.flatMap(Self.retryAfter)
             switch code {

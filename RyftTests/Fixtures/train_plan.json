@@ -1,0 +1,21 @@
+{"id": "5e2f1a3b-4c5d-4e6f-8a7b-9c0d1e2f3a01", "name": "Upper/Lower 4×", "goal": "hypertrophy", "weeks": null,
+ "days_per_week": 4, "description": "Four days, upper and lower body alternating.",
+ "progression": {"type": "linear", "increment_kg": 2.5, "on_fail": "repeat", "deload_after": 3},
+ "is_builtin": true,
+ "days": [
+  {"id": "6a1b2c3d-4e5f-4a6b-9c7d-8e9f0a1b2c01", "week": null, "day_index": 0, "name": "Upper A",
+   "exercises": [
+    {"id": "8f0e1d2c-3b4a-4596-8877-665544332201", "position": 0, "sets": 4, "reps_min": 5, "reps_max": 5,
+     "target_kind": "kg", "target_value": 80, "rest_sec": 180, "superset_group": null, "notes": "",
+     "exercise": {"id": "0b9a3c1e-5d2f-4a71-9e0c-3f6d1a2b4c02", "slug": "bench-press", "name": "Bench press",
+       "kind": "barbell", "primary_muscles": ["chest"], "secondary_muscles": ["triceps", "shoulders"],
+       "equipment": ["barbell", "bench"], "load_type": "weight", "bodyweight_factor": 0,
+       "is_unilateral": false, "is_custom": false, "archived": false}},
+    {"id": "8f0e1d2c-3b4a-4596-8877-665544332204", "position": 3, "sets": 3, "reps_min": 10, "reps_max": 12,
+     "target_kind": "rpe", "target_value": 8, "rest_sec": 120, "superset_group": 1, "notes": "Slow negatives",
+     "exercise": {"id": "0b9a3c1e-5d2f-4a71-9e0c-3f6d1a2b4c14", "slug": "lat-pulldown", "name": "Lat pulldown",
+       "kind": "cable", "primary_muscles": ["back"], "secondary_muscles": ["biceps"], "equipment": ["cable"],
+       "load_type": "weight", "bodyweight_factor": 0, "is_unilateral": false, "is_custom": false, "archived": false}}
+   ]},
+  {"id": "6a1b2c3d-4e5f-4a6b-9c7d-8e9f0a1b2c02", "week": 2, "day_index": 1, "name": "Lower A", "exercises": []}
+ ]}
