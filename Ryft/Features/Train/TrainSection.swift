@@ -53,8 +53,8 @@ struct TrainSection: View {
 enum TodayPlanText {
     /// "5 exercises · ~55 min".
     static func detail(_ today: PlanToday) -> String {
-        let n = today.day.exercises.count
-        return String(localized: "\(n) exercises · ~\(SessionEstimate.minutes(for: today.day.exercises)) min")
+        let exercises = String(localized: "\(today.day.exercises.count) exercises")
+        return "\(exercises) · ~\(SessionEstimate.minutes(for: today.day.exercises)) min"
     }
 }
 

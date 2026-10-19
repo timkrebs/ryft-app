@@ -287,6 +287,8 @@ struct SessionSummarySheet: View {
                             .foregroundStyle(prs.isEmpty ? Theme.accent : Theme.warning)
                             .symbolEffect(.bounce, value: celebrate)
                             .scaleEffect(celebrate || reduceMotion ? 1 : 0.6)
+                            .animation(reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.55).delay(0.15),
+                                       value: celebrate)
                         Text(prs.isEmpty ? String(localized: "Workout done")
                                          : String(localized: "\(prs.count) new PRs"))
                             .font(.ryft(.title))
@@ -342,9 +344,7 @@ struct SessionSummarySheet: View {
         .sensoryFeedback(.success, trigger: celebrate)
         .onAppear {
             notes = session?.notes ?? ""
-            withAnimation(reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.55).delay(0.15)) {
-                celebrate = true
-            }
+            celebrate = true
         }
         .interactiveDismissDisabled()
     }

@@ -323,8 +323,9 @@ enum MockTrain {
     }
 }
 
-/// Demo-only stand-in for the platform's scoring (`strength.go`): close enough
-/// that a 5×5 at 80 % reads like the reference session (load ≈ 85, strain ≈ 11).
+/// Demo-only stand-in for the platform's scoring (`strength.go`), relative to
+/// each exercise's best set: a typical mock session (heavy compounds plus
+/// accessories) lands near the platform's reference (load ≈ 85, strain ≈ 11).
 enum MockTrainScoring {
     static func load(of s: TrainSession) -> Double {
         var total = 0.0
@@ -339,7 +340,7 @@ enum MockTrainScoring {
                 total += set.isWarmup ? l * 0.25 : l
             }
         }
-        return (total * 1.77).rounded()
+        return (total * 0.95).rounded()
     }
 
     static func strain(forTrimp t: Double) -> Double {

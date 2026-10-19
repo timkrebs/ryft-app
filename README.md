@@ -103,6 +103,15 @@ Already in the project: **HealthKit** (with background delivery), **Background M
 (background fetch and processing, BGTask `dev.timkrebs.ryft.refresh`), **Sign in with Apple**,
 and the **`ryft`** URL type.
 
+**Live Activities** (the Train rest timer) need no capability and no push: the app sets
+`NSSupportsLiveActivities = YES` in `Info.plist` and starts, updates and ends the activity
+locally. The UI lives in the **RyftWidgetsExtension** target (`RyftWidgets/`, iOS 17), which is
+embedded in the app. For device builds the extension needs its own App ID,
+`dev.timkrebs.ryft.RyftWidgets`, under the same team. `RestTimerAttributes` is declared in
+both targets (`Ryft/Train/RestActivity.swift` and `RyftWidgets/RestTimerAttributes.swift`) and
+the two must stay identical. Alternatively, give the app's file membership in both targets in
+Xcode's File inspector and delete the copy.
+
 Garmin Connect must write to Apple Health: *Garmin Connect → More → Settings → Apple Health*.
 
 ### Fonts
@@ -140,6 +149,15 @@ board. Toggle it in **Profile → Data → Demo data**, or with launch arguments
 | `-RyftTab today/sleep/strain/insights/profile` | Initial tab |
 | `-RyftSleepMode day/week/month` | Initial Sleep segment |
 | `-RyftOpenWorkout YES` | Push the first workout on the Strain tab |
+| `-RyftResetTrain YES` | (Debug) Start with an empty Train store: no sessions, no upload queue |
+
+In demo mode Train works end to end against `MockTrainSource`: a 28-exercise library, four
+built-in plans plus one custom plan, an active Upper/Lower enrolment and 90 days of logged
+sessions. Completing a workout returns a demo load, strain and PRs.
+
+**Tests.** `RyftTests` (Swift Testing) runs on the `Ryft` scheme. The UI test (start → log two
+sets → kill → resume → finish) runs on the `RyftUITests` scheme. It finds the app by bundle
+ID; to use `XCUIApplication()`, set the target's *Target Application* to Ryft in Xcode.
 
 `scripts/screenshots.sh ["iPhone 17 Pro"]` builds the app, launches each tab in both
 colour schemes and writes PNGs to `docs/screenshots/`.
@@ -171,13 +189,17 @@ Ryft/
   Design/      Theme, Typography, RyftMark and components (ScoreRing, MetricTile, Card,
                SegmentedPicker, StageBar, Hypnogram, InsightCard, TrendChart, status views)
   Features/    Auth (Welcome, Create account, Log in, reset), Today, Sleep, Strain
-               (+ WorkoutDetail), Insights, Profile
+               (+ WorkoutDetail), Insights, Profile, Train (live session, plans, history)
   Health/      HealthKitManager: anchored queries, background delivery
   Sync/        SyncService: page → upload → persist anchor
+  Train/       SwiftData store (Model/), TrainSyncService (offline queue, 409 merge),
+               TrainLibrary (exercises, plans, today), maths, rest timer, Live Activity
   Networking/  APIClient (status handling), APIStatus, v1 wire models, response cache
   Preview/     MockData + MockDataSource, MockAuthClient, preview helpers
   Resources/   Fonts (fetched), string catalogs (en, de)
 RyftTests/     Swift Testing unit tests + JSON fixtures from API.md
+RyftUITests/   XCUITest: the Train session flow
+RyftWidgets/   widget extension: rest timer Live Activity
 Config/        Production.xcconfig (committed) + Debug/Release examples
 scripts/       fetch-fonts.sh, render-icon.swift, screenshots.sh
 ```
@@ -196,5 +218,15 @@ scripts/       fetch-fonts.sh, render-icon.swift, screenshots.sh
 - **Offline.** The last successful Today payload (with the 7-day readiness trend) is written
   to `Caches/ryft-responses/` and shown at launch with an "Updated 5 min ago" line.
 - **Nulls.** Fields can be `null` while the platform calibrates; every view shows "–".
+- **Train (local-first).** A workout is logged into SwiftData (`Train/Model/`) and survives
+  app kills. Every set change is queued in a persisted outbox and sent 2 s later as a
+  whole-document `PUT /v1/sessions/{id}`. Offline, the queue waits and `NWPathMonitor` (or
+  the app becoming active) replays it in order.
+  - A `409` carries the server's copy. The app merges it by set id (later `updated_at` wins)
+    and PUTs again.
+  - Finishing offline marks the session `pendingCompletion`; `POST …/complete` runs on
+    reconnect.
+  - Exercises, plans, today's plan and recent sessions are cached for browsing in the gym.
+  - Sessions are not written to Apple Health.
 - **App icon.** `make icon` renders the light, dark and tinted 1024 px PNGs from
   `Ryft/Design/RyftMark.swift`, so the icon and the in-app mark share one geometry.
