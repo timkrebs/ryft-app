@@ -1,30 +1,27 @@
 import SwiftUI
 
-/// Greeting, readiness ring, Sleep / Recovery / Strain tiles, 7-day trend.
+/// Greeting, readiness gauge, Sleep / Recovery / Strain tiles, Train, 7-day trend.
+/// Layout only: everything shown comes from `TodayViewModel`.
 struct TodayView: View {
-    @EnvironmentObject private var state: AppState
-    @EnvironmentObject private var sync: SyncService
-    @EnvironmentObject private var settings: Settings
-    @ObservedObject private var apiStatus = APIStatus.shared
-    @EnvironmentObject private var connectivity: ConnectivityMonitor
+    @Environment(ScreenModels.self) private var screens
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var score: DailyScore? { state.today?.score }
+    private var model: TodayViewModel { screens.today }
 
     var body: some View {
         NavigationStack {
             ScreenScaffold {
-                if state.hasDataSource {
+                if model.hasDataSource {
                     greeting
                     readinessRing
                     tiles
-                    if state.hasNoHealthData { HealthAccessHint() }
+                    if model.showsHealthHint { HealthAccessHint() }
                     TrainTodayCard()
                     trends
                     status
                 } else {
                     greeting
-                    SetupCard { state.selectedTab = .profile }
+                    SetupCard { model.open(.profile) }
                 }
             }
         }
@@ -34,15 +31,14 @@ struct TodayView: View {
 
     private var greeting: some View {
         VStack(spacing: 6) {
-            Text(ReadinessCopy.greeting())
+            Text(model.greeting)
                 .font(.ryft(.title))
                 .foregroundStyle(Theme.textPrimary)
-            Text(state.hasDataSource ? ReadinessCopy.sentence(score: score)
-                                     : String(localized: "Let's get you set up."))
+            Text(model.sentence)
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
-            if !connectivity.isOnline {
+            if model.isOffline {
                 OfflinePill().padding(.top, 4)
             }
         }
@@ -54,29 +50,27 @@ struct TodayView: View {
     /// Readiness on its 0–100 scale with band ticks, the band word and the change
     /// against the days before (from the 7-day trend).
     private var readinessRing: some View {
-        MetricGauge(spec: .readiness, value: score?.readiness.map(Double.init), size: .large,
-                    delta: .vsSevenDayMean(state.readinessWeek?.points ?? []),
+        MetricGauge(spec: .readiness, value: model.readiness, size: .large, delta: model.readinessDelta,
                     title: String(localized: "Overall readiness"), showsMark: true)
             .padding(.vertical, 4)
     }
 
     private var tiles: some View {
-        let sleepMin = score?.sleepActualMin ?? state.today?.sleep?.totalMin
         // Three columns truncate at accessibility sizes; stack the tiles there.
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
         return layout {
-            MetricTile(title: "Sleep", value: Fmt.duration(minutes: sleepMin), systemImage: "moon.fill",
+            MetricTile(title: "Sleep", value: model.sleepText, systemImage: "moon.fill",
                        tint: Theme.metricSleep, accessibilityHint: "Opens Sleep") {
-                state.selectedTab = .sleep
+                model.open(.sleep)
             }
-            MetricTile(title: "Recovery", value: Fmt.percent(score?.recovery), systemImage: "heart",
-                       tint: Theme.band(forScore: score?.recovery),
-                       caption: Theme.bandLabel(forScore: score?.recovery), accessibilityHint: "Opens Insights") {
-                state.selectedTab = .insights
+            MetricTile(title: "Recovery", value: model.recoveryText, systemImage: "heart",
+                       tint: Theme.band(forScore: model.recovery),
+                       caption: model.recoveryBand, accessibilityHint: "Opens Insights") {
+                model.open(.insights)
             }
-            MetricTile(title: "Strain", value: Fmt.strain(score?.strain), systemImage: "bolt.fill",
+            MetricTile(title: "Strain", value: model.strainText, systemImage: "bolt.fill",
                        tint: Theme.metricStrain, accessibilityHint: "Opens Strain") {
-                state.selectedTab = .strain
+                model.open(.strain)
             }
         }
         .fixedSize(horizontal: false, vertical: !typeSize.isAccessibilitySize)
@@ -84,12 +78,12 @@ struct TodayView: View {
 
     private var trends: some View {
         Button {
-            state.selectedTab = .insights
+            model.open(.insights)
         } label: {
             Card {
                 VStack(alignment: .leading, spacing: 12) {
                     CardHeader(title: "Trends", showsChevron: true)
-                    TrendChart(points: state.readinessWeek?.points ?? [], spec: .readiness, window: .week,
+                    TrendChart(points: model.readinessWeek, spec: .readiness, window: .week,
                                interactive: false, height: 110)
                 }
             }
@@ -100,22 +94,19 @@ struct TodayView: View {
 
     @ViewBuilder
     private var status: some View {
-        if let notice = apiStatus.retryNotice {
+        switch model.status {
+        case .retrying(let notice):
             InlineMessage(message: notice, systemImage: "clock.arrow.circlepath")
-        } else if let error = state.error {
-            InlineMessage(message: state.today == nil
-                          ? error
-                          : String(localized: "Couldn't refresh just now — showing your last loaded data."),
-                          details: state.errorDetails,
-                          retry: { await state.syncAndRefresh(using: sync) })
-        } else if !state.isDemo, let syncError = sync.lastError, settings.isConfigured {
-            InlineMessage(message: String(localized: "Health sync paused: \(syncError)"),
-                          systemImage: "heart.text.square",
-                          details: sync.lastErrorDetails,
-                          retry: { await state.syncAndRefresh(using: sync) })
+        case .error(let message, let details):
+            InlineMessage(message: message, details: details, retry: { await model.refresh() })
+        case .syncPaused(let message, let details):
+            InlineMessage(message: message, systemImage: "heart.text.square", details: details,
+                          retry: { await model.refresh() })
+        case nil:
+            EmptyView()
         }
-        UpdatedLabel(date: state.lastUpdated, isLoading: state.isLoading || sync.isSyncing, isDemo: state.isDemo,
-                     scoredAt: score?.computedAt)
+        UpdatedLabel(date: model.lastUpdated, isLoading: model.isRefreshing, isDemo: model.isDemo,
+                     scoredAt: model.scoredAt)
     }
 }
 
@@ -134,7 +125,7 @@ struct OfflinePill: View {
 }
 
 #Preview("Today · offline") {
-    TodayView().previewEnvironment(AppState.preview(), online: false)
+    TodayView().previewEnvironment(.preview(online: false), online: false)
 }
 
 #Preview("Today · dark") {

@@ -6,8 +6,8 @@ struct MetricTile: View {
     let value: String
     let systemImage: String
     var tint: Color = Theme.accent
-    /// A word under the icon, e.g. the recovery band.
-    var caption: LocalizedStringKey? = nil
+    /// A word under the icon, e.g. the recovery band (already localized).
+    var caption: String? = nil
     var accessibilityHint: LocalizedStringKey? = nil
     var action: (() -> Void)? = nil
 
@@ -47,7 +47,7 @@ struct MetricTile: View {
         .disabled(action == nil)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(title))
-        .accessibilityValue(value == Fmt.placeholder ? Text("No data") : caption.map { Text("\(value), \(Text($0))") } ?? Text(value))
+        .accessibilityValue(value == Fmt.placeholder ? Text("No data") : caption.map { Text(verbatim: "\(value), \($0)") } ?? Text(value))
         .accessibilityHint(accessibilityHint.map { Text($0) } ?? Text(""))
         .accessibilityAddTraits(action == nil ? [] : .isButton)
     }
@@ -57,7 +57,7 @@ struct MetricTile: View {
     SchemePair {
         HStack(spacing: 10) {
             MetricTile(title: "Sleep", value: "7h 48m", systemImage: "moon.fill", action: {})
-            MetricTile(title: "Recovery", value: "82%", systemImage: "heart", caption: "High", action: {})
+            MetricTile(title: "Recovery", value: "82%", systemImage: "heart", caption: String(localized: "High"), action: {})
             MetricTile(title: "Strain", value: Fmt.placeholder, systemImage: "bolt.fill", action: {})
         }
         .fixedSize(horizontal: false, vertical: true)

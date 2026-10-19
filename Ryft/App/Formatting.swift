@@ -93,8 +93,14 @@ enum Fmt {
 
     /// "Fri, 17 Oct"-style day title; "Today" / "Yesterday" where it applies.
     static func dayTitle(_ date: Date, calendar: Calendar = .current) -> String {
-        if calendar.isDateInToday(date) { return String(localized: "Today") }
-        if calendar.isDateInYesterday(date) { return String(localized: "Yesterday") }
+        dayTitle(date, today: .now, calendar: calendar)
+    }
+
+    /// Against an explicit "today" (the environment's clock).
+    static func dayTitle(_ date: Date, today: Date, calendar: Calendar = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: today) { return String(localized: "Today") }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
+           calendar.isDate(date, inSameDayAs: yesterday) { return String(localized: "Yesterday") }
         return date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
     }
 }

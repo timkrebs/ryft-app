@@ -2,8 +2,10 @@ import SwiftUI
 
 /// Strain tab → Train: Start workout (or resume), today's plan, plans, history.
 struct TrainSection: View {
-    @EnvironmentObject private var library: TrainLibrary
-    @EnvironmentObject private var coordinator: TrainCoordinator
+    @Environment(ScreenModels.self) private var screens
+    @Environment(TrainCoordinator.self) private var coordinator
+
+    private var model: TrainTodayViewModel { screens.trainToday }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -19,39 +21,23 @@ struct TrainSection: View {
                 .buttonStyle(TealButtonStyle())
                 .accessibilityIdentifier("train.start")
             }
-            if let today = library.today {
+            if let today = model.today, let title = model.todayLinkTitle {
                 NavigationLink(value: TrainRoute.plan(today.enrollment.planId)) {
-                    TrainLinkRow(title: String(localized: "Today's plan: \(today.day.name)"),
-                                 detail: TodayPlanText.detail(today), systemImage: "calendar")
+                    TrainLinkRow(title: title, detail: model.todayLinkDetail, systemImage: "calendar")
                 }
                 .buttonStyle(PressableButtonStyle())
             }
             NavigationLink(value: TrainRoute.plans) {
-                TrainLinkRow(title: String(localized: "My plans"), detail: plansDetail, systemImage: "list.bullet.rectangle")
+                TrainLinkRow(title: String(localized: "My plans"), detail: model.plansDetail,
+                             systemImage: "list.bullet.rectangle")
             }
             .buttonStyle(PressableButtonStyle())
             NavigationLink(value: TrainRoute.history) {
-                TrainLinkRow(title: String(localized: "History"), detail: historyDetail,
+                TrainLinkRow(title: String(localized: "History"), detail: model.historyDetail,
                              systemImage: "clock.arrow.circlepath")
             }
             .buttonStyle(PressableButtonStyle())
         }
-    }
-
-    private var plansDetail: String? {
-        if let e = library.activeEnrollment, e.status == .active {
-            return String(localized: "\(library.activePlanName ?? "") · week \(e.currentWeek)")
-        }
-        if let paused = library.pausedPlanID {
-            let name = library.catalog?.summary(id: paused)?.name ?? library.plan(id: paused)?.name ?? ""
-            return String(localized: "\(name) · paused")
-        }
-        return String(localized: "Pick a plan or build your own")
-    }
-
-    private var historyDetail: String? {
-        guard let last = library.cachedSessions().first else { return nil }
-        return String(localized: "Last: \(last.title) · \(Fmt.dayTitle(last.startedAt))")
     }
 }
 
@@ -65,20 +51,22 @@ enum TodayPlanText {
 
 /// From today's plan, repeat the last session, a plan day, or empty.
 struct StartWorkoutSheet: View {
-    @EnvironmentObject private var library: TrainLibrary
-    @EnvironmentObject private var coordinator: TrainCoordinator
+    @Environment(ScreenModels.self) private var screens
+    @Environment(TrainCoordinator.self) private var coordinator
     @Environment(\.dismiss) private var dismiss
-    @State private var last: TrainSession?
-    @State private var plan: Plan?
     @State private var showsDays = false
+
+    private var model: TrainTodayViewModel { screens.trainToday }
+    private var last: TrainSession? { model.lastSession }
+    private var plan: Plan? { model.activePlan }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 12) {
-                    if let today = library.today {
+                    if let todayText = model.todayText {
                         option(title: String(localized: "From today's plan"),
-                               detail: "\(today.day.name) · \(TodayPlanText.detail(today))",
+                               detail: todayText,
                                systemImage: "calendar", prominent: true) {
                             coordinator.startFromToday()
                         }
@@ -98,7 +86,7 @@ struct StartWorkoutSheet: View {
                             withAnimation(.snappy) { showsDays.toggle() }
                         }
                         if showsDays {
-                            ForEach(plan.days.sorted { ($0.week ?? 0, $0.dayIndex) < ($1.week ?? 0, $1.dayIndex) }) { day in
+                            ForEach(model.planDays) { day in
                                 Button {
                                     coordinator.start(day: day)
                                 } label: {
@@ -135,11 +123,8 @@ struct StartWorkoutSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
-            .task {
-                last = await library.lastSession()
-                // The active plan's days, for "A day from …".
-                if let id = library.activeEnrollment?.planId { plan = await library.loadPlan(id: id) }
-            }
+            // The last session to repeat, and the active plan's days for "A day from …".
+            .task { await model.loadStartOptions() }
         }
         .presentationDetents([.medium, .large])
     }
@@ -178,18 +163,15 @@ struct StartWorkoutSheet: View {
 /// Today: "Today: Upper A · 5 exercises · ~55 min" → Start; in progress → Resume;
 /// after a session "Done · load 84.6 · 2 PRs".
 struct TrainTodayCard: View {
-    @EnvironmentObject private var library: TrainLibrary
-    @EnvironmentObject private var coordinator: TrainCoordinator
-    @EnvironmentObject private var sync: TrainSyncService
+    @Environment(ScreenModels.self) private var screens
+    @Environment(TrainCoordinator.self) private var coordinator
 
-    private var doneToday: LocalSession? {
-        sync.store.completedSessions(from: Calendar.current.startOfDay(for: .now)).first
-    }
+    private var model: TrainTodayViewModel { screens.trainToday }
 
     var body: some View {
         if let active = coordinator.active {
             WorkoutInProgressBanner(session: active) { coordinator.resume() }
-        } else if let done = doneToday {
+        } else if let done = model.doneToday {
             Card {
                 HStack(spacing: 14) {
                     Image(systemName: "checkmark.seal.fill")
@@ -197,7 +179,7 @@ struct TrainTodayCard: View {
                         .foregroundStyle(Theme.accent)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(done.title).ryftLabelStyle()
-                        Text(doneText(done))
+                        Text(TrainTodayViewModel.doneText(done))
                             .font(.ryft(.body))
                             .monospacedDigit()
                             .foregroundStyle(Theme.textPrimary)
@@ -207,7 +189,7 @@ struct TrainTodayCard: View {
                 }
             }
             .accessibilityElement(children: .combine)
-        } else if let today = library.today {
+        } else if let todayText = model.todayText {
             Card {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(alignment: .firstTextBaseline) {
@@ -215,7 +197,7 @@ struct TrainTodayCard: View {
                         Spacer()
                         Image(systemName: "dumbbell.fill").foregroundStyle(Theme.accent).accessibilityHidden(true)
                     }
-                    Text("Today: \(today.day.name) · \(TodayPlanText.detail(today))")
+                    Text("Today: \(todayText)")
                         .font(.ryft(.body))
                         .foregroundStyle(Theme.textPrimary)
                     Button {
@@ -228,15 +210,6 @@ struct TrainTodayCard: View {
                 }
             }
         }
-    }
-
-    /// "Done · load 11.2 · 2 PRs": the session's `strain`, the muscular load on the strain scale.
-    private func doneText(_ s: LocalSession) -> String {
-        var parts = [String(localized: "Done")]
-        if let load = s.strain { parts.append(String(localized: "load \(Fmt.load(load))")) }
-        let prs = s.prs.count
-        if prs > 0 { parts.append(String(localized: "\(prs) PRs")) }
-        return parts.joined(separator: " · ")
     }
 }
 

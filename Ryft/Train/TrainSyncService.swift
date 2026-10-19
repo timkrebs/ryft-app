@@ -8,17 +8,19 @@
 //
 // Nothing here touches HealthKit; sessions aren't written to Health in v1.
 import Foundation
+import Observation
 
 @MainActor
-final class TrainSyncService: ObservableObject {
+@Observable
+final class TrainSyncService {
     static let shared = TrainSyncService()
 
-    @Published private(set) var isOnline = true
-    @Published private(set) var pendingCount = 0
-    @Published private(set) var isFlushing = false
-    @Published private(set) var lastError: String?
+    private(set) var isOnline = true
+    private(set) var pendingCount = 0
+    private(set) var isFlushing = false
+    private(set) var lastError: String?
     /// The latest completion the server answered, for the summary sheet.
-    @Published private(set) var lastCompletion: TrainSession?
+    private(set) var lastCompletion: TrainSession?
 
     let store: TrainStore
     private let remoteProvider: () -> TrainDataSource

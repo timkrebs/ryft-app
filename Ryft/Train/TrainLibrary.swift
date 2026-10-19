@@ -1,17 +1,19 @@
 // Exercises, plans and today's prescription, cached for offline browsing in the
 // gym. Screens read the cached copy at once; `refresh()` (app active) updates it.
 import Foundation
+import Observation
 
 @MainActor
-final class TrainLibrary: ObservableObject {
+@Observable
+final class TrainLibrary {
     static let shared = TrainLibrary()
 
-    @Published private(set) var exercises: [Exercise] = []
-    @Published private(set) var catalog: PlansOverview?
-    @Published private(set) var today: PlanToday?
-    @Published private(set) var isLoading = false
-    @Published var error: String?
-    @Published var errorDetails: String?
+    private(set) var exercises: [Exercise] = []
+    private(set) var catalog: PlansOverview?
+    private(set) var today: PlanToday?
+    private(set) var isLoading = false
+    var error: String?
+    var errorDetails: String?
 
     let store: TrainStore
     private let remoteProvider: () -> TrainDataSource

@@ -6,19 +6,20 @@ import UIKit
 /// all open (and resume) it. The session itself lives in SwiftData, so it
 /// survives app kills; `resumeIfNeeded()` finds it again.
 @MainActor
-final class TrainCoordinator: ObservableObject {
+@Observable
+final class TrainCoordinator {
     static let shared = TrainCoordinator()
 
     /// Presented full screen while set.
-    @Published var live: SessionController?
+    var live: SessionController?
     /// Shown after Finish, over whatever screen the user returns to.
-    @Published var summary: FinishSummary?
-    @Published var showsStart = false
+    var summary: FinishSummary?
+    var showsStart = false
 
     let sync: TrainSyncService
     let library: TrainLibrary
     /// The in-progress session, presented or not ("Workout in progress · 23 min").
-    @Published private(set) var active: LocalSession?
+    private(set) var active: LocalSession?
 
     init(sync: TrainSyncService? = nil, library: TrainLibrary? = nil) {
         self.sync = sync ?? .shared

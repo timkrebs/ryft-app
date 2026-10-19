@@ -3,34 +3,19 @@ import UIKit
 
 /// Account, body settings, data/sync and about. Replaces the scaffold's SettingsView.
 struct ProfileView: View {
-    @Environment(\.appEnvironment) private var env
-    @EnvironmentObject private var settings: Settings
-    @EnvironmentObject private var auth: AuthService
-    @EnvironmentObject private var sync: SyncService
-    @ObservedObject private var apiStatus = APIStatus.shared
-    @EnvironmentObject private var state: AppState
+    @Environment(ScreenModels.self) private var screens
+    @Environment(Settings.self) private var settings
+    @Environment(AppState.self) private var state
     @Environment(\.openURL) private var openURL
+    private var apiStatus = APIStatus.shared
 
-    @State private var connection: ConnectionResult?
-    @State private var testing = false
-    @State private var maxHR = 190
-    @State private var sleepBase = 480
-    @State private var recomputeStatus: String?
-    @State private var recomputing = false
     @State private var showResyncConfirm = false
     @State private var showLogOutConfirm = false
     @State private var showDeleteConfirm = false
     @State private var showChangePassword = false
-    @State private var healthStatus: HealthAccess = .unknown
     @State private var legal: LegalPage?
-    @State private var exporting = false
-    @State private var exported: ExportedFile?
-    @State private var exportError: String?
 
-    private enum ConnectionResult {
-        case ok(String)
-        case failed(String)
-    }
+    private var model: ProfileViewModel { screens.profile }
 
     var body: some View {
         NavigationStack {
@@ -50,32 +35,28 @@ struct ProfileView: View {
             }
         }
         .safariSheet($legal)
-        .sheet(item: $exported) { ShareSheet(items: [$0.url]).presentationDetents([.medium, .large]) }
-        .onAppear { applyUser() }
-        .onChange(of: state.user) { applyUser() }
-        .task { healthStatus = await env.health.accessStatus() }
+        .sheet(item: Bindable(model).exported) { ShareSheet(items: [$0.url]).presentationDetents([.medium, .large]) }
+        .onAppear { model.applyUser() }
+        .onChange(of: state.user) { model.applyUser() }
+        .task { await model.refreshHealthStatus() }
         .confirmationDialog("Re-upload the last 90 days of Health data?", isPresented: $showResyncConfirm,
                             titleVisibility: .visible) {
             Button("Re-sync", role: .destructive) {
-                Task {
-                    await sync.fullResync()
-                    try? await state.source.recompute(from: DayFormat.shift(.now, days: -90), to: .now)
-                    await state.refresh()
-                }
+                Task { await model.fullResync() }
             }
         } message: {
             Text("This uploads everything again. It can take a few minutes on the first run.")
         }
         .confirmationDialog("Log out of RYFT?", isPresented: $showLogOutConfirm, titleVisibility: .visible) {
             Button("Log out", role: .destructive) {
-                Task { await auth.signOut() }
+                Task { await model.logOut() }
             }
         } message: {
             Text("Cached scores and Health sync progress are removed from this iPhone. Your account and data stay on the RYFT platform.")
         }
         .alert("Delete your RYFT account?", isPresented: $showDeleteConfirm) {
             Button("Delete account", role: .destructive) {
-                Task { await auth.deleteAccount() }
+                Task { await model.deleteAccount() }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -90,15 +71,15 @@ struct ProfileView: View {
 
     private var account: some View {
         ProfileSection(title: "Account") {
-            if auth.isSignedIn {
+            if model.isSignedIn {
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(accountTitle)
+                        Text(model.accountTitle)
                             .font(.ryft(.headline))
                             .foregroundStyle(Theme.textPrimary)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                        if let email = accountEmail, email != accountTitle {
+                        if let email = model.accountSubtitle {
                             Text(email)
                                 .font(.ryft(.caption))
                                 .foregroundStyle(Theme.textSecondary)
@@ -107,26 +88,24 @@ struct ProfileView: View {
                         }
                     }
                     Spacer(minLength: 8)
-                    if let badge = providerBadge {
+                    if let badge = model.providerBadge {
                         ProviderBadge(title: badge.title, systemImage: badge.systemImage)
                     }
                 }
                 .accessibilityElement(children: .combine)
-                if let u = state.user {
-                    StatRow(title: "Timezone", value: u.tz,
-                            detail: u.tz == TimeZone.current.identifier ? nil
-                                : String(localized: "Phone: \(TimeZone.current.identifier)"))
+                if let tz = model.timezone {
+                    StatRow(title: "Timezone", value: tz, detail: model.timezoneDetail)
                 }
                 Divider().overlay(Theme.separator)
-                if provider == "email" {
+                if model.canChangePassword {
                     PrimaryButton(title: "Change password", style: .secondary) { showChangePassword = true }
                 }
                 PrimaryButton(title: "Log out", style: .secondary) { showLogOutConfirm = true }
-                PrimaryButton(title: "Delete account", style: .destructive, busy: auth.isWorking) {
+                PrimaryButton(title: "Delete account", style: .destructive, busy: model.isWorking) {
                     showDeleteConfirm = true
                 }
-                if let error = auth.errorMessage {
-                    InlineMessage(message: error, systemImage: "exclamationmark.circle", details: auth.errorDetails)
+                if let error = model.accountError {
+                    InlineMessage(message: error, systemImage: "exclamationmark.circle", details: model.accountErrorDetails)
                 }
             } else {
                 StatRow(title: "Signed in", value: String(localized: "No"), valueColor: Theme.textSecondary)
@@ -134,28 +113,6 @@ struct ProfileView: View {
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textTertiary)
             }
-        }
-    }
-
-    /// `User.name` → email → "Apple ID".
-    private var accountTitle: String {
-        if let name = state.user?.name, !name.isEmpty { return name }
-        return accountEmail ?? auth.identityDescription
-    }
-
-    private var accountEmail: String? {
-        let email = state.user?.email ?? auth.user?.email
-        return email?.isEmpty == false ? email : nil
-    }
-
-    /// The platform's `User.provider`, else the session's `app_metadata.provider`.
-    private var provider: String? { state.user?.provider ?? auth.provider }
-
-    private var providerBadge: (title: LocalizedStringKey, systemImage: String)? {
-        switch provider {
-        case "apple": return ("Apple", "apple.logo")
-        case "email": return ("Email", "envelope.fill")
-        default: return nil
         }
     }
 
@@ -170,17 +127,17 @@ struct ProfileView: View {
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
             FieldLabel("API URL override")
-            TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftapp.de", text: $settings.devAPIURLOverride)
+            TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftapp.de", text: Bindable(settings).devAPIURLOverride)
                 .ryftField()
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
             FieldLabel("Ingest URL override (compose: :8081)")
-            TextField("Same host as the API", text: $settings.devIngestURLOverride)
+            TextField("Same host as the API", text: Bindable(settings).devIngestURLOverride)
                 .ryftField()
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
 
-            Toggle(isOn: $settings.apiKeyMode) {
+            Toggle(isOn: Bindable(settings).apiKeyMode) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("API key mode")
                         .font(.ryft(.body))
@@ -193,12 +150,12 @@ struct ProfileView: View {
             .tint(Theme.accent)
             if settings.apiKeyMode {
                 FieldLabel("API key")
-                SecureField("Bearer token", text: $settings.devAPIKey)
+                SecureField("Bearer token", text: Bindable(settings).devAPIKey)
                     .ryftField()
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
             }
 
-            Toggle(isOn: $settings.showRequestIDs) {
+            Toggle(isOn: Bindable(settings).showRequestIDs) {
                 Text("Show request IDs")
                     .font(.ryft(.body))
                     .foregroundStyle(Theme.textPrimary)
@@ -225,8 +182,10 @@ struct ProfileView: View {
                 }
             }
 
-            PrimaryButton(title: "Test connection", style: .secondary, busy: testing) { await testConnection() }
-            switch connection {
+            PrimaryButton(title: "Test connection", style: .secondary, busy: model.testingConnection) {
+                await model.testConnection()
+            }
+            switch model.connection {
             case .ok(let text):
                 Label(text, systemImage: "checkmark.circle.fill")
                     .font(.ryft(.callout))
@@ -239,68 +198,27 @@ struct ProfileView: View {
         }
     }
 
-    private func testConnection() async {
-        testing = true
-        defer { testing = false }
-        guard settings.isConfigured else {
-            connection = .failed(APIError.notConfigured.localizedDescription)
-            return
-        }
-        guard auth.isSignedIn else {
-            connection = .failed(APIError.signedOut.localizedDescription)
-            return
-        }
-        do {
-            let user = try await env.liveAPI.me()
-            connection = .ok(String(localized: "Connected as \(user.name.isEmpty ? user.id.uuidString : user.name)"))
-            await state.syncAndRefresh(using: sync)
-        } catch {
-            connection = .failed(error.localizedDescription)
-        }
-    }
     #endif
 
     // MARK: body
 
     private var bodySection: some View {
         ProfileSection(title: "Body") {
-            Stepper(value: $maxHR, in: 140...220) {
-                StepperLabel(title: "Max heart rate", value: "\(maxHR) bpm")
+            Stepper(value: Bindable(model).maxHR, in: 140...220) {
+                StepperLabel(title: "Max heart rate", value: model.maxHRText)
             }
-            Stepper(value: $sleepBase, in: 300...600, step: 10) {
-                StepperLabel(title: "Sleep baseline", value: Fmt.duration(minutes: sleepBase))
+            Stepper(value: Bindable(model).sleepBase, in: 300...600, step: 10) {
+                StepperLabel(title: "Sleep baseline", value: model.sleepBaseText)
             }
-            PrimaryButton(title: "Apply & recompute 90 days", style: .secondary, busy: recomputing) {
-                await applyAndRecompute()
+            PrimaryButton(title: "Apply & recompute 90 days", style: .secondary, busy: model.recomputing) {
+                await model.applyAndRecompute()
             }
-            .disabled(!state.hasDataSource)
-            if let recomputeStatus {
-                Text(recomputeStatus)
+            .disabled(!model.canRecompute)
+            if let status = model.recomputeStatus {
+                Text(status)
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textSecondary)
             }
-        }
-    }
-
-    private func applyAndRecompute() async {
-        recomputing = true
-        defer { recomputing = false }
-        await state.updateUser(UserPatch(tz: TimeZone.current.identifier, maxHr: maxHR, sleepBaseMin: sleepBase))
-        do {
-            try await state.source.recompute(from: DayFormat.shift(.now, days: -90), to: .now)
-            recomputeStatus = String(localized: "Recomputing — scores update in a few seconds.")
-            try? await Task.sleep(for: .seconds(3))
-            await state.refresh()
-            recomputeStatus = String(localized: "Scores recomputed with your new settings.")
-        } catch {
-            recomputeStatus = error.localizedDescription
-        }
-    }
-
-    private func applyUser() {
-        if let u = state.user {
-            maxHR = u.maxHr
-            sleepBase = u.sleepBaseMin
         }
     }
 
@@ -308,14 +226,11 @@ struct ProfileView: View {
 
     private var data: some View {
         ProfileSection(title: "Data") {
-            StatRow(title: "Apple Health", value: healthStatusText,
-                    valueColor: healthStatus == .asked ? Theme.textPrimary : Theme.warning)
+            StatRow(title: "Apple Health", value: model.healthStatusText,
+                    valueColor: model.healthNeedsAttention ? Theme.warning : Theme.textPrimary)
             HStack(spacing: 10) {
-                if healthStatus == .notAsked {
-                    PrimaryButton(title: "Allow access", style: .secondary) {
-                        try? await env.health.requestAuthorization()
-                        healthStatus = await env.health.accessStatus()
-                    }
+                if model.canAskForHealth {
+                    PrimaryButton(title: "Allow access", style: .secondary) { await model.requestHealthAccess() }
                 }
                 PrimaryButton(title: "Open Health permissions", style: .secondary) { HealthLinks.open(with: openURL) }
             }
@@ -325,45 +240,41 @@ struct ProfileView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Divider().overlay(Theme.separator)
-            StatRow(title: "Last sync",
-                    value: settings.lastSync?.formatted(.relative(presentation: .named)) ?? String(localized: "Never"))
-            StatRow(title: "Device ID", value: String(settings.deviceId.uuidString.prefix(8)) + "…")
-            if sync.isSyncing {
+            StatRow(title: "Last sync", value: model.lastSyncText)
+            StatRow(title: "Device ID", value: model.deviceIDText)
+            if model.isSyncing {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small).tint(Theme.accent)
-                    Text(sync.progress.isEmpty ? String(localized: "Syncing…") : sync.progress)
+                    Text(model.syncProgress)
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textSecondary)
                 }
             }
-            if let notice = apiStatus.retryNotice {
+            switch model.syncNotice {
+            case .retrying(let notice):
                 InlineMessage(message: notice, systemImage: "clock.arrow.circlepath")
-            } else if let e = sync.lastError, !settings.demoMode {
-                InlineMessage(message: e, systemImage: "exclamationmark.arrow.triangle.2.circlepath",
-                              details: sync.lastErrorDetails)
+            case .failed(let message, let details):
+                InlineMessage(message: message, systemImage: "exclamationmark.arrow.triangle.2.circlepath",
+                              details: details)
+            case nil:
+                EmptyView()
             }
             HStack(spacing: 10) {
-                PrimaryButton(title: "Sync now", style: .secondary, busy: sync.isSyncing) {
-                    await state.syncAndRefresh(using: sync)
-                }
+                PrimaryButton(title: "Sync now", style: .secondary, busy: model.isSyncing) { await model.syncNow() }
                 PrimaryButton(title: "Full re-sync", style: .destructive) { showResyncConfirm = true }
             }
-            .disabled(sync.isSyncing || !settings.isConfigured || !auth.isSignedIn || settings.demoMode)
+            .disabled(!model.canSync)
 
-            if auth.isSignedIn || settings.demoMode {
-                PrimaryButton(title: "Export my data", style: .secondary, busy: exporting) { await export() }
+            if model.canExport {
+                PrimaryButton(title: "Export my data", style: .secondary, busy: model.exporting) { await model.export() }
                     .accessibilityHint(Text("Creates a JSON file of your scores, workouts and sessions to share or save"))
-                if let exportError {
-                    InlineMessage(message: exportError, systemImage: "square.and.arrow.up")
+                if let error = model.exportError {
+                    InlineMessage(message: error, systemImage: "square.and.arrow.up")
                 }
             }
 
             Divider().overlay(Theme.separator)
-            Toggle(isOn: Binding(get: { settings.demoMode }, set: { on in
-                settings.demoMode = on
-                state.reset()
-                Task { await state.refresh() }
-            })) {
+            Toggle(isOn: Binding(get: { model.demoMode }, set: { on in Task { await model.setDemoMode(on) } })) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Demo data")
                         .font(.ryft(.body))
@@ -377,33 +288,11 @@ struct ProfileView: View {
         }
     }
 
-    private func export() async {
-        exporting = true
-        exportError = nil
-        defer { exporting = false }
-        do {
-            let archive = try await DataExport.archive(source: state.source, train: env.api)
-            exported = ExportedFile(url: try DataExport.write(archive))
-        } catch {
-            exportError = String(localized: "The export couldn't be created: \(error.localizedDescription)")
-        }
-    }
-
-    private var healthStatusText: String {
-        switch healthStatus {
-        case .unavailable: return String(localized: "Not available")
-        case .notAsked: return String(localized: "Not requested")
-        case .asked: return String(localized: "Requested")
-        case .unknown: return Fmt.placeholder
-        }
-    }
-
-
     // MARK: appearance & about
 
     private var appearance: some View {
         ProfileSection(title: "Appearance") {
-            SegmentedPicker(selection: $settings.appearance, options: Settings.Appearance.allCases) { a in
+            SegmentedPicker(selection: Bindable(settings).appearance, options: Settings.Appearance.allCases) { a in
                 switch a {
                 case .dark: return String(localized: "Dark")
                 case .light: return String(localized: "Light")
@@ -483,7 +372,7 @@ private struct FieldLabel: View {
 }
 
 private struct ProviderBadge: View {
-    let title: LocalizedStringKey
+    let title: String
     let systemImage: String
 
     var body: some View {

@@ -3,7 +3,7 @@ import SwiftUI
 /// After sign-up (email confirmation on) or a reset request. The link opens
 /// the app through `ryft://auth/callback` and completes the session there.
 struct CheckInboxView: View {
-    @EnvironmentObject private var auth: AuthService
+    @Environment(AuthService.self) private var auth
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     let reason: InboxReason
@@ -57,7 +57,7 @@ struct CheckInboxView: View {
     NavigationStack {
         CheckInboxView(reason: .confirmSignUp, email: "tim@example.com")
     }
-    .environmentObject(AuthService.preview(signedIn: false))
+    .environment(AuthService.preview(signedIn: false))
     .preferredColorScheme(.dark)
 }
 
@@ -65,6 +65,6 @@ struct CheckInboxView: View {
     NavigationStack {
         CheckInboxView(reason: .resetPassword, email: "tim@example.com")
     }
-    .environmentObject(AuthService.preview(signedIn: false))
+    .environment(AuthService.preview(signedIn: false))
     .preferredColorScheme(.light)
 }

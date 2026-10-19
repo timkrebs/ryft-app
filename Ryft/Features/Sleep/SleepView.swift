@@ -3,21 +3,23 @@ import Charts
 
 /// Sleep: Day (stages, quality, details) and Week / Month (nightly bars).
 struct SleepView: View {
-    @EnvironmentObject private var state: AppState
-    @StateObject private var model = SleepViewModel()
+    @Environment(AppState.self) private var state
+    @Environment(ScreenModels.self) private var screens
+
+    private var model: SleepViewModel { screens.sleep }
 
     var body: some View {
         NavigationStack {
             ScreenScaffold {
                 titleRow
-                SegmentedPicker(selection: $model.mode, options: SleepMode.allCases, title: \.title)
+                SegmentedPicker(selection: Bindable(model).mode, options: SleepMode.allCases, title: \.title)
                 switch model.mode {
                 case .day: day
                 case .week, .month: SleepRangeSection(range: model.range, isLoading: model.isLoading)
                 }
             }
         }
-        .task(id: TaskKey(mode: model.mode, refreshed: state.lastUpdated)) { await model.load(state: state) }
+        .task(id: TaskKey(mode: model.mode, refreshed: state.lastUpdated)) { await model.load() }
     }
 
     private struct TaskKey: Equatable {
@@ -29,27 +31,25 @@ struct SleepView: View {
 
     private var titleRow: some View {
         HStack {
-            stepButton("chevron.left", label: "Previous night", days: -1, enabled: model.mode == .day)
+            stepButton("chevron.left", label: "Previous night", days: -1, enabled: model.canStepBack)
             Spacer()
             VStack(spacing: 2) {
                 Text("Sleep")
                     .font(.ryft(.title))
                     .foregroundStyle(Theme.textPrimary)
                     .accessibilityAddTraits(.isHeader)
-                Text(model.mode == .day ? (model.isToday ? String(localized: "Last night") : Fmt.dayTitle(model.date))
-                                        : model.mode == .week ? String(localized: "Last 7 nights")
-                                                              : String(localized: "Last 30 nights"))
+                Text(model.subtitle)
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textSecondary)
             }
             Spacer()
-            stepButton("chevron.right", label: "Next night", days: 1, enabled: model.mode == .day && !model.isToday)
+            stepButton("chevron.right", label: "Next night", days: 1, enabled: model.canStepForward)
         }
     }
 
     private func stepButton(_ icon: String, label: LocalizedStringKey, days: Int, enabled: Bool) -> some View {
         Button {
-            Task { await model.step(by: days, state: state) }
+            Task { await model.step(by: days) }
         } label: {
             Image(systemName: icon)
                 .font(.system(size: 16, weight: .medium))
@@ -68,15 +68,15 @@ struct SleepView: View {
     @ViewBuilder
     private var day: some View {
         if let sleep = model.sleep {
-            SleepDaySection(sleep: sleep, score: model.detail?.score)
+            SleepDaySection(sleep: sleep, score: model.score)
         } else if model.isLoading {
             ProgressView().tint(Theme.accent).padding(.top, 40)
         } else if let error = model.error {
-            InlineMessage(message: error, retry: { await model.load(state: state) })
+            InlineMessage(message: error, retry: { await model.load() })
         } else {
             InlineMessage(message: String(localized: "No sleep recorded for this night."),
                           systemImage: "moon.zzz")
-            if state.hasNoHealthData { HealthAccessHint() }
+            if model.hasNoHealthData { HealthAccessHint() }
         }
     }
 }
@@ -86,10 +86,12 @@ struct SleepDaySection: View {
     let sleep: SleepDetail
     let score: DailyScore?
 
+    private var summary: SleepNightSummary { SleepNightSummary(sleep: sleep, score: score) }
+
     var body: some View {
         VStack(spacing: Theme.Metrics.sectionSpacing) {
             VStack(spacing: 4) {
-                Text(Fmt.duration(minutes: sleep.totalMin))
+                Text(summary.total)
                     .font(.ryft(.numberLarge))
                     .monospacedDigit()
                     .foregroundStyle(Theme.textPrimary)
@@ -132,48 +134,44 @@ struct SleepDaySection: View {
     }
 
     private var quality: some View {
-        Card {
+        let summary = summary
+        return Card {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Sleep quality")
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
                 HStack(alignment: .firstTextBaseline) {
-                    Text(sleep.resolvedQualityLabel ?? Fmt.placeholder)
+                    Text(summary.qualityLabel)
                         .font(.ryft(.headline))
                         .foregroundStyle(Theme.accent)
                     Spacer()
-                    Text(Fmt.percent(sleep.quality))
+                    Text(summary.quality)
                         .font(.ryft(.headline))
                         .monospacedDigit()
                         .foregroundStyle(Theme.textPrimary)
                 }
-                ProgressBar(value: sleep.quality.map { Double($0) / 100 })
+                ProgressBar(value: summary.qualityFraction)
             }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Sleep quality"))
-        .accessibilityValue(Text("\(sleep.resolvedQualityLabel ?? Fmt.placeholder), \(Fmt.percent(sleep.quality))"))
+        .accessibilityValue(Text("\(summary.qualityLabel), \(summary.quality)"))
     }
 
     private var details: some View {
-        let need = score?.sleepNeedMin
-        let actual = score?.sleepActualMin ?? sleep.totalMin
-        let debt = score?.sleepDebtMin
+        let summary = summary
         return Card {
             VStack(spacing: 14) {
-                StatRow(title: "Bedtime", value: Fmt.time(sleep.start))
-                StatRow(title: "Wake time", value: Fmt.time(sleep.end))
+                StatRow(title: "Bedtime", value: summary.bedtime)
+                StatRow(title: "Wake time", value: summary.wake)
                 Divider().overlay(Theme.separator)
-                StatRow(title: "Time in bed", value: Fmt.duration(minutes: sleep.timeInBedMin))
-                StatRow(title: "Efficiency", value: Fmt.percent(sleep.efficiencyPercent))
+                StatRow(title: "Time in bed", value: summary.timeInBed)
+                StatRow(title: "Efficiency", value: summary.efficiency)
                 Divider().overlay(Theme.separator)
-                StatRow(title: "Sleep need", value: Fmt.duration(minutes: need))
-                StatRow(title: "Actual", value: Fmt.duration(minutes: actual),
-                        detail: need.flatMap { n in actual.map { a in
-                            String(localized: "\(Int((Double(a) / Double(max(n, 1)) * 100).rounded()))% of need")
-                        } })
-                StatRow(title: "Sleep debt", value: debt == 0 ? String(localized: "None") : Fmt.duration(minutes: debt),
-                        valueColor: (debt ?? 0) > 45 ? Theme.warning : Theme.textPrimary)
+                StatRow(title: "Sleep need", value: summary.need)
+                StatRow(title: "Actual", value: summary.actual, detail: summary.actualOfNeed)
+                StatRow(title: "Sleep debt", value: summary.debt,
+                        valueColor: summary.debtIsHigh ? Theme.warning : Theme.textPrimary)
             }
         }
     }
@@ -209,34 +207,13 @@ struct SleepRangeSection: View {
     let range: SleepRange?
     let isLoading: Bool
 
-    private struct Bar: Identifiable {
-        let date: Date
-        let stage: String
-        let hours: Double
-        var id: String { "\(date.timeIntervalSince1970)-\(stage)" }
-    }
-
-    private static let asleep = String(localized: "Asleep")
-    private static let stageOrder = [SleepStageKind.deep, .light, .rem]
-
-    private var bars: [Bar] {
-        (range?.days ?? []).flatMap { night -> [Bar] in
-            let staged = Self.stageOrder.compactMap { s -> Bar? in
-                let m = night.minutes(for: s)
-                return m > 0 ? Bar(date: night.date, stage: s.title, hours: Double(m) / 60) : nil
-            }
-            if !staged.isEmpty { return staged }
-            guard let total = night.totalMin, total > 0 else { return [] }
-            return [Bar(date: night.date, stage: Self.asleep, hours: Double(total) / 60)]
-        }
-    }
-
     var body: some View {
         if let range {
+            let summary = SleepRangeSummary(range: range)
             VStack(spacing: Theme.Metrics.sectionSpacing) {
-                averages(range)
-                chart(range)
-                consistency(range)
+                averages(summary)
+                chart(summary)
+                consistency(summary)
             }
         } else if isLoading {
             ProgressView().tint(Theme.accent).padding(.top, 40)
@@ -245,11 +222,11 @@ struct SleepRangeSection: View {
         }
     }
 
-    private func averages(_ range: SleepRange) -> some View {
+    private func averages(_ summary: SleepRangeSummary) -> some View {
         HStack(spacing: 10) {
-            average(title: "Avg sleep", value: Fmt.duration(minutes: range.avgTotalMin))
-            average(title: "Avg quality", value: Fmt.percent(range.avgQuality))
-            average(title: "Nights", value: "\(range.nights)")
+            average(title: "Avg sleep", value: summary.averageSleep)
+            average(title: "Avg quality", value: summary.averageQuality)
+            average(title: "Nights", value: summary.nights)
         }
     }
 
@@ -269,31 +246,25 @@ struct SleepRangeSection: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func chart(_ range: SleepRange) -> some View {
-        let bars = bars
-        let hasUnstaged = bars.contains { $0.stage == Self.asleep }
-        let names = Self.stageOrder.map(\.title) + (hasUnstaged ? [Self.asleep] : [])
-        let colors = Self.stageOrder.map(Theme.color(for:)) + (hasUnstaged ? [Theme.accentSecondary] : [])
-        let window: ChartWindow = range.range == SleepRangeKind.month.rawValue ? .month : .week
-        let end = range.to.flatMap(DayFormat.date(from:)) ?? range.days.last?.date ?? .now
-        let totals = range.days.map { TrendPoint(day: $0.day, value: $0.totalMin.map(Double.init)) }
-        // Stacked heights per night, so the scale covers the tallest bar.
-        let heights = Dictionary(grouping: bars, by: \.date).values.map { $0.reduce(0) { $0 + $1.hours } }
-        let scale = ChartStyle.niceScale(heights + [range.avgTotalMin.map { Double($0) / 60 }].compactMap { $0 } + [0],
-                                         steps: ChartStyle.hourSteps)
+    private func chart(_ summary: SleepRangeSummary) -> some View {
+        let order = SleepRangeSummary.stageOrder
+        let names = order.map(\.title) + (summary.hasUnstaged ? [SleepRangeSummary.asleep] : [])
+        let colors = order.map(Theme.color(for:)) + (summary.hasUnstaged ? [Theme.accentSecondary] : [])
+        let window = summary.window
+        let end = summary.end
+        let scale = ChartStyle.niceScale([summary.tallestNight, summary.averageHours ?? 0, 0], steps: ChartStyle.hourSteps)
         return Card {
             VStack(alignment: .leading, spacing: 12) {
-                ChartHeader(spec: .sleepMin, value: totals.last?.value, delta: .vsSevenDayMean(totals),
+                ChartHeader(spec: .sleepMin, value: summary.totals.last?.value, delta: .vsSevenDayMean(summary.totals),
                             window: window.title)
                 Chart {
-                    ForEach(bars) { b in
+                    ForEach(summary.bars) { b in
                         BarMark(x: .value("Night", b.date, unit: .day), y: .value("Hours", b.hours))
                             .foregroundStyle(by: .value("Stage", b.stage))
                             .cornerRadius(1)
                     }
-                    if let avg = range.avgTotalMin {
-                        BaselineRule(value: Double(avg) / 60,
-                                     label: String(localized: "avg \(Fmt.duration(minutes: avg))"))
+                    if let avg = summary.averageHours {
+                        BaselineRule(value: avg, label: String(localized: "avg \(summary.averageSleep)"))
                     }
                 }
                 .chartForegroundStyleScale(domain: names, range: colors)
@@ -308,15 +279,19 @@ struct SleepRangeSection: View {
                 .frame(height: 200)
                 .chartAppear()
                 .accessibilityLabel(Text("Sleep per night"))
-                .accessibilityValue(Text("Average \(Fmt.duration(minutes: range.avgTotalMin))"))
+                .accessibilityValue(Text("Average \(summary.averageSleep)"))
             }
         }
     }
 
-    private func consistency(_ range: SleepRange) -> some View {
-        let deviation = SleepMath.bedtimeDeviation(range.days.compactMap(\.start))
-        let color: Color = deviation.map { $0 < 30 ? Theme.accent : $0 < 60 ? Theme.accentSecondary : Theme.warning }
-            ?? Theme.textTertiary
+    private func consistency(_ summary: SleepRangeSummary) -> some View {
+        let color: Color
+        switch summary.regularity {
+        case .steady: color = Theme.accent
+        case .fair: color = Theme.accentSecondary
+        case .irregular: color = Theme.warning
+        case .unknown: color = Theme.textTertiary
+        }
         return Card {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: "bed.double.fill")
@@ -327,7 +302,7 @@ struct SleepRangeSection: View {
                     Text("Consistency")
                         .font(.ryft(.headline))
                         .foregroundStyle(Theme.textPrimary)
-                    Text(SleepMath.consistencyHint(deviation: deviation))
+                    Text(summary.consistencyHint)
                         .font(.ryft(.callout))
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)

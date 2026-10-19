@@ -23,6 +23,8 @@ final class AppEnvironment {
     let clock: AppClock
     let notifier: Notifier
     let flags: FeatureFlagProvider
+    /// Small per-install preferences (dismissed insights, UI state). Tests get their own suite.
+    let defaults: UserDefaults
     /// Concrete so SwiftUI can observe it; services read it as `Connectivity`.
     let connectivityMonitor: ConnectivityMonitor
 
@@ -36,8 +38,9 @@ final class AppEnvironment {
 
     init(settings: Settings, health: HealthStore, liveAPI: PlatformAPI, demoAPI: PlatformAPI, auth: AuthService,
          persistence: Persistence, clock: AppClock, notifier: Notifier, flags: FeatureFlagProvider,
-         connectivity: ConnectivityMonitor, demoOverride: Bool? = nil) {
+         connectivity: ConnectivityMonitor, defaults: UserDefaults = .standard, demoOverride: Bool? = nil) {
         self.demoOverride = demoOverride
+        self.defaults = defaults
         self.settings = settings
         self.health = health
         self.liveAPI = liveAPI
@@ -57,12 +60,14 @@ final class AppEnvironment {
         flags: StaticFlags(), connectivity: .shared)
 
     /// Previews: signed in, mock data, nothing leaves the process.
-    static func preview(online: Bool = true, flags: [FeatureFlag: Bool] = [:]) -> AppEnvironment {
+    static func preview(online: Bool = true, auth: AuthService? = nil,
+                        flags: [FeatureFlag: Bool] = [:]) -> AppEnvironment {
         let api = MockPlatformAPI()
         return AppEnvironment(
-            settings: .shared, health: MockHealthStore(), liveAPI: api, demoAPI: api, auth: .preview(),
+            settings: .shared, health: MockHealthStore(), liveAPI: api, demoAPI: api, auth: auth ?? .preview(),
             persistence: TrainStore(inMemory: true), clock: SystemClock(), notifier: MockNotifier(),
-            flags: StaticFlags(flags), connectivity: .preview(online: online), demoOverride: true)
+            flags: StaticFlags(flags), connectivity: .preview(online: online),
+            defaults: UserDefaults(suiteName: "ryft.preview") ?? .standard, demoOverride: true)
     }
 
     /// Unit tests: every dependency a mock the test can script and inspect.
@@ -73,7 +78,8 @@ final class AppEnvironment {
         AppEnvironment(
             settings: .shared, health: health, liveAPI: api, demoAPI: api, auth: auth ?? .preview(),
             persistence: TrainStore(inMemory: true), clock: clock, notifier: notifier ?? MockNotifier(),
-            flags: StaticFlags(flags), connectivity: .preview(online: online), demoOverride: false)
+            flags: StaticFlags(flags), connectivity: .preview(online: online),
+            defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard, demoOverride: false)
     }
 }
 

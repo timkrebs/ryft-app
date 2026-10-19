@@ -72,3 +72,56 @@ Rules for new code:
 - No `Task.sleep` for timing a feature: use `env.clock.sleep(for:)`.
 - Tests wait with the bounded `eventually { … }` helper, never with an unbounded loop. A
   broken expectation must fail, not hang the run.
+
+## 2. MVVM: one `@Observable` view model per screen
+
+Views contain layout only. What a screen shows comes from its view model:
+- values already formatted ("7h 48m", "▲ +6", "Yesterday");
+- which message wins (retrying › error › sync paused);
+- what an action does (refresh, recompute, export, enrol).
+
+There is no networking, date maths or formatting logic in views. Colours stay in the
+view because they are design, picked from `Theme` by a state the view model exposes
+(e.g. `Theme.band(forScore: model.recovery)`).
+
+| Screen | View model | Lives in |
+| --- | --- | --- |
+| Today | `TodayViewModel` | `ScreenModels` (built once at launch) |
+| Sleep | `SleepViewModel` (+ `SleepNightSummary`, `SleepRangeSummary` for its sections) | `ScreenModels` |
+| Strain | `StrainViewModel` | `ScreenModels` |
+| Insights | `InsightsViewModel` | `ScreenModels` |
+| Profile | `ProfileViewModel` | `ScreenModels` |
+| Train card, start sheet, Train links | `TrainTodayViewModel` | `ScreenModels` |
+| Workout | `WorkoutDetailViewModel` | per workout |
+| Train history | `TrainHistoryViewModel` | per screen |
+| Exercise | `ExerciseDetailViewModel` | per exercise |
+| Plans / plan / builder | `PlansViewModel`, `PlanDetailViewModel`, `PlanBuilderViewModel` | per screen |
+| Live session | `SessionController` | per session (`TrainCoordinator`) |
+| Custom exercise | `CustomExerciseDraft` (value type) | the form |
+
+- **Tab screens.** Their view models are in `ScreenModels`, which `RyftApp` builds with the
+  shared `AppState`, so a tab keeps its selection and data when you switch away.
+  `previewEnvironment()` builds one from the preview state.
+- **Detail screens.** A thin view (`ExerciseDetailView`) builds its view model from the
+  environment and hands it to a private `…Screen` view, which keeps the first instance in
+  `@State` for its lifetime.
+- **Dependencies.** View models take `AppState` (whose `env` is the §1 environment) or a
+  service (`TrainLibrary`) plus `env.clock`. "Today" is always `clock.now()`, so past-day
+  and time-of-day states are testable.
+- **Observation.** Every former `ObservableObject` is `@Observable` (iOS 17 Observation):
+  `AppState`, `Settings`, `AuthService`, `SyncService`, `ConnectivityMonitor`, `APIStatus`,
+  `TrainLibrary`, `TrainSyncService`, `TrainCoordinator`, `SessionController`.
+  - Views read them with `@Environment(Type.self)`.
+  - Bindings into them use `Bindable(object).property`.
+
+**Tests** (`ViewModelTests`). Each view model runs against `AppEnvironment.test` with a
+`MockPlatformAPI`, `MockHealthStore`, a `TestClock` and its own defaults suite and response
+cache, so nothing leaks between parallel suites. Covered states:
+- loaded
+- error without data / error with data on screen
+- offline (no request)
+- calibrating
+- past day
+- sync paused
+- recompute waiting for scoring on the clock
+- validation on Save

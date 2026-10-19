@@ -4,21 +4,23 @@
 // signed-in caller: the SDK restores the session from the Keychain without UI,
 // so background runs work too.
 import Foundation
+import Observation
 import UIKit
 
 @MainActor
-final class SyncService: ObservableObject {
+@Observable
+final class SyncService {
     /// Migration shim: the live graph's instance (`docs/ARCHITECTURE.md`).
     static let shared = SyncService(env: .live)
 
-    @Published private(set) var isSyncing = false
-    @Published private(set) var progress = ""
-    @Published private(set) var lastError: String?
+    private(set) var isSyncing = false
+    private(set) var progress = ""
+    private(set) var lastError: String?
     /// Status and request ID of `lastError`, for the inline message's Details.
-    @Published private(set) var lastErrorDetails: String?
-    @Published private(set) var lastUploaded = 0
+    private(set) var lastErrorDetails: String?
+    private(set) var lastUploaded = 0
     /// Days the last sync queued for rescoring (`days_touched`).
-    @Published private(set) var lastDaysTouched: [String] = []
+    private(set) var lastDaysTouched: [String] = []
     /// Called after a sync that touched days (foreground or background); the app
     /// waits for scoring and reloads Today.
     var onDaysTouched: (([String]) async -> Void)?

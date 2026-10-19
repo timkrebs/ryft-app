@@ -6,30 +6,32 @@
 // Every endpoint exists on the platform; a failed call leaves the screen
 // empty with an inline message instead of computing numbers on the phone.
 import Foundation
+import Observation
 
 enum AppTab: String, CaseIterable, Hashable {
     case today, sleep, strain, insights, profile
 }
 
 @MainActor
-final class AppState: ObservableObject {
-    @Published var today: DayDetail?
-    @Published var history: [DailyScore] = []   // last 90 days, oldest first
-    @Published var user: User?
-    @Published var insights: [Insight] = []
+@Observable
+final class AppState {
+    var today: DayDetail?
+    var history: [DailyScore] = []   // last 90 days, oldest first
+    var user: User?
+    var insights: [Insight] = []
     /// Today's "Trends" card: `GET /v1/trends?metric=readiness&range=7d`.
-    @Published var readinessWeek: TrendSeries?
-    @Published var error: String?
+    var readinessWeek: TrendSeries?
+    var error: String?
     /// Status and request ID of `error`, for the inline message's Details.
-    @Published var errorDetails: String?
-    @Published var isLoading = false
-    @Published var lastUpdated: Date?
-    @Published var selectedTab: AppTab
-    @Published private(set) var dismissedInsightIDs: Set<String> = []
+    var errorDetails: String?
+    var isLoading = false
+    var lastUpdated: Date?
+    var selectedTab: AppTab
+    private(set) var dismissedInsightIDs: Set<String> = []
 
     static let historyDays = 90
 
-    private let env: AppEnvironment
+    let env: AppEnvironment
     private var settings: Settings { env.settings }
     private var auth: AuthService { env.auth }
     private let cache: ResponseCache
@@ -37,7 +39,7 @@ final class AppState: ObservableObject {
     private var trendCache: [String: TrendSeries] = [:]
     private var sleepCache: [SleepRangeKind: SleepRange] = [:]
     private var workoutCache: [UUID: WorkoutDetail] = [:]
-    private let defaults = UserDefaults.standard
+    private var defaults: UserDefaults { env.defaults }
 
     init(env: AppEnvironment, cache: ResponseCache = .shared, restoreCache: Bool = true) {
         self.env = env
@@ -234,7 +236,7 @@ final class AppState: ObservableObject {
     /// Hides an insight for the rest of the day.
     func dismiss(_ insight: Insight) {
         dismissedInsightIDs.insert(insight.id)
-        defaults.set(["day": DayFormat.string(from: .now), "ids": Array(dismissedInsightIDs)] as [String: Any],
+        defaults.set(["day": DayFormat.string(from: env.clock.now()), "ids": Array(dismissedInsightIDs)] as [String: Any],
                      forKey: Self.dismissedKey)
     }
 
@@ -245,7 +247,7 @@ final class AppState: ObservableObject {
 
     private func loadDismissed() -> Set<String> {
         guard let stored = defaults.dictionary(forKey: Self.dismissedKey),
-              stored["day"] as? String == DayFormat.string(from: .now),
+              stored["day"] as? String == DayFormat.string(from: env.clock.now()),
               let ids = stored["ids"] as? [String] else { return [] }
         return Set(ids)
     }
@@ -278,8 +280,9 @@ final class AppState: ObservableObject {
 
 extension AppState {
     /// Pre-filled with mock data so previews render without awaiting anything.
-    static func preview(empty: Bool = false, calibrating: Bool = false) -> AppState {
-        let s = AppState(env: .preview(), restoreCache: false)
+    static func preview(empty: Bool = false, calibrating: Bool = false, online: Bool = true,
+                        auth: AuthService? = nil) -> AppState {
+        let s = AppState(env: .preview(online: online, auth: auth), restoreCache: false)
         guard !empty else {
             s.previewUnconfigured = true
             return s

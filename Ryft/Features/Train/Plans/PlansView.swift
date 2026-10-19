@@ -48,24 +48,29 @@ extension Plan {
 
 /// Built-in templates, the user's plans and the active (or paused) enrolment.
 struct PlansView: View {
-    @EnvironmentObject private var library: TrainLibrary
-    @State private var editing: Plan?
-    @State private var working = false
+    @Environment(TrainLibrary.self) private var library
 
-    /// The plan the card is about: the active one, else the paused one.
-    private var currentPlanID: UUID? { library.activeEnrollment?.planId ?? library.pausedPlanID }
+    var body: some View {
+        PlansScreen(model: PlansViewModel(library: library))
+    }
+}
+
+/// Layout only; the first model handed in is kept for the screen's lifetime.
+private struct PlansScreen: View {
+    @State var model: PlansViewModel
+    @State private var editing: Plan?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Metrics.sectionSpacing) {
-                if let id = currentPlanID {
+                if let id = model.currentPlanID {
                     currentCard(planID: id)
                 }
-                if let error = library.error {
-                    InlineMessage(message: error, details: library.errorDetails, retry: { await library.refresh() })
+                if let error = model.error {
+                    InlineMessage(message: error, details: model.errorDetails, retry: { await model.refresh() })
                 }
-                section("Built-in", plans: library.catalog?.builtin ?? [])
-                section("My plans", plans: library.catalog?.mine ?? [])
+                section("Built-in", plans: model.builtin)
+                section("My plans", plans: model.mine)
                 Button {
                     editing = .blank()
                 } label: {
@@ -79,21 +84,20 @@ struct PlansView: View {
         .navigationTitle("Plans")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .refreshable { await library.refresh() }
-        .task { if library.catalog == nil { await library.refresh() } }
+        .refreshable { await model.refresh() }
+        .task { await model.loadIfNeeded() }
         .sheet(item: $editing) { PlanBuilderView(plan: $0) }
     }
 
     private func currentCard(planID: UUID) -> some View {
-        let paused = library.isPaused
-        let name = library.catalog?.summary(id: planID)?.name ?? library.plan(id: planID)?.name
+        let paused = model.isPaused
         return Card {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
                     Text(paused ? "Paused" : "Active").ryftLabelStyle(paused ? Theme.warning : Theme.accent)
                     Spacer()
-                    if let e = library.activeEnrollment {
-                        Text("Week \(e.currentWeek)")
+                    if let week = model.currentWeekText {
+                        Text(week)
                             .font(.ryft(.caption))
                             .foregroundStyle(Theme.textSecondary)
                     }
@@ -101,15 +105,11 @@ struct PlansView: View {
                 NavigationLink(value: TrainRoute.plan(planID)) {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(name ?? String(localized: "Your plan"))
+                            Text(model.currentName)
                                 .font(.ryft(.headline))
                                 .foregroundStyle(Theme.textPrimary)
-                            if paused {
-                                Text("Resume continues where you stopped.")
-                                    .font(.ryft(.callout))
-                                    .foregroundStyle(Theme.textSecondary)
-                            } else if let today = library.today {
-                                Text("Next: \(today.day.name)")
+                            if let detail = model.currentDetail {
+                                Text(detail)
                                     .font(.ryft(.callout))
                                     .foregroundStyle(Theme.textSecondary)
                             }
@@ -121,14 +121,10 @@ struct PlansView: View {
                 }
                 .buttonStyle(.plain)
                 Button(paused ? "Resume" : "Pause") {
-                    Task {
-                        working = true
-                        await library.setPaused(!paused)
-                        working = false
-                    }
+                    Task { await model.togglePause() }
                 }
                 .buttonStyle(TealButtonStyle(prominent: paused))
-                .disabled(working)
+                .disabled(model.working)
             }
         }
     }
@@ -141,7 +137,7 @@ struct PlansView: View {
                 ForEach(plans) { p in
                     NavigationLink(value: TrainRoute.plan(p.id)) {
                         TrainLinkRow(title: p.name, detail: p.summaryText,
-                                     systemImage: currentPlanID == p.id ? "checkmark.circle.fill" : "list.bullet.rectangle")
+                                     systemImage: model.currentPlanID == p.id ? "checkmark.circle.fill" : "list.bullet.rectangle")
                     }
                     .buttonStyle(PressableButtonStyle())
                 }
@@ -153,26 +149,23 @@ struct PlansView: View {
 /// A plan's weeks → days → exercises, and enrol / switch / pause.
 struct PlanDetailView: View {
     let planID: UUID
-    @EnvironmentObject private var library: TrainLibrary
-    @EnvironmentObject private var coordinator: TrainCoordinator
+    @Environment(TrainLibrary.self) private var library
+
+    var body: some View {
+        PlanDetailScreen(model: PlanDetailViewModel(planID: planID, library: library))
+    }
+}
+
+/// Layout only; the first model handed in is kept for the screen's lifetime.
+private struct PlanDetailScreen: View {
+    @State var model: PlanDetailViewModel
+    @Environment(TrainCoordinator.self) private var coordinator
     @Environment(\.dismiss) private var dismiss
-    @State private var plan: Plan?
-    @State private var week = 1
     @State private var editing: Plan?
     @State private var confirmSwitch = false
     @State private var confirmDelete = false
-    @State private var working = false
 
-    /// Active or paused: this plan is the one the user is on.
-    private var isCurrent: Bool { (library.activeEnrollment?.planId ?? library.pausedPlanID) == planID }
-
-    private var weeks: [Int] { Array(Set(plan?.days.compactMap(\.week) ?? [])).sorted() }
-
-    private var shownDays: [PlanDay] {
-        guard let plan else { return [] }
-        let days = weeks.isEmpty ? plan.days : plan.days.filter { $0.week == nil || $0.week == week }
-        return days.sorted { $0.dayIndex < $1.dayIndex }
-    }
+    private var plan: Plan? { model.plan }
 
     var body: some View {
         ScrollView {
@@ -180,10 +173,12 @@ struct PlanDetailView: View {
                 if let plan {
                     header(plan)
                     actions(plan)
-                    if weeks.count > 1 {
-                        SegmentedPicker(selection: $week, options: weeks) { String(localized: "Week \($0)") }
+                    if model.weeks.count > 1 {
+                        SegmentedPicker(selection: Bindable(model).week, options: model.weeks) {
+                            String(localized: "Week \($0)")
+                        }
                     }
-                    ForEach(shownDays) { dayCard($0) }
+                    ForEach(model.shownDays) { dayCard($0) }
                 } else {
                     ProgressView().tint(Theme.accent).frame(maxWidth: .infinity)
                 }
@@ -194,22 +189,19 @@ struct PlanDetailView: View {
         .navigationTitle(plan?.name ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .task(id: planID) {
-            plan = await library.loadPlan(id: planID)
-            week = weeks.first ?? 1
-        }
-        .sheet(item: $editing, onDismiss: { Task { plan = await library.loadPlan(id: planID) } }) {
+        .task(id: model.planID) { await model.load() }
+        .sheet(item: $editing, onDismiss: { Task { await model.load() } }) {
             PlanBuilderView(plan: $0)
         }
         .confirmationDialog("Switch to \(plan?.name ?? "")?", isPresented: $confirmSwitch, titleVisibility: .visible) {
-            Button("Switch plan") { Task { await enroll() } }
+            Button("Switch plan") { Task { await model.enroll() } }
         } message: {
-            Text("\(library.activePlanName ?? String(localized: "Your current plan")) is paused; this one starts at week 1. Logged workouts stay.")
+            Text("\(model.currentPlanName) is paused; this one starts at week 1. Logged workouts stay.")
         }
         .confirmationDialog("Delete \(plan?.name ?? "")?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete plan", role: .destructive) {
                 Task {
-                    if let plan, await library.deletePlan(plan) { dismiss() }
+                    if await model.delete() { dismiss() }
                 }
             }
         } message: {
@@ -237,18 +229,14 @@ struct PlanDetailView: View {
     @ViewBuilder
     private func actions(_ p: Plan) -> some View {
         VStack(spacing: 10) {
-            if isCurrent {
-                Button(library.isPaused ? "Resume plan" : "Pause plan") {
-                    Task {
-                        working = true
-                        await library.setPaused(!library.isPaused)
-                        working = false
-                    }
+            if model.isCurrent {
+                Button(model.isPaused ? "Resume plan" : "Pause plan") {
+                    Task { await model.togglePause() }
                 }
-                .buttonStyle(TealButtonStyle(prominent: library.isPaused))
+                .buttonStyle(TealButtonStyle(prominent: model.isPaused))
             } else {
-                Button(library.activeEnrollment == nil ? "Start this plan" : "Switch to this plan") {
-                    if library.activeEnrollment == nil { Task { await enroll() } } else { confirmSwitch = true }
+                Button(model.hasEnrollment ? "Switch to this plan" : "Start this plan") {
+                    if model.hasEnrollment { confirmSwitch = true } else { Task { await model.enroll() } }
                 }
                 .buttonStyle(TealButtonStyle())
             }
@@ -264,11 +252,11 @@ struct PlanDetailView: View {
             .font(.ryft(.callout))
             .foregroundStyle(Theme.accent)
             .frame(minHeight: 44)
-            if let error = library.error {
-                InlineMessage(message: error, details: library.errorDetails)
+            if let error = model.error {
+                InlineMessage(message: error, details: model.errorDetails)
             }
         }
-        .disabled(working)
+        .disabled(model.working)
     }
 
     private func dayCard(_ day: PlanDay) -> some View {
@@ -318,13 +306,6 @@ struct PlanDetailView: View {
                 .disabled(coordinator.active != nil)
             }
         }
-    }
-
-    private func enroll() async {
-        guard let plan else { return }
-        working = true
-        await library.enroll(in: plan)
-        working = false
     }
 }
 

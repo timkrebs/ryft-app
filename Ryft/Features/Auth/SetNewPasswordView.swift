@@ -5,7 +5,7 @@ import SwiftUI
 struct SetNewPasswordView: View {
     enum Mode { case recovery, change }
 
-    @EnvironmentObject private var auth: AuthService
+    @Environment(AuthService.self) private var auth
     @Environment(\.dismiss) private var dismiss
     let mode: Mode
 
@@ -48,5 +48,5 @@ struct SetNewPasswordView: View {
 
 #Preview("Set new password") {
     SetNewPasswordView(mode: .recovery)
-        .environmentObject(AuthService.preview())
+        .environment(AuthService.preview())
 }

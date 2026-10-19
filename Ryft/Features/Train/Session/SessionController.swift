@@ -12,22 +12,23 @@ struct SetFocus: Hashable {
 /// editing the exercise list. Every change is saved to SwiftData at once and
 /// queued for upload (TrainSyncService).
 @MainActor
-final class SessionController: ObservableObject, Identifiable {
+@Observable
+final class SessionController: Identifiable {
     let session: LocalSession
     let sync: TrainSyncService
     private var store: TrainStore { sync.store }
 
-    @Published private(set) var rest: RestTimer
-    @Published var focus: SetFocus?
+    private(set) var rest: RestTimer
+    var focus: SetFocus?
     /// What the keypad shows while typing ("82." mid-entry).
-    @Published private(set) var buffer = ""
+    private(set) var buffer = ""
     /// `buffer` with the locale's decimal separator ("82,5").
     var displayBuffer: String {
         buffer.replacingOccurrences(of: ".", with: Locale.current.decimalSeparator ?? ".")
     }
     /// Bumped for haptics.
-    @Published private(set) var setsChecked = 0
-    @Published private(set) var restsEnded = 0
+    private(set) var setsChecked = 0
+    private(set) var restsEnded = 0
 
     private var ticker: Task<Void, Never>?
     private let liveActivity: RestActivityController?

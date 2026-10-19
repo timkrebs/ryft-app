@@ -2,40 +2,29 @@ import SwiftUI
 
 /// Finished sessions by week, with each week's volume and muscular load.
 struct TrainHistoryView: View {
-    @EnvironmentObject private var library: TrainLibrary
-    @State private var sessions: [SessionSummary] = []
-    @State private var loaded = false
+    @Environment(TrainLibrary.self) private var library
 
-    private struct Week: Identifiable {
-        let start: Date
-        var sessions: [SessionSummary]
-        var id: Date { start }
-        var volume: Double { sessions.compactMap(\.volumeKg).reduce(0, +) }
-        var load: Double? {
-            let loads = sessions.compactMap(\.muscularTrimp)
-            return loads.isEmpty ? nil : loads.reduce(0, +)
-        }
+    var body: some View {
+        TrainHistoryScreen(model: TrainHistoryViewModel(library: library))
     }
+}
 
-    private var weeks: [Week] {
-        let cal = Calendar.current
-        let grouped = Dictionary(grouping: sessions) { cal.dateInterval(of: .weekOfYear, for: $0.startedAt)?.start ?? $0.startedAt }
-        return grouped.map { Week(start: $0.key, sessions: $0.value.sorted { $0.startedAt > $1.startedAt }) }
-            .sorted { $0.start > $1.start }
-    }
+/// Layout only; the first model handed in is kept for the screen's lifetime.
+private struct TrainHistoryScreen: View {
+    @State var model: TrainHistoryViewModel
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 22) {
-                if sessions.isEmpty {
-                    if loaded {
+                if model.isEmpty {
+                    if model.loaded {
                         InlineMessage(message: String(localized: "No workouts logged yet. Finished sessions appear here."),
                                       systemImage: "dumbbell")
                     } else {
                         ProgressView().tint(Theme.accent).frame(maxWidth: .infinity)
                     }
                 }
-                ForEach(weeks) { week in
+                ForEach(model.weeks) { week in
                     VStack(alignment: .leading, spacing: 10) {
                         weekHeader(week)
                         ForEach(week.sessions) { s in
@@ -51,20 +40,16 @@ struct TrainHistoryView: View {
         .navigationTitle("History")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .task {
-            sessions = library.cachedSessions()
-            sessions = await library.sessions()
-            loaded = true
-        }
-        .refreshable { sessions = await library.sessions() }
+        .task { await model.load() }
+        .refreshable { await model.refresh() }
     }
 
-    private func weekHeader(_ week: Week) -> some View {
+    private func weekHeader(_ week: TrainHistoryViewModel.Week) -> some View {
         HStack(alignment: .firstTextBaseline) {
-            Text("Week of \(week.start.formatted(.dateTime.day().month(.abbreviated)))")
+            Text(week.title)
                 .ryftLabelStyle()
             Spacer()
-            Text("\(week.sessions.count) · \(Fmt.volume(week.volume)) · load \(Fmt.load(week.load))")
+            Text(week.summary)
                 .font(.ryft(.caption))
                 .monospacedDigit()
                 .foregroundStyle(Theme.textSecondary)
@@ -118,7 +103,7 @@ struct SessionRow: View {
 /// A finished session: totals, then each exercise with its sets.
 struct SessionDetailView: View {
     let sessionID: UUID
-    @EnvironmentObject private var library: TrainLibrary
+    @Environment(TrainLibrary.self) private var library
     @State private var session: TrainSession?
     @State private var loaded = false
 

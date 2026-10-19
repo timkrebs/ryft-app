@@ -4,34 +4,37 @@ import SwiftUI
 /// progression; per day the exercises with sets, rep range, target, rest and
 /// supersets. Validation (PlanValidation) runs live; Save sends the whole plan.
 struct PlanBuilderView: View {
-    @State var plan: Plan
-    @EnvironmentObject private var library: TrainLibrary
+    let plan: Plan
+    @Environment(TrainLibrary.self) private var library
+
+    var body: some View {
+        PlanBuilderScreen(model: PlanBuilderViewModel(plan: plan, library: library))
+    }
+}
+
+/// The form; the first model handed in is kept for the sheet's lifetime.
+private struct PlanBuilderScreen: View {
+    @State var model: PlanBuilderViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var addingTo: UUID?
-    @State private var attempted = false
-    @State private var saving = false
     @State private var confirmRemoveDay: PlanDay?
     @State private var confirmDiscard = false
-    private let original: Plan
 
-    init(plan: Plan) {
-        _plan = State(initialValue: plan)
-        original = plan
+    private var plan: Plan {
+        get { model.plan }
+        nonmutating set { model.plan = newValue }
     }
-
-    private var issues: [PlanIssue] { PlanValidation.issues(in: plan) }
+    private var issues: [PlanIssue] { model.issues }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Metrics.sectionSpacing) {
-                    if attempted && !issues.isEmpty { issueList }
+                    if !model.shownIssues.isEmpty { issueList }
                     basics
-                    ForEach($plan.days) { $day in dayEditor($day) }
+                    ForEach(Bindable(model).plan.days) { $day in dayEditor($day) }
                     Button {
-                        let i = (plan.days.map(\.dayIndex).max() ?? -1) + 1
-                        let letter = String(UnicodeScalar(UInt8(65 + min(i, 25))))
-                        plan.days.append(PlanDay(dayIndex: i, name: String(localized: "Day \(letter)"), exercises: []))
+                        model.addDay()
                     } label: {
                         Label("Add day", systemImage: "plus")
                     }
@@ -41,14 +44,18 @@ struct PlanBuilderView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .background(Theme.background.ignoresSafeArea())
-            .navigationTitle(original.name.isEmpty ? "New plan" : "Edit plan")
+            .navigationTitle(model.isNew ? "New plan" : "Edit plan")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { if plan == original { dismiss() } else { confirmDiscard = true } }
+                    Button("Cancel") { if model.hasChanges { confirmDiscard = true } else { dismiss() } }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    if saving { ProgressView() } else { Button("Save") { Task { await save() } } }
+                    if model.saving {
+                        ProgressView()
+                    } else {
+                        Button("Save") { Task { if await model.save() { dismiss() } } }
+                    }
                 }
             }
             .sheet(isPresented: Binding(get: { addingTo != nil }, set: { if !$0 { addingTo = nil } })) {
@@ -58,14 +65,14 @@ struct PlanBuilderView: View {
                                 isPresented: Binding(get: { confirmRemoveDay != nil }, set: { if !$0 { confirmRemoveDay = nil } }),
                                 titleVisibility: .visible) {
                 Button("Remove day", role: .destructive) {
-                    if let d = confirmRemoveDay { plan.days.removeAll { $0.id == d.id } }
+                    if let d = confirmRemoveDay { model.removeDay(d.id) }
                 }
             }
             .confirmationDialog("Discard your changes?", isPresented: $confirmDiscard, titleVisibility: .visible) {
                 Button("Discard changes", role: .destructive) { dismiss() }
             }
         }
-        .interactiveDismissDisabled(plan != original)
+        .interactiveDismissDisabled(model.hasChanges)
     }
 
     // MARK: sections
@@ -87,7 +94,7 @@ struct PlanBuilderView: View {
     private var basics: some View {
         Card {
             VStack(alignment: .leading, spacing: 16) {
-                TextField("Plan name", text: $plan.name)
+                TextField("Plan name", text: Bindable(model).plan.name)
                     .font(.ryft(.title))
                     .foregroundStyle(Theme.textPrimary)
                     .textInputAutocapitalization(.words)
@@ -131,7 +138,7 @@ struct PlanBuilderView: View {
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                TextField("Description (optional)", text: $plan.description, axis: .vertical)
+                TextField("Description (optional)", text: Bindable(model).plan.description, axis: .vertical)
                     .font(.ryft(.callout))
                     .lineLimit(1...4)
             }
@@ -165,18 +172,19 @@ struct PlanBuilderView: View {
                     .foregroundStyle(Theme.textTertiary)
                     .accessibilityLabel(Text("Remove \(day.wrappedValue.name)"))
                 }
-                if attempted, issues.contains(.emptyDay(dayID: day.wrappedValue.id)) {
+                if model.shownIssues.contains(.emptyDay(dayID: day.wrappedValue.id)) {
                     Text(PlanIssue.emptyDay(dayID: day.wrappedValue.id).message)
                         .font(.ryft(.caption)).foregroundStyle(Theme.alert)
                 }
                 let count = day.wrappedValue.exercises.count
                 ForEach(Array(day.exercises.enumerated()), id: \.element.id) { i, ex in
+                    let dayID = day.wrappedValue.id
                     PlanExerciseEditor(exercise: ex, isLast: i == count - 1,
-                                       issues: attempted ? issues : [],
-                                       linkedWithNext: linked(day.wrappedValue, i),
-                                       onLink: { link(day, i, $0) },
-                                       onRemove: { remove(day, i) },
-                                       onMove: { move(day, i, by: $0) })
+                                       issues: model.shownIssues,
+                                       linkedWithNext: model.isLinked(dayID: dayID, i),
+                                       onLink: { model.link(dayID: dayID, i, $0) },
+                                       onRemove: { model.remove(dayID: dayID, i) },
+                                       onMove: { model.move(dayID: dayID, i, by: $0) })
                     if i < count - 1 { Divider().overlay(Theme.separator) }
                 }
                 Button {
@@ -196,66 +204,8 @@ struct PlanBuilderView: View {
     // MARK: editing
 
     private func add(_ e: Exercise) {
-        guard let id = addingTo, let d = plan.days.firstIndex(where: { $0.id == id }) else { return }
-        let weighted = e.loadType == .weight
-        plan.days[d].exercises.append(PlanExercise(
-            exercise: e, position: plan.days[d].exercises.count, sets: 3,
-            repsMin: weighted ? 8 : 10, repsMax: weighted ? 10 : 12,
-            targetKind: weighted ? .rpe : .bodyweight, targetValue: weighted ? 8 : nil,
-            restSec: SessionFactory.defaultRest(for: e)))
-    }
-
-    private func linked(_ day: PlanDay, _ i: Int) -> Bool {
-        guard i + 1 < day.exercises.count, let g = day.exercises[i].supersetGroup else { return false }
-        return day.exercises[i + 1].supersetGroup == g
-    }
-
-    /// Superset with the next exercise (or split it off).
-    private func link(_ day: Binding<PlanDay>, _ i: Int, _ on: Bool) {
-        guard i + 1 < day.wrappedValue.exercises.count else { return }
-        if on {
-            let group = day.wrappedValue.exercises[i].supersetGroup
-                ?? day.wrappedValue.exercises[i + 1].supersetGroup
-                ?? ((day.wrappedValue.exercises.compactMap(\.supersetGroup).max() ?? 0) + 1)
-            day.wrappedValue.exercises[i].supersetGroup = group
-            day.wrappedValue.exercises[i + 1].supersetGroup = group
-        } else {
-            day.wrappedValue.exercises[i + 1].supersetGroup = nil
-            if i == 0 || !linked(day.wrappedValue, i - 1) { day.wrappedValue.exercises[i].supersetGroup = nil }
-        }
-    }
-
-    private func remove(_ day: Binding<PlanDay>, _ i: Int) {
-        day.wrappedValue.exercises.remove(at: i)
-        renumber(day)
-    }
-
-    private func move(_ day: Binding<PlanDay>, _ i: Int, by delta: Int) {
-        let j = i + delta
-        guard day.wrappedValue.exercises.indices.contains(j) else { return }
-        day.wrappedValue.exercises.swapAt(i, j)
-        renumber(day)
-    }
-
-    private func renumber(_ day: Binding<PlanDay>) {
-        for i in day.wrappedValue.exercises.indices { day.wrappedValue.exercises[i].position = i }
-        // A superset left with one member isn't one.
-        let counts = Dictionary(grouping: day.wrappedValue.exercises.compactMap(\.supersetGroup), by: { $0 }).mapValues(\.count)
-        for i in day.wrappedValue.exercises.indices {
-            if let g = day.wrappedValue.exercises[i].supersetGroup, counts[g, default: 0] < 2 {
-                day.wrappedValue.exercises[i].supersetGroup = nil
-            }
-        }
-    }
-
-    private func save() async {
-        attempted = true
-        plan.name = plan.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard issues.isEmpty else { return }
-        saving = true
-        let ok = await library.savePlan(plan)
-        saving = false
-        if ok { dismiss() }
+        guard let id = addingTo else { return }
+        model.add(e, toDay: id)
     }
 }
 

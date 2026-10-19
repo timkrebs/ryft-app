@@ -8,17 +8,21 @@ import UIKit
 struct RyftApp: App {
     /// Every dependency, built once (`docs/ARCHITECTURE.md`).
     private let env = AppEnvironment.live
-    @StateObject private var settings = Settings.shared
-    @StateObject private var auth = AuthService.shared
-    @StateObject private var sync = SyncService.shared
-    @StateObject private var state = AppState(env: .live)
-    @StateObject private var trainLibrary = TrainLibrary.shared
-    @StateObject private var trainSync = TrainSyncService.shared
-    @StateObject private var trainCoordinator = TrainCoordinator.shared
-    @StateObject private var connectivity = ConnectivityMonitor.shared
+    @State private var settings = Settings.shared
+    @State private var auth = AuthService.shared
+    @State private var sync = SyncService.shared
+    @State private var state: AppState
+    @State private var screens: ScreenModels
+    @State private var trainLibrary = TrainLibrary.shared
+    @State private var trainSync = TrainSyncService.shared
+    @State private var trainCoordinator = TrainCoordinator.shared
+    @State private var connectivity = ConnectivityMonitor.shared
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        let state = AppState(env: .live)
+        _state = State(initialValue: state)
+        _screens = State(initialValue: ScreenModels(state: state, sync: .shared, store: .shared, library: .shared))
         // A build without its platform values stops here (Debug) or shows only the
         // misconfigured-build screen (Release, RootView). Never a fallback host.
         PlatformConfig.checkAtLaunch()
@@ -40,14 +44,15 @@ struct RyftApp: App {
         WindowGroup {
             RootView()
                 .environment(\.appEnvironment, env)
-                .environmentObject(settings)
-                .environmentObject(auth)
-                .environmentObject(sync)
-                .environmentObject(state)
-                .environmentObject(trainLibrary)
-                .environmentObject(trainSync)
-                .environmentObject(trainCoordinator)
-                .environmentObject(connectivity)
+                .environment(screens)
+                .environment(settings)
+                .environment(auth)
+                .environment(sync)
+                .environment(state)
+                .environment(trainLibrary)
+                .environment(trainSync)
+                .environment(trainCoordinator)
+                .environment(connectivity)
                 .preferredColorScheme(settings.appearance.colorScheme)
                 .tint(Theme.accent)
                 // Signed out, or a different account: forget the previous user's screens.
@@ -174,10 +179,10 @@ extension Settings.Appearance {
 /// Welcome until there's a session (or demo data), then the tabs.
 struct RootView: View {
     @Environment(\.appEnvironment) private var env
-    @EnvironmentObject private var state: AppState
-    @EnvironmentObject private var auth: AuthService
-    @EnvironmentObject private var settings: Settings
-    @EnvironmentObject private var train: TrainCoordinator
+    @Environment(AppState.self) private var state
+    @Environment(AuthService.self) private var auth
+    @Environment(Settings.self) private var settings
+    @Environment(TrainCoordinator.self) private var train
 
     var body: some View {
         ZStack {
@@ -203,9 +208,9 @@ struct RootView: View {
             if await env.health.accessStatus() == .asked { settings.healthIntroDone = true }
         }
         // The live workout, from Today, Strain or the Live Activity.
-        .fullScreenCover(item: $train.live) { SessionView(controller: $0) }
+        .fullScreenCover(item: Bindable(train).live) { SessionView(controller: $0) }
         // A password-reset link signed the user in; ask for the new password now.
-        .sheet(isPresented: $auth.needsNewPassword) {
+        .sheet(isPresented: Bindable(auth).needsNewPassword) {
             SetNewPasswordView(mode: .recovery)
         }
     }
@@ -216,7 +221,7 @@ struct RootView: View {
     }
 
     private var tabs: some View {
-        TabView(selection: $state.selectedTab) {
+        TabView(selection: Bindable(state).selectedTab) {
             TodayView()
                 .tabItem { Label("Today", systemImage: "house.fill") }
                 .tag(AppTab.today)

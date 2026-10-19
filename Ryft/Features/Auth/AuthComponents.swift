@@ -140,7 +140,7 @@ struct PasswordField: View {
 
 /// Inline error from AuthService, if any.
 struct AuthErrorMessage: View {
-    @EnvironmentObject private var auth: AuthService
+    @Environment(AuthService.self) private var auth
 
     var body: some View {
         if let message = auth.errorMessage {

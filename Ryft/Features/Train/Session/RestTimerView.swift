@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The prominent rest timer: big countdown, ring, −15 s / +15 s / Skip, next set.
 struct RestTimerView: View {
-    @ObservedObject var controller: SessionController
+    var controller: SessionController
 
     var body: some View {
         switch controller.rest.phase {
@@ -111,7 +111,7 @@ struct RestTimerView: View {
 /// Number entry for kg / reps / RPE: 56 pt keys, ±2.5 kg or ±1 rep steps,
 /// Next moves kg → reps → the next set. Plate calculator for barbell weights.
 struct NumberPad: View {
-    @ObservedObject var controller: SessionController
+    var controller: SessionController
     var onPlates: (Double) -> Void
 
     private var field: SetFocus.Field { controller.focus?.field ?? .kg }

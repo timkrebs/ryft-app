@@ -5,6 +5,7 @@
 import AuthenticationServices
 import CryptoKit
 import Foundation
+import Observation
 import Auth
 
 // MARK: - SDK seam
@@ -114,7 +115,8 @@ enum Nonce {
 // MARK: - service
 
 @MainActor
-final class AuthService: ObservableObject {
+@Observable
+final class AuthService {
     static let shared = AuthService(client: SupabaseConfig.current.map(SupabaseAuthClient.init(config:)))
 
     /// Accounts need at least this many characters (the Supabase project's
@@ -138,17 +140,17 @@ final class AuthService: ObservableObject {
         case accountDeleted(background: Bool)
     }
 
-    @Published private(set) var session: Session?
-    @Published private(set) var user: Auth.User?
-    @Published private(set) var isRestoring = false
+    private(set) var session: Session?
+    private(set) var user: Auth.User?
+    private(set) var isRestoring = false
     /// Shown once on Welcome after a sign-out the user didn't ask for (or a deletion).
-    @Published var signOutNotice: String?
-    @Published private(set) var isWorking = false
-    @Published var errorMessage: String?
+    var signOutNotice: String?
+    private(set) var isWorking = false
+    var errorMessage: String?
     /// Status and request ID when a platform call (Delete account) failed.
-    @Published private(set) var errorDetails: String?
+    private(set) var errorDetails: String?
     /// A password-reset link was opened: show "Set new password".
-    @Published var needsNewPassword = false
+    var needsNewPassword = false
 
     /// `nil` when Supabase isn't configured (see `SupabaseConfig.problem`).
     private let client: AuthClientProtocol?
@@ -164,7 +166,7 @@ final class AuthService: ObservableObject {
     private let postAppleAuthorization: (String) async throws -> Void
     /// Set while `signOut` runs, so the SDK's own `.signedOut` event isn't read as an expiry.
     private var signingOut = false
-    private var observation: Task<Void, Never>?
+    @ObservationIgnored private var observation: Task<Void, Never>?
     private var pendingNonce: String?
 
     init(client: AuthClientProtocol?, settings: Settings = .shared, defaults: UserDefaults = .standard,
