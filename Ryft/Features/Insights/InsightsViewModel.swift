@@ -9,6 +9,8 @@ final class InsightsViewModel {
     private let state: AppState
 
     var range: TrendRange = .month
+    /// A deep link's metric; the view scrolls to its trend and clears it.
+    var focusedMetric: TrendMetric?
 
     /// Each metric's series for the selected range, as cached (SwiftData).
     var series: [TrendMetric: TrendSeries] {

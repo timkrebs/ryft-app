@@ -22,6 +22,16 @@ struct TodayView: View {
                             .coachMarkTarget(.physiology)
                             .id(CoachMarkTarget.physiology)
                         if model.showsHealthHint { HealthAccessHint() }
+                        if model.showsPushPrompt {
+                            PushPrePromptCard {
+                                Task { await model.enablePush() }
+                            } dismiss: {
+                                withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick)) {
+                                    model.dismissPushPrompt()
+                                }
+                            }
+                            .transition(.opacity)
+                        }
                         TrainTodayCard()
                         trends
                             .coachMarkTarget(.trends)

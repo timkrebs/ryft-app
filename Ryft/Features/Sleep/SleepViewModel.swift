@@ -63,6 +63,12 @@ final class SleepViewModel {
     var canStepBack: Bool { mode == .day }
     var canStepForward: Bool { mode == .day && !isToday }
 
+    /// A deep link: Day mode on that night (never past today).
+    func show(night: Date) {
+        mode = .day
+        date = min(Calendar.current.startOfDay(for: night), today)
+    }
+
     func step(by days: Int) async {
         let next = DayFormat.shift(date, days: days)
         guard next <= today else { return }

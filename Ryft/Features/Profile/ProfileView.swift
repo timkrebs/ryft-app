@@ -27,6 +27,7 @@ struct ProfileView: View {
                 account
                 bodySection
                 data
+                if model.showsNotifications { notifications }
                 appearance
                 about
                 #if DEBUG
@@ -294,6 +295,28 @@ struct ProfileView: View {
                 }
             }
             .tint(Theme.accent)
+        }
+    }
+
+    // MARK: notifications
+
+    private var notifications: some View {
+        ProfileSection(title: "Notifications") {
+            NavigationLink {
+                NotificationSettingsView()
+            } label: {
+                HStack {
+                    Text("Categories and quiet hours").font(.ryft(.callout)).foregroundStyle(Theme.textPrimary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("profile.notifications")
         }
     }
 

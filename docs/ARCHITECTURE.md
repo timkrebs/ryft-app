@@ -287,3 +287,74 @@ nothing springs.
   `-coachMarks.today.done YES`, and `.preview(coachMarks: true)` shows them.
 - `HealthIllustration` is a 2 s loop on the Health permission screen. With Reduce
   Motion on it is a still image.
+
+## 7. Push notifications and universal links
+
+**Deep links.** `DeepLink(url:)` is a pure parser. It accepts
+`https://ryftapp.de/<path>` (and `www.`) and `ryft://<path>`:
+
+| Path | Opens |
+| --- | --- |
+| `/day/YYYY-MM-DD` | Today if the day is today, otherwise Strain on that day |
+| `/sleep/YYYY-MM-DD` | Sleep → Day on that night |
+| `/insights/<metric>` | Insights, scrolled to that metric |
+| `/train/session/<id>` | the session, pushed on Strain |
+| `/train/plan/<id>` | the plan, pushed on Strain |
+| `/auth/callback` | handed to `AuthService` |
+
+`DeepLinkRouter` (in `ScreenModels`) selects the tab and sets the target view model:
+- `strain.select`
+- `sleep.show(night:)`
+- `insights.focusedMetric`
+- `strain.requestedRoute`
+
+The views act on `focusedMetric` and `requestedRoute`, then clear them. A link that
+arrives while signed out waits in `pending` until the next sign-in.
+
+Everything that opens a URL goes through the router: `.onOpenURL` (universal links and
+`ryft://`) and a notification tap (`ryft.url`). The one exception is
+`ryft://train/session` from the Live Activity, which stays with `TrainCoordinator`.
+
+**Push.** `PushRegistrar` (in `ScreenModels`, behind `push.enabled`) owns the client
+side of `POST` / `DELETE /v1/devices/{id}/push`:
+- `syncSucceeded()` is called when `SyncService.phase` reaches `.done`. From then on
+  Today shows `PushPrePromptCard`, until iOS has been asked or the user taps Not now.
+- Turn on asks iOS, then calls `registerForRemoteNotifications()`.
+- `refresh()` runs at launch, on every return to the foreground and after sign-in. It
+  re-registers whenever notifications are allowed.
+- `send()` posts `{token, env, locale}` only when the account, token, environment or
+  language differs from the last accepted registration.
+- Sign-out runs `AuthService.beforeSignOut`, which calls `PushRegistrar.signOut()`
+  while the session still authorises the `DELETE`.
+
+`AppDelegate` (`@UIApplicationDelegateAdaptor`):
+- forwards the APNs token callbacks
+- runs the silent push (`ryft.kind = refresh`) as `SyncCoordinator.run(.silentPush(days:))`
+- shows banners in the foreground
+- routes taps; `SYNC_STALE` and its Sync now action start a sync
+
+Events that arrive before RyftApp sets `handlers` wait in a queue. That covers a cold
+launch from a notification.
+
+Categories: `MORNING_SCORE`, `SESSION_SCORED`, `PR` and `SYNC_STALE` come from the
+platform, and `BEDTIME` is the local reminder. The alert text is loc-keys, which iOS
+fills from `Localizable.xcstrings` (API.md's table, en and de).
+
+The Notification Service Extension (`RyftNotificationService/`) attaches
+`NotificationRing`: the recovery from `title-loc-args`, drawn in the app's bands. The
+ring code lives in `Ryft/Push`, so the app's tests cover it.
+
+**Profile → Notifications.** `NotificationSettingsViewModel` has:
+- a toggle per category
+- quiet hours (`HH:MM`, default 22:00–07:00)
+- `PATCH /v1/me/notifications` for each change, shown at once and rolled back if refused
+- the saved prefs written back to `User.notifications`
+
+**Tests.** `PushAndDeepLinkTests` covers:
+- every path, plus foreign and malformed URLs
+- the router's tab and VM effects, and pending links
+- push payload fixtures
+- the ring
+- the registrar's pre-prompt, send-once, retry, re-register and sign-out
+- the sign-out hook
+- the notification settings VM

@@ -43,6 +43,13 @@ struct StrainView: View {
                 path.append(first)
             }
         }
+        // A deep link to a session or plan: on top of a fresh stack.
+        .task(id: model.requestedRoute) {
+            guard let route = model.requestedRoute else { return }
+            path = NavigationPath()
+            path.append(route)
+            model.requestedRoute = nil
+        }
     }
 
     private struct TaskKey: Equatable {

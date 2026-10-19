@@ -11,6 +11,8 @@ final class StrainViewModel {
     private let store: TrainStore
 
     var date: Date
+    /// A deep link's Train screen; the view pushes it and clears it.
+    var requestedRoute: TrainRoute?
     private(set) var isLoading = false
     private(set) var error: String?
 
