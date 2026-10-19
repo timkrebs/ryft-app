@@ -7,12 +7,12 @@ struct SessionView: View {
     var controller: SessionController
     @Environment(TrainCoordinator.self) private var coordinator
     @Environment(TrainSyncService.self) private var sync
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var showsAdd = false
     @State private var showsReorder = false
     @State private var confirmDiscard = false
     @State private var confirmFinish = false
-    @State private var finishing = false
     @State private var plates: PlateRequest?
     @State private var historyFor: ExerciseRef?
 
@@ -30,6 +30,10 @@ struct SessionView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+                // Backgrounded mid-workout: paused until the app is back.
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .background { controller.pause() } else if phase == .active { controller.resume() }
+                }
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 14) {
@@ -164,7 +168,7 @@ struct SessionView: View {
                 confirmFinish = true
             } label: {
                 Group {
-                    if finishing { ProgressView().tint(Theme.onAccent) } else { Text("Finish") }
+                    if controller.isFinishing { ProgressView().tint(Theme.onAccent) } else { Text("Finish") }
                 }
                 .font(.ryft(.headline))
                 .foregroundStyle(Theme.onAccent)
@@ -172,7 +176,7 @@ struct SessionView: View {
                 .frame(minHeight: 48)
                 .background(Theme.accent, in: Capsule())
             }
-            .disabled(finishing)
+            .disabled(controller.isFinishing)
             .accessibilityIdentifier("session.finish")
         }
         .padding(.horizontal, 16)
@@ -217,9 +221,7 @@ struct SessionView: View {
     }
 
     private func finish() async {
-        finishing = true
         await coordinator.finish(controller)
-        finishing = false
     }
 }
 

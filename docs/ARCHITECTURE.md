@@ -228,3 +228,37 @@ graph of `await`s and a `TaskGroup`:
   - the 03:00 schedule
   - the calendar trigger
   - compaction
+
+## 5. State machines (GameplayKit)
+
+Flows with many states and guards are explicit machines, not boolean combinations
+(`Ryft/StateMachines/`).
+
+- **The protocol.** `StateMachine` is the protocol. A `TransitionTable` lists the allowed
+  edges, plus entry and exit side effects.
+- **Two engines.**
+  - `GKTableMachine` runs on GameplayKit's `GKStateMachine`, with one `GKState` subclass
+    per case, because GameplayKit identifies states by class.
+  - `TableMachine` is the plain-Swift equivalent behind the same protocol, so the engine
+    can be swapped.
+  - A refused transition does nothing and returns `false`.
+
+| Machine | States | Owner | Replaces |
+| --- | --- | --- | --- |
+| `SyncMachine` | idle → reading ⇄ uploading → awaitingScores → refreshing → done; failed, offline; idle again on cancel | `SyncService.phase` (upload), `SyncCoordinator` via `SyncSteps.report` (the rest) | `isSyncing` (now derived) |
+| `AuthMachine` | restoring → signedOut ⇄ signingIn → signedIn ⇄ refreshing; expired | `AuthService.phase` | `isRestoring`, `signingOut`, sign-in `isWorking`; `state` for RootView is derived |
+| `LiveSessionMachine` | idle → active ⇄ resting; paused (app backgrounded); finishing → completed; discarded | `SessionController.phase` (the rest timer drives active ⇄ resting) | `SessionView`'s `finishing`; a second Finish is refused |
+| `HealthOnboardingMachine` | explain → requesting → granted → firstSync; denied | `HealthOnboardingViewModel` | `asking`; the intro is marked done on `denied` / `firstSync` |
+
+**Tests.**
+- `StateMachineTests` walks every (from, to) pair for each machine on *both* engines.
+  It reaches `from` by its shortest path, checks that `to` is accepted exactly when the
+  table has the edge, and that a refusal leaves the state unchanged. It also checks:
+  - reachability
+  - terminal states
+  - exit-then-enter effects
+- `StateMachineIntegrationTests` drives the owners:
+  - sign in / out / expiry / refresh
+  - upload phases, offline, failure
+  - rest timer ⇄ resting, pause, a single finish
+  - onboarding connect / not now

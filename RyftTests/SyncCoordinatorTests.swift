@@ -34,6 +34,8 @@ private final class FakeSteps: SyncSteps {
     func refreshTrends() async throws { events.append("trends") }
     func refreshInsights() async throws { events.append("insights") }
     func refreshStale() async { events.append("stale") }
+    private(set) var phases: [SyncPhase] = []
+    func report(_ phase: SyncPhase) { phases.append(phase) }
 
     func count(_ name: String) -> Int { events.filter { $0 == name }.count }
 }

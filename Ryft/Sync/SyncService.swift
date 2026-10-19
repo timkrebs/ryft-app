@@ -4,6 +4,7 @@
 // signed-in caller: the SDK restores the session from the Keychain without UI,
 // so background runs work too.
 import Foundation
+import GameplayKit
 import Observation
 import UIKit
 
@@ -13,7 +14,11 @@ final class SyncService {
     /// Migration shim: the live graph's instance (`docs/ARCHITECTURE.md`).
     static let shared = SyncService(env: .live)
 
-    private(set) var isSyncing = false
+    /// Where the pipeline is (`SyncMachine`); `SyncCoordinator` drives the phases after the upload.
+    private(set) var phase: SyncPhase = .idle
+    @ObservationIgnored private var machine: GKTableMachine<SyncPhase>!
+    /// Reading or uploading HealthKit data.
+    var isSyncing: Bool { phase == .reading || phase == .uploading }
     private(set) var progress = ""
     private(set) var lastError: String?
     /// Status and request ID of `lastError`, for the inline message's Details.
@@ -34,6 +39,12 @@ final class SyncService {
 
     init(env: AppEnvironment) {
         self.env = env
+        machine = SyncMachine.make { [weak self] to, _ in self?.phase = to }
+    }
+
+    /// Moves the pipeline on (refused transitions are ignored: the table guards them).
+    func advance(to next: SyncPhase) {
+        machine.enter(next)
     }
 
     /// Uploads and keeps any error for the screens (Profile → Re-sync, tests).
@@ -62,21 +73,25 @@ final class SyncService {
             throw APIError.notConfigured
         }
         // Offline: nothing to send; the anchors stay and the next reconnect resumes.
-        guard env.connectivity.isOnline else { return [] }
+        guard env.connectivity.isOnline else {
+            advance(to: .offline)
+            return []
+        }
         health.migrateLegacyAnchors()
-        isSyncing = true
+        advance(to: .reading)
         lastError = nil
         lastErrorDetails = nil
         lastUploaded = 0
         var touched = Set<String>()
         // A 413 shrinks pages for the rest of this sync only.
         let pageSize = health.pageSize
-        defer { isSyncing = false; progress = ""; health.pageSize = pageSize }
+        defer { progress = ""; health.pageSize = pageSize }
 
         do {
             for stream in health.streams {
                 var more = true
                 while more {
+                    advance(to: .reading)
                     progress = "Reading \(stream.anchorID)…"
                     let page = try await health.nextPage(stream)
                     // On 413 the anchor isn't committed, so the loop re-reads the same page, smaller.
@@ -90,6 +105,7 @@ final class SyncService {
             lastError = error.localizedDescription
             lastErrorDetails = error.diagnosticDetails
             lastDaysTouched = touched.sorted()
+            advance(to: .failed)
             throw error
         }
         lastDaysTouched = touched.sorted()
@@ -103,6 +119,7 @@ final class SyncService {
     /// caller reads the page again. 503/429 are retried inside APIClient.
     private func upload(_ delta: HealthDelta, touched: inout Set<String>) async throws -> Bool {
         guard !delta.isEmpty else { return true }
+        advance(to: .uploading)
         progress = "Uploading \(delta.count) records…"
         let req = SyncRequest(deviceId: settings.deviceId, deviceName: UIDevice.current.name,
                               samples: delta.samples, sleep: delta.sleep, workouts: delta.workouts)

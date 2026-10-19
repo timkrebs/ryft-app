@@ -5,6 +5,7 @@
 import AuthenticationServices
 import CryptoKit
 import Foundation
+import GameplayKit
 import Observation
 import Auth
 
@@ -142,10 +143,18 @@ final class AuthService {
 
     private(set) var session: Session?
     private(set) var user: Auth.User?
-    private(set) var isRestoring = false
+    /// The session's phase (`AuthMachine`): restoring → signedOut / signingIn / signedIn
+    /// / refreshing / expired. `state` is the coarser view `RootView` switches on.
+    private(set) var phase: AuthPhase = .restoring
+    @ObservationIgnored private var machine: GKTableMachine<AuthPhase>!
+    /// The SDK hasn't reported the stored session yet.
+    var isRestoring: Bool { phase == .restoring }
     /// Shown once on Welcome after a sign-out the user didn't ask for (or a deletion).
     var signOutNotice: String?
-    private(set) var isWorking = false
+    /// A call that isn't a sign-in is running (reset link, new password, deletion).
+    private var otherWork = false
+    /// Busy: buttons show a spinner.
+    var isWorking: Bool { phase == .signingIn || otherWork }
     var errorMessage: String?
     /// Status and request ID when a platform call (Delete account) failed.
     private(set) var errorDetails: String?
@@ -164,8 +173,6 @@ final class AuthService {
     private let deleteRemoteAccount: () async throws -> AccountDeleted
     /// `POST /v1/me/apple-authorization`; injected for tests.
     private let postAppleAuthorization: (String) async throws -> Void
-    /// Set while `signOut` runs, so the SDK's own `.signedOut` event isn't read as an expiry.
-    private var signingOut = false
     @ObservationIgnored private var observation: Task<Void, Never>?
     private var pendingNonce: String?
 
@@ -179,13 +186,16 @@ final class AuthService {
         self.wipeLocalData = wipeLocalData
         self.deleteRemoteAccount = deleteRemoteAccount
         self.postAppleAuthorization = postAppleAuthorization
+        machine = AuthMachine.make { [weak self] to, _ in self?.phase = to }
         // Read the Keychain synchronously so a relaunch goes straight to Today; the
         // SDK refreshes an expired token in the background. Without a stored session
         // the splash stays until the SDK's first event (or a short timeout).
         let stored = client?.currentSession
         apply(stored)
-        guard let client else { return }
-        isRestoring = stored == nil
+        guard let client else {
+            machine.enter(.signedOut)
+            return
+        }
         observation = Task { [weak self] in
             for await change in client.authStateChanges {
                 guard let self else { return }
@@ -193,11 +203,14 @@ final class AuthService {
                     // Only ends restoring: the stored session was applied above, and a
                     // late initial event must not undo a sign-out that happened since.
                     if self.isRestoring, let s = change.session { self.apply(s) }
-                    self.isRestoring = false
+                    if self.isRestoring { self.machine.enter(.signedOut) }
                     continue
                 }
-                if change.session == nil, self.session != nil, !self.signingOut {
+                // The SDK ended a session nobody signed out of: it expired. (A sign-out
+                // the app started has already left `signedIn`, so it isn't read as one.)
+                if change.session == nil, self.session != nil, self.phase == .signedIn || self.phase == .refreshing {
                     self.signOutNotice = SignOutReason.sessionExpired.notice
+                    self.machine.enter(.expired)
                 }
                 self.apply(change.session)
             }
@@ -205,7 +218,7 @@ final class AuthService {
         if isRestoring {
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(2))
-                self?.isRestoring = false
+                if self?.isRestoring == true { self?.machine.enter(.signedOut) }
             }
         }
     }
@@ -435,8 +448,8 @@ final class AuthService {
     /// Log out: drops the session, cached responses, HealthKit anchors and
     /// per-user defaults, so another account on this phone starts from scratch.
     func signOut(reason: SignOutReason = .user) async {
-        signingOut = true
-        defer { signingOut = false }
+        // Leave `signedIn` first, so the SDK's own `.signedOut` event isn't read as an expiry.
+        machine.enter(reason == .sessionExpired ? .expired : .signedOut)
         signOutNotice = reason.notice
         #if DEBUG
         if settings.apiKeyMode {
@@ -456,8 +469,8 @@ final class AuthService {
     func deleteAccount() async -> Bool {
         errorMessage = nil
         errorDetails = nil
-        isWorking = true
-        defer { isWorking = false }
+        otherWork = true
+        defer { otherWork = false }
         let result: AccountDeleted
         do {
             result = try await deleteRemoteAccount()
@@ -482,8 +495,20 @@ final class AuthService {
             return
         }
         errorMessage = nil
-        isWorking = true
-        defer { isWorking = false }
+        // Sign-ins move the session machine; other calls only make the screen busy.
+        let signsIn: Bool
+        switch context {
+        case .signIn, .signUp, .link: signsIn = true
+        default: signsIn = false
+        }
+        if signsIn { machine.enter(.signingIn) } else { otherWork = true }
+        defer {
+            if signsIn {
+                if phase == .signingIn { machine.enter(isSignedIn ? .signedIn : .signedOut) }
+            } else {
+                otherWork = false
+            }
+        }
         do {
             try await body(client)
         } catch {
@@ -506,6 +531,12 @@ final class AuthService {
         }
         session = newSession
         user = newSession?.user
+        // The machine follows the session (sign-outs set their phase before getting here).
+        if newSession != nil {
+            machine.enter(.signedIn)
+        } else if phase == .signedIn || phase == .refreshing {
+            machine.enter(.signedOut)
+        }
     }
 
     private static let lastUserKey = AccountScope.defaultsKey
@@ -587,8 +618,11 @@ extension AuthService: AccessTokenProvider {
         try await token { try await $0.validSession() }
     }
 
+    /// After a 401: one forced refresh, in the `refreshing` phase.
     func refreshedAccessToken() async throws -> String {
-        try await token { try await $0.refreshSession() }
+        machine.enter(.refreshing)
+        defer { if phase == .refreshing { machine.enter(.signedIn) } }
+        return try await token { try await $0.refreshSession() }
     }
 
     /// The platform rejected even a freshly refreshed token.
