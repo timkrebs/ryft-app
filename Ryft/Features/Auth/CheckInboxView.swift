@@ -5,6 +5,7 @@ import SwiftUI
 struct CheckInboxView: View {
     @EnvironmentObject private var auth: AuthService
     @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
     let reason: InboxReason
     let email: String
 
@@ -34,6 +35,11 @@ struct CheckInboxView: View {
                 resent = ok
             }
             .disabled(resent)
+            // Back to the form, where the address can be corrected.
+            Button("Use another email") { dismiss() }
+                .font(.ryft(.body))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(maxWidth: .infinity, minHeight: 44)
             AuthErrorMessage()
         }
         .onAppear { auth.errorMessage = nil }
@@ -47,9 +53,18 @@ struct CheckInboxView: View {
     }
 }
 
-#Preview("Check your inbox") {
+#Preview("Check your inbox · dark") {
     NavigationStack {
         CheckInboxView(reason: .confirmSignUp, email: "tim@example.com")
     }
     .environmentObject(AuthService.preview(signedIn: false))
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Check your inbox · light") {
+    NavigationStack {
+        CheckInboxView(reason: .resetPassword, email: "tim@example.com")
+    }
+    .environmentObject(AuthService.preview(signedIn: false))
+    .preferredColorScheme(.light)
 }

@@ -13,6 +13,8 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
     var validSessionError: Error?
     var refreshError: Error?
     var refreshedToken = "refreshed-token"
+    /// Sign in with Apple failures.
+    var signInError: Error?
     /// Email sign-in/sign-up/reset/link failures.
     var emailError: Error?
     /// `true` models a project with "Confirm email" on: sign-up returns no session.
@@ -73,6 +75,7 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
     }
 
     func signInWithApple(idToken: String, nonce: String) async throws -> Session {
+        if !idToken.isEmpty, let e = locked({ signInError }) { throw e }
         let s = locked { stored = signInSession; return signInSession }
         emit(.signedIn, s)
         return s
@@ -156,6 +159,8 @@ extension AuthService {
     static func preview(signedIn: Bool = true) -> AuthService {
         AuthService(client: MockAuthClient(session: signedIn ? .preview() : nil),
                     defaults: UserDefaults(suiteName: "ryft.preview.auth") ?? .standard,
-                    wipeLocalData: {}, deleteRemoteAccount: {})
+                    wipeLocalData: {},
+                    deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                    postAppleAuthorization: { _ in })
     }
 }

@@ -157,13 +157,18 @@ struct RootView: View {
         ZStack {
             if !PlatformConfig.isComplete {
                 MisconfiguredBuildView()
-            } else if auth.isSignedIn || settings.demoMode {
+            } else if settings.demoMode {
                 tabs.transition(.opacity)
             } else {
-                WelcomeView().transition(.opacity)
+                // Nothing personal is built before there is a session.
+                switch auth.state {
+                case .restoring: SplashView().transition(.opacity)
+                case .signedOut: WelcomeView().transition(.opacity)
+                case .signedIn: tabs.transition(.opacity)
+                }
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: auth.isSignedIn || settings.demoMode)
+        .animation(.easeInOut(duration: 0.3), value: settings.demoMode ? .signedIn : auth.state)
         // The live workout, from Today, Strain or the Live Activity.
         .fullScreenCover(item: $train.live) { SessionView(controller: $0) }
         // A password-reset link signed the user in; ask for the new password now.
@@ -191,6 +196,26 @@ struct RootView: View {
                 .tag(AppTab.profile)
         }
     }
+}
+
+/// While the SDK reads the Keychain: the mark on Graphite, like the launch screen.
+struct SplashView: View {
+    var body: some View {
+        RyftMark()
+            .frame(width: 64, height: 64)
+            .foregroundStyle(Theme.textPrimary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.background.ignoresSafeArea())
+            .accessibilityLabel(Text("RYFT"))
+    }
+}
+
+#Preview("Splash · dark") {
+    SplashView().preferredColorScheme(.dark)
+}
+
+#Preview("Splash · light") {
+    SplashView().preferredColorScheme(.light)
 }
 
 #Preview("App · dark") {

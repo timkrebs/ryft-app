@@ -663,6 +663,13 @@ struct AccountDeleted: Codable, Equatable {
     let status: String
     /// `false` if Supabase couldn't be reached; the platform retries on its own.
     let authUserDeleted: Bool
+    /// `nil` without a stored Apple token; `false` if Apple couldn't be reached (retried later).
+    var appleTokenRevoked: Bool? = nil
+}
+
+/// `POST /v1/me/apple-authorization`: the Sign in with Apple authorization code.
+struct AppleAuthorization: Codable {
+    let code: String
 }
 
 // MARK: - Train

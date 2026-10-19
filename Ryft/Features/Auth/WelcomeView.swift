@@ -55,6 +55,10 @@ struct WelcomeView: View {
             if let problem = SupabaseConfig.problem {
                 InlineMessage(message: problem, systemImage: "key")
             }
+            if let notice = auth.signOutNotice {
+                InlineMessage(message: notice, systemImage: "person.crop.circle.badge.exclamationmark")
+                    .accessibilityIdentifier("welcome.notice")
+            }
             VStack(spacing: 12) {
                 AppleSignInButton()
                 PrimaryButton(title: "Create account", style: .secondary) { path.append(.createAccount) }

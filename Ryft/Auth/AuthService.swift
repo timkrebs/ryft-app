@@ -121,8 +121,28 @@ final class AuthService: ObservableObject {
     /// minimum must not be higher).
     nonisolated static let minimumPasswordLength = 10
 
+    /// What `RootView` switches on.
+    enum State: Equatable {
+        /// The SDK hasn't reported the stored session yet: splash, no Welcome flash.
+        case restoring
+        case signedOut
+        case signedIn
+    }
+
+    /// Why the account ended, for the one-line notice on Welcome.
+    enum SignOutReason: Equatable {
+        case user
+        /// A second 401, a revoked refresh token, or a deleted account elsewhere.
+        case sessionExpired
+        /// `DELETE /v1/me` succeeded; `background` when Supabase still has to finish.
+        case accountDeleted(background: Bool)
+    }
+
     @Published private(set) var session: Session?
     @Published private(set) var user: Auth.User?
+    @Published private(set) var isRestoring = false
+    /// Shown once on Welcome after a sign-out the user didn't ask for (or a deletion).
+    @Published var signOutNotice: String?
     @Published private(set) var isWorking = false
     @Published var errorMessage: String?
     /// Status and request ID when a platform call (Delete account) failed.
@@ -139,27 +159,58 @@ final class AuthService: ObservableObject {
     /// on `accountID` changes.
     private let wipeLocalData: @MainActor () -> Void
     /// `DELETE /v1/me`; injected so tests don't need the platform.
-    private let deleteRemoteAccount: () async throws -> Void
+    private let deleteRemoteAccount: () async throws -> AccountDeleted
+    /// `POST /v1/me/apple-authorization`; injected for tests.
+    private let postAppleAuthorization: (String) async throws -> Void
+    /// Set while `signOut` runs, so the SDK's own `.signedOut` event isn't read as an expiry.
+    private var signingOut = false
     private var observation: Task<Void, Never>?
     private var pendingNonce: String?
 
     init(client: AuthClientProtocol?, settings: Settings = .shared, defaults: UserDefaults = .standard,
          wipeLocalData: @escaping @MainActor () -> Void = AuthService.wipeSharedLocalData,
-         deleteRemoteAccount: @escaping () async throws -> Void = { _ = try await APIClient.shared.deleteMe() }) {
+         deleteRemoteAccount: @escaping () async throws -> AccountDeleted = { try await APIClient.shared.deleteMe() },
+         postAppleAuthorization: @escaping (String) async throws -> Void = { try await APIClient.shared.postAppleAuthorization(code: $0) }) {
         self.client = client
         self.settings = settings
         self.defaults = defaults
         self.wipeLocalData = wipeLocalData
         self.deleteRemoteAccount = deleteRemoteAccount
-        // Read the Keychain synchronously so a relaunch goes straight to Today
-        // (no Welcome flash); the SDK refreshes an expired token in the background.
-        apply(client?.currentSession)
+        self.postAppleAuthorization = postAppleAuthorization
+        // Read the Keychain synchronously so a relaunch goes straight to Today; the
+        // SDK refreshes an expired token in the background. Without a stored session
+        // the splash stays until the SDK's first event (or a short timeout).
+        let stored = client?.currentSession
+        apply(stored)
         guard let client else { return }
+        isRestoring = stored == nil
         observation = Task { [weak self] in
             for await change in client.authStateChanges {
-                self?.apply(change.session)
+                guard let self else { return }
+                if change.event == .initialSession {
+                    // Only ends restoring: the stored session was applied above, and a
+                    // late initial event must not undo a sign-out that happened since.
+                    if self.isRestoring, let s = change.session { self.apply(s) }
+                    self.isRestoring = false
+                    continue
+                }
+                if change.session == nil, self.session != nil, !self.signingOut {
+                    self.signOutNotice = SignOutReason.sessionExpired.notice
+                }
+                self.apply(change.session)
             }
         }
+        if isRestoring {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                self?.isRestoring = false
+            }
+        }
+    }
+
+    var state: State {
+        if isRestoring { return .restoring }
+        return isSignedIn ? .signedIn : .signedOut
     }
 
     deinit { observation?.cancel() }
@@ -224,7 +275,8 @@ final class AuthService: ObservableObject {
                 return
             }
             pendingNonce = nil
-            await signInWithApple(idToken: idToken, nonce: nonce, fullName: credential.fullName)
+            let code = credential.authorizationCode.flatMap { String(data: $0, encoding: .utf8) }
+            await signInWithApple(idToken: idToken, nonce: nonce, fullName: credential.fullName, authorizationCode: code)
         }
     }
 
@@ -233,7 +285,9 @@ final class AuthService: ObservableObject {
     /// `full_name`. `signInWithIdToken` has no metadata parameter, so it goes
     /// through `update(user:)`, then a refresh puts it into the access token
     /// the platform reads.
-    func signInWithApple(idToken: String, nonce: String, fullName: PersonNameComponents?) async {
+    func signInWithApple(idToken: String, nonce: String, fullName: PersonNameComponents?,
+                         authorizationCode: String? = nil) async {
+        var signedIn = false
         await run(.signIn) { client in
             var session = try await client.signInWithApple(idToken: idToken, nonce: nonce)
             if let name = Self.displayName(fullName) {
@@ -245,6 +299,21 @@ final class AuthService: ObservableObject {
                 }
             }
             self.apply(session)
+            signedIn = true
+        }
+        if signedIn, let authorizationCode { await sendAppleAuthorization(authorizationCode) }
+    }
+
+    /// `POST /v1/me/apple-authorization`, once per sign-in, right away: the code is
+    /// single-use and valid for five minutes. It lets account deletion revoke the
+    /// Apple grant. `422` (expired, used, other Apple ID) and `501` (not configured)
+    /// are fine to ignore; APIClient retries a `503` once. Never logged.
+    func sendAppleAuthorization(_ code: String) async {
+        do {
+            try await postAppleAuthorization(code)
+        } catch {
+            let status = (error as? APIError)?.status.map(String.init) ?? "-"
+            APIStatus.log.notice("Apple authorization not stored (\(status, privacy: .public))")
         }
     }
 
@@ -365,7 +434,10 @@ final class AuthService: ObservableObject {
 
     /// Log out: drops the session, cached responses, HealthKit anchors and
     /// per-user defaults, so another account on this phone starts from scratch.
-    func signOut() async {
+    func signOut(reason: SignOutReason = .user) async {
+        signingOut = true
+        defer { signingOut = false }
+        signOutNotice = reason.notice
         #if DEBUG
         if settings.apiKeyMode {
             settings.apiKeyMode = false
@@ -386,14 +458,18 @@ final class AuthService: ObservableObject {
         errorDetails = nil
         isWorking = true
         defer { isWorking = false }
+        let result: AccountDeleted
         do {
-            try await deleteRemoteAccount()
+            result = try await deleteRemoteAccount()
         } catch {
-            errorMessage = error.localizedDescription
+            // 503 (after APIClient's retries) means nothing was deleted.
+            errorMessage = (error as? APIError)?.status == 503
+                ? String(localized: "RYFT couldn't delete your account just now. Nothing was deleted. Try again in a moment.")
+                : error.localizedDescription
             errorDetails = error.diagnosticDetails
             return false
         }
-        await signOut()
+        await signOut(reason: .accountDeleted(background: !result.authUserDeleted))
         return true
     }
 
@@ -416,6 +492,7 @@ final class AuthService: ObservableObject {
     }
 
     private func apply(_ newSession: Session?) {
+        if newSession != nil, session == nil { signOutNotice = nil }
         let previousID = session?.user.id ?? defaults.string(forKey: Self.lastUserKey).flatMap(UUID.init(uuidString:))
         if let newSession {
             // A different account on this phone starts from scratch.
@@ -443,6 +520,20 @@ final class AuthService: ObservableObject {
         TrainStore.shared.wipe()
         TrainLibrary.shared.wipe()
         RestActivityController.shared.end()
+    }
+}
+
+extension AuthService.SignOutReason {
+    /// The one line Welcome shows, or nil for an ordinary log out.
+    var notice: String? {
+        switch self {
+        case .user: return nil
+        case .sessionExpired: return String(localized: "You were signed out. Log in again to continue.")
+        case .accountDeleted(let background):
+            return background
+                ? String(localized: "Your RYFT data is deleted. Removing the sign-in will finish in the background.")
+                : String(localized: "Your RYFT account and data are deleted.")
+        }
     }
 }
 
@@ -504,7 +595,7 @@ extension AuthService: AccessTokenProvider {
     /// The platform rejected even a freshly refreshed token.
     func rejectedAfterRefresh() async {
         guard staticBearer == nil else { return } // a wrong dev key: surface the 401, stay in API key mode
-        await signOut()
+        await signOut(reason: .sessionExpired)
     }
 
     private func token(_ fetch: (AuthClientProtocol) async throws -> Session) async throws -> String {
@@ -513,7 +604,7 @@ extension AuthService: AccessTokenProvider {
         do {
             return try await fetch(client).accessToken
         } catch let error as AuthError where error.endsSession {
-            await signOut()
+            await signOut(reason: .sessionExpired)
             throw APIError.signedOut
         }
     }

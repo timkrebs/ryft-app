@@ -33,11 +33,22 @@ struct AuthServiceTests {
     private let defaults = UserDefaults(suiteName: "ryft.tests.\(UUID().uuidString)")!
     private let wipes = Wipes()
 
+    final class AppleCodes { var sent: [String] = []; var error: Error? }
+    private let appleCodes = AppleCodes()
+
+    private static let deleted = AccountDeleted(status: "deleted", authUserDeleted: true, appleTokenRevoked: nil)
+
     private func make(_ client: MockAuthClient,
-                      deleteRemote: @escaping () async throws -> Void = {}) -> AuthService {
-        let wipes = self.wipes
+                      deleteRemote: @escaping () async throws -> AccountDeleted = { AuthServiceTests.deleted }) -> AuthService {
+        let wipes = self.wipes, codes = self.appleCodes
+        // Developer API key mode lives in the simulator's real defaults; these tests are about sessions.
+        Settings.shared.apiKeyMode = false
         return AuthService(client: client, defaults: defaults, wipeLocalData: { wipes.count += 1 },
-                           deleteRemoteAccount: deleteRemote)
+                           deleteRemoteAccount: deleteRemote,
+                           postAppleAuthorization: { code in
+                               codes.sent.append(code)
+                               if let e = codes.error { throw e }
+                           })
     }
 
     /// Lets the `authStateChanges` observation task run.
@@ -68,7 +79,9 @@ struct AuthServiceTests {
     }
 
     @Test func unconfiguredClientExplainsInsteadOfCrashing() async {
-        let auth = AuthService(client: nil, defaults: defaults, wipeLocalData: {}, deleteRemoteAccount: {})
+        Settings.shared.apiKeyMode = false
+        let auth = AuthService(client: nil, defaults: defaults, wipeLocalData: {},
+                               deleteRemoteAccount: { AuthServiceTests.deleted })
         #expect(!auth.isConfigured)
         await auth.logIn(email: "a@b.de", password: "0123456789")
         #expect(auth.errorMessage != nil)
@@ -233,11 +246,23 @@ struct AuthServiceTests {
     @Test func deleteAccountThenLogsOut() async {
         var deleted = false
         let client = MockAuthClient(session: .preview())
-        let auth = make(client) { deleted = true }
+        let auth = make(client) {
+            deleted = true
+            return AuthServiceTests.deleted
+        }
         #expect(await auth.deleteAccount())
         #expect(deleted)
         #expect(!auth.isSignedIn)
         #expect(wipes.count == 1)
+        #expect(auth.signOutNotice == "Your RYFT account and data are deleted.")
+    }
+
+    @Test func deletionFinishingInTheBackgroundSaysSo() async {
+        let auth = make(MockAuthClient(session: .preview())) {
+            AccountDeleted(status: "deleted", authUserDeleted: false, appleTokenRevoked: false)
+        }
+        #expect(await auth.deleteAccount())
+        #expect(auth.signOutNotice == "Your RYFT data is deleted. Removing the sign-in will finish in the background.")
     }
 
     @Test func failedDeleteKeepsTheAccount() async {
@@ -246,7 +271,89 @@ struct AuthServiceTests {
         #expect(await auth.deleteAccount() == false)
         #expect(auth.isSignedIn)
         #expect(client.signOutCount == 0)
-        #expect(auth.errorMessage == "RYFT is catching up. Try again in a moment.")
+        #expect(auth.errorMessage == "RYFT couldn't delete your account just now. Nothing was deleted. Try again in a moment.")
         #expect(auth.errorDetails == "HTTP 503 · Request ID rid-1")
+    }
+
+    // MARK: state, notices, Apple code
+
+    @Test func storedSessionIsSignedInWithoutSplash() {
+        let auth = make(MockAuthClient(session: .preview()))
+        #expect(auth.state == .signedIn)
+    }
+
+    @Test func noStoredSessionRestoresThenSignsOut() async {
+        let auth = make(MockAuthClient())
+        #expect(auth.state == .restoring)
+        await settle()
+        #expect(auth.state == .signedOut)
+    }
+
+    @Test func lateInitialEventDoesNotUndoASignOut() async {
+        let client = MockAuthClient(session: .preview())
+        client.validSessionError = AuthError.sessionMissing
+        let auth = make(client)
+        _ = try? await auth.accessToken() // ends the session before the observation task runs
+        await settle()
+        #expect(auth.state == .signedOut)
+    }
+
+    @Test func expiredSessionSignsOutWithANotice() async {
+        let client = MockAuthClient(session: .preview())
+        let auth = make(client)
+        await auth.rejectedAfterRefresh()
+        #expect(auth.state == .signedOut)
+        #expect(auth.signOutNotice == "You were signed out. Log in again to continue.")
+    }
+
+    @Test func revokedRefreshTokenShowsTheNotice() async {
+        let client = MockAuthClient(session: .preview())
+        let auth = make(client)
+        await settle()
+        client.emit(.signedOut, nil)
+        await settle()
+        #expect(auth.state == .signedOut)
+        #expect(auth.signOutNotice != nil)
+    }
+
+    @Test func ordinaryLogOutHasNoNotice() async {
+        let auth = make(MockAuthClient(session: .preview()))
+        await settle()
+        await auth.signOut()
+        await settle()
+        #expect(auth.signOutNotice == nil)
+    }
+
+    @Test func noticeClearsOnTheNextSignIn() async {
+        let auth = make(MockAuthClient(session: .preview()))
+        await auth.rejectedAfterRefresh()
+        #expect(await auth.logIn(email: "tim@example.com", password: "correct horse battery"))
+        #expect(auth.signOutNotice == nil)
+    }
+
+    @Test func appleSignInSendsTheAuthorizationCodeOnce() async {
+        let auth = make(MockAuthClient())
+        await auth.signInWithApple(idToken: "id", nonce: "n", fullName: nil, authorizationCode: "c1b2")
+        #expect(auth.isSignedIn)
+        #expect(appleCodes.sent == ["c1b2"])
+    }
+
+    @Test func rejectedAppleCodeIsIgnored() async {
+        appleCodes.error = APIError.http(422, "code expired")
+        let auth = make(MockAuthClient())
+        await auth.signInWithApple(idToken: "id", nonce: "n", fullName: nil, authorizationCode: "used")
+        #expect(auth.isSignedIn) // carry on; deletion just can't revoke at Apple
+        #expect(auth.errorMessage == nil)
+        #expect(appleCodes.sent == ["used"])
+    }
+
+    @Test func failedAppleSignInSendsNoCode() async {
+        let client = MockAuthClient()
+        client.emailError = nil
+        client.signInError = AuthError.sessionMissing
+        let auth = make(client)
+        await auth.signInWithApple(idToken: "id", nonce: "n", fullName: nil, authorizationCode: "c")
+        #expect(!auth.isSignedIn)
+        #expect(appleCodes.sent.isEmpty)
     }
 }

@@ -154,6 +154,12 @@ final class APIClient: RyftDataSource {
         try await send("DELETE", path: "/v1/me", body: Optional<Int>.none)
     }
 
+    /// `204`. The code is single-use and lives five minutes, so a `503` is retried once only.
+    func postAppleAuthorization(code: String) async throws {
+        _ = try await exchange("POST", path: "/v1/me/apple-authorization", body: AppleAuthorization(code: code),
+                               unavailableRetries: 1)
+    }
+
     func days(from: Date, to: Date) async throws -> [DailyScore] {
         try await send("GET", path: "/v1/days?from=\(Self.dayString(from))&to=\(Self.dayString(to))", body: Optional<Int>.none)
     }
@@ -202,7 +208,8 @@ final class APIClient: RyftDataSource {
     /// Like `data`, but statuses in `accepting` are returned instead of thrown —
     /// e.g. `409` on `PUT /v1/sessions/{id}`, whose body is the server's copy.
     func exchange<B: Encodable>(_ method: String, path: String, body: B?, base: URL? = nil,
-                                accepting: Set<Int> = []) async throws -> (status: Int, data: Data) {
+                                accepting: Set<Int> = [],
+                                unavailableRetries: Int = APIClient.maxUnavailableRetries) async throws -> (status: Int, data: Data) {
         guard let root = base ?? baseURL ?? settings.apiURL, root.host != nil,
               let url = URL(string: path, relativeTo: root) else {
             throw APIError.notConfigured
@@ -210,6 +217,8 @@ final class APIClient: RyftDataSource {
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Exercise names follow it (`de…` → German).
+        req.setValue(Self.acceptLanguage, forHTTPHeaderField: "Accept-Language")
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = try Self.jsonEncoder.encode(body)
@@ -239,7 +248,7 @@ final class APIClient: RyftDataSource {
                 APIStatus.log.notice("429 on \(method, privacy: .public) \(path, privacy: .public); retrying in \(wait) s")
                 try await sleep(wait)
                 continue
-            case 503 where unavailable < Self.maxUnavailableRetries:
+            case 503 where unavailable < unavailableRetries:
                 // Not a sign-in problem (API.md): keep the session, wait, retry.
                 unavailable += 1
                 let wait = min(retryAfter ?? 5, Self.maxUnavailableWait)
@@ -281,6 +290,10 @@ final class APIClient: RyftDataSource {
     private func tokenProvider() async -> AccessTokenProvider {
         if let tokens { return tokens }
         return await AuthService.shared
+    }
+
+    static var acceptLanguage: String {
+        Locale.preferredLanguages.prefix(3).joined(separator: ", ")
     }
 
     static func dayString(_ d: Date) -> String {
