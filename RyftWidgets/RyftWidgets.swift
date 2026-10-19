@@ -41,7 +41,7 @@ struct RestTimerLiveActivity: Widget {
                     VStack(alignment: .leading, spacing: 8) {
                         Progress(state: context.state)
                         HStack {
-                            Text(context.state.finished ? context.state.next : "Next: \(context.state.next)")
+                            NextLine(state: context.state)
                                 .font(.callout)
                                 .lineLimit(1)
                             Spacer()
@@ -89,7 +89,7 @@ private struct LockScreenView: View {
             }
             Progress(state: context.state)
             HStack {
-                Text(context.state.finished ? context.state.next : "Next: \(context.state.next)")
+                NextLine(state: context.state)
                     .font(.callout)
                     .foregroundStyle(Brand.mist)
                     .lineLimit(1)
@@ -100,6 +100,15 @@ private struct LockScreenView: View {
         .padding(16)
         // Also painted here: the tint alone isn't applied in every presentation.
         .background(Brand.graphite)
+    }
+}
+
+/// "Next: Bench press · set 3 of 4", or just the set once the rest is over.
+private struct NextLine: View {
+    let state: RestTimerAttributes.ContentState
+
+    var body: some View {
+        if state.finished { Text(verbatim: state.next) } else { Text("Next: \(state.next)") }
     }
 }
 
