@@ -67,17 +67,17 @@ struct RyftApp: App {
                 // Signed out, or a different account: forget the previous user's screens.
                 .onChange(of: auth.accountID) { old, new in
                     Task { await coordinator.cancel() }
-                    if old != nil {
-                        state.reset()
-                        // Flags are per account: drop the old ones, ask for the new.
-                        (env.flags as? FlagStore)?.reset()
-                    }
+                    if old != nil { state.reset() }
+                    // Flags are per account: that account's cached answer, then a fresh one.
+                    (env.flags as? FlagStore)?.switchAccount(new)
                     guard new != nil else { return }
                     Task { await screens.featureFlags?.refresh(force: true) }
                     // A link that arrived signed out; this account's push registration.
                     screens.router.openPending()
                     Task { await screens.push.refresh() }
                 }
+                // A flag flip that arrived meanwhile takes effect as the next screen appears.
+                .onChange(of: state.selectedTab) { _, _ in (env.flags as? FlagStore)?.applyPending() }
                 // The first successful sync unlocks the push pre-prompt on Today.
                 .onChange(of: sync.phase) { _, phase in
                     if phase == .done { screens.push.syncSucceeded() }
@@ -110,6 +110,7 @@ struct RyftApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
+                (env.flags as? FlagStore)?.applyPending()
                 Task { await coordinator.run(.appActive) }
                 Task { await refreshTrain() }
                 // Allowed in Settings meanwhile, a new token or language: tell the platform.

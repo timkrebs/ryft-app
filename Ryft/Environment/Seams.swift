@@ -103,8 +103,10 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
     case trainEnabled = "train.enabled"
     case sleepPlanner = "sleep.planner"
     case todayRedesign = "today.redesign"
+    // TODO(coach.enabled): reserved; no coach feature yet.
     case coachEnabled = "coach.enabled"
     case pushEnabled = "push.enabled"
+    // TODO(physiology.card): reserved; no physiology card yet.
     case physiologyCard = "physiology.card"
 
     var id: String { rawValue }

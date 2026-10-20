@@ -362,42 +362,49 @@ ring code lives in `Ryft/Push`, so the app's tests cover it.
 ## 8. Feature flags (`GET /v1/config`)
 
 - **`FlagStore`** (`Environment/FeatureFlags.swift`, `@MainActor @Observable`) is the
-  live `FeatureFlagProvider` in `AppEnvironment.live`. A flag resolves in this order:
-  1. a Debug override (stored in UserDefaults; Release ignores overrides)
+  live `FeatureFlagProvider` (the brief calls it `RemoteFlags`). A flag resolves in
+  this order:
+  1. a Debug override (UserDefaults; Release ignores overrides)
   2. the platform's value (`RemoteConfig.flags`, evaluated per user)
   3. `FeatureFlag.compiledDefault`
 
-  `source(of:)` reports which of the three applied. The last config is a SwiftData
-  `CachedDocument` ("config") together with its fetch time, so an offline launch keeps
-  its flags. Sign-out wipes the cache with the other read models, and an account switch
-  calls `reset()`. Because the store is observable, a view that reads a flag re-renders
-  when a new config arrives, with no rebuild or relaunch.
+  Unknown keys are kept in `remote` and never read. `source(of:)` reports which of
+  the three applied.
+- **Per user.** The answer is cached as the `CachedDocument` `config.<account>` (through
+  `Repository`'s store):
+  - an offline cold start uses that account's flags
+  - `switchAccount(_:)` (RyftApp, whenever `accountID` changes) loads another account's
+    cache, or the compiled defaults
+  - sign-out wipes the caches with the other read models
+- **TTL:** due once `evaluated_at + ttl_sec` (6 h) has passed.
+- **Never mid-interaction.** A new answer is cached at once, but the screens switch to
+  it in `applyPending()`, which runs on a tab change and when the app becomes active.
+  Only the first answer for an account, when nothing remote is showing yet, applies
+  directly. A running Train session isn't gated by `train.enabled`; its full-screen
+  cover lives on RootView.
 - **`FeatureFlags`** (an actor in `ScreenModels`) does the fetching:
-  - `run()` fetches at launch, then sleeps the config's `ttl_sec` (6 h) on the
-    environment's clock and fetches again.
-  - `refresh()` on a return to the foreground asks only when the config is due;
-    `refresh(force:)` runs after sign-in and from Debug.
-  - One request at a time; overlapping callers share it.
-  - A failure keeps what's cached.
-  - Before sign-in nothing is asked, because flags are per user.
+  - `run()` fetches at launch, then sleeps the TTL on the environment's clock
+  - `refresh()` on foreground asks only when the config is due; `refresh(force:)` after
+    sign-in and from Debug
+  - one request at a time; overlapping callers share it
+  - a failure keeps the cache
+  - nothing is asked before sign-in
 - **Gates:**
 
   | Flag | Gates |
   | --- | --- |
   | `train.enabled` | Today's Train card, Strain's Train section |
-  | `today.redesign` | Today's redesign (last night's hypnogram); ships dark (off by default) |
-  | `physiology.card` | Today's HRV and resting-HR range bars over 30 days |
-  | `push.enabled` | the pre-prompt, push registration, Profile → Notifications |
-  | `sleep.planner`, `coach.enabled` | typed and visible in Debug; no feature exists yet |
+  | `sleep.planner` | Sleep → Planner |
+  | `today.redesign` | Today's variant (last night's hypnogram); ships dark |
+  | `push.enabled` | the pre-prompt, push registration, Profile → Notifications (explains the rollout when off) |
+  | `coach.enabled`, `physiology.card` | reserved: read, no feature (`TODO(<flag>)` in code) |
 
-- **Debug:** Profile → Developer → Feature flags lists every flag with its value and
-  source, an override toggle, "Use the platform's value", and a forced reload.
+- **Debug:** Profile → Developer → Feature flags shows each flag's value and source,
+  with an override and a forced reload.
 - **Tests:** `FeatureFlagsTests` covers:
-  - precedence, the cache across launches, reset and wipe, TTL
-  - observation on a remote change
-  - fetch when due, force, failure, overlapping refreshes sharing one request, and the
-    `run()` loop on `TestClock`
-  - every gate
+  - precedence, unknown keys, TTL from `evaluated_at`
+  - deferred flips, per-user caches and an offline cold start
+  - fetch scheduling and failure, and every gate
 
 ## 9. CI/CD
 
