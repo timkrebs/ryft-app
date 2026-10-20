@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+  - package-ecosystem: swift
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      swift:
+        patterns: ["*"]
+    ignore:
+      # supabase-swift: minor and patch only; a major is a planned migration.
+      - dependency-name: "*supabase-swift*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
+      prefix: deps

@@ -1,9 +1,7 @@
-.PHONY: project config build test icon fonts screenshots lint check-entitlements style format archive
+.PHONY: config build test icon fonts screenshots lint check-entitlements style format archive
 
-# Ryft.xcodeproj is the source of truth (CLAUDE.md). `make project` is only for a
-# fresh clone without it; it drops anything set in Xcode since.
-project: config
-	xcodegen generate
+# Ryft.xcodeproj is the source of truth (CLAUDE.md): change targets, capabilities
+# and packages in Xcode itself.
 
 # Local xcconfigs from the examples (both include the committed Production.xcconfig).
 config: Config/Debug.xcconfig Config/Release.xcconfig

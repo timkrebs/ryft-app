@@ -1,0 +1,19 @@
+name: Feature
+description: An idea or a change to the app.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to happen?
+  - type: textarea
+    id: api
+    attributes:
+      label: Does it need new data from the platform?
+      description: If yes, it goes into docs/API_REQUESTS.md as well.

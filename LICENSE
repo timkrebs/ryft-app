@@ -1,0 +1,8 @@
+Copyright (c) 2026 Tim Krebs. All rights reserved.
+
+This repository is public so that its code can be read and reviewed. No license
+is granted: you may not copy, modify, distribute, sublicense or use this software,
+in whole or in part, without the copyright holder's prior written permission.
+
+Third-party components keep their own licenses; they are listed in the app under
+Profile → About → Licences (`Ryft/Features/Profile/LicensesView.swift`).
