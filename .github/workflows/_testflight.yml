@@ -1,5 +1,9 @@
 # Reusable: archive (Release), upload to App Store Connect, hand the build to a
 # TestFlight group. Called by nightly.yml and release.yml (docs/CI.md).
+#
+# The App Store Connect key lives in the GitHub environment the caller names
+# (internal-testflight, external-testflight, app-store), not in repository secrets:
+# environments with a reviewer make the job wait for an approval before it can read it.
 name: TestFlight build
 
 on:
@@ -9,6 +13,10 @@ on:
         description: Commit or tag to build
         type: string
         default: ""
+      environment:
+        description: GitHub environment holding the ASC_* secrets
+        type: string
+        default: internal-testflight
       group:
         description: TestFlight beta group name
         type: string
@@ -25,26 +33,24 @@ on:
       build:
         description: The uploaded build number
         value: ${{ jobs.upload.outputs.build }}
-    secrets:
-      ASC_KEY_ID:
-        required: true
-      ASC_ISSUER_ID:
-        required: true
-      ASC_KEY_P8:
-        required: true
+
+permissions:
+  contents: read
 
 jobs:
   upload:
     runs-on: xcode-27
     timeout-minutes: 90
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: write   # the build/<number> tag
     outputs:
       build: ${{ steps.version.outputs.build }}
     env:
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
@@ -58,7 +64,11 @@ jobs:
           echo "build=$(sh scripts/build-number.sh)" >> "$GITHUB_OUTPUT"
           echo "marketing=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
       - name: API key
+        # Readable by this user only, never echoed, removed in the last step.
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
         run: |
+          umask 077
           mkdir -p "$RUNNER_TEMP/asc"
           printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
           echo "ASC_KEY_PATH=$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8" >> "$GITHUB_ENV"
@@ -77,6 +87,7 @@ jobs:
       - name: Distribute
         # Notes and group go through the environment, never into the script text.
         env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
           NOTES: ${{ inputs.notes }}
           GROUP: ${{ inputs.group }}
           EXTERNAL: ${{ inputs.external }}
@@ -93,8 +104,11 @@ jobs:
           git push origin "build/${{ steps.version.outputs.build }}"
       - name: Archive logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: archive-logs
           path: ~/Library/Logs/DistributionLogs
           retention-days: 7
+      - name: Remove the API key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/asc"

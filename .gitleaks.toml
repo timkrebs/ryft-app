@@ -1,0 +1,10 @@
+# gitleaks (secret scan on every PR, .github/workflows/security.yml).
+# Extends the default rules; the only allow-listed value is the Supabase
+# *publishable* key in Config/Production.xcconfig, which is public by design
+# (SECURITY.md → What is public on purpose).
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Publishable values that are meant to be committed"
+paths = ['''^Config/Production\.xcconfig$''']
