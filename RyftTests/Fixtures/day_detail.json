@@ -10,7 +10,7 @@
     "sleep_performance": 87,
     "sleep_need_min": 538,
     "sleep_actual_min": 468,
-    "sleep_debt_min": 35,
+    "sleep_debt_min": 137,
     "hrv_ms": 58.2,
     "rhr": 48.9,
     "resp_rate": 14.6,
@@ -20,7 +20,14 @@
     "baseline_days": 30,
     "calibrating": false,
     "details": {},
-    "computed_at": "2026-10-18T07:15:02.123456Z"
+    "computed_at": "2026-10-18T07:15:02.123456Z",
+    "sleep_need_base_min": 460,
+    "sleep_need_strain_min": 37,
+    "sleep_need_debt_min": 41,
+    "sleep_need_nap_min": 0,
+    "nap_min": 25,
+    "sleep_quality": 91,
+    "sleep_consistency": 81
   },
   "sleep": {
     "start": "2026-10-17T21:00:00Z",
@@ -50,7 +57,7 @@
         "pct": 2
       }
     ],
-    "quality": 82,
+    "quality": 91,
     "quality_label": "good",
     "has_stages": true,
     "segments": [
@@ -79,7 +86,15 @@
         "start": "2026-10-17T23:10:00Z",
         "end": "2026-10-17T23:15:00Z"
       }
-    ]
+    ],
+    "restorative": 100,
+    "need": {
+      "base": 460,
+      "strain": 37,
+      "debt": 41,
+      "nap_credit": 0,
+      "total": 538
+    }
   },
   "strain": {
     "trimp": 99,

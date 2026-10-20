@@ -1,0 +1,6 @@
+{ "day": "2026-10-18", "answered": true, "answered_at": "2026-10-19T06:41:12Z", "editable": true,
+  "entries": [
+    { "behavior_id": "bad67883-7fb1-5f98-9761-feba0a813536", "value_bool": true, "value_num": null, "value_time": null },
+    { "behavior_id": "8cf20bff-9124-5fba-95e5-fd2083b90318", "value_bool": true, "value_num": 2, "value_time": null },
+    { "behavior_id": "89a9dd86-4767-5eed-9718-24370f52078b", "value_bool": true, "value_num": null, "value_time": "16:30" },
+    { "behavior_id": "ce48b6cf-43e3-5c6b-baf9-0a13e5d767d9", "value_bool": false, "value_num": null, "value_time": null } ] }

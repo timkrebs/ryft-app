@@ -1,0 +1,6 @@
+[ { "id": "bad67883-7fb1-5f98-9761-feba0a813536", "slug": "alcohol", "name": "Alcohol",
+    "name_en": "Alcohol", "name_de": "Alkohol", "category": "substances", "kind": "yes_no",
+    "default_on": true, "enabled": true, "is_custom": false, "sort": 10 },
+  { "id": "89a9dd86-4767-5eed-9718-24370f52078b", "slug": "last_caffeine", "name": "Last caffeine",
+    "name_en": "Last caffeine", "name_de": "Letztes Koffein", "category": "substances", "kind": "time",
+    "default_on": false, "enabled": false, "is_custom": false, "sort": 40 } ]

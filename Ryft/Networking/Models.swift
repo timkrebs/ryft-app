@@ -99,6 +99,17 @@ struct DailyScore: Codable, Identifiable, Hashable {
     var sleepNeedMin: Int?
     var sleepActualMin: Int?
     var sleepDebtMin: Int?
+    /// The need by term (M4): `need = base + strain + debt − nap`.
+    var sleepNeedBaseMin: Int?
+    var sleepNeedStrainMin: Int?
+    var sleepNeedDebtMin: Int?
+    var sleepNeedNapMin: Int?
+    /// Naps that day (lowers the following night's need); `0` without one.
+    var napMin: Int?
+    /// The night's quality score, 0–100 (`DayDetail.sleep.quality`).
+    var sleepQuality: Int?
+    /// Bedtime / wake regularity over 7 nights, 0–100.
+    var sleepConsistency: Int?
     var hrvMs: Double?
     var rhr: Double?
     var respRate: Double?
@@ -125,7 +136,9 @@ struct DailyScore: Codable, Identifiable, Hashable {
          volumeKg: Double? = nil, sleepPerformance: Int? = nil,
          sleepNeedMin: Int? = nil, sleepActualMin: Int? = nil, sleepDebtMin: Int? = nil, hrvMs: Double? = nil,
          rhr: Double? = nil, respRate: Double? = nil, spo2: Double? = nil, hrvBaselineMs: Double? = nil,
-         rhrBaseline: Double? = nil, baselineDays: Int = 0, calibrating: Bool = false, computedAt: Date? = nil) {
+         rhrBaseline: Double? = nil, baselineDays: Int = 0, calibrating: Bool = false, computedAt: Date? = nil,
+         sleepNeedBaseMin: Int? = nil, sleepNeedStrainMin: Int? = nil, sleepNeedDebtMin: Int? = nil,
+         sleepNeedNapMin: Int? = nil, napMin: Int? = nil, sleepQuality: Int? = nil, sleepConsistency: Int? = nil) {
         self.day = day
         self.readiness = readiness
         self.state = state
@@ -148,12 +161,20 @@ struct DailyScore: Codable, Identifiable, Hashable {
         self.baselineDays = baselineDays
         self.calibrating = calibrating
         self.computedAt = computedAt
+        self.sleepNeedBaseMin = sleepNeedBaseMin
+        self.sleepNeedStrainMin = sleepNeedStrainMin
+        self.sleepNeedDebtMin = sleepNeedDebtMin
+        self.sleepNeedNapMin = sleepNeedNapMin
+        self.napMin = napMin
+        self.sleepQuality = sleepQuality
+        self.sleepConsistency = sleepConsistency
     }
 
     enum CodingKeys: String, CodingKey {
         case day, readiness, state, recovery, strain, steps, activeKcal, strengthMin, volumeKg, sleepPerformance, sleepNeedMin,
              sleepActualMin, sleepDebtMin, hrvMs, rhr, respRate, spo2, hrvBaselineMs, rhrBaseline,
-             baselineDays, calibrating, computedAt
+             baselineDays, calibrating, computedAt, sleepNeedBaseMin, sleepNeedStrainMin, sleepNeedDebtMin,
+             sleepNeedNapMin, napMin, sleepQuality, sleepConsistency
     }
 
     init(from decoder: Decoder) throws {
@@ -180,6 +201,13 @@ struct DailyScore: Codable, Identifiable, Hashable {
         baselineDays = try c.decodeLenientInt(.baselineDays) ?? 0
         calibrating = try c.decodeIfPresent(Bool.self, forKey: .calibrating) ?? false
         computedAt = try? c.decodeIfPresent(Date.self, forKey: .computedAt)
+        sleepNeedBaseMin = try c.decodeLenientInt(.sleepNeedBaseMin)
+        sleepNeedStrainMin = try c.decodeLenientInt(.sleepNeedStrainMin)
+        sleepNeedDebtMin = try c.decodeLenientInt(.sleepNeedDebtMin)
+        sleepNeedNapMin = try c.decodeLenientInt(.sleepNeedNapMin)
+        napMin = try c.decodeLenientInt(.napMin)
+        sleepQuality = try c.decodeLenientInt(.sleepQuality)
+        sleepConsistency = try c.decodeLenientInt(.sleepConsistency)
     }
 
     /// The server's state. `null` (an older cached payload) is read like the
@@ -265,6 +293,16 @@ struct SleepInterval: Codable, Hashable {
     let end: Date
 }
 
+/// Why a night's need is what it is (`DayDetail.sleep.need`), minutes:
+/// `total = base + strain + debt − napCredit`.
+struct SleepNeed: Codable, Hashable {
+    let base: Int
+    let strain: Int
+    let debt: Int
+    let napCredit: Int
+    let total: Int
+}
+
 /// `DayDetail.sleep`: the night ending on that day.
 struct SleepDetail: Codable, Hashable {
     var start: Date?
@@ -276,13 +314,18 @@ struct SleepDetail: Codable, Hashable {
     var stages: [StageShare]
     var quality: Int?
     var qualityLabel: SleepQualityLabel?
+    /// Deep + REM against 40 % of time asleep, 0–100.
+    var restorative: Int?
     var hasStages: Bool
+    /// The need behind the night (only on `GET /v1/days/{day}`).
+    var need: SleepNeed?
     /// The hypnogram (only on `GET /v1/days/{day}`).
     var segments: [SleepInterval]
 
     init(start: Date? = nil, end: Date? = nil, totalMin: Int? = nil, inBedMin: Int? = nil,
          efficiency: Int? = nil, stages: [StageShare] = [], quality: Int? = nil,
-         qualityLabel: SleepQualityLabel? = nil, hasStages: Bool = true, segments: [SleepInterval] = []) {
+         qualityLabel: SleepQualityLabel? = nil, hasStages: Bool = true, segments: [SleepInterval] = [],
+         restorative: Int? = nil, need: SleepNeed? = nil) {
         self.start = start
         self.end = end
         self.totalMin = totalMin
@@ -293,10 +336,13 @@ struct SleepDetail: Codable, Hashable {
         self.qualityLabel = qualityLabel
         self.hasStages = hasStages
         self.segments = segments
+        self.restorative = restorative
+        self.need = need
     }
 
     enum CodingKeys: String, CodingKey {
-        case start, end, totalMin, inBedMin, efficiency, stages, quality, qualityLabel, hasStages, segments
+        case start, end, totalMin, inBedMin, efficiency, stages, quality, qualityLabel, hasStages, segments,
+             restorative, need
     }
 
     init(from decoder: Decoder) throws {
@@ -311,6 +357,8 @@ struct SleepDetail: Codable, Hashable {
         qualityLabel = try? c.decodeIfPresent(SleepQualityLabel.self, forKey: .qualityLabel)
         hasStages = try c.decodeIfPresent(Bool.self, forKey: .hasStages) ?? !stages.isEmpty
         segments = try c.decodeIfPresent([SleepInterval].self, forKey: .segments) ?? []
+        restorative = try c.decodeLenientInt(.restorative)
+        need = try? c.decodeIfPresent(SleepNeed.self, forKey: .need)
     }
 
     /// All four stages in display order (deep, light, rem, awake). The
@@ -357,13 +405,18 @@ struct SleepNight: Codable, Hashable, Identifiable {
     var stages: [StageShare]
     var quality: Int?
     var qualityLabel: SleepQualityLabel?
+    var restorative: Int?
     var hasStages: Bool
+    /// That day's `score.sleep_consistency` and `score.nap_min`.
+    var consistency: Int?
+    var napMin: Int?
 
     var id: String { day }
     var date: Date { DayFormat.date(from: day) ?? .now }
 
     init(day: String, totalMin: Int?, stages: [StageShare], quality: Int?, start: Date? = nil, end: Date? = nil,
-         inBedMin: Int? = nil, efficiency: Int? = nil, qualityLabel: SleepQualityLabel? = nil, hasStages: Bool = true) {
+         inBedMin: Int? = nil, efficiency: Int? = nil, qualityLabel: SleepQualityLabel? = nil, hasStages: Bool = true,
+         restorative: Int? = nil, consistency: Int? = nil, napMin: Int? = nil) {
         self.day = day
         self.start = start
         self.end = end
@@ -374,10 +427,14 @@ struct SleepNight: Codable, Hashable, Identifiable {
         self.quality = quality
         self.qualityLabel = qualityLabel
         self.hasStages = hasStages
+        self.restorative = restorative
+        self.consistency = consistency
+        self.napMin = napMin
     }
 
     enum CodingKeys: String, CodingKey {
-        case day, start, end, totalMin, inBedMin, efficiency, stages, quality, qualityLabel, hasStages
+        case day, start, end, totalMin, inBedMin, efficiency, stages, quality, qualityLabel, hasStages,
+             restorative, consistency, napMin
     }
 
     init(from decoder: Decoder) throws {
@@ -392,11 +449,22 @@ struct SleepNight: Codable, Hashable, Identifiable {
         quality = try c.decodeLenientInt(.quality)
         qualityLabel = try? c.decodeIfPresent(SleepQualityLabel.self, forKey: .qualityLabel)
         hasStages = try c.decodeIfPresent(Bool.self, forKey: .hasStages) ?? !stages.isEmpty
+        restorative = try c.decodeLenientInt(.restorative)
+        consistency = try c.decodeLenientInt(.consistency)
+        napMin = try c.decodeLenientInt(.napMin)
     }
 
     func minutes(for stage: SleepStageKind) -> Int {
         stages.first { $0.stage == stage }?.min ?? 0
     }
+}
+
+/// A night's bed and wake time, for the bedtime / wake strip.
+struct SleepBedtime: Codable, Hashable, Identifiable {
+    let day: String
+    let bed: Date
+    let wake: Date
+    var id: String { day }
 }
 
 /// `GET /v1/sleep?range=week|month`.
@@ -412,9 +480,12 @@ struct SleepRange: Codable, Hashable {
     var avgEfficiency: Int?
     var avgQuality: Int?
     var avgStages: [StageShare]
+    var avgConsistency: Int?
+    var bedtimes: [SleepBedtime]
 
     init(range: String, from: String? = nil, to: String? = nil, days: [SleepNight], avgTotalMin: Int?,
-         avgQuality: Int?, avgInBedMin: Int? = nil, avgEfficiency: Int? = nil, avgStages: [StageShare] = []) {
+         avgQuality: Int?, avgInBedMin: Int? = nil, avgEfficiency: Int? = nil, avgStages: [StageShare] = [],
+         avgConsistency: Int? = nil, bedtimes: [SleepBedtime] = []) {
         self.range = range
         self.from = from
         self.to = to
@@ -425,10 +496,13 @@ struct SleepRange: Codable, Hashable {
         self.avgEfficiency = avgEfficiency
         self.avgQuality = avgQuality
         self.avgStages = avgStages
+        self.avgConsistency = avgConsistency
+        self.bedtimes = bedtimes
     }
 
     enum CodingKeys: String, CodingKey {
-        case range, from, to, days, nights, avgTotalMin, avgInBedMin, avgEfficiency, avgQuality, avgStages
+        case range, from, to, days, nights, avgTotalMin, avgInBedMin, avgEfficiency, avgQuality, avgStages,
+             avgConsistency, bedtimes
     }
 
     init(from decoder: Decoder) throws {
@@ -443,7 +517,31 @@ struct SleepRange: Codable, Hashable {
         avgEfficiency = try c.decodeLenientInt(.avgEfficiency)
         avgQuality = try c.decodeLenientInt(.avgQuality)
         avgStages = try c.decodeIfPresent([StageShare].self, forKey: .avgStages) ?? []
+        avgConsistency = try c.decodeLenientInt(.avgConsistency)
+        bedtimes = try c.decodeIfPresent([SleepBedtime].self, forKey: .bedtimes) ?? []
     }
+}
+
+/// `GET /v1/sleep/plan?wake=HH:MM`: what tonight's bedtimes rest on.
+struct SleepPlanBasis: Codable, Hashable {
+    let base: Int
+    /// Today's strain so far × 3 min, at most 60.
+    let strainTopup: Int
+    let debtTopup: Int
+    let napCredit: Int
+    let efficiency: Int
+}
+
+/// `GET /v1/sleep/plan?wake=HH:MM`: bedtimes for 100 / 85 / 70 % of tonight's need.
+struct SleepPlan: Codable, Hashable {
+    let wake: Date
+    let needMin: Int
+    let inBedMin: Int
+    let efficiency: Int
+    let bedtime100: Date
+    let bedtime85: Date
+    let bedtime70: Date
+    let basis: SleepPlanBasis
 }
 
 // MARK: - Day detail
@@ -536,6 +634,11 @@ enum TrendMetric: String, Codable, CaseIterable, Identifiable {
     case sleepMin = "sleep_min"
     case hrv, rhr, steps
     case activeKcal = "active_kcal"
+    case strengthMin = "strength_min"
+    case volumeKg = "volume_kg"
+    case sleepQuality = "sleep_quality"
+    case sleepConsistency = "sleep_consistency"
+    case napMin = "nap_min"
     var id: String { rawValue }
 }
 
@@ -625,6 +728,11 @@ struct Insight: Codable, Hashable, Identifiable {
 
     enum CodingKeys: String, CodingKey { case id, severity, title, body, metric, day }
 
+    /// The rule behind the card. Ids are open: new rules decode as `.other`.
+    var kind: InsightKind { InsightKind(rawValue: id) }
+    /// The trend metric the card deep-links to, when the app knows it.
+    var trendMetric: TrendMetric? { metric.flatMap(TrendMetric.init(rawValue:)) }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         if let s = try? c.decode(String.self, forKey: .id) {
@@ -637,6 +745,44 @@ struct Insight: Codable, Hashable, Identifiable {
         body = try c.decodeIfPresent(String.self, forKey: .body) ?? ""
         metric = try c.decodeIfPresent(String.self, forKey: .metric)
         day = try c.decodeIfPresent(String.self, forKey: .day)
+    }
+}
+
+/// `Insight.id`, one per platform rule (API.md → Insights). Open: an id the app
+/// doesn't know yet is `.other` and shows generically.
+enum InsightKind: Hashable {
+    case hrvLow3d, rhrElevated, strainNoRecovery, sleepDebt, bedtimeIrregular, readinessUp, hrvBest30d
+    case pr, behaviorImpact, sleepConsistencyLow, napCredit, baselineLearned
+    case other(String)
+
+    private static let known: [String: InsightKind] = [
+        "hrv-low-3d": .hrvLow3d, "rhr-elevated": .rhrElevated, "strain-no-recovery": .strainNoRecovery,
+        "sleep-debt": .sleepDebt, "bedtime-irregular": .bedtimeIrregular, "readiness-up": .readinessUp,
+        "hrv-best-30d": .hrvBest30d, "pr": .pr, "behavior-impact": .behaviorImpact,
+        "sleep-consistency-low": .sleepConsistencyLow, "nap-credit": .napCredit, "baseline-learned": .baselineLearned,
+    ]
+
+    init(rawValue: String) {
+        self = Self.known[rawValue] ?? .other(rawValue)
+    }
+
+    /// SF Symbol for the card; unknown kinds get `info.circle`.
+    var systemImage: String {
+        switch self {
+        case .hrvLow3d: return "waveform.path.ecg"
+        case .rhrElevated: return "heart"
+        case .strainNoRecovery: return "bolt.heart"
+        case .sleepDebt: return "moon.zzz"
+        case .bedtimeIrregular: return "bed.double"
+        case .readinessUp: return "chart.line.uptrend.xyaxis"
+        case .hrvBest30d: return "star"
+        case .pr: return "trophy"
+        case .behaviorImpact: return "list.bullet.clipboard"
+        case .sleepConsistencyLow: return "clock.badge.exclamationmark"
+        case .napCredit: return "powersleep"
+        case .baselineLearned: return "brain"
+        case .other: return "info.circle"
+        }
     }
 }
 
@@ -698,6 +844,130 @@ struct UserPatch: Codable {   // PATCH /v1/me, every field optional
     var maxHr: Int? = nil
     var sleepBaseMin: Int? = nil
     var sleepBaseManual: Bool? = nil
+}
+
+// MARK: journal and behavior impact (API.md → Journal)
+
+enum BehaviorKind: String, Codable, CaseIterable, Identifiable {
+    case yesNo = "yes_no", count, time
+    var id: String { rawValue }
+}
+
+enum BehaviorCategory: String, Codable, CaseIterable, Identifiable {
+    case substances, sleep, recovery, supplements, health, lifestyle, custom
+    var id: String { rawValue }
+}
+
+enum ImpactStatus: String, Codable { case locked, unlocked }
+
+/// `GET /v1/behaviors`: the catalog with the user's choice.
+struct Behavior: Codable, Hashable, Identifiable {
+    let id: UUID
+    let slug: String
+    /// In the request's language.
+    let name: String
+    let nameEn: String
+    let nameDe: String
+    let category: BehaviorCategory
+    let kind: BehaviorKind
+    let defaultOn: Bool
+    var enabled: Bool
+    let isCustom: Bool
+    let sort: Int
+}
+
+/// `PATCH /v1/behaviors`: behavior id (lowercase) → on.
+struct BehaviorsPatch: Encodable {
+    let enabled: [String: Bool]
+
+    init(_ enabled: [UUID: Bool]) {
+        self.enabled = Dictionary(uniqueKeysWithValues: enabled.map { ($0.key.uuidString.lowercased(), $0.value) })
+    }
+}
+
+/// `POST /v1/behaviors`: a custom behavior with an app-generated id.
+struct BehaviorInput: Encodable, Hashable {
+    let id: UUID
+    let name: String
+    var nameDe: String? = nil
+    let kind: BehaviorKind
+    var category: BehaviorCategory? = nil
+}
+
+struct JournalEntry: Codable, Hashable {
+    let behaviorId: UUID
+    /// Did it happen (always present).
+    let valueBool: Bool
+    /// `count` behaviors: how many, ≥ 1 when `valueBool`.
+    var valueNum: Int? = nil
+    /// `time` behaviors: local "HH:MM" when `valueBool`.
+    var valueTime: String? = nil
+
+    /// `nil` values are sent as `null`, as the API's example shows.
+    enum CodingKeys: String, CodingKey { case behaviorId, valueBool, valueNum, valueTime }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(behaviorId, forKey: .behaviorId)
+        try c.encode(valueBool, forKey: .valueBool)
+        try c.encode(valueNum, forKey: .valueNum)
+        try c.encode(valueTime, forKey: .valueTime)
+    }
+}
+
+/// `GET` / `PUT /v1/journal/{day}`: the day the behaviors happened.
+struct JournalDay: Codable, Hashable {
+    let day: String
+    /// Saved at least once; a day never saved is unknown, not "no".
+    let answered: Bool
+    let answeredAt: Date?
+    /// Within the last 14 days and not in the future.
+    let editable: Bool
+    let entries: [JournalEntry]
+}
+
+/// `PUT /v1/journal/{day}`: replaces the day; every behavior shown is sent.
+struct JournalPut: Encodable, Hashable {
+    let entries: [JournalEntry]
+}
+
+/// Yes − no of the mean the morning after, with a 90 % interval.
+struct BehaviorEffect: Codable, Hashable {
+    let delta: Double
+    let ciLo: Double
+    let ciHi: Double
+    let significant: Bool
+    let nYes: Int
+    let nNo: Int
+}
+
+struct ImpactNeeded: Codable, Hashable {
+    let yes: Int
+    let no: Int
+}
+
+struct BehaviorImpact: Codable, Hashable, Identifiable {
+    let behaviorId: UUID
+    let slug: String
+    let name: String
+    let kind: BehaviorKind
+    let status: ImpactStatus
+    let nYes: Int
+    let nNo: Int
+    let needed: ImpactNeeded
+    /// Recovery points; `nil` while locked.
+    let recovery: BehaviorEffect?
+    /// HRV in % of the "no" mean; `nil` while locked or with too few HRV nights.
+    let hrvPct: BehaviorEffect?
+    let sleepPerformance: BehaviorEffect?
+    var id: UUID { behaviorId }
+}
+
+/// `GET /v1/behaviors/impact`: unlocked first by effect size, then locked by days needed.
+struct BehaviorImpacts: Codable, Hashable {
+    let windowDays: Int
+    let computedAt: Date
+    let impacts: [BehaviorImpact]
 }
 
 // MARK: remote config and push (API.md → GET /v1/config, push)

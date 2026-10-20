@@ -1,0 +1,3 @@
+{ "wake": "2026-10-20T05:00:00Z", "need_min": 512, "in_bed_min": 569, "efficiency": 90,
+  "bedtime_100": "2026-10-19T19:31:00Z", "bedtime_85": "2026-10-19T20:56:00Z", "bedtime_70": "2026-10-19T22:22:00Z",
+  "basis": { "base": 460, "strain_topup": 36, "debt_topup": 16, "nap_credit": 0, "efficiency": 90 } }

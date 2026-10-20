@@ -11,9 +11,14 @@ enum MockData {
     static let maxHR = 190
     static let restingHR = 50.0
 
+    /// The learned baseline in use (API.md → Learned baseline).
+    static let sleepBase = 460
+
     static let user = User(id: UUID(uuidString: "6F1C2B8E-1D3A-4E55-9C61-2B0F7E4A9D10") ?? UUID(),
                            name: "Tim", email: "tim@example.com", provider: "email",
-                           tz: TimeZone.current.identifier, maxHr: maxHR, sleepBaseMin: 480)
+                           tz: TimeZone.current.identifier, maxHr: maxHR, sleepBaseMin: sleepBase,
+                           sleepBaseSource: .learned, sleepBaseLearnedMin: sleepBase,
+                           sleepBaseLearnedAt: Calendar.current.date(byAdding: .day, value: -2, to: .now))
 
     /// Oldest first; the last element is today.
     static let history: [DailyScore] = nights.map(\.score)
@@ -78,12 +83,17 @@ enum MockData {
             SleepNight(day: n.score.day, totalMin: n.sleep.totalMin, stages: n.sleep.stages,
                        quality: n.sleep.quality, start: n.sleep.start, end: n.sleep.end,
                        inBedMin: n.sleep.inBedMin, efficiency: n.sleep.efficiency,
-                       qualityLabel: n.sleep.qualityLabel, hasStages: n.sleep.hasStages)
+                       qualityLabel: n.sleep.qualityLabel, hasStages: n.sleep.hasStages,
+                       restorative: n.sleep.restorative, consistency: n.score.sleepConsistency, napMin: n.score.napMin)
         }
         func mean(_ xs: [Int]) -> Int? { xs.isEmpty ? nil : Int((Double(xs.reduce(0, +)) / Double(xs.count)).rounded()) }
+        let bedtimes = selected.compactMap { n in
+            n.sleep.start.flatMap { bed in n.sleep.end.map { SleepBedtime(day: n.score.day, bed: bed, wake: $0) } }
+        }
         return SleepRange(range: kind.rawValue, from: window.first, to: window.last, days: list,
                           avgTotalMin: mean(list.compactMap(\.totalMin)), avgQuality: mean(list.compactMap(\.quality)),
-                          avgInBedMin: mean(list.compactMap(\.inBedMin)), avgEfficiency: mean(list.compactMap(\.efficiency)))
+                          avgInBedMin: mean(list.compactMap(\.inBedMin)), avgEfficiency: mean(list.compactMap(\.efficiency)),
+                          avgConsistency: mean(list.compactMap(\.consistency)), bedtimes: bedtimes)
     }
 
     /// `GET /v1/trends` from the mock history: one point per scored day with a
@@ -104,15 +114,18 @@ enum MockData {
     }
 
     static let insights: [Insight] = [
-        Insight(id: "mock-hrv", severity: .info, title: "HRV above your baseline",
-                body: "Your HRV is 12% above your 30-day average. Your body is ready for a harder session.",
-                metric: "hrv", day: DayFormat.string(from: .now)),
-        Insight(id: "mock-bedtime", severity: .notice, title: "Bedtime drifting later",
-                body: "You went to bed 40 minutes later than usual three nights this week. A steadier rhythm improves deep sleep.",
-                metric: "sleep", day: DayFormat.string(from: .now)),
-        Insight(id: "mock-strain", severity: .warn, title: "Strain outpacing recovery",
+        Insight(id: "strain-no-recovery", severity: .warn, title: "Strain outpacing recovery",
                 body: "Strain has been above 15 on four of the last seven days while recovery stayed under 60%. Plan a lighter day.",
                 metric: "strain", day: DayFormat.string(from: .now)),
+        Insight(id: "behavior-impact", severity: .notice, title: "Alcohol yesterday",
+                body: "Your recovery is typically 14 points lower the morning after.",
+                metric: "recovery", day: DayFormat.string(from: .now)),
+        Insight(id: "sleep-consistency-low", severity: .notice, title: "Irregular sleep times",
+                body: "Your sleep consistency is 54 over the last 7 nights. Going to bed within the same half hour helps recovery.",
+                metric: "sleep_consistency", day: DayFormat.string(from: .now)),
+        Insight(id: "hrv-best-30d", severity: .info, title: "Best HRV in 30 days",
+                body: "Last night's HRV of 66 ms is your highest in a month.",
+                metric: "hrv", day: DayFormat.string(from: .now)),
     ]
 
     /// A day in the middle of calibration (all scores null) for previews.
@@ -138,6 +151,8 @@ enum MockData {
         var debt = 0.0
         var out: [Night] = []
         var hrvs: [Double] = [], rhrs: [Double] = []
+        var beds: [Double] = [], wakes: [Double] = []
+        var lastStrain = 10.0, lastNap = 0
 
         for i in 0..<historyDays {
             let offset = historyDays - 1 - i
@@ -152,8 +167,14 @@ enum MockData {
             let recovery = isToday ? 82 : min(99, max(20, readiness + Int(rng.next(in: -6...4))))
             let strain = isToday ? 12.4 : (4 + rng.next(in: 0...13)).roundedTo(1)
 
-            // Sleep
-            let need = 480 + Int((strain - 10) * 3)
+            // Sleep: the need by term, as the platform scores it (API.md → DailyScore).
+            let needStrain = isToday ? 37 : min(60, Int((lastStrain * 3).rounded()))
+            let needDebt = isToday ? 41 : min(60, Int((debt * 0.3).rounded()))
+            let needNap = isToday ? 0 : lastNap
+            let need = sleepBase + needStrain + needDebt - needNap
+            let nap = isToday ? 25 : (i % 9 == 4 ? Int(rng.next(in: 25...50)) : 0)
+            lastStrain = strain
+            lastNap = nap
             let asleep = isToday ? 468 : Int(410 + rng.next(in: -45...70))
             let awake = isToday ? 10 : Int(rng.next(in: 8...28))
             let deep = isToday ? 112 : Int(Double(asleep) * rng.next(in: 0.19...0.26))
@@ -166,7 +187,19 @@ enum MockData {
             let end = start.addingTimeInterval(Double(inBed) * 60)
             debt = max(0, debt * 0.7 + Double(need - asleep))
             let performance = min(100, Int((Double(asleep) / Double(need) * 100).rounded()))
-            let quality = isToday ? 82 : min(98, max(40, performance + Int(rng.next(in: -6...4))))
+            let efficiency = Int((Double(asleep) / Double(inBed) * 100).rounded())
+            let restorative = min(100, Int((Double(deep + rem) / Double(asleep) / 0.40 * 100).rounded()))
+            let quality = isToday ? 91 : Int((0.6 * Double(performance) + 0.2 * Double(efficiency)
+                                              + 0.2 * Double(restorative)).rounded())
+            // Consistency over the last 7 nights: 100 − 0.5·(σ bed + σ wake) in minutes, 5 nights needed.
+            beds.append(start.timeIntervalSince(date) / 60)
+            wakes.append(end.timeIntervalSince(date) / 60)
+            func sd(_ xs: ArraySlice<Double>) -> Double {
+                let m = xs.reduce(0, +) / Double(xs.count)
+                return (xs.map { ($0 - m) * ($0 - m) }.reduce(0, +) / Double(xs.count)).squareRoot()
+            }
+            let consistency: Int? = isToday ? 81 : beds.count < 5 ? nil
+                : max(0, min(100, Int((100 - 0.5 * (sd(beds.suffix(7)) + sd(wakes.suffix(7)))).rounded())))
 
             let hrv = isToday ? 66 : (58 + 7 * sin(t / 6) + rng.next(in: -6...6)).roundedTo(1)
             let rhr = isToday ? 50 : (52 - 2 * sin(t / 6) + rng.next(in: -2...2)).roundedTo(1)
@@ -189,18 +222,23 @@ enum MockData {
             let score = DailyScore(
                 day: day, readiness: readiness, state: state, recovery: recovery, strain: strain,
                 steps: steps, activeKcal: kcal,
-                sleepPerformance: quality, sleepNeedMin: need, sleepActualMin: asleep,
-                sleepDebtMin: isToday ? 25 : Int(debt.rounded()), hrvMs: hrv, rhr: rhr,
+                sleepPerformance: isToday ? 87 : performance, sleepNeedMin: need, sleepActualMin: asleep,
+                sleepDebtMin: isToday ? 137 : Int(debt.rounded()), hrvMs: hrv, rhr: rhr,
                 respRate: (14.2 + rng.next(in: -0.6...0.6)).roundedTo(1),
                 spo2: (96 + rng.next(in: -1.5...1.5)).roundedTo(0),
                 hrvBaselineMs: hrvBase, rhrBaseline: rhrBase, baselineDays: baselineDays,
-                calibrating: baselineDays < DailyScore.baselineNightsRequired, computedAt: end.addingTimeInterval(600))
+                calibrating: baselineDays < DailyScore.baselineNightsRequired, computedAt: end.addingTimeInterval(600),
+                sleepNeedBaseMin: sleepBase, sleepNeedStrainMin: needStrain, sleepNeedDebtMin: needDebt,
+                sleepNeedNapMin: needNap, napMin: nap, sleepQuality: quality, sleepConsistency: consistency)
             let sleep = SleepDetail(start: start, end: end, totalMin: asleep, inBedMin: inBed,
-                                    efficiency: Int((Double(asleep) / Double(inBed) * 100).rounded()),
+                                    efficiency: efficiency,
                                     stages: stages, quality: quality,
                                     qualityLabel: SleepQualityLabel(quality: quality), hasStages: true,
                                     segments: hypnogram(start: start, latency: latency, deep: deep, light: light,
-                                                        rem: rem, awake: awake))
+                                                        rem: rem, awake: awake),
+                                    restorative: restorative,
+                                    need: SleepNeed(base: sleepBase, strain: needStrain, debt: needDebt,
+                                                    napCredit: needNap, total: need))
             let dayStrain = DayStrain(trimp: Int((strain * 9).rounded()), hrMin: 900 + Int(rng.next(in: 0...200)),
                                       zoneMin: zones, steps: steps, activeKcal: kcal)
             out.append(Night(score: score, sleep: sleep, strain: dayStrain,
@@ -308,6 +346,11 @@ extension TrendMetric {
         case .rhr: return s.rhr
         case .steps: return s.steps.map(Double.init)
         case .activeKcal: return s.activeKcal.map(Double.init)
+        case .strengthMin: return s.strengthMin.map(Double.init)
+        case .volumeKg: return s.volumeKg
+        case .sleepQuality: return s.sleepQuality.map(Double.init)
+        case .sleepConsistency: return s.sleepConsistency.map(Double.init)
+        case .napMin: return s.napMin.map(Double.init)
         }
     }
 }
