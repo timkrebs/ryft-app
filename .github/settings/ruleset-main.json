@@ -27,7 +27,9 @@
         "required_status_checks": [
           { "context": "Lint" },
           { "context": "Build, unit tests, UI smoke" },
-          { "context": "PR title" }
+          { "context": "PR title" },
+          { "context": "Contract" },
+          { "context": "Secret scan" }
         ]
       }
     }
