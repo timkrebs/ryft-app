@@ -91,9 +91,17 @@ struct StrainView: View {
 
     /// Day strain on the 0–21 scale, ticks at 10 / 14 / 18, against the 7 days before.
     private var ring: some View {
-        MetricGauge(spec: .strain, value: model.strain, size: .large, delta: model.strainDelta,
-                    title: String(localized: "Day strain"))
-            .id(model.date) // settle the arc again per day
+        VStack(spacing: 8) {
+            MetricGauge(spec: .strain, value: model.strain, size: .large, delta: model.strainDelta,
+                        title: String(localized: "Day strain"))
+                .id(model.date) // settle the arc again per day
+            if let split = model.strainSplitText {
+                Text(split)
+                    .font(.ryft(.callout).monospacedDigit())
+                    .foregroundStyle(Theme.textSecondary)
+                    .accessibilityHint(Text("Split by heart-rate and strength load"))
+            }
+        }
     }
 
     /// Steps and active energy for the day (`DayDetail.strain`, else the score).
