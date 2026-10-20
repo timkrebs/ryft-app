@@ -28,13 +28,13 @@ struct JournalStoreTests {
         #expect(JournalStore(env: env).behaviors.count == MockJournal.behaviors.count)
     }
 
-    @Test func yesterdaysSummaryReadsLikeTheCard() async {
+    @Test func yesterdaysSummaryReadsLikeTheCard() async throws {
         let (store, _) = makeStore()
         await store.load()
-        let day = await store.loadDay(store.yesterday)
-        let summary = try? #require(day.flatMap(store.summary(of:)))
-        #expect(summary?.contains("Drinks · 2") == true && summary?.contains("16:30") == true)
-        #expect(summary?.contains("Screens in bed") == false)   // a "no" isn't listed
+        let day = try #require(await store.loadDay(store.yesterday))
+        let summary = try #require(store.summary(of: day))
+        #expect(summary.contains("Drinks · 2") && summary.contains("16:30"))
+        #expect(!summary.contains("Screens in bed"))   // a "no" isn't listed
     }
 
     @Test func writesNeedTheNetwork() async {
