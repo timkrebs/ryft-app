@@ -204,9 +204,12 @@ struct InsightOpenTests {
         let (state, _) = makeState()
         let vm = InsightsViewModel(state: state)
         let card = Insight(id: "nap-credit", severity: .info, title: "", body: "", metric: "nap_min")
-        #expect(vm.canOpen(card))
-        vm.open(card)
-        #expect(vm.focusedMetric == .napMin)
+        #expect(vm.route(for: card) == .insights(.napMin))
+        let pr = Insight(id: "pr", severity: .info, title: "", body: "", metric: "volume_kg")
+        #expect(vm.route(for: pr) == .trainHistory)
+        // behavior-impact only once the journal is live.
+        let impact = Insight(id: "behavior-impact", severity: .notice, title: "", body: "", metric: "recovery")
+        #expect(vm.route(for: impact) == nil)
         let unknown = Insight(id: "new-rule", severity: .info, title: "", body: "", metric: "something_else")
         #expect(!vm.canOpen(unknown))
     }

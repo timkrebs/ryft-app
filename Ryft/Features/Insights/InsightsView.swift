@@ -83,7 +83,7 @@ struct InsightsView: View {
                 ForEach(model.visibleInsights) { insight in
                     InsightCard(insight: insight, onDismiss: {
                         withAnimation(.easeOut(duration: 0.25)) { model.dismiss(insight) }
-                    }, onOpen: model.canOpen(insight) ? { model.open(insight) } : nil)
+                    }, onOpen: model.route(for: insight).map { route in { Task { await screens.router.open(route) } } })
                     .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
             }

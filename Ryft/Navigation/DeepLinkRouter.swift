@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// Opens a `DeepLink`: selects the tab and tells that tab's view model what to
+/// Opens an `AppRoute`: selects the tab and tells that tab's view model what to
 /// show. Universal links, `ryft://` URLs and notification taps all come here.
 /// A link that needs an account waits in `pending` until someone is signed in.
 @MainActor
@@ -11,7 +11,7 @@ final class DeepLinkRouter {
     private let sleep: SleepViewModel
     private let strain: StrainViewModel
     private let insights: InsightsViewModel
-    private(set) var pending: DeepLink?
+    private(set) var pending: AppRoute?
 
     init(state: AppState, sleep: SleepViewModel, strain: StrainViewModel, insights: InsightsViewModel) {
         self.state = state
@@ -23,12 +23,12 @@ final class DeepLinkRouter {
     /// `false` when the URL isn't one of ours.
     @discardableResult
     func open(_ url: URL) async -> Bool {
-        guard let link = DeepLink(url: url) else { return false }
+        guard let link = AppRoute(url: url) else { return false }
         await open(link)
         return true
     }
 
-    func open(_ link: DeepLink) async {
+    func open(_ link: AppRoute) async {
         if case .authCallback(let url) = link {
             _ = await state.env.auth.handle(url)
             return
@@ -49,10 +49,12 @@ final class DeepLinkRouter {
 
     private var canNavigate: Bool { state.env.isDemo || state.env.auth.isSignedIn }
 
-    private func route(_ link: DeepLink) {
+    private func route(_ link: AppRoute) {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: state.env.clock.now())
         switch link {
+        case .today:
+            state.selectedTab = .today
         case .day(let day):
             // Today's scores live on Today; an earlier day on Strain's week strip.
             if day >= today {
@@ -64,6 +66,18 @@ final class DeepLinkRouter {
         case .sleep(let night):
             sleep.show(night: night)
             state.selectedTab = .sleep
+        case .sleepPlan:
+            sleep.showPlanner()
+            state.selectedTab = .sleep
+        case .insightsBehaviors:
+            insights.focusesBehaviors = true
+            state.selectedTab = .insights
+        case .trainExercise(let id):
+            strain.requestedRoute = .exercise(id)
+            state.selectedTab = .strain
+        case .trainHistory:
+            strain.requestedRoute = .history
+            state.selectedTab = .strain
         case .insights(let metric):
             insights.focusedMetric = metric
             state.selectedTab = .insights

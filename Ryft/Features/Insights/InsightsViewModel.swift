@@ -54,19 +54,13 @@ final class InsightsViewModel {
 
     func dismiss(_ insight: Insight) { state.dismiss(insight) }
 
-    /// The chart behind a card: its trend metric (or, for `behavior-impact`, the
-    /// Behaviors section once the journal is live).
-    func canOpen(_ insight: Insight) -> Bool {
-        insight.kind == .behaviorImpact ? showsBehaviors : insight.trendMetric != nil
+    /// Where a card leads (`AppRoute.forInsight`); Behaviors only once the journal is live.
+    func route(for insight: Insight) -> AppRoute? {
+        let route = AppRoute.forInsight(insight)
+        return route == .insightsBehaviors && !showsBehaviors ? nil : route
     }
 
-    func open(_ insight: Insight) {
-        if insight.kind == .behaviorImpact {
-            focusesBehaviors = true
-        } else {
-            focusedMetric = insight.trendMetric
-        }
-    }
+    func canOpen(_ insight: Insight) -> Bool { route(for: insight) != nil }
 
     /// The journal is live and the impacts have answered.
     var showsBehaviors: Bool { journal?.isLive == true && journal?.impacts != nil }

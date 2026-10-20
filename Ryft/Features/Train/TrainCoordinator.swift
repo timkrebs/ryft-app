@@ -90,7 +90,7 @@ final class TrainCoordinator {
     /// `ryft://train/session` from the Live Activity (`ryft://train/session/<id>`
     /// is a deep link to a logged session, for `DeepLinkRouter`).
     func handle(_ url: URL) -> Bool {
-        guard url.scheme == "ryft", url.host == "train", DeepLink(url: url) == nil else { return false }
+        guard url.scheme == "ryft", url.host == "train", url.path == "/session" || url.path.isEmpty else { return false }
         resume()
         return true
     }

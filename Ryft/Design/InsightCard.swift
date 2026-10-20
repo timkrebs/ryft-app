@@ -53,7 +53,8 @@ struct InsightCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                 if let onOpen {
                     Button(action: onOpen) {
-                        Label(insight.kind == .behaviorImpact ? "See behaviors" : "Show the chart",
+                        Label(insight.kind == .behaviorImpact ? "See behaviors"
+                              : insight.kind == .pr ? "See the session" : "Show the chart",
                               systemImage: "chart.xyaxis.line")
                             .font(.ryft(.callout))
                             .foregroundStyle(Theme.accent)
