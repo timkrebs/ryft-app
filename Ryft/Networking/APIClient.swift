@@ -38,6 +38,18 @@ enum APIError: LocalizedError {
         return nil
     }
 
+    /// `422`: well-formed but invalid (a field, a value, a day not editable).
+    /// Shown inline next to what caused it; never retried, never a sign-out.
+    var isFieldError: Bool { status == 422 }
+
+    /// `409` on `POST /v1/behaviors`: the app-generated id belongs to someone
+    /// else (distinct from `PUT /v1/sessions`'s 409, which carries the server copy).
+    var isIDTaken: Bool { status == 409 }
+
+    /// A route the app knows answered `404`: that feature isn't deployed yet
+    /// (`.notLive`), so it hides instead of showing an error.
+    var isNotLive: Bool { isNotFound }
+
     /// The platform doesn't serve this endpoint (yet) — callers degrade gracefully.
     var isNotFound: Bool {
         if case .http(let code, _, _) = self { return code == 404 || code == 405 || code == 501 }

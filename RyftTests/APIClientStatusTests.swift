@@ -241,3 +241,56 @@ struct APIClientStatusTests {
         #expect(bare.requestId == nil)
     }
 }
+
+// MARK: - 422 / 409 / 404 / 204 (API.md → Errors)
+
+extension APIClientStatusTests {
+    private func put(_ c: APIClient, _ path: String) async throws -> Data {
+        try await c.data("PUT", path: path, body: JournalPut(entries: []), base: base)
+    }
+
+    @Test func fieldErrorIsInlineNeverRetriedNeverASignOut() async {
+        StubURLProtocol.script([.init(status: 422, headers: ["X-Request-ID": "rid-422"],
+                                      body: Self.fieldBody("day 2026-09-01 is not editable", requestID: "rid-422"))])
+        await #expect {
+            try await put(client(), "/v1/journal/2026-09-01")
+        } throws: { error in
+            let e = error as? APIError
+            return e?.isFieldError == true && e?.requestID == "rid-422"
+                && e?.localizedDescription == "day 2026-09-01 is not editable"
+                && error.diagnosticDetails?.contains("rid-422") == true
+        }
+        #expect(StubURLProtocol.requests.count == 1)
+        #expect(tokens.refreshes == 0 && tokens.rejections == 0)
+        #expect(sleeps.waits.isEmpty)
+    }
+
+    @Test func takenBehaviorIDIsItsOwnCase() async {
+        StubURLProtocol.script([.init(status: 409, body: Self.fieldBody("id taken"))])
+        await #expect {
+            _ = try await client().createBehavior(BehaviorInput(id: UUID(), name: "Sauna", kind: .yesNo))
+        } throws: { ($0 as? APIError)?.isIDTaken == true }
+        #expect(StubURLProtocol.requests.count == 1)
+    }
+
+    @Test func aKnownRouteThatIsNotDeployedIsNotLive() async {
+        StubURLProtocol.script([.init(status: 404, body: Self.fieldBody("not found"))])
+        await #expect {
+            _ = try await client().behaviors()
+        } throws: { error in
+            (error as? APIError)?.isNotLive == true && error.isEndpointMissing
+        }
+        #expect(StubURLProtocol.requests.count == 1 && tokens.rejections == 0)
+    }
+
+    @Test func noPlanTodayIsStillNoPlan() async throws {
+        StubURLProtocol.script([.init(status: 204, body: Data())])
+        #expect(try await client().planToday() == nil)
+    }
+
+    private static func fieldBody(_ message: String, requestID: String? = nil) -> Data {
+        var json: [String: String] = ["error": message]
+        json["request_id"] = requestID
+        return (try? JSONSerialization.data(withJSONObject: json)) ?? Data()
+    }
+}
