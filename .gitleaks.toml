@@ -1,0 +1,12 @@
+# gitleaks (secret scan on every PR, .github/workflows/security.yml).
+# Extends the default rules. The only allow-listed values are Supabase
+# *publishable* keys (sb_publishable_…), which are public by design (SECURITY.md →
+# What is public on purpose). This allowlist matches the secret itself, not the file,
+# so a service-role or sb_secret_ key in Config/Production.xcconfig is still reported.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Supabase publishable keys, meant to be committed"
+regexTarget = "secret"
+regexes = ['''^sb_publishable_[A-Za-z0-9_-]+$''']

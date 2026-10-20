@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # the build/<number> tag
+  contents: read
 
 concurrency:
   group: testflight
@@ -20,7 +20,7 @@ jobs:
       changed: ${{ steps.check.outputs.changed }}
       notes: ${{ steps.check.outputs.notes }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - id: check
@@ -44,8 +44,11 @@ jobs:
   testflight:
     needs: changes
     if: needs.changes.outputs.changed == 'true'
+    permissions:
+      contents: write   # the build/<number> tag
     uses: ./.github/workflows/_testflight.yml
     with:
+      environment: internal-testflight
       group: Internal
       notes: ${{ needs.changes.outputs.notes }}
     secrets: inherit

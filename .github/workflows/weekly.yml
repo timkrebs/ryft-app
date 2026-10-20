@@ -10,20 +10,18 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # the testflight-external tag
+  contents: read
 
 concurrency:
   group: testflight
   cancel-in-progress: false
 
 jobs:
-  external:
+  # No environment here, so the run that isn't 07:00 in Berlin never asks for approval.
+  when:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
-    env:
-      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+    outputs:
+      run: ${{ steps.hour.outputs.run }}
     steps:
       - name: Only at 07:00 Berlin
         id: hour
@@ -34,15 +32,27 @@ jobs:
             echo "Not 07:00 in Berlin ($(TZ=Europe/Berlin date +%H:%M)); the other schedule entry runs."
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/checkout@v4
-        if: steps.hour.outputs.run == 'true'
+
+  external:
+    needs: when
+    if: needs.when.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    # The key is in this environment, which waits for your approval (docs/RELEASING.md).
+    environment: external-testflight
+    permissions:
+      contents: write   # the testflight-external tag
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Newest processed build
-        if: steps.hour.outputs.run == 'true'
         run: echo "BUILD=$(python3 scripts/testflight.py latest-build)" >> "$GITHUB_ENV"
       - name: Notes since the last external build
-        if: steps.hour.outputs.run == 'true'
         run: |
           to="build/$BUILD"
           git rev-parse -q --verify "$to" >/dev/null || to=HEAD
@@ -54,12 +64,10 @@ jobs:
           cat "$RUNNER_TEMP/notes.txt"
           echo "TO=$to" >> "$GITHUB_ENV"
       - name: Distribute to External
-        if: steps.hour.outputs.run == 'true'
         run: |
           python3 scripts/testflight.py distribute --build "$BUILD" --group External \
             --notes "$RUNNER_TEMP/notes.txt" --external
       - name: Move the testflight-external tag
-        if: steps.hour.outputs.run == 'true'
         run: |
           git tag -f testflight-external "$TO"
           git push -f origin testflight-external
