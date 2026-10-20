@@ -6,7 +6,7 @@ above it (MAP below). API.md uses a little shorthand that isn't JSON — `{ … 
 `[ X, … ]`, `"a7f2…"`, `// comments` — which is turned into the smallest valid
 equivalent. Type placeholders (`"exercise": Exercise`) are replaced by that type's own example
 from earlier in MAP, lists of them (`[ Set, … ]`) by `[]`. Anything still not JSON
-is reported as skipped, never silently dropped.
+is reported as skipped and fails the job, so new shorthand can't switch a check off.
 
     extract.py <API.md> <out-dir>   →  <out-dir>/<Type>[-n].json + manifest.tsv
 """
@@ -70,12 +70,12 @@ def main() -> int:
             head = m.group(1)
         else:
             blocks.setdefault(head, []).append(m.group(2))
-    rows, missing, known = [], 0, {}
+    rows, failed, known = [], 0, {}
     for needle, typ, index in MAP:
         found = [b for h, bs in blocks.items() if needle in h for b in bs]
         if index >= len(found):
             print(f"missing: no example #{index} under a heading with {needle}")
-            missing += 1
+            failed += 1
             continue
         body = resolve(clean(found[index]), known)
         name = re.sub(r"[\[\]]", "", typ) + ("-list" if typ.startswith("[") else "")
@@ -83,6 +83,7 @@ def main() -> int:
             json.loads(body)
         except json.JSONDecodeError as e:
             rows.append((typ, name, "skipped", f"shorthand in API.md ({e.msg})"))
+            failed += 1
             continue
         (out / f"{name}.json").write_text(body)
         value = json.loads(body)
@@ -94,7 +95,7 @@ def main() -> int:
             f.write("\t".join(r) + "\n")
     for r in rows:
         print(f"{r[2]:8} {r[0]:20} {r[3]}")
-    return 1 if missing else 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
