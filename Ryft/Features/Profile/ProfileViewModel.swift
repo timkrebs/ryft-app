@@ -183,11 +183,11 @@ final class ProfileViewModel {
 
     var syncNotice: SyncNotice? {
         if let notice = apiStatus.retryNotice { return .retrying(notice) }
-        if let e = sync.lastError, !settings.demoMode { return .failed(message: e, details: sync.lastErrorDetails) }
+        if let e = sync.lastError, !env.isDemo { return .failed(message: e, details: sync.lastErrorDetails) }
         return nil
     }
 
-    var canSync: Bool { !sync.isSyncing && settings.isConfigured && auth.isSignedIn && !settings.demoMode }
+    var canSync: Bool { !sync.isSyncing && settings.isConfigured && auth.isSignedIn && !env.isDemo }
 
     func syncNow() async {
         await coordinator.run(.userInitiated)
@@ -206,11 +206,12 @@ final class ProfileViewModel {
 
     /// The preferences belong to a platform account. With `push.enabled` off the
     /// screen explains the rollout instead.
-    var showsNotifications: Bool { auth.isSignedIn && !settings.demoMode }
+    var showsNotifications: Bool { auth.isSignedIn && !env.isDemo }
 
     // MARK: demo data
 
-    var demoMode: Bool { settings.demoMode }
+    /// Through the environment, so tests (which pin demo off) never see the simulator's setting.
+    var demoMode: Bool { env.isDemo }
 
     func setDemoMode(_ on: Bool) async {
         settings.demoMode = on
@@ -220,7 +221,7 @@ final class ProfileViewModel {
 
     // MARK: export
 
-    var canExport: Bool { auth.isSignedIn || settings.demoMode }
+    var canExport: Bool { auth.isSignedIn || env.isDemo }
     private(set) var exporting = false
     var exported: ExportedFile?
     private(set) var exportError: String?

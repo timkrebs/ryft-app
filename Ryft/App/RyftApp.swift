@@ -4,7 +4,31 @@ import SwiftUI
 import BackgroundTasks
 import UIKit
 
+/// The entry point. Under unit tests the app is only their host: an empty window
+/// and none of the live work (bootstrap, HealthKit, background tasks, demo loads),
+/// so tests never share the main actor with the real app. A fresh CI simulator
+/// starts in demo mode, which made the live app load data while tests ran. UI
+/// tests launch the app as a separate process without this variable, so they get
+/// the real one.
 @main
+enum AppLauncher {
+    static var isUnitTestHost: Bool { ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil }
+
+    static func main() {
+        if isUnitTestHost {
+            TestHostApp.main()
+        } else {
+            RyftApp.main()
+        }
+    }
+}
+
+private struct TestHostApp: App {
+    var body: some Scene {
+        WindowGroup { Color.clear }
+    }
+}
+
 struct RyftApp: App {
     /// APNs callbacks, the silent refresh and notification taps.
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
