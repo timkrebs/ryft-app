@@ -69,9 +69,9 @@ struct InsightsView: View {
                 InlineMessage(message: empty, systemImage: "checkmark.circle")
             } else {
                 ForEach(model.visibleInsights) { insight in
-                    InsightCard(insight: insight) {
+                    InsightCard(insight: insight, onDismiss: {
                         withAnimation(.easeOut(duration: 0.25)) { model.dismiss(insight) }
-                    }
+                    }, onOpen: model.canOpen(insight) ? { model.open(insight) } : nil)
                     .transition(.opacity.combined(with: .move(edge: .leading)))
                 }
             }

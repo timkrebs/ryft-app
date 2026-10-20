@@ -368,10 +368,23 @@ struct MockDataSource: RyftDataSource {
 
     func me() async throws -> User { MockData.user }
 
+    /// The platform's rules: a baseline sent by hand becomes `manual`;
+    /// `sleep_base_manual: false` goes back to the learned value (or 460).
     func patchMe(_ p: UserPatch) async throws -> User {
-        User(id: MockData.user.id, name: MockData.user.name, email: MockData.user.email,
-             provider: MockData.user.provider, tz: p.tz ?? MockData.user.tz,
-             maxHr: p.maxHr ?? MockData.user.maxHr, sleepBaseMin: p.sleepBaseMin ?? MockData.user.sleepBaseMin)
+        let u = MockData.user
+        if p.sleepBaseMin != nil, p.sleepBaseManual == false { throw APIError.http(422, "conflicting baseline") }
+        var base = u.sleepBaseMin, source = u.sleepBaseSource
+        if let m = p.sleepBaseMin {
+            base = m
+            source = .manual
+        } else if p.sleepBaseManual == false {
+            base = u.sleepBaseLearnedMin ?? 460
+            source = u.sleepBaseLearnedMin == nil ? .default : .learned
+        }
+        return User(id: u.id, name: u.name, email: u.email, provider: u.provider, tz: p.tz ?? u.tz,
+                    maxHr: p.maxHr ?? u.maxHr, sleepBaseMin: base, sleepBaseSource: source,
+                    sleepBaseLearnedMin: u.sleepBaseLearnedMin, sleepBaseLearnedAt: u.sleepBaseLearnedAt,
+                    notifications: u.notifications)
     }
 
     func days(from: Date, to: Date) async throws -> [DailyScore] {

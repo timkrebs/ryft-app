@@ -231,9 +231,23 @@ struct ProfileView: View {
             Stepper(value: Bindable(model).maxHR, in: 140...220) {
                 StepperLabel(title: "Max heart rate", value: model.maxHRText)
             }
-            Stepper(value: Bindable(model).sleepBase, in: 300...600, step: 10) {
+            Stepper(value: Bindable(model).sleepBase, in: 240...720, step: 5) {
                 StepperLabel(title: "Sleep baseline", value: model.sleepBaseText)
             }
+            if let source = model.sleepBaseSourceText {
+                Text(source)
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            if model.canUseLearnedBase {
+                Button(model.usesLearnedTitle) { Task { await model.useLearnedBase() } }
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.accent)
+            }
+            Text("Changing a setting doesn't rescore past days until you tap Apply & recompute. Setting the baseline by hand stops RYFT from learning it.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
             PrimaryButton(title: "Apply & recompute 90 days", style: .secondary, busy: model.recomputing) {
                 await model.applyAndRecompute()
             }

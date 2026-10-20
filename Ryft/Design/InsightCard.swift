@@ -4,6 +4,8 @@ import SwiftUI
 struct InsightCard: View {
     let insight: Insight
     var onDismiss: (() -> Void)? = nil
+    /// "Show the chart": the trend behind the card (or the Behaviors section).
+    var onOpen: (() -> Void)? = nil
 
     private var color: Color { Theme.color(for: insight.severity) }
 
@@ -22,7 +24,11 @@ struct InsightCard: View {
                 .frame(width: 3)
                 .padding(.vertical, 2)
             VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .center) {
+                HStack(alignment: .center, spacing: 6) {
+                    Image(systemName: insight.kind.systemImage)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(color)
+                        .accessibilityHidden(true)
                     Text(severityTitle).ryftLabelStyle(color)
                     Spacer()
                     if let onDismiss {
@@ -45,6 +51,16 @@ struct InsightCard: View {
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if let onOpen {
+                    Button(action: onOpen) {
+                        Label(insight.kind == .behaviorImpact ? "See behaviors" : "Show the chart",
+                              systemImage: "chart.xyaxis.line")
+                            .font(.ryft(.callout))
+                            .foregroundStyle(Theme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
+                }
             }
         }
         .padding(Theme.Metrics.cardPadding)

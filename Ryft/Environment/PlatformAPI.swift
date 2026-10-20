@@ -109,6 +109,7 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     private var journals: [String: JournalDay] = [:]
     private(set) var journalPuts: [String: JournalPut] = [:]
     private(set) var planWakes: [String] = []
+    private(set) var mePatches: [UserPatch] = []
 
     private(set) var calls: [String] = []
     private(set) var syncRequests: [SyncRequest] = []
@@ -243,7 +244,11 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     // MARK: screens
 
     func me() async throws -> User { try enter("me"); return try await screens.me() }
-    func patchMe(_ p: UserPatch) async throws -> User { try enter("patchMe"); return try await screens.patchMe(p) }
+    func patchMe(_ p: UserPatch) async throws -> User {
+        try enter("patchMe")
+        lock.withLock { mePatches.append(p) }
+        return try await screens.patchMe(p)
+    }
     func days(from: Date, to: Date) async throws -> [DailyScore] {
         try enter("days"); return try await screens.days(from: from, to: to)
     }

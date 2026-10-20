@@ -50,6 +50,25 @@ final class InsightsViewModel {
 
     func dismiss(_ insight: Insight) { state.dismiss(insight) }
 
+    /// The chart behind a card: its trend metric (or, for `behavior-impact`, the
+    /// Behaviors section once the journal is live).
+    func canOpen(_ insight: Insight) -> Bool {
+        insight.kind == .behaviorImpact ? showsBehaviors : insight.trendMetric != nil
+    }
+
+    func open(_ insight: Insight) {
+        if insight.kind == .behaviorImpact {
+            focusesBehaviors = true
+        } else {
+            focusedMetric = insight.trendMetric
+        }
+    }
+
+    /// Set by the journal (§5) when `GET /v1/behaviors/impact` answers.
+    var showsBehaviors = false
+    /// Scroll to the Behaviors section (an insight or a deep link).
+    var focusesBehaviors = false
+
     /// The 30-day min–max until the API serves a σ (`docs/API_REQUESTS.md`).
     func band(for metric: TrendMetric) -> ClosedRange<Double>? {
         guard metric.showsPersonalRange, let lo = monthly[metric]?.min, let hi = monthly[metric]?.max, lo < hi else {
