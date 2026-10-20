@@ -18,9 +18,16 @@ private struct NotificationSettingsScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Metrics.sectionSpacing) {
-                permission
-                categories
-                quietHours
+                if model.isRolledOut {
+                    permission
+                } else {
+                    rollout
+                }
+                Group {
+                    categories
+                    quietHours
+                }
+                .disabled(!model.isRolledOut)
                 if let error = model.error {
                     InlineMessage(message: error, systemImage: "exclamationmark.circle")
                 }
@@ -32,6 +39,17 @@ private struct NotificationSettingsScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .task { await model.load() }
+    }
+
+    /// `push.enabled` is off for this account.
+    private var rollout: some View {
+        Card {
+            Label("Notifications are being rolled out. Your choices are kept for when they reach your account.",
+                  systemImage: "bell.slash")
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     @ViewBuilder
@@ -122,14 +140,23 @@ private struct NotificationSettingsScreen: View {
                 .font(.ryft(.body))
                 .foregroundStyle(Theme.textPrimary)
             }
+            Text("Times are local. Equal times turn quiet hours off; a start later than the end spans midnight.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
 
 #Preview("Notifications · dark") {
+    NavigationStack { NotificationSettingsView() }.previewEnvironment(.preview(flags: [.pushEnabled: true]))
+}
+
+#Preview("Notifications · rolling out") {
     NavigationStack { NotificationSettingsView() }.previewEnvironment()
 }
 
 #Preview("Notifications · light") {
-    NavigationStack { NotificationSettingsView() }.previewEnvironment(scheme: .light)
+    NavigationStack { NotificationSettingsView() }
+        .previewEnvironment(.preview(flags: [.pushEnabled: true]), scheme: .light)
 }

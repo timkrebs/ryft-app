@@ -252,15 +252,18 @@ struct FlagGateTests {
         #expect(litModel.showsRedesign)
     }
 
-    @Test func notificationsNeedThePushFlag() {
+    @Test func notificationSettingsExplainTheRolloutWithoutThePushFlag() {
+        let off = state([:])
+        #expect(!NotificationSettingsViewModel(state: off, push: PushRegistrar(env: off.env)).isRolledOut)
+        let on = state([.pushEnabled: true])
+        #expect(NotificationSettingsViewModel(state: on, push: PushRegistrar(env: on.env)).isRolledOut)
+    }
+
+    @Test func notificationsRowShowsWhenSignedIn() {
         let s = state([:])
         let sync = SyncService(env: s.env)
         let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: s, sync: sync), clock: s.env.clock)
-        #expect(!ProfileViewModel(state: s, sync: sync, coordinator: coordinator).showsNotifications)
-        let on = state([.pushEnabled: true])
-        let onSync = SyncService(env: on.env)
-        #expect(ProfileViewModel(state: on, sync: onSync,
-                                 coordinator: SyncCoordinator(steps: LiveSyncSteps(state: on, sync: onSync),
-                                                              clock: on.env.clock)).showsNotifications)
+        #expect(ProfileViewModel(state: s, sync: sync, coordinator: coordinator).showsNotifications)
     }
+
 }

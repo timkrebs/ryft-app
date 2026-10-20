@@ -27,6 +27,9 @@ final class NotificationSettingsViewModel {
         case notAsked, allowed, denied
     }
 
+    /// `push.enabled` for this account; off: the screen explains the rollout, toggles disabled.
+    var isRolledOut: Bool { state.env.flags.isOn(.pushEnabled) }
+
     var permission: Permission {
         if push.isAllowed { return .allowed }
         return push.status == .notDetermined ? .notAsked : .denied
@@ -59,12 +62,17 @@ final class NotificationSettingsViewModel {
         }
     }
 
+    /// When each one is sent (API.md → Push notifications).
     static func detail(_ category: NotificationCategory) -> String {
         switch category {
-        case .morningScore: return String(localized: "Your recovery once the night is scored.")
-        case .sessionScored: return String(localized: "The strain of a logged workout, with any records.")
-        case .pr: return String(localized: "A new record, when workout notifications are off.")
-        case .syncStale: return String(localized: "When your watch hasn't synced for 20 hours.")
+        case .morningScore:
+            return String(localized: "When today's recovery is scored after a night's sleep, once a day.")
+        case .sessionScored:
+            return String(localized: "When a logged strength session is scored, the first one each day.")
+        case .pr:
+            return String(localized: "When a session sets a record and Workout scored is off.")
+        case .syncStale:
+            return String(localized: "When no heart rate or steps arrived for 20 hours, between 09:00 and 21:00.")
         }
     }
 

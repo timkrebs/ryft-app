@@ -36,15 +36,26 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         perform { $0.registrar.didFailToRegister(error) }
     }
 
-    /// The silent push (`content-available`): refresh the day it names.
+    /// iOS gives a silent push about 30 s; the refresh is cut off before that.
+    static let silentPushBudget: Duration = .seconds(25)
+
+    /// The silent push (`content-available`): refresh the day it names and Today,
+    /// within the background budget. The completion handler is always called.
     func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
         guard case .refresh(let day) = PushMessage(userInfo: userInfo) else {
             completionHandler(.noData)
             return
         }
+        let today = DayFormat.string(from: .now)
         perform { handlers in
-            let outcome = await handlers.coordinator.run(.silentPush(days: [day]))
+            let coordinator = handlers.coordinator
+            let deadline = Task {
+                try? await Task.sleep(for: Self.silentPushBudget)
+                await coordinator.cancel()
+            }
+            let outcome = await coordinator.run(.silentPush(days: Array(Set([day, today])).sorted()))
+            deadline.cancel()
             completionHandler(outcome.error == nil && !outcome.cancelled ? .newData : .failed)
         }
     }
@@ -60,12 +71,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let content = response.notification.request.content
-        let action = response.actionIdentifier
         let message = PushMessage(userInfo: content.userInfo)
         perform { handlers in
-            if action == PushCategories.syncNowAction || content.categoryIdentifier == NotificationCategory.syncStale.rawValue {
+            if content.categoryIdentifier == NotificationCategory.syncStale.rawValue {
+                // No URL: Today, and a sync.
+                await handlers.router.open(.day(.now))
+                completionHandler()
                 await handlers.coordinator.run(.userInitiated)
-            } else if case .alert(_, let url?) = message {
+                return
+            }
+            if case .alert(_, let url?) = message {
                 await handlers.router.open(url)
             }
             completionHandler()
