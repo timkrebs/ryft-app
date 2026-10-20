@@ -21,7 +21,7 @@ jobs:
     outputs:
       code: ${{ steps.diff.outputs.code }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - id: diff
@@ -47,7 +47,7 @@ jobs:
     runs-on: xcode-27
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Pinned SwiftFormat and SwiftLint
         run: sh scripts/install-tools.sh
       - name: Strings (English and German complete) and entitlements
@@ -62,10 +62,10 @@ jobs:
     runs-on: xcode-27
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - name: Package cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: build/SourcePackages
           key: spm-${{ runner.os }}-${{ hashFiles('Ryft.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
@@ -103,7 +103,7 @@ jobs:
             -resultBundlePath build/UISmoke.xcresult
       - name: Results
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: build/*.xcresult
