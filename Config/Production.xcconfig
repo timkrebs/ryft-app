@@ -19,3 +19,10 @@ RYFT_SUPABASE_PUBLISHABLE_KEY = sb_publishable_naDyZ9ZtrYe_VDcNx62sTw_KzybSx4r
 // -traditional keeps the `//` in the plist's DOCTYPE URL from being read as a comment.
 INFOPLIST_PREPROCESS = YES
 INFOPLIST_OTHER_PREPROCESSOR_FLAGS = -traditional
+
+// Warnings are errors when CI says so (`RYFT_STRICT_WARNINGS=YES` on the xcodebuild
+// command line). Setting SWIFT_TREAT_WARNINGS_AS_ERRORS there directly would also hit
+// the Swift packages, which build with -suppress-warnings and refuse both flags; this
+// file only reaches our own targets.
+RYFT_STRICT_WARNINGS = NO
+SWIFT_TREAT_WARNINGS_AS_ERRORS = $(RYFT_STRICT_WARNINGS)

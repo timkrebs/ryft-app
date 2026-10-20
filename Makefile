@@ -14,7 +14,7 @@ build: config
 	xcodebuild -scheme Ryft -destination 'generic/platform=iOS Simulator' build
 
 test: config
-	xcodebuild -scheme Ryft -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
+	xcodebuild -scheme Ryft -testPlan Unit -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 
 icon:
 	mkdir -p .build

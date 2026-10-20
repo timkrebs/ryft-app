@@ -1,28 +1,35 @@
-# Pull requests and main: style, strings, unit tests, the UI smoke test (docs/CI.md).
-# The job names are the required checks on `main` (docs/RELEASING.md → Branch rules);
-# rename them only together with the ruleset.
+# Pull requests and main: style, strings, the Unit and UISmoke test plans, the API
+# contract when networking changed. Nightly (and on demand): the Full test plan with
+# the performance tests, and the contract against the platform's current API.md
+# (docs/CI.md). The job names are the required checks on `main`
+# (docs/RELEASING.md → Branch rules); rename them only together with the ruleset.
 name: iOS
 
 on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    - cron: "30 0 * * *"   # 00:30 UTC, before the nightly TestFlight build
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ios-${{ github.ref }}
+  group: ios-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
-  # Cheap Linux check: does this change touch anything that builds? A docs-only PR
-  # skips the macOS jobs, and a skipped required check counts as passed.
+  # Cheap Linux check: does this change touch anything that builds, or the wire
+  # models? A docs-only PR skips the macOS jobs, and a skipped required check counts
+  # as passed. Scheduled and manual runs do everything.
   changes:
     name: Changes
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      contract: ${{ steps.diff.outputs.contract }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -30,9 +37,11 @@ jobs:
       - id: diff
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          EVENT: ${{ github.event_name }}
         run: |
-          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
-            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
+          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ] \
+             || [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            { echo "code=true"; echo "contract=true"; } >> "$GITHUB_OUTPUT"; exit 0
           fi
           files="$(git diff --name-only "$BASE" HEAD)"
           echo "$files"
@@ -41,6 +50,11 @@ jobs:
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+          if echo "$files" | grep -qE '^(Ryft/Networking/|scripts/contract/)'; then
+            echo "contract=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "contract=false" >> "$GITHUB_OUTPUT"
           fi
 
   lint:
@@ -63,7 +77,10 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: xcode-27
-    timeout-minutes: 60
+    timeout-minutes: 75
+    env:
+      # Pull requests and main run Unit + UISmoke; the nightly runs Full.
+      FULL: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
@@ -81,34 +98,73 @@ jobs:
           xcrun simctl boot "$udid" || true
           xcrun simctl bootstatus "$udid" -b
       - name: Build for testing
+        # RYFT_STRICT_WARNINGS turns on SWIFT_TREAT_WARNINGS_AS_ERRORS for our targets
+        # only (Config/Production.xcconfig); the grep catches non-Swift warnings too.
         run: |
           set -o pipefail
           mkdir -p build
           xcodebuild build-for-testing -scheme Ryft -destination "$DESTINATION" \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
-            CODE_SIGNING_ALLOWED=NO | tee build/build.log
+            CODE_SIGNING_ALLOWED=NO RYFT_STRICT_WARNINGS=YES | tee build/build.log
           ! grep -E "^/.*/(Ryft|RyftTests|RyftUITests|RyftWidgets)/.*: warning:" build/build.log
       - name: Unit tests
+        if: env.FULL != 'true'
         timeout-minutes: 15
-        # A test that hangs fails after its allowance with its name, instead of the job timing out.
+        # TestPlans/Unit: parallel, random order, 60 s per test, coverage of Ryft.
         # No diagnostics collection: after a failure it waited 600 s on the simulator.
         run: |
-          xcodebuild test-without-building -scheme Ryft -destination "$DESTINATION" \
-            -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
-            -collect-test-diagnostics never -only-testing:RyftTests \
-            -test-timeouts-enabled YES -default-test-execution-time-allowance 60 \
-            -resultBundlePath build/UnitTests.xcresult
-      - name: UI smoke
-        timeout-minutes: 15
+          xcodebuild test-without-building -scheme Ryft -testPlan Unit -destination "$DESTINATION" \
+            -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages -collect-test-diagnostics never \
+            -resultBundlePath build/Unit.xcresult
+      - name: Coverage
+        if: env.FULL != 'true'
         run: |
-          xcodebuild test-without-building -scheme Ryft -destination "$DESTINATION" \
-            -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
-            -collect-test-diagnostics never -only-testing:RyftUITests/StoreSmokeUITests \
+          xcrun xccov view --report --json build/Unit.xcresult > build/coverage.json
+          python3 scripts/coverage.py build/coverage.json --summary "$GITHUB_STEP_SUMMARY"
+      - name: UI smoke
+        if: env.FULL != 'true'
+        timeout-minutes: 15
+        # TestPlans/UISmoke: a failing test is retried up to twice before it counts.
+        run: |
+          xcodebuild test-without-building -scheme Ryft -testPlan UISmoke -destination "$DESTINATION" \
+            -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages -collect-test-diagnostics never \
             -resultBundlePath build/UISmoke.xcresult
+      - name: Full test plan
+        if: env.FULL == 'true'
+        timeout-minutes: 45
+        # TestPlans/Full: every unit and UI test plus the performance tests.
+        run: |
+          xcodebuild test-without-building -scheme Ryft -testPlan Full -destination "$DESTINATION" \
+            -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages -collect-test-diagnostics never \
+            -resultBundlePath build/Full.xcresult
+          xcrun xccov view --report --json build/Full.xcresult > build/coverage.json
+          python3 scripts/coverage.py build/coverage.json --summary "$GITHUB_STEP_SUMMARY"
       - name: Results
-        if: failure()
+        if: failure() || env.FULL == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-results
           path: build/*.xcresult
           retention-days: 7
+
+  # The platform's API.md examples decode with the app's models (scripts/contract).
+  # On PRs that touch Ryft/Networking/ or the check itself, and every night, so a
+  # contract change on the platform side shows up the next morning.
+  contract:
+    name: Contract
+    needs: changes
+    if: needs.changes.outputs.contract == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: timkrebs/ryft-platform
+          path: plattform
+          sparse-checkout: docs/API.md
+          sparse-checkout-cone-mode: false
+      - name: Select Xcode
+        run: sudo xcode-select -s "/Applications/Xcode_$(tr -d '[:space:]' < .xcode-version).app/Contents/Developer"
+      - name: Decode every API.md example
+        run: sh scripts/contract/run.sh plattform/docs/API.md
