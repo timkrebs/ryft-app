@@ -25,8 +25,8 @@ Screenshots come from the simulator with the built-in mock data (`scripts/screen
 ## Setup
 
 `Ryft.xcodeproj` is the source of truth (see `CLAUDE.md`): open it and change targets,
-capabilities and packages in Xcode. `project.yml` only documents the original XcodeGen setup;
-don't regenerate the project from it.
+capabilities and packages in Xcode. `Package.resolved` is committed, so every build uses
+the same package versions.
 
 ```bash
 scripts/fetch-fonts.sh      # optional: Satoshi from Fontshare (see "Fonts")
@@ -231,6 +231,16 @@ Plain `http://` works for local addresses in Debug only: `Config/Debug.xcconfig`
 `.example`) turns on `NSAllowsLocalNetworking`. A public host over plain HTTP is still blocked,
 so keep `RYFT_API_URL` on `https://` unless it's a LAN address. Find the IP with
 `ipconfig getifaddr en0`. You can also set `RYFT_API_URL` in `Config/Debug.xcconfig`.
+
+## Repository
+
+- Every change goes through a pull request with required checks; see `docs/CI.md` and `docs/TESTFLIGHT.md`
+  for how a change becomes a TestFlight build and an App Store release, and `docs/CI.md`
+  for the workflows.
+- `CHANGELOG.md`: user-visible changes, newest first; add a line under Unreleased.
+- `SECURITY.md`: how to report a vulnerability (privately).
+- `LICENSE`: all rights reserved. Third-party licences are listed in the app
+  (Profile → About → Licences).
 
 ## Architecture
 
