@@ -304,7 +304,7 @@ Unknown paths on our host open Today; foreign URLs return `nil`. `DeepLinkRouter
 `strain.select` / `requestedRoute`, `sleep.show(night:)` / `showPlanner()`,
 `insights.focusedMetric` / `focusesBehaviors`. A link that arrives signed out waits for
 the next sign-in. `ryft://train/session` (the Live Activity) stays with
-`TrainCoordinator`. Associated Domains is empty until an AASA is hosted.
+`TrainCoordinator`. There is no `associated-domains` entitlement until an AASA is hosted.
 
 **Push.** `PushRegistrar` (behind `push.enabled`):
 - **Asking:** after this account's first successful sync, Today asks in one sentence.

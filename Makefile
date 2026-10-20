@@ -1,4 +1,4 @@
-.PHONY: project config build test icon fonts screenshots lint style format archive
+.PHONY: project config build test icon fonts screenshots lint check-entitlements style format archive
 
 # Ryft.xcodeproj is the source of truth (CLAUDE.md). `make project` is only for a
 # fresh clone without it; it drops anything set in Xcode since.
@@ -28,8 +28,12 @@ screenshots:
 	scripts/screenshots.sh
 
 # String catalogs complete in English and German, nothing stale.
-lint:
+lint: check-entitlements
 	python3 scripts/lint-strings.py
+
+# Every key in Ryft.entitlements has a capability; no empty arrays (CLAUDE.md → signing).
+check-entitlements:
+	python3 scripts/check-entitlements.py
 
 # SwiftFormat (check only) and SwiftLint (fails on errors), as in CI. `brew install swiftformat swiftlint`.
 style:
