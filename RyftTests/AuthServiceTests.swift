@@ -28,7 +28,7 @@ struct NonceTests {
 @MainActor
 @Suite("AuthService")
 struct AuthServiceTests {
-    final class Wipes { var count = 0 }
+    final class Wipes { var calls = 0 }
 
     private let defaults = UserDefaults(suiteName: "ryft.tests.\(UUID().uuidString)")!
     private let wipes = Wipes()
@@ -43,7 +43,7 @@ struct AuthServiceTests {
         let wipes = self.wipes, codes = self.appleCodes
         // Developer API key mode lives in the simulator's real defaults; these tests are about sessions.
         Settings.shared.apiKeyMode = false
-        return AuthService(client: client, defaults: defaults, wipeLocalData: { wipes.count += 1 },
+        return AuthService(client: client, defaults: defaults, wipeLocalData: { wipes.calls += 1 },
                            deleteRemoteAccount: deleteRemote,
                            postAppleAuthorization: { code in
                                codes.sent.append(code)
@@ -69,7 +69,7 @@ struct AuthServiceTests {
         #expect(auth.isSignedIn)
         #expect(auth.accountID == Session.preview().user.id.uuidString)
         #expect(auth.provider == "apple")
-        #expect(wipes.count == 0)
+        #expect(wipes.calls == 0)
     }
 
     @Test func noSessionMeansWelcome() {
@@ -205,7 +205,7 @@ struct AuthServiceTests {
         await auth.signOut()
         #expect(!auth.isSignedIn)
         #expect(client.signOutCount == 1)
-        #expect(wipes.count == 1)
+        #expect(wipes.calls == 1)
     }
 
     @Test func revokedSessionFromTheSDKSignsOut() async {
@@ -215,15 +215,15 @@ struct AuthServiceTests {
         client.emit(.signedOut, nil)
         await settle()
         #expect(!auth.isSignedIn)
-        #expect(wipes.count == 1)
+        #expect(wipes.calls == 1)
     }
 
     @Test func differentAccountStartsFromScratch() async {
         let first = make(MockAuthClient(session: .preview(id: UUID())))
         _ = first // remembers its user ID in `defaults`
-        #expect(wipes.count == 0)
+        #expect(wipes.calls == 0)
         _ = make(MockAuthClient(session: .preview(id: UUID())))
-        #expect(wipes.count == 1)
+        #expect(wipes.calls == 1)
     }
 
     @Test func authFailureOnTokenSignsOut() async {
@@ -261,7 +261,7 @@ struct AuthServiceTests {
         #expect(await auth.deleteAccount())
         #expect(deleted)
         #expect(!auth.isSignedIn)
-        #expect(wipes.count == 1)
+        #expect(wipes.calls == 1)
         #expect(auth.signOutNotice == "Your RYFT account and data are deleted.")
     }
 

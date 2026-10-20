@@ -617,7 +617,6 @@ enum AuthMessage {
 
 // MARK: - bearer for APIClient
 
-
 extension AuthService: AccessTokenProvider {
     /// The SDK refreshes an expired token. An auth failure (refresh token
     /// revoked, session missing) signs out, which shows onboarding.

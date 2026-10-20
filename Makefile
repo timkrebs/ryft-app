@@ -35,13 +35,15 @@ lint: check-entitlements
 check-entitlements:
 	python3 scripts/check-entitlements.py
 
-# SwiftFormat (check only) and SwiftLint (fails on errors), as in CI. `brew install swiftformat swiftlint`.
+# SwiftFormat (check only) and SwiftLint (fails on errors), the pinned versions CI uses.
 style:
-	swiftformat --lint .
-	swiftlint lint --quiet
+	sh scripts/install-tools.sh
+	.build/tools/swiftformat --lint .
+	.build/tools/swiftlint lint --quiet
 
 format:
-	swiftformat .
+	sh scripts/install-tools.sh
+	.build/tools/swiftformat .
 
 # A local Release archive (symbols, the paid team's distribution signing). TestFlight
 # uploads can come from here or from CI (docs/CI.md): both number builds with

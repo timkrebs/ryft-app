@@ -37,9 +37,16 @@ opt_in_rules:
 
 line_length:
   warning: 160
-  error: 200
+  # User-facing copy is written as one string literal per sentence; the error
+  # level catches runaway code, not long sentences.
+  error: 280
   ignores_comments: true
   ignores_urls: true
+
+# Mock and fixture builders (Preview/, tests) take one argument per field on purpose.
+function_parameter_count:
+  warning: 6
+  error: 12
 
 force_try:
   severity: warning   # tests decode fixtures with try!
