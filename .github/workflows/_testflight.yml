@@ -49,8 +49,6 @@ jobs:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
       - uses: ./.github/actions/setup
-      - name: Fonts
-        run: make fonts
       - name: Version
         id: version
         # The same formula as `make archive` (UTC yyyyMMdd.HHmmss): numbers only go up,
