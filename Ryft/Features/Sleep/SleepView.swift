@@ -12,10 +12,11 @@ struct SleepView: View {
         NavigationStack {
             ScreenScaffold {
                 titleRow
-                SegmentedPicker(selection: Bindable(model).mode, options: SleepMode.allCases, title: \.title)
+                SegmentedPicker(selection: Bindable(model).mode, options: model.modes, title: \.title)
                 switch model.mode {
                 case .day: day
                 case .week, .month: SleepRangeSection(range: model.range, isLoading: model.isLoading)
+                case .plan: SleepPlannerSection(model: model.planner)
                 }
             }
         }
@@ -101,9 +102,47 @@ struct SleepDaySection: View {
             }
             .accessibilityElement(children: .combine)
 
+            if let nap = summary.nap {
+                VStack(spacing: 6) {
+                    Label(nap, systemImage: "powersleep")
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textPrimary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Theme.surfaceRaised, in: Capsule())
+                    Text("A nap lowers tonight's sleep need.")
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                .accessibilityElement(children: .combine)
+            }
+            if let need = sleep.need {
+                Card { SleepNeedBar(need: need) }
+            }
             stages
-            quality
+            scores
             details
+        }
+    }
+
+    /// Performance, efficiency, quality and restorative as tiles; consistency
+    /// as a fifth when the platform has it.
+    private var scores: some View {
+        let summary = summary
+        return VStack(alignment: .leading, spacing: 10) {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                SleepScoreTile(title: "Performance", value: summary.performance, detail: String(localized: "of your need"))
+                SleepScoreTile(title: "Efficiency", value: summary.efficiency, detail: String(localized: "asleep in bed"))
+                SleepScoreTile(title: "Quality", value: summary.quality, detail: summary.qualityLabel)
+                SleepScoreTile(title: "Restorative", value: summary.restorative, detail: String(localized: "deep + REM"))
+                if let consistency = summary.consistency {
+                    SleepScoreTile(title: "Consistency", value: consistency, detail: String(localized: "last 7 nights"))
+                }
+            }
+            Text("Quality is 60 % performance, 20 % efficiency and 20 % restorative sleep.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -168,12 +207,40 @@ struct SleepDaySection: View {
                 StatRow(title: "Time in bed", value: summary.timeInBed)
                 StatRow(title: "Efficiency", value: summary.efficiency)
                 Divider().overlay(Theme.separator)
-                StatRow(title: "Sleep need", value: summary.need)
+                if summary.needBreakdown == nil {
+                    StatRow(title: "Sleep need", value: summary.need)
+                }
                 StatRow(title: "Actual", value: summary.actual, detail: summary.actualOfNeed)
                 StatRow(title: "Sleep debt", value: summary.debt,
                         valueColor: summary.debtIsHigh ? Theme.warning : Theme.textPrimary)
             }
         }
+    }
+}
+
+/// A small score tile on Sleep → Day: title, number, one line of context.
+struct SleepScoreTile: View {
+    let title: LocalizedStringKey
+    let value: String
+    let detail: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).ryftLabelStyle().lineLimit(1).minimumScaleFactor(0.8)
+            Text(value)
+                .font(.ryft(.metric))
+                .monospacedDigit()
+                .foregroundStyle(Theme.textPrimary)
+                .contentTransition(.numericText())
+            Text(detail)
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textSecondary)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -214,6 +281,7 @@ struct SleepRangeSection: View {
                 averages(summary)
                 chart(summary)
                 consistency(summary)
+                nights(summary)
             }
         } else if isLoading {
             ProgressView().tint(Theme.accent).padding(.top, 40)
@@ -226,7 +294,7 @@ struct SleepRangeSection: View {
         HStack(spacing: 10) {
             average(title: "Avg sleep", value: summary.averageSleep)
             average(title: "Avg quality", value: summary.averageQuality)
-            average(title: "Nights", value: summary.nights)
+            average(title: "Consistency", value: summary.averageConsistency)
         }
     }
 
@@ -293,23 +361,62 @@ struct SleepRangeSection: View {
         case .unknown: color = Theme.textTertiary
         }
         return Card {
-            HStack(alignment: .top, spacing: 14) {
-                Image(systemName: "bed.double.fill")
-                    .font(.system(size: 17))
-                    .foregroundStyle(color)
-                    .frame(width: 24)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Consistency")
-                        .font(.ryft(.headline))
-                        .foregroundStyle(Theme.textPrimary)
-                    Text(summary.consistencyHint)
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 14) {
+                    Image(systemName: "bed.double.fill")
+                        .font(.system(size: 17))
+                        .foregroundStyle(color)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Bedtime and wake time")
+                            .font(.ryft(.headline))
+                            .foregroundStyle(Theme.textPrimary)
+                        Text(summary.consistencyHint)
+                            .font(.ryft(.callout))
+                            .foregroundStyle(Theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                if !summary.bedtimes.isEmpty {
+                    BedtimeStrip(bedtimes: summary.bedtimes, rowHeight: summary.bedtimes.count > 10 ? 7 : 14)
                 }
             }
         }
-        .accessibilityElement(children: .combine)
+    }
+
+    /// Each night with its consistency and nap.
+    private func nights(_ summary: SleepRangeSummary) -> some View {
+        Card {
+            VStack(alignment: .leading, spacing: 12) {
+                CardHeader(title: "\(summary.nights) nights")
+                ForEach(summary.nightRows) { row in
+                    HStack(spacing: 10) {
+                        Text(row.title)
+                            .font(.ryft(.callout))
+                            .foregroundStyle(Theme.textPrimary)
+                        Spacer()
+                        if let nap = row.nap {
+                            Label(nap, systemImage: "powersleep")
+                                .font(.ryft(.caption))
+                                .foregroundStyle(Theme.textSecondary)
+                        }
+                        Text(row.total)
+                            .font(.ryft(.callout).monospacedDigit())
+                            .foregroundStyle(Theme.textPrimary)
+                        Label(row.consistency ?? Fmt.placeholder, systemImage: "metronome")
+                            .font(.ryft(.caption).monospacedDigit())
+                            .foregroundStyle(Theme.textTertiary)
+                            .frame(minWidth: 44, alignment: .trailing)
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(row.title))
+                    .accessibilityValue(Text(String(localized: "\(row.total) asleep, quality \(row.quality)")
+                                             + (row.consistency.map { ", " + String(localized: "consistency \($0)") } ?? "")
+                                             + (row.nap.map { ", " + String(localized: "nap \($0)") } ?? "")))
+                }
+            }
+        }
     }
 }
 

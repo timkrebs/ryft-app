@@ -92,12 +92,47 @@ final class ProfileViewModel {
         sleepBase = u.sleepBaseMin
     }
 
-    /// Saves the settings, rescores 90 days, waits for scoring and reloads.
+    /// Where the baseline comes from, as Profile says it:
+    /// "Learned · 7h 35m (updated Mon)", "Set by you · 7h 50m · learned 7h 35m", "Default · 7h 40m".
+    var sleepBaseSourceText: String? {
+        guard let u = state.user else { return nil }
+        let base = Fmt.duration(minutes: u.sleepBaseMin)
+        switch u.sleepBaseSource {
+        case .learned:
+            guard let at = u.sleepBaseLearnedAt else { return String(localized: "Learned · \(base)") }
+            return String(localized: "Learned · \(base) (updated \(at.formatted(.dateTime.weekday(.abbreviated))))")
+        case .manual:
+            guard let learned = u.sleepBaseLearnedMin else { return String(localized: "Set by you · \(base)") }
+            return String(localized: "Set by you · \(base) · learned \(Fmt.duration(minutes: learned))")
+        case .default:
+            return String(localized: "Default · \(base)")
+        }
+    }
+
+    /// Set by hand: offer going back (to the learned estimate, or the default without one).
+    var canUseLearnedBase: Bool { state.user?.sleepBaseSource == .manual }
+    var usesLearnedTitle: String {
+        state.user?.sleepBaseLearnedMin == nil ? String(localized: "Use the default") : String(localized: "Use the learned value")
+    }
+
+    /// `PATCH /v1/me {sleep_base_manual: false}`. Like every setting, it doesn't
+    /// rescore history until Apply & recompute.
+    func useLearnedBase() async {
+        await state.updateUser(UserPatch(sleepBaseManual: false))
+        applyUser()
+        recomputeStatus = String(localized: "Back to the learned baseline. Apply & recompute rescores past nights with it.")
+    }
+
+    /// Saves what changed, rescores 90 days, waits for scoring and reloads. The
+    /// baseline is only sent when it was moved, since sending it makes it manual.
     func applyAndRecompute() async {
         recomputing = true
         defer { recomputing = false }
         let now = env.clock.now()
-        await state.updateUser(UserPatch(tz: TimeZone.current.identifier, maxHr: maxHR, sleepBaseMin: sleepBase))
+        let user = state.user
+        await state.updateUser(UserPatch(tz: TimeZone.current.identifier,
+                                         maxHr: maxHR == user?.maxHr ? nil : maxHR,
+                                         sleepBaseMin: sleepBase == user?.sleepBaseMin ? nil : sleepBase))
         do {
             try await state.source.recompute(from: DayFormat.shift(now, days: -90), to: now)
             recomputeStatus = String(localized: "Recomputing — scores update in a few seconds.")
