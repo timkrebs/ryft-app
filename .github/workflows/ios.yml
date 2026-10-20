@@ -32,7 +32,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - name: Simulator
-        run: echo "DESTINATION=$(sh scripts/ci-simulator.sh)" >> "$GITHUB_ENV"
+        # Booted here, so its (slow, first-run) boot doesn't count against the tests.
+        run: |
+          dest="$(sh scripts/ci-simulator.sh)"
+          echo "DESTINATION=$dest" >> "$GITHUB_ENV"
+          udid="${dest##*id=}"
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
       - name: Build for testing
         run: |
           set -o pipefail
@@ -41,11 +47,15 @@ jobs:
             -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO | tee build/build.log
           ! grep -E "^/.*/(Ryft|RyftTests|RyftUITests|RyftWidgets)/.*: warning:" build/build.log
       - name: Unit tests
+        timeout-minutes: 15
+        # A test that hangs fails after its allowance with its name, instead of the job timing out.
         run: |
           xcodebuild test-without-building -scheme Ryft -destination "$DESTINATION" \
             -derivedDataPath build/DerivedData -only-testing:RyftTests \
+            -test-timeouts-enabled YES -default-test-execution-time-allowance 60 \
             -resultBundlePath build/UnitTests.xcresult
       - name: UI smoke
+        timeout-minutes: 15
         run: |
           xcodebuild test-without-building -scheme Ryft -destination "$DESTINATION" \
             -derivedDataPath build/DerivedData -only-testing:RyftUITests/StoreSmokeUITests \
