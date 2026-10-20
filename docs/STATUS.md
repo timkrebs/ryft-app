@@ -1,5 +1,108 @@
 # Status — 2026-10-20
 
+## Platform wiring — every API.md endpoint has a caller
+
+The follow-up brief `CLAUDE_FOLLOWUP_PLATFORM_WIRING.md` was written against an older
+snapshot. Its §0 (the `SyncCoordinator` step) had already landed as `8fc32bd`, and remote
+config and push already existed in a first form. Each section below adjusts the existing
+code and ends in its own commit:
+
+| § | Commit | What changed |
+| --- | --- | --- |
+| 0 | `122c66a` | Associated Domains kept empty (your change) and `CLAUDE.md` committed; background identifiers and modes checked against the code |
+| 1 | `d343762` | Mirror: the M4 sleep fields, `SleepPlan`, five trend metrics, open `InsightKind`, the journal types, eight `PlatformAPI` methods, fixtures from API.md, `MirrorDecodingTests` |
+| 2 | `2bb6922` | Flags: TTL counts from `evaluated_at`, a cache per account, a flip waits for the next screen appearance; `physiology.card` / `coach.enabled` reserved (TODO). The physiology card from the previous pass was removed, as the brief asks. |
+| 3 | `988270d` | Push: the capability (`aps-environment`); the environment read from the signed profile; the one-sentence pre-prompt that returns once after 14 days; the registration record in SwiftData; DELETE before sign-out and account deletion; a 25 s silent-push budget; categories without actions; the Notifications screen explains the rollout when the flag is off |
+| 4 | `92108ad` | Sleep: need bar, quality / restorative / consistency tiles, nap chip, bedtime strip, Planner (`sleep.planner`), baseline source in Profile, insight kinds |
+| 5 | `61f891b` | Journal: Today card and sheet, Profile → Journal, Insights → Behaviors; hidden while `/v1/behaviors` answers `404` |
+| 6 | `f2fe438` | One `AppRoute` parser for links, pushes and insights; the AASA request |
+| 7 | `318d769` | Strain: cardio / strength split, workout → session link, record wording from `PR_BODY_*` |
+| 8 | `111063f` | Status: `422` inline, `409` id taken, `404` not live, `204` no plan |
+
+**Tests:** 385, all green. They ran in Xcode through its test runner, which works from
+this session; only command-line `xcodebuild test` doesn't. **Build:** zero warnings in
+our targets. **Strings:** English and German complete (`make lint`).
+
+### Endpoint → screen coverage (API.md → Screens → endpoints)
+
+| Screen | Endpoint | Where in the app |
+| --- | --- | --- |
+| Today | `GET /v1/days/{today}` | `TodayView` / `TodayViewModel` (ring, tiles, HRV, RHR, need and debt) ✓ |
+| Today — Trends | `GET /v1/trends?metric=readiness&range=7d` | Today trends card ✓ |
+| Sleep — Day | `GET /v1/days/{day}` → `sleep` | `SleepDaySection`: total, stages, hypnogram, need bar, tiles, nap ✓ |
+| Sleep — Week / Month | `GET /v1/sleep?range=` | `SleepRangeSection`: bars, averages, consistency, bedtime strip, nights ✓ |
+| Sleep — Planner | `GET /v1/sleep/plan?wake=` | `SleepPlannerSection` (`sleep.planner`) ✓ |
+| Strain | `GET /v1/days/{day}` → `score.strain`, `strain`, `workouts` | `StrainView`: gauge, cardio / strength split, zones, activities ✓ |
+| Strain — workout | `GET /v1/workouts/{id}` | `WorkoutDetailView`, with the link to its session ✓ |
+| Insights | `GET /v1/insights`, `GET /v1/trends` | `InsightsView`: kind icons, card → chart, all 14 metrics ✓ |
+| Profile | `GET` / `PATCH /v1/me`, `POST /v1/recompute` | `ProfileView`: max HR, baseline source, Use the learned value, Apply & recompute ✓ |
+| Profile — Delete account | `DELETE /v1/me` | `AuthService.deleteAccount` (push deleted first) ✓ |
+| Profile — Notifications | `User.notifications`, `PATCH /v1/me/notifications` | `NotificationSettingsView` ✓ |
+| (launch, every 6 h) | `GET /v1/config` | `FlagStore` + `FeatureFlags` ✓ |
+| (after first sync, token change, sign-out) | `POST` / `DELETE /v1/devices/{id}/push` | `PushRegistrar` ✓ |
+| Notifications | push payloads | `AppDelegate`, `PushCategories`, 17 loc-keys in en and de ✓ (API.md lists 17, the brief said 18) |
+| (after Sign in with Apple) | `POST /v1/me/apple-authorization` | `AuthService` ✓ |
+| Strain — Train | `GET /v1/plans/today`, `PUT /v1/sessions/{id}`, `…/complete` | `TrainSection`, `SessionController` ✓ |
+| Strain — Train: plans | `/v1/plans…` | `PlansView`, `PlanDetailView`, `PlanBuilderView` ✓ |
+| Journal | `GET` / `PUT /v1/journal/{day}` | `JournalCard`, `JournalSheet` ✓ (hidden until M5) |
+| Insights — Behaviors | `GET /v1/behaviors/impact` | `BehaviorsSection` ✓ (hidden until M5) |
+| Profile — Journal | `GET` / `PATCH` / `POST /v1/behaviors`, `DELETE /v1/behaviors/{id}` | `JournalSettingsView` ✓ (hidden until M5) |
+| Strain — Train: library, history | `/v1/exercises…`, `GET /v1/sessions` | `ExerciseDetailView`, `TrainHistoryView` ✓ |
+| (background) | `POST /v1/sync` | `SyncService` through `SyncCoordinator` ✓ |
+
+`GET /v1/days?from&to` feeds the 90-day history. `GET /v1/workouts?from&to` is used by
+the data export.
+
+### Push setup
+
+- **Capability:** Push Notifications (`aps-environment` `development`; the export
+  re-signs it as production). `PushRegistration.env` comes from the embedded profile's
+  `aps-environment`.
+- **Before a push can arrive, someone has to act on the platform side:** turn
+  `push.enabled` on and allow-list the account (`../plattform` `OPERATIONS.md` → Feature
+  flags). Until then the pre-prompt stays hidden, and Notifications explains the rollout.
+- **Later:** the Notification Service Extension, which adds the ring image
+  (`RyftNotificationService/` sources and the tested `NotificationRing`). Add it as a
+  target in Xcode when wanted.
+
+### Waiting for M5 deployment
+
+The journal endpoints are committed on the platform but not deployed. Production answers
+`404`, so the Today card, Profile → Journal and Insights → Behaviors stay hidden with no
+error. Against compose (or in demo mode) all three show up.
+
+### Universal links
+
+Associated Domains stays empty until `ryftapp.de` hosts an AASA with the app's paths. The
+request is in `docs/API_REQUESTS.md`, with app ID `M77SKHKG63.dev.timkrebs.ryft` and the
+paths. `ryft://` links and notification taps work now.
+
+### Device verification (brief §9) — not done here; needs your iPhone
+
+I have no device. Everything above is verified in unit tests and Xcode previews only. To
+verify on a Debug build:
+
+1. Sign in, sync, see the pre-prompt, Allow. Profile → Developer shows `POST 204`.
+2. With `push.enabled` on for the account, the next `MORNING_SCORE` arrives in German.
+   The silent refresh updates Today first, and a tap opens that day.
+3. Planner with three bedtimes, and the need bar on a real night.
+4. Journal saved for yesterday and read back. Create and delete one custom behavior.
+   This needs M5 deployed, or compose.
+5. Notification toggles round-trip. Sign-out deletes the token (`204`).
+
+Screenshots go here once taken. `make check-swift` in `../plattform` (it decodes this
+mirror against a running stack) is for you to run, since the platform repo is read-only
+for me.
+
+**Preview captures, compared with the board (dark and light):**
+- Sleep Day with the need bar
+- Week with the bedtime strip
+- Planner
+- Journal sheet
+- Behaviors section
+- Notifications settings
+
+
 ## Platform parity (WHOOP's iOS stack) — §1–§9 written; device and CI checks open
 
 ### Done-when checklist (brief §10)
@@ -8,7 +111,7 @@
 | --- | --- |
 | Every view model and state machine tested | ✅ 318 unit tests, all green in Xcode |
 | Offline history works | ✅ in tests (`RepositoryOfflineTests`, SwiftData read models); ⏳ device check: airplane mode, relaunch, scroll 90 days |
-| Sandbox push arrives | ⛔ blocked: paid Developer Program, APNs key on the platform, Push capability, NSE target (see §7 below) |
+| Sandbox push arrives | ⏳ capability and registration done; device check open (Platform wiring → Device verification) |
 | A universal link opens the right screen | ✅ router tested for every path; `ryft://` works now; ⛔ `https://` needs `applinks:ryftapp.de` and the platform's AASA paths |
 | Flags toggle without a rebuild | ✅ observation test; ⏳ device check: flip a flag on the platform, return to the app |
 | CI green, one nightly TestFlight build | ⏳ workflows written, not yet run: no GitHub remote push from here, and the ASC secrets and paid team are missing (`docs/CI.md`) |
@@ -62,42 +165,10 @@ code.
 - **In-memory stores:** each `TrainStore(inMemory:)` now gets its own name, so parallel
   tests no longer share one.
 
-### §7 — open / blocked on Apple configuration
+### §7 and §8 — open items
 
-- **Notification Service Extension target.** Xcode's target-template tool doesn't offer
-  this template, and the pbxproj isn't edited by hand. To add it:
-  1. In Xcode, choose File → New → Target → Notification Service Extension, named
-     `RyftNotificationService` and embedded in Ryft.
-  2. Replace the generated `NotificationService.swift` and `Info.plist` with the ones in
-     `RyftNotificationService/`.
-  3. Add `Ryft/Push/NotificationRing.swift` to the new target's membership.
-
-  Until then, alerts arrive without the ring and the text is unchanged.
-- **Push capability (`aps-environment`).** This needs the paid Apple Developer Program,
-  plus the platform's APNs key (`../plattform` STATUS). Once both exist, add the Push
-  Notifications capability in Xcode. Registration code, preferences and the silent
-  refresh are ready, and `remote-notification` is in `UIBackgroundModes`.
-- **Universal links.** The working copy has an empty `com.apple.developer.associated-domains`
-  in `Ryft.entitlements`, an uncommitted local change that isn't mine. Universal links
-  need `applinks:ryftapp.de` back, and the platform's AASA needs the new paths
-  (`docs/API_REQUESTS.md` → Universal links). `ryft://…` links and notification taps
-  work without either.
-- **Device-only checks (not done here):**
-  - a sandbox push arrives and opens the right screen
-  - a silent push refreshes the day
-  - a universal link from Notes or Safari opens the app
-  - the ring appears once the extension exists
-
-  All of §7 is verified in unit tests and previews only.
-- **`push.enabled`** defaults to off (API.md), so the pre-prompt card and Profile →
-  Notifications stay hidden until the flag is on for the account (`GET /v1/config`, or a
-  Debug override).
-- **§8 open:** `sleep.planner` and `coach.enabled` gate nothing yet; those features are
-  later milestones. The Today redesign is the hypnogram card, because the brief's Today
-  layout never arrived. The physiology card is separate. Both are verified in previews
-  and tests only. To check that a flag toggles without a rebuild on a device, flip it on
-  the platform (OPERATIONS.md → Feature flags), then reopen the app or use Debug →
-  Reload.
+Superseded by **Platform wiring** above: push setup, the AASA, the Notification
+Service Extension, and the flags that are only reserved.
 
 ## Chart language and instrument components — done
 
