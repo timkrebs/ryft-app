@@ -22,11 +22,11 @@ first. Then upload `build/export/Ryft.ipa` with Organizer → Distribute App, or
 
 **Option B, Xcode:**
 1. Product → Archive, with the Ryft scheme and *Any iOS Device*. First set
-   **Current Project Version** to the output of `sh scripts/build-number.sh`. Set it at
-   the **project** level (Build Settings), so the widget extension gets the same number;
-   App Store Connect rejects an extension whose build differs from the app's. Without
-   this, the archive carries the project's `1` and the upload is rejected. `make archive`
-   does all of this by itself.
+   **Build** (General tab) to the output of `sh scripts/build-number.sh` on **both** the
+   Ryft and RyftWidgetsExtension targets: each target sets its own value, and App Store
+   Connect rejects an extension whose build differs from the app's. Without this, the
+   archive carries `1` and the upload is rejected. `make archive` passes the number to
+   every target by itself, so prefer it.
 2. Organizer → Distribute App → App Store Connect → Upload.
 3. Keep automatic signing. The export re-signs `aps-environment` as `production`.
 
