@@ -4,7 +4,7 @@ labels: [tester-feedback]
 body:
   - type: markdown
     attributes:
-      value: Thanks for testing! In the app you can also use Profile → Report a problem, which attaches diagnostics.
+      value: Thanks for testing! Please include the build number (Profile → About) so we can match your report to a build.
   - type: textarea
     id: what
     attributes:

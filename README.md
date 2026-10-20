@@ -234,7 +234,7 @@ so keep `RYFT_API_URL` on `https://` unless it's a LAN address. Find the IP with
 
 ## Repository
 
-- Every change goes through a pull request with required checks; see `docs/RELEASING.md`
+- Every change goes through a pull request with required checks; see `docs/CI.md` and `docs/TESTFLIGHT.md`
   for how a change becomes a TestFlight build and an App Store release, and `docs/CI.md`
   for the workflows.
 - `CHANGELOG.md`: user-visible changes, newest first; add a line under Unreleased.
