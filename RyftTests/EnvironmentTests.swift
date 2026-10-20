@@ -10,13 +10,18 @@ private func samples(_ n: Int, _ type: SampleType = .heartRate) -> HealthDelta {
     })
 }
 
-/// Waits (yielding) until `condition` holds, at most `tries` times, so a broken
-/// expectation fails instead of hanging the run.
+/// Waits until `condition` holds, for at most `timeout` of wall time, so a broken
+/// expectation fails instead of hanging the run. Bounded by time, not by a number of
+/// yields: on a loaded CI runner (parallel tests) thousands of yields pass before
+/// work on another executor gets a thread.
 @MainActor
-func eventually(tries: Int = 10_000, _ condition: () -> Bool) async -> Bool {
-    for _ in 0..<tries {
+func eventually(timeout: Duration = .seconds(10), _ condition: () -> Bool) async -> Bool {
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
         if condition() { return true }
         await Task.yield()
+        if condition() { return true }
+        try? await Task.sleep(for: .milliseconds(1))
     }
     return condition()
 }

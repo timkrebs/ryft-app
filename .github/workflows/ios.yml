@@ -91,10 +91,11 @@ jobs:
       - name: Unit tests
         timeout-minutes: 15
         # A test that hangs fails after its allowance with its name, instead of the job timing out.
+        # No diagnostics collection: after a failure it waited 600 s on the simulator.
         run: |
           xcodebuild test-without-building -scheme Ryft -destination "$DESTINATION" \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
-            -only-testing:RyftTests \
+            -collect-test-diagnostics never -only-testing:RyftTests \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 60 \
             -resultBundlePath build/UnitTests.xcresult
       - name: UI smoke
@@ -102,7 +103,7 @@ jobs:
         run: |
           xcodebuild test-without-building -scheme Ryft -destination "$DESTINATION" \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
-            -only-testing:RyftUITests/StoreSmokeUITests \
+            -collect-test-diagnostics never -only-testing:RyftUITests/StoreSmokeUITests \
             -resultBundlePath build/UISmoke.xcresult
       - name: Results
         if: failure()
