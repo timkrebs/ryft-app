@@ -1,5 +1,5 @@
 name: Set up Xcode and config
-description: Selects the Xcode in .xcode-version and creates the local xcconfigs from their examples.
+description: Selects the Xcode in .xcode-version, creates the local xcconfigs from their examples, and fetches the Satoshi fonts (git-ignored by license, but the project references them).
 runs:
   using: composite
   steps:
@@ -18,3 +18,6 @@ runs:
     - name: Config
       shell: bash
       run: make config
+    - name: Fonts
+      shell: bash
+      run: make fonts

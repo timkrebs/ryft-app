@@ -12,4 +12,4 @@ mkdir -p Ryft/Resources/Fonts
 for w in Regular Medium Bold; do
   cp "$(find "$tmp" -name "Satoshi-$w.otf" | head -1)" Ryft/Resources/Fonts/
 done
-echo "Satoshi installed in Ryft/Resources/Fonts. Re-run xcodegen generate."
+echo "Satoshi installed in Ryft/Resources/Fonts."
