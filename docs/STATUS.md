@@ -73,7 +73,7 @@ error. Against compose (or in demo mode) all three show up.
 
 ### Universal links
 
-Associated Domains stays empty until `ryftapp.de` hosts an AASA with the app's paths. The
+No `associated-domains` entitlement until `ryftapp.de` hosts an AASA with the app's paths (an empty array blocked launching; `make check-entitlements` now guards it). The
 request is in `docs/API_REQUESTS.md`, with app ID `M77SKHKG63.dev.timkrebs.ryft` and the
 paths. `ryft://` links and notification taps work now.
 

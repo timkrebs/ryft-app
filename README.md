@@ -129,9 +129,13 @@ Already in the project:
   the embedded profile and sends `sandbox` or `production` with its push registration.
 - the **`ryft`** URL type
 
-**Associated Domains** is intentionally empty until `ryftapp.de` serves an AASA with the
-app's paths (`docs/API_REQUESTS.md` → Universal links). Until then, `ryft://…` links and
-notification taps work, and `https://` links open in Safari.
+**Associated Domains** is not in the project, and `Ryft.entitlements` has no
+`associated-domains` key: an empty array there made iOS refuse to launch the app
+("inadequate entitlements"). Once `curl -sI https://ryftapp.de/.well-known/apple-app-site-association`
+serves the app's paths, add it through Signing & Capabilities → + Capability →
+Associated Domains, `applinks:ryftapp.de`. The `AppRoute` parser needs no change.
+Until then, `ryft://…` links and notification taps work. `make check-entitlements`
+guards the file.
 
 **Push to your phone.** `push.enabled` is off by default, so the platform has to switch
 it on for your account first: `OPERATIONS.md` → Feature flags in `../plattform` (enable

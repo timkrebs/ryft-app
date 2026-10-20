@@ -65,7 +65,7 @@ invent them; these are the stand-ins until the platform serves them.
    above next to `/auth/*`, served as `application/json` with no redirect.
    Optionally, a small "Open in RYFT" page at each path for phones without the app.
 
-   **Until then:** the app's Associated Domains entitlement stays empty on purpose.
+   **Until then:** the app has no `associated-domains` entitlement at all; an empty array made iOS refuse to launch it.
    `https://` links open in Safari. `ryft://…` links and notification taps (the app
    reads `ryft.url` itself) work today. Once the AASA is live, the app adds
    `applinks:ryftapp.de` in Xcode (Signing & Capabilities); no code change is needed.

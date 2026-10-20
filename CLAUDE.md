@@ -31,6 +31,11 @@ is `../ROADMAP.md`; the user pastes one milestone per session.
   so previews and the simulator must work from `Preview/MockData.swift` without a server.
 - Accessibility: dynamic type, VoiceOver labels on rings and charts, reduced motion.
   Strings go through `Localizable.xcstrings` (en, de) from milestone M5 on.
+- Signing: capabilities are added only through Signing & Capabilities → + Capability,
+  never by editing `Ryft.entitlements` by hand, and every key in it must have a matching
+  capability (`make check-entitlements`, part of `make lint`). No `associated-domains` key
+  until the AASA on ryftapp.de lists the app's paths — an empty array once stopped iOS from
+  launching the app.
 - Never put keys in Swift: Supabase URL/anon key come from git-ignored xcconfig files.
 - End each session with `docs/STATUS.md` (done / open / blocked-on-Apple-or-Supabase
   config) and a commit per milestone.
