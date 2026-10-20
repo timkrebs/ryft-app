@@ -20,6 +20,7 @@
 		2CF65ADA5F4A8E3223D22B8B /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3584BDEB926754426D339C0F /* Models.swift */; };
 		30AB00D01BDE09CC9B49A557 /* Satoshi-Bold.otf in Resources */ = {isa = PBXBuildFile; fileRef = 7C0D490B05867D1D08A89115 /* Satoshi-Bold.otf */; };
 		32C19BDFFDBF5E73473E1D6F /* TrendChart.swift in Sources */ = {isa = PBXBuildFile; fileRef = 801618616FF914303078614F /* TrendChart.swift */; };
+		3408C55630878B4B005CA07B /* PerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3408C55530878B4B005CA07B /* PerformanceTests.swift */; };
 		346E14D13086746D0054AE5E /* MetricSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 346E14D03086746D0054AE5E /* MetricSpec.swift */; };
 		346E14D3308674950054AE5E /* ChartStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 346E14D2308674950054AE5E /* ChartStyle.swift */; };
 		346E14D5308674A30054AE5E /* DeltaLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 346E14D4308674A30054AE5E /* DeltaLabel.swift */; };
@@ -248,6 +249,7 @@
 		25F1FCF99D4501D67A604B2A /* Typography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Typography.swift; sourceTree = "<group>"; };
 		27202E9A7EB43BC86C453E97 /* PreviewSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewSupport.swift; sourceTree = "<group>"; };
 		29B0ECDDB76292FB87F74066 /* StrainComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrainComponents.swift; sourceTree = "<group>"; };
+		3408C55530878B4B005CA07B /* PerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceTests.swift; sourceTree = "<group>"; };
 		346E14D03086746D0054AE5E /* MetricSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetricSpec.swift; sourceTree = "<group>"; };
 		346E14D2308674950054AE5E /* ChartStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChartStyle.swift; sourceTree = "<group>"; };
 		346E14D4308674A30054AE5E /* DeltaLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeltaLabel.swift; sourceTree = "<group>"; };
@@ -968,6 +970,7 @@
 				34EB636D308737A4009B5F98 /* SleepUpgradeTests.swift */,
 				34EB637A3087390F009B5F98 /* JournalTests.swift */,
 				34EB637C30873B69009B5F98 /* StrainBreakdownTests.swift */,
+				3408C55530878B4B005CA07B /* PerformanceTests.swift */,
 			);
 			path = RyftTests;
 			sourceTree = "<group>";
@@ -1343,6 +1346,7 @@
 				4CF4C04033DA0AB7554E516E /* FormattingTests.swift in Sources */,
 				34FAE7983085647C00C9A7B8 /* APIClientStatusTests.swift in Sources */,
 				8E194C5BD85C6C19BCCD6D7C /* ReadinessCopyTests.swift in Sources */,
+				3408C55630878B4B005CA07B /* PerformanceTests.swift in Sources */,
 				5DFA408AF6AC01404F20B376 /* SleepMathTests.swift in Sources */,
 				34EB636E308737A4009B5F98 /* SleepUpgradeTests.swift in Sources */,
 				34FAE7EA3086264900C9A7B8 /* TrainSyncTests.swift in Sources */,

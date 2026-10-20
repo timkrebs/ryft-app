@@ -1,0 +1,33 @@
+{
+  "configurations": [
+    {
+      "id": "B38E55DC-6735-53B8-A687-00544701FEA1",
+      "name": "Default",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "defaultTestExecutionTimeAllowance": 60,
+    "maximumTestRepetitions": 3,
+    "targetForVariableExpansion": {
+      "containerPath": "container:Ryft.xcodeproj",
+      "identifier": "589CA62357E07E34FDA39AC9",
+      "name": "Ryft"
+    },
+    "testRepetitionMode": "retryOnFailure",
+    "testTimeoutsEnabled": true
+  },
+  "testTargets": [
+    {
+      "selectedTests": [
+        "StoreSmokeUITests"
+      ],
+      "target": {
+        "containerPath": "container:Ryft.xcodeproj",
+        "identifier": "34FAE80C308630B400C9A7B8",
+        "name": "RyftUITests"
+      }
+    }
+  ],
+  "version": 1
+}

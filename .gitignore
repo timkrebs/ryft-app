@@ -14,3 +14,4 @@ docs/screenshots/*-tmp.png
 # Local overrides; copy Config/*.xcconfig.example. Production.xcconfig is committed.
 Config/*.xcconfig
 !Config/Production.xcconfig
+__pycache__/

@@ -7,7 +7,7 @@ change the `runs-on` image in the workflows or update `.xcode-version`.
 
 | Workflow | When | What |
 | --- | --- | --- |
-| `ios.yml` | every PR, every push to `main` | `make lint` (strings), `make style` (SwiftFormat, SwiftLint), build-for-testing with zero warnings in our code, unit tests, UI smoke |
+| `ios.yml` | every PR, every push to `main`; 00:30 UTC nightly, or manually | `make lint` (strings), `make style` (SwiftFormat, SwiftLint), build-for-testing with warnings as errors, test plans `Unit` + `UISmoke` (nightly: `Full`), coverage floor, API contract |
 | `nightly.yml` | 01:00 UTC daily, or manually | archive `main`, upload, TestFlight group **Internal**; skipped when nothing landed since the last build |
 | `weekly.yml` | Mondays 07:00 Europe/Berlin, or manually | the newest processed build to group **External**, with the week's commits as What to Test, submitted for beta review |
 | `release.yml` | manually | bump `VERSION`, commit, tag `vX.Y.Z`, archive the tag, upload, group **Internal** |
@@ -21,16 +21,45 @@ change the `runs-on` image in the workflows or update `.xcode-version`.
   (`swiftformat --lint .`; `make format` applies it). `.swiftlint.yml` fails only on
   errors, and the disabled rules each have a reason in the file. To widen either one,
   use its own commit: enable the rule, run `make format`, and commit the result.
-- **Build:** `xcodebuild build-for-testing` without signing. The step fails if the log
-  has a warning in `Ryft`, `RyftTests`, `RyftUITests` or `RyftWidgets` (the rule from
-  CLAUDE.md); package warnings don't count.
-- **Tests:**
-  - `test-without-building -only-testing:RyftTests`
-  - the UI smoke test `RyftUITests/StoreSmokeUITests`, which runs in demo mode and
-    needs no server or HealthKit
+- **Build:** `xcodebuild build-for-testing` without signing, with
+  `RYFT_STRICT_WARNINGS=YES`. That switch (in `Config/Production.xcconfig`, which only
+  our targets see) sets `SWIFT_TREAT_WARNINGS_AS_ERRORS`. Passing that setting on the
+  command line directly would also reach the Swift packages, which build with
+  `-suppress-warnings` and reject both flags together. The step also fails if the log has any
+  warning in `Ryft`, `RyftTests`, `RyftUITests` or `RyftWidgets` (asset catalogs,
+  scripts); package warnings don't count.
+- **Tests:** `test-without-building -testPlan …` with the plans in `TestPlans/`
+  (the scheme references all three; `Unit` is the default, and `make test` uses it):
+
+  | Plan | Runs | Settings |
+  | --- | --- | --- |
+  | `Unit` | PRs, `main` | `RyftTests` without `PerformanceTests`; parallel, random order, 60 s per test, coverage of the `Ryft` target only |
+  | `UISmoke` | PRs, `main` | `RyftUITests/StoreSmokeUITests` (demo mode, no server or HealthKit); a failing test is retried up to twice |
+  | `Full` | nightly, manual | every unit and UI test plus `PerformanceTests` |
+
   - the simulator comes from `scripts/ci-simulator.sh`: `$SIMULATOR`
-    (default iPhone 17 Pro), else the newest available iPhone
-  - on failure the `.xcresult` bundles are uploaded as artifacts
+    (default iPhone 17 Pro), else the newest available iPhone. It is booted
+    before the tests start.
+  - on failure (and always for `Full`) the `.xcresult` bundles are uploaded as
+    artifacts
+- **Coverage:** `scripts/coverage.py` reads `xccov`'s report of the `Unit` run, writes
+  a table to the job summary and fails when an area falls below its floor in
+  `scripts/coverage-floor.json`. The areas are `Networking/`, `Sync/`, `Persistence/`
+  and `Features/*ViewModel*`. The floors were set on 2026-10-20 at the measured value
+  minus 2 points (78.1, 72.1, 92.8, 65.0 → 76.1, 70.1, 90.8, 63.0). Raise a floor in
+  the PR that raises coverage for good. Never lower one to get a PR through.
+- **Performance:** `RyftTests/PerformanceTests` (XCTest, `XCTClockMetric` +
+  `XCTMemoryMetric`) decodes 90 days of `DayDetail` and builds and encodes one full
+  20 000-record sync page. It runs only in `Full`; compare the numbers across nightly
+  result bundles.
+- **Contract:** `scripts/contract/run.sh` checks out `timkrebs/ryft-platform`'s
+  `docs/API.md`. `extract.py` pulls each response example out by its heading
+  (the `MAP` table) and expands API.md's shorthand: `…`, `[ X, … ]`, and type
+  placeholders, which are filled in from that type's own example. `main.swift` is compiled with
+  `Ryft/Networking/Models.swift` and decodes every example with the app's decoder
+  settings. It runs on PRs that touch `Ryft/Networking/` or `scripts/contract/`, and every
+  night, so a platform-side contract change fails here the next morning. To cover a
+  new endpoint, add a row to `MAP` and a line to `types` in `main.swift`.
 
 ## Signing: `-allowProvisioningUpdates` with the ASC API key
 

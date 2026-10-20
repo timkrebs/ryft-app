@@ -1,0 +1,42 @@
+{
+  "configurations": [
+    {
+      "id": "854BEDFB-9C7C-5D1A-BE8E-901ECB2BCDFC",
+      "name": "Default",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "codeCoverage": {
+      "targets": [
+        {
+          "containerPath": "container:Ryft.xcodeproj",
+          "identifier": "589CA62357E07E34FDA39AC9",
+          "name": "Ryft"
+        }
+      ]
+    },
+    "defaultTestExecutionTimeAllowance": 60,
+    "targetForVariableExpansion": {
+      "containerPath": "container:Ryft.xcodeproj",
+      "identifier": "589CA62357E07E34FDA39AC9",
+      "name": "Ryft"
+    },
+    "testExecutionOrdering": "random",
+    "testTimeoutsEnabled": true
+  },
+  "testTargets": [
+    {
+      "parallelizable": true,
+      "skippedTests": [
+        "PerformanceTests"
+      ],
+      "target": {
+        "containerPath": "container:Ryft.xcodeproj",
+        "identifier": "74BE68EE8E916D7B728DD656",
+        "name": "RyftTests"
+      }
+    }
+  ],
+  "version": 1
+}
