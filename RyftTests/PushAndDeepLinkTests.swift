@@ -170,8 +170,24 @@ struct PushMessageTests {
     @Test func categoriesIncludeTheLocalBedtimeReminder() {
         let ids = Set(PushCategories.all.map(\.identifier))
         #expect(ids == ["MORNING_SCORE", "SESSION_SCORED", "PR", "SYNC_STALE", "BEDTIME"])
-        let stale = PushCategories.all.first { $0.identifier == "SYNC_STALE" }
-        #expect(stale?.actions.map(\.identifier) == [PushCategories.syncNowAction])
+        // No actions yet: a tap opens the app.
+        let withActions = PushCategories.all.filter { !$0.actions.isEmpty }
+        #expect(withActions.isEmpty)
+    }
+
+    @Test func theEnvironmentComesFromTheSignedProfile() throws {
+        func profile(_ aps: String?) throws -> Data {
+            var ents: [String: Any] = ["application-identifier": "M77SKHKG63.dev.timkrebs.ryft"]
+            if let aps { ents["aps-environment"] = aps }
+            let xml = try PropertyListSerialization.data(fromPropertyList: ["Name": "RYFT", "Entitlements": ents],
+                                                         format: .xml, options: 0)
+            // A real profile wraps the plist in CMS bytes.
+            return Data([0x30, 0x82, 0x1F, 0x00]) + xml + Data([0xA0, 0x82, 0x00])
+        }
+        #expect(PushEnvironment.fromProfile(try profile("development")) == .sandbox)
+        #expect(PushEnvironment.fromProfile(try profile("production")) == .production)
+        #expect(PushEnvironment.fromProfile(try profile(nil)) == nil)
+        #expect(PushEnvironment.fromProfile(Data("garbage".utf8)) == nil)
     }
 }
 
@@ -205,12 +221,20 @@ struct PushRegistrarTests {
         #expect(!push.showsPrePrompt)
     }
 
-    @Test func notNowHidesItForGood() {
+    @Test func notNowAsksOnceMoreAfterFourteenDays() throws {
+        let clock = try #require(env.clock as? TestClock)
         let push = PushRegistrar(env: env)
         push.syncSucceeded()
         push.dismissPrompt()
         #expect(!push.showsPrePrompt)
-        #expect(!PushRegistrar(env: env).showsPrePrompt)
+        #expect(!PushRegistrar(env: env).showsPrePrompt) // remembered
+        clock.advance(by: .seconds(13 * 24 * 3600))
+        #expect(!push.showsPrePrompt)
+        clock.advance(by: .seconds(24 * 3600))
+        #expect(push.showsPrePrompt)
+        push.dismissPrompt()
+        clock.advance(by: .seconds(60 * 24 * 3600))
+        #expect(!push.showsPrePrompt) // at most once more
         #expect(notifier.authorizationPrompts == 0)
     }
 
@@ -237,12 +261,19 @@ struct PushRegistrarTests {
         #expect(api.count("registerPush") == 1)
         let sent = api.pushRegistrations.first
         #expect(sent?.token == "deadbeef01")
-        #expect(sent?.env == .sandbox) // a Debug build
+        #expect(sent?.env == .sandbox) // the simulator
         #expect(sent?.locale.isEmpty == false)
 
         await push.didRegister(deviceToken: Data([0x01, 0x02]))
         #expect(api.count("registerPush") == 2)
         #expect(api.pushRegistrations.last?.token == "0102")
+    }
+
+    @Test func aRestartDoesNotRegisterAgain() async {
+        await PushRegistrar(env: env).didRegister(deviceToken: token)
+        // Relaunch: APNs hands over the same token; the record in SwiftData matches.
+        await PushRegistrar(env: env).didRegister(deviceToken: token)
+        #expect(api.count("registerPush") == 1)
     }
 
     @Test func aFailedRegistrationIsRetriedNextTime() async {
@@ -321,6 +352,14 @@ struct SignOutHookTests {
         var ran = false
         auth.beforeSignOut = { ran = true }
         await auth.signOut()
+        #expect(ran)
+    }
+
+    @Test func accountDeletionRunsTheHookFirst() async {
+        let auth = AuthService.preview()
+        var ran = false
+        auth.beforeSignOut = { ran = true }
+        _ = await auth.deleteAccount()
         #expect(ran)
     }
 

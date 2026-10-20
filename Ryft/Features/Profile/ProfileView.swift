@@ -145,6 +145,11 @@ struct ProfileView: View {
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             }
             .accessibilityIdentifier("dev.flags")
+            HStack {
+                Text(verbatim: "Push registration").font(.ryft(.callout)).foregroundStyle(Theme.textSecondary)
+                Spacer()
+                Text(verbatim: screens.push.lastResult ?? "—").font(.ryft(.caption)).foregroundStyle(Theme.textPrimary)
+            }
             FieldLabel("API URL override")
             TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftapp.de", text: Bindable(settings).devAPIURLOverride)
                 .ryftField()

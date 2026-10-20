@@ -151,8 +151,8 @@ final class AuthService {
     var isRestoring: Bool { phase == .restoring }
     /// Shown once on Welcome after a sign-out the user didn't ask for (or a deletion).
     var signOutNotice: String?
-    /// Runs before a user-initiated sign-out while the session still works
-    /// (RyftApp: delete the push registration).
+    /// Runs before a user-initiated sign-out and before account deletion, while
+    /// the session still works (RyftApp: delete the push registration).
     @ObservationIgnored var beforeSignOut: (@MainActor () async -> Void)?
     /// A call that isn't a sign-in is running (reset link, new password, deletion).
     private var otherWork = false
@@ -476,6 +476,7 @@ final class AuthService {
         errorMessage = nil
         errorDetails = nil
         otherWork = true
+        await beforeSignOut?()
         defer { otherWork = false }
         let result: AccountDeleted
         do {

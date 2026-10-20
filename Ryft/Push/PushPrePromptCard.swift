@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Today, after the first sync: what RYFT would notify about, before iOS asks.
-/// "Not now" hides it for good; Profile → Notifications can still turn push on.
+/// Today, after the first sync: one sentence before iOS asks. "Not now" is
+/// remembered per user; the question returns once, after 14 days.
 struct PushPrePromptCard: View {
     let enable: () -> Void
     let dismiss: () -> Void
@@ -9,16 +9,13 @@ struct PushPrePromptCard: View {
     var body: some View {
         Card {
             VStack(alignment: .leading, spacing: 12) {
-                Label("Your score, when it's ready", systemImage: "bell.badge")
+                Label("Get your recovery each morning", systemImage: "bell.badge")
                     .font(.ryft(.headline))
                     .foregroundStyle(Theme.textPrimary)
-                Text("RYFT can tell you your recovery each morning, when a workout is scored or sets a record, and when your watch stopped syncing. Choose which in Profile → Notifications.")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 12) {
                     Button(action: enable) {
-                        Text("Turn on")
+                        Text("Allow")
                     }
                     .buttonStyle(TealButtonStyle(prominent: true))
                     Button(action: dismiss) {

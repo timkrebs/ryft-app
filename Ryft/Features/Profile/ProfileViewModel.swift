@@ -169,8 +169,9 @@ final class ProfileViewModel {
 
     // MARK: notifications
 
-    /// Behind `push.enabled`; the preferences belong to a platform account.
-    var showsNotifications: Bool { env.flags.isOn(.pushEnabled) && auth.isSignedIn && !settings.demoMode }
+    /// The preferences belong to a platform account. With `push.enabled` off the
+    /// screen explains the rollout instead.
+    var showsNotifications: Bool { auth.isSignedIn && !settings.demoMode }
 
     // MARK: demo data
 
