@@ -1,4 +1,6 @@
 # Pull requests and main: style, strings, unit tests, the UI smoke test (docs/CI.md).
+# The job names are the required checks on `main` (docs/RELEASING.md → Branch rules);
+# rename them only together with the ruleset.
 name: iOS
 
 on:
@@ -11,26 +13,62 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Cheap Linux check: does this change touch anything that builds? A docs-only PR
+  # skips the macOS jobs, and a skipped required check counts as passed.
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            echo "code=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          files="$(git diff --name-only "$BASE" HEAD)"
+          echo "$files"
+          # Everything except docs and Markdown can affect the build.
+          if echo "$files" | grep -qvE '^(docs/|.*\.md$|LICENSE$|\.github/ISSUE_TEMPLATE/|\.github/pull_request_template\.md$|\.github/CODEOWNERS$)'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   lint:
-    name: Lint (strings, SwiftFormat, SwiftLint)
+    name: Lint
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: xcode-27
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Pinned SwiftFormat and SwiftLint
         run: sh scripts/install-tools.sh
-      - name: Strings (English and German complete)
+      - name: Strings (English and German complete) and entitlements
         run: make lint
       - name: SwiftFormat and SwiftLint
         run: make style
 
   test:
     name: Build, unit tests, UI smoke
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: xcode-27
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
+      - name: Package cache
+        uses: actions/cache@v4
+        with:
+          path: build/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('Ryft.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
       - name: Simulator
         # Booted here, so its (slow, first-run) boot doesn't count against the tests.
         run: |
@@ -44,21 +82,24 @@ jobs:
           set -o pipefail
           mkdir -p build
           xcodebuild build-for-testing -scheme Ryft -destination "$DESTINATION" \
-            -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO | tee build/build.log
+            -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
+            CODE_SIGNING_ALLOWED=NO | tee build/build.log
           ! grep -E "^/.*/(Ryft|RyftTests|RyftUITests|RyftWidgets)/.*: warning:" build/build.log
       - name: Unit tests
         timeout-minutes: 15
         # A test that hangs fails after its allowance with its name, instead of the job timing out.
         run: |
           xcodebuild test-without-building -scheme Ryft -destination "$DESTINATION" \
-            -derivedDataPath build/DerivedData -only-testing:RyftTests \
+            -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
+            -only-testing:RyftTests \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 60 \
             -resultBundlePath build/UnitTests.xcresult
       - name: UI smoke
         timeout-minutes: 15
         run: |
           xcodebuild test-without-building -scheme Ryft -destination "$DESTINATION" \
-            -derivedDataPath build/DerivedData -only-testing:RyftUITests/StoreSmokeUITests \
+            -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
+            -only-testing:RyftUITests/StoreSmokeUITests \
             -resultBundlePath build/UISmoke.xcresult
       - name: Results
         if: failure()
