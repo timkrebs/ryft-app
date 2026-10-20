@@ -8,6 +8,7 @@ struct TodayView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var model: TodayViewModel { screens.today }
+    @State private var showsJournal = false
 
     var body: some View {
         NavigationStack {
@@ -35,6 +36,9 @@ struct TodayView: View {
                             }
                             .transition(.opacity)
                         }
+                        if screens.journal.isLive {
+                            JournalCard(store: screens.journal) { showsJournal = true }
+                        }
                         if model.showsTrain { TrainTodayCard() }
                         trends
                             .coachMarkTarget(.trends)
@@ -46,6 +50,14 @@ struct TodayView: View {
                     }
                 }
                 .coachMarks(model.coachMarks, enabled: model.showsCoachMarks)
+                .sheet(isPresented: $showsJournal) {
+                    JournalSheet(model: JournalSheetModel(store: screens.journal))
+                }
+                // The journal: whether it's live (M5), and yesterday's answer for the card.
+                .task(id: model.lastUpdated) {
+                    await screens.journal.load()
+                    await screens.journal.loadDay(screens.journal.yesterday)
+                }
                 // Each mark scrolls its target into view.
                 .onChange(of: model.coachMarks.step) { _, step in
                     guard let step else { return }

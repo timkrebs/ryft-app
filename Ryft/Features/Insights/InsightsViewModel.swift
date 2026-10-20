@@ -26,8 +26,12 @@ final class InsightsViewModel {
         })
     }
 
-    init(state: AppState) {
+    /// Behaviors section (M5); nil in tests that don't need it.
+    let journal: JournalStore?
+
+    init(state: AppState, journal: JournalStore? = nil) {
         self.state = state
+        self.journal = journal
     }
 
     static func rangeTitle(_ r: TrendRange) -> String {
@@ -64,10 +68,12 @@ final class InsightsViewModel {
         }
     }
 
-    /// Set by the journal (§5) when `GET /v1/behaviors/impact` answers.
-    var showsBehaviors = false
+    /// The journal is live and the impacts have answered.
+    var showsBehaviors: Bool { journal?.isLive == true && journal?.impacts != nil }
+    var impacts: BehaviorImpacts? { showsBehaviors ? journal?.impacts : nil }
     /// Scroll to the Behaviors section (an insight or a deep link).
     var focusesBehaviors = false
+    static let behaviorsAnchor = "insights.behaviors"
 
     /// The 30-day min–max until the API serves a σ (`docs/API_REQUESTS.md`).
     func band(for metric: TrendMetric) -> ClosedRange<Double>? {
@@ -80,6 +86,10 @@ final class InsightsViewModel {
     /// Revalidates every series (each skipped while fresh, 1 h) and the 30-day bands.
     func load() async {
         guard state.hasDataSource else { return }
+        if let journal {
+            if journal.availability == .unknown { await journal.load() }
+            await journal.loadImpacts()
+        }
         let state = state
         let r = range
         await withTaskGroup(of: Void.self) { group in
