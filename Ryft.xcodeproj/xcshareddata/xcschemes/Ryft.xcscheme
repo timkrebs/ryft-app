@@ -48,6 +48,17 @@
                ReferencedContainer = "container:Ryft.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "34FAE80C308630B400C9A7B8"
+               BuildableName = "RyftUITests.xctest"
+               BlueprintName = "RyftUITests"
+               ReferencedContainer = "container:Ryft.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction
