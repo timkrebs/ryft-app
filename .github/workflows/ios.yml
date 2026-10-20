@@ -13,12 +13,12 @@ concurrency:
 jobs:
   lint:
     name: Lint (strings, SwiftFormat, SwiftLint)
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Install SwiftFormat and SwiftLint
-        run: brew install swiftformat swiftlint
+      - name: Pinned SwiftFormat and SwiftLint
+        run: sh scripts/install-tools.sh
       - name: Strings (English and German complete)
         run: make lint
       - name: SwiftFormat and SwiftLint
@@ -26,7 +26,7 @@ jobs:
 
   test:
     name: Build, unit tests, UI smoke
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4

@@ -35,7 +35,7 @@ on:
 
 jobs:
   upload:
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 90
     outputs:
       build: ${{ steps.version.outputs.build }}
