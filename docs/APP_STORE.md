@@ -83,7 +83,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | Live Activities: Train ships in 1.0 (`API.md` → Train), so `NSSupportsLiveActivities` stays | ok | `Info.plist`, `RyftWidgetsExtension` |
 | Capabilities: HealthKit (+ background delivery), Sign in with Apple, Associated Domains `applinks:ryftapp.de`. No Push until M7, no iCloud | ok (fixed) | `Ryft.entitlements`. The app accepts `https://ryftapp.de/auth/callback`; `ryft://auth/callback` stays the redirect until the AASA file is live |
 | App ID capabilities match the entitlements (app + `dev.timkrebs.ryft.RyftWidgets`) | user | Apple Developer → Identifiers (paid team) |
-| Version `1.0.0`; the build number increases on every archive | ok (fixed) | `MARKETING_VERSION = 1.0.0` (app + widget); `make archive` sets `CURRENT_PROJECT_VERSION` to `yyyyMMddHHmm` |
+| Version `1.0.0`; the build number increases on every archive | ok (fixed) | `MARKETING_VERSION = 1.0.0` (app + widget); `make archive` and CI set `CURRENT_PROJECT_VERSION` from `scripts/build-number.sh` (UTC `yyyyMMdd.HHmmss`) |
 | `make archive` → `xcodebuild archive` + `-exportArchive` (app-store-connect, upload symbols) | ok (fixed) | `Makefile`, `scripts/ExportOptions.plist` |
 | Third-party licences screen (About → Licences) | ok (fixed) | `Features/Profile/LicensesView.swift` |
 | Satoshi licence: ITF Free Font License, which allows embedding in apps. It can't be committed to the repo, so archives check the fonts are present (otherwise SF Pro Rounded, said in the log) | ok / user | `make archive` font check. Confirm the FFL version at fontshare.com (user) |

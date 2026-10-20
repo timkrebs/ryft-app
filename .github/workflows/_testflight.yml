@@ -53,9 +53,11 @@ jobs:
         run: make fonts
       - name: Version
         id: version
-        # The build number comes from the CI run: run IDs only go up, across every workflow.
+        # The same formula as `make archive` (UTC yyyyMMdd.HHmmss): numbers only go up,
+        # whether a build comes from CI or a Mac. Concurrency group `testflight` keeps
+        # two CI builds out of the same second.
         run: |
-          echo "build=${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+          echo "build=$(sh scripts/build-number.sh)" >> "$GITHUB_OUTPUT"
           echo "marketing=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
       - name: API key
         run: |

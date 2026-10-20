@@ -68,9 +68,12 @@ xcconfigs from the examples.
 
 ## Versions and build numbers
 
-- **Build number** (`CURRENT_PROJECT_VERSION`): the workflow run's `github.run_id`.
-  Run IDs only increase, across every workflow in the repository, so nightly and
-  release builds never collide. Each uploaded build is tagged `build/<number>`.
+- **Build number** (`CURRENT_PROJECT_VERSION`): the UTC build time,
+  `yyyyMMdd.HHmmss` (e.g. `20261020.094512`), from `scripts/build-number.sh`. CI and
+  `make archive` use the same script, so the number only goes up whichever side
+  uploads: no counter to share, no App Store Connect lookup. App Store Connect compares
+  the two parts as integers, and keeping them small avoids tools that choke on a 14-digit
+  number. Each uploaded build is tagged `build/<number>`.
 - **Marketing version** (`MARKETING_VERSION`): the committed `VERSION` file, passed on
   the xcodebuild command line, so the pbxproj isn't edited. Only `release.yml` raises it:
   - patch, minor (default) or major, or an explicit `X.Y.Z`
@@ -78,9 +81,7 @@ xcconfigs from the examples.
 
   If `main` is protected, allow `github-actions[bot]` to push, or run the release from a
   branch.
-- `make archive` (local) reads `VERSION` too. Its default build number
-  (`yyyyMMddHHmm`) is larger than a run ID, so pass `BUILD_NUMBER` if you ever upload
-  locally after CI has.
+- `make archive` (local) reads `VERSION` and uses the same build-number script.
 
 ## TestFlight distribution (`scripts/testflight.py`)
 

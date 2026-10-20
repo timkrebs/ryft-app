@@ -11,17 +11,19 @@ Before the first external build, the platform must be live:
 
 ## 1. Archive and upload
 
-**One path for every build.** Build numbers must only go up across uploads.
-`make archive` defaults to `yyyyMMddHHmm`; CI uses the run ID (smaller). Once CI
-uploads, upload from CI only, or pass a larger `BUILD_NUMBER`.
+**Build numbers.** Every build, from `make archive` or from CI, is numbered by
+`scripts/build-number.sh` with the UTC build time, `yyyyMMdd.HHmmss`. Numbers therefore
+only go up, and both paths can be mixed freely.
 
 **Option A, Terminal:** `make archive` (Release, version from `VERSION`, build number
-`yyyyMMddHHmm`). It checks the fonts and `make lint` (including `check-entitlements`)
+from `scripts/build-number.sh`). It checks the fonts and `make lint` (including `check-entitlements`)
 first. Then upload `build/export/Ryft.ipa` with Organizer → Distribute App, or with
 `xcrun altool --upload-app -f build/export/Ryft.ipa -t ios` and an API key.
 
 **Option B, Xcode:**
-1. Product → Archive, with the Ryft scheme and *Any iOS Device*.
+1. Product → Archive, with the Ryft scheme and *Any iOS Device*. First set the build
+   number (target → General → Build) to the output of `sh scripts/build-number.sh`.
+   Otherwise the archive carries the project's `1` and the upload is rejected.
 2. Organizer → Distribute App → App Store Connect → Upload.
 3. Keep automatic signing. The export re-signs `aps-environment` as `production`.
 

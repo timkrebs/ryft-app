@@ -131,7 +131,8 @@ for me.
 - `scripts/testflight.py` handles What to Test, groups and beta review over the App
   Store Connect API, with the standard library only.
 - `VERSION` is the marketing version. It's passed to xcodebuild, so the pbxproj isn't
-  edited. The build number is the run ID.
+  edited. The build number is the UTC build time, `yyyyMMdd.HHmmss`, from
+  `scripts/build-number.sh`, which CI and `make archive` share.
 - `.swiftformat` and `.swiftlint.yml`, plus `make style` and `make format`.
 - **`.gitignore` no longer ignores `*.xcodeproj/`.** Until now the project wasn't in
   git, so a fresh clone (or CI) had nothing to build. It's committed with this section;

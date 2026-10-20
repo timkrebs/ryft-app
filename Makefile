@@ -44,10 +44,11 @@ format:
 	swiftformat .
 
 # A local Release archive (symbols, the paid team's distribution signing). TestFlight
-# uploads come from CI (docs/CI.md), whose build numbers are run IDs; a local upload
-# needs a larger BUILD_NUMBER. The version is VERSION, raised by the release workflow.
+# uploads can come from here or from CI (docs/CI.md): both number builds with
+# scripts/build-number.sh (UTC yyyyMMdd.HHmmss), so numbers only go up either way.
+# The version is VERSION, raised by the release workflow.
 ARCHIVE := build/Ryft.xcarchive
-BUILD_NUMBER ?= $(shell date -u +%Y%m%d%H%M)
+BUILD_NUMBER ?= $(shell sh scripts/build-number.sh)
 VERSION := $(shell tr -d '[:space:]' < VERSION)
 archive: config lint
 	@for f in Regular Medium Bold; do test -f Ryft/Resources/Fonts/Satoshi-$$f.otf || \
