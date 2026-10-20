@@ -24,7 +24,6 @@ struct TodayView: View {
                         if model.showsRedesign, let night = model.lastNight {
                             Card { MiniHypnogram(sleep: night) { model.open(.sleep) } }
                         }
-                        if model.showsPhysiology { physiology }
                         if model.showsHealthHint { HealthAccessHint() }
                         if model.showsPushPrompt {
                             PushPrePromptCard {
@@ -123,23 +122,6 @@ struct TodayView: View {
         .accessibilityHint(Text("Opens Insights"))
     }
 
-    /// Behind `physiology.card`: today's HRV and resting HR within their 30-day range.
-    private var physiology: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 14) {
-                CardHeader(title: "Physiology", showsChevron: false)
-                if let bar = RangeBar(spec: .hrv, value: model.hrv, series: model.hrvSeries) { bar }
-                if let bar = RangeBar(spec: .rhr, value: model.rhr, series: model.rhrSeries) { bar }
-                if model.hrvSeries == nil && model.rhrSeries == nil {
-                    Text("Your personal ranges appear after a few nights.")
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textSecondary)
-                }
-            }
-        }
-        .task(id: model.showsPhysiology) { await model.loadPhysiology() }
-    }
-
     @ViewBuilder
     private var status: some View {
         switch model.status {
@@ -193,11 +175,11 @@ struct OfflinePill: View {
 }
 
 #Preview("Today · redesign (flags on)") {
-    TodayView().previewEnvironment(.preview(flags: [.todayRedesign: true, .physiologyCard: true]))
+    TodayView().previewEnvironment(.preview(flags: [.todayRedesign: true]))
 }
 
 #Preview("Today · redesign · light") {
-    TodayView().previewEnvironment(.preview(flags: [.todayRedesign: true, .physiologyCard: true]), scheme: .light)
+    TodayView().previewEnvironment(.preview(flags: [.todayRedesign: true]), scheme: .light)
 }
 
 #Preview("Today · not set up") {

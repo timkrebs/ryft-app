@@ -2,19 +2,27 @@ import Foundation
 import Observation
 
 /// What the screens read: the platform's flags (`GET /v1/config`, evaluated per
-/// user) over the compiled defaults, with Debug overrides on top. The last
-/// config is cached in SwiftData (`CachedDocument` "config"), so a launch
-/// offline keeps the flags it had; sign-out wipes it with the other read models.
-/// Observable, so a flag that changes remotely updates the UI without a rebuild.
+/// user) over the compiled defaults, with Debug overrides on top.
+///
+/// - **Per user.** The last answer is cached in SwiftData per account
+///   (`CachedDocument` "config.<account>"), so a cold start offline uses that
+///   account's flags, and another account on the phone never sees them.
+///   Sign-out wipes the cache with the other read models.
+/// - **Due** once `evaluated_at + ttl_sec` has passed.
+/// - **Never mid-interaction.** A new answer is cached at once, but the screens
+///   switch to it on the next appearance (`applyPending()`: a tab change, the
+///   app becoming active). Only the very first answer for an account, with
+///   nothing shown yet, applies straight away.
 @MainActor
 @Observable
 final class FlagStore: FeatureFlagProvider {
-    static let shared = FlagStore(store: .shared, defaults: .standard)
+    static let shared = FlagStore(store: .shared, defaults: .standard, account: AuthService.shared.accountID)
 
-    static let cacheKey = "config"
     static let overridesKey = "flags.overrides"
     /// Until the platform said otherwise (API.md: `ttl_sec` 21600).
     static let defaultTTL: TimeInterval = 6 * 3600
+
+    static func cacheKey(_ account: String?) -> String { "config.\(account ?? "signed-out")" }
 
     /// The cached document: the config and when this phone fetched it.
     struct Cached: Codable {
@@ -25,16 +33,20 @@ final class FlagStore: FeatureFlagProvider {
     private let store: TrainStore
     private let defaults: UserDefaults
 
+    private(set) var account: String?
     private(set) var remote: [String: Bool] = [:]
     private(set) var evaluatedAt: Date?
     private(set) var fetchedAt: Date?
     private(set) var ttl: TimeInterval = FlagStore.defaultTTL
     private(set) var overrides: [FeatureFlag: Bool] = [:]
+    /// Arrived while screens were showing; applied on the next appearance.
+    @ObservationIgnored private(set) var pending: Cached?
 
-    init(store: TrainStore, defaults: UserDefaults) {
+    init(store: TrainStore, defaults: UserDefaults, account: String? = nil) {
         self.store = store
         self.defaults = defaults
-        if let cached = store.document(Cached.self, key: Self.cacheKey) { show(cached) }
+        self.account = account
+        if let cached = store.document(Cached.self, key: Self.cacheKey(account)) { show(cached) }
         #if DEBUG
         let saved = defaults.dictionary(forKey: Self.overridesKey) as? [String: Bool] ?? [:]
         overrides = Dictionary(uniqueKeysWithValues: saved.compactMap { k, v in FeatureFlag(rawValue: k).map { ($0, v) } })
@@ -54,32 +66,66 @@ final class FlagStore: FeatureFlagProvider {
 
     // MARK: remote
 
-    /// Due again once `ttl_sec` has passed since the last fetch (or never fetched).
+    /// Due once `evaluated_at + ttl_sec` has passed (or never answered). A
+    /// pending answer counts: it's the newest the platform gave.
     func isStale(at now: Date) -> Bool {
-        guard let fetchedAt else { return true }
-        return now.timeIntervalSince(fetchedAt) >= ttl
+        let latest = pending.map { ($0.config.evaluatedAt, Self.ttl(of: $0.config)) }
+            ?? evaluatedAt.map { ($0, ttl) }
+        guard let (evaluated, ttl) = latest else { return true }
+        return now.timeIntervalSince(evaluated) >= ttl
     }
 
+    /// Caches the answer; the screens get it now only if they show nothing remote yet.
     func apply(_ config: RemoteConfig, fetchedAt: Date) {
         let cached = Cached(config: config, fetchedAt: fetchedAt)
-        show(cached)
-        store.saveDocument(cached, key: Self.cacheKey, at: fetchedAt)
+        store.saveDocument(cached, key: Self.cacheKey(account), at: fetchedAt)
+        if evaluatedAt == nil {
+            show(cached)
+            pending = nil
+        } else {
+            pending = cached
+        }
     }
 
-    /// Sign-out or another account: back to the compiled defaults (overrides stay).
+    /// A screen is appearing: switch to an answer that arrived meanwhile.
+    func applyPending() {
+        guard let pending else { return }
+        self.pending = nil
+        show(pending)
+    }
+
+    /// Sign-in, sign-out or another account: that account's cached flags, or the
+    /// compiled defaults (overrides stay).
+    func switchAccount(_ id: String?) {
+        guard id != account else { return }
+        account = id
+        clear()
+        if let cached = store.document(Cached.self, key: Self.cacheKey(id)) { show(cached) }
+    }
+
+    /// Forgets the current account's flags (and its cache).
     func reset() {
+        store.removeDocument(key: Self.cacheKey(account))
+        clear()
+    }
+
+    private func clear() {
         remote = [:]
         evaluatedAt = nil
         fetchedAt = nil
         ttl = Self.defaultTTL
-        store.removeDocument(key: Self.cacheKey)
+        pending = nil
     }
 
     private func show(_ cached: Cached) {
         remote = cached.config.flags
         evaluatedAt = cached.config.evaluatedAt
         fetchedAt = cached.fetchedAt
-        ttl = cached.config.ttlSec > 0 ? TimeInterval(cached.config.ttlSec) : Self.defaultTTL
+        ttl = Self.ttl(of: cached.config)
+    }
+
+    private static func ttl(of config: RemoteConfig) -> TimeInterval {
+        config.ttlSec > 0 ? TimeInterval(config.ttlSec) : defaultTTL
     }
 
     // MARK: overrides (Debug builds only; Release ignores them)

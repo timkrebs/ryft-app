@@ -91,13 +91,56 @@ struct FlagStoreTests {
         #expect(FlagStore(store: store, defaults: defaults).source(of: .todayRedesign) == .compiled)
     }
 
-    @Test func staleAfterItsTTL() {
+    @Test func staleOnceEvaluatedAtPlusTTLHasPassed() {
         let flags = FlagStore(store: store, defaults: defaults)
         let t0 = Date(timeIntervalSince1970: 1_792_400_000)
         #expect(flags.isStale(at: t0))
-        flags.apply(config, fetchedAt: t0)
+        // Fetched later than it was evaluated: the TTL still counts from evaluated_at.
+        flags.apply(RemoteConfig(flags: [:], evaluatedAt: t0, ttlSec: 3600), fetchedAt: t0.addingTimeInterval(600))
         #expect(!flags.isStale(at: t0.addingTimeInterval(3599)))
         #expect(flags.isStale(at: t0.addingTimeInterval(3600)))
+    }
+
+    @Test func unknownKeysAreKeptButUnread() {
+        let flags = FlagStore(store: store, defaults: defaults)
+        flags.apply(config, fetchedAt: .now)
+        #expect(flags.remote["unknown.key"] == true)
+        #expect(FeatureFlag(rawValue: "unknown.key") == nil)
+    }
+
+    @Test func aFlipWaitsForTheNextScreenAppearance() {
+        let flags = FlagStore(store: store, defaults: defaults)
+        flags.apply(config, fetchedAt: .now) // first answer: nothing remote shown yet, applies now
+        #expect(flags.isOn(.todayRedesign))
+        flags.apply(RemoteConfig(flags: ["today.redesign": false], evaluatedAt: .now, ttlSec: 3600), fetchedAt: .now)
+        #expect(flags.isOn(.todayRedesign)) // mid-interaction: unchanged
+        flags.applyPending()
+        #expect(!flags.isOn(.todayRedesign))
+        // Cached already: a relaunch starts with the new answer.
+        #expect(!FlagStore(store: store, defaults: defaults).isOn(.todayRedesign))
+    }
+
+    @Test func eachAccountHasItsOwnCacheForAnOfflineColdStart() {
+        let a = FlagStore(store: store, defaults: defaults, account: "a")
+        a.apply(config, fetchedAt: .now)
+        // Cold start offline as "a": its flags; as "b": the compiled defaults.
+        #expect(FlagStore(store: store, defaults: defaults, account: "a").isOn(.todayRedesign))
+        let b = FlagStore(store: store, defaults: defaults, account: "b")
+        #expect(b.source(of: .todayRedesign) == .compiled)
+        // Switching accounts in place does the same.
+        a.switchAccount("b")
+        #expect(a.source(of: .todayRedesign) == .compiled)
+        a.switchAccount("a")
+        #expect(a.isOn(.todayRedesign) && a.source(of: .todayRedesign) == .remote)
+    }
+
+    @Test func fallbackOrderIsOverrideRemoteCompiled() {
+        let flags = FlagStore(store: store, defaults: defaults)
+        #expect(flags.isOn(.trainEnabled) && flags.source(of: .trainEnabled) == .compiled)
+        flags.apply(config, fetchedAt: .now) // remote: train.enabled false
+        #expect(!flags.isOn(.trainEnabled) && flags.source(of: .trainEnabled) == .remote)
+        flags.setOverride(.trainEnabled, true)
+        #expect(flags.isOn(.trainEnabled) && flags.source(of: .trainEnabled) == .override)
     }
 
     /// "Flags toggle without a rebuild": a view reading a flag is invalidated by a new config.
@@ -200,8 +243,8 @@ struct FlagGateTests {
         let model = TodayViewModel(state: s, sync: SyncService(env: s.env),
                                    coordinator: SyncCoordinator(steps: LiveSyncSteps(state: s, sync: SyncService(env: s.env)),
                                                                 clock: s.env.clock))
-        #expect(!model.showsRedesign && !model.showsPhysiology)
-        let lit = state([.todayRedesign: true, .physiologyCard: true])
+        #expect(!model.showsRedesign)
+        let lit = state([.todayRedesign: true])
         lit.user = MockData.user
         let litModel = TodayViewModel(state: lit, sync: SyncService(env: lit.env),
                                       coordinator: SyncCoordinator(steps: LiveSyncSteps(state: lit, sync: SyncService(env: lit.env)),
