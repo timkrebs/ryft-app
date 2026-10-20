@@ -8,8 +8,7 @@ session.
 ## What this folder is
 `Ryft.xcodeproj` exists and carries the development team and the supabase-swift package;
 it is the source of truth. Change targets, capabilities and packages in Xcode itself —
-do not regenerate with xcodegen (it would drop those settings) and do not edit the
-pbxproj by hand. `project.yml` is kept only as documentation of the original setup. Sources in `Ryft/`:
+and do not edit the pbxproj by hand. Sources in `Ryft/`:
 `App/` (entry, state, settings), `Auth/` (Supabase), `Design/` (theme, components),
 `Features/<Tab>/`, `Health/` (HealthKit), `Sync/`, `Networking/`, `Preview/` (mock data),
 `Resources/` (fonts, strings). The visual spec is `design/brand-board.png`. The roadmap

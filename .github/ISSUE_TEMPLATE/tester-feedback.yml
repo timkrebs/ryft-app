@@ -1,0 +1,37 @@
+name: Tester feedback
+description: For beta testers — anything you noticed while using RYFT.
+labels: [tester-feedback]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for testing! Please include the build number (Profile → About) so we can match your report to a build.
+  - type: textarea
+    id: what
+    attributes:
+      label: What did you notice?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What were you doing just before?
+  - type: input
+    id: build
+    attributes:
+      label: App version and build
+      description: Profile → About, e.g. "1.0.0 (20261020.094512)".
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Your data source
+      options: [Apple Watch, Oura, Garmin, iPhone only, Other]
+  - type: input
+    id: device
+    attributes:
+      label: iPhone model and iOS version
+  - type: input
+    id: request
+    attributes:
+      label: Request ID (if an error showed one)
