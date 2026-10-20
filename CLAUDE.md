@@ -44,3 +44,17 @@ is `../ROADMAP.md`; the user pastes one milestone per session.
 Build → run in simulator → open the Preview of the changed view → capture → compare →
 iterate. Device test for HealthKit, push and Sign in with Apple; note in STATUS.md what
 was only simulator-verified.
+
+## Git: branches and pull requests (never push to `main`)
+`main` is protected and always releasable (`docs/RELEASING.md`). Every session:
+1. Starts from an up-to-date `main` on a short branch: `feat/…`, `fix/…`, `chore/…`,
+   `ci/…`, `docs/…`, `test/…`, or `release/X.Y` for a hotfix.
+2. Commits there, pushes, and opens a PR with `gh pr create --fill`. The **PR title** is
+   the squash commit (`area: what changed`, checked by `pr-title.yml`).
+3. Waits for the required checks (`gh pr checks --watch`) and fixes until they're green.
+4. Asks the user to merge, or runs `gh pr merge --auto --squash` only if he said so for
+   that session.
+
+Never commit to `main` directly, never force-push, never bypass the ruleset. An
+unfinished feature ships dark behind a remote flag (`GET /v1/config`), not on a
+long-lived branch. Add a line to `CHANGELOG.md` → Unreleased for anything users notice.

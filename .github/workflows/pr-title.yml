@@ -1,0 +1,25 @@
+# The PR title becomes the squash commit on main, so it follows the repo's style:
+# `area: what changed` (lowercase area, may contain / or -). Required check on main.
+name: PR title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  title:
+    name: PR title
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Title is area: what changed"
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if printf '%s' "$TITLE" | grep -Eq '^[a-z0-9/-]+: .+'; then
+            echo "ok: $TITLE"
+          else
+            echo "::error::PR title must look like 'area: what changed' (e.g. 'sleep: planner shows the as-of time'). Got: $TITLE"
+            exit 1
+          fi
