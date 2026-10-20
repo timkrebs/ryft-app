@@ -118,9 +118,28 @@ Prepare these in the Apple Developer account (paid membership):
 
 ### Capabilities
 
-Already in the project: **HealthKit** (with background delivery), **Background Modes**
-(background fetch and processing, BGTask `dev.timkrebs.ryft.refresh`), **Sign in with Apple**,
-and the **`ryft`** URL type.
+Already in the project:
+- **HealthKit**, with background delivery
+- **Background Modes**:
+  - background fetch, processing and remote notifications
+  - BGTasks `dev.timkrebs.ryft.refresh` and `dev.timkrebs.ryft.compact`
+- **Sign in with Apple**
+- **Push Notifications**: `aps-environment` is `development`, and the App Store /
+  TestFlight export re-signs it as production. At runtime the app reads the value from
+  the embedded profile and sends `sandbox` or `production` with its push registration.
+- the **`ryft`** URL type
+
+**Associated Domains** is intentionally empty until `ryftapp.de` serves an AASA with the
+app's paths (`docs/API_REQUESTS.md` → Universal links). Until then, `ryft://…` links and
+notification taps work, and `https://` links open in Safari.
+
+**Push to your phone.** `push.enabled` is off by default, so the platform has to switch
+it on for your account first: `OPERATIONS.md` → Feature flags in `../plattform` (enable
+the flag and allow-list the account). Then:
+1. Sign in and let a sync finish. Today asks "Get your recovery each morning".
+2. Tap Allow. Profile → Developer shows the registration result (`POST 204`).
+
+The sandbox APNs key on the platform serves Debug builds; TestFlight uses production.
 
 **Live Activities** (the Train rest timer) need no capability and no push: the app sets
 `NSSupportsLiveActivities = YES` in `Info.plist` and starts, updates and ends the activity
@@ -195,6 +214,14 @@ Debug builds have **Profile → Developer** (not compiled into Release). With
      `<API_KEY>:<uuid>` acts as another user)
    - **Test connection**, then pull to refresh on Today
 3. **Show request IDs** lists recent failed requests with their `X-Request-ID`.
+4. **The journal (M5) before production has it:** compose serves `/v1/behaviors*` and
+   `/v1/journal/*`. Against compose, these appear as soon as `GET /v1/behaviors` answers:
+   - Today's "How was yesterday?" card
+   - Profile → Journal
+   - Insights → Behaviors
+
+   Against production they stay hidden while it answers `404`. Demo data has a mock
+   journal too (`MockJournal`).
 
 Plain `http://` works for local addresses in Debug only: `Config/Debug.xcconfig` (from the
 `.example`) turns on `NSAllowsLocalNetworking`. A public host over plain HTTP is still blocked,
