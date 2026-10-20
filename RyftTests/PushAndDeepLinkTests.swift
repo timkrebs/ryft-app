@@ -3,10 +3,10 @@ import Testing
 import UIKit
 @testable import Ryft
 
-// MARK: - DeepLink
+// MARK: - AppRoute
 
-struct DeepLinkTests {
-    private func link(_ s: String) -> DeepLink? { URL(string: s).flatMap(DeepLink.init(url:)) }
+struct AppRouteTests {
+    private func link(_ s: String) -> AppRoute? { URL(string: s).flatMap(AppRoute.init(url:)) }
     private let day = DayFormat.date(from: "2026-10-19")!
     private let id = UUID(uuidString: "6F9619FF-8B86-D011-B42D-00C04FC964FF")!
 
@@ -28,29 +28,56 @@ struct DeepLinkTests {
 
     @Test func authCallbackKeepsItsURL() throws {
         let url = try #require(URL(string: "https://ryftapp.de/auth/callback?code=abc"))
-        #expect(DeepLink(url: url) == .authCallback(url))
-        #expect(DeepLink(url: url)?.needsSession == false)
-        #expect(link("ryft://auth/callback?code=abc") != nil)
+        #expect(AppRoute(url: url) == .authCallback(url))
+        #expect(AppRoute(url: url)?.needsSession == false)
+        #expect(link("ryft://auth/callback?code=abc").map { if case .authCallback = $0 { return true } else { return false } } == true)
     }
 
-    @Test func foreignOrMalformedURLsAreNotOurs() {
+    @Test func foreignURLsAreNotOurs() {
         #expect(link("https://example.com/day/2026-10-19") == nil)
         #expect(link("http://ryftapp.de/day/2026-10-19") == nil)
-        #expect(link("https://ryftapp.de/day/19-10-2026") == nil)
-        #expect(link("https://ryftapp.de/insights/vo2") == nil)
-        #expect(link("https://ryftapp.de/train/session/not-a-uuid") == nil)
-        #expect(link("https://ryftapp.de/train/workout/6f9619ff-8b86-d011-b42d-00c04fc964ff") == nil)
-        #expect(link("https://ryftapp.de/") == nil)
-        #expect(link("https://ryftapp.de/day/2026-10-19/extra") == nil)
-        // The rest timer's Live Activity link stays TrainCoordinator's.
-        #expect(link("ryft://train/session") == nil)
+        #expect(link("mailto:tim@example.com") == nil)
+    }
+
+    @Test func unknownOrMalformedPathsOpenToday() {
+        for s in ["https://ryftapp.de/", "https://ryftapp.de/day/19-10-2026", "https://ryftapp.de/insights/vo2",
+                  "https://ryftapp.de/train/session/not-a-uuid", "https://ryftapp.de/train/workout/6f9619ff-8b86-d011-b42d-00c04fc964ff",
+                  "https://ryftapp.de/day/2026-10-19/extra", "ryft://somewhere"] {
+            #expect(link(s) == .today, "\(s)")
+        }
+    }
+
+    @Test func theBriefsPaths() {
+        #expect(link("https://ryftapp.de/train/sessions/6f9619ff-8b86-d011-b42d-00c04fc964ff") == .trainSession(id))
+        #expect(link("https://ryftapp.de/train/exercises/6f9619ff-8b86-d011-b42d-00c04fc964ff") == .trainExercise(id))
+        #expect(link("https://ryftapp.de/insights/behaviors") == .insightsBehaviors)
+        #expect(link("https://ryftapp.de/sleep/plan") == .sleepPlan)
+        #expect(link("ryft://sleep/plan") == .sleepPlan)
+        #expect(link("ryft://train/history") == .trainHistory)
+    }
+
+    /// Every `ryft.url` example in API.md → Push notifications.
+    @Test func everyPushTableURLParses() {
+        #expect(link("https://ryftapp.de/day/2026-10-19") == .day(day))
+        #expect(link("https://ryftapp.de/train/session/6f9619ff-8b86-d011-b42d-00c04fc964ff") == .trainSession(id))
+    }
+
+    @Test func insightsLeadToTheirRoute() {
+        func insight(_ id: String, _ metric: String) -> Insight {
+            Insight(id: id, severity: .info, title: "", body: "", metric: metric)
+        }
+        #expect(AppRoute.forInsight(insight("behavior-impact", "recovery")) == .insightsBehaviors)
+        #expect(AppRoute.forInsight(insight("pr", "volume_kg")) == .trainHistory)
+        #expect(AppRoute.forInsight(insight("sleep-consistency-low", "sleep_consistency")) == .insights(.sleepConsistency))
+        #expect(AppRoute.forInsight(insight("new-rule", "unknown_metric")) == nil)
     }
 
     @Test func urlRoundTrips() {
-        for l in [DeepLink.day(day), .sleep(day), .insights(.activeKcal), .trainSession(id), .trainPlan(id)] {
-            #expect(l.url.flatMap(DeepLink.init(url:)) == l)
+        for l in [AppRoute.day(day), .sleep(day), .insights(.activeKcal), .trainSession(id), .trainPlan(id),
+                  .trainExercise(id), .insightsBehaviors, .sleepPlan, .trainHistory] {
+            #expect(l.url.flatMap(AppRoute.init(url:)) == l)
         }
-        #expect(DeepLink.day(day).url?.absoluteString == "https://ryftapp.de/day/2026-10-19")
+        #expect(AppRoute.day(day).url?.absoluteString == "https://ryftapp.de/day/2026-10-19")
     }
 }
 
@@ -116,6 +143,20 @@ struct DeepLinkRouterTests {
         #expect(await router.open(try #require(URL(string: "https://ryftapp.de/insights/strain"))))
         #expect(insights.focusedMetric == .strain)
         #expect(await !router.open(try #require(URL(string: "https://example.com/x"))))
+    }
+
+    @Test func newRoutesDriveTheirScreens() async {
+        await router.open(.sleepPlan)
+        #expect(state.selectedTab == .sleep && sleep.mode == .plan)
+        await router.open(.insightsBehaviors)
+        #expect(state.selectedTab == .insights && insights.focusesBehaviors)
+        let id = UUID()
+        await router.open(.trainExercise(id))
+        #expect(state.selectedTab == .strain && strain.requestedRoute == .exercise(id))
+        await router.open(.trainHistory)
+        #expect(strain.requestedRoute == .history)
+        await router.open(.today)
+        #expect(state.selectedTab == .today)
     }
 
     @Test func signedOutLinksWaitUntilSignIn() async {

@@ -59,7 +59,7 @@
 		34EB63393086B6CC009B5F98 /* CoachMarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB63383086B6CC009B5F98 /* CoachMarks.swift */; };
 		34EB633B3086B71E009B5F98 /* HealthIllustration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB633A3086B71E009B5F98 /* HealthIllustration.swift */; };
 		34EB633D3086B768009B5F98 /* DebugComponentCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB633C3086B768009B5F98 /* DebugComponentCatalog.swift */; };
-		34EB63413086BA93009B5F98 /* DeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB63403086BA93009B5F98 /* DeepLink.swift */; };
+		34EB63413086BA93009B5F98 /* AppRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB63403086BA93009B5F98 /* AppRoute.swift */; };
 		34EB63433086BA94009B5F98 /* DeepLinkRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB63423086BA94009B5F98 /* DeepLinkRouter.swift */; };
 		34EB63463086BA95009B5F98 /* PushRegistrar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB63453086BA95009B5F98 /* PushRegistrar.swift */; };
 		34EB63483086BA95009B5F98 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB63473086BA95009B5F98 /* AppDelegate.swift */; };
@@ -77,6 +77,17 @@
 		34EB6360308734AA009B5F98 /* journal_day.json in Resources */ = {isa = PBXBuildFile; fileRef = 34EB635F308734AA009B5F98 /* journal_day.json */; };
 		34EB6362308734AE009B5F98 /* behavior_impact.json in Resources */ = {isa = PBXBuildFile; fileRef = 34EB6361308734AE009B5F98 /* behavior_impact.json */; };
 		34EB6364308734CA009B5F98 /* MirrorDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB6363308734CA009B5F98 /* MirrorDecodingTests.swift */; };
+		34EB6366308736BA009B5F98 /* SleepNeedBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB6365308736BA009B5F98 /* SleepNeedBar.swift */; };
+		34EB6368308736CC009B5F98 /* BedtimeStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB6367308736CC009B5F98 /* BedtimeStrip.swift */; };
+		34EB636A308736E0009B5F98 /* SleepPlannerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB6369308736E0009B5F98 /* SleepPlannerViewModel.swift */; };
+		34EB636C30873730009B5F98 /* SleepPlannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB636B30873730009B5F98 /* SleepPlannerView.swift */; };
+		34EB636E308737A4009B5F98 /* SleepUpgradeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB636D308737A4009B5F98 /* SleepUpgradeTests.swift */; };
+		34EB63713087384C009B5F98 /* JournalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB63703087384C009B5F98 /* JournalStore.swift */; };
+		34EB637330873864009B5F98 /* JournalSheetModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB637230873864009B5F98 /* JournalSheetModel.swift */; };
+		34EB63753087387D009B5F98 /* JournalViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB63743087387D009B5F98 /* JournalViews.swift */; };
+		34EB6377308738A6009B5F98 /* BehaviorsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB6376308738A6009B5F98 /* BehaviorsSection.swift */; };
+		34EB6379308738BA009B5F98 /* JournalSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB6378308738BA009B5F98 /* JournalSettingsView.swift */; };
+		34EB637B3087390F009B5F98 /* JournalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB637A3087390F009B5F98 /* JournalTests.swift */; };
 		34FAE788308560F200C9A7B8 /* AuthComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FAE787308560F200C9A7B8 /* AuthComponents.swift */; };
 		34FAE78A3085611100C9A7B8 /* CreateAccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FAE7893085611100C9A7B8 /* CreateAccountView.swift */; };
 		34FAE78C3085611500C9A7B8 /* LogInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FAE78B3085611500C9A7B8 /* LogInView.swift */; };
@@ -276,7 +287,7 @@
 		34EB63383086B6CC009B5F98 /* CoachMarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoachMarks.swift; sourceTree = "<group>"; };
 		34EB633A3086B71E009B5F98 /* HealthIllustration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthIllustration.swift; sourceTree = "<group>"; };
 		34EB633C3086B768009B5F98 /* DebugComponentCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugComponentCatalog.swift; sourceTree = "<group>"; };
-		34EB63403086BA93009B5F98 /* DeepLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLink.swift; sourceTree = "<group>"; };
+		34EB63403086BA93009B5F98 /* AppRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRoute.swift; sourceTree = "<group>"; };
 		34EB63423086BA94009B5F98 /* DeepLinkRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkRouter.swift; sourceTree = "<group>"; };
 		34EB63453086BA95009B5F98 /* PushRegistrar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushRegistrar.swift; sourceTree = "<group>"; };
 		34EB63473086BA95009B5F98 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -294,6 +305,17 @@
 		34EB635F308734AA009B5F98 /* journal_day.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = journal_day.json; sourceTree = "<group>"; };
 		34EB6361308734AE009B5F98 /* behavior_impact.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = behavior_impact.json; sourceTree = "<group>"; };
 		34EB6363308734CA009B5F98 /* MirrorDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MirrorDecodingTests.swift; sourceTree = "<group>"; };
+		34EB6365308736BA009B5F98 /* SleepNeedBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepNeedBar.swift; sourceTree = "<group>"; };
+		34EB6367308736CC009B5F98 /* BedtimeStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BedtimeStrip.swift; sourceTree = "<group>"; };
+		34EB6369308736E0009B5F98 /* SleepPlannerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepPlannerViewModel.swift; sourceTree = "<group>"; };
+		34EB636B30873730009B5F98 /* SleepPlannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepPlannerView.swift; sourceTree = "<group>"; };
+		34EB636D308737A4009B5F98 /* SleepUpgradeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepUpgradeTests.swift; sourceTree = "<group>"; };
+		34EB63703087384C009B5F98 /* JournalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalStore.swift; sourceTree = "<group>"; };
+		34EB637230873864009B5F98 /* JournalSheetModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalSheetModel.swift; sourceTree = "<group>"; };
+		34EB63743087387D009B5F98 /* JournalViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalViews.swift; sourceTree = "<group>"; };
+		34EB6376308738A6009B5F98 /* BehaviorsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BehaviorsSection.swift; sourceTree = "<group>"; };
+		34EB6378308738BA009B5F98 /* JournalSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalSettingsView.swift; sourceTree = "<group>"; };
+		34EB637A3087390F009B5F98 /* JournalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalTests.swift; sourceTree = "<group>"; };
 		34FAE787308560F200C9A7B8 /* AuthComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthComponents.swift; sourceTree = "<group>"; };
 		34FAE7893085611100C9A7B8 /* CreateAccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateAccountView.swift; sourceTree = "<group>"; };
 		34FAE78B3085611500C9A7B8 /* LogInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogInView.swift; sourceTree = "<group>"; };
@@ -497,7 +519,7 @@
 		34EB633F3086BA93009B5F98 /* Navigation */ = {
 			isa = PBXGroup;
 			children = (
-				34EB63403086BA93009B5F98 /* DeepLink.swift */,
+				34EB63403086BA93009B5F98 /* AppRoute.swift */,
 				34EB63423086BA94009B5F98 /* DeepLinkRouter.swift */,
 			);
 			path = Navigation;
@@ -512,6 +534,18 @@
 				34EB634F3086BAEB009B5F98 /* NotificationRing.swift */,
 			);
 			path = Push;
+			sourceTree = "<group>";
+		};
+		34EB636F3087384C009B5F98 /* Journal */ = {
+			isa = PBXGroup;
+			children = (
+				34EB63703087384C009B5F98 /* JournalStore.swift */,
+				34EB637230873864009B5F98 /* JournalSheetModel.swift */,
+				34EB63743087387D009B5F98 /* JournalViews.swift */,
+				34EB6376308738A6009B5F98 /* BehaviorsSection.swift */,
+				34EB6378308738BA009B5F98 /* JournalSettingsView.swift */,
+			);
+			path = Journal;
 			sourceTree = "<group>";
 		};
 		34FAE786308560D000C9A7B8 /* Auth */ = {
@@ -746,6 +780,8 @@
 				346E14DA308675030054AE5E /* ZoneBar.swift */,
 				346E14DC308675150054AE5E /* MiniHypnogram.swift */,
 				34EB63383086B6CC009B5F98 /* CoachMarks.swift */,
+				34EB6365308736BA009B5F98 /* SleepNeedBar.swift */,
+				34EB6367308736CC009B5F98 /* BedtimeStrip.swift */,
 			);
 			path = Design;
 			sourceTree = "<group>";
@@ -876,6 +912,7 @@
 				34FAE786308560D000C9A7B8 /* Auth */,
 				34FAE7EB3086275D00C9A7B8 /* Train */,
 				34FAE8243086471600C9A7B8 /* Onboarding */,
+				34EB636F3087384C009B5F98 /* Journal */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -885,6 +922,8 @@
 			children = (
 				778157FDD2967EC4A4D7E3C3 /* SleepView.swift */,
 				52D5D374B8F6AB387CA74383 /* SleepViewModel.swift */,
+				34EB6369308736E0009B5F98 /* SleepPlannerViewModel.swift */,
+				34EB636B30873730009B5F98 /* SleepPlannerView.swift */,
 			);
 			path = Sleep;
 			sourceTree = "<group>";
@@ -924,6 +963,8 @@
 				34EB63513086BB75009B5F98 /* PushAndDeepLinkTests.swift */,
 				34EB63573086C1AA009B5F98 /* FeatureFlagsTests.swift */,
 				34EB6363308734CA009B5F98 /* MirrorDecodingTests.swift */,
+				34EB636D308737A4009B5F98 /* SleepUpgradeTests.swift */,
+				34EB637A3087390F009B5F98 /* JournalTests.swift */,
 			);
 			path = RyftTests;
 			sourceTree = "<group>";
@@ -1159,8 +1200,10 @@
 				34EB632A3086B0DC009B5F98 /* SyncCoordinator.swift in Sources */,
 				34EB633D3086B768009B5F98 /* DebugComponentCatalog.swift in Sources */,
 				7DBFAE2326A63C230989EEC7 /* AuthService.swift in Sources */,
+				34EB636C30873730009B5F98 /* SleepPlannerView.swift in Sources */,
 				34EB635A3087345C009B5F98 /* MockJournal.swift in Sources */,
 				E15AA54DFEFBEDA23A37D47A /* Card.swift in Sources */,
+				34EB637330873864009B5F98 /* JournalSheetModel.swift in Sources */,
 				34FAE79A308565BE00C9A7B8 /* Hypnogram.swift in Sources */,
 				039980A88D411A1BC93A4A89 /* Formatting.swift in Sources */,
 				34EB63133086A93B009B5F98 /* StrainViewModel.swift in Sources */,
@@ -1170,6 +1213,7 @@
 				BF07C3035A20F73927E8AB39 /* HealthKitManager+Status.swift in Sources */,
 				34FAE8283086473300C9A7B8 /* SafariView.swift in Sources */,
 				15A5CE7C1244013556D2AE8A /* HealthKitManager.swift in Sources */,
+				34EB63713087384C009B5F98 /* JournalStore.swift in Sources */,
 				59F9D21E072620EB329163EA /* InsightCard.swift in Sources */,
 				4F6B38873CE3E7BD57B19B3B /* InsightsView.swift in Sources */,
 				8B284B717E1F72E38B123DFA /* MetricTile.swift in Sources */,
@@ -1182,7 +1226,7 @@
 				34EB63153086A9C8009B5F98 /* InsightsViewModel.swift in Sources */,
 				34EB630D3086A6EB009B5F98 /* Seams.swift in Sources */,
 				6CA6970422B8D10FD975930E /* PreviewAuth.swift in Sources */,
-				34EB63413086BA93009B5F98 /* DeepLink.swift in Sources */,
+				34EB63413086BA93009B5F98 /* AppRoute.swift in Sources */,
 				34EB63433086BA94009B5F98 /* DeepLinkRouter.swift in Sources */,
 				EC391293716B03957D5F37B9 /* PreviewSupport.swift in Sources */,
 				34EB63313086B2D1009B5F98 /* StateMachine.swift in Sources */,
@@ -1198,6 +1242,7 @@
 				34EB63193086AA08009B5F98 /* ProfileViewModel.swift in Sources */,
 				34FAE7F83086283900C9A7B8 /* RestTimerView.swift in Sources */,
 				34FAE7903085611F00C9A7B8 /* CheckInboxView.swift in Sources */,
+				34EB6368308736CC009B5F98 /* BedtimeStrip.swift in Sources */,
 				346E14DD308675150054AE5E /* MiniHypnogram.swift in Sources */,
 				34FAE7A5308623B300C9A7B8 /* TrainMath.swift in Sources */,
 				34FAE7A9308623CF00C9A7B8 /* PlanValidation.swift in Sources */,
@@ -1212,10 +1257,13 @@
 				68C8BBB733936FEEA62221F8 /* RyftHeader.swift in Sources */,
 				34EB63543086C11F009B5F98 /* FeatureFlags.swift in Sources */,
 				34EB633B3086B71E009B5F98 /* HealthIllustration.swift in Sources */,
+				34EB63753087387D009B5F98 /* JournalViews.swift in Sources */,
 				34EB63563086C16B009B5F98 /* FeatureFlagsDebugView.swift in Sources */,
 				346E14D13086746D0054AE5E /* MetricSpec.swift in Sources */,
 				34FAE788308560F200C9A7B8 /* AuthComponents.swift in Sources */,
 				34FAE7B63086248B00C9A7B8 /* TrainLibrary.swift in Sources */,
+				34EB6379308738BA009B5F98 /* JournalSettingsView.swift in Sources */,
+				34EB636A308736E0009B5F98 /* SleepPlannerViewModel.swift in Sources */,
 				34FAE8023086292000C9A7B8 /* PlansView.swift in Sources */,
 				346E14DB308675030054AE5E /* ZoneBar.swift in Sources */,
 				346E14D9308674F60054AE5E /* RangeBar.swift in Sources */,
@@ -1255,12 +1303,14 @@
 				34FAE7AC3086240000C9A7B8 /* LocalSession.swift in Sources */,
 				1DC8C26B9247085D0576CBAA /* SupabaseConfig.swift in Sources */,
 				34FAE7B03086241200C9A7B8 /* SessionMerge.swift in Sources */,
+				34EB6366308736BA009B5F98 /* SleepNeedBar.swift in Sources */,
 				34FAE7F4308627D200C9A7B8 /* TrainComponents.swift in Sources */,
 				21A8083AB320E43675BF3008 /* SyncService.swift in Sources */,
 				34FAE7B23086244700C9A7B8 /* TrainStore.swift in Sources */,
 				34FAE82A3086475F00C9A7B8 /* DataExport.swift in Sources */,
 				346E14D3308674950054AE5E /* ChartStyle.swift in Sources */,
 				34FAE8043086295500C9A7B8 /* PlanBuilderView.swift in Sources */,
+				34EB6377308738A6009B5F98 /* BehaviorsSection.swift in Sources */,
 				15837FD273BCBBD889E300E6 /* Theme.swift in Sources */,
 				F6E2B73B555E5EA401B400E6 /* TodayView.swift in Sources */,
 				32C19BDFFDBF5E73473E1D6F /* TrendChart.swift in Sources */,
@@ -1277,6 +1327,7 @@
 				34FAE81930863C6F00C9A7B8 /* PlatformConfigTests.swift in Sources */,
 				34EB63373086B4E6009B5F98 /* StateMachineIntegrationTests.swift in Sources */,
 				D768A66D76C90FBF7409E06A /* DecodingTests.swift in Sources */,
+				34EB637B3087390F009B5F98 /* JournalTests.swift in Sources */,
 				34EB631F3086ACAD009B5F98 /* ViewModelTests.swift in Sources */,
 				34EB63283086AF80009B5F98 /* RepositoryTests.swift in Sources */,
 				34EB632E3086B185009B5F98 /* SyncCoordinatorTests.swift in Sources */,
@@ -1289,6 +1340,7 @@
 				34FAE7983085647C00C9A7B8 /* APIClientStatusTests.swift in Sources */,
 				8E194C5BD85C6C19BCCD6D7C /* ReadinessCopyTests.swift in Sources */,
 				5DFA408AF6AC01404F20B376 /* SleepMathTests.swift in Sources */,
+				34EB636E308737A4009B5F98 /* SleepUpgradeTests.swift in Sources */,
 				34FAE7EA3086264900C9A7B8 /* TrainSyncTests.swift in Sources */,
 				34FAE81D30863E4200C9A7B8 /* AnchorScopeTests.swift in Sources */,
 				34EB6364308734CA009B5F98 /* MirrorDecodingTests.swift in Sources */,

@@ -45,21 +45,30 @@ invent them; these are the stand-ins until the platform serves them.
    `RangeBar` can show them against a personal range like HRV and resting HR.
    `DailyScore` already has today's values.
 
-## Universal links (open, 2026-10-19)
+## Universal links: the AASA (open, 2026-10-20)
 
-1. **`applinks` for every deep-link path.** `apple-app-site-association` on
-   `ryftapp.de` lists `applinks` only for `/auth/*` (OPERATIONS.md). The push
-   notifications' `ryft.url` and the app's `DeepLinkRouter` also use these paths:
+1. **`applinks` for the app's paths.** `https://ryftapp.de/.well-known/apple-app-site-association`
+   lists `applinks` only for `/auth/*` (OPERATIONS.md → Apex site). The app parses
+   these paths with one `AppRoute` parser, for links, push `ryft.url`s and insights:
    - `/day/*`
-   - `/sleep/*`
-   - `/insights/*`
-   - `/train/session/*`
+   - `/sleep/*` (also `/sleep/plan`)
+   - `/insights/*` (also `/insights/behaviors`)
+   - `/train/sessions/*` and `/train/session/*` (the push table's form)
+   - `/train/exercises/*`
    - `/train/plan/*`
+   - `/train/history`
 
-   Until they're listed, iOS opens those URLs in Safari. A notification tap still
-   works, because the app reads `ryft.url` itself.
-   - **Proposal:** add the five path patterns next to `/auth/*`. Optionally give
-     each a small web page ("Open in RYFT") for phones without the app.
+   **App ID:** `M77SKHKG63.dev.timkrebs.ryft` (team `M77SKHKG63`, bundle
+   `dev.timkrebs.ryft`).
+
+   **Proposal:** one `applinks.details` entry with that `appID` and the components
+   above next to `/auth/*`, served as `application/json` with no redirect.
+   Optionally, a small "Open in RYFT" page at each path for phones without the app.
+
+   **Until then:** the app's Associated Domains entitlement stays empty on purpose.
+   `https://` links open in Safari. `ryft://…` links and notification taps (the app
+   reads `ryft.url` itself) work today. Once the AASA is live, the app adds
+   `applinks:ryftapp.de` in Xcode (Signing & Capabilities); no code change is needed.
 
 ## Resolved by API.md (2026-10-19)
 
