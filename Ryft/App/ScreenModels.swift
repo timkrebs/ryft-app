@@ -15,6 +15,8 @@ final class ScreenModels {
     let trainToday: TrainTodayViewModel
     let coordinator: SyncCoordinator
     let push: PushRegistrar
+    /// The journal (M5), shared by Today, Profile and Insights.
+    let journal: JournalStore
     let router: DeepLinkRouter
     /// Remote flags (`GET /v1/config`); nil when the environment's flags are static (tests, previews).
     let featureFlags: FeatureFlags?
@@ -24,10 +26,11 @@ final class ScreenModels {
         self.coordinator = coordinator
         self.state = state
         push = PushRegistrar(env: state.env)
+        journal = JournalStore(env: state.env)
         today = TodayViewModel(state: state, sync: sync, coordinator: coordinator, push: push)
         sleep = SleepViewModel(state: state)
         strain = StrainViewModel(state: state, store: store)
-        insights = InsightsViewModel(state: state)
+        insights = InsightsViewModel(state: state, journal: journal)
         router = DeepLinkRouter(state: state, sleep: sleep, strain: strain, insights: insights)
         let env = state.env
         featureFlags = (env.flags as? FlagStore).map { store in

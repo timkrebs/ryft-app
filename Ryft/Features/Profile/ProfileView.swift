@@ -28,6 +28,7 @@ struct ProfileView: View {
                 bodySection
                 data
                 if model.showsNotifications { notifications }
+                if screens.journal.isLive { journal }
                 appearance
                 about
                 #if DEBUG
@@ -345,6 +346,28 @@ struct ProfileView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("profile.notifications")
+        }
+    }
+
+    // MARK: journal
+
+    private var journal: some View {
+        ProfileSection(title: "Journal") {
+            NavigationLink {
+                JournalSettingsView(store: screens.journal)
+            } label: {
+                HStack {
+                    Text("Behaviors to track").font(.ryft(.callout)).foregroundStyle(Theme.textPrimary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.textTertiary)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("profile.journal")
         }
     }
 

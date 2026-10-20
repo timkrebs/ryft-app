@@ -33,6 +33,10 @@ struct InsightsView: View {
                         .foregroundStyle(Theme.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     insights
+                    if let impacts = model.impacts {
+                        BehaviorsSection(impacts: impacts)
+                            .id(InsightsViewModel.behaviorsAnchor)
+                    }
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Trends").ryftLabelStyle()
                         SegmentedPicker(selection: Bindable(model).range, options: TrendRange.allCases,
@@ -51,6 +55,14 @@ struct InsightsView: View {
                         proxy.scrollTo(metric, anchor: .top)
                     }
                     model.focusedMetric = nil
+                }
+                // The behavior-impact insight, or a link to /insights/behaviors.
+                .task(id: model.focusesBehaviors) {
+                    guard model.focusesBehaviors else { return }
+                    withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.standard)) {
+                        proxy.scrollTo(InsightsViewModel.behaviorsAnchor, anchor: .top)
+                    }
+                    model.focusesBehaviors = false
                 }
             }
         }
