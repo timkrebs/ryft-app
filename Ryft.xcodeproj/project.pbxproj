@@ -88,6 +88,7 @@
 		34EB6377308738A6009B5F98 /* BehaviorsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB6376308738A6009B5F98 /* BehaviorsSection.swift */; };
 		34EB6379308738BA009B5F98 /* JournalSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB6378308738BA009B5F98 /* JournalSettingsView.swift */; };
 		34EB637B3087390F009B5F98 /* JournalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB637A3087390F009B5F98 /* JournalTests.swift */; };
+		34EB637D30873B69009B5F98 /* StrainBreakdownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB637C30873B69009B5F98 /* StrainBreakdownTests.swift */; };
 		34FAE788308560F200C9A7B8 /* AuthComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FAE787308560F200C9A7B8 /* AuthComponents.swift */; };
 		34FAE78A3085611100C9A7B8 /* CreateAccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FAE7893085611100C9A7B8 /* CreateAccountView.swift */; };
 		34FAE78C3085611500C9A7B8 /* LogInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FAE78B3085611500C9A7B8 /* LogInView.swift */; };
@@ -316,6 +317,7 @@
 		34EB6376308738A6009B5F98 /* BehaviorsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BehaviorsSection.swift; sourceTree = "<group>"; };
 		34EB6378308738BA009B5F98 /* JournalSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalSettingsView.swift; sourceTree = "<group>"; };
 		34EB637A3087390F009B5F98 /* JournalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JournalTests.swift; sourceTree = "<group>"; };
+		34EB637C30873B69009B5F98 /* StrainBreakdownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrainBreakdownTests.swift; sourceTree = "<group>"; };
 		34FAE787308560F200C9A7B8 /* AuthComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthComponents.swift; sourceTree = "<group>"; };
 		34FAE7893085611100C9A7B8 /* CreateAccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateAccountView.swift; sourceTree = "<group>"; };
 		34FAE78B3085611500C9A7B8 /* LogInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogInView.swift; sourceTree = "<group>"; };
@@ -965,6 +967,7 @@
 				34EB6363308734CA009B5F98 /* MirrorDecodingTests.swift */,
 				34EB636D308737A4009B5F98 /* SleepUpgradeTests.swift */,
 				34EB637A3087390F009B5F98 /* JournalTests.swift */,
+				34EB637C30873B69009B5F98 /* StrainBreakdownTests.swift */,
 			);
 			path = RyftTests;
 			sourceTree = "<group>";
@@ -1324,6 +1327,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				34EB637D30873B69009B5F98 /* StrainBreakdownTests.swift in Sources */,
 				34FAE81930863C6F00C9A7B8 /* PlatformConfigTests.swift in Sources */,
 				34EB63373086B4E6009B5F98 /* StateMachineIntegrationTests.swift in Sources */,
 				D768A66D76C90FBF7409E06A /* DecodingTests.swift in Sources */,

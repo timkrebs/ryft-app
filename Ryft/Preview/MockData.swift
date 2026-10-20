@@ -35,6 +35,8 @@ enum MockData {
         var strain = night.strain
         let sessions = MockTrain.sessions(on: day)
         strain.sessions = sessions.isEmpty ? nil : sessions
+        let muscular = sessions.compactMap(\.muscularTrimp).reduce(0, +)
+        strain.muscularTrimp = muscular > 0 ? Int(muscular.rounded()) : 0
         let workouts = night.workouts.map { w in
             var linked = w
             linked.muscularLoad = sessions.first { $0.id == w.sessionId }?.muscularTrimp

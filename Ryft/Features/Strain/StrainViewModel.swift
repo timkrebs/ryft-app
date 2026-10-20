@@ -69,6 +69,25 @@ final class StrainViewModel {
     var zoneMinutes: [Double]? { detail?.strain?.zoneMin.map(Double.init) }
     var trimpText: String? { detail?.strain.map { "TRIMP \($0.trimp)" } }
 
+    /// "Cardio 9.2 · Strength 4.1": the day's strain split in proportion to the
+    /// heart-rate TRIMP and the strength sessions' muscular TRIMP (the platform
+    /// compresses their sum into one strain, so the split is by load). Nil
+    /// without a strength session.
+    var strainSplit: (cardio: Double, strength: Double)? {
+        guard let strain, let d = detail?.strain, let muscular = d.muscularTrimp, muscular > 0 else { return nil }
+        let total = Double(d.trimp + muscular)
+        guard total > 0 else { return nil }
+        let strength = (strain * Double(muscular) / total * 10).rounded() / 10
+        // The two parts add up to the shown strain (one decimal).
+        return (((strain - strength) * 10).rounded() / 10, strength)
+    }
+
+    var strainSplitText: String? {
+        strainSplit.map {
+            String(localized: "Cardio \(Fmt.strain($0.cardio)) · Strength \(Fmt.strain($0.strength))")
+        }
+    }
+
     /// The day's workouts, each merged with its logged session (`session_id`),
     /// then sessions without a workout yet (e.g. still syncing).
     var activities: [ActivityItem] {

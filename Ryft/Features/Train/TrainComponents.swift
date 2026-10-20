@@ -69,6 +69,20 @@ extension PRKind {
         }
     }
 
+    /// The record in the same words as its push (`PR_BODY_*` in Localizable.xcstrings):
+    /// "Estimated one-rep max 102.5 kg.", "8 reps in one set, your most yet."
+    func sentence(_ value: Double) -> String {
+        let key: String
+        let argument: String
+        switch self {
+        case .e1rm: key = "PR_BODY_E1RM"; argument = value.formatted(.number.precision(.fractionLength(0...1)))
+        case .maxWeight: key = "PR_BODY_MAX_WEIGHT"; argument = value.formatted(.number.precision(.fractionLength(0...1)))
+        case .maxReps: key = "PR_BODY_MAX_REPS"; argument = "\(Int(value.rounded()))"
+        case .maxVolume: key = "PR_BODY_MAX_VOLUME"; argument = value.formatted(.number.precision(.fractionLength(0)))
+        }
+        return String(format: Bundle.main.localizedString(forKey: key, value: nil, table: nil), argument)
+    }
+
     func format(_ value: Double) -> String {
         switch self {
         case .maxReps: return String(localized: "\(Int(value)) reps")
@@ -257,6 +271,10 @@ struct PRBadge: View {
                                : record.kind.title)
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textSecondary)
+                Text(record.kind.sentence(record.value))
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 6)
             Text(record.kind.format(record.value))

@@ -22,6 +22,23 @@ private struct WorkoutDetailScreen: View {
             VStack(spacing: Theme.Metrics.sectionSpacing) {
                 header
                 stats
+                if let id = workout.sessionId {
+                    NavigationLink(value: TrainRoute.session(id)) {
+                        Card {
+                            HStack {
+                                Label("Logged session", systemImage: "dumbbell.fill")
+                                    .font(.ryft(.callout))
+                                    .foregroundStyle(Theme.textPrimary)
+                                Spacer()
+                                if let load = workout.muscularLoad { LoadChip(load: load) }
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Theme.textTertiary)
+                            }
+                        }
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                }
                 heartRate
                 if let zones = model.zones {
                     Card {
