@@ -1,0 +1,10 @@
+{ "window_days": 90, "computed_at": "2026-10-19T06:45:03Z",
+  "impacts": [
+    { "behavior_id": "bad67883-7fb1-5f98-9761-feba0a813536", "slug": "alcohol", "name": "Alcohol", "kind": "yes_no",
+      "status": "unlocked", "n_yes": 12, "n_no": 31, "needed": { "yes": 0, "no": 0 },
+      "recovery":          { "delta": -14.2, "ci_lo": -19.8, "ci_hi": -8.1, "significant": true,  "n_yes": 12, "n_no": 31 },
+      "hrv_pct":           { "delta": -11.5, "ci_lo": -17.0, "ci_hi": -5.9, "significant": true,  "n_yes": 12, "n_no": 30 },
+      "sleep_performance": { "delta": -3.0,  "ci_lo": -8.2,  "ci_hi": 2.4,  "significant": false, "n_yes": 12, "n_no": 31 } },
+    { "behavior_id": "ce48b6cf-43e3-5c6b-baf9-0a13e5d767d9", "slug": "sauna", "name": "Sauna", "kind": "yes_no",
+      "status": "locked", "n_yes": 2, "n_no": 20, "needed": { "yes": 3, "no": 0 },
+      "recovery": null, "hrv_pct": null, "sleep_performance": null } ] }

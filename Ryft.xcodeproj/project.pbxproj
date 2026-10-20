@@ -71,6 +71,12 @@
 		34EB63543086C11F009B5F98 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB63533086C11F009B5F98 /* FeatureFlags.swift */; };
 		34EB63563086C16B009B5F98 /* FeatureFlagsDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB63553086C16B009B5F98 /* FeatureFlagsDebugView.swift */; };
 		34EB63583086C1AA009B5F98 /* FeatureFlagsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB63573086C1AA009B5F98 /* FeatureFlagsTests.swift */; };
+		34EB635A3087345C009B5F98 /* MockJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB63593087345C009B5F98 /* MockJournal.swift */; };
+		34EB635C308734A5009B5F98 /* sleep_plan.json in Resources */ = {isa = PBXBuildFile; fileRef = 34EB635B308734A5009B5F98 /* sleep_plan.json */; };
+		34EB635E308734A7009B5F98 /* behaviors.json in Resources */ = {isa = PBXBuildFile; fileRef = 34EB635D308734A7009B5F98 /* behaviors.json */; };
+		34EB6360308734AA009B5F98 /* journal_day.json in Resources */ = {isa = PBXBuildFile; fileRef = 34EB635F308734AA009B5F98 /* journal_day.json */; };
+		34EB6362308734AE009B5F98 /* behavior_impact.json in Resources */ = {isa = PBXBuildFile; fileRef = 34EB6361308734AE009B5F98 /* behavior_impact.json */; };
+		34EB6364308734CA009B5F98 /* MirrorDecodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34EB6363308734CA009B5F98 /* MirrorDecodingTests.swift */; };
 		34FAE788308560F200C9A7B8 /* AuthComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FAE787308560F200C9A7B8 /* AuthComponents.swift */; };
 		34FAE78A3085611100C9A7B8 /* CreateAccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FAE7893085611100C9A7B8 /* CreateAccountView.swift */; };
 		34FAE78C3085611500C9A7B8 /* LogInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FAE78B3085611500C9A7B8 /* LogInView.swift */; };
@@ -282,6 +288,12 @@
 		34EB63533086C11F009B5F98 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
 		34EB63553086C16B009B5F98 /* FeatureFlagsDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlagsDebugView.swift; sourceTree = "<group>"; };
 		34EB63573086C1AA009B5F98 /* FeatureFlagsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlagsTests.swift; sourceTree = "<group>"; };
+		34EB63593087345C009B5F98 /* MockJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockJournal.swift; sourceTree = "<group>"; };
+		34EB635B308734A5009B5F98 /* sleep_plan.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = sleep_plan.json; sourceTree = "<group>"; };
+		34EB635D308734A7009B5F98 /* behaviors.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = behaviors.json; sourceTree = "<group>"; };
+		34EB635F308734AA009B5F98 /* journal_day.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = journal_day.json; sourceTree = "<group>"; };
+		34EB6361308734AE009B5F98 /* behavior_impact.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = behavior_impact.json; sourceTree = "<group>"; };
+		34EB6363308734CA009B5F98 /* MirrorDecodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MirrorDecodingTests.swift; sourceTree = "<group>"; };
 		34FAE787308560F200C9A7B8 /* AuthComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthComponents.swift; sourceTree = "<group>"; };
 		34FAE7893085611100C9A7B8 /* CreateAccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateAccountView.swift; sourceTree = "<group>"; };
 		34FAE78B3085611500C9A7B8 /* LogInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogInView.swift; sourceTree = "<group>"; };
@@ -611,6 +623,7 @@
 				049D062A2BC719423C9260FF /* PreviewAuth.swift */,
 				27202E9A7EB43BC86C453E97 /* PreviewSupport.swift */,
 				34FAE7B73086250E00C9A7B8 /* MockTrain.swift */,
+				34EB63593087345C009B5F98 /* MockJournal.swift */,
 			);
 			path = Preview;
 			sourceTree = "<group>";
@@ -684,6 +697,10 @@
 				34EB62FE3086A65E009B5F98 /* notification_prefs.json */,
 				34EB63003086A660009B5F98 /* push_alert.json */,
 				34EB63023086A661009B5F98 /* push_refresh.json */,
+				34EB635B308734A5009B5F98 /* sleep_plan.json */,
+				34EB635D308734A7009B5F98 /* behaviors.json */,
+				34EB635F308734AA009B5F98 /* journal_day.json */,
+				34EB6361308734AE009B5F98 /* behavior_impact.json */,
 			);
 			path = Fixtures;
 			sourceTree = "<group>";
@@ -906,6 +923,7 @@
 				34EB63363086B4E6009B5F98 /* StateMachineIntegrationTests.swift */,
 				34EB63513086BB75009B5F98 /* PushAndDeepLinkTests.swift */,
 				34EB63573086C1AA009B5F98 /* FeatureFlagsTests.swift */,
+				34EB6363308734CA009B5F98 /* MirrorDecodingTests.swift */,
 			);
 			path = RyftTests;
 			sourceTree = "<group>";
@@ -1059,6 +1077,7 @@
 				34FAE7E4308625DB00C9A7B8 /* train_exercise_history.json in Resources */,
 				34FAE7DA308625C300C9A7B8 /* train_plan.json in Resources */,
 				34FAE7DE308625CD00C9A7B8 /* train_plan_today.json in Resources */,
+				34EB6360308734AA009B5F98 /* journal_day.json in Resources */,
 				F72F70F6CE7CAC9A5BCAFBA5 /* error.json in Resources */,
 				5034AB5153B7707D07CCAE24 /* insights.json in Resources */,
 				D7C8A7C5245E5223673A623E /* me.json in Resources */,
@@ -1074,7 +1093,10 @@
 				34FAE8213086421500C9A7B8 /* apple_authorization.json in Resources */,
 				34EB62FF3086A65E009B5F98 /* notification_prefs.json in Resources */,
 				0E73192A0BA409D237CB9F2D /* workouts.json in Resources */,
+				34EB6362308734AE009B5F98 /* behavior_impact.json in Resources */,
 				34EB63013086A660009B5F98 /* push_alert.json in Resources */,
+				34EB635E308734A7009B5F98 /* behaviors.json in Resources */,
+				34EB635C308734A5009B5F98 /* sleep_plan.json in Resources */,
 				34FAE81F3086421400C9A7B8 /* train_sessions.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1137,6 +1159,7 @@
 				34EB632A3086B0DC009B5F98 /* SyncCoordinator.swift in Sources */,
 				34EB633D3086B768009B5F98 /* DebugComponentCatalog.swift in Sources */,
 				7DBFAE2326A63C230989EEC7 /* AuthService.swift in Sources */,
+				34EB635A3087345C009B5F98 /* MockJournal.swift in Sources */,
 				E15AA54DFEFBEDA23A37D47A /* Card.swift in Sources */,
 				34FAE79A308565BE00C9A7B8 /* Hypnogram.swift in Sources */,
 				039980A88D411A1BC93A4A89 /* Formatting.swift in Sources */,
@@ -1268,6 +1291,7 @@
 				5DFA408AF6AC01404F20B376 /* SleepMathTests.swift in Sources */,
 				34FAE7EA3086264900C9A7B8 /* TrainSyncTests.swift in Sources */,
 				34FAE81D30863E4200C9A7B8 /* AnchorScopeTests.swift in Sources */,
+				34EB6364308734CA009B5F98 /* MirrorDecodingTests.swift in Sources */,
 				34FAE7E83086261D00C9A7B8 /* TrainMathTests.swift in Sources */,
 				34FAE794308561EB00C9A7B8 /* AuthServiceTests.swift in Sources */,
 				34EB63113086A7A2009B5F98 /* EnvironmentTests.swift in Sources */,

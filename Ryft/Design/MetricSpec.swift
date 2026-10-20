@@ -117,6 +117,20 @@ extension MetricSpec {
                                   polarity: .higherIsBetter)
     static let activeKcal = MetricSpec(title: String(localized: "Active energy"), unit: "kcal",
                                        color: Theme.warning)
+    /// Sleep quality: good ≥ 80, fair 60–79, poor < 60 (`quality_label`).
+    static let sleepQuality = MetricSpec(title: String(localized: "Sleep quality"), color: Theme.metricSleep,
+                                         polarity: .higherIsBetter, scale: 0...100, thresholds: [60, 80],
+                                         scaleLabel: "/ 100",
+                                         band: { v in (SleepQualityLabel(quality: Int(v.rounded())).title, Theme.metricSleep) })
+    static let sleepConsistency = MetricSpec(title: String(localized: "Sleep consistency"), color: Theme.metricSleep,
+                                             polarity: .higherIsBetter, scale: 0...100, thresholds: [60],
+                                             scaleLabel: "/ 100")
+    static let napMin = MetricSpec(title: String(localized: "Naps"), color: Theme.metricSleep,
+                                   tickUnit: 15, custom: { Fmt.duration(minutes: Int($0.rounded())) })
+    static let strengthMin = MetricSpec(title: String(localized: "Strength training"), color: Theme.metricStrain,
+                                        tickUnit: 15, custom: { Fmt.duration(minutes: Int($0.rounded())) })
+    static let volumeKg = MetricSpec(title: String(localized: "Training volume"), unit: "kg",
+                                     color: Theme.metricStrain)
     static let e1rm = MetricSpec(title: String(localized: "Estimated 1RM"), unit: "kg", color: Theme.accent,
                                  polarity: .higherIsBetter, fractionDigits: 1,
                                  custom: { Fmt.kg($0) })
@@ -135,6 +149,11 @@ extension TrendMetric {
         case .rhr: return .rhr
         case .steps: return .steps
         case .activeKcal: return .activeKcal
+        case .strengthMin: return .strengthMin
+        case .volumeKg: return .volumeKg
+        case .sleepQuality: return .sleepQuality
+        case .sleepConsistency: return .sleepConsistency
+        case .napMin: return .napMin
         }
     }
 }

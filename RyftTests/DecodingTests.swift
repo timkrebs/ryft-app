@@ -173,7 +173,8 @@ struct DecodingTests {
 
     @Test func trendMetricsMatchTheAPI() {
         #expect(TrendMetric.allCases.map(\.rawValue)
-                == ["readiness", "recovery", "strain", "sleep", "sleep_min", "hrv", "rhr", "steps", "active_kcal"])
+                == ["readiness", "recovery", "strain", "sleep", "sleep_min", "hrv", "rhr", "steps", "active_kcal",
+                    "strength_min", "volume_kg", "sleep_quality", "sleep_consistency", "nap_min"])
     }
 
     @Test func insights() throws {
