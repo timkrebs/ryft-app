@@ -140,10 +140,10 @@ final class JournalStore {
         let created: Behavior
         do {
             created = try await env.api.createBehavior(input(id))
-        } catch let e as APIError where e.status == 409 {
+        } catch let e as APIError where e.isIDTaken {
             do {
                 created = try await env.api.createBehavior(input(retryID))
-            } catch let again as APIError where again.status == 409 {
+            } catch let again as APIError where again.isIDTaken {
                 throw JournalError.idTaken
             }
         }
