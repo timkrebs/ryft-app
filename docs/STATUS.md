@@ -1,5 +1,23 @@
 # Status — 2026-10-21
 
+## Beta feedback 1: editable sleep need (`CLAUDE_FOLLOWUP_BETA_FEEDBACK_1.md` §1)
+
+Plan for the whole brief: `docs/work/2026-10-21-beta-feedback-1/plan.md`.
+
+- One vocabulary: **Sleep need** (tonight's, from the platform) and **Baseline sleep need**
+  (the part you set). One editor (`BodySettingsEditor`) and two forms (baseline sleep need in
+  15-minute steps, 4–12 h; maximum heart rate 100–230 bpm) from three places: onboarding →
+  About you (both values tappable, "RYFT adjusts this from your nights unless you set it"),
+  Sleep → the need card (the breakdown, then "Change baseline"), Profile → Sleep and Body.
+- A change saves at once (`PATCH /v1/me`): the value shows while the request is out, a
+  refusal (`422`) says the range in the form and the value goes back (details keep the
+  request ID). "Use the learned value" / "Use the estimate" go back. Past days keep their
+  scores until "Rescore the last 90 days" (offered after a save, and in Profile).
+- Screenshots: `docs/screenshots/{aboutYouSaved,sleepNeed,baselineSleepNeed,profile}-{dark,light}.png`,
+  German `{aboutYouSaved,sleepNeed,baselineSleepNeed}-{dark,light}-de.png`.
+- **Simulator only.** On your iPhone: onboarding with a fresh account, change the baseline
+  from Sleep, check Profile shows "Set by you · learned …".
+
 ## Sync and performance brief: where it stands
 
 `CLAUDE_FOLLOWUP_SYNC_PERFORMANCE.md`, eight PRs: #8 gates and honest errors, #10 engine
