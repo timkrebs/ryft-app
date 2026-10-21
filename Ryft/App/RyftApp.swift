@@ -73,7 +73,8 @@ struct RyftApp: App {
         PlatformConfig.checkAtLaunch()
         // Background refresh, the backfill (in addition to HealthKit delivery) and the nightly
         // cache compaction.
-        BackgroundWork.register(coordinator: coordinator, backlogBytes: { SyncService.shared.backlogBytes }) {
+        BackgroundWork.register(coordinator: coordinator, backlogBytes: { SyncService.shared.backlogBytes },
+                                afterRefresh: { [bedtime = screens.bedtime] in await bedtime.refresh() }) {
             [repository = state.repository] in repository.compact()
         }
         // HealthKit wakes the app for deliveries, possibly in a background launch where the
@@ -112,6 +113,8 @@ struct RyftApp: App {
                     if old != nil { state.reset() }
                     // That account's gates, steps and sync state are its own.
                     screens.onboarding.switchAccount(new)
+                    // The previous account's reminders and alarms go; this one's come back.
+                    Task { await screens.bedtime.accountChanged() }
                     sync.accountChanged()
                     // Flags are per account: that account's cached answer, then a fresh one.
                     (env.flags as? FlagStore)?.switchAccount(new)
@@ -130,6 +133,11 @@ struct RyftApp: App {
                 // The first successful sync unlocks the push pre-prompt on Today.
                 .onChange(of: sync.phase) { _, phase in
                     if phase == .done { screens.push.syncSucceeded() }
+                }
+                // Today was fetched again (after a sync that touched it): tonight's bedtime moves
+                // with the day's strain.
+                .onChange(of: state.lastUpdated) { _, _ in
+                    Task(priority: .utility) { await screens.bedtime.refresh() }
                 }
                 // GET /v1/config after the first frame, then whenever its ttl_sec (6 h) has
                 // passed; below the work the user waits for.
@@ -187,6 +195,11 @@ struct RyftApp: App {
                 Task(priority: .utility) {
                     await LaunchSignpost.afterFirstFrame()
                     await screens.onboarding.check()
+                }
+                // Tonight's bedtime, with what the day brought so far.
+                Task(priority: .utility) {
+                    await LaunchSignpost.afterFirstFrame()
+                    await screens.bedtime.refresh()
                 }
             } else if phase == .background {
                 // Not a cancel: the page in flight finishes (in a background task), and what's
@@ -398,6 +411,8 @@ struct RootView: View {
 /// Screens a screenshot run can open directly (`scripts/screenshots.sh`, `-RyftScreen <name>`).
 enum DebugScreen: String {
     case invite, consent, aboutYou, aboutYouSaved, accountHint, signInMethods, syncDetails, baselineSleepNeed, sleepNeed
+    /// Bedtime & wake's editor, and Tonight with the default schedule.
+    case bedtime, tonight
 
     static var requested: DebugScreen? {
         UserDefaults.standard.string(forKey: "RyftScreen").flatMap(DebugScreen.init(rawValue:))
@@ -420,11 +435,31 @@ enum DebugScreen: String {
             DebugSyncDetails()
         case .baselineSleepNeed, .sleepNeed:
             DebugBodySettings(screen: self)
+        case .bedtime, .tonight:
+            DebugBedtime(screen: self)
         }
     }
 
     /// One instance for the run: the screen loads its sign-in methods into it.
     @MainActor private static let emailAccount = AuthService.preview(provider: "email")
+}
+
+/// Bedtime & wake, or Tonight planned with the default schedule.
+private struct DebugBedtime: View {
+    let screen: DebugScreen
+    @Environment(ScreenModels.self) private var screens
+
+    var body: some View {
+        NavigationStack {
+            if screen == .bedtime {
+                SleepScheduleView(planner: screens.bedtime)
+            } else {
+                ScrollView { TonightCard(planner: screens.bedtime).padding() }
+                    .background(Theme.background.ignoresSafeArea())
+                    .task { if screens.bedtime.schedule == nil { await screens.bedtime.update(.default) } }
+            }
+        }
+    }
 }
 
 /// The baseline sleep need editor, or Sleep's need breakdown, without the taps.

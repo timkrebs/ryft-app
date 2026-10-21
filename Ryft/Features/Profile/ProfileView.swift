@@ -302,6 +302,17 @@ struct ProfileView: View {
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
+            if screens.bedtime.isEnabled {
+                Divider().overlay(Theme.separator)
+                NavigationLink {
+                    SleepScheduleView(planner: screens.bedtime)
+                } label: {
+                    SettingRowLabel(title: "Bedtime & wake", value: screens.bedtime.summary,
+                                    detail: screens.bedtime.summaryDetail)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("profile.bedtime")
+            }
         }
     }
 

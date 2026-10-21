@@ -156,6 +156,10 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     private var journals: [String: JournalDay] = [:]
     private(set) var journalPuts: [String: JournalPut] = [:]
     private(set) var planWakes: [String] = []
+    /// Scripts `GET /v1/sleep/plan` (tests); the mock plan otherwise.
+    var planFor: (@Sendable (String) -> SleepPlan)?
+    /// The mock plan's "now": `wake` resolves to its next occurrence after it, as on the server.
+    var now: @Sendable () -> Date = { .now }
     private(set) var mePatches: [UserPatch] = []
 
     private(set) var calls: [String] = []
@@ -300,7 +304,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     func sleepPlan(wake: String) async throws -> SleepPlan {
         try enter("sleepPlan")
         lock.withLock { planWakes.append(wake) }
-        return MockJournal.sleepPlan(wake: wake)
+        if let plan = planFor?(wake) { return plan }
+        return MockJournal.sleepPlan(wake: wake, now: now())
     }
 
     private func enterJournal(_ name: String) throws {

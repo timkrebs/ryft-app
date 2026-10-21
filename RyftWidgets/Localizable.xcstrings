@@ -11,6 +11,16 @@
         }
       }
     },
+    "Bed by %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ins Bett um %@"
+          }
+        }
+      }
+    },
     "Done" : {
       "comment" : "Live Activity button that opens the workout in the app.",
       "localizations" : {
@@ -167,6 +177,26 @@
         }
       }
     },
+    "SNOOZING" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SCHLUMMERT"
+          }
+        }
+      }
+    },
+    "Snoozing" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlummert"
+          }
+        }
+      }
+    },
     "Today's readiness, or how far scoring your night is." : {
       "localizations" : {
         "de" : {
@@ -183,6 +213,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Warte auf die letzte Nacht"
+          }
+        }
+      }
+    },
+    "Your alarm rings again" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Wecker klingelt gleich wieder"
           }
         }
       }

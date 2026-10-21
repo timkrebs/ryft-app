@@ -8,5 +8,10 @@ struct RyftWidgetsBundle: WidgetBundle {
     var body: some Widget {
         ReadinessWidget()
         RestTimerLiveActivity()
+        #if canImport(AlarmKit)
+        if #available(iOSApplicationExtension 26.0, *) {
+            WakeAlarmLiveActivity()
+        }
+        #endif
     }
 }
