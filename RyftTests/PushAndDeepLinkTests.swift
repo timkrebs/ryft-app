@@ -464,6 +464,74 @@ struct NotificationSettingsViewModelTests {
         #expect(api.count("patchNotifications") == 1)
     }
 
+    @Test func theScreenShowsWhatCanHappenNow() async {
+        // Off for the account: no switches at all (none that look on), the list in words.
+        let off = AppState(env: .test(api: api))
+        let rolling = NotificationSettingsViewModel(state: off, push: PushRegistrar(env: off.env))
+        #expect(rolling.mode == .rollingOut && !rolling.showsSwitches)
+
+        // On, iOS hasn't asked: switches and "Allow".
+        let notifier = MockNotifier()
+        let on = AppState(env: .test(api: api, notifier: notifier, flags: [.pushEnabled: true]))
+        let push = PushRegistrar(env: on.env)
+        let live = NotificationSettingsViewModel(state: on, push: push)
+        await live.load()
+        #expect(live.mode == .notAsked && live.showsSwitches)
+
+        // Turned off in iOS Settings: switches stay, with "Open Settings".
+        notifier.status = .denied
+        await live.load()
+        #expect(live.mode == .denied && live.showsSwitches)
+
+        notifier.status = .authorized
+        await live.load()
+        #expect(live.mode == .allowed && live.showsSwitches)
+    }
+
+    @Test func quietHoursSwitchedOnSaveHalfPastTenUntilSeven() async {
+        await model.setQuietHours(on: true)
+        #expect(api.prefs.quietHours == QuietHours(from: "22:30", to: "07:00"))
+    }
+
+    /// The live flag store, the way the app has it: an answer that arrives while screens show
+    /// waits until one appears.
+    private func flagged(_ notifier: MockNotifier) -> (AppState, FlagStore) {
+        let suite = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
+        let flags = FlagStore(store: TrainStore(inMemory: true), defaults: suite)
+        flags.apply(RemoteConfig(flags: ["push.enabled": false], evaluatedAt: .now, ttlSec: 3600), fetchedAt: .now)
+        let env = AppEnvironment(settings: .shared, health: MockHealthStore(), liveAPI: api, demoAPI: api, auth: .preview(),
+                                 persistence: TrainStore(inMemory: true), clock: TestClock(), notifier: notifier,
+                                 flags: flags, connectivity: .preview(online: true), defaults: suite, demoOverride: false)
+        return (AppState(env: env), flags)
+    }
+
+    @Test func theFlagReachingTheAccountSwitchesTheScreenWhenItOpens() async {
+        let (state, flags) = flagged(MockNotifier())
+        let screen = NotificationSettingsViewModel(state: state, push: PushRegistrar(env: state.env))
+        #expect(screen.mode == .rollingOut)
+        flags.apply(RemoteConfig(flags: ["push.enabled": true], evaluatedAt: .now, ttlSec: 3600), fetchedAt: .now)
+        #expect(screen.mode == .rollingOut) // waits for a screen to appear
+        await screen.load()
+        #expect(screen.mode == .notAsked && screen.showsSwitches)
+    }
+
+    @Test func afterTheFlipTodayAsksOnceForAnAlreadySyncedAccount() async {
+        let (state, flags) = flagged(MockNotifier())
+        let push = PushRegistrar(env: state.env)
+        let sync = SyncService(env: state.env)
+        let today = TodayViewModel(state: state, sync: sync,
+                                   coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
+                                                                clock: state.env.clock),
+                                   push: push, apiStatus: APIStatus())
+        push.syncSucceeded()
+        #expect(!today.showsPushPrompt) // not rolled out yet
+        flags.apply(RemoteConfig(flags: ["push.enabled": true], evaluatedAt: .now, ttlSec: 3600), fetchedAt: .now)
+        flags.applyPending()
+        #expect(today.showsPushPrompt)
+        today.dismissPushPrompt()
+        #expect(!today.showsPushPrompt)
+    }
+
     @Test func hhmmConversions() {
         #expect(NotificationSettingsViewModel.string(NotificationSettingsViewModel.date("06:05")) == "06:05")
         #expect(NotificationSettingsViewModel.string(NotificationSettingsViewModel.date("23:59")) == "23:59")
