@@ -112,6 +112,9 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
     case pushEnabled = "push.enabled"
     // TODO(physiology.card): reserved; no physiology card yet.
     case physiologyCard = "physiology.card"
+    /// Sync bodies go up gzipped. Off until the platform takes `Content-Encoding: gzip` and
+    /// turns this on (`docs/API_REQUESTS.md`); a refusal falls back to plain JSON.
+    case syncGzip = "sync.gzip"
 
     var id: String { rawValue }
 
@@ -119,7 +122,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
     var compiledDefault: Bool {
         switch self {
         case .trainEnabled, .sleepPlanner: return true
-        case .todayRedesign, .coachEnabled, .pushEnabled, .physiologyCard: return false
+        case .todayRedesign, .coachEnabled, .pushEnabled, .physiologyCard, .syncGzip: return false
         }
     }
 }

@@ -45,6 +45,46 @@ invent them; these are the stand-ins until the platform serves them.
    `RangeBar` can show them against a personal range like HRV and resting HR.
    `DailyScore` already has today's values.
 
+## Sync and performance (open, 2026-10-21)
+
+From `CLAUDE_FOLLOWUP_SYNC_PERFORMANCE.md` §5. The app side of each is built and waits
+for the platform; nothing here is sent before the platform says it takes it.
+
+1. **`Content-Encoding: gzip` on `POST /v1/sync`.** A page of 10 000 samples is ~2 MB of
+   JSON that repeats `"type"`, `"unit"`, `"source"` in every record; gzip makes it about
+   a tenth (measured in `SyncGzipTests`: more than 8×).
+   - **Proposal:** ingest accepts `Content-Encoding: gzip` (and still plain JSON), applies
+     the 32 MiB limit to the decompressed body, and answers `415` for an encoding it
+     doesn't take.
+   - **How the app learns it:** the flag `sync.gzip` in `GET /v1/config` (flags are open
+     keys; the app's compiled default is off). The app gzips while it's on and falls back
+     to plain JSON for the rest of a sync on a `400` or `415`.
+2. **HealthKit UUIDs, so deletions can reach the platform.** Samples and sleep segments go
+   up without the HealthKit UUID (workouts already use it as `id`), so a record deleted in
+   Apple Health, or rewritten by a watch app, stays on the platform. The app now collects
+   the anchored reads' `deletedObjects` per account (bounded) and keeps them for this.
+   - **Proposal:** `Sample.id` and `SleepSegment.id` (uuid?, the HealthKit sample's UUID;
+     records without one keep today's uniqueness), and on `SyncRequest`
+     `deleted: [{"kind": "sample" | "sleep" | "workout", "id": uuid}]`. The platform
+     removes what it has under those ids (unknown ids are fine, counted in
+     `ignored.*.unknown_id`) and queues the days for rescoring.
+3. **Pre-aggregated high-volume samples.** An Apple Watch writes steps and active energy
+   in tiny samples (tens of thousands a day). Scoring takes steps from one source per hour
+   and sums energy per day (`SCORING.md`), so per-source hourly sums carry the same
+   information at a fraction of the size.
+   - **Proposal:** `Sample.agg` (`"sum"`) and `Sample.bucket` (`"PT1H"`), with `start` /
+     `end` the hour, `value` the hour's sum for that `source`. The app re-reads the last
+     48 hours on each sync (`HKStatisticsCollectionQuery`, `.separateBySource`), so a
+     bucket's value grows: the platform keeps the latest value per `(type, start, source)`.
+   - **Question for scoring:** are 1-minute heart-rate averages outside workouts good
+     enough for TRIMP? If yes, the same shape with `agg: "avg"`, `bucket: "PT1M"`.
+     Please decide and document it in `SCORING.md`; until then the app sends raw samples.
+4. **The in-between states on Today** (import card, pending gauge, watch-sync hint) need
+   nothing new: `GET /v1/me/sync` (`today.state`, `pending_days`, `expected_within_sec`,
+   `latest`) and HealthKit's own counts are enough. If a reinstalled phone should show
+   what the platform already holds per category, `SyncStatus.counts` (records per
+   `SourceKind`) would do; not requested yet.
+
 ## Universal links: the AASA (open, 2026-10-20)
 
 1. **`applinks` for the app's paths.** `https://ryftapp.de/.well-known/apple-app-site-association`
@@ -57,6 +97,7 @@ invent them; these are the stand-ins until the platform serves them.
    - `/train/exercises/*`
    - `/train/plan/*`
    - `/train/history`
+   - `/invite/*` (`ryft://invite/<code>` fills in the invite step; added 2026-10-21)
 
    **App ID:** `M77SKHKG63.dev.timkrebs.ryft` (team `M77SKHKG63`, bundle
    `dev.timkrebs.ryft`).

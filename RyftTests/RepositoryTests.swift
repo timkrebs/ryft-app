@@ -275,3 +275,61 @@ struct LegacyCacheMigrationTests {
         #expect(repo.user() == nil)
     }
 }
+
+@Suite("Repository: invalidation per kind")
+@MainActor
+struct RepositoryInvalidationTests {
+    @Test func aTrendsWriteKeepsTheDecodedDays() {
+        let env = AppEnvironment.test()
+        let repo = Repository(env: env)
+        let key = DayFormat.string(from: env.clock.now())
+        repo.store(detail: MockData.todayDetail.with(day: key))
+        _ = repo.day(key)
+        let decoded = repo.decodes
+        let days = repo.daysRevision
+
+        repo.store(trend: MockData.trend(.readiness, range: .week), metric: .readiness, range: .week)
+
+        _ = repo.day(key)
+        #expect(repo.decodes == decoded) // the day wasn't decoded again
+        #expect(repo.daysRevision == days) // and a view showing only days isn't re-rendered
+        #expect(repo.trendsRevision > 0)
+    }
+
+    @Test func aDayWriteDecodesThatKindAgain() {
+        let env = AppEnvironment.test()
+        let repo = Repository(env: env)
+        let key = DayFormat.string(from: env.clock.now())
+        repo.store(detail: MockData.todayDetail.with(day: key))
+        _ = repo.day(key)
+        _ = repo.user()
+        let decoded = repo.decodes
+
+        repo.store(scores: [DailyScore(day: key, strain: 3)])
+        _ = repo.day(key)
+        _ = repo.user()
+
+        #expect(repo.decodes == decoded + 1) // the day again, not the user
+    }
+
+    @Test func invalidatingForgetsEveryKind() {
+        let env = AppEnvironment.test()
+        let repo = Repository(env: env)
+        repo.store(user: MockData.user)
+        _ = repo.user()
+        let before = repo.revision
+        repo.invalidate()
+        #expect(repo.revision == before + Repository.Kind.allCases.count)
+        let decoded = repo.decodes
+        _ = repo.user()
+        #expect(repo.decodes == decoded + 1)
+    }
+}
+
+private extension DayDetail {
+    func with(day: String) -> DayDetail {
+        var d = self
+        d.score = DailyScore(day: day, readiness: score.readiness, strain: score.strain)
+        return d
+    }
+}

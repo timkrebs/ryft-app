@@ -1,5 +1,37 @@
 # Status — 2026-10-21
 
+## Performance: launch, read models, signposts, gzip (sync brief §3)
+
+- **Signposts** for every sync stage (read, map, encode, gzip, upload, score-wait,
+  refresh) and for the launch (`App.init` → the first display refresh after Today's
+  first frame was committed, tagged with whether cached data was there). Instruments → Points of Interest, or
+  `log show --signpost --predicate 'subsystem == "dev.timkrebs.ryft"'`.
+- **Launch:** Today renders from SwiftData before any request; flags, push, Train and the
+  onboarding re-check wait for the first frame of a screen that stays (tabs, welcome,
+  onboarding; `LaunchSignpost.afterFirstFrame()`), then run at utility priority,
+  concurrently, below the sync. The sync and bootstrap's gate check don't wait for it.
+- **Upload bytes:** `SyncEngineState.bytesUploaded` counts the wire (gzipped when it
+  was); the per-stream bytes count the JSON, for page sizing and the backlog estimate.
+- **Read models:** a write used to drop every decoded value and re-render every reader.
+  Now each kind (days, trends, insights, user, sleep ranges, workouts) has its own
+  revision and memo: a trends or insights refresh during a sync no longer re-decodes the
+  90 days or the day details (`Repository.decodes`, tested).
+- **gzip** behind `sync.gzip` (off): the encoder and the fallback are in; the platform
+  request is `docs/API_REQUESTS.md` → Sync and performance §1. A 5 000-sample page
+  shrinks more than 8×.
+- **Hourly buckets:** not built; waiting for the platform's answer (§3 of the requests).
+
+**Measured in the simulator** (iPhone 18 Pro simulator on this Mac, Debug, demo mode, no
+cached data; indicative only): `launch` interval 995 ms on the first launch after
+installing, then 543, 542 and 535 ms. (Ended at `onAppear`, the same launches measured
+684, 328 and 320 ms: about 210 ms of Today's rendering weren't counted.)
+**Not measured yet: everything on your iPhone.** Please, on a Release-like build:
+1. Instruments → Time Profiler + Points of Interest, during the first import and while
+   scrolling Today during a sync: main-thread time and the `upload` / `encode` intervals.
+2. Cold launch with a warm cache (the `launch` interval, "cached data"); target < 400 ms.
+3. The first import's duration and bytes (`SyncEngineState.bytesUploaded`, in Sync details
+   once that screen is in).
+
 ## Scoring state from the server (sync brief §2, finding 8)
 
 - **No more guessing with the phone's clock.** `isScored(_:since:)` compared the

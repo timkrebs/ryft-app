@@ -10,6 +10,7 @@
 // is small. Anchors are persisted per type after each successful upload.
 import Foundation
 import HealthKit
+import os
 
 struct HealthDelta {
     var samples: [Sample] = []
@@ -136,6 +137,8 @@ final class HealthKitManager {
             predicates: [.quantitySample(type: spec.hkType, predicate: predicate)], anchor: anchor, limit: limit)
         let result = try await desc.result(for: store)
         MainThread.assertOff("Mapping \(spec.type.rawValue)")
+        let mapping = Signposts.sync.beginInterval("map", id: Signposts.sync.makeSignpostID())
+        defer { Signposts.sync.endInterval("map", mapping) }
         let items = result.addedSamples.map { s in
             Sample(type: spec.type, start: s.startDate, end: s.endDate,
                    value: s.quantity.doubleValue(for: spec.unit) * spec.scale,
@@ -150,6 +153,8 @@ final class HealthKitManager {
             predicates: [.categorySample(type: sleepType, predicate: predicate)], anchor: anchor, limit: limit)
         let result = try await desc.result(for: store)
         MainThread.assertOff("Mapping sleep")
+        let mapping = Signposts.sync.beginInterval("map", id: Signposts.sync.makeSignpostID())
+        defer { Signposts.sync.endInterval("map", mapping) }
         let items = result.addedSamples.compactMap { s -> SleepSegment? in
             guard let stage = Self.sleepStage(s.value) else { return nil }
             return SleepSegment(start: s.startDate, end: s.endDate, stage: stage, source: Self.sourceName(s),
@@ -163,6 +168,8 @@ final class HealthKitManager {
         let desc = HKAnchoredObjectQueryDescriptor(predicates: [.workout(predicate)], anchor: anchor, limit: limit)
         let result = try await desc.result(for: store)
         MainThread.assertOff("Mapping workouts")
+        let mapping = Signposts.sync.beginInterval("map", id: Signposts.sync.makeSignpostID())
+        defer { Signposts.sync.endInterval("map", mapping) }
         let items = result.addedSamples.map { Self.map(workout: $0) }
         return Page(items: items, anchor: result.newAnchor, more: result.addedSamples.count >= limit,
                     deleted: result.deletedObjects.map(\.uuid))

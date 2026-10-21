@@ -10,6 +10,7 @@
 // Every request carries `X-RYFT-Device-ID`; `X-RYFT-Gate` on any response (a gate
 // in warn mode) is reported like a refusal's code.
 import Foundation
+import zlib
 
 enum APIError: LocalizedError {
     case notConfigured
@@ -213,9 +214,11 @@ final class APIClient: RyftDataSource {
 
     // MARK: endpoints
 
-    /// `POST /v1/sync` with a body `SyncEngine` encoded off the main actor.
-    func sync(encoded body: Data) async throws -> SyncResponse {
-        let data = try await exchange("POST", path: "/v1/sync", encodedBody: body, base: settings.ingestURL).data
+    /// `POST /v1/sync` with a body `SyncEngine` encoded off the main actor (and gzipped,
+    /// `contentEncoding: "gzip"`, when the platform takes it).
+    func sync(encoded body: Data, contentEncoding: String?) async throws -> SyncResponse {
+        let data = try await exchange("POST", path: "/v1/sync", encodedBody: body, contentEncoding: contentEncoding,
+                                      base: settings.ingestURL).data
         return try Self.jsonDecoder.decode(SyncResponse.self, from: data)
     }
 
@@ -292,7 +295,7 @@ final class APIClient: RyftDataSource {
     }
 
     /// The request with an already encoded JSON body (or none).
-    func exchange(_ method: String, path: String, encodedBody: Data?, base: URL? = nil,
+    func exchange(_ method: String, path: String, encodedBody: Data?, contentEncoding: String? = nil, base: URL? = nil,
                   accepting: Set<Int> = [],
                   unavailableRetries: Int = APIClient.maxUnavailableRetries) async throws -> (status: Int, data: Data) {
         guard let root = base ?? baseURL ?? settings.apiURL, root.host != nil,
@@ -313,6 +316,7 @@ final class APIClient: RyftDataSource {
         req.setValue(settings.deviceId.uuidString.lowercased(), forHTTPHeaderField: "X-RYFT-Device-ID")
         if let encodedBody {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue(contentEncoding, forHTTPHeaderField: "Content-Encoding")
             req.httpBody = encodedBody
         }
         let tokens = await tokenProvider()
@@ -402,5 +406,57 @@ final class APIClient: RyftDataSource {
 
     static func dayString(_ d: Date) -> String {
         DayFormat.string(from: d)
+    }
+}
+
+/// gzip (RFC 1952) for upload bodies, `Content-Encoding: gzip`: a sync page's JSON repeats
+/// the same keys and source names in every record and shrinks about tenfold.
+enum Gzip {
+    enum Failure: Error, Equatable { case zlib(Int32) }
+
+    static func compress(_ data: Data) throws -> Data {
+        var stream = z_stream()
+        // 15 + 16: a gzip header and trailer instead of zlib's.
+        var status = deflateInit2_(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY,
+                                   ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+        guard status == Z_OK else { throw Failure.zlib(status) }
+        defer { deflateEnd(&stream) }
+        var output = Data(count: Int(deflateBound(&stream, uLong(data.count))))
+        try data.withUnsafeBytes { (input: UnsafeRawBufferPointer) in
+            try output.withUnsafeMutableBytes { (out: UnsafeMutableRawBufferPointer) in
+                stream.next_in = UnsafeMutablePointer(mutating: input.bindMemory(to: Bytef.self).baseAddress)
+                stream.avail_in = uInt(input.count)
+                stream.next_out = out.bindMemory(to: Bytef.self).baseAddress
+                stream.avail_out = uInt(out.count)
+                status = deflate(&stream, Z_FINISH)
+                guard status == Z_STREAM_END else { throw Failure.zlib(status) }
+            }
+        }
+        output.count = Int(stream.total_out)
+        return output
+    }
+
+    static func decompress(_ data: Data) throws -> Data {
+        var stream = z_stream()
+        // 15 + 32: gzip or zlib, whichever the header says.
+        var status = inflateInit2_(&stream, 15 + 32, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+        guard status == Z_OK else { throw Failure.zlib(status) }
+        defer { inflateEnd(&stream) }
+        var output = Data()
+        var chunk = [UInt8](repeating: 0, count: 64 * 1024)
+        try data.withUnsafeBytes { (input: UnsafeRawBufferPointer) in
+            stream.next_in = UnsafeMutablePointer(mutating: input.bindMemory(to: Bytef.self).baseAddress)
+            stream.avail_in = uInt(input.count)
+            repeat {
+                try chunk.withUnsafeMutableBufferPointer { out in
+                    stream.next_out = out.baseAddress
+                    stream.avail_out = uInt(out.count)
+                    status = inflate(&stream, Z_NO_FLUSH)
+                    guard status == Z_OK || status == Z_STREAM_END else { throw Failure.zlib(status) }
+                    output.append(out.baseAddress!, count: out.count - Int(stream.avail_out))
+                }
+            } while status != Z_STREAM_END
+        }
+        return output
     }
 }

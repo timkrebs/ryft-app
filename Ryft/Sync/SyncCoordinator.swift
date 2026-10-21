@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// The stages of one sync, each a seam so the coordinator can be tested on the
 /// `TestClock` with fakes. `LiveSyncSteps` runs them against HealthKit, the
@@ -302,6 +303,8 @@ actor SyncCoordinator {
             outcome.touched = touched
             try Task.checkCancellation()
             await steps.report(.refreshing)
+            let refresh = Signposts.sync.beginInterval("refresh", id: Signposts.sync.makeSignpostID())
+            defer { Signposts.sync.endInterval("refresh", refresh) }
             try await steps.refreshDays(touched)
             // Trends and insights depend on the days, not on each other.
             try await withThrowingTaskGroup(of: Void.self) { group in
@@ -345,6 +348,9 @@ actor SyncCoordinator {
     private static func awaitScoring(_ days: [String], _ steps: SyncSteps, _ clock: AppClock,
                                      _ scoring: ScoringSignal) async throws -> Int {
         await scoring.begin(Set(days))
+        let signpost = Signposts.sync.beginInterval("score-wait", id: Signposts.sync.makeSignpostID(),
+                                                    "\(days.count) days")
+        defer { Signposts.sync.endInterval("score-wait", signpost) }
         let expected = await steps.expectedScoringSeconds ?? defaultExpectedScoring
         var delay = max(minimumPollDelay, .seconds(expected))
         let deadline = clock.now().addingTimeInterval(maximumScoringWait.timeInterval)

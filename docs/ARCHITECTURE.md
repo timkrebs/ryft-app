@@ -182,6 +182,12 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
 **Migration.** `LegacyCacheMigration` imports the old `ResponseCache` JSON files
 (Caches/ryft-responses) once on first launch, then deletes them. `ResponseCache` is gone.
 
+**Invalidation per kind.** A write invalidates only its kind (days, trends, insights,
+user, sleep ranges, workouts): that kind's decoded values are dropped and its own
+observed revision bumps. A trends write neither re-decodes a `DayDetail` nor re-renders a
+view that only reads days. `Repository.decodes` counts the JSON decodes behind the memo
+(`RepositoryInvalidationTests`).
+
 **Memory.** Every fetch has a descriptor with a predicate and `fetchLimit`: 1 for lookups,
 `Repository.maxHistoryRows` (400) for history, 50 insights. There are no full-table loads.
 
@@ -219,6 +225,14 @@ graph of `await`s and a `TaskGroup`:
     current stream, per-stream records, bytes and date range, the last error with its
     request ID. Wiped on sign-out with the anchors.
   - The gate (`SyncService.gate`) is asked before every page.
+  - **gzip** (`sync.gzip`, off until the platform takes it): the encoded page is gzipped
+    off the main actor; a `400` / `415` sends it plain and keeps the run plain.
+- **Signposts** (`Signposts.sync`, `Signposts.launch`): intervals for read, map, encode,
+  gzip, upload, score-wait and refresh, and the launch from `App.init` to the first
+  display refresh after Today's first frame was committed (with or without cached data).
+  The same signal for any screen but the splash is the launch barrier optional startup
+  work (flags, push, Train, the gate re-check) waits behind. Instruments shows them under Points of Interest;
+  `log show --signpost --predicate 'subsystem == "dev.timkrebs.ryft"'` lists them too.
 - **Scoring, by the platform's word** (no clock comparison): after an upload the
   pipeline waits `SyncResponse.scoring.expected_within_sec`, then asks `GET /v1/me/sync`
   (while the next wait runs) until `pending_days` no longer holds the touched days,

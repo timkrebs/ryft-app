@@ -4,8 +4,9 @@ import Foundation
 /// (`RyftDataSource`), Train (`TrainDataSource`), and the calls services make.
 /// `APIClient` is the live implementation, `MockPlatformAPI` the in-memory one.
 protocol PlatformAPI: RyftDataSource, TrainDataSource {
-    /// `POST /v1/sync`; the body is a `SyncRequest`, encoded by `SyncEngine` off the main actor.
-    func sync(encoded body: Data) async throws -> SyncResponse
+    /// `POST /v1/sync`; the body is a `SyncRequest`, encoded by `SyncEngine` off the main actor,
+    /// gzipped when `contentEncoding` is `"gzip"`.
+    func sync(encoded body: Data, contentEncoding: String?) async throws -> SyncResponse
     /// `POST /v1/me/apple-authorization`, once after Sign in with Apple.
     func postAppleAuthorization(code: String) async throws
     /// `GET /v1/config`: feature flags evaluated for the caller.
@@ -184,14 +185,17 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     /// Runs before each sync answers (tests hold an upload open with it).
     var beforeSync: (@Sendable () async -> Void)?
 
-    func sync(encoded body: Data) async throws -> SyncResponse {
+    func sync(encoded body: Data, contentEncoding: String?) async throws -> SyncResponse {
         let onMain = MainThread.isCurrent
         try enter("sync")
         await beforeSync?()
+        lock.withLock { syncEncodings.append(contentEncoding) }
+        if contentEncoding == "gzip", refusesGzip { throw APIError.http(415, "unsupported content encoding") }
         if enforcesConsent, gate == .consentRequired {
             throw APIError.http(403, "consent required", code: .consentRequired)
         }
-        let req = try APIClient.jsonDecoder.decode(SyncRequest.self, from: body)
+        let json = contentEncoding == "gzip" ? try Gzip.decompress(body) : body
+        let req = try APIClient.jsonDecoder.decode(SyncRequest.self, from: json)
         lock.withLock {
             syncRequests.append(req)
             syncBodySizes.append(body.count)
@@ -203,6 +207,10 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     /// The encoded size of every sync body, in order.
     private(set) var syncBodySizes: [Int] = []
+    /// Every sync's `Content-Encoding`, in order (`nil`: plain JSON).
+    private(set) var syncEncodings: [String?] = []
+    /// A platform that doesn't take gzip yet: `415`.
+    var refusesGzip = false
     /// Syncs called from the main thread (uploads belong off it).
     private(set) var syncsOnMainThread = 0
 
