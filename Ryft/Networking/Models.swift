@@ -8,9 +8,9 @@
 // "–" for anything nil. Unknown response fields are ignored (API.md, v1 rule).
 import Foundation
 
-// MARK: - Sync (write side, unchanged)
+// MARK: - Sync (write side)
 
-enum SampleType: String, Codable, CaseIterable {
+enum SampleType: String, Codable, CaseIterable, Sendable {
     case heartRate = "heart_rate"
     case hrvSDNN = "hrv_sdnn"
     case restingHR = "resting_hr"
@@ -34,6 +34,8 @@ struct Sample: Codable {
     let value: Double
     let unit: String
     let source: String
+    /// The HealthKit source's bundle identifier (`User.sources` shows it).
+    var sourceBundleId: String? = nil
 }
 
 struct SleepSegment: Codable {
@@ -41,6 +43,7 @@ struct SleepSegment: Codable {
     let end: Date
     let stage: SleepStage
     let source: String
+    var sourceBundleId: String? = nil
 }
 
 struct Workout: Codable, Identifiable, Hashable {
@@ -58,29 +61,92 @@ struct Workout: Codable, Identifiable, Hashable {
     var muscularLoad: Double? = nil
     /// The logged Train session this workout belongs to: the Strain list merges both into one row.
     var sessionId: UUID? = nil
+    /// The scoring model that computed `strain` (`GET /v1/model`); `nil` before versions existed.
+    var modelVersion: String? = nil
+    var sourceBundleId: String? = nil
 
     var duration: TimeInterval { end.timeIntervalSince(start) }
 }
 
 struct SyncRequest: Codable {
     let deviceId: UUID
-    let deviceName: String
+    var deviceName: String? = nil
+    /// "1.0.0 (20261021.081500)", kept on the device row for support.
+    var appVersion: String? = nil
+    /// "iOS 27.1".
+    var osVersion: String? = nil
     let samples: [Sample]
     let sleep: [SleepSegment]
     let workouts: [Workout]
 }
 
-struct SyncResponse: Codable {
+struct SyncCounts: Codable, Hashable, Sendable {
+    let samples: Int
+    let sleep: Int
+    let workouts: Int
+}
+
+/// Records not counted as stored, per reason (API.md → `POST /v1/sync`).
+struct IgnoredCounts: Codable, Hashable, Sendable {
+    let duplicate: Int
+    let outsideWindow: Int
+    let unknownType: Int
+
+    static let none = IgnoredCounts(duplicate: 0, outsideWindow: 0, unknownType: 0)
+}
+
+struct SyncIgnored: Codable, Hashable, Sendable {
+    let samples: IgnoredCounts
+    let sleep: IgnoredCounts
+    let workouts: IgnoredCounts
+
+    static let none = SyncIgnored(samples: .none, sleep: .none, workouts: .none)
+}
+
+/// The days queued for rescoring and how long scoring has recently taken (p95).
+struct SyncScoring: Codable, Hashable, Sendable {
+    let queuedDays: [String]
+    let expectedWithinSec: Int
+}
+
+struct SyncResponse: Codable, Sendable {
+    /// Records stored new or changed (identical re-sends are in `ignored`).
     let samples: Int
     let sleep: Int
     let workouts: Int
     let daysTouched: [String]
+    let accepted: SyncCounts
+    let ignored: SyncIgnored
+    let scoring: SyncScoring
+
+    init(samples: Int, sleep: Int, workouts: Int, daysTouched: [String], accepted: SyncCounts? = nil,
+         ignored: SyncIgnored = .none, scoring: SyncScoring? = nil) {
+        self.samples = samples
+        self.sleep = sleep
+        self.workouts = workouts
+        self.daysTouched = daysTouched
+        self.accepted = accepted ?? SyncCounts(samples: samples, sleep: sleep, workouts: workouts)
+        self.ignored = ignored
+        // API.md: 30 s until the platform has measured scoring.
+        self.scoring = scoring ?? SyncScoring(queuedDays: daysTouched, expectedWithinSec: 30)
+    }
 }
 
 // MARK: - Daily score
 
 enum ReadinessState: String, Codable, CaseIterable {
     case balanced, strained, depleted, calibrating
+}
+
+/// Whether a day's numbers are final (`DailyScore.scoring_state`, `SyncStatus.today.state`).
+enum ScoringState: String, Codable, CaseIterable, Sendable {
+    case scored
+    /// Data newer than the score: scoring is queued or running.
+    case pending
+    /// Today, no night uploaded yet.
+    case waitingForSleep = "waiting_for_sleep"
+    /// Today, no new data for over 20 h.
+    case stale
 }
 
 struct DailyScore: Codable, Identifiable, Hashable {
@@ -123,6 +189,10 @@ struct DailyScore: Codable, Identifiable, Hashable {
     var calibrating: Bool
     /// `0001-01-01T00:00:00Z` for a day that hasn't been scored yet.
     var computedAt: Date?
+    /// The scoring model that computed the row (`GET /v1/model`); `nil` before versions existed.
+    var modelVersion: String?
+    /// Always sent; `nil` only in a cached copy from before the field existed.
+    var scoringState: ScoringState?
 
     var id: String { day }
     var date: Date { DayFormat.date(from: day) ?? .now }
@@ -138,8 +208,11 @@ struct DailyScore: Codable, Identifiable, Hashable {
          rhr: Double? = nil, respRate: Double? = nil, spo2: Double? = nil, hrvBaselineMs: Double? = nil,
          rhrBaseline: Double? = nil, baselineDays: Int = 0, calibrating: Bool = false, computedAt: Date? = nil,
          sleepNeedBaseMin: Int? = nil, sleepNeedStrainMin: Int? = nil, sleepNeedDebtMin: Int? = nil,
-         sleepNeedNapMin: Int? = nil, napMin: Int? = nil, sleepQuality: Int? = nil, sleepConsistency: Int? = nil) {
+         sleepNeedNapMin: Int? = nil, napMin: Int? = nil, sleepQuality: Int? = nil, sleepConsistency: Int? = nil,
+         modelVersion: String? = nil, scoringState: ScoringState? = nil) {
         self.day = day
+        self.modelVersion = modelVersion
+        self.scoringState = scoringState
         self.readiness = readiness
         self.state = state
         self.recovery = recovery
@@ -174,7 +247,7 @@ struct DailyScore: Codable, Identifiable, Hashable {
         case day, readiness, state, recovery, strain, steps, activeKcal, strengthMin, volumeKg, sleepPerformance, sleepNeedMin,
              sleepActualMin, sleepDebtMin, hrvMs, rhr, respRate, spo2, hrvBaselineMs, rhrBaseline,
              baselineDays, calibrating, computedAt, sleepNeedBaseMin, sleepNeedStrainMin, sleepNeedDebtMin,
-             sleepNeedNapMin, napMin, sleepQuality, sleepConsistency
+             sleepNeedNapMin, napMin, sleepQuality, sleepConsistency, modelVersion, scoringState
     }
 
     init(from decoder: Decoder) throws {
@@ -208,6 +281,8 @@ struct DailyScore: Codable, Identifiable, Hashable {
         napMin = try c.decodeLenientInt(.napMin)
         sleepQuality = try c.decodeLenientInt(.sleepQuality)
         sleepConsistency = try c.decodeLenientInt(.sleepConsistency)
+        modelVersion = try c.decodeIfPresent(String.self, forKey: .modelVersion)
+        scoringState = try? c.decodeIfPresent(ScoringState.self, forKey: .scoringState)
     }
 
     /// The server's state. `null` (an older cached payload) is read like the
@@ -805,10 +880,30 @@ struct User: Codable, Hashable {
     var sleepBaseLearnedMin: Int? = nil
     var sleepBaseLearnedAt: Date? = nil
     var notifications: NotificationPrefs = .allOn
+    /// Redeemed an invite code (or existed before the gate). Whether the gate is on at
+    /// all is `GET /v1/me/sync` → `gate`, so `false` alone doesn't mean "ask for a code".
+    var betaAccess: Bool = true
+    /// The latest consent that wasn't withdrawn; syncing needs its `policyVersion` to be
+    /// `RemoteConfig.privacyPolicyVersion`.
+    var consent: Consent? = nil
+    var birthYear: Int? = nil
+    var maxHrSource: MaxHRSource = .default
+    /// Apps and devices that sent data in the last 30 days, newest first.
+    var sources: [UserSource] = []
+    /// This account has no data and this phone synced another account recently.
+    var accountHint: AccountHint? = nil
 
     init(id: UUID, name: String, email: String? = nil, provider: String? = nil, tz: String, maxHr: Int,
          sleepBaseMin: Int, sleepBaseSource: SleepBaseSource = .default, sleepBaseLearnedMin: Int? = nil,
-         sleepBaseLearnedAt: Date? = nil, notifications: NotificationPrefs = .allOn) {
+         sleepBaseLearnedAt: Date? = nil, notifications: NotificationPrefs = .allOn, betaAccess: Bool = true,
+         consent: Consent? = nil, birthYear: Int? = nil, maxHrSource: MaxHRSource = .default,
+         sources: [UserSource] = [], accountHint: AccountHint? = nil) {
+        self.betaAccess = betaAccess
+        self.consent = consent
+        self.birthYear = birthYear
+        self.maxHrSource = maxHrSource
+        self.sources = sources
+        self.accountHint = accountHint
         self.id = id
         self.name = name
         self.email = email
@@ -836,14 +931,166 @@ struct User: Codable, Hashable {
         sleepBaseLearnedMin = try c.decodeIfPresent(Int.self, forKey: .sleepBaseLearnedMin)
         sleepBaseLearnedAt = try c.decodeIfPresent(Date.self, forKey: .sleepBaseLearnedAt)
         notifications = try c.decodeIfPresent(NotificationPrefs.self, forKey: .notifications) ?? .allOn
+        betaAccess = try c.decodeIfPresent(Bool.self, forKey: .betaAccess) ?? true
+        consent = try c.decodeIfPresent(Consent.self, forKey: .consent)
+        birthYear = try c.decodeIfPresent(Int.self, forKey: .birthYear)
+        maxHrSource = (try? c.decodeIfPresent(MaxHRSource.self, forKey: .maxHrSource)) ?? .default
+        sources = try c.decodeIfPresent([UserSource].self, forKey: .sources) ?? []
+        accountHint = try? c.decodeIfPresent(AccountHint.self, forKey: .accountHint)
     }
+
+    /// Consent to the policy in force, or no policy version known yet (no config).
+    func hasConsented(to policyVersion: String?) -> Bool {
+        guard let policyVersion else { return consent != nil }
+        return consent?.policyVersion == policyVersion
+    }
+}
+
+enum MaxHRSource: String, Codable, Hashable, Sendable {
+    /// 190, nothing known.
+    case `default`
+    /// 208 − 0.7 · age (Tanaka), from `birth_year`.
+    case estimated
+    case manual
+}
+
+/// What a source provides (`UserSource.kinds`); `hr` covers heart rate, resting HR and VO₂max.
+enum SourceKind: String, Codable, CaseIterable, Hashable, Sendable {
+    case energy, hr, hrv, resp, sleep, spo2, steps, workout
+}
+
+struct Consent: Codable, Hashable, Sendable {
+    let policyVersion: String
+    let grantedAt: Date
+}
+
+struct UserSource: Codable, Hashable, Sendable {
+    let name: String
+    let bundleId: String?
+    let kinds: [SourceKind]
+    let lastSeen: Date
+
+    init(name: String, bundleId: String?, kinds: [SourceKind], lastSeen: Date) {
+        self.name = name
+        self.bundleId = bundleId
+        self.kinds = kinds
+        self.lastSeen = lastSeen
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        bundleId = try c.decodeIfPresent(String.self, forKey: .bundleId)
+        kinds = try c.decodeLenientList(SourceKind.self, .kinds)
+        lastSeen = try c.decode(Date.self, forKey: .lastSeen)
+    }
+}
+
+/// `GET /v1/me` → `account_hint`: probably the same person, signed in another way.
+struct AccountHint: Codable, Hashable, Sendable {
+    /// `other_account_on_device` (the only value so far).
+    let kind: String
+    /// `apple`, `email`.
+    let otherProvider: String?
+    let otherLastSync: Date
 }
 
 struct UserPatch: Codable {   // PATCH /v1/me, every field optional
     var tz: String? = nil
     var maxHr: Int? = nil
+    /// `false` goes back to the estimate (or 190 without a birth year).
+    var maxHrManual: Bool? = nil
+    var birthYear: Int? = nil
     var sleepBaseMin: Int? = nil
     var sleepBaseManual: Bool? = nil
+}
+
+struct ConsentPost: Encodable {   // POST /v1/me/consent
+    let policyVersion: String
+    var appVersion: String? = nil
+}
+
+struct InvitePost: Encodable {   // POST /v1/me/invite
+    let code: String
+}
+
+// MARK: accounts and sync state (API.md → GET /v1/me/sync)
+
+struct TodayState: Codable, Hashable, Sendable {
+    let day: String
+    let state: ScoringState
+    let scoredAt: Date?
+    let modelVersion: String
+}
+
+/// `GET /v1/me/sync`: what the server has, and what scoring is doing with it.
+struct SyncStatus: Codable, Hashable, Sendable {
+    /// The gate between this account and its scores, also while it only warns. `nil`: none.
+    let gate: APIErrorCode?
+    let lastSyncAt: Date?
+    let lastSyncDevice: String?
+    /// The newest record per kind (`SourceKind` raw values); missing keys never arrived.
+    let latest: [String: Date]
+    let today: TodayState
+    /// Days a sync queued that scoring hasn't finished, oldest first.
+    let pendingDays: [String]
+    let expectedWithinSec: Int
+    let resyncRequestedAt: Date?
+
+    init(gate: APIErrorCode?, lastSyncAt: Date?, lastSyncDevice: String?, latest: [String: Date], today: TodayState,
+         pendingDays: [String], expectedWithinSec: Int, resyncRequestedAt: Date?) {
+        self.gate = gate
+        self.lastSyncAt = lastSyncAt
+        self.lastSyncDevice = lastSyncDevice
+        self.latest = latest
+        self.today = today
+        self.pendingDays = pendingDays
+        self.expectedWithinSec = expectedWithinSec
+        self.resyncRequestedAt = resyncRequestedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // Closed enum, but a code this build doesn't know is no gate it could show.
+        gate = try? c.decodeIfPresent(APIErrorCode.self, forKey: .gate)
+        lastSyncAt = try c.decodeIfPresent(Date.self, forKey: .lastSyncAt)
+        lastSyncDevice = try c.decodeIfPresent(String.self, forKey: .lastSyncDevice)
+        latest = try c.decodeIfPresent([String: Date].self, forKey: .latest) ?? [:]
+        today = try c.decode(TodayState.self, forKey: .today)
+        pendingDays = try c.decodeIfPresent([String].self, forKey: .pendingDays) ?? []
+        expectedWithinSec = try c.decode(Int.self, forKey: .expectedWithinSec)
+        resyncRequestedAt = try c.decodeIfPresent(Date.self, forKey: .resyncRequestedAt)
+    }
+}
+
+// MARK: scoring model and feedback (API.md → GET /v1/model, POST /v1/feedback)
+
+struct ModelChange: Codable, Hashable {
+    let version: String
+    let date: String
+    let summary: String
+    let summaryEn: String
+    let summaryDe: String
+    let affects: [String]
+}
+
+struct ModelInfo: Codable, Hashable {   // GET /v1/model
+    let current: String
+    let changelog: [ModelChange]
+}
+
+enum FeedbackCategory: String, Codable, CaseIterable { case bug, idea, data, other }
+
+struct FeedbackPost: Encodable {   // POST /v1/feedback
+    let message: String
+    var category: FeedbackCategory? = nil
+    var appVersion: String? = nil
+    var build: String? = nil
+    var deviceModel: String? = nil
+    var osVersion: String? = nil
+    var requestIds: [String] = []
+    /// The server takes any JSON object up to 32 KiB.
+    var diagnostics: [String: String]? = nil
 }
 
 // MARK: journal and behavior impact (API.md → Journal)
@@ -976,6 +1223,10 @@ struct RemoteConfig: Codable, Hashable {   // GET /v1/config
     let flags: [String: Bool]     // open keys
     let evaluatedAt: Date
     let ttlSec: Int
+    /// The privacy policy in force; consent is given to this version. Always sent;
+    /// `nil` only in a config cached before the Beta.
+    var privacyPolicyVersion: String? = nil
+    var privacyPolicyUrl: String? = nil
 }
 
 enum NotificationCategory: String, Codable, CaseIterable, Identifiable {
@@ -1033,11 +1284,35 @@ struct RecomputeRequest: Codable {
     let to: String
 }
 
+/// What the client should do about an error (API.md → Errors). Also the `X-RYFT-Gate`
+/// header's values and `SyncStatus.gate`.
+enum APIErrorCode: String, Codable, CaseIterable, Sendable {
+    /// No beta access: the invite screen, `POST /v1/me/invite`.
+    case inviteRequired = "invite_required"
+    /// Sync without consent to the current policy: the consent screen, `POST /v1/me/consent`.
+    case consentRequired = "consent_required"
+}
+
 /// `{"error": "…"}` bodies.
 struct APIErrorBody: Codable {
     let error: String
+    /// Closed enum; a code this build doesn't know decodes as `nil`.
+    var code: APIErrorCode? = nil
     /// Same as the `X-Request-ID` header; optional because a proxy may answer on its own.
     var requestId: String? = nil
+
+    init(error: String, code: APIErrorCode? = nil, requestId: String? = nil) {
+        self.error = error
+        self.code = code
+        self.requestId = requestId
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        error = try c.decode(String.self, forKey: .error)
+        code = try? c.decodeIfPresent(APIErrorCode.self, forKey: .code)
+        requestId = try c.decodeIfPresent(String.self, forKey: .requestId)
+    }
 }
 
 /// `DELETE /v1/me`.

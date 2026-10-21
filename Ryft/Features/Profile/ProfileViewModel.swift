@@ -10,11 +10,14 @@ final class ProfileViewModel {
     private let sync: SyncService
     private let coordinator: SyncCoordinator
     private let apiStatus: APIStatus
+    private let onboarding: OnboardingCoordinator?
 
-    init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, apiStatus: APIStatus? = nil) {
+    init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, onboarding: OnboardingCoordinator? = nil,
+         apiStatus: APIStatus? = nil) {
         self.state = state
         self.sync = sync
         self.coordinator = coordinator
+        self.onboarding = onboarding
         self.apiStatus = apiStatus ?? .shared
     }
 
@@ -109,6 +112,41 @@ final class ProfileViewModel {
         }
     }
 
+    /// "Estimated from your age (born 1990)", "Set by you", "Default · add your birth year".
+    var maxHRSourceText: String? {
+        guard let u = state.user else { return nil }
+        switch u.maxHrSource {
+        case .estimated:
+            return u.birthYear.map { String(localized: "Estimated from your age (born \(String($0)))") }
+                ?? String(localized: "Estimated from your age")
+        case .manual: return String(localized: "Set by you")
+        case .default: return String(localized: "Default · add your birth year for an estimate")
+        }
+    }
+
+    /// Max HR set by hand: offer the estimate again (or the default without a birth year).
+    var canUseMaxHREstimate: Bool { state.user?.maxHrSource == .manual }
+
+    var birthYear: Int? { state.user?.birthYear }
+
+    /// The years the platform takes: 1920 to this year − 13, newest first.
+    var birthYears: [Int] {
+        Array(stride(from: OnboardingCoordinator.latestBirthYear(now: env.clock.now()), through: 1920, by: -1))
+    }
+
+    /// `PATCH /v1/me {birth_year}`: the estimate follows unless max HR is set by hand.
+    func setBirthYear(_ year: Int) async {
+        await state.updateUser(UserPatch(birthYear: year))
+        applyUser()
+    }
+
+    /// `PATCH /v1/me {max_hr_manual: false}`.
+    func useMaxHREstimate() async {
+        await state.updateUser(UserPatch(maxHrManual: false))
+        applyUser()
+        recomputeStatus = String(localized: "Back to the estimate. Apply & recompute rescores past days with it.")
+    }
+
     /// Set by hand: offer going back (to the learned estimate, or the default without one).
     var canUseLearnedBase: Bool { state.user?.sleepBaseSource == .manual }
     var usesLearnedTitle: String {
@@ -143,6 +181,35 @@ final class ProfileViewModel {
             recomputeStatus = error.localizedDescription
         }
     }
+
+    // MARK: privacy (consent to health-data processing)
+
+    /// Consent to the policy in force (`GET /v1/config`), from `User.consent`.
+    var consentIsCurrent: Bool { state.user?.hasConsented(to: onboarding?.policyVersion) ?? false }
+
+    var consentText: String {
+        guard state.user?.consent != nil else { return String(localized: "Not given") }
+        return consentIsCurrent ? String(localized: "Given") : String(localized: "Policy updated")
+    }
+
+    /// "Agreed on 20 Oct 2026 · policy 2026-10-20".
+    var consentDetail: String? {
+        guard let c = state.user?.consent else {
+            return String(localized: "RYFT doesn't sync or score your health data until you agree.")
+        }
+        return String(localized: "Agreed on \(Fmt.date(c.grantedAt)) · policy \(c.policyVersion)")
+    }
+
+    var withdrawingConsent: Bool { onboarding?.isWorking ?? false }
+    var consentError: String? { onboarding?.errorMessage }
+
+    /// `DELETE /v1/me/consent`: syncing and scoring stop; nothing is deleted.
+    func withdrawConsent() async { await onboarding?.withdrawConsent() }
+
+    /// The consent screen, again.
+    func reviewConsent() { onboarding?.show(.consent) }
+
+    var policyPage: LegalPage { onboarding?.policyPage ?? .privacy }
 
     // MARK: Apple Health
 

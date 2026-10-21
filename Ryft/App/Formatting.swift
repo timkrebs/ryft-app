@@ -80,6 +80,12 @@ enum Fmt {
         return d.formatted(date: .omitted, time: .shortened)
     }
 
+    /// "20 Oct 2026" (the locale's medium date).
+    static func date(_ d: Date?) -> String {
+        guard let d else { return placeholder }
+        return d.formatted(date: .abbreviated, time: .omitted)
+    }
+
     static func distance(meters: Double?) -> String {
         guard let meters, meters > 0 else { return placeholder }
         let m = Measurement(value: meters, unit: UnitLength.meters)

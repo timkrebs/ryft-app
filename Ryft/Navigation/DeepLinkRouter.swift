@@ -11,13 +11,16 @@ final class DeepLinkRouter {
     private let sleep: SleepViewModel
     private let strain: StrainViewModel
     private let insights: InsightsViewModel
+    private let onboarding: OnboardingCoordinator?
     private(set) var pending: AppRoute?
 
-    init(state: AppState, sleep: SleepViewModel, strain: StrainViewModel, insights: InsightsViewModel) {
+    init(state: AppState, sleep: SleepViewModel, strain: StrainViewModel, insights: InsightsViewModel,
+         onboarding: OnboardingCoordinator? = nil) {
         self.state = state
         self.sleep = sleep
         self.strain = strain
         self.insights = insights
+        self.onboarding = onboarding
     }
 
     /// `false` when the URL isn't one of ours.
@@ -87,6 +90,10 @@ final class DeepLinkRouter {
         case .trainPlan(let id):
             strain.requestedRoute = .plan(id)
             state.selectedTab = .strain
+        case .invite(let code):
+            // Filled in for when the invite step shows; with access already, nothing to do.
+            onboarding?.inviteCode = code
+            onboarding?.show(.invite)
         case .authCallback:
             break
         }

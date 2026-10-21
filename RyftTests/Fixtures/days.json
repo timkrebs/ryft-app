@@ -46,7 +46,9 @@
     "sleep_need_nap_min": 0,
     "nap_min": 25,
     "sleep_quality": 91,
-    "sleep_consistency": 81
+    "sleep_consistency": 81,
+    "scoring_state": "scored",
+    "model_version": "2026.10.1"
   },
   {
     "day": "2026-10-19",

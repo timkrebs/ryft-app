@@ -8,7 +8,7 @@ import Testing
 struct DecodingTests {
     @Test func syncResponse() throws {
         let r = try Fixture.decode(SyncResponse.self, "sync_response")
-        #expect(r.samples == 1440)
+        #expect(r.samples == 1380)
         #expect(r.daysTouched == ["2026-10-17", "2026-10-18"])
     }
 

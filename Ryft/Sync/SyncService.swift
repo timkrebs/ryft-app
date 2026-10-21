@@ -26,6 +26,12 @@ final class SyncService {
     private(set) var lastUploaded = 0
     /// Days the last sync queued for rescoring (`days_touched`).
     private(set) var lastDaysTouched: [String] = []
+    /// Uploads wait behind this gate (no consent to the current policy, no beta access)
+    /// until it's passed. Not an error: something the user does (`OnboardingCoordinator`).
+    private(set) var pausedFor: APIErrorCode?
+    /// Asked before every upload: the gate the account is behind, if any (RyftApp wires
+    /// `OnboardingCoordinator.syncGate`). Nothing syncs before consent.
+    @ObservationIgnored var gate: (@MainActor () -> APIErrorCode?)?
     /// Scoring usually finishes within a few seconds of an upload or recompute.
     static let rescoreDelay: Duration = .seconds(3)
 
@@ -77,6 +83,12 @@ final class SyncService {
             advance(to: .offline)
             return []
         }
+        // Behind a gate nothing goes out; the anchors stay, so the pages follow once it's passed.
+        if let gate = gate?() {
+            pausedFor = gate
+            return []
+        }
+        pausedFor = nil
         health.migrateLegacyAnchors()
         advance(to: .reading)
         lastError = nil
@@ -101,6 +113,13 @@ final class SyncService {
                 }
             }
             settings.lastSync = env.clock.now()
+        } catch let error where error.gate != nil {
+            // The platform refused at a gate (consent withdrawn, policy updated, access revoked):
+            // pause, keep the uncommitted page's anchor, and let the gate prompt.
+            pausedFor = error.gate
+            lastDaysTouched = touched.sorted()
+            advance(to: .idle)
+            return lastDaysTouched
         } catch {
             lastError = error.localizedDescription
             lastErrorDetails = error.diagnosticDetails
@@ -122,6 +141,7 @@ final class SyncService {
         advance(to: .uploading)
         progress = "Uploading \(delta.count) records…"
         let req = SyncRequest(deviceId: settings.deviceId, deviceName: UIDevice.current.name,
+                              appVersion: AppInfo.version, osVersion: AppInfo.osVersion,
                               samples: delta.samples, sleep: delta.sleep, workouts: delta.workouts)
         do {
             let resp = try await api.sync(req)

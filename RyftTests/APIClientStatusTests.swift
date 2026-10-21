@@ -294,3 +294,114 @@ extension APIClientStatusTests {
         return (try? JSONSerialization.data(withJSONObject: json)) ?? Data()
     }
 }
+
+/// The Beta gates and the account headers (API.md → Errors, Conventions → Device).
+extension APIClientStatusTests {
+    private func gatedClient(_ status: APIStatus) -> APIClient {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StubURLProtocol.self]
+        let sleeps = self.sleeps
+        return APIClient(session: URLSession(configuration: config), tokens: tokens,
+                         sleep: { sleeps.record($0) }, baseURL: base, status: status)
+    }
+
+    private static func codeBody(_ code: String, requestID: String = "01a15a69-7142-7a8b-aba2-c099a5fcd1e4") -> Data {
+        try! JSONSerialization.data(withJSONObject: ["error": code.replacingOccurrences(of: "_", with: " "),
+                                                     "code": code, "request_id": requestID])
+    }
+
+    @Test func everyRequestCarriesTheDeviceID() async throws {
+        StubURLProtocol.script([.init(status: 200), .init(status: 200)])
+        let c = client()
+        _ = try await get(c)
+        _ = try await c.data("POST", path: "/v1/sync", body: ["a": 1], base: base)
+        let ids = StubURLProtocol.requests.map { $0.value(forHTTPHeaderField: "X-RYFT-Device-ID") }
+        #expect(ids == Array(repeating: Settings.shared.deviceId.uuidString.lowercased(), count: 2))
+    }
+
+    @Test func consentRequiredIsAGateNotASignInProblem() async {
+        let status = await APIStatus()
+        StubURLProtocol.script([.init(status: 403, body: Self.codeBody("consent_required"))])
+        await #expect {
+            try await gatedClient(status).data("POST", path: "/v1/sync", body: ["a": 1], base: base)
+        } throws: { error in
+            let e = error as? APIError
+            return e?.gate == .consentRequired && e?.requestID == "01a15a69-7142-7a8b-aba2-c099a5fcd1e4"
+                && e?.localizedDescription.contains("Log in") == false
+        }
+        #expect(tokens.refreshes == 0 && tokens.rejections == 0) // never a refresh, never a sign-out
+        #expect(await status.gates == [.consentRequired])
+        #expect(await !status.inviteBlocked) // reads keep working
+        #expect(await status.failures.first?.code == "consent_required")
+    }
+
+    @Test func inviteRequiredStopsEverythingButOnboarding() async throws {
+        let status = await APIStatus()
+        StubURLProtocol.script([.init(status: 403, body: Self.codeBody("invite_required")), .init(status: 200)])
+        let c = gatedClient(status)
+        await #expect { try await c.data("GET", path: "/v1/days/2026-10-21", body: Optional<Int>.none, base: base) }
+            throws: { ($0 as? APIError)?.gate == .inviteRequired }
+        #expect(await status.inviteBlocked)
+        // Behind the gate the next read isn't sent at all…
+        await #expect { try await c.data("GET", path: "/v1/insights", body: Optional<Int>.none, base: base) }
+            throws: { ($0 as? APIError)?.gate == .inviteRequired }
+        #expect(StubURLProtocol.requests.count == 1)
+        // …but onboarding's calls are.
+        _ = try await c.data("GET", path: "/v1/me/sync", body: Optional<Int>.none, base: base)
+        #expect(StubURLProtocol.requests.count == 2)
+        await status.resolved(.inviteRequired)
+        #expect(await !status.inviteBlocked)
+        #expect(await status.gates.isEmpty)
+    }
+
+    @Test func aWarnModeHeaderReportsTheGateOnAServedRequest() async throws {
+        let status = await APIStatus()
+        StubURLProtocol.script([.init(status: 200, headers: ["X-RYFT-Gate": "invite_required, consent_required"])])
+        _ = try await gatedClient(status).data("POST", path: "/v1/sync", body: ["a": 1], base: base)
+        #expect(await status.gates == [.inviteRequired, .consentRequired])
+        #expect(await !status.inviteBlocked) // a warning blocks nothing
+    }
+
+    @Test func aForbiddenWithoutCodeIsAPermissionMessage() async {
+        StubURLProtocol.script([.init(status: 403, body: Self.errorBody("built-in plan"))])
+        await #expect {
+            try await get(client())
+        } throws: { error in
+            let e = error as? APIError
+            return e?.status == 403 && e?.gate == nil
+                && e?.localizedDescription == String(localized: "This is built into RYFT and can't be changed.")
+        }
+        #expect(tokens.rejections == 0)
+    }
+
+    @Test func statusMatrixMessages() {
+        func text(_ e: APIError) -> String { e.localizedDescription }
+        let unauthorized = text(.http(401, ""))
+        let invite = text(.http(403, "", code: .inviteRequired))
+        let consent = text(.http(403, "", code: .consentRequired))
+        let forbidden = text(.http(403, ""))
+        // Each status says its own thing; only a 401 asks to log in again.
+        #expect(Set([unauthorized, invite, consent, forbidden]).count == 4)
+        #expect(unauthorized.contains("Log in"))
+        #expect(![invite, consent, forbidden].contains { $0.contains("Log in") })
+        #expect(text(.http(429, "")) != text(.http(503, "")))
+        #expect(APIError.http(403, "", code: .consentRequired).gate == .consentRequired)
+        #expect(APIError.http(409, "", code: .consentRequired).gate == nil) // only a 403 is a gate
+    }
+
+    @Test func detailsCarryStatusCodeAndTheRequestIDAsSent() {
+        let id = "01a15a69-7142-7a8b-aba2-c099a5fcd1e4"
+        let details = APIError.http(403, "", requestID: id, code: .consentRequired).diagnosticDetails
+        #expect(details?.contains("HTTP 403") == true && details?.contains("consent_required") == true)
+        #expect(details?.hasSuffix(id) == true) // exactly as received: support searches for it
+        #expect(APIError.http(500, "").diagnosticDetails == "HTTP 500")
+    }
+
+    @Test func openRoutesBehindTheInviteGate() {
+        #expect(APIClient.isOpenBehindInviteGate("GET", "/v1/me"))
+        #expect(APIClient.isOpenBehindInviteGate("POST", "/v1/me/consent"))
+        #expect(APIClient.isOpenBehindInviteGate("GET", "/v1/config?x=1"))
+        #expect(!APIClient.isOpenBehindInviteGate("PATCH", "/v1/me"))
+        #expect(!APIClient.isOpenBehindInviteGate("POST", "/v1/sync"))
+    }
+}

@@ -390,3 +390,32 @@ The workflows, signing, secrets, versions and TestFlight distribution are docume
 - `MARKETING_VERSION` comes from the committed `VERSION` file on the xcodebuild command
   line, so the pbxproj is never edited.
 - The build number is the CI run's ID.
+
+## 10. Gates and onboarding (`invite_required`, `consent_required`)
+
+A gate is not an error. The platform refuses with `403` and a `code`, or (in `warn`
+mode) serves the request and names the gate in `X-RYFT-Gate`:
+
+- **`APIClient`** puts the code into `APIError.http(…, code:)` (`error.gate`) and reports
+  every gate it sees to **`APIStatus`** (`gates`, and `inviteBlocked` after a hard
+  `403 invite_required`, which keeps every call but onboarding's from going out).
+- **`OnboardingCoordinator`** (`Features/Onboarding/HealthPermissionView.swift`, in
+  `ScreenModels`) decides what's missing with one pure function, `missing(_:)`, over the
+  facts from `GET /v1/me`, `GET /v1/config` and `GET /v1/me/sync` plus the reported
+  gates. It checks on every launch and sign-in (`bootstrap`), when `APIStatus.gates`
+  changes, after each step, and on app active (at most every 60 s).
+  - First run of an account on this phone (Apple Health not explained yet): the steps
+    full screen in RootView (invite → consent → about you → Health), a splash while
+    the first check runs (at most 10 s).
+  - Afterwards: a gate as a sheet over the tabs; "Not now" is remembered for the
+    session and Today shows "Action needed".
+- **`SyncService.gate`** asks the coordinator before every upload: nothing syncs before
+  consent or behind an enforced invite gate (`pausedFor`). A sync the platform refuses at
+  a gate pauses the same way and keeps the anchor of the page it couldn't send.
+- `account_hint` (the platform's guess that this is the same person signed in another
+  way) shows once per account; Profile → Sign-in methods links Apple to an email account
+  (Supabase identity linking).
+
+Tests: `OnboardingDecisionTests` (the decision table), `OnboardingCoordinatorTests` (the
+flow, mid-session sheets, invite codes, account switch, the hint, Today's action),
+`APIClientStatusTests` (the status matrix and the headers).

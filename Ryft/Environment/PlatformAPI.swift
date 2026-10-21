@@ -16,6 +16,16 @@ protocol PlatformAPI: RyftDataSource, TrainDataSource {
     /// `PATCH /v1/me/notifications`.
     func patchNotifications(_ patch: NotificationPatch) async throws -> NotificationPrefs
 
+    // Beta gates and sync state.
+    /// `GET /v1/me/sync`: the gate, the newest record per kind, today's scoring state.
+    func syncStatus() async throws -> SyncStatus
+    /// `POST /v1/me/consent`: `204`; `422` when `policyVersion` isn't the one in force.
+    func consent(policyVersion: String, appVersion: String?) async throws
+    /// `DELETE /v1/me/consent`: `204`; sync answers `403 consent_required` from then on.
+    func revokeConsent() async throws
+    /// `POST /v1/me/invite`: `204`; `422` for every bad code, `429` after 5 tries an hour.
+    func redeemInvite(code: String) async throws
+
     /// `GET /v1/sleep/plan?wake=HH:MM` (local wake time).
     func sleepPlan(wake: String) async throws -> SleepPlan
 
@@ -54,6 +64,23 @@ extension APIClient: PlatformAPI {
 
     func patchNotifications(_ patch: NotificationPatch) async throws -> NotificationPrefs {
         try await send("PATCH", path: "/v1/me/notifications", body: patch)
+    }
+
+    func syncStatus() async throws -> SyncStatus {
+        try await send("GET", path: "/v1/me/sync", body: Optional<Int>.none)
+    }
+
+    func consent(policyVersion: String, appVersion: String?) async throws {
+        _ = try await data("POST", path: "/v1/me/consent",
+                           body: ConsentPost(policyVersion: policyVersion, appVersion: appVersion))
+    }
+
+    func revokeConsent() async throws {
+        _ = try await data("DELETE", path: "/v1/me/consent", body: Optional<Int>.none)
+    }
+
+    func redeemInvite(code: String) async throws {
+        _ = try await data("POST", path: "/v1/me/invite", body: InvitePost(code: code))
     }
 
     func sleepPlan(wake: String) async throws -> SleepPlan {
@@ -101,8 +128,24 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     /// Thrown once by the next call.
     var failNext: Error?
     var syncResponse = SyncResponse(samples: 0, sleep: 0, workouts: 0, daysTouched: [])
-    var remoteConfig = RemoteConfig(flags: [:], evaluatedAt: .now, ttlSec: 21_600)
+    var remoteConfig = RemoteConfig(flags: [:], evaluatedAt: .now, ttlSec: 21_600,
+                                    privacyPolicyVersion: MockData.policyVersion,
+                                    privacyPolicyUrl: "https://ryftapp.de/privacy")
     var prefs = NotificationPrefs.allOn
+
+    // The account behind the Beta gates; `me()` reports it, the gates follow it.
+    var betaAccess = true
+    var accountConsent: Consent? = Consent(policyVersion: MockData.policyVersion, grantedAt: MockData.consentedAt)
+    var accountHint: AccountHint?
+    /// `GET /v1/me/sync` → `gate`: the invite gate when it's on (or warns) and there's no access.
+    var inviteGateOn = false
+    /// Valid codes for `POST /v1/me/invite`, compared like the platform (case, spaces and dashes ignored).
+    var inviteCodes: Set<String> = ["RYFT7K3MQX9P"]
+    var scoringToday = TodayState(day: DayFormat.string(from: .now), state: .scored, scoredAt: .now,
+                                  modelVersion: "2026.10.1")
+    var pendingDays: [String] = []
+    private(set) var consentPosts: [String] = []
+    private(set) var inviteAttempts: [String] = []
     /// `false`: the journal endpoints answer `404`, as before M5 is deployed.
     var journalLive = true
     private var behaviorList = MockJournal.behaviors
@@ -137,9 +180,15 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     func sync(_ req: SyncRequest) async throws -> SyncResponse {
         try enter("sync")
+        if enforcesConsent, gate == .consentRequired {
+            throw APIError.http(403, "consent required", code: .consentRequired)
+        }
         lock.withLock { syncRequests.append(req) }
         return syncResponse
     }
+
+    /// `CONSENT_ENFORCE=on`: sync without consent to the current policy answers `403`.
+    var enforcesConsent = false
 
     func postAppleAuthorization(code: String) async throws {
         try enter("appleAuthorization")
@@ -162,6 +211,54 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         let quiet = patch.quietHours.map { $0 } ?? prefs.quietHours
         prefs = NotificationPrefs(categories: categories, quietHours: quiet)
         return prefs
+    }
+
+    // MARK: Beta gates
+
+    /// The gate `GET /v1/me/sync` reports: invite first, then consent.
+    var gate: APIErrorCode? {
+        lock.withLock {
+            if inviteGateOn, !betaAccess { return .inviteRequired }
+            if accountConsent?.policyVersion != remoteConfig.privacyPolicyVersion { return .consentRequired }
+            return nil
+        }
+    }
+
+    func syncStatus() async throws -> SyncStatus {
+        try enter("syncStatus")
+        let gate = gate
+        return lock.withLock {
+            SyncStatus(gate: gate, lastSyncAt: syncRequests.isEmpty ? nil : .now, lastSyncDevice: "iPhone",
+                       latest: [:], today: scoringToday, pendingDays: pendingDays, expectedWithinSec: 20,
+                       resyncRequestedAt: nil)
+        }
+    }
+
+    func consent(policyVersion: String, appVersion: String?) async throws {
+        try enter("consent")
+        try lock.withLock {
+            guard policyVersion == remoteConfig.privacyPolicyVersion else { throw APIError.http(422, "outdated policy") }
+            consentPosts.append(policyVersion)
+            if accountConsent?.policyVersion != policyVersion {
+                accountConsent = Consent(policyVersion: policyVersion, grantedAt: .now)
+            }
+        }
+    }
+
+    func revokeConsent() async throws {
+        try enter("revokeConsent")
+        lock.withLock { accountConsent = nil }
+    }
+
+    func redeemInvite(code: String) async throws {
+        try enter("redeemInvite")
+        try lock.withLock {
+            inviteAttempts.append(code)
+            guard !betaAccess else { return }
+            let normalized = code.uppercased().filter { $0.isLetter || $0.isNumber }
+            guard inviteCodes.contains(normalized) else { throw APIError.http(422, "invalid or used code") }
+            betaAccess = true
+        }
     }
 
     // MARK: sleep planner, journal
@@ -243,11 +340,22 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     // MARK: screens
 
-    func me() async throws -> User { try enter("me"); return try await screens.me() }
+    func me() async throws -> User { try enter("me"); return withAccount(try await screens.me()) }
     func patchMe(_ p: UserPatch) async throws -> User {
         try enter("patchMe")
         lock.withLock { mePatches.append(p) }
-        return try await screens.patchMe(p)
+        return withAccount(try await screens.patchMe(p))
+    }
+
+    /// The scripted access, consent and hint on top of the mock user.
+    private func withAccount(_ user: User) -> User {
+        var u = user
+        lock.withLock {
+            u.betaAccess = betaAccess
+            u.consent = accountConsent
+            u.accountHint = accountHint
+        }
+        return u
     }
     func days(from: Date, to: Date) async throws -> [DailyScore] {
         try enter("days"); return try await screens.days(from: from, to: to)

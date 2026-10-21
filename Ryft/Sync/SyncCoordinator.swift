@@ -214,7 +214,7 @@ actor SyncCoordinator {
         guard let api = error as? APIError else { return false }
         switch api {
         case .transport: return true
-        case .http(let code, _, _): return code >= 500
+        case .http(let code, _, _, _): return code >= 500
         case .notConfigured, .signedOut: return false
         }
     }

@@ -1,1 +1,6 @@
-{ "samples": 1440, "sleep": 14, "workouts": 1, "days_touched": ["2026-10-17", "2026-10-18"] }
+{ "samples": 1380, "sleep": 14, "workouts": 1, "days_touched": ["2026-10-17", "2026-10-18"],
+  "accepted": { "samples": 1380, "sleep": 14, "workouts": 1 },
+  "ignored": { "samples":  { "duplicate": 58, "outside_window": 0, "unknown_type": 2 },
+               "sleep":    { "duplicate": 0,  "outside_window": 0, "unknown_type": 0 },
+               "workouts": { "duplicate": 0,  "outside_window": 0, "unknown_type": 0 } },
+  "scoring": { "queued_days": ["2026-10-17", "2026-10-18"], "expected_within_sec": 20 } }

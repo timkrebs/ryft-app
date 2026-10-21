@@ -92,6 +92,8 @@ struct RyftApp: App {
                 .onChange(of: auth.accountID) { old, new in
                     Task { await coordinator.cancel() }
                     if old != nil { state.reset() }
+                    // That account's gates and steps are its own.
+                    screens.onboarding.switchAccount(new)
                     // Flags are per account: that account's cached answer, then a fresh one.
                     (env.flags as? FlagStore)?.switchAccount(new)
                     guard new != nil else { return }
@@ -99,6 +101,10 @@ struct RyftApp: App {
                     // A link that arrived signed out; this account's push registration.
                     screens.router.openPending()
                     Task { await screens.push.refresh() }
+                }
+                // A gate the platform reported (a 403 with a code, or X-RYFT-Gate): what's missing now.
+                .onChange(of: APIStatus.shared.gates) { _, _ in
+                    Task { await screens.onboarding.check(force: true) }
                 }
                 // A flag flip that arrived meanwhile takes effect as the next screen appears.
                 .onChange(of: state.selectedTab) { _, _ in (env.flags as? FlagStore)?.applyPending() }
@@ -140,6 +146,7 @@ struct RyftApp: App {
                 // Allowed in Settings meanwhile, a new token or language: tell the platform.
                 Task { await screens.push.refresh() }
                 Task { await screens.featureFlags?.refresh() }
+                Task { await screens.onboarding.check() }
             } else if phase == .background {
                 // Foreground work stops; the system's background tasks take over.
                 Task { await coordinator.cancel() }
@@ -158,14 +165,21 @@ struct RyftApp: App {
     }
 
     private func bootstrap() async {
-        guard env.health.isAvailable, !env.isDemo else {
+        guard !env.isDemo else {
             await state.refresh()
             return
         }
         // Welcome first; HealthKit is asked for right after sign-in.
         guard auth.isSignedIn else { return }
-        // First sign-in: create the platform user and set its timezone before anything syncs.
-        if state.user == nil { await state.loadUserAfterSignIn() }
+        // Every start and sign-in: what the account still needs (invite, consent, about you).
+        // This also creates the platform user and sets its timezone before anything syncs.
+        await screens.onboarding.check()
+        // Behind the invite gate nothing but onboarding answers.
+        guard !screens.onboarding.missing.contains(.invite) else { return }
+        guard env.health.isAvailable else {
+            await state.refresh()
+            return
+        }
         // Health access only after the explanation screen (RootView); reruns when it's answered.
         guard settings.healthIntroDone else {
             await state.refresh()
@@ -220,15 +234,31 @@ extension Settings.Appearance {
     }
 }
 
-/// Welcome until there's a session (or demo data), then the tabs.
+/// Welcome until there's a session (or demo data); then what onboarding still needs
+/// (invite, consent, about you, Apple Health), then the tabs.
 struct RootView: View {
     @Environment(\.appEnvironment) private var env
+    @Environment(ScreenModels.self) private var screens
     @Environment(AppState.self) private var state
     @Environment(AuthService.self) private var auth
     @Environment(Settings.self) private var settings
     @Environment(TrainCoordinator.self) private var train
 
     var body: some View {
+        #if DEBUG
+        // `-RyftScreen consent` (or invite, aboutYou, accountHint, signInMethods): one screen
+        // on mock data, for screenshots of states demo mode never reaches.
+        if let screen = DebugScreen.requested {
+            screen.view
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+
+    private var content: some View {
         ZStack {
             if !PlatformConfig.isComplete {
                 MisconfiguredBuildView()
@@ -239,6 +269,10 @@ struct RootView: View {
                 switch auth.state {
                 case .restoring: SplashView().transition(.opacity)
                 case .signedOut: WelcomeView().transition(.opacity)
+                // The account's first run waits for the platform's answer: no flash of the tabs.
+                case .signedIn where onboarding.holdsFirstRun: SplashView().transition(.opacity)
+                case .signedIn where onboarding.flowStep != nil:
+                    OnboardingFlowView(model: onboarding).transition(.opacity)
                 case .signedIn where needsHealthIntro: HealthPermissionView().transition(.opacity)
                 case .signedIn: tabs.transition(.opacity)
                 }
@@ -246,6 +280,12 @@ struct RootView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: settings.demoMode ? .signedIn : auth.state)
         .animation(.easeInOut(duration: 0.3), value: needsHealthIntro)
+        .animation(.easeInOut(duration: 0.3), value: onboarding.flowStep)
+        // "This is a new RYFT account": once, before the steps.
+        .sheet(item: Binding(get: { onboarding.accountHint }, set: { if $0 == nil { onboarding.keepThisAccount() } })) { hint in
+            AccountHintSheet(hint: hint, keep: { onboarding.keepThisAccount() },
+                             useOther: { await onboarding.useOtherAccount() })
+        }
         // Someone who already answered the system prompt (an earlier version) skips the intro.
         .task(id: auth.accountID) {
             guard needsHealthIntro else { return }
@@ -264,7 +304,19 @@ struct RootView: View {
         env.health.isAvailable && !settings.healthIntroDone
     }
 
+    private var onboarding: OnboardingCoordinator { screens.onboarding }
+
     private var tabs: some View {
+        tabView
+            // A gate after the first run (policy updated, consent withdrawn): over the
+            // current screen, never a reset to Welcome.
+            .sheet(item: Bindable(onboarding).sheetStep) { step in
+                OnboardingStepView(step: step, model: onboarding)
+                    .interactiveDismissDisabled(!onboarding.canDefer(step))
+            }
+    }
+
+    private var tabView: some View {
         TabView(selection: Bindable(state).selectedTab) {
             TodayView()
                 .tabItem { Label("Today", systemImage: "house.fill") }
@@ -284,6 +336,35 @@ struct RootView: View {
         }
     }
 }
+
+#if DEBUG
+/// Screens a screenshot run can open directly (`scripts/screenshots.sh`, `-RyftScreen <name>`).
+enum DebugScreen: String {
+    case invite, consent, aboutYou, accountHint, signInMethods
+
+    static var requested: DebugScreen? {
+        UserDefaults.standard.string(forKey: "RyftScreen").flatMap(DebugScreen.init(rawValue:))
+    }
+
+    @MainActor @ViewBuilder
+    var view: some View {
+        switch self {
+        case .invite: OnboardingStepPreview(step: .invite)
+        case .consent: OnboardingStepPreview(step: .consent)
+        case .aboutYou: OnboardingStepPreview(step: .aboutYou)
+        case .accountHint:
+            AccountHintSheet(hint: AccountHint(kind: "other_account_on_device", otherProvider: "email",
+                                               otherLastSync: .now.addingTimeInterval(-86_400)),
+                             keep: {}, useOther: {})
+        case .signInMethods:
+            NavigationStack { SignInMethodsView() }.environment(Self.emailAccount)
+        }
+    }
+
+    /// One instance for the run: the screen loads its sign-in methods into it.
+    @MainActor private static let emailAccount = AuthService.preview(provider: "email")
+}
+#endif
 
 /// While the SDK reads the Keychain: the mark on Graphite, like the launch screen.
 struct SplashView: View {

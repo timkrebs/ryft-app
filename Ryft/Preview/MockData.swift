@@ -14,11 +14,21 @@ enum MockData {
     /// The learned baseline in use (API.md → Learned baseline).
     static let sleepBase = 460
 
+    /// The privacy policy in force (`GET /v1/config`) and the demo account's consent to it.
+    static let policyVersion = "2026-10-20"
+    static let consentedAt = Date(timeIntervalSince1970: 1_792_489_964) // 2026-10-20T09:12:44Z
+
     static let user = User(id: UUID(uuidString: "6F1C2B8E-1D3A-4E55-9C61-2B0F7E4A9D10") ?? UUID(),
                            name: "Tim", email: "tim@example.com", provider: "email",
                            tz: TimeZone.current.identifier, maxHr: maxHR, sleepBaseMin: sleepBase,
                            sleepBaseSource: .learned, sleepBaseLearnedMin: sleepBase,
-                           sleepBaseLearnedAt: Calendar.current.date(byAdding: .day, value: -2, to: .now))
+                           sleepBaseLearnedAt: Calendar.current.date(byAdding: .day, value: -2, to: .now),
+                           consent: Consent(policyVersion: policyVersion, grantedAt: consentedAt),
+                           sources: [UserSource(name: "Tim's Apple Watch", bundleId: "com.apple.health.81E2",
+                                                kinds: [.energy, .hr, .hrv, .resp, .sleep, .spo2, .workout],
+                                                lastSeen: .now.addingTimeInterval(-1_800)),
+                                     UserSource(name: "Tim's iPhone", bundleId: "com.apple.health.3F0A",
+                                                kinds: [.steps], lastSeen: .now.addingTimeInterval(-600))])
 
     /// Oldest first; the last element is today.
     static let history: [DailyScore] = nights.map(\.score)
@@ -371,10 +381,12 @@ struct MockDataSource: RyftDataSource {
     func me() async throws -> User { MockData.user }
 
     /// The platform's rules: a baseline sent by hand becomes `manual`;
-    /// `sleep_base_manual: false` goes back to the learned value (or 460).
+    /// `sleep_base_manual: false` goes back to the learned value (or 460). A birth year
+    /// sets the Tanaka estimate unless max HR is manual; `max_hr_manual: false` returns to it.
     func patchMe(_ p: UserPatch) async throws -> User {
         let u = MockData.user
         if p.sleepBaseMin != nil, p.sleepBaseManual == false { throw APIError.http(422, "conflicting baseline") }
+        if p.maxHr != nil, p.maxHrManual == false { throw APIError.http(422, "conflicting max HR") }
         var base = u.sleepBaseMin, source = u.sleepBaseSource
         if let m = p.sleepBaseMin {
             base = m
@@ -383,10 +395,25 @@ struct MockDataSource: RyftDataSource {
             base = u.sleepBaseLearnedMin ?? 460
             source = u.sleepBaseLearnedMin == nil ? .default : .learned
         }
+        let birthYear = p.birthYear ?? u.birthYear
+        var maxHr = u.maxHr, hrSource = u.maxHrSource
+        if let m = p.maxHr {
+            maxHr = m
+            hrSource = .manual
+        } else if let year = birthYear, hrSource != .manual || p.maxHrManual == false {
+            // The platform's Tanaka estimate, 208 − 0.7 · age.
+            let age = Calendar.current.component(.year, from: .now) - year
+            maxHr = Int((208 - 0.7 * Double(age)).rounded())
+            hrSource = .estimated
+        } else if p.maxHrManual == false {
+            maxHr = 190
+            hrSource = .default
+        }
         return User(id: u.id, name: u.name, email: u.email, provider: u.provider, tz: p.tz ?? u.tz,
-                    maxHr: p.maxHr ?? u.maxHr, sleepBaseMin: base, sleepBaseSource: source,
+                    maxHr: maxHr, sleepBaseMin: base, sleepBaseSource: source,
                     sleepBaseLearnedMin: u.sleepBaseLearnedMin, sleepBaseLearnedAt: u.sleepBaseLearnedAt,
-                    notifications: u.notifications)
+                    notifications: u.notifications, consent: u.consent, birthYear: birthYear,
+                    maxHrSource: hrSource, sources: u.sources)
     }
 
     func days(from: Date, to: Date) async throws -> [DailyScore] {

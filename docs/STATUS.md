@@ -1,4 +1,70 @@
-# Status — 2026-10-20
+# Status — 2026-10-21
+
+## Account gates and honest errors (sync brief §1, `CLAUDE_FOLLOWUP_SYNC_403.md` §1–§3)
+
+**Root cause of "RYFT didn't accept your sign-in · HTTP 403"** (from the platform's
+`docs/STATUS.md`, incident 2026-10-20, so the `kubectl` steps of the 403 brief weren't
+needed): every `POST /v1/sync` of the one account (Apple and email reach the API as the
+same user) answered `403 consent_required`. Consent is enforced on sync, nobody had a
+consent yet, and the app showed every `401` **and** `403` as a sign-in failure. The
+invite gate was off; there was no second account. The platform has since put both
+gates in `warn` until this app's screens are on TestFlight.
+
+What changed:
+- **Errors say what is wrong.** `APIError.http` carries the body's `code`. `401` →
+  "Your session has ended" (only after the refresh failed); `403 invite_required` /
+  `consent_required` → a gate, reported to `APIStatus`, never shown as a failure; a
+  code-less `403` → "This is built into RYFT and can't be changed". Details show
+  status, code and the request ID exactly as received.
+- **Gates.** `X-RYFT-Gate` on a served request (warn mode) is reported like a refusal.
+  After a hard `403 invite_required`, only onboarding's routes go out. A sync refused at
+  a gate pauses (`SyncService.pausedFor`), keeps the page's anchor and doesn't count as a
+  failure.
+- **`OnboardingCoordinator`** decides from `GET /v1/me`, `GET /v1/config` and
+  `GET /v1/me/sync` on every launch and sign-in: invite (only when the platform says its
+  gate applies), consent (policy in force), about you (birth year → the platform's max-HR
+  estimate). Full screen on an account's first run, a sheet over the tabs afterwards;
+  Today shows "Action needed" while one is put off. Nothing syncs before consent; after
+  agreeing the first sync starts at once.
+- **`account_hint`** → "This is a new RYFT account" once per account, with "Use the other
+  account" (signs out).
+- **Profile:** Sign-in methods (identities, "Add Sign in with Apple" through Supabase
+  identity linking), Privacy (consent date and version, withdraw), birth year and the
+  max-HR source with "Use the estimate".
+- **Every request** sends `X-RYFT-Device-ID`; every sync `app_version`, `os_version` and
+  `source_bundle_id`. Mirror: the Beta and "Accounts and sync state" shapes, contract
+  check extended to `SyncStatus` and `ModelInfo`.
+
+Verified: 432 unit tests (47 new: the status matrix, the onboarding decision table, the
+flow, no sync before consent, account switch, invite link), the contract check (24
+examples), strict build, `make lint`, `make style`. Screens captured in the simulator
+(dark/light, en/de): `docs/screenshots/onboarding-*.png`.
+
+**Not verified on a device**, please run on your iPhone (Debug build, production):
+1. Launch: the consent sheet appears over Today (your account has no consent). Agree →
+   the sync runs; Profile → Privacy shows today's date and policy `2026-10-20`.
+2. Log out → Continue with Apple → straight to Today (same account), no "log in again".
+3. Profile → Sign-in methods lists both methods.
+4. Profile → Privacy → Withdraw → Today says "Action needed"; Review → agree again.
+
+**Your steps:**
+- Supabase → Authentication → Settings → **Manual Linking** on, for "Add Sign in with
+  Apple" (without it the app says linking isn't switched on yet).
+- Once this is on TestFlight: both gates `on` on the platform (its `STATUS.md` →
+  Accounts and sync, step 6).
+- `ryftapp.de/support` is named in the account-hint sheet; it has to exist.
+- **`Ryft/` and `RyftTests/` are classic groups, not synchronized folders** (only
+  `RyftWidgets/` and `RyftUITests/` are). New files there need the project file, which
+  sessions don't edit, so this work went into existing files. In Xcode: select the
+  `Ryft` group → right-click → **Convert to Folder**, the same for `RyftTests`, commit
+  the project. Later work can then split files.
+- `Package.resolved` on `main` doesn't match the package requirements (dependabot's
+  swift-crypto 5.0.1; the resolver picks 4.5.2 and adds swift-issue-reporting). CI
+  resolves on its own; open the project in Xcode once and commit what it writes.
+
+Tooling for sessions without Xcode: `make strings` (`scripts/sync-strings.py`) syncs the
+string catalog from the last build, as Xcode does on build; `scripts/screenshots.sh`
+also takes the Debug screens (`-RyftScreen consent`, …).
 
 ## Platform wiring — every API.md endpoint has a caller
 

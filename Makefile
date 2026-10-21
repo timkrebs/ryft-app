@@ -1,4 +1,4 @@
-.PHONY: config build test icon fonts screenshots lint check-entitlements style format archive
+.PHONY: config build test icon fonts screenshots lint check-entitlements strings style format archive
 
 # Ryft.xcodeproj is the source of truth (CLAUDE.md): change targets, capabilities
 # and packages in Xcode itself.
@@ -24,6 +24,11 @@ fonts:
 
 screenshots:
 	scripts/screenshots.sh
+
+# The string catalog from the last build's extracted strings (what Xcode does on build;
+# for sessions without it). Then `make lint` lists what needs German.
+strings:
+	python3 scripts/sync-strings.py
 
 # String catalogs complete in English and German, nothing stale.
 lint: check-entitlements

@@ -19,6 +19,8 @@ MAP = [
     ("`GET /v1/me` —", "User", 0),
     ("`DELETE /v1/me` —", "AccountDeleted", 0),
     ("`GET /v1/config`", "RemoteConfig", 0),
+    ("`GET /v1/me/sync`", "SyncStatus", 0),
+    ("`GET /v1/model`", "ModelInfo", 0),
     ("`PATCH /v1/me/notifications`", "NotificationPrefs", 0),
     ("### Push notifications", "PushPayload", 0),
     ("`GET /v1/days?from", "DailyScore", 0),

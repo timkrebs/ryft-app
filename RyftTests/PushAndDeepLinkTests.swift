@@ -464,3 +464,13 @@ struct NotificationSettingsViewModelTests {
         #expect(NotificationSettingsViewModel.string(NotificationSettingsViewModel.date("23:59")) == "23:59")
     }
 }
+
+@Suite("Invite links")
+struct InviteLinkTests {
+    @Test func inviteLinksCarryTheCode() {
+        #expect(AppRoute(url: URL(string: "ryft://invite/RYFT-7K3M-QX9P")!) == .invite(code: "RYFT-7K3M-QX9P"))
+        #expect(AppRoute(url: URL(string: "https://ryftapp.de/invite/RYFT-7K3M-QX9P")!) == .invite(code: "RYFT-7K3M-QX9P"))
+        #expect(AppRoute.invite(code: "RYFT-7K3M-QX9P").url?.absoluteString == "https://ryftapp.de/invite/RYFT-7K3M-QX9P")
+        #expect(AppRoute(url: URL(string: "ryft://invite")!) == .today)
+    }
+}

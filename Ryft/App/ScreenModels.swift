@@ -20,18 +20,27 @@ final class ScreenModels {
     let router: DeepLinkRouter
     /// Remote flags (`GET /v1/config`); nil when the environment's flags are static (tests, previews).
     let featureFlags: FeatureFlags?
+    /// Invite, consent and "about you" before the first sync; the gates mid-session.
+    let onboarding: OnboardingCoordinator
     private let state: AppState
 
-    init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, store: TrainStore, library: TrainLibrary) {
+    init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, store: TrainStore, library: TrainLibrary,
+         apiStatus: APIStatus? = nil) {
         self.coordinator = coordinator
         self.state = state
+        onboarding = OnboardingCoordinator(state: state, apiStatus: apiStatus ?? .shared) {
+            await coordinator.run(.userInitiated)
+        }
+        // Nothing syncs before consent, nor behind an enforced invite gate.
+        sync.gate = { [onboarding] in onboarding.syncGate }
         push = PushRegistrar(env: state.env)
         journal = JournalStore(env: state.env)
-        today = TodayViewModel(state: state, sync: sync, coordinator: coordinator, push: push)
+        today = TodayViewModel(state: state, sync: sync, coordinator: coordinator, push: push,
+                               onboarding: onboarding)
         sleep = SleepViewModel(state: state)
         strain = StrainViewModel(state: state, store: store)
         insights = InsightsViewModel(state: state, journal: journal)
-        router = DeepLinkRouter(state: state, sleep: sleep, strain: strain, insights: insights)
+        router = DeepLinkRouter(state: state, sleep: sleep, strain: strain, insights: insights, onboarding: onboarding)
         let env = state.env
         featureFlags = (env.flags as? FlagStore).map { store in
             FeatureFlags(flags: store, clock: env.clock) {
@@ -40,7 +49,7 @@ final class ScreenModels {
                 return try await env.api.config()
             }
         }
-        profile = ProfileViewModel(state: state, sync: sync, coordinator: coordinator)
+        profile = ProfileViewModel(state: state, sync: sync, coordinator: coordinator, onboarding: onboarding)
         trainToday = TrainTodayViewModel(library: library, store: store, clock: state.env.clock)
     }
 
