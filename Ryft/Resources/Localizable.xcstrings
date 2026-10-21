@@ -112,6 +112,16 @@
         }
       }
     },
+    "%lld / 4000" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld / 4000"
+          }
+        }
+      }
+    },
     "%lld min" : {
       "localizations" : {
         "de" : {
@@ -182,6 +192,46 @@
         }
       }
     },
+    "%lld waiting to send" : {
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld wartet auf Versand"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld warten auf Versand"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld waiting to send"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld waiting to send"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "A notification %lld min before tonight's bedtime. It moves with your day." : {
       "localizations" : {
         "de" : {
@@ -228,6 +278,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Über dich"
+          }
+        }
+      }
+    },
+    "About: %@ · %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Betrifft: %1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "About: %@ · %@ · request %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Betrifft: %1$@ · %2$@ · Anfrage %3$@"
           }
         }
       }
@@ -364,6 +434,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Immer deine Daten"
+          }
+        }
+      }
+    },
+    "An idea" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Idee"
+          }
+        }
+      }
+    },
+    "App version and build" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App-Version und Build"
           }
         }
       }
@@ -528,6 +618,26 @@
         }
       }
     },
+    "Copy message" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nachricht kopieren"
+          }
+        }
+      }
+    },
+    "Couldn't save your report. Copy it and try again later." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Meldung konnte nicht gespeichert werden. Kopiere sie und versuch es später erneut."
+          }
+        }
+      }
+    },
     "Counts, dates and request IDs for support; no health data" : {
       "localizations" : {
         "de" : {
@@ -584,6 +694,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gemerkte Löschungen"
+          }
+        }
+      }
+    },
+    "Device model and iOS version" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gerätemodell und iOS-Version"
+          }
+        }
+      }
+    },
+    "Diagnostics" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diagnose"
           }
         }
       }
@@ -908,6 +1038,16 @@
         }
       }
     },
+    "Include diagnostics" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diagnose anhängen"
+          }
+        }
+      }
+    },
     "Invite code" : {
       "localizations" : {
         "de" : {
@@ -988,6 +1128,36 @@
         }
       }
     },
+    "Message" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nachricht"
+          }
+        }
+      }
+    },
+    "My numbers look wrong" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Meine Werte wirken falsch"
+          }
+        }
+      }
+    },
+    "No health values. Nothing from Apple Health, no scores, no sleep or heart data." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Gesundheitswerte. Nichts aus Apple Health, keine Scores, keine Schlaf- oder Herzdaten."
+          }
+        }
+      }
+    },
     "No requests since launch." : {
       "localizations" : {
         "de" : {
@@ -1054,6 +1224,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nicht angegeben"
+          }
+        }
+      }
+    },
+    "Nothing is attached except your message." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Außer deiner Nachricht wird nichts angehängt."
           }
         }
       }
@@ -1198,6 +1378,16 @@
         }
       }
     },
+    "Per resource: when it was loaded, last error" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pro Datenquelle: wann geladen, letzter Fehler"
+          }
+        }
+      }
+    },
     "Perform" : {
       "localizations" : {
         "de" : {
@@ -1224,6 +1414,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geplant %1$@–%2$@ · tatsächlich %3$@–%4$@"
+          }
+        }
+      }
+    },
+    "Please don't type health values you'd rather keep private." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bitte gib keine Gesundheitswerte ein, die du lieber für dich behalten möchtest."
           }
         }
       }
@@ -1288,6 +1488,16 @@
         }
       }
     },
+    "Refreshing %@ didn't work." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Laden von %@ hat nicht geklappt."
+          }
+        }
+      }
+    },
     "Remind me before bedtime" : {
       "localizations" : {
         "de" : {
@@ -1314,6 +1524,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Erinnerung"
+          }
+        }
+      }
+    },
+    "Report a problem" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Problem melden"
+          }
+        }
+      }
+    },
+    "Reports are limited to 10 a day." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pro Tag sind 10 Meldungen möglich."
           }
         }
       }
@@ -1448,6 +1678,16 @@
         }
       }
     },
+    "RYFT couldn't take this report. Copy your message and try again later." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT konnte diese Meldung nicht annehmen. Kopiere deine Nachricht und versuch es später erneut."
+          }
+        }
+      }
+    },
     "RYFT doesn't sync or score your health data until you agree." : {
       "localizations" : {
         "de" : {
@@ -1528,6 +1768,16 @@
         }
       }
     },
+    "Saved. It will be sent as soon as you're back online. You can close the app." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gespeichert. Sie wird gesendet, sobald du wieder online bist. Du kannst die App schließen."
+          }
+        }
+      }
+    },
     "Saved. Past days keep their scores until you rescore them." : {
       "localizations" : {
         "de" : {
@@ -1574,6 +1824,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Deine Nacht wird bewertet …"
+          }
+        }
+      }
+    },
+    "Send" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Senden"
+          }
+        }
+      }
+    },
+    "Sending…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird gesendet …"
           }
         }
       }
@@ -1684,6 +1954,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schlummert"
+          }
+        }
+      }
+    },
+    "Something else" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Etwas anderes"
+          }
+        }
+      }
+    },
+    "Something's broken" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Etwas funktioniert nicht"
           }
         }
       }
@@ -1808,6 +2098,16 @@
         }
       }
     },
+    "Sync state, account gates and feature flags" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync-Status, Konto-Freigaben und Feature-Flags"
+          }
+        }
+      }
+    },
     "Syncing · %@" : {
       "localizations" : {
         "de" : {
@@ -1834,6 +2134,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sag RYFT, wann du aufwachen willst. RYFT sagt dir, wann du ins Bett solltest – mit dem, was die heutige Belastung und dein Schlafdefizit dazugeben."
+          }
+        }
+      }
+    },
+    "Thanks, your report reached RYFT." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Danke, deine Meldung ist bei RYFT angekommen."
+          }
+        }
+      }
+    },
+    "The last 20 requests: method, path, status, error code, request ID, duration" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die letzten 20 Anfragen: Methode, Pfad, Status, Fehlercode, Anfrage-ID, Dauer"
           }
         }
       }
@@ -2258,6 +2578,26 @@
         }
       }
     },
+    "What happened? What did you expect?" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was ist passiert? Was hast du erwartet?"
+          }
+        }
+      }
+    },
+    "What's included" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was enthalten ist"
+          }
+        }
+      }
+    },
     "Where it is stored" : {
       "localizations" : {
         "de" : {
@@ -2354,6 +2694,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bei diesem Konto kannst du dich anmelden mit:"
+          }
+        }
+      }
+    },
+    "You've reached today's limit of 10 reports. Your message is kept; try again tomorrow." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du hast das Tageslimit von 10 Meldungen erreicht. Deine Nachricht bleibt erhalten, versuch es morgen noch einmal."
           }
         }
       }
