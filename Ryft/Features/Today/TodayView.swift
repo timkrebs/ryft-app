@@ -26,7 +26,7 @@ struct TodayView: View {
                             .id(CoachMarkTarget.gauges)
                         if let night = model.rawNight { RawNightCard(night: night) }
                         if let hint = model.watchHint { WatchSyncHintCard(hint: hint) }
-                        if !model.hero.isImporting {
+                        if model.showsTiles {
                             tiles
                                 .coachMarkTarget(.physiology)
                                 .id(CoachMarkTarget.physiology)
@@ -132,40 +132,64 @@ struct TodayView: View {
                     .padding(.vertical, 4)
                     .accessibilityIdentifier("today.pendingGauge")
             case .calibrating(let nights):
-                BaselineGauge(nights: nights)
-                    .padding(.vertical, 4)
-                    .accessibilityIdentifier("today.baselineGauge")
+                VStack(spacing: 8) {
+                    BaselineGauge(nights: nights)
+                        .accessibilityIdentifier("today.baselineGauge")
+                    // Row B over a long history without HRV: why the nights don't fill.
+                    if let note = model.gaugeNote { gaugeNote(note) }
+                }
+                .padding(.vertical, 4)
             case .score:
-                readinessRing
+                VStack(spacing: 8) {
+                    readinessRing
+                    // Row D: in the band/delta line's place, read as part of the gauge.
+                    if let note = model.gaugeNote {
+                        gaugeNote(note)
+                            .accessibilityHidden(model.gaugeSpokenNote != nil)
+                    }
+                }
+                .padding(.vertical, 4)
             }
         }
         .transition(.opacity)
-        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.standard), value: model.hero.kind)
+        // One row to another: a 250 ms cross-fade (ui.md §1.3); an instant swap under Reduce Motion.
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: model.hero.kind)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: model.gaugeNote)
     }
 
     /// Readiness on its 0–100 scale with band ticks, the band word and the change
-    /// against the days before (from the 7-day trend).
+    /// against the days before (from the 7-day trend, row A only).
     private var readinessRing: some View {
         MetricGauge(spec: .readiness, value: model.readiness, size: .large, delta: model.readinessDelta,
-                    title: String(localized: "Overall readiness"), showsMark: true)
-            .padding(.vertical, 4)
+                    title: String(localized: "Overall readiness"), showsMark: true,
+                    accessibilityNote: model.gaugeSpokenNote)
+            .accessibilityIdentifier("today.readinessGauge")
     }
 
+    private func gaugeNote(_ note: TodayPresentation.Note) -> some View {
+        GaugeNote(text: note.text, systemImage: note.systemImage)
+            .transition(.opacity)
+            .accessibilityIdentifier("today.gaugeNote")
+    }
+
+    /// One day for all three (ui.md §1): today's, or the latest scored day dimmed with its date.
     private var tiles: some View {
         // Three columns truncate at accessibility sizes; stack the tiles there.
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
         return layout {
             MetricTile(title: "Sleep", value: model.sleepText, systemImage: "moon.fill",
-                       tint: Theme.metricSleep, accessibilityHint: "Opens Sleep") {
+                       tint: Theme.metricSleep, caption: model.tileCaption, isDimmed: model.tilesDimmed,
+                       accessibilityHint: "Opens Sleep") {
                 model.open(.sleep)
             }
             MetricTile(title: "Recovery", value: model.recoveryText, systemImage: "heart",
                        tint: Theme.band(forScore: model.recovery),
-                       caption: model.recoveryBand, accessibilityHint: "Opens Insights") {
+                       caption: model.recoveryCaption, isDimmed: model.tilesDimmed, accessibilityHint: "Opens Insights") {
                 model.open(.insights)
             }
             MetricTile(title: "Strain", value: model.strainText, systemImage: "bolt.fill",
-                       tint: Theme.metricStrain, accessibilityHint: "Opens Strain") {
+                       tint: Theme.metricStrain, caption: model.tileCaption, isDimmed: model.tilesDimmed,
+                       accessibilityHint: "Opens Strain") {
                 model.open(.strain)
             }
         }
@@ -473,6 +497,94 @@ struct OfflinePill: View {
 
 #Preview("Today · watch hasn't synced · light") {
     TodayView().previewEnvironment(.preview(scenario: .watch), scheme: .light)
+}
+
+// MARK: one preview per Today row (ui.md §1.6): A scored, B calibrating, C pending, D recalculating, E first import
+
+#Preview("Today · A scored") {
+    TodayView().previewEnvironment()
+}
+
+#Preview("Today · A scored · light") {
+    TodayView().previewEnvironment(scheme: .light)
+}
+
+#Preview("Today · B calibrating") {
+    TodayView().previewEnvironment(.preview(scenario: .calibrating))
+}
+
+#Preview("Today · B needs HRV (note)") {
+    TodayView().previewEnvironment(.preview(scenario: .needsVitals))
+}
+
+#Preview("Today · B needs HRV (note) · light · de") {
+    TodayView().previewEnvironment(.preview(scenario: .needsVitals), scheme: .light)
+        .environment(\.locale, Locale(identifier: "de"))
+}
+
+#Preview("Today · C pending") {
+    TodayView().previewEnvironment(.preview(scenario: .pending))
+}
+
+#Preview("Today · C pending · light") {
+    TodayView().previewEnvironment(.preview(scenario: .pending), scheme: .light)
+}
+
+#Preview("Today · C waiting for sleep") {
+    TodayView().previewEnvironment(.preview(scenario: .waitingForSleep))
+}
+
+#Preview("Today · C waiting for sleep · light") {
+    TodayView().previewEnvironment(.preview(scenario: .waitingForSleep), scheme: .light)
+}
+
+#Preview("Today · C pending, no previous") {
+    TodayView().previewEnvironment(.preview(scenario: .pendingNoPrevious))
+}
+
+#Preview("Today · C pending, no previous · light") {
+    TodayView().previewEnvironment(.preview(scenario: .pendingNoPrevious), scheme: .light)
+}
+
+#Preview("Today · D recalculating (note)") {
+    TodayView().previewEnvironment(.preview(scenario: .recalculating))
+}
+
+#Preview("Today · D recalculating (note) · light") {
+    TodayView().previewEnvironment(.preview(scenario: .recalculating), scheme: .light)
+}
+
+#Preview("Today · D recalculating · de") {
+    TodayView().previewEnvironment(.preview(scenario: .recalculating))
+        .environment(\.locale, Locale(identifier: "de"))
+}
+
+#Preview("Today · D recalculating, yesterday") {
+    TodayView().previewEnvironment(.preview(scenario: .recalculatingYesterday))
+}
+
+#Preview("Today · D recalculating, yesterday · light · de") {
+    TodayView().previewEnvironment(.preview(scenario: .recalculatingYesterday), scheme: .light)
+        .environment(\.locale, Locale(identifier: "de"))
+}
+
+#Preview("Today · E first import · light") {
+    TodayView().previewEnvironment(.preview(scenario: .importing), scheme: .light)
+}
+
+#Preview("Today · B · AX3") {
+    TodayView().previewEnvironment(.preview(scenario: .calibrating))
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Today · C · AX3") {
+    TodayView().previewEnvironment(.preview(scenario: .pending))
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Today · D yesterday · AX3") {
+    TodayView().previewEnvironment(.preview(scenario: .recalculatingYesterday))
+        .environment(\.dynamicTypeSize, .accessibility3)
 }
 
 #Preview("Import, raw night, hint", traits: .sizeThatFitsLayout) {
