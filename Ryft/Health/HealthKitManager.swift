@@ -126,6 +126,8 @@ final class HealthKitManager {
         let items: [T]
         let anchor: HKQueryAnchor?
         let more: Bool
+        /// Records deleted in Apple Health since the anchor (`deletedObjects`).
+        var deleted: [UUID] = []
     }
 
     func quantityPage(_ spec: QuantitySpec, anchor: HKQueryAnchor?, predicate: NSPredicate?,
@@ -139,7 +141,8 @@ final class HealthKitManager {
                    value: s.quantity.doubleValue(for: spec.unit) * spec.scale,
                    unit: spec.unitLabel, source: Self.sourceName(s), sourceBundleId: Self.sourceBundleID(s))
         }
-        return Page(items: items, anchor: result.newAnchor, more: result.addedSamples.count >= limit)
+        return Page(items: items, anchor: result.newAnchor, more: result.addedSamples.count >= limit,
+                    deleted: result.deletedObjects.map(\.uuid))
     }
 
     func sleepPage(anchor: HKQueryAnchor?, predicate: NSPredicate?, limit: Int) async throws -> Page<SleepSegment> {
@@ -152,7 +155,8 @@ final class HealthKitManager {
             return SleepSegment(start: s.startDate, end: s.endDate, stage: stage, source: Self.sourceName(s),
                                 sourceBundleId: Self.sourceBundleID(s))
         }
-        return Page(items: items, anchor: result.newAnchor, more: result.addedSamples.count >= limit)
+        return Page(items: items, anchor: result.newAnchor, more: result.addedSamples.count >= limit,
+                    deleted: result.deletedObjects.map(\.uuid))
     }
 
     func workoutPage(anchor: HKQueryAnchor?, predicate: NSPredicate?, limit: Int) async throws -> Page<Workout> {
@@ -160,34 +164,38 @@ final class HealthKitManager {
         let result = try await desc.result(for: store)
         MainThread.assertOff("Mapping workouts")
         let items = result.addedSamples.map { Self.map(workout: $0) }
-        return Page(items: items, anchor: result.newAnchor, more: result.addedSamples.count >= limit)
+        return Page(items: items, anchor: result.newAnchor, more: result.addedSamples.count >= limit,
+                    deleted: result.deletedObjects.map(\.uuid))
     }
 
     // MARK: background delivery
     //
-    // HealthKit wakes the app (briefly) when new samples of an observed type
-    // arrive; we use that to run an incremental sync. Needs the HealthKit
-    // "Background Delivery" entitlement in Signing & Capabilities.
+    // HealthKit wakes the app (briefly) when new samples of an observed type arrive;
+    // we use that to run an incremental sync. The observers must be registered during
+    // launch (RyftApp.init): in a background launch nothing else runs before HealthKit
+    // delivers. Needs the HealthKit "Background Delivery" entitlement.
 
+    /// Sleep, workouts and HRV: the records that change a score. Heart rate arrives
+    /// constantly and would wake the app too often; it rides along with these syncs.
+    var observedTypes: [HKSampleType] { [sleepType, workoutType, HKQuantityType(.heartRateVariabilitySDNN)] }
+
+    /// `.immediate` for the observed types only. Idempotent: called on every launch.
     func enableBackgroundDelivery() async {
-        for t in readTypes.compactMap({ $0 as? HKSampleType }) {
-            try? await store.enableBackgroundDelivery(for: t, frequency: .hourly)
+        for t in observedTypes {
+            try? await store.enableBackgroundDelivery(for: t, frequency: .immediate)
         }
     }
 
     private var observers: [HKObserverQuery] = []
 
-    func startObserving(onChange: @escaping () async -> Void) {
+    /// `onChange` gets the delivery's completion and must call it, right after the upload
+    /// (not after scoring and refreshes): a late completion makes HealthKit back off.
+    func startObserving(onChange: @escaping @Sendable (_ done: @escaping @Sendable () -> Void) -> Void) {
         guard observers.isEmpty else { return }
-        // Observing sleep + workouts + HRV is enough: those are the events that
-        // change a score. Heart rate arrives constantly and would wake us too often.
-        let triggers: [HKSampleType] = [sleepType, workoutType, HKQuantityType(.heartRateVariabilitySDNN)]
-        for t in triggers {
-            let q = HKObserverQuery(sampleType: t, predicate: nil) { _, completion, _ in
-                Task {
-                    await onChange()
-                    completion()
-                }
+        for t in observedTypes {
+            let q = HKObserverQuery(sampleType: t, predicate: nil) { _, completion, error in
+                guard error == nil else { return completion() }
+                onChange { completion() }
             }
             store.execute(q)
             observers.append(q)

@@ -1,4 +1,5 @@
 import Foundation
+import HealthKit
 import Testing
 @testable import Ryft
 
@@ -299,5 +300,104 @@ struct SyncEngineTests {
         #expect(health.resets == 1)
         #expect(sync.engineState.backfillDone) // drained again
         #expect(sync.engineState.streams["heart_rate"]?.records == 2) // counted from zero
+    }
+}
+
+@Suite("Sync engine: background, lock, deletions")
+@MainActor
+struct SyncEngineBackgroundTests {
+    @Test func stoppingFinishesThePageInFlightAndLeavesABacklog() async {
+        let clock = TestClock()
+        let health = MockHealthStore(streams: [.quantity(.heartRate), .sleep],
+                                     pages: [.quantity(.heartRate): [samples(2), samples(2)], .sleep: [samples(1)]])
+        health.commit(HealthPage(delta: HealthDelta(), anchor: nil, more: false), for: .workouts) // not a first sync
+        let api = MockPlatformAPI()
+        api.beforeSync = { try? await clock.sleep(for: .seconds(1)) }
+        let sync = SyncService(env: .test(api: api, health: health, clock: clock))
+        let run = Task { await sync.syncNow() }
+        #expect(await eventually { clock.pendingSleeps == 1 }) // page 0 uploading
+
+        await sync.stopAfterCurrentPage()
+        clock.advance(by: .seconds(1))
+        await run.value
+
+        #expect(api.count("sync") == 1) // page 1 never went up
+        #expect(health.committed.filter { $0 == .quantity(.heartRate) }.count == 1) // page 0's anchor is in
+        #expect(sync.hasBacklog && sync.lastError == nil)
+        #expect((sync.backlogBytes ?? 0) > 0 && !sync.engineState.backfillDone)
+    }
+
+    @Test func aLockedPhoneWaitsAndResumesAfterTheUnlock() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(2)]])
+        health.nextError = HKError(.errorDatabaseInaccessible)
+        let api = MockPlatformAPI()
+        let sync = SyncService(env: .test(api: api, health: health))
+
+        let touched = try? await sync.upload()
+
+        #expect(touched == [] && sync.waitingForUnlock)
+        #expect(sync.lastError == nil && sync.phase == .idle) // waiting, not failed
+        #expect(health.committed.isEmpty && api.count("sync") == 0)
+
+        await sync.syncNow() // unlocked
+        #expect(!sync.waitingForUnlock && api.count("sync") == 1)
+    }
+
+    @Test func deletionsInAppleHealthAreKeptForThePlatform() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(1)]])
+        let gone = [UUID(), UUID()]
+        health.deletions = [.quantity(.heartRate): gone]
+        let env = AppEnvironment.test(health: health)
+        let sync = SyncService(env: env)
+
+        await sync.syncNow()
+
+        let kept = PendingDeletions.load(account: env.auth.accountID ?? "", defaults: env.defaults)
+        #expect(kept["heart_rate"] == gone.map { $0.uuidString.lowercased() })
+        #expect(sync.engineState.pendingDeletions == 2)
+        let many = (0..<(PendingDeletions.limitPerStream + 10)).map { _ in UUID() }
+        let total = PendingDeletions.add(many, stream: .sleep, account: "a", defaults: env.defaults)
+        #expect(total == PendingDeletions.limitPerStream) // bounded, the newest kept
+        #expect(PendingDeletions.load(account: "a", defaults: env.defaults)["sleep"]?.last == many.last?.uuidString.lowercased())
+        SyncEngineState.wipe(defaults: env.defaults)
+        #expect(PendingDeletions.load(account: "a", defaults: env.defaults).isEmpty)
+    }
+
+    @Test func theBacklogIsEstimatedFromTheStreamsDone() {
+        var done = SyncEngineState.StreamProgress()
+        done.bytes = 4_000_000
+        done.backfilled = true
+        var half = SyncEngineState.StreamProgress()
+        half.bytes = 1_000_000
+        let streams = ["sleep": done, "heart_rate": half]
+        #expect(SyncEngineState.backlogEstimate(streams, remaining: ["heart_rate", "steps"]) == 3_000_000 + 4_000_000)
+        #expect(SyncEngineState.backlogEstimate([:], remaining: ["heart_rate"]) == SyncEngineState.unmeasuredStreamBytes)
+    }
+
+    @Test func observersAreRegisteredOnceAndADeliveryCompletesAfterItsUpload() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(1)]])
+        let api = MockPlatformAPI()
+        let env = AppEnvironment.test(api: api, health: health)
+        let state = AppState(env: env)
+        let sync = SyncService(env: env)
+        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock)
+
+        RyftApp.observeHealthKit(health, coordinator: coordinator) // launch
+        RyftApp.observeHealthKit(health, coordinator: coordinator) // bootstrap
+        #expect(health.observerRegistrations == 1)
+        #expect(await eventually { health.backgroundDeliveryEnabled })
+
+        let completed = SyncCoordinatorBackgroundTests.Completions()
+        health.deliverChange { completed.done() }
+        #expect(await eventually { completed.calls == 1 })
+        #expect(api.count("sync") == 1) // the completion came after the upload
+    }
+
+    @Test func backgroundRunsFailFastInsteadOfWaitingForANetwork() {
+        let c = APIClient.backgroundConfiguration
+        #expect(!c.waitsForConnectivity)
+        #expect(c.timeoutIntervalForRequest == 20 && c.timeoutIntervalForResource == 25)
+        #expect(APIClient.defaultConfiguration.waitsForConnectivity)
+        #expect(!APIClient.runsInBackground)
     }
 }
