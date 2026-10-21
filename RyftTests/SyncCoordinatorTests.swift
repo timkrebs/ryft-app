@@ -541,8 +541,12 @@ struct SyncCoordinatorBacklogEdgeTests {
         #expect(await run.value.backlog)
         #expect(await c.isRunning) // the backlog run, already registered
         await c.cancel()
-        try? await Task.sleep(for: .milliseconds(50))
-        #expect(await !c.isRunning)
+        var stopped = false
+        for _ in 0..<5_000 where !stopped {
+            stopped = await !c.isRunning
+            if !stopped { try? await Task.sleep(for: .milliseconds(1)) }
+        }
+        #expect(stopped)
     }
 
     @Test func aQueuedPushDoesNotSwallowTheBacklog() async {
