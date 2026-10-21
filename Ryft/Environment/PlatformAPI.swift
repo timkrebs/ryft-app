@@ -170,13 +170,26 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     init(screens: RyftDataSource = MockDataSource.shared, train: TrainDataSource = MockTrainSource.shared) {
         self.screens = screens
         self.train = train
+        #if DEBUG
+        faults = FaultInjection.parse(UserDefaults.standard.string(forKey: "RyftFault"))
+        #endif
     }
+
+    #if DEBUG
+    /// Fault injection (DEBUG only, compiled out of Release): `-RyftFault "/v1/me=429,/v1/days=timeout"` in
+    /// demo mode (or a test setting `faults`) makes the named routes fail the way the live client would after
+    /// its own retries. Keyed by the call name `enter` records.
+    var faults: [String: FaultInjection.Fault] = [:]
+    #endif
 
     /// Records the call, then throws a scripted failure if there is one.
     private func enter(_ name: String) throws {
         let error: Error? = lock.withLock {
             calls.append(name)
             if let e = failNext { failNext = nil; return e }
+            #if DEBUG
+            if let fault = faults[name] { return fault.error(route: name) }
+            #endif
             return failure
         }
         if let error { throw error }
@@ -465,3 +478,43 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     }
     func deleteSession(id: UUID) async throws { try enter("deleteSession"); try await train.deleteSession(id: id) }
 }
+
+#if DEBUG
+/// `-RyftFault "<path>=<fault>,…"`: `429`, `503`, `404`, `timeout`, `cancel`. Paths: `/v1/me`, `/v1/me/sync`,
+/// `/v1/days` (the list), `/v1/days/{day}` (also `/v1/days/today`), `/v1/trends`, `/v1/insights`, `/v1/config`,
+/// `/v1/sync`. Only the demo / mock API honours it; nothing of this exists in Release.
+enum FaultInjection {
+    enum Fault: String {
+        case tooManyRequests = "429", unavailable = "503", notFound = "404", timeout, cancel
+
+        /// What `APIClient` throws once its own retries are spent (`429`/`503` retry once or thrice first),
+        /// and what a cancelled `URLSession` task throws (`APIClient.perform` wraps it in `.transport`).
+        func error(route: String) -> Error {
+            let id = "fault-\(route)"
+            switch self {
+            case .tooManyRequests: return APIError.http(429, "", requestID: id)
+            case .unavailable: return APIError.http(503, "request timed out", requestID: id)
+            case .notFound: return APIError.http(404, "not found", requestID: id)
+            case .timeout: return APIError.transport(URLError(.timedOut))
+            case .cancel: return APIError.transport(URLError(.cancelled))
+            }
+        }
+    }
+
+    static let routes: [String: String] = [
+        "/v1/me": "me", "/v1/me/sync": "syncStatus", "/v1/days": "days", "/v1/days/{day}": "day",
+        "/v1/days/today": "day", "/v1/trends": "trends", "/v1/insights": "insights", "/v1/config": "config",
+        "/v1/sync": "sync",
+    ]
+
+    static func parse(_ spec: String?) -> [String: Fault] {
+        var out: [String: Fault] = [:]
+        for pair in (spec ?? "").split(separator: ",") {
+            let parts = pair.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count == 2, let route = routes[parts[0]], let fault = Fault(rawValue: parts[1]) else { continue }
+            out[route] = fault
+        }
+        return out
+    }
+}
+#endif
