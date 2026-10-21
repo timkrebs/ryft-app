@@ -80,13 +80,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "RYFT saves your strength workouts to Apple Health so they count in your activity — only if you turn it on."
+            "value" : "RYFT saves your strength workouts to Apple Health, only if you turn it on. It writes nothing else."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "RYFT speichert deine Krafttrainings in Apple Health, damit sie in deiner Aktivität zählen – nur wenn du das einschaltest."
+            "value" : "RYFT speichert deine Krafttrainings in Apple Health, nur wenn du das einschaltest. Sonst schreibt RYFT nichts."
           }
         }
       }

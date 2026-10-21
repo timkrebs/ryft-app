@@ -57,7 +57,7 @@
 	<key>NSHealthShareUsageDescription</key>
 	<string>RYFT reads heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts to calculate your recovery, strain and sleep scores. The data is sent to your RYFT account and never used for advertising.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>RYFT saves your strength workouts to Apple Health so they count in your activity — only if you turn it on.</string>
+	<string>RYFT saves your strength workouts to Apple Health, only if you turn it on. It writes nothing else.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>RyftAPIURL</key>
