@@ -5,7 +5,6 @@ import UIKit
 struct ProfileView: View {
     @Environment(ScreenModels.self) private var screens
     @Environment(Settings.self) private var settings
-    @Environment(AppState.self) private var state
     @Environment(\.openURL) private var openURL
     private var apiStatus = APIStatus.shared
 
@@ -15,6 +14,7 @@ struct ProfileView: View {
     @State private var showChangePassword = false
     @State private var showWithdrawConfirm = false
     @State private var legal: LegalPage?
+    @State private var editing: BodySetting?
 
     private var model: ProfileViewModel { screens.profile }
 
@@ -27,6 +27,7 @@ struct ProfileView: View {
                     .accessibilityAddTraits(.isHeader)
                 account
                 bodySection
+                sleepSection
                 privacy
                 data
                 if model.showsNotifications { notifications }
@@ -40,8 +41,7 @@ struct ProfileView: View {
         }
         .safariSheet($legal)
         .sheet(item: Bindable(model).exported) { ShareSheet(items: [$0.url]).presentationDetents([.medium, .large]) }
-        .onAppear { model.applyUser() }
-        .onChange(of: state.user) { model.applyUser() }
+        .bodySettingSheet($editing, editor: model.bodySettings)
         .task { await model.refreshHealthStatus() }
         .confirmationDialog("Re-upload the last 90 days of Health data?", isPresented: $showResyncConfirm,
                             titleVisibility: .visible) {
@@ -256,57 +256,62 @@ struct ProfileView: View {
     // MARK: body
 
     private var bodySection: some View {
-        ProfileSection(title: "Body") {
-            Stepper(value: Bindable(model).maxHR, in: 140...220) {
-                StepperLabel(title: "Max heart rate", value: model.maxHRText)
-            }
-            if let source = model.maxHRSourceText {
-                Text(source)
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            if model.canUseMaxHREstimate {
-                Button("Use the estimate") { Task { await model.useMaxHREstimate() } }
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.accent)
+        let editor = model.bodySettings
+        return ProfileSection(title: "Body") {
+            SettingRow(title: "Maximum heart rate", value: editor.maxHRText, detail: editor.maxHRSourceText) {
+                editing = .maxHR
             }
             HStack {
                 Text("Birth year").font(.ryft(.body)).foregroundStyle(Theme.textPrimary)
                 Spacer()
-                Picker("Birth year", selection: Binding(get: { model.birthYear },
-                                                        set: { y in if let y { Task { await model.setBirthYear(y) } } })) {
-                    if model.birthYear == nil { Text("Not set").tag(Int?.none) }
-                    ForEach(model.birthYears, id: \.self) { Text(verbatim: "\($0)").tag(Int?.some($0)) }
+                Picker("Birth year", selection: Binding(get: { editor.birthYear },
+                                                        set: { y in if let y { Task { await editor.setBirthYear(y) } } })) {
+                    if editor.birthYear == nil { Text("Not set").tag(Int?.none) }
+                    ForEach(editor.birthYears, id: \.self) { Text(verbatim: "\($0)").tag(Int?.some($0)) }
                 }
                 .pickerStyle(.menu)
                 .tint(Theme.accent)
+                .disabled(editor.isBusy)
             }
             .frame(minHeight: 44)
-            Stepper(value: Bindable(model).sleepBase, in: 240...720, step: 5) {
-                StepperLabel(title: "Sleep baseline", value: model.sleepBaseText)
+            if let error = editor.birthYearError {
+                InlineMessage(message: error, systemImage: "exclamationmark.circle", details: editor.birthYearErrorDetails)
             }
-            if let source = model.sleepBaseSourceText {
-                Text(source)
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            if model.canUseLearnedBase {
-                Button(model.usesLearnedTitle) { Task { await model.useLearnedBase() } }
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.accent)
-            }
-            Text("Changing a setting doesn't rescore past days until you tap Apply & recompute. Setting the baseline by hand stops RYFT from learning it.")
+            Text("Changing a setting doesn't rescore past days on its own.")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
-            PrimaryButton(title: "Apply & recompute 90 days", style: .secondary, busy: model.recomputing) {
-                await model.applyAndRecompute()
+            PrimaryButton(title: "Rescore the last 90 days", style: .secondary, busy: editor.rescoring) {
+                await editor.rescore()
             }
-            .disabled(!model.canRecompute)
-            if let status = model.recomputeStatus {
-                Text(status)
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
+            .disabled(!editor.canSave || editor.saving)
+            RescoreStatus(editor: editor)
+        }
+    }
+
+    // MARK: sleep
+
+    private var sleepSection: some View {
+        let editor = model.bodySettings
+        return ProfileSection(title: "Sleep") {
+            SettingRow(title: "Baseline sleep need", value: editor.sleepBaseText, detail: editor.sleepBaseSourceText) {
+                editing = .sleepBase
+            }
+            .accessibilityIdentifier("profile.sleepBase")
+            Text("Each night's sleep need starts from this baseline, plus top-ups for strain and sleep debt, minus naps.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            if screens.bedtime.isEnabled {
+                Divider().overlay(Theme.separator)
+                NavigationLink {
+                    SleepScheduleView(planner: screens.bedtime)
+                } label: {
+                    SettingRowLabel(title: "Bedtime & wake", value: screens.bedtime.summary,
+                                    detail: screens.bedtime.summaryDetail)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("profile.bedtime")
             }
         }
     }
@@ -649,6 +654,363 @@ struct SyncDetailsView: View {
     }
 }
 
+// MARK: - body settings (shared by onboarding, Sleep and Profile)
+
+/// Which setting's editor is open.
+enum BodySetting: String, Identifiable {
+    case sleepBase, maxHR
+    var id: String { rawValue }
+}
+
+extension View {
+    /// The editor for `item` as a sheet.
+    func bodySettingSheet(_ item: Binding<BodySetting?>, editor: BodySettingsEditor) -> some View {
+        sheet(item: item) { setting in
+            NavigationStack {
+                switch setting {
+                case .sleepBase: BaselineSleepNeedForm(editor: editor, showsClose: true)
+                case .maxHR: MaxHeartRateForm(editor: editor, showsClose: true)
+                }
+            }
+            .presentationDetents([.large])
+        }
+    }
+}
+
+/// A setting you can tap: title and value, where the value comes from underneath, a chevron.
+struct SettingRow: View {
+    let title: LocalizedStringKey
+    let value: String
+    var detail: String? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            SettingRowLabel(title: title, value: value, detail: detail)
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(Text("Opens the editor"))
+    }
+}
+
+/// `SettingRow`'s look, for a `NavigationLink` too. At accessibility sizes the value goes
+/// under the title instead of fighting it for the line.
+struct SettingRowLabel: View {
+    let title: LocalizedStringKey
+    let value: String
+    var detail: String? = nil
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if typeSize.isAccessibilitySize {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(title)
+                                .font(.ryft(.body))
+                                .foregroundStyle(Theme.textPrimary)
+                            Text(value)
+                                .font(.ryft(.body))
+                                .monospacedDigit()
+                                .foregroundStyle(Theme.textPrimary)
+                        }
+                        Spacer(minLength: 8)
+                    } else {
+                        Text(title)
+                            .font(.ryft(.body))
+                            .foregroundStyle(Theme.textPrimary)
+                        Spacer(minLength: 8)
+                        Text(value)
+                            .font(.ryft(.body))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.textPrimary)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.textTertiary)
+                        .accessibilityHidden(true)
+                }
+                if let detail {
+                    Text(detail)
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+    }
+}
+
+/// A big value between − and +; VoiceOver adjusts it by swiping up and down.
+struct SettingStepper: View {
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    let step: Int
+    let label: LocalizedStringKey
+    let text: (Int) -> String
+    /// The − and + grow with the text.
+    @ScaledMetric(relativeTo: .title) private var buttonSize: CGFloat = 48
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private func change(by delta: Int) {
+        withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick)) {
+            value = min(range.upperBound, max(range.lowerBound, value + delta))
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 20) {
+            button("minus", enabled: value > range.lowerBound) { change(by: -step) }
+            Text(text(value))
+                .font(.ryft(.numberLarge))
+                .monospacedDigit()
+                .foregroundStyle(Theme.textPrimary)
+                .contentTransition(.numericText(value: Double(value)))
+                .frame(minWidth: 150)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            button("plus", enabled: value < range.upperBound) { change(by: step) }
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(label))
+        .accessibilityValue(Text(text(value)))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: change(by: step)
+            case .decrement: change(by: -step)
+            @unknown default: break
+            }
+        }
+    }
+
+    private func button(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(.title3, weight: .semibold))
+                .frame(width: buttonSize, height: buttonSize)
+                .background(Theme.surfaceRaised, in: Circle())
+                .foregroundStyle(enabled ? Theme.textPrimary : Theme.textTertiary)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+    }
+}
+
+/// Baseline sleep need: 15-minute steps, 4–12 h. In a sheet (`showsClose`) or pushed from
+/// Sleep's need breakdown.
+struct BaselineSleepNeedForm: View {
+    let editor: BodySettingsEditor
+    var showsClose = false
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft = BodySettingsEditor.defaultSleepBase
+    /// Edited by hand: no longer follows the saved value.
+    @State private var touched = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                SettingStepper(value: drafted, range: BodySettingsEditor.sleepBaseRange, step: BodySettingsEditor.sleepBaseStep,
+                             label: "Baseline sleep need") { Fmt.duration(minutes: $0) }
+                    .padding(.vertical, 8)
+                if let source = editor.sleepBaseSourceText {
+                    Label(source, systemImage: "info.circle")
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                Text("Each night's sleep need starts from this baseline, plus top-ups for strain and sleep debt, minus naps. RYFT adjusts it from your nights unless you set it.")
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if editor.canUseLearnedBase {
+                    Button(editor.usesLearnedTitle) {
+                        Task {
+                            await editor.useLearnedSleepBase()
+                            reset()
+                        }
+                    }
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.accent)
+                    .frame(minHeight: 44)
+                    .disabled(editor.isBusy)
+                }
+                SettingSaveFooter(editor: editor)
+            }
+            .padding(Theme.Metrics.screenPadding)
+        }
+        .background(Theme.background.ignoresSafeArea())
+        .navigationTitle(Text("Baseline sleep need"))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) { SheetTitle(text: "Baseline sleep need") }
+            if showsClose {
+                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") {
+                    Task {
+                        await editor.setSleepBase(draft)
+                        reset()
+                    }
+                }
+                .disabled(draft == editor.sleepBase || editor.isBusy || !editor.canSave)
+                    .accessibilityIdentifier("sleepBase.save")
+            }
+        }
+        .onAppear {
+            editor.begin()
+            reset()
+        }
+        // The account arrived (or changed) while the form was open: follow it until edited.
+        .onChange(of: editor.sleepBase) { if !touched { draft = editor.sleepBase } }
+    }
+
+    /// Back to what's saved: after a save (taken or refused) or going back to learned.
+    private func reset() {
+        draft = editor.sleepBase
+        touched = false
+    }
+
+    private var drafted: Binding<Int> {
+        Binding(get: { draft }, set: { draft = $0; touched = true })
+    }
+}
+
+/// Maximum heart rate: 100–230 bpm.
+struct MaxHeartRateForm: View {
+    let editor: BodySettingsEditor
+    var showsClose = false
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft = BodySettingsEditor.defaultMaxHR
+    @State private var touched = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                SettingStepper(value: drafted, range: BodySettingsEditor.maxHRRange, step: 1,
+                             label: "Maximum heart rate") { "\($0) bpm" }
+                    .padding(.vertical, 8)
+                if let source = editor.maxHRSourceText {
+                    Label(source, systemImage: "info.circle")
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                Text("Strain and heart-rate zones are measured against it. If you know yours from a test, set it here.")
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if editor.canUseMaxHREstimate {
+                    Button("Use the estimate") {
+                        Task {
+                            await editor.useMaxHREstimate()
+                            reset()
+                        }
+                    }
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.accent)
+                    .frame(minHeight: 44)
+                    .disabled(editor.isBusy)
+                }
+                SettingSaveFooter(editor: editor)
+            }
+            .padding(Theme.Metrics.screenPadding)
+        }
+        .background(Theme.background.ignoresSafeArea())
+        .navigationTitle(Text("Maximum heart rate"))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) { SheetTitle(text: "Maximum heart rate") }
+            if showsClose {
+                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") {
+                    Task {
+                        await editor.setMaxHR(draft)
+                        reset()
+                    }
+                }
+                .disabled(draft == editor.maxHR || editor.isBusy || !editor.canSave)
+            }
+        }
+        .onAppear {
+            editor.begin()
+            reset()
+        }
+        .onChange(of: editor.maxHR) { if !touched { draft = editor.maxHR } }
+    }
+
+    private func reset() {
+        draft = editor.maxHR
+        touched = false
+    }
+
+    private var drafted: Binding<Int> {
+        Binding(get: { draft }, set: { draft = $0; touched = true })
+    }
+}
+
+/// A sheet's title between its two buttons: smaller rather than cut off (German runs long).
+struct SheetTitle: View {
+    let text: LocalizedStringKey
+
+    var body: some View {
+        Text(text)
+            .font(.headline)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// Under an editor: a refusal, or after a save that past days keep their scores, with the
+/// offer to rescore them.
+private struct SettingSaveFooter: View {
+    let editor: BodySettingsEditor
+
+    var body: some View {
+        if editor.saving {
+            ProgressView().tint(Theme.accent)
+        }
+        if let error = editor.error {
+            InlineMessage(message: error, systemImage: "exclamationmark.circle", details: editor.errorDetails)
+                .accessibilityIdentifier("bodySettings.error")
+        }
+        if editor.savedChange || editor.rescoreStatus != nil {
+            VStack(alignment: .leading, spacing: 10) {
+                if editor.savedChange {
+                    Label("Saved. Past days keep their scores until you rescore them.", systemImage: "checkmark.circle")
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                PrimaryButton(title: "Rescore the last 90 days", style: .secondary, busy: editor.rescoring) {
+                    await editor.rescore()
+                }
+                .disabled(editor.saving)
+                RescoreStatus(editor: editor)
+            }
+        }
+    }
+}
+
+/// How the rescore went; a failure with its request ID.
+private struct RescoreStatus: View {
+    let editor: BodySettingsEditor
+
+    var body: some View {
+        if let details = editor.rescoreDetails, let status = editor.rescoreStatus {
+            InlineMessage(message: status, systemImage: "exclamationmark.circle", details: details)
+        } else if let status = editor.rescoreStatus {
+            Text(status)
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textSecondary)
+        }
+    }
+}
+
 private struct ProfileSection<Content: View>: View {
     let title: LocalizedStringKey
     @ViewBuilder var content: () -> Content
@@ -686,23 +1048,6 @@ private struct ProviderBadge: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(Theme.surfaceRaised, in: Capsule())
-    }
-}
-
-private struct StepperLabel: View {
-    let title: LocalizedStringKey
-    let value: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.textSecondary)
-            Text(value)
-                .font(.ryft(.body))
-                .monospacedDigit()
-                .foregroundStyle(Theme.textPrimary)
-        }
     }
 }
 
@@ -787,6 +1132,31 @@ private extension View {
             .padding(.vertical, 12)
             .background(Theme.surfaceRaised.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
+}
+
+#Preview("Baseline sleep need · dark") {
+    let state = AppState.preview()
+    NavigationStack { BaselineSleepNeedForm(editor: BodySettingsEditor(state: state), showsClose: true) }
+        .previewEnvironment(state)
+}
+
+#Preview("Baseline sleep need · light · de") {
+    let state = AppState.preview()
+    NavigationStack { BaselineSleepNeedForm(editor: BodySettingsEditor(state: state), showsClose: true) }
+        .previewEnvironment(state, scheme: .light)
+        .environment(\.locale, Locale(identifier: "de"))
+}
+
+#Preview("Maximum heart rate · dark") {
+    let state = AppState.preview()
+    NavigationStack { MaxHeartRateForm(editor: BodySettingsEditor(state: state), showsClose: true) }
+        .previewEnvironment(state)
+}
+
+#Preview("Maximum heart rate · light") {
+    let state = AppState.preview()
+    NavigationStack { MaxHeartRateForm(editor: BodySettingsEditor(state: state), showsClose: true) }
+        .previewEnvironment(state, scheme: .light)
 }
 
 #Preview("Sync details · dark") {

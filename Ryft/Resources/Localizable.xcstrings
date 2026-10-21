@@ -66,6 +66,16 @@
         }
       }
     },
+    "%@ · %lld %%" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$lld %%"
+          }
+        }
+      }
+    },
     "%@ · Request ID %@" : {
       "localizations" : {
         "de" : {
@@ -82,12 +92,32 @@
         }
       }
     },
+    "%@ · weekend %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · Wochenende %2$@"
+          }
+        }
+      }
+    },
     "%@: %@" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@: %2$@"
+          }
+        }
+      }
+    },
+    "%lld min" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Min."
           }
         }
       }
@@ -148,6 +178,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld von %2$lld Nächten. Die Bereitschaft erscheint, sobald die Ausgangswerte vollständig sind."
+          }
+        }
+      }
+    },
+    "A notification %lld min before tonight's bedtime. It moves with your day." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Mitteilung %lld Min. vor deiner heutigen Schlafenszeit. Sie bewegt sich mit deinem Tag."
+          }
+        }
+      }
+    },
+    "A notification at your wake time. It won't ring like an alarm on this iOS version." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Mitteilung zu deiner Aufwachzeit. Sie klingelt auf dieser iOS-Version nicht wie ein Wecker."
+          }
+        }
+      }
+    },
+    "A real alarm: it rings in Silent mode and Focus, with Stop and Snooze." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein echter Wecker: Er klingelt auch im Stumm-Modus und bei Fokus, mit Stopp und Schlummern."
           }
         }
       }
@@ -268,6 +328,26 @@
         }
       }
     },
+    "Aim for" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziel"
+          }
+        }
+      }
+    },
+    "alarm" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wecker"
+          }
+        }
+      }
+    },
     "Allow it in Health → Sharing → Apps → RYFT → Workouts." : {
       "localizations" : {
         "de" : {
@@ -298,22 +378,22 @@
         }
       }
     },
-    "Back to the estimate. Apply & recompute rescores past days with it." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zurück zur Schätzung. „Übernehmen & neu berechnen“ bewertet vergangene Tage damit neu."
-          }
-        }
-      }
-    },
     "Backlog" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rückstand"
+          }
+        }
+      }
+    },
+    "Baseline sleep need" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlaf-Grundbedarf"
           }
         }
       }
@@ -338,6 +418,26 @@
         }
       }
     },
+    "Bedtime & wake" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlafenszeit & Aufwachen"
+          }
+        }
+      }
+    },
+    "Bedtime reminder" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erinnerung zur Schlafenszeit"
+          }
+        }
+      }
+    },
     "Birth year" : {
       "localizations" : {
         "de" : {
@@ -354,6 +454,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Blutsauerstoff"
+          }
+        }
+      }
+    },
+    "Change baseline" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grundbedarf ändern"
+          }
+        }
+      }
+    },
+    "Changing a setting doesn't rescore past days on its own." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Änderung bewertet vergangene Tage nicht von selbst neu."
           }
         }
       }
@@ -428,6 +548,16 @@
         }
       }
     },
+    "Default" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Standard"
+          }
+        }
+      }
+    },
     "Default · add your birth year for an estimate" : {
       "localizations" : {
         "de" : {
@@ -454,6 +584,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gemerkte Löschungen"
+          }
+        }
+      }
+    },
+    "Each night's sleep need starts from this baseline, plus top-ups for strain and sleep debt, minus naps." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Schlafbedarf jeder Nacht beginnt bei diesem Grundbedarf, plus Zuschläge für Belastung und Schlafdefizit, minus Nickerchen."
+          }
+        }
+      }
+    },
+    "Each night's sleep need starts from this baseline, plus top-ups for strain and sleep debt, minus naps. RYFT adjusts it from your nights unless you set it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Schlafbedarf jeder Nacht beginnt bei diesem Grundbedarf, plus Zuschläge für Belastung und Schlafdefizit, minus Nickerchen. RYFT passt ihn anhand deiner Nächte an, außer du legst ihn selbst fest."
           }
         }
       }
@@ -528,16 +678,6 @@
         }
       }
     },
-    "Estimated from your age. You can change it in Profile." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aus deinem Alter geschätzt. Du kannst sie im Profil ändern."
-          }
-        }
-      }
-    },
     "Export my data first" : {
       "localizations" : {
         "de" : {
@@ -568,6 +708,16 @@
         }
       }
     },
+    "for %lld %%" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "für %lld %%"
+          }
+        }
+      }
+    },
     "From Apple Health · not scored yet" : {
       "localizations" : {
         "de" : {
@@ -584,6 +734,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vollständig neu synchronisieren"
+          }
+        }
+      }
+    },
+    "Get by" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durchkommen"
           }
         }
       }
@@ -708,6 +868,36 @@
         }
       }
     },
+    "In bed by" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Im Bett um"
+          }
+        }
+      }
+    },
+    "In bed by %@ for %lld %% of your need: %@." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um %1$@ im Bett für %2$lld %% deines Bedarfs: %3$@."
+          }
+        }
+      }
+    },
+    "In bed by %@ for your full %@." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um %1$@ im Bett für deine vollen %2$@."
+          }
+        }
+      }
+    },
     "In your RYFT account, on servers in the EU. Never sold, never used for advertising." : {
       "localizations" : {
         "de" : {
@@ -768,6 +958,26 @@
         }
       }
     },
+    "Learned" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gelernt"
+          }
+        }
+      }
+    },
+    "Learned · updated %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gelernt · aktualisiert %@"
+          }
+        }
+      }
+    },
     "Maximum heart rate" : {
       "localizations" : {
         "de" : {
@@ -794,6 +1004,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Seit dem Start keine Anfragen."
+          }
+        }
+      }
+    },
+    "Not allowed in iOS Settings." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In den iOS-Einstellungen nicht erlaubt."
           }
         }
       }
@@ -878,6 +1098,16 @@
         }
       }
     },
+    "Off" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus"
+          }
+        }
+      }
+    },
     "Offline — will sync when back" : {
       "localizations" : {
         "de" : {
@@ -908,12 +1138,62 @@
         }
       }
     },
+    "Opens the editor" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet die Bearbeitung"
+          }
+        }
+      }
+    },
     "Opens what's needed" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Öffnet, was nötig ist"
+          }
+        }
+      }
+    },
+    "Peak" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bestform"
+          }
+        }
+      }
+    },
+    "Perform" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leistung"
+          }
+        }
+      }
+    },
+    "Planned %@ to %@, actual %@ to %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geplant %1$@ bis %2$@, tatsächlich %3$@ bis %4$@"
+          }
+        }
+      }
+    },
+    "Planned %@–%@ · actual %@–%@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geplant %1$@–%2$@ · tatsächlich %3$@–%4$@"
           }
         }
       }
@@ -964,6 +1244,56 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Apple Health lesen"
+          }
+        }
+      }
+    },
+    "Remind me before bedtime" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erinnere mich vor der Schlafenszeit"
+          }
+        }
+      }
+    },
+    "Remind me to wind down" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erinnere mich ans Runterfahren"
+          }
+        }
+      }
+    },
+    "reminder" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erinnerung"
+          }
+        }
+      }
+    },
+    "Rescore the last 90 days" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die letzten 90 Tage neu bewerten"
+          }
+        }
+      }
+    },
+    "Rescoring — scores update in a few seconds." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird neu bewertet – die Werte aktualisieren sich in wenigen Sekunden."
           }
         }
       }
@@ -1028,6 +1358,26 @@
         }
       }
     },
+    "RYFT adjusts this from your nights unless you set it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT passt das anhand deiner Nächte an, außer du legst es selbst fest."
+          }
+        }
+      }
+    },
+    "RYFT couldn't take that change. Try again later." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT konnte diese Änderung nicht übernehmen. Versuch es später noch einmal."
+          }
+        }
+      }
+    },
     "RYFT doesn't sync or score your health data until you agree." : {
       "localizations" : {
         "de" : {
@@ -1058,16 +1408,6 @@
         }
       }
     },
-    "RYFT learns this from your nights." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "RYFT lernt ihn aus deinen Nächten."
-          }
-        }
-      }
-    },
     "RYFT needs your consent before it can sync your health data." : {
       "localizations" : {
         "de" : {
@@ -1084,6 +1424,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT synchronisiert und bewertet deine Gesundheitsdaten nicht mehr. Gelöscht wird nichts: Deine Werte bleiben lesbar, und du kannst deine Daten jederzeit exportieren oder dein Konto löschen."
+          }
+        }
+      }
+    },
+    "RYFT takes a baseline between 4 and 12 hours." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT nimmt einen Grundbedarf zwischen 4 und 12 Stunden."
+          }
+        }
+      }
+    },
+    "RYFT takes a maximum heart rate between 100 and 230 bpm." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT nimmt eine maximale Herzfrequenz zwischen 100 und 230 bpm."
+          }
+        }
+      }
+    },
+    "Same time on weekdays" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gleiche Zeit an Wochentagen"
+          }
+        }
+      }
+    },
+    "Saved. Past days keep their scores until you rescore them." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gesichert. Vergangene Tage behalten ihre Werte, bis du sie neu bewertest."
           }
         }
       }
@@ -1158,12 +1538,52 @@
         }
       }
     },
+    "Set by you · learned %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Von dir gesetzt · gelernt %@"
+          }
+        }
+      }
+    },
+    "Set up Bedtime & wake" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlafenszeit & Aufwachen einrichten"
+          }
+        }
+      }
+    },
     "Setting up RYFT" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT wird eingerichtet"
+          }
+        }
+      }
+    },
+    "Shows how your sleep need adds up, and your baseline to change" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt, wie sich dein Schlafbedarf zusammensetzt, und deinen Grundbedarf zum Ändern"
+          }
+        }
+      }
+    },
+    "Shows your baseline sleep need to change" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt deinen Schlaf-Grundbedarf zum Ändern"
           }
         }
       }
@@ -1194,6 +1614,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schlaf"
+          }
+        }
+      }
+    },
+    "Snooze" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlummern"
+          }
+        }
+      }
+    },
+    "Snoozing" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlummert"
           }
         }
       }
@@ -1234,6 +1674,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schritte"
+          }
+        }
+      }
+    },
+    "Stop" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stopp"
+          }
+        }
+      }
+    },
+    "Strain and heart-rate zones are measured against it. If you know yours from a test, set it here." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Belastung und Herzfrequenzzonen werden daran gemessen. Wenn du deine aus einem Test kennst, leg sie hier fest."
           }
         }
       }
@@ -1288,6 +1748,26 @@
         }
       }
     },
+    "Tell RYFT when you want to wake up. It tells you when to go to bed, with what today's strain and your sleep debt add." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sag RYFT, wann du aufwachen willst. RYFT sagt dir, wann du ins Bett solltest – mit dem, was die heutige Belastung und dein Schlafdefizit dazugeben."
+          }
+        }
+      }
+    },
+    "The last 90 days are rescored with your settings." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die letzten 90 Tage sind mit deinen Einstellungen neu bewertet."
+          }
+        }
+      }
+    },
     "The privacy policy changed since you agreed on %@. Read what changed, then agree again." : {
       "localizations" : {
         "de" : {
@@ -1304,6 +1784,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Die Datenschutzerklärung wurde gerade aktualisiert. Lies die neue Fassung und stimme dann erneut zu."
+          }
+        }
+      }
+    },
+    "The wake-up alarm is off: iOS doesn't allow RYFT's alarms. Turn it on again to allow them." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Wecker ist aus: iOS erlaubt RYFTs Wecker nicht. Schalte ihn wieder ein, um sie zu erlauben."
           }
         }
       }
@@ -1378,6 +1868,26 @@
         }
       }
     },
+    "This night was scored before RYFT broke the need down." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Nacht wurde bewertet, bevor RYFT den Bedarf aufgeschlüsselt hat."
+          }
+        }
+      }
+    },
+    "Time to get up" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeit aufzustehen"
+          }
+        }
+      }
+    },
     "To calculate your scores, RYFT processes health data from Apple Health. Here is what that means." : {
       "localizations" : {
         "de" : {
@@ -1388,12 +1898,52 @@
         }
       }
     },
+    "Tonight's bedtime needs a connection. It appears once you're online." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Schlafenszeit für heute Nacht braucht eine Verbindung. Sie erscheint, sobald du online bist."
+          }
+        }
+      }
+    },
+    "Tonight's plan is for another time zone than this iPhone's." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Plan für heute Nacht gilt für eine andere Zeitzone als die dieses iPhones."
+          }
+        }
+      }
+    },
     "Too many tries. Wait an hour, then try the code again." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zu viele Versuche. Warte eine Stunde und versuche den Code dann erneut."
+          }
+        }
+      }
+    },
+    "Try another wake time" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Andere Aufwachzeit ausprobieren"
+          }
+        }
+      }
+    },
+    "Turn off Bedtime & wake" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlafenszeit & Aufwachen ausschalten"
           }
         }
       }
@@ -1548,6 +2098,56 @@
         }
       }
     },
+    "Wake %@ · need %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufwachen %1$@ · Bedarf %2$@"
+          }
+        }
+      }
+    },
+    "Wake me at my wake time" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weck mich zu meiner Aufwachzeit"
+          }
+        }
+      }
+    },
+    "Wake-up alarm" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wecker"
+          }
+        }
+      }
+    },
+    "Weekdays" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wochentage"
+          }
+        }
+      }
+    },
+    "Weekend" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wochenende"
+          }
+        }
+      }
+    },
     "What changed" : {
       "localizations" : {
         "de" : {
@@ -1574,6 +2174,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wer sie sehen kann"
+          }
+        }
+      }
+    },
+    "Wind down" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Runterfahren"
           }
         }
       }
@@ -1628,16 +2238,6 @@
         }
       }
     },
-    "You can change it in Profile." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Du kannst sie im Profil ändern."
-          }
-        }
-      }
-    },
     "You can leave the app — RYFT keeps going in the background." : {
       "localizations" : {
         "de" : {
@@ -1654,6 +2254,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bei diesem Konto kannst du dich anmelden mit:"
+          }
+        }
+      }
+    },
+    "Your baseline is yours to set. The top-ups follow yesterday's strain and your sleep debt; a nap lowers the next night's need." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deinen Grundbedarf legst du fest. Die Zuschläge folgen der Belastung von gestern und deinem Schlafdefizit; ein Nickerchen senkt den Bedarf der nächsten Nacht."
           }
         }
       }
@@ -1704,6 +2314,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Deine Sitzung ist abgelaufen. Melde dich erneut an, um weiterzumachen."
+          }
+        }
+      }
+    },
+    "Your wake time from Bedtime & wake." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Aufwachzeit aus „Schlafenszeit & Aufwachen“."
           }
         }
       }
@@ -3300,18 +3920,6 @@
         }
       }
     },
-    "Apply & recompute 90 days" : {
-      "comment" : "Button title to apply and recompute 90 days of data.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Übernehmen & 90 Tage neu berechnen"
-          }
-        }
-      }
-    },
     "As of %@" : {
       "comment" : "A label that shows the date and time when the sleep plan was generated.",
       "isCommentAutoGenerated" : true,
@@ -3464,18 +4072,6 @@
           "stringUnit" : {
             "state" : "machine_translated",
             "value" : "Wach"
-          }
-        }
-      }
-    },
-    "Back to the learned baseline. Apply & recompute rescores past nights with it." : {
-      "comment" : "Text shown when the user opts to revert to the learned sleep base value.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zurück zum gelernten Grundbedarf. „Übernehmen & neu berechnen“ bewertet vergangene Nächte damit neu."
           }
         }
       }
@@ -3799,18 +4395,6 @@
           "stringUnit" : {
             "state" : "machine_translated",
             "value" : "Passwort ändern"
-          }
-        }
-      }
-    },
-    "Changing a setting doesn't rescore past days until you tap Apply & recompute. Setting the baseline by hand stops RYFT from learning it." : {
-      "comment" : "A description of the body settings section.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eine Änderung bewertet vergangene Tage erst neu, wenn du „Übernehmen & neu berechnen“ tippst. Ein von Hand gesetzter Grundbedarf wird nicht mehr gelernt."
           }
         }
       }
@@ -4347,18 +4931,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tief + REM"
-          }
-        }
-      }
-    },
-    "Default · %@" : {
-      "comment" : "Text displayed in the \"Sleep\" section of the Profile screen.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Standard · %@"
           }
         }
       }
@@ -5885,36 +6457,6 @@
         }
       }
     },
-    "Learned · %@" : {
-      "comment" : "Date and time of the last update.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Gelernt · %@"
-          }
-        }
-      }
-    },
-    "Learned · %@ (updated %@)" : {
-      "comment" : "\"Learned · 7h 35m (updated Mon)\"",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Gelernt · %@ (aktualisiert %@)"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "Learned · %1$@ (updated %2$@)"
-          }
-        }
-      }
-    },
     "Learning your baseline — %lld nights to go." : {
       "comment" : "Today, while the 7-night baseline is being built. The argument is the number of nights still needed (1–7).",
       "localizations" : {
@@ -6294,18 +6836,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Max."
-          }
-        }
-      }
-    },
-    "Max heart rate" : {
-      "comment" : "Label for a stepper that adjusts the user's maximum heart rate.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Maximale Herzfrequenz"
           }
         }
       }
@@ -7595,18 +8125,6 @@
         }
       }
     },
-    "Planner" : {
-      "comment" : "Mode of the Sleep screen that shows a planner.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Planer"
-          }
-        }
-      }
-    },
     "Plans" : {
       "comment" : "The title of a screen that displays a list of exercise plans.",
       "isCommentAutoGenerated" : true,
@@ -7939,18 +8457,6 @@
           "stringUnit" : {
             "state" : "machine_translated",
             "value" : "Letzte Sätze"
-          }
-        }
-      }
-    },
-    "Recomputing — scores update in a few seconds." : {
-      "comment" : "A message displayed when recomputing the user's scores.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wird neu berechnet – die Werte aktualisieren sich in wenigen Sekunden."
           }
         }
       }
@@ -8589,18 +9095,6 @@
         }
       }
     },
-    "Scores recomputed with your new settings." : {
-      "comment" : "Text displayed in a notification after the user's scores have been recomputed with their new settings.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Werte mit deinen neuen Einstellungen neu berechnet."
-          }
-        }
-      }
-    },
     "Search exercises" : {
       "comment" : "The placeholder text for the search bar in the exercise picker.",
       "isCommentAutoGenerated" : true,
@@ -8782,36 +9276,6 @@
         }
       }
     },
-    "Set by you · %@" : {
-      "comment" : "Text that appears in the \"Settings\" screen, describing how the sleep base was set.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Von dir gesetzt · %@"
-          }
-        }
-      }
-    },
-    "Set by you · %@ · learned %@" : {
-      "comment" : "Text displayed in the body settings section of the profile view, showing the user's sleep base, alongside the default value.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Von dir gesetzt · %@ · gelernt %@"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "Set by you · %1$@ · learned %2$@"
-          }
-        }
-      }
-    },
     "Set new password" : {
       "comment" : "Title of the navigation bar.",
       "isCommentAutoGenerated" : true,
@@ -8952,18 +9416,6 @@
           "stringUnit" : {
             "state" : "machine_translated",
             "value" : "Schlaf"
-          }
-        }
-      }
-    },
-    "Sleep baseline" : {
-      "comment" : "Label for a stepper that adjusts the sleep baseline.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Schlafbasis"
           }
         }
       }

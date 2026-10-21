@@ -107,7 +107,11 @@ final class OnboardingCoordinator {
         self.state = state
         self.apiStatus = apiStatus
         self.startSync = startSync
+        bodySettings = BodySettingsEditor(state: state)
     }
+
+    /// About you: maximum heart rate and baseline sleep need, editable right there.
+    let bodySettings: BodySettingsEditor
 
     private var env: AppEnvironment { state.env }
     private var api: PlatformAPI { env.api }
@@ -692,6 +696,7 @@ struct CheckboxToggleStyle: ToggleStyle {
 struct AboutYouView: View {
     let model: OnboardingCoordinator
     @State private var year: Int?
+    @State private var editing: BodySetting?
     @Environment(\.appEnvironment) private var env
 
     private var years: [Int] {
@@ -702,14 +707,26 @@ struct AboutYouView: View {
         OnboardingScreen(symbol: "person.text.rectangle",
                          title: "About you",
                          text: "Your birth year gives an estimate of your maximum heart rate, which strain and heart-rate zones are measured against. RYFT keeps only the year.") {
-            if model.aboutYouSaved, let user = model.user {
+            if model.aboutYouSaved, model.user != nil {
+                let editor = model.bodySettings
                 VStack(alignment: .leading, spacing: 14) {
-                    AboutYouValue(title: "Maximum heart rate", value: "\(user.maxHr) bpm",
-                                  note: user.maxHrSource == .estimated
-                                      ? "Estimated from your age. You can change it in Profile."
-                                      : "You can change it in Profile.")
-                    AboutYouValue(title: "Sleep need", value: Fmt.duration(minutes: user.sleepBaseMin),
-                                  note: "RYFT learns this from your nights.")
+                    AboutYouValue {
+                        SettingRow(title: "Maximum heart rate", value: editor.maxHRText, detail: editor.maxHRSourceText) {
+                            editing = .maxHR
+                        }
+                        .accessibilityIdentifier("aboutYou.maxHR")
+                    }
+                    AboutYouValue {
+                        SettingRow(title: "Baseline sleep need", value: editor.sleepBaseText,
+                                   detail: editor.sleepBaseSourceText) {
+                            editing = .sleepBase
+                        }
+                        .accessibilityIdentifier("aboutYou.sleepBase")
+                        Text("RYFT adjusts this from your nights unless you set it.")
+                            .font(.ryft(.callout))
+                            .foregroundStyle(Theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 PrimaryButton(title: "Continue") { model.finishAboutYou() }
                     .accessibilityIdentifier("aboutYou.continue")
@@ -730,37 +747,31 @@ struct AboutYouView: View {
                 LaterButton(title: "Skip") { model.finishAboutYou() }
             }
         }
+        .bodySettingSheet($editing, editor: model.bodySettings)
     }
 }
 
-private struct AboutYouValue: View {
-    let title: LocalizedStringKey
-    let value: String
-    let note: LocalizedStringKey
+/// One setting on About you, on a tile.
+private struct AboutYouValue<Content: View>: View {
+    @ViewBuilder var content: () -> Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title).font(.ryft(.headline)).foregroundStyle(Theme.textPrimary)
-                Spacer()
-                Text(value).font(.ryft(.headline)).monospacedDigit().foregroundStyle(Theme.textPrimary)
-            }
-            Text(note).font(.ryft(.callout)).foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(14)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
-        .accessibilityElement(children: .combine)
+        VStack(alignment: .leading, spacing: 6) { content() }
+            .padding(14)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
     }
 }
 
 /// One onboarding step on mock data, for previews and the Debug `-RyftScreen` captures.
 struct OnboardingStepPreview: View {
     let step: OnboardingCoordinator.Step
+    /// About you after the birth year was saved: the values, editable.
+    var saved = false
     @State private var model = OnboardingCoordinator(state: AppState.preview(), apiStatus: APIStatus()) {}
 
     var body: some View {
         OnboardingStepView(step: step, model: model)
+            .task { if saved { await model.saveAboutYou(birthYear: 1990) } }
     }
 }
 
@@ -782,6 +793,14 @@ struct OnboardingStepPreview: View {
 
 #Preview("About you · dark") {
     OnboardingStepPreview(step: .aboutYou).previewEnvironment()
+}
+
+#Preview("About you · saved · dark") {
+    OnboardingStepPreview(step: .aboutYou, saved: true).previewEnvironment()
+}
+
+#Preview("About you · saved · light") {
+    OnboardingStepPreview(step: .aboutYou, saved: true).previewEnvironment(scheme: .light)
 }
 
 #Preview("About you · light") {

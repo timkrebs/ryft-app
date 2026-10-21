@@ -163,13 +163,9 @@ final class AppState {
         if isDemo { repository.clear() } else { repository.invalidate() }
     }
 
-    func updateUser(_ patch: UserPatch) async {
-        do {
-            user = try await source.patchMe(patch)
-        } catch {
-            self.error = error.localizedDescription
-            self.errorDetails = error.diagnosticDetails
-        }
+    /// `PATCH /v1/me`; a failure is the caller's to show (the setting's form, inline).
+    func patchUser(_ patch: UserPatch) async throws {
+        user = try await source.patchMe(patch)
     }
 
     // MARK: per-screen data (cache-first, revalidated)

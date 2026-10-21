@@ -11,6 +11,8 @@ struct ReadinessEntry: TimelineEntry {
 
     /// What it shows at `date` (yesterday's score is no score for today).
     var shown: ReadinessSnapshot? { snapshot?.asOf(date) }
+    /// "Bed by 22:41" from 17:00 until then.
+    var bedtime: Date? { snapshot?.bedtimeShown(at: date) }
 }
 
 struct ReadinessProvider: TimelineProvider {
@@ -28,8 +30,11 @@ struct ReadinessProvider: TimelineProvider {
         let snapshot = ReadinessSnapshot.load()
         let midnight = Calendar.current.nextDate(after: now, matching: DateComponents(hour: 0, minute: 0),
                                                  matchingPolicy: .nextTime) ?? now.addingTimeInterval(86_400)
-        completion(Timeline(entries: [ReadinessEntry(date: now, snapshot: snapshot),
-                                      ReadinessEntry(date: midnight, snapshot: snapshot)], policy: .atEnd))
+        // 17:00 brings tonight's bedtime in; the bedtime itself takes it out again.
+        let evening = Calendar.current.date(bySettingHour: 17, minute: 0, second: 0, of: now)
+        let turns = [now, evening, snapshot?.bedtime, midnight].compactMap { $0 }.filter { $0 >= now && $0 <= midnight }
+        completion(Timeline(entries: Set(turns).sorted().map { ReadinessEntry(date: $0, snapshot: snapshot) },
+                            policy: .atEnd))
     }
 }
 
@@ -60,9 +65,9 @@ struct ReadinessWidgetView: View {
     var body: some View {
         switch family {
         case .accessoryCircular: CircularReadiness(snapshot: entry.shown)
-        case .accessoryRectangular: RectangularReadiness(snapshot: entry.shown)
-        case .accessoryInline: Text(Words.inline(entry.shown))
-        default: SmallReadiness(snapshot: entry.shown)
+        case .accessoryRectangular: RectangularReadiness(snapshot: entry.shown, bedtime: entry.bedtime)
+        case .accessoryInline: Text(Words.inline(entry.shown, bedtime: entry.bedtime))
+        default: SmallReadiness(snapshot: entry.shown, bedtime: entry.bedtime)
         }
     }
 }
@@ -91,9 +96,15 @@ enum Words {
         }
     }
 
-    static func inline(_ s: ReadinessSnapshot?) -> String {
+    static func inline(_ s: ReadinessSnapshot?, bedtime: Date? = nil) -> String {
+        if let bedtime { return bedBy(bedtime) }
         if let r = s?.readiness, s?.kind == .score { return String(localized: "Readiness \(r) · \(band(r))") }
         return status(s)
+    }
+
+    /// "Bed by 22:41".
+    static func bedBy(_ bedtime: Date) -> String {
+        String(localized: "Bed by \(bedtime.formatted(date: .omitted, time: .shortened))")
     }
 
     /// For VoiceOver: the value and whether it's today's.
@@ -116,6 +127,7 @@ enum Words {
 /// while the night isn't scored; a segment per night while the baselines are learned.
 private struct SmallReadiness: View {
     let snapshot: ReadinessSnapshot?
+    var bedtime: Date? = nil
     @Environment(\.colorScheme) private var scheme
 
     private var ink: Color { scheme == .dark ? Brand.mist : Brand.graphite }
@@ -136,15 +148,23 @@ private struct SmallReadiness: View {
                     .minimumScaleFactor(0.6)
             }
             .frame(width: 84, height: 84)
-            Text(Words.status(snapshot))
-                .font(.caption2)
-                .foregroundStyle(ink.opacity(0.7))
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .minimumScaleFactor(0.8)
+            if let bedtime {
+                Text(Words.bedBy(bedtime))
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(Brand.teal)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            } else {
+                Text(Words.status(snapshot))
+                    .font(.caption2)
+                    .foregroundStyle(ink.opacity(0.7))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.8)
+            }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(Words.spoken(snapshot)))
+        .accessibilityLabel(Text(Words.spoken(snapshot) + (bedtime.map { ". " + Words.bedBy($0) } ?? "")))
     }
 
     private var isFinal: Bool { snapshot?.kind == .score }
@@ -222,6 +242,7 @@ private struct CircularReadiness: View {
 
 private struct RectangularReadiness: View {
     let snapshot: ReadinessSnapshot?
+    var bedtime: Date? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -239,10 +260,14 @@ private struct RectangularReadiness: View {
                     .font(.callout)
                     .lineLimit(2)
             }
+            if let bedtime {
+                Text(Words.bedBy(bedtime))
+                    .font(.caption)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(Words.spoken(snapshot)))
+        .accessibilityLabel(Text(Words.spoken(snapshot) + (bedtime.map { ". " + Words.bedBy($0) } ?? "")))
     }
 }
 
@@ -251,7 +276,8 @@ private struct RectangularReadiness: View {
 extension ReadinessSnapshot {
     static func preview(_ kind: Kind) -> ReadinessSnapshot {
         ReadinessSnapshot(day: dayString(.now), kind: kind, readiness: kind == .score ? 84 : nil,
-                          previousReadiness: 76, baselineNights: kind == .calibrating ? 3 : nil, updatedAt: .now)
+                          previousReadiness: 76, baselineNights: kind == .calibrating ? 3 : nil, updatedAt: .now,
+                          bedtime: Calendar.current.date(bySettingHour: 22, minute: 41, second: 0, of: .now))
     }
 }
 

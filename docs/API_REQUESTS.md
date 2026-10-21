@@ -122,6 +122,39 @@ for the platform; nothing here is sent before the platform says it takes it.
    reads `ryft.url` itself) work today. Once the AASA is live, the app adds
    `applinks:ryftapp.de` in Xcode (Signing & Capabilities); no code change is needed.
 
+## Bedtime & wake (open, 2026-10-21)
+
+The app plans tonight with `GET /v1/sleep/plan?wake=HH:MM` and keeps the rest on the phone,
+behind `sleep.planner`.
+
+1. **The sleep schedule on the account.** Per weekday wake times (Monday first, `HH:MM`),
+   the goal (`100`, `85` or `70`, i.e. which of `bedtime_100/85/70`), the wind-down
+   (15, 30, 45 or 60 min) and whether the reminder and the alarm are on. Today it lives in
+   `UserDefaults` per account, so a second phone or a reinstall starts without it.
+   - **Proposal:** `User.sleep_schedule: SleepSchedule?` and `PATCH /v1/me`
+     (`sleep_schedule`), e.g.
+     `{ "wake": ["06:30","06:30","06:30","06:30","06:30","08:00","08:00"], "goal": 85, "wind_down_min": 30, "reminder": true, "alarm": false }`.
+2. **Planned vs actual.** The morning shows "Planned 22:41–06:30 · actual 23:12–06:28". The
+   app keeps the planned bedtime per night (the last 14) on the phone, frozen once that
+   bedtime passes (after midnight `strain_topup` starts again from zero).
+   - **Proposal:** the platform keeps what it planned per night, e.g. `SleepDetail.planned:
+     { bed, wake, goal }?`, filled from the last plan asked for before the planned bedtime
+     (or from the schedule in 1).
+3. **A server-sent `BEDTIME` push.** The reminder is local: it moves when the app plans
+   again (after syncs that touch today and in the evening refresh), and later nights use
+   tonight's time in bed. A strain that arrives while the app sleeps doesn't move it.
+   - **Proposal (optional):** with 1 in place, a `BEDTIME` category in the push table, sent
+     `wind_down_min` before the planned bedtime when it moved by 10 minutes or more. The
+     app would then drop its local reminder for that night.
+4. **Which night `wake` means.** `wake=HH:MM` resolves to the next time it occurs. On a
+   morning when tomorrow's wake time is later than now (Friday 07:30 with Saturday at
+   08:00) the app needs tomorrow's 08:00 but gets today's. It moves the bedtimes by that
+   day, which holds because the need is tonight's either way and the bedtimes are
+   `wake − share · in_bed_min`. When `users.tz` isn't the phone's time zone (travel), the
+   answer is for another time zone and the app shows no plan.
+   - **Proposal:** `GET /v1/sleep/plan?wake=HH:MM&day=YYYY-MM-DD` (the wake's day), and
+     optionally `tz=` (IANA) to plan in the phone's time zone.
+
 ## Resolved by API.md (2026-10-19)
 
 - `PlanSummary` and `SessionSummary` are their own shapes. They are mirrored.

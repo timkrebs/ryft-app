@@ -22,6 +22,7 @@ final class ProfileViewModel {
         self.coordinator = coordinator
         self.onboarding = onboarding
         self.apiStatus = apiStatus ?? .shared
+        bodySettings = BodySettingsEditor(state: state)
         syncDetails = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator, apiStatus: apiStatus)
     }
 
@@ -84,107 +85,9 @@ final class ProfileViewModel {
 
     // MARK: body
 
-    var maxHR = 190
-    var sleepBase = 480
-    private(set) var recomputing = false
-    private(set) var recomputeStatus: String?
-    var canRecompute: Bool { state.hasDataSource }
-    var maxHRText: String { "\(maxHR) bpm" }
-    var sleepBaseText: String { Fmt.duration(minutes: sleepBase) }
-
-    /// The steppers start from the account's values.
-    func applyUser() {
-        guard let u = state.user else { return }
-        maxHR = u.maxHr
-        sleepBase = u.sleepBaseMin
-    }
-
-    /// Where the baseline comes from, as Profile says it:
-    /// "Learned · 7h 35m (updated Mon)", "Set by you · 7h 50m · learned 7h 35m", "Default · 7h 40m".
-    var sleepBaseSourceText: String? {
-        guard let u = state.user else { return nil }
-        let base = Fmt.duration(minutes: u.sleepBaseMin)
-        switch u.sleepBaseSource {
-        case .learned:
-            guard let at = u.sleepBaseLearnedAt else { return String(localized: "Learned · \(base)") }
-            return String(localized: "Learned · \(base) (updated \(at.formatted(.dateTime.weekday(.abbreviated))))")
-        case .manual:
-            guard let learned = u.sleepBaseLearnedMin else { return String(localized: "Set by you · \(base)") }
-            return String(localized: "Set by you · \(base) · learned \(Fmt.duration(minutes: learned))")
-        case .default:
-            return String(localized: "Default · \(base)")
-        }
-    }
-
-    /// "Estimated from your age (born 1990)", "Set by you", "Default · add your birth year".
-    var maxHRSourceText: String? {
-        guard let u = state.user else { return nil }
-        switch u.maxHrSource {
-        case .estimated:
-            return u.birthYear.map { String(localized: "Estimated from your age (born \(String($0)))") }
-                ?? String(localized: "Estimated from your age")
-        case .manual: return String(localized: "Set by you")
-        case .default: return String(localized: "Default · add your birth year for an estimate")
-        }
-    }
-
-    /// Max HR set by hand: offer the estimate again (or the default without a birth year).
-    var canUseMaxHREstimate: Bool { state.user?.maxHrSource == .manual }
-
-    var birthYear: Int? { state.user?.birthYear }
-
-    /// The years the platform takes: 1920 to this year − 13, newest first.
-    var birthYears: [Int] {
-        Array(stride(from: OnboardingCoordinator.latestBirthYear(now: env.clock.now()), through: 1920, by: -1))
-    }
-
-    /// `PATCH /v1/me {birth_year}`: the estimate follows unless max HR is set by hand.
-    func setBirthYear(_ year: Int) async {
-        await state.updateUser(UserPatch(birthYear: year))
-        applyUser()
-    }
-
-    /// `PATCH /v1/me {max_hr_manual: false}`.
-    func useMaxHREstimate() async {
-        await state.updateUser(UserPatch(maxHrManual: false))
-        applyUser()
-        recomputeStatus = String(localized: "Back to the estimate. Apply & recompute rescores past days with it.")
-    }
-
-    /// Set by hand: offer going back (to the learned estimate, or the default without one).
-    var canUseLearnedBase: Bool { state.user?.sleepBaseSource == .manual }
-    var usesLearnedTitle: String {
-        state.user?.sleepBaseLearnedMin == nil ? String(localized: "Use the default") : String(localized: "Use the learned value")
-    }
-
-    /// `PATCH /v1/me {sleep_base_manual: false}`. Like every setting, it doesn't
-    /// rescore history until Apply & recompute.
-    func useLearnedBase() async {
-        await state.updateUser(UserPatch(sleepBaseManual: false))
-        applyUser()
-        recomputeStatus = String(localized: "Back to the learned baseline. Apply & recompute rescores past nights with it.")
-    }
-
-    /// Saves what changed, rescores 90 days, waits for scoring and reloads. The
-    /// baseline is only sent when it was moved, since sending it makes it manual.
-    func applyAndRecompute() async {
-        recomputing = true
-        defer { recomputing = false }
-        let now = env.clock.now()
-        let user = state.user
-        await state.updateUser(UserPatch(tz: TimeZone.current.identifier,
-                                         maxHr: maxHR == user?.maxHr ? nil : maxHR,
-                                         sleepBaseMin: sleepBase == user?.sleepBaseMin ? nil : sleepBase))
-        do {
-            try await state.source.recompute(from: DayFormat.shift(now, days: -90), to: now)
-            recomputeStatus = String(localized: "Recomputing — scores update in a few seconds.")
-            try? await env.clock.sleep(for: SyncService.rescoreDelay)
-            await state.refresh()
-            recomputeStatus = String(localized: "Scores recomputed with your new settings.")
-        } catch {
-            recomputeStatus = error.localizedDescription
-        }
-    }
+    /// Baseline sleep need, maximum heart rate and birth year: one editor, shared with
+    /// onboarding and the Sleep tab.
+    let bodySettings: BodySettingsEditor
 
     // MARK: privacy (consent to health-data processing)
 
@@ -481,5 +384,217 @@ final class SyncDetailsModel {
     func copyDiagnostics() {
         UIPasteboard.general.string = diagnostics
         copied = true
+    }
+}
+
+// MARK: - body settings
+
+/// The settings the platform scores against that the user may set: baseline sleep need,
+/// maximum heart rate and birth year. Onboarding, the Sleep tab and Profile edit them
+/// through one sheet each. A change saves at once (`PATCH /v1/me`): it shows right away,
+/// and a refusal shows in the sheet while the value goes back. Past days keep their scores
+/// until "Rescore the last 90 days" (`POST /v1/recompute`).
+@MainActor
+@Observable
+final class BodySettingsEditor {
+    private let state: AppState
+
+    /// Shown while its `PATCH` is out.
+    private(set) var pendingSleepBase: Int?
+    private(set) var pendingMaxHR: Int?
+    private(set) var saving = false
+    /// The last save's refusal, for the form; cleared when a form opens.
+    private(set) var error: String?
+    private(set) var errorDetails: String?
+    /// A birth year Profile's picker couldn't save (it has no form to say so in).
+    private(set) var birthYearError: String?
+    private(set) var birthYearErrorDetails: String?
+    /// A change was saved since the form opened: past days keep their scores until rescored.
+    private(set) var savedChange = false
+    private(set) var rescoring = false
+    private(set) var rescoreStatus: String?
+    /// Status and request ID of a failed rescore.
+    private(set) var rescoreDetails: String?
+
+    /// One thing at a time: a save during a rescore would be reported as rescored.
+    var isBusy: Bool { saving || rescoring }
+
+    /// What `PATCH /v1/me` takes: 4–12 h, in the sheet's 15-minute steps.
+    static let sleepBaseRange = 240...720
+    static let sleepBaseStep = 15
+    static let defaultSleepBase = 460
+    /// 100–230 bpm.
+    static let maxHRRange = 100...230
+    static let defaultMaxHR = 190
+
+    init(state: AppState) {
+        self.state = state
+    }
+
+    private var env: AppEnvironment { state.env }
+    private var user: User? { state.user }
+    var canSave: Bool { state.hasDataSource }
+
+    /// A form opens: a fresh start, no earlier refusal or note.
+    func begin() {
+        error = nil
+        errorDetails = nil
+        savedChange = false
+        rescoreStatus = nil
+        rescoreDetails = nil
+    }
+
+    // MARK: baseline sleep need
+
+    var sleepBase: Int { pendingSleepBase ?? user?.sleepBaseMin ?? Self.defaultSleepBase }
+    var sleepBaseText: String { Fmt.duration(minutes: sleepBase) }
+    var sleepBaseSource: SleepBaseSource? { pendingSleepBase != nil ? .manual : user?.sleepBaseSource }
+
+    /// Where the value comes from, beside it: "Learned · updated Mon", "Set by you · learned
+    /// 7h 35m", "Default".
+    var sleepBaseSourceText: String? {
+        guard let source = sleepBaseSource else { return nil }
+        switch source {
+        case .learned:
+            guard let at = user?.sleepBaseLearnedAt else { return String(localized: "Learned") }
+            return String(localized: "Learned · updated \(at.formatted(.dateTime.weekday(.abbreviated)))")
+        case .manual:
+            guard let learned = user?.sleepBaseLearnedMin else { return String(localized: "Set by you") }
+            return String(localized: "Set by you · learned \(Fmt.duration(minutes: learned))")
+        case .default:
+            return String(localized: "Default")
+        }
+    }
+
+    /// Set by hand: offer going back (to the learned estimate, or the default without one).
+    var canUseLearnedBase: Bool { sleepBaseSource == .manual }
+    var usesLearnedTitle: String {
+        user?.sleepBaseLearnedMin == nil ? String(localized: "Use the default") : String(localized: "Use the learned value")
+    }
+
+    /// `PATCH /v1/me {sleep_base_min}`: the baseline becomes yours (`manual`), learning stops.
+    @discardableResult
+    func setSleepBase(_ minutes: Int) async -> Bool {
+        let value = min(max(minutes, Self.sleepBaseRange.lowerBound), Self.sleepBaseRange.upperBound)
+        pendingSleepBase = value
+        defer { pendingSleepBase = nil }
+        return await save(UserPatch(sleepBaseMin: value),
+                          refused: String(localized: "RYFT takes a baseline between 4 and 12 hours."))
+    }
+
+    /// `PATCH /v1/me {sleep_base_manual: false}`: back to the learned estimate (or the default).
+    @discardableResult
+    func useLearnedSleepBase() async -> Bool {
+        await save(UserPatch(sleepBaseManual: false), refused: Self.notTaken)
+    }
+
+    /// A refusal of a change without a range to name.
+    private static var notTaken: String { String(localized: "RYFT couldn't take that change. Try again later.") }
+
+    // MARK: maximum heart rate
+
+    var maxHR: Int { pendingMaxHR ?? user?.maxHr ?? Self.defaultMaxHR }
+    var maxHRText: String { "\(maxHR) bpm" }
+
+    /// "Estimated from your age (born 1990)", "Set by you", "Default · add your birth year".
+    var maxHRSourceText: String? {
+        guard let u = user else { return nil }
+        if pendingMaxHR != nil { return String(localized: "Set by you") }
+        switch u.maxHrSource {
+        case .estimated:
+            return u.birthYear.map { String(localized: "Estimated from your age (born \(String($0)))") }
+                ?? String(localized: "Estimated from your age")
+        case .manual: return String(localized: "Set by you")
+        case .default: return String(localized: "Default · add your birth year for an estimate")
+        }
+    }
+
+    /// Set by hand: offer the estimate again (or the default without a birth year).
+    var canUseMaxHREstimate: Bool { pendingMaxHR != nil || user?.maxHrSource == .manual }
+
+    /// `PATCH /v1/me {max_hr}`: yours from now on (`manual`).
+    @discardableResult
+    func setMaxHR(_ bpm: Int) async -> Bool {
+        let value = min(max(bpm, Self.maxHRRange.lowerBound), Self.maxHRRange.upperBound)
+        pendingMaxHR = value
+        defer { pendingMaxHR = nil }
+        return await save(UserPatch(maxHr: value),
+                          refused: String(localized: "RYFT takes a maximum heart rate between 100 and 230 bpm."))
+    }
+
+    /// `PATCH /v1/me {max_hr_manual: false}`.
+    @discardableResult
+    func useMaxHREstimate() async -> Bool {
+        await save(UserPatch(maxHrManual: false), refused: Self.notTaken)
+    }
+
+    // MARK: birth year
+
+    var birthYear: Int? { user?.birthYear }
+
+    /// The years the platform takes: 1920 to this year − 13, newest first.
+    var birthYears: [Int] {
+        Array(stride(from: OnboardingCoordinator.latestBirthYear(now: env.clock.now()), through: 1920, by: -1))
+    }
+
+    /// `PATCH /v1/me {birth_year}`: the estimate follows unless max HR is set by hand. A
+    /// failure stays beside the picker (`birthYearError`).
+    @discardableResult
+    func setBirthYear(_ year: Int) async -> Bool {
+        birthYearError = nil
+        birthYearErrorDetails = nil
+        let saved = await save(UserPatch(birthYear: year), refused: Self.notTaken)
+        if !saved {
+            birthYearError = error
+            birthYearErrorDetails = errorDetails
+            error = nil
+            errorDetails = nil
+        }
+        return saved
+    }
+
+    // MARK: rescoring
+
+    /// Rescores the last 90 days with the settings as they are, waits for scoring and reloads.
+    func rescore() async {
+        guard !isBusy else { return }
+        rescoring = true
+        rescoreDetails = nil
+        defer { rescoring = false }
+        let now = env.clock.now()
+        do {
+            try await state.source.recompute(from: DayFormat.shift(now, days: -90), to: now)
+            rescoreStatus = String(localized: "Rescoring — scores update in a few seconds.")
+            try? await env.clock.sleep(for: SyncService.rescoreDelay)
+            await state.refresh(force: true)
+            rescoreStatus = String(localized: "The last 90 days are rescored with your settings.")
+            savedChange = false
+        } catch {
+            rescoreStatus = error.localizedDescription
+            rescoreDetails = error.diagnosticDetails
+        }
+    }
+
+    /// One `PATCH`: `true` when the platform took it. A refusal (`422`) says `refused` in the
+    /// form; anything else says what went wrong. Details keep the request ID.
+    private func save(_ patch: UserPatch, refused: String) async -> Bool {
+        guard !isBusy else { return false }
+        saving = true
+        error = nil
+        errorDetails = nil
+        defer { saving = false }
+        do {
+            try await state.patchUser(patch)
+            savedChange = true
+            rescoreStatus = nil
+            return true
+        } catch let e as APIError where e.isFieldError {
+            error = refused
+            errorDetails = e.diagnosticDetails
+        } catch {
+            self.error = error.localizedDescription
+            errorDetails = error.diagnosticDetails
+        }
+        return false
     }
 }
