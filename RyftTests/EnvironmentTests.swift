@@ -832,9 +832,10 @@ struct RawHealthTests {
 @Suite("Apple Health: saving strength workouts (opt-in)")
 @MainActor
 struct WorkoutHealthExportTests {
+    /// Not demo mode, whatever the simulator's setting (demo is on by default in a fresh one).
     private func export(_ health: MockHealthStore, account: String = "a") -> WorkoutHealthExport {
         WorkoutHealthExport(health: health, defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)")!,
-                            account: { account })
+                            account: { account }, isDemo: { false })
     }
 
     private let start = Date(timeIntervalSince1970: 1_792_400_000)
