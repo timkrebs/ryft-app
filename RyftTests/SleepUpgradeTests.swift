@@ -143,44 +143,72 @@ struct SleepPlannerTests {
 
 @MainActor
 struct SleepBaselineTests {
-    private func profile(_ state: AppState) -> ProfileViewModel {
-        let sync = SyncService(env: state.env)
-        return ProfileViewModel(state: state, sync: sync,
-                                coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
-                                                             clock: state.env.clock),
-                                apiStatus: APIStatus())
-    }
+    private func editor(_ state: AppState) -> BodySettingsEditor { BodySettingsEditor(state: state) }
 
-    @Test func sourceLines() {
+    @Test func sourceLinesSayWhereTheValueComesFrom() {
         let (state, _) = makeState()
-        let vm = profile(state)
+        let e = editor(state)
+        var user = MockData.user
+        user.sleepBaseSource = .default
+        user.sleepBaseLearnedAt = nil
+        state.user = user
+        #expect(e.sleepBaseSourceText == String(localized: "Default") && !e.canUseLearnedBase)
         state.user = MockData.user   // learned
-        #expect(vm.sleepBaseSourceText?.hasPrefix(String(localized: "Learned · \(Fmt.duration(minutes: 460))")) == true)
+        #expect(e.sleepBaseSourceText?.hasPrefix(String(localized: "Learned")) == true && !e.canUseLearnedBase)
         var manual = MockData.user
         manual.sleepBaseSource = .manual
+        manual.sleepBaseLearnedMin = 455
         state.user = manual
-        #expect(vm.sleepBaseSourceText?.contains(String(localized: "learned")) == true && vm.canUseLearnedBase)
+        #expect(e.sleepBaseSourceText == String(localized: "Set by you · learned \(Fmt.duration(minutes: 455))"))
+        #expect(e.canUseLearnedBase && e.usesLearnedTitle == String(localized: "Use the learned value"))
+        manual.sleepBaseLearnedMin = nil
+        state.user = manual
+        #expect(e.usesLearnedTitle == String(localized: "Use the default"))
     }
 
-    @Test func applyOnlySendsAMovedBaseline() async {
+    @Test func aSetBaselineShowsAtOnceSavesAsManualAndOffersTheRescore() async {
         let api = MockPlatformAPI()
-        let (state, clock) = makeState(api: api)
+        let (state, _) = makeState(api: api)
         state.user = MockData.user
-        let vm = profile(state)
-        vm.applyUser()
-        let run = Task { await vm.applyAndRecompute() }
-        #expect(await eventually { clock.pendingSleeps == 1 })
-        clock.advance(by: SyncService.rescoreDelay)
-        await run.value
-        #expect(api.mePatches.last?.sleepBaseMin == nil)   // unchanged: stays learned
+        let e = editor(state)
+        let gate = Gate()
+        api.beforePatchMe = { await gate.wait() }
 
-        vm.sleepBase = 470
-        let again = Task { await vm.applyAndRecompute() }
-        #expect(await eventually { clock.pendingSleeps == 1 })
-        clock.advance(by: SyncService.rescoreDelay)
-        await again.value
-        #expect(api.mePatches.last?.sleepBaseMin == 470)
-        #expect(state.user?.sleepBaseSource == .manual)
+        let save = Task { await e.setSleepBase(470) }
+        #expect(await eventually { e.saving })
+        #expect(e.sleepBase == 470 && e.sleepBaseSource == .manual) // optimistic, while the PATCH is out
+        await gate.open()
+        #expect(await save.value)
+
+        #expect(api.mePatches.last?.sleepBaseMin == 470 && api.mePatches.last?.sleepBaseManual == nil)
+        #expect(state.user?.sleepBaseSource == .manual && e.sleepBase == 470)
+        #expect(e.savedChange && e.error == nil)
+        #expect(api.count("recompute") == 0) // past days only when asked
+    }
+
+    @Test func aRefusalShowsInTheSheetAndTheValueGoesBack() async {
+        let api = MockPlatformAPI()
+        let (state, _) = makeState(api: api)
+        state.user = MockData.user
+        let e = editor(state)
+        api.failNext = APIError.http(422, "sleep_base_min out of range", requestID: "rid-422")
+
+        #expect(!(await e.setSleepBase(500)))
+
+        #expect(e.error == String(localized: "RYFT takes a baseline between 4 and 12 hours."))
+        #expect(e.errorDetails?.contains("rid-422") == true)
+        #expect(e.sleepBase == MockData.user.sleepBaseMin && !e.savedChange)
+        #expect(state.error == nil) // not Today's message: the sheet's
+    }
+
+    @Test func valuesStayInTheRangeThePlatformTakes() async {
+        let api = MockPlatformAPI()
+        let (state, _) = makeState(api: api)
+        state.user = MockData.user
+        await editor(state).setSleepBase(1_000)
+        #expect(api.mePatches.last?.sleepBaseMin == 720)
+        await editor(state).setSleepBase(60)
+        #expect(api.mePatches.last?.sleepBaseMin == 240)
     }
 
     @Test func useTheLearnedValueSendsManualFalse() async {
@@ -189,10 +217,124 @@ struct SleepBaselineTests {
         var manual = MockData.user
         manual.sleepBaseSource = .manual
         state.user = manual
-        await profile(state).useLearnedBase()
+        #expect(await editor(state).useLearnedSleepBase())
         #expect(api.mePatches.last?.sleepBaseManual == false && api.mePatches.last?.sleepBaseMin == nil)
         #expect(state.user?.sleepBaseSource == .learned)
         #expect(api.count("recompute") == 0)   // no rescore until asked
+    }
+
+    @Test func rescoringWaitsForScoringOnTheClock() async {
+        let api = MockPlatformAPI()
+        let (state, clock) = makeState(api: api)
+        state.user = MockData.user
+        let e = editor(state)
+        await e.setSleepBase(470)
+        let run = Task { await e.rescore() }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        #expect(e.rescoring && e.rescoreStatus == String(localized: "Rescoring — scores update in a few seconds."))
+        #expect(api.count("recompute") == 1)
+        clock.advance(by: SyncService.rescoreDelay)
+        await run.value
+        #expect(!e.rescoring && !e.savedChange)
+        #expect(e.rescoreStatus == String(localized: "The last 90 days are rescored with your settings."))
+    }
+
+    @Test func anotherFailureSaysWhatWentWrongInTheForm() async {
+        let api = MockPlatformAPI()
+        let (state, _) = makeState(api: api)
+        state.user = MockData.user
+        let e = editor(state)
+        api.failNext = APIError.http(500, "", requestID: "rid-500")
+        #expect(!(await e.setSleepBase(500)))
+        #expect(e.error == APIError.http(500, "").localizedDescription)
+        #expect(e.errorDetails?.contains("rid-500") == true)
+        #expect(state.error == nil)
+    }
+
+    @Test func aRefusedGoingBackSaysSoInWords() async {
+        let api = MockPlatformAPI()
+        let (state, _) = makeState(api: api)
+        var manual = MockData.user
+        manual.sleepBaseSource = .manual
+        state.user = manual
+        let e = editor(state)
+        api.failNext = APIError.http(422, "sleep_base_manual: conflicting fields")
+        #expect(!(await e.useLearnedSleepBase()))
+        #expect(e.error == String(localized: "RYFT couldn't take that change. Try again later.")) // not the server's English
+    }
+
+    @Test func aBirthYearFailureStaysBesideThePicker() async {
+        let api = MockPlatformAPI()
+        let (state, _) = makeState(api: api)
+        state.user = MockData.user
+        let e = editor(state)
+        api.failNext = APIError.http(503, "")
+        #expect(!(await e.setBirthYear(1990)))
+        #expect(e.birthYearError == APIError.http(503, "").localizedDescription && e.error == nil)
+        #expect(await e.setBirthYear(1990))
+        #expect(e.birthYearError == nil)
+    }
+
+    @Test func nothingSavesWhileARescoreRuns() async {
+        let api = MockPlatformAPI()
+        let (state, clock) = makeState(api: api)
+        state.user = MockData.user
+        let e = editor(state)
+        let run = Task { await e.rescore() }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        #expect(e.isBusy)
+        #expect(!(await e.setSleepBase(470))) // it would be reported as rescored
+        #expect(api.count("patchMe") == 0)
+        clock.advance(by: SyncService.rescoreDelay)
+        await run.value
+        #expect(await e.setSleepBase(470))
+    }
+
+    @Test func aFailedRescoreKeepsTheRequestID() async {
+        let api = MockPlatformAPI()
+        let (state, _) = makeState(api: api)
+        let e = editor(state)
+        api.failure = APIError.http(500, "", requestID: "rid-rescore")
+        await e.rescore()
+        #expect(e.rescoreStatus == APIError.http(500, "").localizedDescription)
+        #expect(e.rescoreDetails?.contains("rid-rescore") == true)
+    }
+
+    @Test func theMockPlatformKeepsEachChange() async throws {
+        let api = MockPlatformAPI()
+        let (state, _) = makeState(api: api)
+        state.user = MockData.user
+        let e = editor(state)
+        await e.setMaxHR(184)
+        await e.setSleepBase(470)
+        #expect(state.user?.maxHr == 184 && state.user?.sleepBaseMin == 470) // the first isn't undone by the second
+        let me = try await api.me()
+        #expect(me.maxHr == 184 && me.sleepBaseMin == 470)
+    }
+
+    @Test func theNeedBreakdownAddsUp() {
+        let need = SleepNeed(base: 460, strain: 37, debt: 41, napCredit: 25, total: 513)
+        let b = SleepNeedBreakdown(need)
+        #expect(b.terms.map(\.kind) == [.base, .strain, .debt, .nap])
+        #expect(b.minutes(.base) + b.minutes(.strain) + b.minutes(.debt) - b.minutes(.nap) == b.total)
+        #expect(SleepNeedBreakdown(SleepNeed(base: 460, strain: 0, debt: 0, napCredit: 0, total: 460)).terms.count == 1)
+    }
+}
+
+/// Holds an async step open until the test lets it go.
+actor Gate {
+    private var isOpen = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        waiting.forEach { $0.resume() }
+        waiting = []
     }
 }
 
