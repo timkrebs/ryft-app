@@ -512,7 +512,8 @@ struct BackgroundWorkTests {
         let app = FakeApp()
         var scheduled: [Int] = []
         let run = Task { await c.run(.appActive) }
-        #expect(await eventually { steps.isUploading })
+        // Uploading and asleep on the clock: an advance before the sleep starts is lost.
+        #expect(await eventually { steps.isUploading && clock.pendingSleeps == 1 })
 
         let finishing = BackgroundWork.finishInBackground(coordinator: c, app: app, backlogBytes: { 12_000_000 }) {
             scheduled.append($0)
@@ -646,7 +647,7 @@ struct SyncCoordinatorLifecycleTests {
         steps.uploadDuration = .seconds(5)
         let c = SyncCoordinator(steps: steps, clock: clock)
         let first = Task { await c.run(.appActive) }
-        #expect(await eventually { steps.isUploading })
+        #expect(await eventually { steps.isUploading && clock.pendingSleeps == 1 })
         let a = SyncCoordinatorBackgroundTests.Completions()
         let queuedA = Task { await c.run(.healthKit, afterUpload: { a.done() }) }
         #expect(await waitForQueue(c))
@@ -660,7 +661,7 @@ struct SyncCoordinatorLifecycleTests {
         await wound.value
         _ = await first.value
         _ = await queuedA.value
-        #expect(await eventually { steps.count("upload") == 2 && steps.isUploading }) // B uploads
+        #expect(await eventually { steps.count("upload") == 2 && steps.isUploading && clock.pendingSleeps == 1 }) // B uploads
         #expect(b.calls == 0) // not completed by A on the way out
         clock.advance(by: .seconds(5))
         _ = await queuedB.value
