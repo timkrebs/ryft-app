@@ -199,7 +199,7 @@ struct SleepBaselineTests {
         #expect(e.error == String(localized: "RYFT takes a baseline between 4 and 12 hours."))
         #expect(e.errorDetails?.contains("rid-422") == true)
         #expect(e.sleepBase == MockData.user.sleepBaseMin && !e.savedChange)
-        #expect(state.error == nil) // not Today's message: the sheet's
+        #expect(state.refreshIssue == nil) // not Today's card: the sheet's
     }
 
     @Test func valuesStayInTheRangeThePlatformTakes() async {
@@ -249,7 +249,7 @@ struct SleepBaselineTests {
         #expect(!(await e.setSleepBase(500)))
         #expect(e.error == APIError.http(500, "").localizedDescription)
         #expect(e.errorDetails?.contains("rid-500") == true)
-        #expect(state.error == nil)
+        #expect(state.refreshIssue == nil)
     }
 
     @Test func aRefusedGoingBackSaysSoInWords() async {
