@@ -17,6 +17,7 @@ PATH = "Ryft/Ryft.entitlements"
 PREFIX = "com.apple.developer."
 ALLOWED = {
     "aps-environment",
+    "com.apple.security.application-groups",
     PREFIX + "applesignin",
     PREFIX + "healthkit",
     PREFIX + "healthkit.access",
