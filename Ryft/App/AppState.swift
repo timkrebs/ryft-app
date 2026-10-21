@@ -129,10 +129,14 @@ final class AppState {
             })
         }
         let now = now
+        // Phase 2's end as a stream: iterating it stops on cancellation, `Task.value` would not,
+        // and the spinner cap below must be able to stop waiting.
+        let (settled, settle) = AsyncStream<Void>.makeStream()
         let phase2 = Task { [self] in
             async let today: Void = refreshToday(now)
             async let status: Void = coordinator.refreshStatus()
             _ = await (today, status)
+            settle.finish()
         }
         let phases = Task { [self] in
             await Self.firstOf({ for await _ in uploaded { break } }, { try? await clock.sleep(for: Self.uploadHeadStart) })
@@ -146,7 +150,7 @@ final class AppState {
             await phase2.value
         }
         pullPhases = phases
-        await Self.firstOf({ await phase2.value }, { try? await clock.sleep(for: Self.spinnerCap) })
+        await Self.firstOf({ for await _ in settled {} }, { try? await clock.sleep(for: Self.spinnerCap) })
     }
 
     private func refreshToday(_ now: Date) async {
