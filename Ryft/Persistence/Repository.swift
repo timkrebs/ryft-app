@@ -84,13 +84,14 @@ final class Repository {
 
     // MARK: reads
 
-    private func memoized<T>(_ kind: Kind, _ key: String, _ make: () -> T) -> T {
+    /// `decoded: false` for a plain fetch (it isn't a JSON decode the counter is about).
+    private func memoized<T>(_ kind: Kind, _ key: String, decoded: Bool = true, _ make: () -> T) -> T {
         touch(kind)
         let key = "\(kind.rawValue).\(key)"
         // Look the key up first: a missing entry cast `as? T` with an Optional `T`
         // "succeeds" as `.some(nil)` and would hide the value.
         if let entry = memo[key], let hit = entry as? T { return hit }
-        decodes += 1
+        if decoded { decodes += 1 }
         let value = make()
         memo[key] = value
         return value
@@ -182,10 +183,10 @@ final class Repository {
         }
     }
 
-    /// When the day's detail was last fetched ("Updated 07:15").
+    /// When the day's detail was last fetched ("Updated 07:15"). Today reads it on every body
+    /// (`AppState.lastUpdated`): one SwiftData fetch per change of the days, not one per read.
     func detailFetchedAt(_ key: String) -> Date? {
-        touch(.days)
-        return dayRow(key)?.detailFetchedAt
+        memoized(.days, "fetchedAt.\(key)", decoded: false) { dayRow(key)?.detailFetchedAt }
     }
 
     // MARK: freshness
