@@ -1,5 +1,29 @@
 # Status — 2026-10-21
 
+## Beta feedback 1: start a workout from anywhere (§3, entry points)
+
+- One call for every entry point, `TrainCoordinator.quickStart`: a workout in progress is
+  resumed (never a second one); otherwise today's plan day, an empty workout, or the last one
+  again. Today's Train card: "Start strength workout" with a plan; without one "Quick start"
+  (Empty workout · Repeat last).
+- From outside the app's screens (`WorkoutLauncher`): the home-screen quick action (Start
+  workout / Resume workout, kept current), App Intents with App Shortcuts ("Start a RYFT
+  workout", "Resume my RYFT workout"; Siri, Spotlight, Shortcuts, the Action Button), the
+  Control Center / Lock Screen control (iOS 18+, `RyftWidgets/StartWorkoutControl.swift`) and
+  `ryft://train/start?kind=empty|repeatLast`. A start that arrives while the session is restored
+  (cold launch) waits for it; signed out, nothing starts.
+- The control's intent exists in both targets (`OpenWorkoutIntent`, "keep identical", like the
+  Live Activity's attributes): with `openAppWhenRun` the system performs the app's copy.
+  Apple's forums say an `OpenURLIntent` would need a universal link (no AASA yet).
+- The Live Activity now runs for the whole workout: elapsed time and the next set with its
+  reps × weight, the rest countdown in between; a rest's end or skip goes back to the workout.
+- **Simulator / tests only.** On your iPhone: long-press the icon → Start workout (also from a
+  cold start); "Hey Siri, start a RYFT workout"; Settings → Action Button → Shortcut → RYFT;
+  Control Center → + → RYFT → Start workout (does it open the app into the session?); the Live
+  Activity on the Lock Screen and in the Dynamic Island during a session.
+- **Not localised yet:** the Siri phrases need `AppShortcuts.xcstrings`, a new file in `Ryft/`
+  (a classic group): after "Convert to Folder" (Needs you) a session can add it.
+
 ## Sync and performance brief: where it stands
 
 `CLAUDE_FOLLOWUP_SYNC_PERFORMANCE.md`, eight PRs: #8 gates and honest errors, #10 engine

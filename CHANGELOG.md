@@ -25,6 +25,11 @@ Store "What's New".
   Profile → Sign-in methods to add Sign in with Apple to an email account.
 - A readiness widget for the home and lock screen: today's readiness, or "Scoring your
   night…" until it's ready.
+- Start a strength workout from anywhere: Today (today's plan, or an empty workout or your
+  last one again), the app icon's quick action, Siri, Shortcuts, Spotlight, the Action Button
+  and a Control Center / Lock Screen control. A workout in progress is resumed, never doubled.
+- The workout on the Lock Screen and in the Dynamic Island for the whole session: elapsed time
+  and the next set (e.g. "Bench press · set 3 of 4 · 5 × 80 kg"), the rest countdown between.
 
 ### Changed
 - The first sync shows scores for the last few days first and imports the rest after;

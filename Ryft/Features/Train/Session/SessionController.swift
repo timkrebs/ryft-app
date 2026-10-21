@@ -54,6 +54,13 @@ final class SessionController: Identifiable {
         machine.enter(.active)
         followRest()
         startTicker()
+        // On the lock screen from the start: the workout, or the rest it was in.
+        if rest.isRunning { persistRest(exercise: nil) } else { showWorkout() }
+    }
+
+    /// The Live Activity's workout view: elapsed time and the next set.
+    private func showWorkout() {
+        liveActivity?.workout(session: session.title, startedAt: session.startedAt, next: nextLabel())
     }
 
     /// Resting while the timer runs, active otherwise (unless paused or ending).
@@ -114,8 +121,21 @@ final class SessionController: Identifiable {
         guard let next = nextUp(after: ex) else { return String(localized: "Last set done — finish when ready") }
         let sets = next.exercise.orderedSets
         let n = (sets.firstIndex { $0.id == next.set.id } ?? 0) + 1
-        return String(localized: "\(next.exercise.name) · set \(n) of \(sets.count)",
-                      comment: "Next set in the rest timer, e.g. Bench press · set 3 of 4.")
+        let label = String(localized: "\(next.exercise.name) · set \(n) of \(sets.count)",
+                           comment: "Next set in the rest timer, e.g. Bench press · set 3 of 4.")
+        // "· 5 × 80 kg" when the set is filled in (from the plan or the last time).
+        guard let target = Self.target(reps: next.set.reps, kg: next.set.weightKg) else { return label }
+        return "\(label) · \(target)"
+    }
+
+    /// "5 × 80 kg", "5 reps", "80 kg"; `nil` with neither.
+    static func target(reps: Int?, kg: Double?) -> String? {
+        switch (reps, kg) {
+        case let (r?, w?): return "\(r) × \(Fmt.kg(w))"
+        case let (r?, nil): return String(localized: "\(r) reps")
+        case let (nil, w?): return Fmt.kg(w)
+        case (nil, nil): return nil
+        }
     }
 
     /// Within a superset the partner comes next; otherwise the first open set.
@@ -136,6 +156,8 @@ final class SessionController: Identifiable {
     func toggleCheck(_ set: LocalSet, in ex: LocalSessionExercise) {
         if set.isCompleted {
             set.completedAt = nil
+            // The set is open again: it may be the next one.
+            if !rest.isRunning { showWorkout() }
         } else {
             let g = ghost(for: set, in: ex)
             if set.reps == nil { set.reps = g.reps }
@@ -385,7 +407,7 @@ final class SessionController: Identifiable {
         followRest()
         session.restEndsAt = nil
         session.restTotal = 0
-        liveActivity?.end()
+        showWorkout()
     }
 
     func dismissRestBanner() {
@@ -398,7 +420,7 @@ final class SessionController: Identifiable {
         session.restTotal = rest.total
         store.save()
         guard let end = rest.endsAt else { return }
-        liveActivity?.show(session: session.title, endsAt: end, total: rest.total,
+        liveActivity?.show(session: session.title, startedAt: session.startedAt, endsAt: end, total: rest.total,
                            exercise: exercise ?? nextUp?.exercise.name ?? session.title,
                            next: nextLabel())
     }

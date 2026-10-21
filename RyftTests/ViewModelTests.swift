@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UIKit
 @testable import Ryft
 
 /// A signed-in test graph (in-memory store), its read state and the clock.
@@ -704,6 +705,99 @@ struct ProfileViewModelTests {
 }
 
 // MARK: - Train
+
+@Suite("Train: start from anywhere", .serialized)
+@MainActor
+struct TrainQuickStartTests {
+    private func coordinator(_ api: MockPlatformAPI = MockPlatformAPI()) -> (TrainCoordinator, TrainLibrary, TrainStore) {
+        let store = TrainStore(inMemory: true)
+        let sync = TrainSyncService(store: store, remote: { api }, debounce: .milliseconds(30), monitorsNetwork: false)
+        let library = TrainLibrary(store: store, remote: { api }, restore: false)
+        return (TrainCoordinator(sync: sync, library: library), library, store)
+    }
+
+    @Test func aRunningWorkoutIsResumedNeverASecondOneStarted() async throws {
+        let (c, _, store) = coordinator()
+        #expect(await c.quickStart(.empty) == .empty)
+        let first = try #require(store.activeSession())
+        for kind in TrainCoordinator.QuickStart.allCases {
+            #expect(await c.quickStart(kind) == .resumed)
+        }
+        #expect(store.activeSession()?.id == first.id && c.live?.session.id == first.id)
+    }
+
+    @Test func withoutAPlanAutoStartsAnEmptyWorkout() async {
+        let (c, library, store) = coordinator()
+        #expect(library.today == nil)
+        #expect(await c.quickStart(.auto) == .empty)
+        #expect(store.activeSession()?.orderedExercises.isEmpty == true)
+    }
+
+    @Test func withAPlanAutoStartsTodaysDay() async throws {
+        let (c, library, store) = coordinator()
+        await library.refresh()
+        let today = try #require(library.today)
+        #expect(await c.quickStart(.auto) == .plan)
+        #expect(store.activeSession()?.planDayId == today.day.id)
+    }
+
+    @Test func repeatLastStartsTheLastWorkoutAgain() async throws {
+        let (c, library, store) = coordinator()
+        let last = try #require(await library.lastSession())
+        #expect(await c.quickStart(.repeatLast) == .repeated)
+        #expect(store.activeSession()?.title == last.title)
+    }
+
+    @Test func theDeepLinkAndALaunchDuringTheRestoreLandInTheSameCall() async throws {
+        let (c, _, store) = coordinator()
+        let saved = (WorkoutLauncher.canStart, WorkoutLauncher.isRestoring)
+        defer { (WorkoutLauncher.canStart, WorkoutLauncher.isRestoring) = saved }
+
+        // Cold launch from the home screen: the session is still being restored.
+        WorkoutLauncher.canStart = { false }
+        WorkoutLauncher.isRestoring = { true }
+        await WorkoutLauncher.start(.empty, coordinator: c)
+        #expect(store.activeSession() == nil)
+        WorkoutLauncher.canStart = { true }
+        await WorkoutLauncher.runPending(coordinator: c)
+        #expect(store.activeSession() != nil)
+
+        // Signed out: nothing starts, nothing waits.
+        let (other, _, otherStore) = coordinator()
+        WorkoutLauncher.canStart = { false }
+        WorkoutLauncher.isRestoring = { false }
+        await WorkoutLauncher.start(.empty, coordinator: other)
+        WorkoutLauncher.canStart = { true }
+        await WorkoutLauncher.runPending(coordinator: other)
+        #expect(otherStore.activeSession() == nil)
+
+        // ryft://train/start?kind=empty (the control, a link).
+        let (linked, _, linkedStore) = coordinator()
+        #expect(linked.handle(URL(string: "ryft://train/start?kind=empty")!))
+        #expect(await eventually { linkedStore.activeSession() != nil })
+        #expect(!linked.handle(URL(string: "ryft://train/history")!))
+    }
+
+    @Test func intentsAndQuickActionsMapToTheSameStarts() {
+        #expect(WorkoutChoice.today.quickStart == .auto)
+        #expect(WorkoutChoice.empty.quickStart == .empty)
+        #expect(WorkoutChoice.repeatLast.quickStart == .repeatLast)
+        #expect(StartStrengthWorkoutIntent.openAppWhenRun && ResumeWorkoutIntent.openAppWhenRun && OpenWorkoutIntent.openAppWhenRun)
+        let saved = WorkoutLauncher.canStart
+        defer { WorkoutLauncher.canStart = saved }
+        WorkoutLauncher.canStart = { false } // the Task it starts does nothing here
+        #expect(WorkoutLauncher.handle(UIApplicationShortcutItem(type: WorkoutLauncher.startType, localizedTitle: "Start")))
+        #expect(WorkoutLauncher.handle(UIApplicationShortcutItem(type: WorkoutLauncher.resumeType, localizedTitle: "Resume")))
+        #expect(!WorkoutLauncher.handle(UIApplicationShortcutItem(type: "other", localizedTitle: "Other")))
+    }
+
+    @Test func theNextSetSaysWhatToLift() {
+        #expect(SessionController.target(reps: 5, kg: 80) == "5 × \(Fmt.kg(80))")
+        #expect(SessionController.target(reps: 8, kg: nil) == String(localized: "8 reps"))
+        #expect(SessionController.target(reps: nil, kg: 20) == Fmt.kg(20))
+        #expect(SessionController.target(reps: nil, kg: nil) == nil)
+    }
+}
 
 @Suite("Train view models")
 @MainActor

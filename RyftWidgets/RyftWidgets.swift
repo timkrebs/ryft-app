@@ -24,22 +24,22 @@ struct RestTimerLiveActivity: Widget {
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     Label {
-                        Text("Rest")
+                        Text(context.state.resting ? "Rest" : "Workout")
                     } icon: {
-                        Image(systemName: "timer")
+                        Image(systemName: context.state.resting ? "timer" : "dumbbell.fill")
                     }
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Brand.teal)
                     .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Countdown(state: context.state)
+                    Clock(context: context)
                         .font(.system(size: 28, weight: .semibold, design: .rounded))
-                        .frame(maxWidth: 90, alignment: .trailing)
+                        .frame(maxWidth: 110, alignment: .trailing)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Progress(state: context.state)
+                        if context.state.resting { Progress(state: context.state) }
                         HStack {
                             NextLine(state: context.state)
                                 .font(.callout)
@@ -51,14 +51,14 @@ struct RestTimerLiveActivity: Widget {
                     .foregroundStyle(Brand.mist)
                 }
             } compactLeading: {
-                Image(systemName: context.state.finished ? "bell.fill" : "timer")
+                Image(systemName: context.state.resting ? "timer" : "dumbbell.fill")
                     .foregroundStyle(Brand.teal)
             } compactTrailing: {
-                Countdown(state: context.state)
+                Clock(context: context)
                     .font(.system(.body, design: .rounded).weight(.semibold))
-                    .frame(maxWidth: 52)
+                    .frame(maxWidth: 56)
             } minimal: {
-                Image(systemName: context.state.finished ? "bell.fill" : "timer")
+                Image(systemName: context.state.resting ? "timer" : "dumbbell.fill")
                     .foregroundStyle(Brand.teal)
             }
             .widgetURL(Brand.deepLink)
@@ -74,7 +74,7 @@ private struct LockScreenView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(context.state.finished ? "REST OVER" : "REST")
+                    Text(context.state.resting ? "REST" : "WORKOUT")
                         .font(.caption2.weight(.semibold))
                         .tracking(2)
                         .foregroundStyle(Brand.teal)
@@ -83,11 +83,11 @@ private struct LockScreenView: View {
                         .foregroundStyle(Brand.mist.opacity(0.6))
                 }
                 Spacer()
-                Countdown(state: context.state)
+                Clock(context: context)
                     .font(.system(size: 40, weight: .semibold, design: .rounded))
                     .foregroundStyle(Brand.mist)
             }
-            Progress(state: context.state)
+            if context.state.resting { Progress(state: context.state) }
             HStack {
                 NextLine(state: context.state)
                     .font(.callout)
@@ -103,21 +103,27 @@ private struct LockScreenView: View {
     }
 }
 
-/// "Next: Bench press · set 3 of 4", or just the set once the rest is over.
+/// "Next: Bench press · set 3 of 4 · 5 × 80 kg".
 private struct NextLine: View {
     let state: RestTimerAttributes.ContentState
 
     var body: some View {
-        if state.finished { Text(verbatim: state.next) } else { Text("Next: \(state.next)") }
+        Text("Next: \(state.next)")
     }
 }
 
-/// Counts down to `endsAt` on its own; "Go" once it's over.
-private struct Countdown: View {
-    let state: RestTimerAttributes.ContentState
+/// Resting: counts down to `endsAt`, "Go" once it's over. Otherwise the workout's elapsed time.
+private struct Clock: View {
+    let context: ActivityViewContext<RestTimerAttributes>
 
     var body: some View {
-        if state.finished || state.endsAt <= .now {
+        let state = context.state
+        if !state.resting {
+            Text(timerInterval: context.attributes.startedAt...Date.distantFuture, countsDown: false)
+                .monospacedDigit()
+                .multilineTextAlignment(.trailing)
+                .foregroundStyle(Brand.mist)
+        } else if state.endsAt <= .now {
             Text("Go")
                 .foregroundStyle(Brand.teal)
         } else {
@@ -133,26 +139,22 @@ private struct Progress: View {
     let state: RestTimerAttributes.ContentState
 
     var body: some View {
-        if state.finished {
-            Capsule().fill(Brand.teal).frame(height: 6)
-        } else {
-            let start = state.endsAt.addingTimeInterval(-state.totalSec)
-            ProgressView(timerInterval: min(start, .now)...state.endsAt, countsDown: true) {
-                EmptyView()
-            } currentValueLabel: {
-                EmptyView()
-            }
-            .tint(Brand.teal)
+        let start = state.endsAt.addingTimeInterval(-state.totalSec)
+        ProgressView(timerInterval: min(start, .now)...max(state.endsAt, .now), countsDown: true) {
+            EmptyView()
+        } currentValueLabel: {
+            EmptyView()
         }
+        .tint(Brand.teal)
     }
 }
 
-/// "Done" opens the live session in the app.
+/// "Open" goes to the live session in the app.
 private struct DoneLink: View {
     var body: some View {
         if let url = Brand.deepLink {
             Link(destination: url) {
-                Text("Done")
+                Text("Open")
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(Brand.graphite)
                     .padding(.horizontal, 14)
@@ -164,32 +166,34 @@ private struct DoneLink: View {
 }
 
 private extension RestTimerAttributes {
-    static let preview = RestTimerAttributes(sessionTitle: "Upper A")
+    static let preview = RestTimerAttributes(sessionTitle: "Upper A", startedAt: .now.addingTimeInterval(-23 * 60))
 }
 
 private extension RestTimerAttributes.ContentState {
     static let resting = RestTimerAttributes.ContentState(endsAt: .now.addingTimeInterval(95), totalSec: 180,
-                                                          exercise: "Bench press", next: "Bench press · set 3 of 4",
-                                                          finished: false)
-    static let over = RestTimerAttributes.ContentState(endsAt: .now, totalSec: 180, exercise: "Bench press",
-                                                       next: "Bench press · set 3 of 4", finished: true)
+                                                          exercise: "Bench press",
+                                                          next: "Bench press · set 3 of 4 · 5 × 80 kg", resting: true)
+    static let working = RestTimerAttributes.ContentState(endsAt: .now, totalSec: 0, exercise: "Upper A",
+                                                          next: "Bench press · set 3 of 4 · 5 × 80 kg", resting: false)
 }
 
 #Preview("Lock screen", as: .content, using: RestTimerAttributes.preview) {
     RestTimerLiveActivity()
 } contentStates: {
+    RestTimerAttributes.ContentState.working
     RestTimerAttributes.ContentState.resting
-    RestTimerAttributes.ContentState.over
 }
 
 #Preview("Dynamic Island", as: .dynamicIsland(.expanded), using: RestTimerAttributes.preview) {
     RestTimerLiveActivity()
 } contentStates: {
+    RestTimerAttributes.ContentState.working
     RestTimerAttributes.ContentState.resting
 }
 
 #Preview("Compact", as: .dynamicIsland(.compact), using: RestTimerAttributes.preview) {
     RestTimerLiveActivity()
 } contentStates: {
+    RestTimerAttributes.ContentState.working
     RestTimerAttributes.ContentState.resting
 }
