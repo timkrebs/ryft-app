@@ -21,7 +21,8 @@
     {
       "selectedTests": [
         "StoreSmokeUITests",
-        "TodayStatesUITests"
+        "TodayStatesUITests",
+        "NotificationsUITests"
       ],
       "target": {
         "containerPath": "container:Ryft.xcodeproj",
