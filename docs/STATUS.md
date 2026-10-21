@@ -1,5 +1,26 @@
 # Status — 2026-10-21
 
+## Scoring state from the server (sync brief §2, finding 8)
+
+- **No more guessing with the phone's clock.** `isScored(_:since:)` compared the
+  server's `computed_at` with the phone's time and gave up silently after three polls.
+  Now: the first wait is the platform's own estimate (`SyncResponse.scoring.
+  expected_within_sec`), then `GET /v1/me/sync` until `pending_days` no longer holds the
+  touched days (doubling waits, a minute at most, five minutes in all).
+- **The silent push** for a scored day ends the wait at once and joins the running sync,
+  so the day is refreshed once, not twice.
+- **Gates and the operator:** a `gate` in the answer ends the wait and goes to
+  onboarding; `resync_requested_at` newer than the account's last full re-sync makes the
+  next upload a full one.
+- `AppState.syncStatus` holds the latest answer (also from onboarding's check at launch)
+  for Today's pending and "scoring your night" states (next PR).
+
+Verified: 487 unit tests, three full runs clean (+ the platform's estimate as the first
+wait, the doubling and the five-minute cap, the push ending the wait and joining the run,
+a push for another day not ending it, days leaving the wait as they're scored, a gate
+ending it, a cancelled wait, the status kept and a gate reported, the operator's re-sync,
+the uploads' scoring merged).
+
 ## Background sync: leaving the app, BG processing, HealthKit delivery, locked phone (sync brief §2)
 
 - **Leaving the app doesn't stop the import any more.** The page in flight finishes in a

@@ -47,14 +47,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             completionHandler(.noData)
             return
         }
-        let today = DayFormat.string(from: .now)
         perform { handlers in
             let coordinator = handlers.coordinator
             let deadline = Task {
                 try? await Task.sleep(for: Self.silentPushBudget)
                 await coordinator.cancel()
             }
-            let outcome = await coordinator.run(.silentPush(days: Array(Set([day, today])).sorted()))
+            // Only the day the platform scored: it may end a wait for that day. Refreshing
+            // always takes today along (`AppState.refreshDays`).
+            let outcome = await coordinator.run(.silentPush(days: [day]))
             deadline.cancel()
             completionHandler(outcome.error == nil && !outcome.cancelled ? .newData : .failed)
         }

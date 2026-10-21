@@ -90,6 +90,8 @@ final class OnboardingCoordinator {
     private let apiStatus: APIStatus
     /// Starts a sync (after consent).
     private let startSync: @MainActor () async -> Void
+    /// The launch's `GET /v1/me/sync` answer, for the sync (an operator's re-sync request).
+    @ObservationIgnored var statusReceived: (@MainActor (SyncStatus) -> Void)?
     private var account: String?
     private var lastCheck: Date?
     private var aboutYouDone = false
@@ -259,6 +261,8 @@ final class OnboardingCoordinator {
         if let config = answer.config { self.config = config }
         if let status = answer.status {
             syncStatus = status
+            state.syncStatus = status
+            statusReceived?(status)
             // The platform no longer reports a gate this phone still remembers: it's passed.
             switch status.gate {
             case nil:
