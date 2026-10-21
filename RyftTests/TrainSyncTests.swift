@@ -162,10 +162,9 @@ struct TrainSyncTests {
             check(set, reps: 5 + i, kg: 100)
             service.sessionChanged(a)
         }
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(TrainStubURLProtocol.requests.count == 1)
-        #expect(service.pendingCount == 0)
-        #expect(a.uploaded)
+        // The outcome, not a fixed 300 ms: a loaded runner took longer for the debounce and the PUT.
+        #expect(await eventually { service.pendingCount == 0 && a.uploaded })
+        #expect(TrainStubURLProtocol.requests.count == 1) // every change in one PUT
     }
 
     @Test func conflictMergesBySetIDAndPutsAgain() async throws {
