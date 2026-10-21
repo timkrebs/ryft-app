@@ -375,6 +375,10 @@ struct ImportRow: View {
 /// not scored (the phone computes no scores).
 struct RawNightCard: View {
     let night: RawNight
+    /// The times in the screen's locale: "23:17" in German, the user's 12/24-hour setting in the app.
+    @Environment(\.locale) private var locale
+    private var bedtime: String { Fmt.time(night.bedtime, locale: locale) }
+    private var wake: String { Fmt.time(night.wake, locale: locale) }
 
     var body: some View {
         Card {
@@ -398,7 +402,7 @@ struct RawNightCard: View {
                         .font(.ryft(.callout))
                         .foregroundStyle(Theme.textSecondary)
                 }
-                Text(verbatim: "\(Fmt.time(night.bedtime)) – \(Fmt.time(night.wake)) · \(night.source)")
+                Text(verbatim: "\(bedtime) – \(wake) · \(night.source)")
                     .font(.ryft(.caption))
                     .monospacedDigit()
                     .foregroundStyle(Theme.textSecondary)
@@ -406,7 +410,7 @@ struct RawNightCard: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Last night, from Apple Health, not scored yet"))
-        .accessibilityValue(Text("\(Fmt.duration(minutes: night.asleepMin)) asleep, \(Fmt.time(night.bedtime)) to \(Fmt.time(night.wake)), \(night.source)"))
+        .accessibilityValue(Text("\(Fmt.duration(minutes: night.asleepMin)) asleep, \(bedtime) to \(wake), \(night.source)"))
         .accessibilityIdentifier("today.rawNight")
     }
 }
