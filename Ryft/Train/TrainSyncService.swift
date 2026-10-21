@@ -155,7 +155,7 @@ final class TrainSyncService {
         switch error {
         case .transport, .notConfigured, .signedOut: return true
         // A gate (invite, consent) is passed later: keep the op for then.
-        case .http(let code, _, _, let gate): return code == 401 || code == 408 || code == 429 || code >= 500
+        case .http(let code, _, _, let gate, _): return code == 401 || code == 408 || code == 429 || code >= 500
             || (code == 403 && gate != nil)
         }
     }

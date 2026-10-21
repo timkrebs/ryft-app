@@ -6,6 +6,9 @@
 //   503 → never sign out; wait `Retry-After`, retry (sync is idempotent).
 //   429 → wait `Retry-After`, retry once.
 //   413 → thrown; SyncService halves the page size.
+// A scheduled read (`singleAttempt`, set by `ReadScheduler`) makes one attempt: no 429/503
+// loop, `Retry-After` on the error, the fail-fast session (ADR 0001). A cancelled request
+// throws `CancellationError`; a request without an answer is recorded with status 0.
 // Every failure keeps the platform's request ID (`X-Request-ID` / `request_id`).
 // Every request carries `X-RYFT-Device-ID`; `X-RYFT-Gate` on any response (a gate
 // in warn mode) is reported like a refusal's code.
@@ -15,42 +18,49 @@ import zlib
 enum APIError: LocalizedError {
     case notConfigured
     case signedOut
-    case http(Int, String, requestID: String? = nil, code: APIErrorCode? = nil)
+    /// `retryAfter`: the response's `Retry-After` in whole seconds, when it sent one.
+    case http(Int, String, requestID: String? = nil, code: APIErrorCode? = nil, retryAfter: Int? = nil)
     case transport(Error)
 
     var errorDescription: String? {
         switch self {
         case .notConfigured: return SupabaseConfig.problem ?? String(localized: "This build has no RYFT server configured.")
         case .signedOut: return String(localized: "You're signed out. Log in to continue.")
-        case .http(401, _, _, _): return String(localized: "Your session has ended. Log in again to continue.")
-        case .http(403, _, _, .inviteRequired?):
+        case .http(401, _, _, _, _): return String(localized: "Your session has ended. Log in again to continue.")
+        case .http(403, _, _, .inviteRequired?, _):
             return String(localized: "RYFT is invite-only during the beta. Enter your invite code to continue.")
-        case .http(403, _, _, .consentRequired?):
+        case .http(403, _, _, .consentRequired?, _):
             return String(localized: "RYFT needs your consent before it can sync your health data.")
         // API.md: without a code, a 403 means changing something built in (exercise, plan, behavior).
-        case .http(403, _, _, nil): return String(localized: "This is built into RYFT and can't be changed.")
-        case .http(429, _, _, _): return String(localized: "Too many requests. Try again in a minute.")
-        case .http(500, _, _, _): return String(localized: "Something went wrong on RYFT's side. Try again later.")
-        case .http(503, _, _, _): return String(localized: "RYFT is catching up. Try again in a moment.")
-        case .http(let code, let message, _, _):
+        case .http(403, _, _, nil, _): return String(localized: "This is built into RYFT and can't be changed.")
+        case .http(429, _, _, _, _): return String(localized: "Too many requests. Try again in a minute.")
+        case .http(500, _, _, _, _): return String(localized: "Something went wrong on RYFT's side. Try again later.")
+        case .http(503, _, _, _, _): return String(localized: "RYFT is catching up. Try again in a moment.")
+        case .http(let code, let message, _, _, _):
             return message.isEmpty ? String(localized: "The server returned \(code).") : message
         case .transport(let e): return e.localizedDescription
         }
     }
 
     var status: Int? {
-        if case .http(let code, _, _, _) = self { return code }
+        if case .http(let code, _, _, _, _) = self { return code }
         return nil
     }
 
     var requestID: String? {
-        if case .http(_, _, let id, _) = self { return id }
+        if case .http(_, _, let id, _, _) = self { return id }
         return nil
     }
 
     /// The error body's `code`, if the platform sent one this build knows.
     var code: APIErrorCode? {
-        if case .http(_, _, _, let code) = self { return code }
+        if case .http(_, _, _, let code, _) = self { return code }
+        return nil
+    }
+
+    /// `Retry-After` in whole seconds, as the response sent it.
+    var retryAfter: Int? {
+        if case .http(_, _, _, _, let seconds) = self { return seconds }
         return nil
     }
 
@@ -71,7 +81,7 @@ enum APIError: LocalizedError {
 
     /// The platform doesn't serve this endpoint (yet) — callers degrade gracefully.
     var isNotFound: Bool {
-        if case .http(let code, _, _, _) = self { return code == 404 || code == 405 || code == 501 }
+        if case .http(let code, _, _, _, _) = self { return code == 404 || code == 405 || code == 501 }
         return false
     }
 }
@@ -89,6 +99,104 @@ extension Error {
         let head = e.code.map { "HTTP \(status) · \($0.rawValue)" } ?? "HTTP \(status)"
         guard let id = e.requestID else { return head }
         return String(localized: "\(head) · Request ID \(id)")
+    }
+}
+
+/// What a failed read means for the read pipeline (`ReadScheduler`): retried, ignored, counted,
+/// or the user's to act on. Pure; classification table in the refresh-resilience design (§3).
+enum FailureKind: String, Codable, Sendable {
+    /// No answer, a timeout, `408`, `429`, `5xx` (not `501`): retried, counted after the retries.
+    case transient
+    /// The task was cancelled (`.refreshable`, `.task(id:)`, sign-out): never retried, recorded or counted.
+    case cancelled
+    /// A final `401` (after `APIClient`'s refresh-once), or no session.
+    case signedOut
+    /// `403 invite_required` / `consent_required`: onboarding shows it; never counted.
+    case gate
+    /// Reserved: `API.md` has no signal for an outdated app yet, so nothing produces it.
+    case appTooOld
+    /// Anything else (`400`, `404`, `422`, a decoding failure…): not retried, counted.
+    case other
+
+    var isActionable: Bool { self == .signedOut || self == .gate || self == .appTooOld }
+
+    static func of(_ error: Error) -> FailureKind {
+        if error is CancellationError { return .cancelled }
+        if let url = error as? URLError { return url.code == .cancelled ? .cancelled : .transient }
+        guard let api = error as? APIError else { return .other }
+        switch api {
+        case .transport(let inner):
+            if inner is CancellationError || (inner as? URLError)?.code == .cancelled { return .cancelled }
+            return .transient
+        case .signedOut: return .signedOut
+        case .notConfigured: return .other
+        case .http(let status, _, _, let code, _):
+            switch status {
+            case 401: return .signedOut
+            case 403 where code == .inviteRequired || code == .consentRequired: return .gate
+            case 408, 429: return .transient
+            case 501: return .other
+            case 500...599: return .transient
+            default: return .other
+            }
+        }
+    }
+}
+
+/// How often and how long a scheduled read waits before trying again (`ReadScheduler`).
+/// Full jitter: retry `n` waits `random(0 ... min(maxBackoff, base · 2^(n−1)))`. A `Retry-After`
+/// up to `retryAfterCap` is waited out (at least); beyond it there's no retry now.
+struct RetryPolicy: Equatable, Sendable {
+    var maxRetries: Int
+    var base: Duration
+    var maxBackoff: Duration
+    var retryAfterCap: Duration
+
+    /// Someone watching: two retries, waits of 0–1 s and 0–2 s, `Retry-After` up to 5 s.
+    static let foreground = RetryPolicy(maxRetries: 2, base: .seconds(1), maxBackoff: .seconds(4),
+                                        retryAfterCap: .seconds(5))
+    /// The system woke the app: one retry, `Retry-After` up to 2 s.
+    static let background = RetryPolicy(maxRetries: 1, base: .seconds(1), maxBackoff: .seconds(2),
+                                        retryAfterCap: .seconds(2))
+
+    /// Wait before retry `attempt` (1-based), or nil: don't retry (not transient, out of retries,
+    /// or a `Retry-After` beyond the cap).
+    func delay(before attempt: Int, after error: Error, random: (ClosedRange<Double>) -> Double) -> Duration? {
+        guard attempt >= 1, attempt <= maxRetries, FailureKind.of(error) == .transient else { return nil }
+        let ceiling = min(maxBackoff, base * (1 << min(attempt - 1, 16)))
+        let jitter = Duration.seconds(random(0...ceiling.timeInterval))
+        guard let seconds = Self.retryAfter(error) else { return jitter }
+        let retryAfter = Duration.seconds(seconds)
+        guard retryAfter <= retryAfterCap else { return nil }
+        return max(retryAfter, jitter)
+    }
+
+    /// The error's `Retry-After`; a `429` without one counts as 1 s.
+    static func retryAfter(_ error: Error) -> Int? {
+        guard let api = error as? APIError else { return nil }
+        if let seconds = api.retryAfter { return seconds }
+        return api.status == 429 ? 1 : nil
+    }
+}
+
+extension URLError.Code {
+    /// "timedOut", "notConnectedToInternet": for diagnostics, never shown as a sentence.
+    var name: String {
+        switch self {
+        case .timedOut: return "timedOut"
+        case .notConnectedToInternet: return "notConnectedToInternet"
+        case .networkConnectionLost: return "networkConnectionLost"
+        case .cannotFindHost: return "cannotFindHost"
+        case .cannotConnectToHost: return "cannotConnectToHost"
+        case .dnsLookupFailed: return "dnsLookupFailed"
+        case .secureConnectionFailed: return "secureConnectionFailed"
+        case .serverCertificateUntrusted: return "serverCertificateUntrusted"
+        case .dataNotAllowed: return "dataNotAllowed"
+        case .internationalRoamingOff: return "internationalRoamingOff"
+        case .cancelled: return "cancelled"
+        case .badServerResponse: return "badServerResponse"
+        default: return "urlError\(rawValue)"
+        }
     }
 }
 
@@ -156,6 +264,11 @@ final class APIClient: RyftDataSource {
 
     /// Set by `SyncCoordinator` for a background run: its requests use `backgroundSession`.
     @TaskLocal static var runsInBackground = false
+
+    /// One attempt: no `429`/`503` loop (the error carries `Retry-After` instead), the fail-fast
+    /// session, no `APIStatus.retryNotice`. Set by `ReadScheduler`, the one retry layer for reads
+    /// (ADR 0001), so a scheduled read never sees two. The `401` refresh-once stays: that's auth.
+    @TaskLocal static var singleAttempt = false
 
     /// `tokens` defaults to `AuthService.shared`, resolved per request on the
     /// main actor. `sleep` waits out `Retry-After` (tests skip the wait).
@@ -321,9 +434,27 @@ final class APIClient: RyftDataSource {
         }
         let tokens = await tokenProvider()
         var bearer = try await tokens.accessToken()
+        let single = Self.singleAttempt
         var refreshed = false, rateLimited = false, unavailable = 0
         while true {
-            let (data, response) = try await perform(req, bearer: bearer)
+            let started = Date()
+            let data: Data, response: HTTPURLResponse?
+            do {
+                (data, response) = try await perform(req, bearer: bearer)
+            } catch {
+                // No response: recorded with its duration and URLError name (status 0), so Sync
+                // details and Copy diagnostics show timeouts too. A cancellation isn't a failure.
+                let transport = (error as? APIError).flatMap { e -> String? in
+                    if case .transport(let inner) = e { return (inner as? URLError)?.code.name ?? "transport" }
+                    return nil
+                } ?? "cancelled"
+                let entry = APIStatus.RequestFailure(date: .now, method: method, path: path, status: 0, requestID: nil,
+                                                     durationMs: Self.milliseconds(since: started), transport: transport)
+                if error is CancellationError { await status.served(entry) } else { await status.record(entry) }
+                if unavailable > 0 { await status.finishedWaiting() }
+                throw error
+            }
+            let durationMs = Self.milliseconds(since: started)
             let code = response?.statusCode ?? 0
             if (200..<300).contains(code) || accepting.contains(code) {
                 if unavailable > 0 { await status.finishedWaiting() }
@@ -332,7 +463,8 @@ final class APIClient: RyftDataSource {
                     await status.observe(warned, enforced: false)
                 }
                 await status.served(.init(date: .now, method: method, path: path, status: code,
-                                          requestID: response?.value(forHTTPHeaderField: "X-Request-ID")))
+                                          requestID: response?.value(forHTTPHeaderField: "X-Request-ID"),
+                                          durationMs: durationMs))
                 return (code, data)
             }
             let retryAfter = response.flatMap(Self.retryAfter)
@@ -344,13 +476,13 @@ final class APIClient: RyftDataSource {
                 continue
             case 401:
                 await tokens.rejectedAfterRefresh()
-            case 429 where !rateLimited:
+            case 429 where !rateLimited && !single:
                 rateLimited = true
                 let wait = min(retryAfter ?? 1, Self.maxRateLimitWait)
                 APIStatus.log.notice("429 on \(method, privacy: .public) \(path, privacy: .public); retrying in \(wait) s")
                 try await sleep(wait)
                 continue
-            case 503 where unavailable < unavailableRetries:
+            case 503 where unavailable < unavailableRetries && !single:
                 // Not a sign-in problem (API.md): keep the session, wait, retry.
                 unavailable += 1
                 let wait = min(retryAfter ?? 5, Self.maxUnavailableWait)
@@ -365,13 +497,17 @@ final class APIClient: RyftDataSource {
             let message = body?.error
                 ?? String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let requestID = response?.value(forHTTPHeaderField: "X-Request-ID") ?? body?.requestId
-            let error = APIError.http(code, message, requestID: requestID, code: body?.code)
+            let error = APIError.http(code, message, requestID: requestID, code: body?.code, retryAfter: retryAfter)
             APIStatus.log.error("\(code) \(body?.code?.rawValue ?? "", privacy: .public) on \(method, privacy: .public) \(path, privacy: .public), request \(requestID ?? "-", privacy: .public)")
             if let gate = error.gate { await status.observe([gate], enforced: true) }
             await status.record(.init(date: .now, method: method, path: path, status: code,
-                                      code: body?.code?.rawValue, requestID: requestID))
+                                      code: body?.code?.rawValue, requestID: requestID, durationMs: durationMs))
             throw error
         }
+    }
+
+    private static func milliseconds(since start: Date) -> Int {
+        max(0, Int((Date().timeIntervalSince(start) * 1000).rounded()))
     }
 
     /// `Retry-After` in whole seconds (the platform never sends an HTTP date).
@@ -381,12 +517,20 @@ final class APIClient: RyftDataSource {
             .map { max(0, $0) }
     }
 
+    /// One round trip. A scheduled read (`singleAttempt`) uses the fail-fast session like a background
+    /// run: 20 s, and no waiting for a network that isn't there (the scheduler retries). A cancelled
+    /// task's `URLError.cancelled` comes back as `CancellationError`: cancelling isn't failing.
     private func perform(_ request: URLRequest, bearer: String) async throws -> (Data, HTTPURLResponse?) {
         var req = request
         req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
+        let failFast = Self.runsInBackground || Self.singleAttempt
         do {
-            let (data, resp) = try await (Self.runsInBackground ? backgroundSession : session).data(for: req)
+            let (data, resp) = try await (failFast ? backgroundSession : session).data(for: req)
             return (data, resp as? HTTPURLResponse)
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw APIError.transport(error)
         }

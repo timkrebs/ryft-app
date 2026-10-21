@@ -440,14 +440,13 @@ final class HangingURLProtocol: URLProtocol {
 
 @Suite("T0: APIClient cancellation")
 struct APIClientCancellationTests {
-    /// What `.refreshable` does to the task awaiting a request: `URLSession` throws `URLError.cancelled`,
-    /// `APIClient.perform` wraps it in `APIError.transport` (APIClient.swift ~L391), and nothing downstream
-    /// tells it from a failure. Negative result for the mapping: it is `.transport`, not `CancellationError`.
-    @Test func aCancelledTaskSurfacesAsATransportError() async {
+    /// What `.refreshable` does to the task awaiting a request: `URLSession` throws `URLError.cancelled`, and
+    /// `APIClient.perform` rethrows it as `CancellationError`, so nothing downstream mistakes it for a failure.
+    @Test func aCancelledTaskThrowsCancellationError() async {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [HangingURLProtocol.self]
         let client = APIClient(session: URLSession(configuration: config), tokens: FakeTokens(), sleep: { _ in },
-                               baseURL: URL(string: "https://api.test")!)
+                               baseURL: URL(string: "https://api.test")!, status: await APIStatus())
         let task = Task { () -> Error? in
             do {
                 _ = try await client.data("GET", path: "/v1/me", body: Optional<Int>.none)
@@ -458,13 +457,7 @@ struct APIClientCancellationTests {
         task.cancel()
         let error = await task.value
 
-        guard case .transport(let inner)? = error as? APIError else {
-            Issue.record("expected APIError.transport, got \(String(describing: error))")
-            return
-        }
-        #expect((inner as? URLError)?.code == .cancelled)
-        withKnownIssue("T1: APIClient (or its caller) must tell cancellation from failure, e.g. rethrow CancellationError") {
-            #expect(error is CancellationError)
-        }
+        #expect(error is CancellationError, "got \(String(describing: error))")
+        #expect(FailureKind.of(error ?? APIError.notConfigured) == .cancelled)
     }
 }

@@ -36,6 +36,10 @@ final class APIStatus {
         /// The error body's `code` as sent (`consent_required`), if any.
         var code: String? = nil
         let requestID: String?
+        /// How long the round trip took (nil: not measured).
+        var durationMs: Int? = nil
+        /// No response: the `URLError` code's name ("timedOut"), or "cancelled". `status` is 0 then.
+        var transport: String? = nil
     }
 
     func waiting(seconds: Int) {
@@ -52,7 +56,7 @@ final class APIStatus {
         served(failure)
     }
 
-    /// A request the platform answered (failures go through `record` too).
+    /// A request the platform answered, or one cancelled before it did (failures go through `record` too).
     func served(_ request: RequestFailure) {
         requests.insert(request, at: 0)
         if requests.count > Self.maxFailures { requests.removeLast(requests.count - Self.maxFailures) }
@@ -76,5 +80,106 @@ final class APIStatus {
     func resetGates() {
         gates = []
         inviteBlocked = false
+    }
+}
+
+// MARK: - request budget
+
+/// Admits scheduled reads (`ReadScheduler`) so a refresh never bursts against the platform's
+/// limits (API.md → Conventions: per user 60 then 10/s, per IP 20/s at the edge): at most
+/// `maxInFlight` at once, and at most `maxStarts` starts in any `window` (a sliding log, so
+/// "no burst over 5" holds exactly; a token bucket of 5 would allow 10 in the first second).
+/// Waiters go high priority first (today, `GET /v1/me/sync`), then first come, first served.
+/// Waits run on the `AppClock`, so tests drive them with `TestClock`.
+actor RequestBudget {
+    enum Priority: Int, Comparable, Sendable {
+        case high, normal
+        static func < (a: Priority, b: Priority) -> Bool { a.rawValue < b.rawValue }
+    }
+
+    private struct Ticket: Equatable {
+        let id: UUID
+        let priority: Priority
+        let order: Int
+    }
+
+    private let clock: AppClock
+    let maxInFlight: Int
+    let maxStarts: Int
+    let window: Duration
+    private(set) var inFlight = 0
+    /// Start times inside the window, oldest first.
+    private var starts: [Date] = []
+    /// Waiting, in admission order.
+    private var queue: [Ticket] = []
+    private var parked: [UUID: CheckedContinuation<Void, Error>] = [:]
+    private var nextOrder = 0
+
+    init(clock: AppClock, maxInFlight: Int = 3, maxStarts: Int = 5, window: Duration = .seconds(1)) {
+        self.clock = clock
+        self.maxInFlight = maxInFlight
+        self.maxStarts = maxStarts
+        self.window = window
+    }
+
+    /// Requests waiting for a slot (tests).
+    var waiting: Int { queue.count }
+
+    /// Returns once this read may start; throws `CancellationError` if its task is cancelled while
+    /// waiting (it leaves the queue). Every successful `acquire` needs one `release`.
+    func acquire(_ priority: Priority) async throws {
+        let ticket = Ticket(id: UUID(), priority: priority, order: nextOrder)
+        nextOrder += 1
+        let at = queue.firstIndex { $0.priority > priority } ?? queue.endIndex
+        queue.insert(ticket, at: at)
+        defer {
+            queue.removeAll { $0 == ticket }
+            wakeAll()
+        }
+        while true {
+            try Task.checkCancellation()
+            // Re-checked after every suspension: another acquire or release ran meanwhile.
+            guard queue.first == ticket, inFlight < maxInFlight else {
+                try await park(ticket.id)
+                continue
+            }
+            let now = clock.now()
+            starts.removeAll { now.timeIntervalSince($0) >= window.timeInterval }
+            if starts.count < maxStarts {
+                inFlight += 1
+                starts.append(now)
+                return
+            }
+            // The window is full: wait until its oldest relevant start is a window old.
+            let oldest = starts[starts.count - maxStarts]
+            let wait = oldest.addingTimeInterval(window.timeInterval).timeIntervalSince(now)
+            try await clock.sleep(for: .milliseconds(max(1, Int((wait * 1000).rounded(.up)))))
+        }
+    }
+
+    func release() {
+        inFlight = max(0, inFlight - 1)
+        wakeAll()
+    }
+
+    private func park(_ id: UUID) async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+                if Task.isCancelled { c.resume(throwing: CancellationError()) } else { parked[id] = c }
+            }
+        } onCancel: {
+            Task { await self.unpark(id) }
+        }
+    }
+
+    private func unpark(_ id: UUID) {
+        parked.removeValue(forKey: id)?.resume(throwing: CancellationError())
+    }
+
+    /// Something changed (a slot, the head of the queue): every parked waiter checks again.
+    private func wakeAll() {
+        let waiting = parked
+        parked = [:]
+        waiting.values.forEach { $0.resume() }
     }
 }

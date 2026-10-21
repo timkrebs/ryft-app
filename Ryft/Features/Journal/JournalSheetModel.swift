@@ -155,7 +155,7 @@ final class JournalSheetModel {
 
     /// A `422` names what was wrong; the platform's text mentions the behavior.
     static func message(for error: Error, rows: [Row]) -> String {
-        guard let api = error as? APIError, api.status == 422, case .http(_, let text, _, _) = api else {
+        guard let api = error as? APIError, api.status == 422, case .http(_, let text, _, _, _) = api else {
             return error.localizedDescription
         }
         if let row = rows.first(where: { text.localizedCaseInsensitiveContains($0.behavior.slug)
