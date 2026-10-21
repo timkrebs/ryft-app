@@ -35,6 +35,32 @@ protocol AuthClientProtocol: Sendable {
     func session(from url: URL) async throws -> Session
     /// Removes the local session first, then revokes it on the server.
     func signOut() async throws
+    /// The account's sign-in methods (Supabase identities: `apple`, `email`).
+    func identities() async throws -> [SignInMethod]
+    /// Adds Sign in with Apple to the signed-in account (Supabase "Manual Linking" must be on).
+    func linkApple(idToken: String, nonce: String) async throws -> Session
+}
+
+/// One way into the account (a Supabase identity), for Profile → Sign-in methods.
+struct SignInMethod: Hashable, Identifiable, Sendable {
+    /// `apple`, `email`, …
+    let provider: String
+    /// The identity's email (an Apple private relay address, possibly).
+    let email: String?
+    let addedAt: Date?
+    var id: String { provider + (email ?? "") }
+
+    init(provider: String, email: String?, addedAt: Date?) {
+        self.provider = provider
+        self.email = email
+        self.addedAt = addedAt
+    }
+
+    init(_ identity: UserIdentity) {
+        var email: String?
+        if case .string(let e) = identity.identityData?["email"] { email = e }
+        self.init(provider: identity.provider, email: email, addedAt: identity.createdAt)
+    }
 }
 
 struct SupabaseAuthClient: AuthClientProtocol {
@@ -87,6 +113,14 @@ struct SupabaseAuthClient: AuthClientProtocol {
     func session(from url: URL) async throws -> Session { try await client.session(from: url) }
 
     func signOut() async throws { try await client.signOut(scope: .local) }
+
+    func identities() async throws -> [SignInMethod] {
+        try await client.userIdentities().map(SignInMethod.init)
+    }
+
+    func linkApple(idToken: String, nonce: String) async throws -> Session {
+        try await client.linkIdentityWithIdToken(credentials: .init(provider: .apple, idToken: idToken, nonce: nonce))
+    }
 }
 
 // MARK: - nonce
@@ -342,6 +376,68 @@ final class AuthService {
         return name.isEmpty ? nil : name
     }
 
+    // MARK: sign-in methods (Profile → Account)
+
+    /// The account's sign-in methods, once loaded.
+    private(set) var signInMethods: [SignInMethod] = []
+    /// Why adding Sign in with Apple failed, in one sentence.
+    private(set) var linkError: String?
+    private var pendingLinkNonce: String?
+
+    var hasAppleSignIn: Bool { signInMethods.contains { $0.provider == "apple" } || provider == "apple" }
+
+    func loadSignInMethods() async {
+        guard let client, let account = accountID else { return }
+        let methods = try? await client.identities()
+        // Another account meanwhile: those were the previous one's.
+        guard let methods, accountID == account else { return }
+        signInMethods = methods
+    }
+
+    /// "Add Sign in with Apple"'s request hook: no scopes (the account has its name), a fresh nonce.
+    func prepareLink(_ request: ASAuthorizationAppleIDRequest) {
+        let nonce = Nonce.random()
+        pendingLinkNonce = nonce
+        request.requestedScopes = []
+        request.nonce = Nonce.sha256(nonce)
+    }
+
+    /// Links the Apple ID to this account, so either sign-in opens the same data.
+    @discardableResult
+    func completeLink(_ result: Result<ASAuthorization, Error>) async -> Bool {
+        linkError = nil
+        guard let client else { return false }
+        switch result {
+        case .failure(let error):
+            if (error as? ASAuthorizationError)?.code != .canceled {
+                linkError = AuthMessage.text(for: error, during: .link)
+            }
+            return false
+        case .success(let authorization):
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let idToken = String(data: tokenData, encoding: .utf8),
+                  let nonce = pendingLinkNonce else {
+                linkError = String(localized: "Apple didn't return a sign-in token. Please try again.")
+                return false
+            }
+            pendingLinkNonce = nil
+            otherWork = true
+            defer { otherWork = false }
+            do {
+                apply(try await client.linkApple(idToken: idToken, nonce: nonce))
+                await loadSignInMethods()
+                if let code = credential.authorizationCode.flatMap({ String(data: $0, encoding: .utf8) }) {
+                    await sendAppleAuthorization(code)
+                }
+                return true
+            } catch {
+                linkError = AuthMessage.linkText(for: error)
+                return false
+            }
+        }
+    }
+
     // MARK: email + password
 
     enum SignUpOutcome: Equatable {
@@ -536,6 +632,11 @@ final class AuthService {
             defaults.removeObject(forKey: Self.lastUserKey)
             needsNewPassword = false
         }
+        if newSession?.user.id != session?.user.id {
+            // Sign-in methods belong to the account they were loaded for.
+            signInMethods = []
+            linkError = nil
+        }
         session = newSession
         user = newSession?.user
         // The machine follows the session (sign-outs set their phase before getting here).
@@ -578,6 +679,24 @@ extension AuthService.SignOutReason {
 
 /// Calm, inline error copy. Never says whether an email has an account.
 enum AuthMessage {
+    /// Adding Sign in with Apple to an account.
+    static func linkText(for error: Error) -> String {
+        if error is URLError || (error as NSError).domain == NSURLErrorDomain {
+            return String(localized: "No connection. Check your internet and try again.")
+        }
+        guard case .api(_, let code, _, _) = error as? AuthError else {
+            return String(localized: "Something went wrong. Please try again.")
+        }
+        switch code {
+        case .identityAlreadyExists:
+            return String(localized: "This Apple ID already belongs to another RYFT account. Log out and continue with Apple to use that one.")
+        case .manualLinkingDisabled:
+            return String(localized: "Adding Sign in with Apple isn't switched on for RYFT yet. Try again later.")
+        default:
+            return String(localized: "Something went wrong. Please try again.")
+        }
+    }
+
     enum Context { case signIn, signUp, emailLink, newPassword, link }
 
     static func text(for error: Error, during context: Context) -> String {

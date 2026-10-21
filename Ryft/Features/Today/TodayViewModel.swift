@@ -11,9 +11,12 @@ final class TodayViewModel {
     private let coordinator: SyncCoordinator
     private let apiStatus: APIStatus
     private let push: PushRegistrar?
+    private let onboarding: OnboardingCoordinator?
 
     /// The one message under the cards, in priority order.
     enum Status: Equatable {
+        /// Something only the user can do: agree to the policy, enter the invite code.
+        case actionNeeded(OnboardingCoordinator.Step, message: String, action: String)
         /// The platform asked to wait (503 / 429), and the app is retrying.
         case retrying(String)
         case error(message: String, details: String?)
@@ -25,12 +28,13 @@ final class TodayViewModel {
     let coachMarks: CoachMarks
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, push: PushRegistrar? = nil,
-         apiStatus: APIStatus? = nil) {
+         onboarding: OnboardingCoordinator? = nil, apiStatus: APIStatus? = nil) {
         coachMarks = CoachMarks(defaults: state.env.defaults)
         self.state = state
         self.sync = sync
         self.coordinator = coordinator
         self.push = push
+        self.onboarding = onboarding
         self.apiStatus = apiStatus ?? .shared
     }
 
@@ -59,6 +63,10 @@ final class TodayViewModel {
     var strainText: String { Fmt.strain(score?.strain) }
 
     var status: Status? {
+        // With onboarding, its facts decide (a sync paused only until the account is known
+        // isn't the user's to fix); without it, a sync the platform refused at a gate.
+        let gate = onboarding.map { $0.pendingGate } ?? sync.pausedFor.map(Self.step(for:))
+        if let step = gate { return Self.actionNeeded(step) }
         if let notice = apiStatus.retryNotice { return .retrying(notice) }
         if let error = state.error {
             // With data on screen, the failure only means it's not the latest.
@@ -87,6 +95,25 @@ final class TodayViewModel {
     }
 
     func open(_ tab: AppTab) { state.selectedTab = tab }
+
+    /// "Review" / "Enter code": the gate's screen, again.
+    func resolve(_ step: OnboardingCoordinator.Step) { onboarding?.show(step) }
+
+    private static func step(for gate: APIErrorCode) -> OnboardingCoordinator.Step {
+        gate == .inviteRequired ? .invite : .consent
+    }
+
+    private static func actionNeeded(_ step: OnboardingCoordinator.Step) -> Status {
+        switch step {
+        case .invite:
+            return .actionNeeded(.invite, message: String(localized: "Action needed: enter your invite code to use RYFT."),
+                                 action: String(localized: "Enter code"))
+        case .consent, .aboutYou:
+            return .actionNeeded(.consent,
+                                 message: String(localized: "Action needed: agree to the privacy policy. Nothing syncs until you do."),
+                                 action: String(localized: "Review"))
+        }
+    }
 
     // MARK: feature flags
 

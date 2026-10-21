@@ -20,3 +20,10 @@ Store "What's New".
 - Notifications for the morning score, scored workouts, records and missing data, with
   quiet hours.
 - Account with Sign in with Apple or email, data export and account deletion.
+- Beta onboarding: invite code, consent to health-data processing, birth year for a
+  maximum heart-rate estimate. Profile → Privacy to see or withdraw the consent, and
+  Profile → Sign-in methods to add Sign in with Apple to an email account.
+
+### Fixed
+- A missing consent or invite code no longer shows as "RYFT didn't accept your sign-in";
+  the app asks for what's missing and syncs once it's done.

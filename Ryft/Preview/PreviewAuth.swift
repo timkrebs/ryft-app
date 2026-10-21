@@ -19,6 +19,10 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
     var emailError: Error?
     /// `true` models a project with "Confirm email" on: sign-up returns no session.
     var requiresEmailConfirmation = false
+    /// The account's sign-in methods; linking Apple adds one.
+    var methods = [SignInMethod(provider: "email", email: "tim@example.com", addedAt: nil)]
+    /// Linking failures (`identity_already_exists`, `manual_linking_disabled`).
+    var linkError: Error?
 
     // What happened.
     private(set) var refreshCount = 0
@@ -133,6 +137,17 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
         emit(.signedOut, nil)
     }
 
+    func identities() async throws -> [SignInMethod] { locked { methods } }
+
+    func linkApple(idToken: String, nonce: String) async throws -> Session {
+        try locked {
+            if let linkError { throw linkError }
+            methods.append(SignInMethod(provider: "apple", email: "tim@privaterelay.appleid.com", addedAt: .now))
+            guard let stored else { throw AuthError.sessionMissing }
+            return stored
+        }
+    }
+
     private func locked<T>(_ body: () throws -> T) rethrows -> T {
         lock.lock()
         defer { lock.unlock() }
@@ -156,8 +171,8 @@ extension Session {
 
 extension AuthService {
     /// Signed in with a fake session (or signed out, for onboarding previews).
-    static func preview(signedIn: Bool = true) -> AuthService {
-        AuthService(client: MockAuthClient(session: signedIn ? .preview() : nil),
+    static func preview(signedIn: Bool = true, provider: String = "apple") -> AuthService {
+        AuthService(client: MockAuthClient(session: signedIn ? .preview(provider: provider) : nil),
                     defaults: UserDefaults(suiteName: "ryft.preview.auth") ?? .standard,
                     wipeLocalData: {},
                     deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },

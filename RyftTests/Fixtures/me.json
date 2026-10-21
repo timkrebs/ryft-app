@@ -2,4 +2,9 @@
   "provider": "apple", "tz": "Europe/Berlin", "max_hr": 190, "sleep_base_min": 455,
   "sleep_base_source": "learned", "sleep_base_learned_min": 455, "sleep_base_learned_at": "2026-10-18T02:00:04Z",
   "notifications": { "categories": { "MORNING_SCORE": true, "SESSION_SCORED": true, "PR": false, "SYNC_STALE": true },
-                     "quiet_hours": { "from": "22:30", "to": "07:00" } } }
+                     "quiet_hours": { "from": "22:30", "to": "07:00" } },
+  "beta_access": true,
+  "consent": { "policy_version": "2026-10-20", "granted_at": "2026-10-20T09:12:44Z" },
+  "birth_year": 1990, "max_hr_source": "estimated", "account_hint": null,
+  "sources": [ { "name": "Tim's Apple Watch", "bundle_id": "com.apple.health.81E2…", "kinds": ["energy", "hr", "hrv", "resp", "sleep", "spo2", "workout"], "last_seen": "2026-10-20T06:58:00Z" },
+               { "name": "Tim's iPhone", "bundle_id": "com.apple.health.3F0A…", "kinds": ["steps"], "last_seen": "2026-10-20T08:40:00Z" } ] }

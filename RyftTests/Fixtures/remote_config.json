@@ -1,3 +1,4 @@
 { "flags": { "train.enabled": true, "sleep.planner": true, "today.redesign": false,
              "coach.enabled": false, "push.enabled": false, "physiology.card": false },
-  "evaluated_at": "2026-10-19T06:12:00Z", "ttl_sec": 21600 }
+  "evaluated_at": "2026-10-19T06:12:00Z", "ttl_sec": 21600,
+  "privacy_policy_version": "2026-10-20", "privacy_policy_url": "https://ryftapp.de/privacy" }

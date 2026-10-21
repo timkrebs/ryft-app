@@ -137,6 +137,10 @@ struct TodayView: View {
     @ViewBuilder
     private var status: some View {
         switch model.status {
+        case .actionNeeded(let step, let message, let action):
+            InlineMessage(message: message, systemImage: "hand.raised", retryTitle: LocalizedStringKey(action),
+                          retry: { model.resolve(step) })
+                .accessibilityIdentifier("today.actionNeeded")
         case .retrying(let notice):
             InlineMessage(message: notice, systemImage: "clock.arrow.circlepath")
         case .error(let message, let details):

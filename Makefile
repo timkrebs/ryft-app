@@ -1,4 +1,4 @@
-.PHONY: config build test icon fonts screenshots lint check-entitlements style format archive
+.PHONY: config build test icon fonts screenshots lint check-entitlements strings style format archive
 
 # Ryft.xcodeproj is the source of truth (CLAUDE.md): change targets, capabilities
 # and packages in Xcode itself.
@@ -8,8 +8,11 @@ config: Config/Debug.xcconfig Config/Release.xcconfig
 Config/%.xcconfig:
 	cp $@.example $@
 
+# One DerivedData for build, strings and screenshots (CI uses the same path).
+DERIVED := build/DerivedData
+
 build: config
-	xcodebuild -scheme Ryft -destination 'generic/platform=iOS Simulator' build
+	xcodebuild -scheme Ryft -destination 'generic/platform=iOS Simulator' -derivedDataPath $(DERIVED) build
 
 test: config
 	xcodebuild -scheme Ryft -testPlan Unit -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
@@ -24,6 +27,11 @@ fonts:
 
 screenshots:
 	scripts/screenshots.sh
+
+# The string catalog from the last build's extracted strings (what Xcode does on build;
+# for sessions without it). Then `make lint` lists what needs German.
+strings: build
+	python3 scripts/sync-strings.py --derived-data $(DERIVED)
 
 # String catalogs complete in English and German, nothing stale.
 lint: check-entitlements

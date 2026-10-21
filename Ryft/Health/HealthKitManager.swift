@@ -139,7 +139,7 @@ final class HealthKitManager {
         let items = result.addedSamples.map { s in
             Sample(type: spec.type, start: s.startDate, end: s.endDate,
                    value: s.quantity.doubleValue(for: spec.unit) * spec.scale,
-                   unit: spec.unitLabel, source: Self.sourceName(s))
+                   unit: spec.unitLabel, source: Self.sourceName(s), sourceBundleId: Self.sourceBundleID(s))
         }
         return Page(items: items, anchor: result.newAnchor, more: result.addedSamples.count >= pageSize)
     }
@@ -153,7 +153,8 @@ final class HealthKitManager {
         let result = try await desc.result(for: store)
         let items = result.addedSamples.compactMap { s -> SleepSegment? in
             guard let stage = Self.sleepStage(s.value) else { return nil }
-            return SleepSegment(start: s.startDate, end: s.endDate, stage: stage, source: Self.sourceName(s))
+            return SleepSegment(start: s.startDate, end: s.endDate, stage: stage, source: Self.sourceName(s),
+                                sourceBundleId: Self.sourceBundleID(s))
         }
         return Page(items: items, anchor: result.newAnchor, more: result.addedSamples.count >= pageSize)
     }
@@ -205,6 +206,12 @@ final class HealthKitManager {
         s.sourceRevision.source.name
     }
 
+    /// e.g. `com.ouraring.oura`; Profile → Data sources shows which app sent what.
+    static func sourceBundleID(_ s: HKSample) -> String? {
+        let id = s.sourceRevision.source.bundleIdentifier
+        return id.isEmpty ? nil : id
+    }
+
     static func sleepStage(_ raw: Int) -> SleepStage? {
         switch HKCategoryValueSleepAnalysis(rawValue: raw) {
         case .inBed: return .inBed
@@ -234,7 +241,7 @@ final class HealthKitManager {
                        start: w.startDate, end: w.endDate,
                        avgHr: avg(.heartRate, bpm), maxHr: max(.heartRate, bpm),
                        energyKcal: sum(.activeEnergyBurned, .kilocalorie()), distanceM: distance,
-                       source: sourceName(w), strain: nil)
+                       source: sourceName(w), strain: nil, sourceBundleId: sourceBundleID(w))
     }
 
     static func activityName(_ t: HKWorkoutActivityType) -> String {

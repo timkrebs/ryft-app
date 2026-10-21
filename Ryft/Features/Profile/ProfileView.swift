@@ -13,6 +13,7 @@ struct ProfileView: View {
     @State private var showLogOutConfirm = false
     @State private var showDeleteConfirm = false
     @State private var showChangePassword = false
+    @State private var showWithdrawConfirm = false
     @State private var legal: LegalPage?
 
     private var model: ProfileViewModel { screens.profile }
@@ -26,6 +27,7 @@ struct ProfileView: View {
                     .accessibilityAddTraits(.isHeader)
                 account
                 bodySection
+                privacy
                 data
                 if model.showsNotifications { notifications }
                 if screens.journal.isLive { journal }
@@ -67,6 +69,17 @@ struct ProfileView: View {
         .sheet(isPresented: $showChangePassword) {
             SetNewPasswordView(mode: .change)
         }
+        .confirmationDialog("Withdraw your consent?", isPresented: $showWithdrawConfirm, titleVisibility: .visible) {
+            Button("Withdraw consent", role: .destructive) {
+                Task { await model.withdrawConsent() }
+            }
+            if model.canExport {
+                Button("Export my data first") { Task { await model.export() } }
+            }
+            Button("Delete account instead", role: .destructive) { showDeleteConfirm = true }
+        } message: {
+            Text("RYFT stops syncing and scoring your health data. Nothing is deleted: your scores stay readable, and you can export your data or delete your account at any time.")
+        }
     }
 
     // MARK: account
@@ -98,6 +111,21 @@ struct ProfileView: View {
                 if let tz = model.timezone {
                     StatRow(title: "Timezone", value: tz, detail: model.timezoneDetail)
                 }
+                NavigationLink {
+                    SignInMethodsView()
+                } label: {
+                    HStack {
+                        Text("Sign-in methods").font(.ryft(.callout)).foregroundStyle(Theme.textPrimary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Theme.textTertiary)
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("profile.signInMethods")
                 Divider().overlay(Theme.separator)
                 if model.canChangePassword {
                     PrimaryButton(title: "Change password", style: .secondary) { showChangePassword = true }
@@ -232,6 +260,28 @@ struct ProfileView: View {
             Stepper(value: Bindable(model).maxHR, in: 140...220) {
                 StepperLabel(title: "Max heart rate", value: model.maxHRText)
             }
+            if let source = model.maxHRSourceText {
+                Text(source)
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            if model.canUseMaxHREstimate {
+                Button("Use the estimate") { Task { await model.useMaxHREstimate() } }
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.accent)
+            }
+            HStack {
+                Text("Birth year").font(.ryft(.body)).foregroundStyle(Theme.textPrimary)
+                Spacer()
+                Picker("Birth year", selection: Binding(get: { model.birthYear },
+                                                        set: { y in if let y { Task { await model.setBirthYear(y) } } })) {
+                    if model.birthYear == nil { Text("Not set").tag(Int?.none) }
+                    ForEach(model.birthYears, id: \.self) { Text(verbatim: "\($0)").tag(Int?.some($0)) }
+                }
+                .pickerStyle(.menu)
+                .tint(Theme.accent)
+            }
+            .frame(minHeight: 44)
             Stepper(value: Bindable(model).sleepBase, in: 240...720, step: 5) {
                 StepperLabel(title: "Sleep baseline", value: model.sleepBaseText)
             }
@@ -258,6 +308,38 @@ struct ProfileView: View {
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textSecondary)
             }
+        }
+    }
+
+    // MARK: privacy
+
+    /// Consent to health-data processing: when, for which policy, withdraw or agree.
+    private var privacy: some View {
+        ProfileSection(title: "Privacy") {
+            StatRow(title: "Health-data consent", value: model.consentText,
+                    valueColor: model.consentIsCurrent ? Theme.textPrimary : Theme.warning)
+            if let detail = model.consentDetail {
+                Text(detail)
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if model.consentIsCurrent {
+                PrimaryButton(title: "Withdraw consent", style: .destructive, busy: model.withdrawingConsent) {
+                    showWithdrawConfirm = true
+                }
+            } else {
+                PrimaryButton(title: "Review and agree") { model.reviewConsent() }
+            }
+            if let error = model.consentError {
+                InlineMessage(message: error, systemImage: "exclamationmark.circle")
+            }
+            Button {
+                legal = model.policyPage
+            } label: {
+                Text("Privacy Policy").font(.ryft(.callout)).foregroundStyle(Theme.accent).frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -418,12 +500,7 @@ struct ProfileView: View {
         }
     }
 
-    static var version: String {
-        let info = Bundle.main.infoDictionary
-        let v = info?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let b = info?["CFBundleVersion"] as? String ?? "1"
-        return "\(v) (\(b))"
-    }
+    static var version: String { AppInfo.version }
 }
 
 // MARK: - building blocks

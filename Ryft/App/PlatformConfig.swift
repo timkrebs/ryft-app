@@ -82,3 +82,19 @@ struct MisconfiguredBuildView: View {
 #Preview("Misconfigured build") {
     MisconfiguredBuildView()
 }
+
+/// What a request tells the platform about this install (sync, consent, feedback).
+enum AppInfo {
+    /// "1.0.0 (20261021.081500)": marketing version and build.
+    static var version: String {
+        let info = Bundle.main.infoDictionary
+        let v = info?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let b = info?["CFBundleVersion"] as? String ?? "1"
+        return "\(v) (\(b))"
+    }
+
+    /// "iOS 27.1".
+    @MainActor static var osVersion: String {
+        "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)"
+    }
+}

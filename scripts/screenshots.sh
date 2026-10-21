@@ -1,8 +1,11 @@
 #!/bin/sh
 # Builds the app, runs it in the simulator with mock data and captures one
-# screenshot per tab (dark and light) into docs/screenshots/.
+# screenshot per tab (dark and light) into docs/screenshots/. Screens demo mode
+# never reaches (the onboarding steps, Profile → Sign-in methods) are opened
+# directly with the Debug launch argument `-RyftScreen` (RyftApp → DebugScreen).
 #
-#   scripts/screenshots.sh ["iPhone 17 Pro"] [tab ...]
+#   scripts/screenshots.sh ["iPhone 17 Pro"] [tab or screen ...]
+#   screens: invite consent aboutYou accountHint signInMethods
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -10,7 +13,7 @@ DEVICE=${1:-"iPhone 17 Pro"}
 shift 2>/dev/null || true
 TABS=${*:-"today sleep strain insights profile"}
 BUNDLE=dev.timkrebs.ryft
-DD=.build/DerivedData
+DD=build/DerivedData   # shared with make build / make strings
 OUT=docs/screenshots
 
 # Names can repeat across runtimes; pin the first available match by UDID.
@@ -35,7 +38,11 @@ mkdir -p "$OUT"
 for scheme in dark light; do
   for tab in $TABS; do
     xcrun simctl terminate "$DEVICE" "$BUNDLE" 2>/dev/null || true
-    xcrun simctl launch "$DEVICE" "$BUNDLE" -demoMode YES -RyftTab "$tab" -appearance "$scheme" >/dev/null
+    case $tab in
+      invite|consent|aboutYou|accountHint|signInMethods) open="-RyftScreen" ;;
+      *) open="-RyftTab" ;;
+    esac
+    xcrun simctl launch "$DEVICE" "$BUNDLE" -demoMode YES "$open" "$tab" -appearance "$scheme" >/dev/null
     sleep "${SHOT_DELAY:-3}"
     xcrun simctl io "$DEVICE" screenshot --type=png "$OUT/$tab-$scheme.png" >/dev/null 2>&1
     echo "$OUT/$tab-$scheme.png"

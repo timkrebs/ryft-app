@@ -113,6 +113,8 @@ final class AppState {
             try? await repository.refreshInsights(force: rescored)
             error = nil
             errorDetails = nil
+        } catch where error.gate != nil {
+            // A gate isn't a failure to show: onboarding asks for it (`APIStatus` saw the code).
         } catch {
             self.error = error.localizedDescription
             self.errorDetails = error.diagnosticDetails
@@ -133,28 +135,12 @@ final class AppState {
                                                 force: true)
             error = nil
             errorDetails = nil
+        } catch where error.gate != nil {
+            throw error
         } catch {
             self.error = error.localizedDescription
             self.errorDetails = error.diagnosticDetails
             throw error
-        }
-    }
-
-    /// Right after sign-in, before the first sync: `GET /v1/me` creates the
-    /// user on the platform, then `PATCH /v1/me` sets the phone's timezone
-    /// (new users start in Europe/Berlin, which defines every day boundary).
-    func loadUserAfterSignIn() async {
-        guard hasDataSource else { return }
-        do {
-            var u = try await source.me()
-            let tz = TimeZone.current.identifier
-            if u.tz != tz {
-                u = try await source.patchMe(UserPatch(tz: tz))
-            }
-            user = u
-        } catch {
-            self.error = error.localizedDescription
-            self.errorDetails = error.diagnosticDetails
         }
     }
 

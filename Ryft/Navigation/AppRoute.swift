@@ -17,6 +17,7 @@ import Foundation
 /// | `/train/plan/<uuid>` | the plan |
 /// | `/train/history` | past sessions (the `pr` insight) |
 /// | `/auth/callback` | email confirmation and password reset (Supabase) |
+/// | `/invite/<code>` | the invite step, with the code filled in |
 /// | anything else on our host | Today |
 enum AppRoute: Equatable {
     case today
@@ -30,6 +31,8 @@ enum AppRoute: Equatable {
     case trainPlan(UUID)
     case trainHistory
     case authCallback(URL)
+    /// A beta invite: the code fills in the invite step.
+    case invite(code: String)
 
     static let host = "ryftapp.de"
     static let scheme = "ryft"
@@ -61,6 +64,7 @@ enum AppRoute: Equatable {
             case ("insights", "behaviors"): return .insightsBehaviors
             case ("insights", let m): return TrendMetric(rawValue: m).map(AppRoute.insights)
             case ("auth", _): return .authCallback(url)
+            case ("invite", let code) where !code.isEmpty: return .invite(code: code)
             case ("train", "history"): return .trainHistory
             default: return nil
             }
@@ -91,6 +95,7 @@ enum AppRoute: Equatable {
         case .trainExercise(let id): path = "train/exercises/\(id.uuidString.lowercased())"
         case .trainPlan(let id): path = "train/plan/\(id.uuidString.lowercased())"
         case .trainHistory: path = "train/history"
+        case .invite(let code): path = "invite/\(code)"
         case .authCallback(let url): return url
         }
         return URL(string: "https://\(Self.host)/\(path)")

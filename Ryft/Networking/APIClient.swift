@@ -2,41 +2,59 @@
 // on its own port in a compose stack). The bearer is the Supabase access
 // token (AuthService). Status handling follows API.md → Errors:
 //   401 → refresh the session once, retry once; a second 401 signs out.
+//   403 + code → a gate (invite, consent), reported to `APIStatus`; never "log in again".
 //   503 → never sign out; wait `Retry-After`, retry (sync is idempotent).
 //   429 → wait `Retry-After`, retry once.
 //   413 → thrown; SyncService halves the page size.
 // Every failure keeps the platform's request ID (`X-Request-ID` / `request_id`).
+// Every request carries `X-RYFT-Device-ID`; `X-RYFT-Gate` on any response (a gate
+// in warn mode) is reported like a refusal's code.
 import Foundation
 
 enum APIError: LocalizedError {
     case notConfigured
     case signedOut
-    case http(Int, String, requestID: String? = nil)
+    case http(Int, String, requestID: String? = nil, code: APIErrorCode? = nil)
     case transport(Error)
 
     var errorDescription: String? {
         switch self {
         case .notConfigured: return SupabaseConfig.problem ?? String(localized: "This build has no RYFT server configured.")
         case .signedOut: return String(localized: "You're signed out. Log in to continue.")
-        case .http(401, _, _), .http(403, _, _): return String(localized: "RYFT didn't accept your sign-in. Log in again.")
-        case .http(429, _, _): return String(localized: "Too many requests. Try again in a minute.")
-        case .http(500, _, _): return String(localized: "Something went wrong on RYFT's side. Try again later.")
-        case .http(503, _, _): return String(localized: "RYFT is catching up. Try again in a moment.")
-        case .http(let code, let message, _):
+        case .http(401, _, _, _): return String(localized: "Your session has ended. Log in again to continue.")
+        case .http(403, _, _, .inviteRequired?):
+            return String(localized: "RYFT is invite-only during the beta. Enter your invite code to continue.")
+        case .http(403, _, _, .consentRequired?):
+            return String(localized: "RYFT needs your consent before it can sync your health data.")
+        // API.md: without a code, a 403 means changing something built in (exercise, plan, behavior).
+        case .http(403, _, _, nil): return String(localized: "This is built into RYFT and can't be changed.")
+        case .http(429, _, _, _): return String(localized: "Too many requests. Try again in a minute.")
+        case .http(500, _, _, _): return String(localized: "Something went wrong on RYFT's side. Try again later.")
+        case .http(503, _, _, _): return String(localized: "RYFT is catching up. Try again in a moment.")
+        case .http(let code, let message, _, _):
             return message.isEmpty ? String(localized: "The server returned \(code).") : message
         case .transport(let e): return e.localizedDescription
         }
     }
 
     var status: Int? {
-        if case .http(let code, _, _) = self { return code }
+        if case .http(let code, _, _, _) = self { return code }
         return nil
     }
 
     var requestID: String? {
-        if case .http(_, _, let id) = self { return id }
+        if case .http(_, _, let id, _) = self { return id }
         return nil
     }
+
+    /// The error body's `code`, if the platform sent one this build knows.
+    var code: APIErrorCode? {
+        if case .http(_, _, _, let code) = self { return code }
+        return nil
+    }
+
+    /// A `403` with a gate code: route to the invite or consent screen, never show it as a failure.
+    var gate: APIErrorCode? { status == 403 ? code : nil }
 
     /// `422`: well-formed but invalid (a field, a value, a day not editable).
     /// Shown inline next to what caused it; never retried, never a sign-out.
@@ -52,7 +70,7 @@ enum APIError: LocalizedError {
 
     /// The platform doesn't serve this endpoint (yet) — callers degrade gracefully.
     var isNotFound: Bool {
-        if case .http(let code, _, _) = self { return code == 404 || code == 405 || code == 501 }
+        if case .http(let code, _, _, _) = self { return code == 404 || code == 405 || code == 501 }
         return false
     }
 }
@@ -60,11 +78,16 @@ enum APIError: LocalizedError {
 extension Error {
     var isEndpointMissing: Bool { (self as? APIError)?.isNotFound ?? false }
 
-    /// "HTTP 503 · Request ID 01a1…" for an inline message's Details, or `nil`.
+    /// The gate behind a refused call (`403 invite_required` / `consent_required`), if any.
+    var gate: APIErrorCode? { (self as? APIError)?.gate }
+
+    /// "HTTP 403 · consent_required · Request ID 01a1…" for an inline message's Details,
+    /// or `nil`. The request ID is exactly as the platform sent it: support searches for it.
     var diagnosticDetails: String? {
         guard let e = self as? APIError, let status = e.status else { return nil }
-        guard let id = e.requestID else { return String(localized: "HTTP \(status)") }
-        return String(localized: "HTTP \(status) · Request ID \(id)")
+        let head = e.code.map { "HTTP \(status) · \($0.rawValue)" } ?? "HTTP \(status)"
+        guard let id = e.requestID else { return head }
+        return String(localized: "\(head) · Request ID \(id)")
     }
 }
 
@@ -103,6 +126,8 @@ final class APIClient: RyftDataSource {
     private let sleep: @Sendable (Int) async throws -> Void
     /// Replaces the configured API URL (tests).
     private let baseURL: URL?
+    /// Where gates, 503 waits and failures are reported; `APIStatus.shared` unless a test injects one.
+    private let status: APIStatus?
 
     /// 503 retries per request before giving up, and the longest wait honoured.
     static let maxUnavailableRetries = 3
@@ -122,11 +147,32 @@ final class APIClient: RyftDataSource {
     init(session: URLSession = URLSession(configuration: APIClient.defaultConfiguration),
          tokens: AccessTokenProvider? = nil,
          sleep: @escaping @Sendable (Int) async throws -> Void = { try await Task.sleep(for: .seconds($0)) },
-         baseURL: URL? = nil) {
+         baseURL: URL? = nil, status: APIStatus? = nil) {
         self.session = session
         self.baseURL = baseURL
         self.tokens = tokens
         self.sleep = sleep
+        self.status = status
+    }
+
+    /// Routes the invite gate leaves open (API.md → Errors): the onboarding calls.
+    static let openBehindInviteGate: Set<String> = [
+        "GET /v1/me", "GET /v1/me/sync", "GET /v1/config", "GET /v1/model", "POST /v1/me/invite",
+        "POST /v1/me/consent", "DELETE /v1/me/consent", "POST /v1/feedback", "DELETE /v1/me",
+    ]
+
+    static func isOpenBehindInviteGate(_ method: String, _ path: String) -> Bool {
+        let route = path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? path
+        return openBehindInviteGate.contains("\(method) \(route)")
+    }
+
+    /// `X-RYFT-Gate: invite_required, consent_required` (comma-separated, or repeated,
+    /// which URLSession joins with commas). Unknown codes are dropped.
+    static func gates(_ response: HTTPURLResponse) -> Set<APIErrorCode> {
+        guard let value = response.value(forHTTPHeaderField: "X-RYFT-Gate") else { return [] }
+        return Set(value.split(separator: ",").compactMap {
+            APIErrorCode(rawValue: $0.trimmingCharacters(in: .whitespaces))
+        })
     }
 
     // Go emits RFC3339 with nanoseconds; Foundation's default .iso8601 rejects fractions.
@@ -226,11 +272,18 @@ final class APIClient: RyftDataSource {
               let url = URL(string: path, relativeTo: root) else {
             throw APIError.notConfigured
         }
+        let status = await statusSink()
+        // One gate, not twenty failed requests: behind the invite gate only onboarding goes out.
+        if await status.inviteBlocked, !Self.isOpenBehindInviteGate(method, path) {
+            throw APIError.http(403, "invite required", code: .inviteRequired)
+        }
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         // Exercise names follow it (`de…` → German).
         req.setValue(Self.acceptLanguage, forHTTPHeaderField: "Accept-Language")
+        // The install's id (as in POST /v1/sync): GET /v1/me derives `account_hint` from it.
+        req.setValue(settings.deviceId.uuidString.lowercased(), forHTTPHeaderField: "X-RYFT-Device-ID")
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.httpBody = try Self.jsonEncoder.encode(body)
@@ -242,7 +295,11 @@ final class APIClient: RyftDataSource {
             let (data, response) = try await perform(req, bearer: bearer)
             let code = response?.statusCode ?? 0
             if (200..<300).contains(code) || accepting.contains(code) {
-                if unavailable > 0 { await APIStatus.shared.finishedWaiting() }
+                if unavailable > 0 { await status.finishedWaiting() }
+                // Served, but a gate in warn mode would have refused it: prompt for what's missing.
+                if let warned = response.map(Self.gates), !warned.isEmpty {
+                    await status.observe(warned, enforced: false)
+                }
                 return (code, data)
             }
             let retryAfter = response.flatMap(Self.retryAfter)
@@ -264,20 +321,23 @@ final class APIClient: RyftDataSource {
                 // Not a sign-in problem (API.md): keep the session, wait, retry.
                 unavailable += 1
                 let wait = min(retryAfter ?? 5, Self.maxUnavailableWait)
-                await APIStatus.shared.waiting(seconds: wait)
+                await status.waiting(seconds: wait)
                 try await sleep(wait)
                 continue
             default:
                 break
             }
-            if unavailable > 0 { await APIStatus.shared.finishedWaiting() }
+            if unavailable > 0 { await status.finishedWaiting() }
             let body = try? Self.jsonDecoder.decode(APIErrorBody.self, from: data)
             let message = body?.error
                 ?? String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let requestID = response?.value(forHTTPHeaderField: "X-Request-ID") ?? body?.requestId
-            APIStatus.log.error("\(code) on \(method, privacy: .public) \(path, privacy: .public), request \(requestID ?? "-", privacy: .public)")
-            await APIStatus.shared.record(.init(date: .now, method: method, path: path, status: code, requestID: requestID))
-            throw APIError.http(code, message, requestID: requestID)
+            let error = APIError.http(code, message, requestID: requestID, code: body?.code)
+            APIStatus.log.error("\(code) \(body?.code?.rawValue ?? "", privacy: .public) on \(method, privacy: .public) \(path, privacy: .public), request \(requestID ?? "-", privacy: .public)")
+            if let gate = error.gate { await status.observe([gate], enforced: true) }
+            await status.record(.init(date: .now, method: method, path: path, status: code,
+                                      code: body?.code?.rawValue, requestID: requestID))
+            throw error
         }
     }
 
@@ -302,6 +362,11 @@ final class APIClient: RyftDataSource {
     private func tokenProvider() async -> AccessTokenProvider {
         if let tokens { return tokens }
         return await AuthService.shared
+    }
+
+    private func statusSink() async -> APIStatus {
+        if let status { return status }
+        return await APIStatus.shared
     }
 
     static var acceptLanguage: String {
