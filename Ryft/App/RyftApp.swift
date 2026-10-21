@@ -410,6 +410,8 @@ struct RootView: View {
 /// Screens a screenshot run can open directly (`scripts/screenshots.sh`, `-RyftScreen <name>`).
 enum DebugScreen: String {
     case invite, consent, aboutYou, aboutYouSaved, accountHint, signInMethods, syncDetails, baselineSleepNeed, sleepNeed
+    /// Bedtime & wake's editor, and Tonight with the default schedule.
+    case bedtime, tonight
 
     static var requested: DebugScreen? {
         UserDefaults.standard.string(forKey: "RyftScreen").flatMap(DebugScreen.init(rawValue:))
@@ -432,11 +434,31 @@ enum DebugScreen: String {
             DebugSyncDetails()
         case .baselineSleepNeed, .sleepNeed:
             DebugBodySettings(screen: self)
+        case .bedtime, .tonight:
+            DebugBedtime(screen: self)
         }
     }
 
     /// One instance for the run: the screen loads its sign-in methods into it.
     @MainActor private static let emailAccount = AuthService.preview(provider: "email")
+}
+
+/// Bedtime & wake, or Tonight planned with the default schedule.
+private struct DebugBedtime: View {
+    let screen: DebugScreen
+    @Environment(ScreenModels.self) private var screens
+
+    var body: some View {
+        NavigationStack {
+            if screen == .bedtime {
+                SleepScheduleView(planner: screens.bedtime)
+            } else {
+                ScrollView { TonightCard(planner: screens.bedtime).padding() }
+                    .background(Theme.background.ignoresSafeArea())
+                    .task { if screens.bedtime.schedule == nil { await screens.bedtime.update(.default) } }
+            }
+        }
+    }
 }
 
 /// The baseline sleep need editor, or Sleep's need breakdown, without the taps.

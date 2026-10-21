@@ -249,6 +249,22 @@ final class BedtimePlanner {
     /// Tonight's bedtime for the goal.
     var bedtime: Date? { plan.flatMap { p in schedule.map { $0.goal.bedtime(in: p) } } }
 
+    /// Profile's row: "06:30" (weekdays) or "Off".
+    var summary: String {
+        guard let schedule else { return String(localized: "Off") }
+        return schedule.wake[0] == schedule.wake[5] ? schedule.wake[0]
+            : String(localized: "\(schedule.wake[0]) · weekend \(schedule.wake[5])")
+    }
+
+    /// "Peak · reminder · alarm".
+    var summaryDetail: String? {
+        guard let schedule else { return nil }
+        var parts = [schedule.goal.title]
+        if schedule.reminderOn { parts.append(String(localized: "reminder")) }
+        if schedule.alarmOn { parts.append(String(localized: "alarm")) }
+        return parts.joined(separator: " · ")
+    }
+
     /// From 17:00 on Today; the Sleep tab always shows it.
     func isEvening(calendar: Calendar = .current) -> Bool { calendar.component(.hour, from: now) >= 17 }
 

@@ -246,11 +246,12 @@ struct SleepScheduleView: View {
                 .font(.ryft(.body))
                 .tint(Theme.accent)
             if draft.sameOnWeekdays {
-                timePicker("Weekdays", index: 0) { draft.setWeekdays($0) }
-                timePicker("Weekend", index: 5) { draft.setWeekend($0) }
+                timePicker(Text("Weekdays"), index: 0) { draft.setWeekdays($0) }
+                timePicker(Text("Weekend"), index: 5) { draft.setWeekend($0) }
             } else {
                 ForEach(0..<7, id: \.self) { i in
-                    timePicker(LocalizedStringKey(Self.weekdayNames[i]), index: i) { draft.wake[i] = $0 }
+                    // Already in the user's language (the calendar's own names).
+                    timePicker(Text(verbatim: Self.weekdayNames[i]), index: i) { draft.wake[i] = $0 }
                 }
             }
         }
@@ -350,10 +351,10 @@ struct SleepScheduleView: View {
         }
     }
 
-    private func timePicker(_ title: LocalizedStringKey, index: Int, set: @escaping (String) -> Void) -> some View {
-        DatePicker(title, selection: Binding(
+    private func timePicker(_ title: Text, index: Int, set: @escaping (String) -> Void) -> some View {
+        DatePicker(selection: Binding(
             get: { SleepSchedule.date(draft.wake[index], on: .now) },
-            set: { set(SleepPlannerViewModel.hhmm($0)) }), displayedComponents: .hourAndMinute)
+            set: { set(SleepPlannerViewModel.hhmm($0)) }), displayedComponents: .hourAndMinute) { title }
             .font(.ryft(.body))
             .tint(Theme.accent)
     }
@@ -383,4 +384,36 @@ struct SleepScheduleView: View {
         .background(Theme.background)
         .task { await model.load() }
         .previewEnvironment(state, scheme: .light)
+}
+
+#Preview("Tonight · dark") {
+    let state = AppState.preview(flags: [.sleepPlanner: true])
+    let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
+    return NavigationStack {
+        ScrollView { TonightCard(planner: planner).padding() }.background(Theme.background)
+    }
+    .task { await planner.update(.default) }
+    .previewEnvironment(state)
+}
+
+#Preview("Tonight · not set up · light") {
+    let state = AppState.preview(flags: [.sleepPlanner: true])
+    return NavigationStack {
+        ScrollView { TonightCard(planner: BedtimePlanner(state: state, alarms: MockWakeAlarms())).padding() }
+            .background(Theme.background)
+    }
+    .previewEnvironment(state, scheme: .light)
+}
+
+#Preview("Bedtime & wake · dark") {
+    let state = AppState.preview(flags: [.sleepPlanner: true])
+    return NavigationStack { SleepScheduleView(planner: BedtimePlanner(state: state, alarms: MockWakeAlarms())) }
+        .previewEnvironment(state)
+}
+
+#Preview("Bedtime & wake · light · de") {
+    let state = AppState.preview(flags: [.sleepPlanner: true])
+    return NavigationStack { SleepScheduleView(planner: BedtimePlanner(state: state, alarms: MockWakeAlarms())) }
+        .previewEnvironment(state, scheme: .light)
+        .environment(\.locale, Locale(identifier: "de"))
 }

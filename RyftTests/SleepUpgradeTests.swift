@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UserNotifications
 @testable import Ryft
 
 @MainActor
@@ -354,5 +355,198 @@ struct InsightOpenTests {
         #expect(vm.route(for: impact) == nil)
         let unknown = Insight(id: "new-rule", severity: .info, title: "", body: "", metric: "something_else")
         #expect(!vm.canOpen(unknown))
+    }
+}
+
+// MARK: - Bedtime & wake
+
+@MainActor
+struct BedtimeAndWakeTests {
+    /// Berlin, with a DST change on Sunday 25 October 2026 (03:00 → 02:00).
+    private var berlin: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = TimeZone(identifier: "Europe/Berlin")!
+        return c
+    }
+
+    private func at(_ y: Int, _ mo: Int, _ d: Int, _ h: Int, _ mi: Int = 0, calendar: Calendar) -> Date {
+        calendar.date(from: DateComponents(year: y, month: mo, day: d, hour: h, minute: mi))!
+    }
+
+    private func plan(wake: Date, needMin: Int = 520, bedShift: TimeInterval = 0) -> SleepPlan {
+        let inBed = Int((Double(needMin) / 0.9).rounded())
+        func bed(_ share: Double) -> Date { wake.addingTimeInterval(-share * Double(inBed) * 60 + bedShift) }
+        return SleepPlan(wake: wake, needMin: needMin, inBedMin: inBed, efficiency: 90,
+                         bedtime100: bed(1), bedtime85: bed(0.85), bedtime70: bed(0.7),
+                         basis: SleepPlanBasis(base: 460, strainTopup: 30, debtTopup: 30, napCredit: 0, efficiency: 90))
+    }
+
+    @Test func theWeekdaysWakeTimeAsksForTonight() {
+        var s = SleepSchedule.default    // weekdays 06:30, weekend 08:00
+        s.wake[0] = "06:15"              // Monday earlier
+        let cal = berlin
+        // Friday evening: the night ends Saturday at the weekend time.
+        #expect(s.nextWake(after: at(2026, 10, 23, 20, calendar: cal), calendar: cal) == at(2026, 10, 24, 8, calendar: cal))
+        // Sunday evening: Monday's.
+        #expect(s.nextWake(after: at(2026, 10, 25, 22, calendar: cal), calendar: cal) == at(2026, 10, 26, 6, 15, calendar: cal))
+        // After midnight the night in progress ends this morning.
+        #expect(s.nextWake(after: at(2026, 10, 26, 1, 30, calendar: cal), calendar: cal) == at(2026, 10, 26, 6, 15, calendar: cal))
+        // The night the clocks go back still wakes at 08:00 local.
+        let sunday = s.nextWake(after: at(2026, 10, 24, 22, calendar: cal), calendar: cal)
+        #expect(cal.component(.hour, from: sunday) == 8 && cal.component(.day, from: sunday) == 25)
+    }
+
+    @Test func theGoalPicksItsBedtime() {
+        let p = plan(wake: .now)
+        #expect(SleepSchedule.Goal.peak.bedtime(in: p) == p.bedtime100)
+        #expect(SleepSchedule.Goal.perform.bedtime(in: p) == p.bedtime85)
+        #expect(SleepSchedule.Goal.getBy.bedtime(in: p) == p.bedtime70)
+    }
+
+    @Test func remindersWindDownBeforeEachNightLocalTimeAcrossTheClockChange() async throws {
+        let (state, clock) = makeState()
+        let cal = berlin
+        clock.set(at(2026, 10, 24, 12, calendar: cal)) // Saturday noon, before the DST night
+        let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
+        var s = SleepSchedule.default
+        s.reminderOn = true
+        s.windDownMin = 30
+        let wake = at(2026, 10, 25, 8, calendar: cal)  // Sunday, after the clocks went back
+        let p = plan(wake: wake)
+        await planner.scheduleReminders(schedule: s, plan: p, wake: wake, calendar: cal)
+
+        let notifier = try #require(state.env.notifier as? MockNotifier)
+        let ids = notifier.requests.map(\.identifier)
+        #expect(ids.count == BedtimePlanner.nightsAhead && ids.allSatisfy { $0.hasPrefix(BedtimePlanner.reminderPrefix) })
+        let tonight = try #require(notifier.requests.first { $0.identifier == "bedtime." + DayFormat.string(from: wake) })
+        let fire = try #require((tonight.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate())
+        #expect(fire == p.bedtime100.addingTimeInterval(-30 * 60))
+        #expect(tonight.content.categoryIdentifier == PushCategories.bedtime)
+        #expect(tonight.content.body.contains(Fmt.time(p.bedtime100)))
+        // Monday's (estimated from tonight's time in bed) wakes at the weekday time.
+        let monday = try #require(notifier.requests.first { $0.identifier == "bedtime.2026-10-26" })
+        let mondayFire = try #require((monday.trigger as? UNCalendarNotificationTrigger)?.dateComponents)
+        let mondayBed = at(2026, 10, 26, 6, 30, calendar: cal).addingTimeInterval(-Double(p.inBedMin) * 60 - 30 * 60)
+        #expect(mondayFire.hour == cal.component(.hour, from: mondayBed) && mondayFire.minute == cal.component(.minute, from: mondayBed))
+
+        // Off: none left.
+        s.reminderOn = false
+        await planner.scheduleReminders(schedule: s, plan: p, wake: wake, calendar: cal)
+        #expect(notifier.requests.isEmpty)
+    }
+
+    @Test func aBedtimeThatMovesLessThanTenMinutesKeepsItsReminders() async throws {
+        let api = MockPlatformAPI()
+        let (state, clock) = makeState(api: api)
+        clock.set(Calendar.current.date(bySettingHour: 18, minute: 0, second: 0, of: clock.now())!)
+        let shift = ShiftBox()
+        let now = clock.now()
+        api.planFor = { _ in
+            let wake = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.date(bySettingHour: 6, minute: 30, second: 0, of: now)!)!
+            let inBed = 578
+            let bed = wake.addingTimeInterval(-Double(inBed) * 60 + shift.value)
+            return SleepPlan(wake: wake, needMin: 520, inBedMin: inBed, efficiency: 90, bedtime100: bed,
+                             bedtime85: bed.addingTimeInterval(3_600), bedtime70: bed.addingTimeInterval(7_200),
+                             basis: SleepPlanBasis(base: 460, strainTopup: 30, debtTopup: 30, napCredit: 0, efficiency: 90))
+        }
+        let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
+        var s = SleepSchedule.default
+        s.reminderOn = true
+        await planner.update(s)
+        let notifier = try #require(state.env.notifier as? MockNotifier)
+        let first = try #require(notifier.requests.first { $0.identifier.hasPrefix("bedtime.") })
+        #expect(planner.scheduledBedtime == planner.bedtime)
+        #expect(state.repository.tonightBedtime == planner.bedtime)
+
+        shift.value = 5 * 60   // 5 minutes later: the reminders stay
+        await planner.refresh()
+        #expect(planner.scheduledBedtime != planner.bedtime)
+        #expect(notifier.requests.first { $0.identifier == first.identifier }?.content.body == first.content.body)
+
+        shift.value = 12 * 60  // 12: moved
+        await planner.refresh()
+        #expect(planner.scheduledBedtime == planner.bedtime)
+        #expect(notifier.requests.first { $0.identifier == first.identifier }?.content.body != first.content.body)
+        #expect(api.planWakes.allSatisfy { $0 == "06:30" })
+    }
+
+    @Test func plannedAndActualAreKeptPerNight() async throws {
+        let api = MockPlatformAPI()
+        let (state, _) = makeState(api: api)
+        let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
+        await planner.update(.default)
+        let p = try #require(planner.plan)
+        let planned = try #require(planner.planned(nightEnding: DayFormat.string(from: p.wake)))
+        #expect(planned.bed == p.bedtime100 && planned.wake == p.wake)
+    }
+
+    @Test func theAlarmFollowsTheScheduleAndAsksFirst() async {
+        let (state, _) = makeState()
+        let alarms = MockWakeAlarms()
+        let planner = BedtimePlanner(state: state, alarms: alarms)
+        alarms.allows = false
+        #expect(!(await planner.allowAlarm()))
+        alarms.allows = true
+        #expect(await planner.allowAlarm())
+        var s = SleepSchedule.default
+        s.alarmOn = true
+        await planner.update(s)
+        #expect(alarms.scheduled == s.wake)
+        s.wake[6] = "09:30"
+        await planner.update(s)
+        #expect(alarms.scheduled?[6] == "09:30")
+        s.alarmOn = false
+        await planner.update(s)
+        #expect(alarms.scheduled == nil && alarms.cancellations >= 1)
+    }
+
+    @Test func remindersAskForNotificationsWhenTurnedOn() async throws {
+        let (state, _) = makeState()
+        let notifier = try #require(state.env.notifier as? MockNotifier)
+        let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
+        notifier.grants = false
+        #expect(!(await planner.allowReminders()) && notifier.authorizationPrompts == 1)
+        notifier.status = .authorized
+        #expect(await planner.allowReminders())
+        #expect(notifier.authorizationPrompts == 1) // already answered: no second prompt
+    }
+
+    @Test func nothingIsPlannedWithoutTheFlagOrASchedule() async {
+        let api = MockPlatformAPI()
+        let (state, _) = makeState(api: api, flags: [.sleepPlanner: false])
+        let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
+        await planner.refresh()          // no schedule
+        await planner.update(.default)  // a schedule, but the flag is off
+        #expect(api.count("sleepPlan") == 0 && planner.plan == nil && !planner.isEnabled)
+    }
+
+    @Test func theScheduleIsTheAccountsOwn() async {
+        let (state, _) = makeState()
+        let planner = BedtimePlanner(state: state, alarms: MockWakeAlarms())
+        var s = SleepSchedule.default
+        s.goal = .perform
+        await planner.update(s)
+        #expect(BedtimePlanner(state: state, alarms: MockWakeAlarms()).schedule?.goal == .perform)
+        #expect(SleepSchedule.load(account: "someone-else", defaults: state.env.defaults) == nil)
+    }
+
+    @Test func theWidgetShowsTonightsBedtimeOnlyAheadOfIt() {
+        let now = Date.now
+        let ahead = ReadinessSnapshot.make(day: "2026-10-21", today: nil, previous: DailyScore(day: "2026-10-20", readiness: 70),
+                                           state: nil, now: now, bedtime: now.addingTimeInterval(3_600))
+        #expect(ahead?.bedtime != nil)
+        let passed = ReadinessSnapshot.make(day: "2026-10-21", today: nil, previous: DailyScore(day: "2026-10-20", readiness: 70),
+                                            state: nil, now: now, bedtime: now.addingTimeInterval(-60))
+        #expect(passed?.bedtime == nil)
+    }
+}
+
+/// A value the scripted plan reads from any thread.
+final class ShiftBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var shift: TimeInterval = 0
+    var value: TimeInterval {
+        get { lock.withLock { shift } }
+        set { lock.withLock { shift = newValue } }
     }
 }

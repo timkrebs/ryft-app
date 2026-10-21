@@ -156,6 +156,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     private var journals: [String: JournalDay] = [:]
     private(set) var journalPuts: [String: JournalPut] = [:]
     private(set) var planWakes: [String] = []
+    /// Scripts `GET /v1/sleep/plan` (tests); the mock plan otherwise.
+    var planFor: (@Sendable (String) -> SleepPlan)?
     private(set) var mePatches: [UserPatch] = []
 
     private(set) var calls: [String] = []
@@ -300,6 +302,7 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     func sleepPlan(wake: String) async throws -> SleepPlan {
         try enter("sleepPlan")
         lock.withLock { planWakes.append(wake) }
+        if let plan = planFor?(wake) { return plan }
         return MockJournal.sleepPlan(wake: wake)
     }
 

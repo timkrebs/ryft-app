@@ -1,5 +1,34 @@
 # Status — 2026-10-21
 
+## Beta feedback 1: Bedtime & wake (§4)
+
+- **Sleep schedule** (`SleepSchedule`, per account on this phone until the platform keeps it):
+  wake time per weekday (weekdays + weekend, or each day), goal Peak 100 % · Perform 85 % · Get
+  by 70 % (`bedtime_100/85/70`), wind-down 15/30/45/60 min, reminder and alarm switches. Edited in
+  Sleep → Bedtime → Bedtime & wake and Profile → Sleep → Bedtime & wake.
+- **Tonight** (`TonightCard`): on Today from 17:00 and in Sleep → Bedtime: "In bed by 22:41 for
+  100 % · wake 06:30 · need 8h 33m", the three goals, "Why this need" from `basis`. Numbers only
+  from `GET /v1/sleep/plan`. Without a schedule: an invitation.
+- **Adapts** (`BedtimePlanner`): asked again when the app becomes active, after today was fetched
+  again (a sync that touched it) and in the background refresh; the reminders move only when the
+  bedtime moved by ≥ 10 min.
+- **Reminder**: a local notification (`BEDTIME`) at bedtime − wind-down for the next 7 nights:
+  tonight's from the plan, later nights from tonight's time in bed at each night's wake (refined
+  as the app plans them). Notification permission is asked when you turn it on.
+- **Alarm**: AlarmKit on iOS 26+ (weekly alarm per weekday at the wake time, rings in Silent mode
+  and Focus, Stop and Snooze 9 min; the snooze countdown is a Live Activity in the widget). Below
+  iOS 26 a notification at the wake time, labelled as not ringing like an alarm.
+  `NSAlarmKitUsageDescription` in Info.plist (en + de). No "smart wake".
+- **Planned vs actual**: the next morning Sleep → Day shows "Planned 22:41–06:30 · actual
+  23:12–06:28" (planned nights kept 14 days).
+- **Widget**: "Bed by 22:41" from 17:00 until then (snapshot field `bedtime`).
+- Screenshots: `docs/screenshots/{tonight,bedtime}-{dark,light}[-de].png`.
+- **Simulator / tests only.** On your iPhone: the reminder arriving at bedtime − wind-down; the
+  alarm ringing in Silent mode with a Focus on, Stop and Snooze; "Bed by" on the widget in the
+  evening; the morning's planned vs actual line.
+- Below iOS 26 the wake notification asks for `.timeSensitive`; that needs the Time Sensitive
+  Notifications capability (not added; without it it's an ordinary notification).
+
 ## Beta feedback 1: editable sleep need (`CLAUDE_FOLLOWUP_BETA_FEEDBACK_1.md` §1)
 
 Plan for the whole brief: `docs/work/2026-10-21-beta-feedback-1/plan.md`.

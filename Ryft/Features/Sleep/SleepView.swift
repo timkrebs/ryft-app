@@ -94,6 +94,12 @@ struct SleepDaySection: View {
     @Environment(ScreenModels.self) private var screens
     @State private var showsNeed = false
 
+    /// What Bedtime & wake planned for this night (by its wake day), if it planned it.
+    private var planned: PlannedNight? {
+        guard sleep.end != nil, let day = score?.day else { return nil }
+        return screens.bedtime.planned(nightEnding: day)
+    }
+
     private var summary: SleepNightSummary { SleepNightSummary(sleep: sleep, score: score) }
 
     var body: some View {
@@ -218,6 +224,15 @@ struct SleepDaySection: View {
             VStack(spacing: 14) {
                 StatRow(title: "Bedtime", value: summary.bedtime)
                 StatRow(title: "Wake time", value: summary.wake)
+                if let planned {
+                    // How close the night came to Bedtime & wake's plan.
+                    Text("Planned \(Fmt.time(planned.bed))–\(Fmt.time(planned.wake)) · actual \(summary.bedtime)–\(summary.wake)")
+                        .font(.ryft(.caption))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("sleep.plannedVsActual")
+                }
                 Divider().overlay(Theme.separator)
                 StatRow(title: "Time in bed", value: summary.timeInBed)
                 StatRow(title: "Efficiency", value: summary.efficiency)
