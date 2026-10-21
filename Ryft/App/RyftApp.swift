@@ -84,6 +84,12 @@ struct RyftApp: App {
         }
         // A sync that found HealthKit locked runs again once the phone is unlocked.
         BackgroundWork.resumeOnUnlock(coordinator: coordinator) { SyncService.shared.waitingForUnlock }
+        // Quick actions, App Intents and the control start a workout for a signed-in account (or
+        // demo data); during the session restore they wait (`WorkoutLauncher.runPending`).
+        WorkoutLauncher.canStart = { AuthService.shared.isSignedIn || Settings.shared.demoMode }
+        WorkoutLauncher.isRestoring = { AuthService.shared.state == .restoring }
+        TrainCoordinator.shared.onActiveChange = { WorkoutLauncher.updateShortcutItems(resume: $0) }
+        WorkoutLauncher.updateShortcutItems(resume: TrainCoordinator.shared.active != nil)
         Self.configureAppearance()
         #if DEBUG
         // UI tests: `-RyftResetTrain YES` starts without sessions or a queue.
@@ -209,6 +215,7 @@ struct RyftApp: App {
 
     private func bootstrap() async {
         guard !env.isDemo else {
+            await WorkoutLauncher.runPending()
             await state.refresh()
             return
         }
@@ -220,6 +227,8 @@ struct RyftApp: App {
         // Behind an enforced invite gate nothing but onboarding answers; this reruns once
         // it's passed (`BootstrapKey.inviteBlocked`). A warning blocks nothing.
         guard !APIStatus.shared.inviteBlocked else { return }
+        // A workout asked for from the home screen or Siri while the session was restored.
+        await WorkoutLauncher.runPending()
         guard env.health.isAvailable else {
             await state.refresh()
             return
