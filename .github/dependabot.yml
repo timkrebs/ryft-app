@@ -22,5 +22,9 @@ updates:
       # supabase-swift: minor and patch only; a major is a planned migration.
       - dependency-name: "*supabase-swift*"
         update-types: ["version-update:semver-major"]
+      # swift-crypto comes in through supabase-swift, which allows < 5.0.0: a 5.x pin
+      # can't resolve, and Xcode Cloud (no automatic resolution) fails on it.
+      - dependency-name: "*swift-crypto*"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: deps

@@ -37,9 +37,11 @@ change the `runs-on` image in the workflows or update `.xcode-version`.
   | `UISmoke` | PRs, `main` | `RyftUITests/StoreSmokeUITests` (demo mode, no server or HealthKit); a failing test is retried up to twice |
   | `Full` | nightly, manual | every unit and UI test plus `PerformanceTests` |
 
-  - the simulator comes from `scripts/ci-simulator.sh`: `$SIMULATOR`
-    (default iPhone 17 Pro), else the newest available iPhone. It is booted
-    before the tests start.
+  - the simulator comes from `scripts/ci-simulator.sh`: a device of its own, "RYFT CI",
+    created on the newest iOS runtime (`$SIMULATOR`'s type, default iPhone 17 Pro, else
+    the newest iPhone) and reused when it exists. A fresh device has no paired Apple
+    Watch: parallel testing clones the device, and cloning a paired one fails on runner
+    images without the watchOS runtime. It is booted before the tests start.
   - on failure (and always for `Full`) the `.xcresult` bundles are uploaded as
     artifacts
 - **Coverage:** `scripts/coverage.py` reads `xccov`'s report of the `Unit` run, writes
