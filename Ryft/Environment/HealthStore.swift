@@ -157,6 +157,8 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
         get { locked { _nextError } }
         set { locked { _nextError = newValue } }
     }
+    /// Called on every commit, before the anchor moves (tests check what's stored by then).
+    var onCommit: ((HealthStream) -> Void)?
 
     private(set) var authorizationRequests = 0
     private(set) var backgroundDeliveryEnabled = false
@@ -240,6 +242,7 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
     }
 
     func commit(_ page: HealthPage, for stream: HealthStream) {
+        onCommit?(stream)
         locked {
             _committed.append(stream)
             if !page.deleted.isEmpty { _deletions[stream] = nil }

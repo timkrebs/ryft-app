@@ -229,10 +229,14 @@ graph of `await`s and a `TaskGroup`:
   `beginBackgroundTask` while `windDown()` lets the page in flight finish (anchor
   committed) and stops the upload there; a scoring wait is abandoned. What's left goes to
   the `BGProcessingTask` "backfill" (network required, power above an estimated 10 MB),
-  which runs until the backlog is gone or its time is up, then reschedules itself.
-- **In the background** (HealthKit delivery, BG tasks, silent push, or after `windDown`)
-  a run uploads and skips the scoring wait (the platform's silent push refreshes), and its
-  requests use `APIClient`'s background session (no waiting for a network, 20 s / 25 s).
+  which runs until the backlog is gone; at expiry it cancels at once, reschedules and
+  completes (the page in flight goes again: uploads are idempotent).
+- **In the background** (the app's lifecycle, not the trigger: launched into the
+  background, or after `windDown` until the scene is active again; a BG task always) a
+  run uploads and skips the scoring wait (the platform's silent push refreshes), its
+  requests use `APIClient`'s background session (no waiting for a network, 20 s / 25 s),
+  and a backlog it leaves goes to the backfill task. A HealthKit delivery while the user
+  looks at Today is a foreground run and refreshes Today.
 - **HealthKit delivery.** The observers (sleep, workouts, HRV; `.immediate`) are
   registered in `RyftApp.init` when the account has seen the Health explanation, so a
   background launch for a delivery finds them; bootstrap covers the first time (once).

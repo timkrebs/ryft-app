@@ -41,10 +41,10 @@ protocol SyncSteps: AnyObject {
 ///   background task's time running out); waits are `clock.sleep` and throw
 ///   `CancellationError`.
 /// - **Background.** Going to the background doesn't cancel: `windDown()` lets the
-///   page in flight finish (anchor committed) and ends the upload there. While in the
-///   background a run uploads and skips the scoring wait (the silent push refreshes),
-///   requests use the background session (`APIClient.runsInBackground`), and a
-///   backlog is left to `BGProcessingTask` instead of running on.
+///   page in flight finish (anchor committed) and ends the upload there. While the app
+///   is in the background (its lifecycle, not the trigger) a run uploads and skips the
+///   scoring wait (the silent push refreshes), requests use the background session
+///   (`APIClient.runsInBackground`), and a backlog goes to `BGProcessingTask`.
 /// - **HealthKit delivery.** `run(_:afterUpload:)` calls the delivery's completion right
 ///   after the upload step, not after scoring waits and refreshes.
 /// - **Backoff.** Transient failures (transport, 5xx after `APIClient`'s own
@@ -66,16 +66,6 @@ actor SyncCoordinator {
             }
         }
 
-        /// Woken by the system, not by the user: background networking.
-        var isBackground: Bool {
-            switch self {
-            case .healthKit, .background, .silentPush, .processing: return true
-            case .userInitiated, .appActive, .reconnect, .backlog: return false
-            }
-        }
-
-        /// The user is looking: the app is in the foreground again.
-        var isForeground: Bool { self == .userInitiated || self == .appActive || self == .reconnect }
     }
 
     struct Outcome: Equatable, Sendable {
@@ -104,12 +94,25 @@ actor SyncCoordinator {
     private var queuedTrigger: Trigger?
     /// HealthKit deliveries waiting for the queued rerun's upload.
     private var queuedAfterUpload: [@Sendable () -> Void] = []
-    /// The app is in the background (`windDown()`), until a foreground trigger.
-    private(set) var inBackground = false
+    /// Where the app is, from its lifecycle (RyftApp: the scene phase, and the launch state
+    /// for a launch straight into the background), not from what triggered a run: HealthKit
+    /// also delivers while the user looks at Today.
+    private(set) var inBackground: Bool
+    /// A run in the background left a backlog: `BGProcessingTask` takes it (RyftApp
+    /// schedules the backfill task).
+    private let backlogInBackground: (@MainActor @Sendable () -> Void)?
 
-    init(steps: SyncSteps, clock: AppClock) {
+    init(steps: SyncSteps, clock: AppClock, inBackground: Bool = false,
+         backlogInBackground: (@MainActor @Sendable () -> Void)? = nil) {
         self.steps = steps
         self.clock = clock
+        self.inBackground = inBackground
+        self.backlogInBackground = backlogInBackground
+    }
+
+    /// The app became active.
+    func enterForeground() {
+        inBackground = false
     }
 
     var isRunning: Bool { running != nil }
@@ -121,7 +124,6 @@ actor SyncCoordinator {
     /// however it ended; a joined rerun calls it after its own upload.
     @discardableResult
     func run(_ trigger: Trigger, afterUpload: (@Sendable () -> Void)? = nil) async -> Outcome {
-        if trigger.isForeground { inBackground = false }
         guard let current = running else { return await start(trigger, afterUpload: afterUpload.map { [$0] } ?? []).value }
         // Busy: one rerun after the current one, shared by every trigger meanwhile.
         if let afterUpload { queuedAfterUpload.append(afterUpload) }
@@ -170,21 +172,21 @@ actor SyncCoordinator {
     }
 
     private func startQueued() async -> Outcome {
+        // Cancelled (dropQueued completed its deliveries): the queue may already hold a
+        // replacement, which isn't this task's to take.
+        guard !Task.isCancelled else { return Outcome(cancelled: true) }
         let trigger = queuedTrigger ?? .background
         let afterUpload = queuedAfterUpload
         queued = nil
         queuedTrigger = nil
         queuedAfterUpload = []
-        guard !Task.isCancelled else {
-            afterUpload.forEach { $0() }
-            return Outcome(cancelled: true)
-        }
         return await start(trigger, afterUpload: afterUpload).value
     }
 
     private func start(_ trigger: Trigger, afterUpload: [@Sendable () -> Void]) -> Task<Outcome, Never> {
         let id = UUID()
-        let background = trigger.isBackground || inBackground
+        // A BG task only ever runs in the background; everything else follows the app.
+        let background = inBackground || trigger == .processing
         // The run clears itself before its outcome is returned, so `isRunning` is
         // false as soon as anyone has the outcome.
         let task = Task(priority: trigger.priority) { [weak self, steps, clock] in
@@ -197,9 +199,8 @@ actor SyncCoordinator {
                                     },
                                     afterUpload: afterUpload)
             }
-            // Only a foreground run continues by itself; in the background the backfill task loops.
-            await self?.finished(id, continuing: outcome.backlog && !outcome.cancelled && outcome.error == nil
-                                 && !background)
+            await self?.finished(id, backlog: outcome.backlog && !outcome.cancelled && outcome.error == nil,
+                                 trigger: trigger, background: background)
             return outcome
         }
         running = task
@@ -207,13 +208,18 @@ actor SyncCoordinator {
         return task
     }
 
-    private func finished(_ id: UUID, continuing: Bool) {
+    private func finished(_ id: UUID, backlog: Bool, trigger: Trigger, background: Bool) {
         guard runningID == id else { return }
         running = nil
         runningID = nil
-        // The first score is on screen; the rest of the upload follows. In the background
-        // `BGProcessingTask` takes it.
-        guard continuing, !inBackground else { return }
+        guard backlog else { return }
+        // In the background the backfill task takes the rest (it loops by itself when it's
+        // the one running).
+        if background || inBackground {
+            if trigger != .processing, let backlogInBackground { Task { @MainActor in backlogInBackground() } }
+            return
+        }
+        // The first score is on screen; the rest of the upload follows.
         if queued != nil {
             // The queued rerun uploads it, even if all that was queued is a push's refresh.
             queuedTrigger = merge(queuedTrigger, .backlog)

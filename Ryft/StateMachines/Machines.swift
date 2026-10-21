@@ -16,9 +16,10 @@ enum SyncMachine {
         TransitionTable(initial: .idle, edges: [
             // `refreshing` straight from `idle`: a silent push refreshes without uploading.
             .idle: [.reading, .refreshing, .offline],
-            // `idle` from an active phase: the sync was cancelled.
-            .reading: [.uploading, .awaitingScores, .refreshing, .failed, .offline, .idle],
-            .uploading: [.reading, .awaitingScores, .refreshing, .failed, .idle],
+            // `idle` from an active phase: the sync was cancelled. `done` straight after the
+            // upload: a run in the background (the silent push refreshes).
+            .reading: [.uploading, .awaitingScores, .refreshing, .done, .failed, .offline, .idle],
+            .uploading: [.reading, .awaitingScores, .refreshing, .done, .failed, .idle],
             .awaitingScores: [.refreshing, .failed, .idle],
             .refreshing: [.done, .failed, .idle],
             .done: [.reading, .refreshing, .offline, .idle],

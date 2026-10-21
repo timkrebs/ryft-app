@@ -86,8 +86,9 @@ enum BackgroundWork {
         try? BGTaskScheduler.shared.submit(backfillRequest(backlogBytes: backlogBytes))
     }
 
-    /// Runs the backfill until it's done or the system's time is up (then the page in
-    /// flight finishes and the rest is scheduled again).
+    /// Runs the backfill until it's done or the system's time is up. At expiry the run is
+    /// cancelled at once (the page in flight goes again next time: uploads are
+    /// idempotent), the rest is scheduled and the task completed while there's still time.
     @MainActor
     static func runBackfill(_ task: BackgroundTaskHandle, coordinator: SyncCoordinator,
                             backlogBytes: @escaping @MainActor () -> Int?,
@@ -95,7 +96,7 @@ enum BackgroundWork {
         let expired = ExpiryFlag()
         task.expirationHandler = {
             expired.set()
-            Task { await coordinator.windDown() }
+            Task { await coordinator.cancel() }
         }
         var outcome = await coordinator.run(.processing)
         // The first score's window went first: the backfill itself follows in the same task.

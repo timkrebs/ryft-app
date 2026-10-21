@@ -75,8 +75,8 @@ struct StateMachineTests {
             .failed: SyncMachine.SyncFailed.self, .offline: SyncMachine.SyncOffline.self,
         ]) as any StateMachine<SyncPhase>, TableMachine(table)] {
             log = []
+            m.enter(.done) // refused (idle → done): no effects
             m.enter(.reading)
-            m.enter(.done) // refused: no effects
             m.enter(.uploading)
             #expect(log == ["exit idle to reading", "enter reading from idle",
                             "exit reading to uploading", "enter uploading from reading"])
