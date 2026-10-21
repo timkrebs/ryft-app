@@ -26,7 +26,16 @@ Store "What's New".
 - A readiness widget for the home and lock screen: today's readiness, or "Scoring your
   night…" until it's ready.
 
+### Added
+- Bedtime & wake: set when you want to wake up (weekdays and weekend, or each day) and how much
+  of your sleep need you aim for. RYFT tells you when to be in bed tonight (Today from 17:00,
+  Sleep → Bedtime, the widget), reminds you to wind down, and can wake you with a real alarm
+  (iOS 26). The next morning, Sleep shows how close the night came to the plan.
+
 ### Changed
+- Your baseline sleep need and maximum heart rate can be changed where you see them: in
+  onboarding, from the sleep need on Sleep, and in Profile → Sleep and Body. A change saves
+  at once; past days are rescored when you ask.
 - The first sync shows scores for the last few days first and imports the rest after;
   every sync sends last night before the day's heart rate.
 - Leaving the app no longer stops an import: it continues in the background. A sync that

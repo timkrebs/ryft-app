@@ -219,7 +219,10 @@ enum PushCategories {
         var categories = Set(NotificationCategory.allCases.map {
             UNNotificationCategory(identifier: $0.rawValue, actions: [], intentIdentifiers: [], options: [])
         })
-        categories.insert(UNNotificationCategory(identifier: bedtime, actions: [], intentIdentifiers: [], options: []))
+        // Locked with previews hidden: no sleep need or goal on the lock screen.
+        categories.insert(UNNotificationCategory(identifier: bedtime, actions: [], intentIdentifiers: [],
+                                                 hiddenPreviewsBodyPlaceholder: String(localized: "Bedtime reminder"),
+                                                 options: []))
         return categories
     }
 }

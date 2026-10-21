@@ -81,7 +81,8 @@ final class AppEnvironment {
                      clock: TestClock = TestClock(), notifier: MockNotifier? = nil,
                      auth: AuthService? = nil, flags: [FeatureFlag: Bool] = [:],
                      online: Bool = true) -> AppEnvironment {
-        AppEnvironment(
+        api.now = { clock.now() }
+        return AppEnvironment(
             settings: .shared, health: health, liveAPI: api, demoAPI: api, auth: auth ?? .preview(),
             persistence: TrainStore(inMemory: true), clock: clock, notifier: notifier ?? MockNotifier(),
             flags: StaticFlags(flags), connectivity: .preview(online: online),

@@ -12,6 +12,10 @@ final class ScreenModels {
     let strain: StrainViewModel
     let insights: InsightsViewModel
     let profile: ProfileViewModel
+    /// Bedtime & wake: tonight's bedtime, the reminder and the wake alarm.
+    let bedtime: BedtimePlanner
+    /// Baseline sleep need, maximum heart rate, birth year: onboarding, Sleep and Profile.
+    var bodySettings: BodySettingsEditor { profile.bodySettings }
     let trainToday: TrainTodayViewModel
     let coordinator: SyncCoordinator
     let push: PushRegistrar
@@ -53,6 +57,7 @@ final class ScreenModels {
         }
         profile = ProfileViewModel(state: state, sync: sync, coordinator: coordinator, onboarding: onboarding)
         trainToday = TrainTodayViewModel(library: library, store: store, clock: state.env.clock)
+        bedtime = BedtimePlanner(state: state)
     }
 
     /// Pull to refresh on any tab: upload, wait for scoring, reload everything.

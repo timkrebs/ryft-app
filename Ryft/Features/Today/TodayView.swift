@@ -48,6 +48,10 @@ struct TodayView: View {
                         if screens.journal.isLive {
                             JournalCard(store: screens.journal) { showsJournal = true }
                         }
+                        // From 17:00: when to be in bed tonight (Bedtime & wake).
+                        if screens.bedtime.isEnabled, screens.bedtime.isEvening(), !model.hero.isImporting {
+                            TonightCard(planner: screens.bedtime)
+                        }
                         if model.showsTrain, !model.hero.isImporting { TrainTodayCard() }
                         if !model.hero.isImporting {
                             trends

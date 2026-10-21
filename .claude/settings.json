@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push origin main*)",
+      "Bash(git push origin HEAD:main*)",
+      "Bash(git commit --no-verify*)",
+      "Bash(gh pr merge --admin*)",
+      "Bash(gh release create*)",
+      "Bash(xcrun altool*)",
+      "Bash(xcrun notarytool*)"
+    ],
+    "ask": [
+      "Bash(gh workflow run*)",
+      "Bash(gh pr merge*)",
+      "Bash(git tag*)",
+      "Bash(git push --tags*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-edit-guard.sh" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-edit-format.sh" }
+        ]
+      }
+    ]
+  }
+}

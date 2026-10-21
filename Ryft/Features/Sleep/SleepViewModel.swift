@@ -10,7 +10,7 @@ enum SleepMode: String, CaseIterable, Identifiable {
         case .day: return String(localized: "Day")
         case .week: return String(localized: "Week")
         case .month: return String(localized: "Month")
-        case .plan: return String(localized: "Planner")
+        case .plan: return String(localized: "Bedtime")
         }
     }
 
