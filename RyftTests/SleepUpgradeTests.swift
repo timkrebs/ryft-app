@@ -466,8 +466,11 @@ struct BedtimeAndWakeTests {
         let ids = notifier.requests.map(\.identifier)
         #expect(ids.count == BedtimePlanner.nightsAhead && ids.allSatisfy { $0.hasPrefix(BedtimePlanner.reminderPrefix) })
         let tonight = try #require(notifier.requests.first { $0.identifier == "bedtime." + DayFormat.string(from: wake) })
-        let fire = try #require((tonight.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate())
-        #expect(fire == p.bedtime100.addingTimeInterval(-30 * 60))
+        // Wall-clock components in the planning calendar's zone (`nextTriggerDate` would read them
+        // in the device's zone).
+        let fire = try #require((tonight.trigger as? UNCalendarNotificationTrigger)?.dateComponents)
+        let expected = cal.dateComponents([.year, .month, .day, .hour, .minute], from: p.bedtime100.addingTimeInterval(-30 * 60))
+        #expect(fire.day == expected.day && fire.hour == expected.hour && fire.minute == expected.minute)
         #expect(tonight.content.categoryIdentifier == PushCategories.bedtime)
         #expect(tonight.content.body.contains(Fmt.time(p.bedtime100)))
         // Monday's (estimated from tonight's time in bed) wakes at the weekday time.
