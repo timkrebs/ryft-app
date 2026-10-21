@@ -14,9 +14,10 @@ private func samples(_ n: Int, _ type: SampleType = .heartRate) -> HealthDelta {
 /// Waits until `condition` holds, for at most `timeout` of wall time, so a broken
 /// expectation fails instead of hanging the run. Bounded by time, not by a number of
 /// yields: on a loaded CI runner (parallel tests) thousands of yields pass before
-/// work on another executor gets a thread.
+/// work on another executor gets a thread. 30 s: the whole plan queues on the main
+/// actor at its start, which a CI runner took 12 s to work through.
 @MainActor
-func eventually(timeout: Duration = .seconds(10), _ condition: () -> Bool) async -> Bool {
+func eventually(timeout: Duration = .seconds(30), _ condition: () -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if condition() { return true }
