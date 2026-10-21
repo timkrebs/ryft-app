@@ -374,13 +374,30 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     // MARK: screens
 
-    func me() async throws -> User { try enter("me"); return withAccount(try await screens.me()) }
+    func me() async throws -> User {
+        try enter("me")
+        if let patched = lock.withLock({ patchedUser }) { return withAccount(patched) }
+        return withAccount(try await screens.me())
+    }
+
     func patchMe(_ p: UserPatch) async throws -> User {
         try enter("patchMe")
         lock.withLock { mePatches.append(p) }
         await beforePatchMe?()
-        return withAccount(try await screens.patchMe(p))
+        // On top of the earlier patches, like the platform's stored user.
+        let base = lock.withLock { patchedUser }
+        let user: User
+        if let mock = screens as? MockDataSource {
+            user = try await mock.patchMe(p, on: base ?? MockData.user)
+        } else {
+            user = try await screens.patchMe(p)
+        }
+        lock.withLock { patchedUser = user }
+        return withAccount(user)
     }
+
+    /// The user after the patches so far (`nil`: none yet).
+    private var patchedUser: User?
 
     /// Runs before each `PATCH /v1/me` answers (tests hold one open with it).
     var beforePatchMe: (@Sendable () async -> Void)?

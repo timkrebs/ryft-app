@@ -239,6 +239,79 @@ struct SleepBaselineTests {
         #expect(e.rescoreStatus == String(localized: "The last 90 days are rescored with your settings."))
     }
 
+    @Test func anotherFailureSaysWhatWentWrongInTheForm() async {
+        let api = MockPlatformAPI()
+        let (state, _) = makeState(api: api)
+        state.user = MockData.user
+        let e = editor(state)
+        api.failNext = APIError.http(500, "", requestID: "rid-500")
+        #expect(!(await e.setSleepBase(500)))
+        #expect(e.error == APIError.http(500, "").localizedDescription)
+        #expect(e.errorDetails?.contains("rid-500") == true)
+        #expect(state.error == nil)
+    }
+
+    @Test func aRefusedGoingBackSaysSoInWords() async {
+        let api = MockPlatformAPI()
+        let (state, _) = makeState(api: api)
+        var manual = MockData.user
+        manual.sleepBaseSource = .manual
+        state.user = manual
+        let e = editor(state)
+        api.failNext = APIError.http(422, "sleep_base_manual: conflicting fields")
+        #expect(!(await e.useLearnedSleepBase()))
+        #expect(e.error == String(localized: "RYFT couldn't take that change. Try again later.")) // not the server's English
+    }
+
+    @Test func aBirthYearFailureStaysBesideThePicker() async {
+        let api = MockPlatformAPI()
+        let (state, _) = makeState(api: api)
+        state.user = MockData.user
+        let e = editor(state)
+        api.failNext = APIError.http(503, "")
+        #expect(!(await e.setBirthYear(1990)))
+        #expect(e.birthYearError == APIError.http(503, "").localizedDescription && e.error == nil)
+        #expect(await e.setBirthYear(1990))
+        #expect(e.birthYearError == nil)
+    }
+
+    @Test func nothingSavesWhileARescoreRuns() async {
+        let api = MockPlatformAPI()
+        let (state, clock) = makeState(api: api)
+        state.user = MockData.user
+        let e = editor(state)
+        let run = Task { await e.rescore() }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        #expect(e.isBusy)
+        #expect(!(await e.setSleepBase(470))) // it would be reported as rescored
+        #expect(api.count("patchMe") == 0)
+        clock.advance(by: SyncService.rescoreDelay)
+        await run.value
+        #expect(await e.setSleepBase(470))
+    }
+
+    @Test func aFailedRescoreKeepsTheRequestID() async {
+        let api = MockPlatformAPI()
+        let (state, _) = makeState(api: api)
+        let e = editor(state)
+        api.failure = APIError.http(500, "", requestID: "rid-rescore")
+        await e.rescore()
+        #expect(e.rescoreStatus == APIError.http(500, "").localizedDescription)
+        #expect(e.rescoreDetails?.contains("rid-rescore") == true)
+    }
+
+    @Test func theMockPlatformKeepsEachChange() async throws {
+        let api = MockPlatformAPI()
+        let (state, _) = makeState(api: api)
+        state.user = MockData.user
+        let e = editor(state)
+        await e.setMaxHR(184)
+        await e.setSleepBase(470)
+        #expect(state.user?.maxHr == 184 && state.user?.sleepBaseMin == 470) // the first isn't undone by the second
+        let me = try await api.me()
+        #expect(me.maxHr == 184 && me.sleepBaseMin == 470)
+    }
+
     @Test func theNeedBreakdownAddsUp() {
         let need = SleepNeed(base: 460, strain: 37, debt: 41, napCredit: 25, total: 513)
         let b = SleepNeedBreakdown(need)

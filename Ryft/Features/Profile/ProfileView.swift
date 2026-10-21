@@ -5,7 +5,6 @@ import UIKit
 struct ProfileView: View {
     @Environment(ScreenModels.self) private var screens
     @Environment(Settings.self) private var settings
-    @Environment(AppState.self) private var state
     @Environment(\.openURL) private var openURL
     private var apiStatus = APIStatus.shared
 
@@ -272,8 +271,12 @@ struct ProfileView: View {
                 }
                 .pickerStyle(.menu)
                 .tint(Theme.accent)
+                .disabled(editor.isBusy)
             }
             .frame(minHeight: 44)
+            if let error = editor.birthYearError {
+                InlineMessage(message: error, systemImage: "exclamationmark.circle", details: editor.birthYearErrorDetails)
+            }
             Text("Changing a setting doesn't rescore past days on its own.")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
@@ -281,12 +284,8 @@ struct ProfileView: View {
             PrimaryButton(title: "Rescore the last 90 days", style: .secondary, busy: editor.rescoring) {
                 await editor.rescore()
             }
-            .disabled(!editor.canSave)
-            if let status = editor.rescoreStatus {
-                Text(status)
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-            }
+            .disabled(!editor.canSave || editor.saving)
+            RescoreStatus(editor: editor)
         }
     }
 
@@ -662,27 +661,42 @@ struct SettingRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityHint(Text("Double-tap to change"))
+        .accessibilityHint(Text("Opens the editor"))
     }
 }
 
-/// `SettingRow`'s look, for a `NavigationLink` too.
+/// `SettingRow`'s look, for a `NavigationLink` too. At accessibility sizes the value goes
+/// under the title instead of fighting it for the line.
 struct SettingRowLabel: View {
     let title: LocalizedStringKey
     let value: String
     var detail: String? = nil
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(title)
-                        .font(.ryft(.body))
-                        .foregroundStyle(Theme.textPrimary)
-                    Spacer(minLength: 8)
-                    Text(value)
-                        .font(.ryft(.body))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.textPrimary)
+                    if typeSize.isAccessibilitySize {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(title)
+                                .font(.ryft(.body))
+                                .foregroundStyle(Theme.textPrimary)
+                            Text(value)
+                                .font(.ryft(.body))
+                                .monospacedDigit()
+                                .foregroundStyle(Theme.textPrimary)
+                        }
+                        Spacer(minLength: 8)
+                    } else {
+                        Text(title)
+                            .font(.ryft(.body))
+                            .foregroundStyle(Theme.textPrimary)
+                        Spacer(minLength: 8)
+                        Text(value)
+                            .font(.ryft(.body))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.textPrimary)
+                    }
                     Image(systemName: "chevron.right")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Theme.textTertiary)
@@ -707,10 +721,19 @@ struct SettingStepper: View {
     let step: Int
     let label: LocalizedStringKey
     let text: (Int) -> String
+    /// The − and + grow with the text.
+    @ScaledMetric(relativeTo: .title) private var buttonSize: CGFloat = 48
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private func change(by delta: Int) {
+        withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick)) {
+            value = min(range.upperBound, max(range.lowerBound, value + delta))
+        }
+    }
 
     var body: some View {
         HStack(spacing: 20) {
-            button("minus", enabled: value > range.lowerBound) { value = max(range.lowerBound, value - step) }
+            button("minus", enabled: value > range.lowerBound) { change(by: -step) }
             Text(text(value))
                 .font(.ryft(.numberLarge))
                 .monospacedDigit()
@@ -719,7 +742,7 @@ struct SettingStepper: View {
                 .frame(minWidth: 150)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
-            button("plus", enabled: value < range.upperBound) { value = min(range.upperBound, value + step) }
+            button("plus", enabled: value < range.upperBound) { change(by: step) }
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
@@ -727,8 +750,8 @@ struct SettingStepper: View {
         .accessibilityValue(Text(text(value)))
         .accessibilityAdjustableAction { direction in
             switch direction {
-            case .increment: value = min(range.upperBound, value + step)
-            case .decrement: value = max(range.lowerBound, value - step)
+            case .increment: change(by: step)
+            case .decrement: change(by: -step)
             @unknown default: break
             }
         }
@@ -737,8 +760,8 @@ struct SettingStepper: View {
     private func button(_ symbol: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 18, weight: .semibold))
-                .frame(width: 48, height: 48)
+                .font(.system(.title3, weight: .semibold))
+                .frame(width: buttonSize, height: buttonSize)
                 .background(Theme.surfaceRaised, in: Circle())
                 .foregroundStyle(enabled ? Theme.textPrimary : Theme.textTertiary)
         }
@@ -754,11 +777,13 @@ struct BaselineSleepNeedForm: View {
     var showsClose = false
     @Environment(\.dismiss) private var dismiss
     @State private var draft = BodySettingsEditor.defaultSleepBase
+    /// Edited by hand: no longer follows the saved value.
+    @State private var touched = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                SettingStepper(value: $draft, range: BodySettingsEditor.sleepBaseRange, step: BodySettingsEditor.sleepBaseStep,
+                SettingStepper(value: drafted, range: BodySettingsEditor.sleepBaseRange, step: BodySettingsEditor.sleepBaseStep,
                              label: "Baseline sleep need") { Fmt.duration(minutes: $0) }
                     .padding(.vertical, 8)
                 if let source = editor.sleepBaseSourceText {
@@ -772,12 +797,15 @@ struct BaselineSleepNeedForm: View {
                     .fixedSize(horizontal: false, vertical: true)
                 if editor.canUseLearnedBase {
                     Button(editor.usesLearnedTitle) {
-                        Task { if await editor.useLearnedSleepBase() { draft = editor.sleepBase } }
+                        Task {
+                            await editor.useLearnedSleepBase()
+                            reset()
+                        }
                     }
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.accent)
                     .frame(minHeight: 44)
-                    .disabled(editor.saving)
+                    .disabled(editor.isBusy)
                 }
                 SettingSaveFooter(editor: editor)
             }
@@ -792,15 +820,32 @@ struct BaselineSleepNeedForm: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button("Save") { Task { await editor.setSleepBase(draft) } }
-                    .disabled(draft == editor.sleepBase || editor.saving || !editor.canSave)
+                Button("Save") {
+                    Task {
+                        await editor.setSleepBase(draft)
+                        reset()
+                    }
+                }
+                .disabled(draft == editor.sleepBase || editor.isBusy || !editor.canSave)
                     .accessibilityIdentifier("sleepBase.save")
             }
         }
         .onAppear {
             editor.begin()
-            draft = editor.sleepBase
+            reset()
         }
+        // The account arrived (or changed) while the form was open: follow it until edited.
+        .onChange(of: editor.sleepBase) { if !touched { draft = editor.sleepBase } }
+    }
+
+    /// Back to what's saved: after a save (taken or refused) or going back to learned.
+    private func reset() {
+        draft = editor.sleepBase
+        touched = false
+    }
+
+    private var drafted: Binding<Int> {
+        Binding(get: { draft }, set: { draft = $0; touched = true })
     }
 }
 
@@ -810,11 +855,12 @@ struct MaxHeartRateForm: View {
     var showsClose = false
     @Environment(\.dismiss) private var dismiss
     @State private var draft = BodySettingsEditor.defaultMaxHR
+    @State private var touched = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                SettingStepper(value: $draft, range: BodySettingsEditor.maxHRRange, step: 1,
+                SettingStepper(value: drafted, range: BodySettingsEditor.maxHRRange, step: 1,
                              label: "Maximum heart rate") { "\($0) bpm" }
                     .padding(.vertical, 8)
                 if let source = editor.maxHRSourceText {
@@ -828,12 +874,15 @@ struct MaxHeartRateForm: View {
                     .fixedSize(horizontal: false, vertical: true)
                 if editor.canUseMaxHREstimate {
                     Button("Use the estimate") {
-                        Task { if await editor.useMaxHREstimate() { draft = editor.maxHR } }
+                        Task {
+                            await editor.useMaxHREstimate()
+                            reset()
+                        }
                     }
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.accent)
                     .frame(minHeight: 44)
-                    .disabled(editor.saving)
+                    .disabled(editor.isBusy)
                 }
                 SettingSaveFooter(editor: editor)
             }
@@ -848,14 +897,29 @@ struct MaxHeartRateForm: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button("Save") { Task { await editor.setMaxHR(draft) } }
-                    .disabled(draft == editor.maxHR || editor.saving || !editor.canSave)
+                Button("Save") {
+                    Task {
+                        await editor.setMaxHR(draft)
+                        reset()
+                    }
+                }
+                .disabled(draft == editor.maxHR || editor.isBusy || !editor.canSave)
             }
         }
         .onAppear {
             editor.begin()
-            draft = editor.maxHR
+            reset()
         }
+        .onChange(of: editor.maxHR) { if !touched { draft = editor.maxHR } }
+    }
+
+    private func reset() {
+        draft = editor.maxHR
+        touched = false
+    }
+
+    private var drafted: Binding<Int> {
+        Binding(get: { draft }, set: { draft = $0; touched = true })
     }
 }
 
@@ -896,12 +960,24 @@ private struct SettingSaveFooter: View {
                 PrimaryButton(title: "Rescore the last 90 days", style: .secondary, busy: editor.rescoring) {
                     await editor.rescore()
                 }
-                if let status = editor.rescoreStatus {
-                    Text(status)
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textSecondary)
-                }
+                .disabled(editor.saving)
+                RescoreStatus(editor: editor)
             }
+        }
+    }
+}
+
+/// How the rescore went; a failure with its request ID.
+private struct RescoreStatus: View {
+    let editor: BodySettingsEditor
+
+    var body: some View {
+        if let details = editor.rescoreDetails, let status = editor.rescoreStatus {
+            InlineMessage(message: status, systemImage: "exclamationmark.circle", details: details)
+        } else if let status = editor.rescoreStatus {
+            Text(status)
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textSecondary)
         }
     }
 }

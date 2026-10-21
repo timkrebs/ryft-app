@@ -16,13 +16,13 @@ final class ProfileViewModel {
     let syncDetails: SyncDetailsModel
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, onboarding: OnboardingCoordinator? = nil,
-         apiStatus: APIStatus? = nil, bodySettings: BodySettingsEditor? = nil) {
+         apiStatus: APIStatus? = nil) {
         self.state = state
         self.sync = sync
         self.coordinator = coordinator
         self.onboarding = onboarding
         self.apiStatus = apiStatus ?? .shared
-        self.bodySettings = bodySettings ?? BodySettingsEditor(state: state)
+        bodySettings = BodySettingsEditor(state: state)
         syncDetails = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator, apiStatus: apiStatus)
     }
 
@@ -403,13 +403,21 @@ final class BodySettingsEditor {
     private(set) var pendingSleepBase: Int?
     private(set) var pendingMaxHR: Int?
     private(set) var saving = false
-    /// The last save's refusal, for the sheet; cleared when a sheet opens.
+    /// The last save's refusal, for the form; cleared when a form opens.
     private(set) var error: String?
     private(set) var errorDetails: String?
-    /// A change was saved since the sheet opened: past days keep their scores until rescored.
+    /// A birth year Profile's picker couldn't save (it has no form to say so in).
+    private(set) var birthYearError: String?
+    private(set) var birthYearErrorDetails: String?
+    /// A change was saved since the form opened: past days keep their scores until rescored.
     private(set) var savedChange = false
     private(set) var rescoring = false
     private(set) var rescoreStatus: String?
+    /// Status and request ID of a failed rescore.
+    private(set) var rescoreDetails: String?
+
+    /// One thing at a time: a save during a rescore would be reported as rescored.
+    var isBusy: Bool { saving || rescoring }
 
     /// What `PATCH /v1/me` takes: 4–12 h, in the sheet's 15-minute steps.
     static let sleepBaseRange = 240...720
@@ -427,12 +435,13 @@ final class BodySettingsEditor {
     private var user: User? { state.user }
     var canSave: Bool { state.hasDataSource }
 
-    /// A sheet opens: a fresh start, no earlier refusal or note.
+    /// A form opens: a fresh start, no earlier refusal or note.
     func begin() {
         error = nil
         errorDetails = nil
         savedChange = false
         rescoreStatus = nil
+        rescoreDetails = nil
     }
 
     // MARK: baseline sleep need
@@ -476,8 +485,11 @@ final class BodySettingsEditor {
     /// `PATCH /v1/me {sleep_base_manual: false}`: back to the learned estimate (or the default).
     @discardableResult
     func useLearnedSleepBase() async -> Bool {
-        await save(UserPatch(sleepBaseManual: false), refused: nil)
+        await save(UserPatch(sleepBaseManual: false), refused: Self.notTaken)
     }
+
+    /// A refusal of a change without a range to name.
+    private static var notTaken: String { String(localized: "RYFT couldn't take that change. Try again later.") }
 
     // MARK: maximum heart rate
 
@@ -513,7 +525,7 @@ final class BodySettingsEditor {
     /// `PATCH /v1/me {max_hr_manual: false}`.
     @discardableResult
     func useMaxHREstimate() async -> Bool {
-        await save(UserPatch(maxHrManual: false), refused: nil)
+        await save(UserPatch(maxHrManual: false), refused: Self.notTaken)
     }
 
     // MARK: birth year
@@ -525,17 +537,29 @@ final class BodySettingsEditor {
         Array(stride(from: OnboardingCoordinator.latestBirthYear(now: env.clock.now()), through: 1920, by: -1))
     }
 
-    /// `PATCH /v1/me {birth_year}`: the estimate follows unless max HR is set by hand.
+    /// `PATCH /v1/me {birth_year}`: the estimate follows unless max HR is set by hand. A
+    /// failure stays beside the picker (`birthYearError`).
     @discardableResult
     func setBirthYear(_ year: Int) async -> Bool {
-        await save(UserPatch(birthYear: year), refused: nil)
+        birthYearError = nil
+        birthYearErrorDetails = nil
+        let saved = await save(UserPatch(birthYear: year), refused: Self.notTaken)
+        if !saved {
+            birthYearError = error
+            birthYearErrorDetails = errorDetails
+            error = nil
+            errorDetails = nil
+        }
+        return saved
     }
 
     // MARK: rescoring
 
     /// Rescores the last 90 days with the settings as they are, waits for scoring and reloads.
     func rescore() async {
+        guard !isBusy else { return }
         rescoring = true
+        rescoreDetails = nil
         defer { rescoring = false }
         let now = env.clock.now()
         do {
@@ -547,12 +571,14 @@ final class BodySettingsEditor {
             savedChange = false
         } catch {
             rescoreStatus = error.localizedDescription
+            rescoreDetails = error.diagnosticDetails
         }
     }
 
     /// One `PATCH`: `true` when the platform took it. A refusal (`422`) says `refused` in the
-    /// sheet; anything else says what went wrong. Details keep the request ID.
-    private func save(_ patch: UserPatch, refused: String?) async -> Bool {
+    /// form; anything else says what went wrong. Details keep the request ID.
+    private func save(_ patch: UserPatch, refused: String) async -> Bool {
+        guard !isBusy else { return false }
         saving = true
         error = nil
         errorDetails = nil
@@ -562,7 +588,7 @@ final class BodySettingsEditor {
             savedChange = true
             rescoreStatus = nil
             return true
-        } catch let e as APIError where e.isFieldError && refused != nil {
+        } catch let e as APIError where e.isFieldError {
             error = refused
             errorDetails = e.diagnosticDetails
         } catch {

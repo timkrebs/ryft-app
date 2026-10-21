@@ -478,16 +478,6 @@
         }
       }
     },
-    "Double-tap to change" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zum Ändern doppeltippen"
-          }
-        }
-      }
-    },
     "Each night's sleep need starts from this baseline, plus top-ups for strain and sleep debt, minus naps." : {
       "localizations" : {
         "de" : {
@@ -938,6 +928,16 @@
         }
       }
     },
+    "Opens the editor" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet die Bearbeitung"
+          }
+        }
+      }
+    },
     "Opens what's needed" : {
       "localizations" : {
         "de" : {
@@ -1084,6 +1084,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT passt das anhand deiner Nächte an, außer du legst es selbst fest."
+          }
+        }
+      }
+    },
+    "RYFT couldn't take that change. Try again later." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT konnte diese Änderung nicht übernehmen. Versuch es später noch einmal."
           }
         }
       }
