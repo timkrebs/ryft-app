@@ -461,3 +461,128 @@ struct APIClientCancellationTests {
         #expect(FailureKind.of(error ?? APIError.notConfigured) == .cancelled)
     }
 }
+
+/// One retry layer for reads (ADR 0001): a scheduled read makes one attempt.
+extension APIClientStatusTests {
+    @Test func aScheduledReadMakesOneAttemptAndKeepsRetryAfter() async {
+        StubURLProtocol.script([.init(status: 429, headers: ["Retry-After": "7"], body: Data("slow down".utf8)),
+                                .init(status: 200)])
+        let c = client()
+        do {
+            _ = try await APIClient.$singleAttempt.withValue(true) { try await get(c) }
+            Issue.record("expected a 429")
+        } catch {
+            #expect((error as? APIError)?.status == 429 && (error as? APIError)?.retryAfter == 7)
+            #expect(FailureKind.of(error) == .transient)
+        }
+        #expect(StubURLProtocol.requests.count == 1 && sleeps.waits.isEmpty)
+    }
+
+    @Test func aScheduledReadDoesNotWaitOutA503() async {
+        let status = await APIStatus()
+        StubURLProtocol.script([.init(status: 503, headers: ["Retry-After": "2"],
+                                      body: Self.errorBody("request timed out", requestID: "rid-503"))])
+        let c = gatedClient(status)
+        do {
+            _ = try await APIClient.$singleAttempt.withValue(true) {
+                try await c.data("GET", path: "/v1/me", body: Optional<Int>.none, base: base)
+            }
+            Issue.record("expected a 503")
+        } catch {
+            #expect((error as? APIError)?.requestID == "rid-503" && (error as? APIError)?.retryAfter == 2)
+        }
+        #expect(StubURLProtocol.requests.count == 1 && sleeps.waits.isEmpty)
+        #expect(await status.retryNotice == nil)
+        #expect(await status.requests.first?.durationMs != nil)
+    }
+}
+
+/// Fails every request as a timeout would.
+final class TimingOutURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.timedOut)) }
+    override func stopLoading() {}
+}
+
+@Suite("APIClient transport failures")
+struct APIClientTransportTests {
+    /// Criterion 12: a request without an answer is recorded, with its duration and the URLError's name.
+    @Test func aRequestWithoutAnAnswerIsRecorded() async {
+        let status = await APIStatus()
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [TimingOutURLProtocol.self]
+        let client = APIClient(session: URLSession(configuration: config), tokens: FakeTokens(), sleep: { _ in },
+                               baseURL: URL(string: "https://api.test")!, status: status)
+        do {
+            _ = try await client.data("GET", path: "/v1/days?from=a&to=b", body: Optional<Int>.none)
+            Issue.record("expected a timeout")
+        } catch {
+            #expect(FailureKind.of(error) == .transient)
+        }
+        let request = await status.requests.first
+        #expect(request?.status == 0 && request?.transport == "timedOut" && request?.durationMs != nil)
+        #expect(request?.path == "/v1/days?from=a&to=b")
+        #expect(await status.failures.count == 1)
+    }
+}
+
+@Suite("Read retry policy")
+struct RetryPolicyTests {
+    private let top: (ClosedRange<Double>) -> Double = { $0.upperBound }
+    private let bottom: (ClosedRange<Double>) -> Double = { $0.lowerBound }
+
+    @Test func classification() {
+        let rows: [(Error, FailureKind)] = [
+            (CancellationError(), .cancelled),
+            (APIError.transport(URLError(.cancelled)), .cancelled),
+            (URLError(.cancelled), .cancelled),
+            (APIError.transport(URLError(.timedOut)), .transient),
+            (APIError.transport(URLError(.notConnectedToInternet)), .transient),
+            (URLError(.networkConnectionLost), .transient),
+            (APIError.http(408, ""), .transient),
+            (APIError.http(429, ""), .transient),
+            (APIError.http(500, ""), .transient),
+            (APIError.http(503, ""), .transient),
+            (APIError.http(501, ""), .other),
+            (APIError.http(401, ""), .signedOut),
+            (APIError.signedOut, .signedOut),
+            (APIError.http(403, "", code: .inviteRequired), .gate),
+            (APIError.http(403, "", code: .consentRequired), .gate),
+            (APIError.http(403, ""), .other),
+            (APIError.http(404, ""), .other),
+            (APIError.http(422, ""), .other),
+            (APIError.notConfigured, .other),
+            (DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "")), .other),
+        ]
+        for (error, kind) in rows { #expect(FailureKind.of(error) == kind, "\(error)") }
+        #expect(FailureKind.signedOut.isActionable && FailureKind.gate.isActionable && !FailureKind.transient.isActionable)
+    }
+
+    @Test func backoffIsFullJitterWithinItsBounds() {
+        let p = RetryPolicy.foreground
+        let error = APIError.http(503, "")
+        #expect(p.delay(before: 1, after: error, random: top) == .seconds(1))
+        #expect(p.delay(before: 2, after: error, random: top) == .seconds(2))
+        #expect(p.delay(before: 1, after: error, random: bottom) == .zero)
+        #expect(p.delay(before: 3, after: error, random: top) == nil)   // two retries at most
+        #expect(RetryPolicy.background.delay(before: 2, after: error, random: top) == nil)
+    }
+
+    @Test func retryAfterIsHonouredUpToTheCap() {
+        let p = RetryPolicy.foreground
+        #expect(p.delay(before: 1, after: APIError.http(429, "", retryAfter: 3), random: bottom) == .seconds(3))
+        #expect(p.delay(before: 1, after: APIError.http(429, ""), random: bottom) == .seconds(1))   // 429 without: 1 s
+        #expect(p.delay(before: 2, after: APIError.http(503, "", retryAfter: 1), random: top) == .seconds(2))
+        #expect(p.delay(before: 1, after: APIError.http(503, "", retryAfter: 7), random: bottom) == nil)
+        #expect(RetryPolicy.background.delay(before: 1, after: APIError.http(503, "", retryAfter: 3), random: bottom) == nil)
+    }
+
+    @Test func onlyTransientFailuresRetry() {
+        let p = RetryPolicy.foreground
+        for error: Error in [APIError.http(404, ""), APIError.http(401, ""), CancellationError(),
+                             APIError.http(403, "", code: .consentRequired)] {
+            #expect(p.delay(before: 1, after: error, random: top) == nil, "\(error)")
+        }
+    }
+}

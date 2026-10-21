@@ -809,3 +809,541 @@ struct SyncCoordinatorDeadlineTests {
         #expect(steps.refreshedAt.map { $0 <= deadline } == true)
     }
 }
+
+// MARK: - read pipeline (T1): scheduler, budget, retries, pull phases, refresh policy
+
+@MainActor
+private func readGraph(api: MockPlatformAPI = MockPlatformAPI(), online: Bool = true,
+                       now: Date = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: .now)!)
+    -> (AppEnvironment, AppState, TestClock) {
+    let clock = TestClock(now: now)
+    let env = AppEnvironment.test(api: api, clock: clock, online: online)
+    return (env, AppState(env: env), clock)
+}
+
+/// Counts calls of a scripted fetch (closures on the main actor).
+@MainActor
+private final class Calls {
+    var count = 0
+}
+
+@Suite("Read scheduler")
+@MainActor
+struct ReadSchedulerTests {
+    /// Criterion 3: transient failures retry at most twice, with backoff on the clock (full jitter: here its top).
+    @Test func transientFailuresRetryTwiceWithBackoffOnTheClock() async throws {
+        let api = MockPlatformAPI()
+        api.faults["day"] = .init(.unavailable, times: 2)
+        let (env, state, clock) = readGraph(api: api)
+        env.reads.random = { $0.upperBound }
+        let refresh = Task { try await state.repository.refreshDay(clock.now(), mode: .latest) }
+
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        #expect(api.count("day") == 1)
+        clock.advance(by: .milliseconds(999))
+        #expect(api.count("day") == 1)                         // retry 1 waits up to 1 s
+        clock.advance(by: .milliseconds(1))
+        #expect(await eventually { api.count("day") == 2 && clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(2))                         // retry 2 waits up to 2 s
+        let detail = try await refresh.value
+
+        #expect(detail != nil && api.count("day") == 3)
+        #expect(env.reads.states[.today]?.consecutiveFailures == 0)
+        #expect(env.reads.states[.today]?.fetchedAt == clock.now())
+    }
+
+    /// Criterion 2: after its retries a read records its last error, exactly as received, and counts once.
+    @Test func aReadGivesUpAfterTwoRetriesAndRecordsTheLastError() async {
+        let api = MockPlatformAPI()
+        api.faults["me"] = .init(.unavailable)
+        let (env, state, _) = readGraph(api: api)
+
+        await #expect(throws: APIError.self) { try await state.repository.refreshUser(mode: .latest) }
+
+        #expect(api.count("me") == 3)
+        let s = env.reads.states[.me]
+        #expect(s?.consecutiveFailures == 1 && s?.fetchedAt == nil)
+        #expect(s?.lastError?.kind == .transient && s?.lastError?.status == 503)
+        #expect(s?.lastError?.requestID == "fault-me" && s?.lastError?.attempts == 3)
+
+        api.faults["me"] = nil
+        try? await state.repository.refreshUser(mode: .latest)
+        #expect(env.reads.states[.me]?.consecutiveFailures == 0)  // a success resets the count
+    }
+
+    @Test func notTransientIsNotRetried() async {
+        let api = MockPlatformAPI()
+        api.faults["insights"] = .init(.notFound)
+        let (env, state, _) = readGraph(api: api)
+        try? await state.repository.refreshInsights(mode: .latest)
+        #expect(api.count("insights") == 1)
+        #expect(env.reads.states[.insights]?.lastError?.kind == .other)
+        #expect(env.reads.states[.insights]?.consecutiveFailures == 1)
+    }
+
+    /// `Retry-After` up to the cap (5 s) is waited out, at least.
+    @Test func retryAfterWithinTheCapIsWaitedOut() async throws {
+        let api = MockPlatformAPI()
+        api.faults["me"] = .init(.status(429, retryAfter: 3), times: 1)
+        let (env, state, clock) = readGraph(api: api)
+        let refresh = Task { try await state.repository.refreshUser(mode: .latest) }
+
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(2))
+        #expect(api.count("me") == 1)
+        clock.advance(by: .seconds(1))
+        try await refresh.value
+
+        #expect(api.count("me") == 2 && env.reads.states[.me]?.consecutiveFailures == 0)
+    }
+
+    /// Beyond the cap: no retry now, counted, and automatic reads send nothing until then; a pull does.
+    @Test func retryAfterBeyondTheCapHoldsAutomaticReadsBack() async {
+        let api = MockPlatformAPI()
+        api.faults["me"] = .init(.status(429, retryAfter: 30), times: 1)
+        let (env, state, clock) = readGraph(api: api)
+
+        try? await state.repository.refreshUser(mode: .latest)
+        #expect(api.count("me") == 1)
+        #expect(env.reads.states[.me]?.consecutiveFailures == 1)
+        #expect(env.reads.states[.me]?.retryNotBefore == clock.now().addingTimeInterval(30))
+
+        try? await state.repository.refreshUser(mode: .latest)
+        #expect(api.count("me") == 1)                           // held back, nothing counted
+        #expect(env.reads.states[.me]?.consecutiveFailures == 1)
+
+        try? await state.repository.refreshUser(mode: .latest, userInitiated: true)
+        #expect(api.count("me") == 2)                           // pull and Try again ignore it
+        #expect(env.reads.states[.me]?.retryNotBefore == nil)
+    }
+
+    /// Criterion 4: a cancellation is never a failure, from the fault or from `cancelAll`.
+    @Test func cancellationIsNeverRecorded() async {
+        let api = MockPlatformAPI()
+        api.faults["trends"] = .init(.cancel)
+        let (env, state, clock) = readGraph(api: api)
+        await #expect(throws: CancellationError.self) {
+            try await state.repository.refreshTrend(.readiness, .week, mode: .latest)
+        }
+        #expect(api.count("trends") == 1 && env.reads.states[.trends] == nil)
+
+        let held = Task {
+            try await env.reads.run(ReadKey(.insights)) { try await clock.sleep(for: .seconds(5)); return 1 }
+        }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        env.reads.cancelAll()
+        await #expect(throws: CancellationError.self) { try await held.value }
+        #expect(env.reads.states[.insights] == nil && env.reads.inFlight.isEmpty)
+    }
+
+    /// Criterion 6: a second read of a key in flight joins it; the first caller's cancellation cancels nothing.
+    @Test func aSecondReadOfAKeyInFlightJoinsIt() async throws {
+        let (env, _, clock) = readGraph()
+        let calls = Calls()
+        let key = ReadKey(.trends, id: "readiness-7d")
+        let fetch: @MainActor () async throws -> Int = {
+            calls.count += 1
+            try await clock.sleep(for: .seconds(1))
+            return calls.count
+        }
+        let first = Task { try await env.reads.run(key, fetch) }
+        let second = Task { try await env.reads.run(key, fetch) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        #expect(env.reads.inFlight == [key])
+        first.cancel()                                          // .refreshable going away
+        clock.advance(by: .seconds(1))
+
+        #expect(try await second.value == 1)
+        #expect(calls.count == 1 && env.reads.inFlight.isEmpty)
+        #expect(env.reads.states[.trends]?.fetchedAt == clock.now())
+    }
+
+    /// `.changed(since:)` doesn't join a read that started before the change: one follow-up, shared.
+    @Test func aChangeAfterAReadStartedGetsOneSharedFollowUp() async throws {
+        let (env, _, clock) = readGraph()
+        let calls = Calls()
+        let key = ReadKey(.today, id: "2026-10-21")
+        let fetch: @MainActor () async throws -> Int = {
+            calls.count += 1
+            let n = calls.count
+            try await clock.sleep(for: .seconds(1))
+            return n
+        }
+        let first = Task { try await env.reads.run(key, mode: .latest, fetch) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .milliseconds(10))                    // scores landed after it started
+        let since = clock.now()
+        let a = Task { try await env.reads.run(key, mode: .changed(since: since), fetch) }
+        let b = Task { try await env.reads.run(key, mode: .changed(since: since), fetch) }
+        let late = Task { try await env.reads.run(key, mode: .latest, fetch) }
+        try? await Task.sleep(for: .milliseconds(50))           // a, b and late have asked
+        clock.advance(by: .seconds(1))
+
+        let (one, joined) = (try await first.value, try await late.value)
+        #expect(one == 1 && joined == 1)
+        #expect(await eventually { clock.pendingSleeps == 1 })  // the follow-up
+        clock.advance(by: .seconds(1))
+        let (followA, followB) = (try await a.value, try await b.value)
+        #expect(followA == 2 && followB == 2)
+        #expect(calls.count == 2)
+    }
+
+    /// Offline (not demo): nothing is sent, nothing is recorded.
+    @Test func offlineSendsAndRecordsNothing() async throws {
+        let api = MockPlatformAPI()
+        let (env, state, _) = readGraph(api: api, online: false)
+        #expect(try await env.reads.run(ReadKey(.me)) { 1 } == nil)
+        await state.refresh(force: true)
+        try await state.refreshDays([])
+        #expect(api.calls.isEmpty && env.reads.states.isEmpty)
+    }
+
+    /// One retry layer: every scheduled try is a single attempt for `APIClient`.
+    @Test func scheduledReadsAreSingleAttempts() async throws {
+        let (env, _, _) = readGraph()
+        var seen: Bool?
+        _ = try await env.reads.run(ReadKey(.insights)) { () -> Int in
+            seen = APIClient.singleAttempt
+            return 0
+        }
+        #expect(seen == true && !APIClient.singleAttempt)
+    }
+
+    /// In the background a read retries once.
+    @Test func theBackgroundPolicyRetriesOnce() async {
+        let api = MockPlatformAPI()
+        api.faults["me"] = .init(.unavailable)
+        let (_, state, _) = readGraph(api: api)
+        await APIClient.$runsInBackground.withValue(true) {
+            try? await state.repository.refreshUser(mode: .latest)
+        }
+        #expect(api.count("me") == 2)
+    }
+
+    /// The live account's record survives a relaunch (Copy diagnostics after a force-quit), request ID intact.
+    @Test func theRecordPersistsForTheLiveAccount() async {
+        let api = MockPlatformAPI()
+        api.faults["me"] = .init(.unavailable)
+        let (env, state, _) = readGraph(api: api)
+        try? await state.repository.refreshUser(mode: .latest)
+
+        let relaunched = ReadScheduler(env: env)
+        #expect(relaunched.states[.me] == env.reads.states[.me])
+        #expect(relaunched.states[.me]?.lastError?.requestID == "fault-me")
+        #expect(relaunched.states[.me]?.consecutiveFailures == 1)
+    }
+
+    /// Account change: reads in flight stop and what was known goes.
+    @Test func resetForgetsTheRecord() async {
+        let api = MockPlatformAPI()
+        api.faults["me"] = .init(.unavailable)
+        let (env, state, _) = readGraph(api: api)
+        try? await state.repository.refreshUser(mode: .latest)
+        state.reset()
+        #expect(env.reads.states.isEmpty && state.refreshIssue == nil)
+    }
+
+    /// Copy diagnostics: one line per resource with times, statuses and IDs, no health values.
+    @Test func diagnosticsListEveryResource() async {
+        let api = MockPlatformAPI()
+        api.faults["me"] = .init(.status(503, retryAfter: nil))
+        let (_, state, _) = readGraph(api: api)
+        await state.refresh()
+        let sync = SyncService(env: state.env)
+        let model = SyncDetailsModel(state: state, sync: sync,
+                                     coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
+                                                                  clock: state.env.clock),
+                                     apiStatus: APIStatus())
+        let text = model.diagnostics
+        for resource in ReadResource.allCases { #expect(text.contains("\n\(resource.rawValue) | ")) }
+        #expect(text.contains("me | - | 503 - fault-me "))
+        #expect(model.resources.map(\.resource) == [.today, .history, .me, .syncStatus, .trends, .insights,
+                                                    .journal, .config, .train])
+        let me = model.resources.first { $0.resource == .me }
+        #expect(me?.statusText(now: state.env.clock.now()).contains("503") == true)
+        if let readiness = state.today?.score.readiness { #expect(!text.contains("readiness \(readiness)")) }
+    }
+}
+
+@Suite("Request budget")
+@MainActor
+struct RequestBudgetTests {
+    /// Criterion 5: never more than 3 in flight.
+    @Test func atMostThreeInFlight() async throws {
+        let clock = TestClock()
+        let budget = RequestBudget(clock: clock)
+        let admitted = Calls()
+        for _ in 0..<4 {
+            Task {
+                guard (try? await budget.acquire(.normal)) != nil else { return }
+                admitted.count += 1
+            }
+        }
+        #expect(await eventually { admitted.count == 3 })
+        try? await Task.sleep(for: .milliseconds(30))
+        #expect(admitted.count == 3)
+        await budget.release()
+        #expect(await eventually { admitted.count == 4 })
+    }
+
+    /// Criterion 5: never a burst over 5: 7 starts at once → 5, the rest a second later.
+    @Test func atMostFiveStartsInAnySecond() async throws {
+        let clock = TestClock()
+        let budget = RequestBudget(clock: clock, maxInFlight: 10)
+        let admitted = Calls()
+        for _ in 0..<7 {
+            Task {
+                guard (try? await budget.acquire(.normal)) != nil else { return }
+                admitted.count += 1
+                await budget.release()
+            }
+        }
+        #expect(await eventually { admitted.count == 5 && clock.pendingSleeps == 1 })
+        clock.advance(by: .milliseconds(999))
+        #expect(admitted.count == 5)
+        clock.advance(by: .milliseconds(1))
+        #expect(await eventually { admitted.count == 7 })
+    }
+
+    @Test func todayAndTheSyncStatusGoFirst() async throws {
+        let clock = TestClock()
+        let budget = RequestBudget(clock: clock, maxInFlight: 1)
+        try await budget.acquire(.normal)
+        var order: [String] = []
+        let normal = Task { try await budget.acquire(.normal); order.append("normal"); await budget.release() }
+        #expect(await queued(budget, 1))
+        let high = Task { try await budget.acquire(.high); order.append("high"); await budget.release() }
+        #expect(await queued(budget, 2))                         // the high one queued after the normal one
+        await budget.release()
+        try await normal.value
+        try await high.value
+        #expect(order == ["high", "normal"])
+    }
+
+    @Test func aCancelledWaiterLeavesTheQueue() async throws {
+        let clock = TestClock()
+        let budget = RequestBudget(clock: clock, maxInFlight: 1)
+        try await budget.acquire(.normal)
+        let waiter = Task { try await budget.acquire(.normal) }
+        #expect(await queued(budget, 1))
+        waiter.cancel()
+        await #expect(throws: CancellationError.self) { try await waiter.value }
+        #expect(await budget.waiting == 0)
+        await budget.release()
+        try await budget.acquire(.normal)                        // the slot went to nobody else
+        #expect(await budget.inFlight == 1)
+    }
+
+    /// Waits until `count` requests are queued. A fixed real sleep raced the scheduler when the whole
+    /// plan ran in parallel: the waiter hadn't reached `acquire` yet.
+    private func queued(_ budget: RequestBudget, _ count: Int) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(30)
+        while ContinuousClock.now < deadline {
+            if await budget.waiting == count { return true }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return await budget.waiting == count
+    }
+}
+
+/// A sync whose upload takes `uploadDuration` on the clock; the rest is the live pipeline.
+@MainActor
+private final class SlowUploadSteps: SyncSteps {
+    let live: LiveSyncSteps
+    let clock: TestClock
+    var uploadDuration: Duration
+    var statusDuration: Duration = .zero
+
+    init(state: AppState, clock: TestClock, uploadDuration: Duration) {
+        live = LiveSyncSteps(state: state, sync: SyncService(env: state.env), apiStatus: APIStatus())
+        self.clock = clock
+        self.uploadDuration = uploadDuration
+    }
+
+    func upload() async throws -> [String] {
+        try await clock.sleep(for: uploadDuration)
+        return []
+    }
+    var hasBacklog: Bool { false }
+    var isWaitingForUnlock: Bool { false }
+    var isUploading: Bool { false }
+    func stopAfterCurrentPage() async {}
+    var expectedScoringSeconds: Int? { nil }
+    func syncStatus() async throws -> SyncStatus {
+        if statusDuration > .zero { try await clock.sleep(for: statusDuration) }
+        return try await live.syncStatus()
+    }
+    func refreshDays(_ days: [String]) async throws { try await live.refreshDays(days) }
+    func refreshTrends() async throws { try await live.refreshTrends() }
+    func refreshInsights() async throws { try await live.refreshInsights() }
+    func refreshStale() async {}
+    func report(_ phase: SyncPhase) {}
+}
+
+@Suite("Pull to refresh")
+@MainActor
+struct PullToRefreshTests {
+    /// Criterion 5: the upload starts, today and the sync status at once; the rest after 2 s if the upload
+    /// takes longer.
+    @Test func todayAndTheStatusFirstTheRestAfterTwoSeconds() async {
+        let api = MockPlatformAPI()
+        let (_, state, clock) = readGraph(api: api)
+        let c = SyncCoordinator(steps: SlowUploadSteps(state: state, clock: clock, uploadDuration: .seconds(10)),
+                                clock: clock)
+
+        await state.pullToRefresh(coordinator: c)               // returned once phase 2 settled
+
+        #expect(api.count("day") == 1 && api.count("syncStatus") == 1)
+        #expect(api.count("days") + api.count("me") + api.count("trends") + api.count("insights") == 0)
+        #expect(await eventually { clock.pendingSleeps == 2 })  // the upload, the 2 s head start
+        clock.advance(by: .seconds(2))
+        await state.pullPhases?.value
+        #expect(api.count("days") == 1 && api.count("me") == 1 && api.count("trends") == 1 && api.count("insights") == 1)
+        clock.advance(by: .seconds(8))
+    }
+
+    /// The rest starts as soon as the upload ends, if that's before 2 s.
+    @Test func theRestStartsWhenTheUploadEnds() async {
+        let api = MockPlatformAPI()
+        let (_, state, clock) = readGraph(api: api)
+        let c = SyncCoordinator(steps: SlowUploadSteps(state: state, clock: clock, uploadDuration: .milliseconds(500)),
+                                clock: clock)
+        await state.pullToRefresh(coordinator: c)
+        #expect(await eventually { clock.pendingSleeps == 2 })
+        clock.advance(by: .milliseconds(500))
+        await state.pullPhases?.value                           // without the 2 s passing
+        #expect(api.count("days") == 1 && api.count("insights") == 1)
+    }
+
+    /// The spinner lasts until phase 2 settled or 3 s, whichever is first; the line carries the rest.
+    @Test func thePullReturnsAfterThreeSecondsAtMost() async {
+        let api = MockPlatformAPI()
+        let (_, state, clock) = readGraph(api: api)
+        let steps = SlowUploadSteps(state: state, clock: clock, uploadDuration: .seconds(1))
+        steps.statusDuration = .seconds(10)
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let returned = Calls()
+        Task { await state.pullToRefresh(coordinator: c); returned.count += 1 }
+
+        #expect(await eventually { clock.pendingSleeps == 4 })  // upload, head start, spinner, status
+        clock.advance(by: .milliseconds(2_999))
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(returned.count == 0)
+        clock.advance(by: .milliseconds(1))
+        #expect(await eventually { returned.count == 1 })
+        #expect(state.isLoading)                                // the status is still loading: "Updating…"
+        clock.advance(by: .seconds(10))
+    }
+
+    /// `.refreshable` cancelling its task cancels neither phase.
+    @Test func aCancelledPullStillLoads() async {
+        let api = MockPlatformAPI()
+        let (_, state, clock) = readGraph(api: api)
+        let c = SyncCoordinator(steps: SlowUploadSteps(state: state, clock: clock, uploadDuration: .zero), clock: clock)
+        let pull = Task { await state.pullToRefresh(coordinator: c) }
+        pull.cancel()
+        await pull.value
+        await state.pullPhases?.value
+        #expect(api.count("day") == 1 && api.count("days") == 1 && api.count("insights") == 1)
+        #expect(state.refreshIssue == nil)
+    }
+
+    /// Offline the pull sends nothing and returns at once (the line says offline).
+    @Test func offlineThePullSendsNothing() async {
+        let api = MockPlatformAPI()
+        let (_, state, clock) = readGraph(api: api, online: false)
+        let c = SyncCoordinator(steps: SlowUploadSteps(state: state, clock: clock, uploadDuration: .zero), clock: clock)
+        await state.pullToRefresh(coordinator: c)
+        #expect(api.calls.isEmpty && state.pullPhases == nil)
+    }
+
+    /// After a push, a failed read is recorded per resource and the sync doesn't fail.
+    @Test func aFailedReadAfterScoringDoesNotFailTheSync() async {
+        let api = MockPlatformAPI()
+        api.faults["days"] = .init(.timeout)
+        api.faults["insights"] = .init(.unavailable)
+        let (env, state, clock) = readGraph(api: api)
+        let c = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: SyncService(env: env)), clock: clock)
+        let outcome = await c.run(.silentPush(days: [DayFormat.string(from: clock.now())]))
+        #expect(outcome.error == nil && !outcome.cancelled)
+        #expect(env.reads.states[.history]?.consecutiveFailures == 1)
+        #expect(env.reads.states[.insights]?.consecutiveFailures == 1)
+        #expect(env.reads.states[.today]?.consecutiveFailures == 0)
+    }
+}
+
+@Suite("Refresh policy")
+struct RefreshPolicyTests {
+    let now = Date(timeIntervalSince1970: 1_792_400_000)
+
+    private func failing(_ n: Int, fetched hoursAgo: Double?, kind: FailureKind = .transient, status: Int? = 503)
+        -> ResourceState {
+        ResourceState(fetchedAt: hoursAgo.map { now.addingTimeInterval(-$0 * 3600) },
+                      lastError: ResourceError(kind: kind, status: status, code: nil, requestID: "rid", transport: nil,
+                                               attempts: 3, at: now),
+                      consecutiveFailures: n)
+    }
+
+    private func ok(_ hoursAgo: Double) -> ResourceState { ResourceState(fetchedAt: now.addingTimeInterval(-hoursAgo * 3600)) }
+
+    /// Criterion 7 as a table: (states, online) → card resource, stale line.
+    @Test func whenTheCardAndTheStaleLineShow() {
+        typealias Row = (String, [ReadResource: ResourceState], Bool, ReadResource?, Bool)
+        let rows: [Row] = [
+            ("all fine", [.today: ok(0.1), .history: ok(1)], true, nil, false),
+            ("3 failures under 2 h", [.today: failing(3, fetched: 1), .history: ok(1)], true, nil, false),
+            ("1 failure past 2 h: stale line only", [.today: failing(1, fetched: 3), .history: ok(1)], true, nil, true),
+            ("3 failures past 2 h", [.today: failing(3, fetched: 3), .history: ok(1)], true, .today, true),
+            ("offline is never an error", [.today: failing(3, fetched: 3), .history: ok(1)], false, nil, false),
+            ("history 3 failures under 24 h", [.today: ok(0.1), .history: failing(3, fetched: 20)], true, nil, false),
+            ("history past 24 h", [.today: ok(0.1), .history: failing(3, fetched: 25)], true, .history, true),
+            ("nothing cached: one pass", [.today: failing(1, fetched: nil), .history: failing(1, fetched: nil)],
+             true, .today, false),
+            ("other resources never", [.today: ok(0.1), .history: ok(1), .me: failing(9, fetched: 99)], true, nil, false),
+            ("gates never", [.today: failing(3, fetched: 3, kind: .gate, status: 403), .history: ok(1)], true, nil, true),
+            ("signed out at once", [.today: ok(0.1), .me: failing(1, fetched: 1, kind: .signedOut, status: 401)],
+             true, .me, false),
+        ]
+        for (name, states, online, card, stale) in rows {
+            let issue = RefreshPolicy.issue(for: states, now: now, online: online)
+            #expect(issue?.resource == card, "\(name): \(String(describing: issue))")
+            let since = RefreshPolicy.staleSince(for: states, now: now, online: online)
+            #expect((since != nil) == stale, "\(name): staleSince \(String(describing: since))")
+            if stale { #expect(since == states[.today]?.fetchedAt, "\(name)") }
+        }
+    }
+
+    @Test func reasonsFollowTheClasses() {
+        func reason(_ kind: FailureKind, _ status: Int?) -> RefreshIssue.Reason {
+            RefreshIssue.reason(for: ResourceError(kind: kind, status: status, code: nil, requestID: nil, transport: nil,
+                                                   attempts: 1, at: now))
+        }
+        #expect(reason(.transient, 503) == .busy && reason(.transient, 429) == .busy)
+        #expect(reason(.transient, nil) == .unreachable)
+        #expect(reason(.other, 404) == .unexpected)
+        #expect(reason(.signedOut, 401) == .signedOut)
+    }
+
+    /// The status line: stale only when idle, after "Updating…"; "Try again" only without the card.
+    @Test func theStaleLineShowsOnlyWhenIdle() {
+        let since = now.addingTimeInterval(-3 * 3600)
+        var f = TodaySyncFacts(now: now)
+        f.syncs = false
+        #expect(TodayStates.line(f, staleSince: since, cardShown: false) == .stale(since: since, offersRetry: true))
+        #expect(TodayStates.line(f, staleSince: since, cardShown: true) == .stale(since: since, offersRetry: false))
+        f.isLoading = true
+        #expect(TodayStates.line(f, staleSince: since) == .updating)
+        f.isLoading = false
+        f.online = false
+        #expect(TodayStates.line(f, staleSince: since) == .offline)
+    }
+
+    @Test func theDataTimeIsNeverRelative() {
+        let cal = Calendar.current
+        let today = cal.date(bySettingHour: 14, minute: 5, second: 0, of: now)!
+        let later = cal.date(bySettingHour: 18, minute: 0, second: 0, of: now)!
+        #expect(SyncLine.dataTime(today, now: later) == Fmt.time(today))
+        let yesterday = cal.date(byAdding: .day, value: -1, to: today)!
+        #expect(SyncLine.dataTime(yesterday, now: later) == String(localized: "Yesterday \(Fmt.time(yesterday))"))
+    }
+}
