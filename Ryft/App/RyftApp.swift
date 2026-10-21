@@ -131,9 +131,12 @@ struct RyftApp: App {
                 .onChange(of: sync.phase) { _, phase in
                     if phase == .done { screens.push.syncSucceeded() }
                 }
-                // GET /v1/config now, then whenever its ttl_sec (6 h) has passed. After the
-                // first frame, below the work the user waits for.
-                .task(priority: .utility) { await screens.featureFlags?.run() }
+                // GET /v1/config after the first frame, then whenever its ttl_sec (6 h) has
+                // passed; below the work the user waits for.
+                .task(priority: .utility) {
+                    await LaunchSignpost.afterFirstFrame()
+                    await screens.featureFlags?.run()
+                }
                 .task {
                     appDelegate.handlers = PushHandlers(registrar: screens.push, router: screens.router,
                                                         coordinator: coordinator)
@@ -166,12 +169,25 @@ struct RyftApp: App {
                     await coordinator.enterForeground()
                     await coordinator.run(.appActive)
                 }
-                // Concurrently and below the sync: Today shows the cache meanwhile.
-                Task(priority: .utility) { await refreshTrain() }
+                // After the first frame (at launch), concurrently and below the sync: Today
+                // shows the cache meanwhile. The sync and bootstrap's gate check don't wait.
+                Task(priority: .utility) {
+                    await LaunchSignpost.afterFirstFrame()
+                    await refreshTrain()
+                }
                 // Allowed in Settings meanwhile, a new token or language: tell the platform.
-                Task(priority: .utility) { await screens.push.refresh() }
-                Task(priority: .utility) { await screens.featureFlags?.refresh() }
-                Task(priority: .utility) { await screens.onboarding.check() }
+                Task(priority: .utility) {
+                    await LaunchSignpost.afterFirstFrame()
+                    await screens.push.refresh()
+                }
+                Task(priority: .utility) {
+                    await LaunchSignpost.afterFirstFrame()
+                    await screens.featureFlags?.refresh()
+                }
+                Task(priority: .utility) {
+                    await LaunchSignpost.afterFirstFrame()
+                    await screens.onboarding.check()
+                }
             } else if phase == .background {
                 // Not a cancel: the page in flight finishes (in a background task), and what's
                 // left of an import goes to the backfill task.
@@ -299,18 +315,21 @@ struct RootView: View {
             if !PlatformConfig.isComplete {
                 MisconfiguredBuildView()
             } else if settings.demoMode {
-                tabs.transition(.opacity)
+                tabs.transition(.opacity).onAppear(perform: LaunchSignpost.screenAppeared)
             } else {
-                // Nothing personal is built before there is a session.
+                // Nothing personal is built before there is a session. Every screen but the
+                // splash opens the launch barrier.
                 switch auth.state {
                 case .restoring: SplashView().transition(.opacity)
-                case .signedOut: WelcomeView().transition(.opacity)
+                case .signedOut: WelcomeView().transition(.opacity).onAppear(perform: LaunchSignpost.screenAppeared)
                 // The account's first run waits for the platform's answer: no flash of the tabs.
                 case .signedIn where onboarding.holdsFirstRun: SplashView().transition(.opacity)
                 case .signedIn where onboarding.flowStep != nil:
                     OnboardingFlowView(model: onboarding).transition(.opacity)
-                case .signedIn where needsHealthIntro: HealthPermissionView().transition(.opacity)
-                case .signedIn: tabs.transition(.opacity)
+                        .onAppear(perform: LaunchSignpost.screenAppeared)
+                case .signedIn where needsHealthIntro:
+                    HealthPermissionView().transition(.opacity).onAppear(perform: LaunchSignpost.screenAppeared)
+                case .signedIn: tabs.transition(.opacity).onAppear(perform: LaunchSignpost.screenAppeared)
                 }
             }
         }
@@ -404,20 +423,71 @@ enum DebugScreen: String {
 }
 #endif
 
-/// Cold launch → the first Today frame (with or without cached data), for Instruments.
+/// Cold launch → the first Today frame (with or without cached data), for Instruments;
+/// and the barrier optional startup work waits behind (flags, push, Train, the gate
+/// re-check): the first frame of a screen that stays, not the splash.
 @MainActor
 enum LaunchSignpost {
     private static var state: OSSignpostIntervalState?
+    private static var presented = false
+    private static var waiting: [CheckedContinuation<Void, Never>] = []
 
     static func begin() {
         state = Signposts.launch.beginInterval("launch", id: Signposts.launch.makeSignpostID())
     }
 
-    /// Today appeared; only the first time ends the interval.
-    static func firstFrame(cached: Bool) {
-        guard let state else { return }
-        Signposts.launch.endInterval("launch", state, "\(cached ? "cached data" : "no data")")
-        Self.state = nil
+    /// Today appeared: its first frame has been committed by the next display refresh,
+    /// which ends the interval (only the first time).
+    static func todayAppeared(cached: Bool) {
+        guard state != nil else { return }
+        NextFrame.after {
+            guard let state else { return }
+            Signposts.launch.endInterval("launch", state, "\(cached ? "cached data" : "no data")")
+            Self.state = nil
+        }
+    }
+
+    /// The tabs, welcome or onboarding appeared: after their first frame, what waits in
+    /// `afterFirstFrame()` runs.
+    static func screenAppeared() {
+        guard !presented else { return }
+        NextFrame.after {
+            presented = true
+            let resumed = waiting
+            waiting = []
+            resumed.forEach { $0.resume() }
+        }
+    }
+
+    /// Returns once the first screen is on screen (right away after that). Launched into
+    /// the background, that's when the scene first comes to the foreground.
+    static func afterFirstFrame() async {
+        guard !presented else { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+}
+
+/// Calls `body` on the next display refresh: the frame committed in this run loop turn
+/// has gone to the render server by then.
+@MainActor
+private final class NextFrame: NSObject {
+    private var body: (@MainActor () -> Void)?
+    private var link: CADisplayLink?
+
+    static func after(_ body: @escaping @MainActor () -> Void) {
+        let frame = NextFrame()
+        frame.body = body
+        // The link holds its target until it's invalidated.
+        let link = CADisplayLink(target: frame, selector: #selector(tick))
+        frame.link = link
+        link.add(to: .main, forMode: .common)
+    }
+
+    @objc private func tick() {
+        link?.invalidate()
+        link = nil
+        body?()
+        body = nil
     }
 }
 

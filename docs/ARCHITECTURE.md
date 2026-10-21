@@ -228,8 +228,10 @@ graph of `await`s and a `TaskGroup`:
   - **gzip** (`sync.gzip`, off until the platform takes it): the encoded page is gzipped
     off the main actor; a `400` / `415` sends it plain and keeps the run plain.
 - **Signposts** (`Signposts.sync`, `Signposts.launch`): intervals for read, map, encode,
-  gzip, upload, score-wait and refresh, and the launch from `App.init` to the first Today
-  frame (with or without cached data). Instruments shows them under Points of Interest;
+  gzip, upload, score-wait and refresh, and the launch from `App.init` to the first
+  display refresh after Today's first frame was committed (with or without cached data).
+  The same signal for any screen but the splash is the launch barrier optional startup
+  work (flags, push, Train, the gate re-check) waits behind. Instruments shows them under Points of Interest;
   `log show --signpost --predicate 'subsystem == "dev.timkrebs.ryft"'` lists them too.
 - **Scoring, by the platform's word** (no clock comparison): after an upload the
   pipeline waits `SyncResponse.scoring.expected_within_sec`, then asks `GET /v1/me/sync`

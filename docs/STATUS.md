@@ -3,12 +3,15 @@
 ## Performance: launch, read models, signposts, gzip (sync brief §3)
 
 - **Signposts** for every sync stage (read, map, encode, gzip, upload, score-wait,
-  refresh) and for the launch (`App.init` → first Today frame, tagged with whether cached
-  data was there). Instruments → Points of Interest, or
+  refresh) and for the launch (`App.init` → the first display refresh after Today's
+  first frame was committed, tagged with whether cached data was there). Instruments → Points of Interest, or
   `log show --signpost --predicate 'subsystem == "dev.timkrebs.ryft"'`.
 - **Launch:** Today renders from SwiftData before any request; flags, push, Train and the
-  onboarding re-check run after the first frame at utility priority, concurrently, below
-  the sync.
+  onboarding re-check wait for the first frame of a screen that stays (tabs, welcome,
+  onboarding; `LaunchSignpost.afterFirstFrame()`), then run at utility priority,
+  concurrently, below the sync. The sync and bootstrap's gate check don't wait for it.
+- **Upload bytes:** `SyncEngineState.bytesUploaded` counts the wire (gzipped when it
+  was); the per-stream bytes count the JSON, for page sizing and the backlog estimate.
 - **Read models:** a write used to drop every decoded value and re-render every reader.
   Now each kind (days, trends, insights, user, sleep ranges, workouts) has its own
   revision and memo: a trends or insights refresh during a sync no longer re-decodes the

@@ -285,6 +285,7 @@ struct SyncEngineState: Codable, Equatable, Sendable {
     var backfillDone = false
     /// Per `HealthStream.anchorID`.
     var streams: [String: StreamProgress] = [:]
+    /// Over the wire (gzipped when it was); `StreamProgress.bytes` counts the JSON.
     var bytesUploaded = 0
     /// What's left of the backfill, estimated; 0 once it's done.
     var backlogBytes = 0
@@ -689,11 +690,12 @@ actor SyncEngine {
         let body = try await Self.encode(request)
         bytesPerRecord[stream] = Double(body.count) / Double(delta.count)
         let response: SyncResponse
+        let sent: Int
         let upload = Signposts.sync.beginInterval("upload", id: Signposts.sync.makeSignpostID(),
                                                   "\(delta.count) records, \(body.count) bytes")
         defer { Signposts.sync.endInterval("upload", upload) }
         do {
-            response = try await send(body, gzip: context.gzip && !gzipRefused)
+            (response, sent) = try await send(body, gzip: context.gzip && !gzipRefused)
         } catch let error as APIError where error.status == 413 && maxRecords > Self.minimumPageSize {
             maxRecords = max(Self.minimumPageSize, min(maxRecords, delta.count) / 2)
             return false
@@ -701,13 +703,15 @@ actor SyncEngine {
         touched.formUnion(response.daysTouched)
         scoring = SyncScoring(queuedDays: Set(scoring?.queuedDays ?? []).union(response.scoring.queuedDays).sorted(),
                               expectedWithinSec: max(scoring?.expectedWithinSec ?? 0, response.scoring.expectedWithinSec))
-        record(delta, bytes: body.count, response: response, stream: stream)
+        record(delta, bytes: body.count, sent: sent, response: response, stream: stream)
         await report(.accepted(stream, response))
         await report(.state(state))
         return true
     }
 
-    private func record(_ delta: HealthDelta, bytes: Int, response: SyncResponse, stream: HealthStream) {
+    /// `bytes`: the page's JSON (page sizing and the backlog estimate work in it); `sent`:
+    /// what went over the wire, gzipped or not.
+    private func record(_ delta: HealthDelta, bytes: Int, sent: Int, response: SyncResponse, stream: HealthStream) {
         var p = state.streams[stream.anchorID, default: .init()]
         p.records += delta.count
         p.bytes += bytes
@@ -727,18 +731,20 @@ actor SyncEngine {
             p.lastIgnored = response.ignored.workouts
         }
         state.streams[stream.anchorID] = p
-        state.bytesUploaded += bytes
+        state.bytesUploaded += sent
     }
 
     /// The body, gzipped when asked; a refusal of gzip (`400`, `415`) sends it again as
-    /// plain JSON and keeps it plain for the rest of the run.
-    private func send(_ body: Data, gzip: Bool) async throws -> SyncResponse {
-        guard gzip else { return try await api.sync(encoded: body, contentEncoding: nil) }
+    /// plain JSON and keeps it plain for the rest of the run. `sent`: the bytes of the
+    /// body that was accepted, as it went over the wire.
+    private func send(_ body: Data, gzip: Bool) async throws -> (response: SyncResponse, sent: Int) {
+        guard gzip else { return (try await api.sync(encoded: body, contentEncoding: nil), body.count) }
         do {
-            return try await api.sync(encoded: try await Self.compress(body), contentEncoding: "gzip")
+            let zipped = try await Self.compress(body)
+            return (try await api.sync(encoded: zipped, contentEncoding: "gzip"), zipped.count)
         } catch let error as APIError where error.status == 415 || error.status == 400 {
             gzipRefused = true
-            return try await api.sync(encoded: body, contentEncoding: nil)
+            return (try await api.sync(encoded: body, contentEncoding: nil), body.count)
         }
     }
 

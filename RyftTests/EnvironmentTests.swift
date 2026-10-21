@@ -670,6 +670,26 @@ struct SyncGzipTests {
         #expect(gzipAPI.syncRequests.first?.samples.count == 3) // the platform reads the same page
     }
 
+    @Test func uploadedBytesCountTheWireAndStreamsTheJSON() async throws {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(500)]])
+        let api = MockPlatformAPI()
+        let sync = SyncService(env: .test(api: api, health: health, flags: [.syncGzip: true]))
+        await sync.syncNow()
+        let state = sync.engineState
+        let json = try #require(state.streams["heart_rate"]?.bytes)
+        #expect(state.bytesUploaded == api.syncBodySizes.reduce(0, +)) // the gzipped body
+        #expect(state.bytesUploaded * 4 < json) // the savings show
+
+        let plainHealth = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(500)]])
+        let plainAPI = MockPlatformAPI()
+        plainAPI.refusesGzip = true
+        let plain = SyncService(env: .test(api: plainAPI, health: plainHealth, flags: [.syncGzip: true]))
+        await plain.syncNow()
+        // The fallback counts the plain body once, not the refused gzipped one.
+        #expect(plain.engineState.bytesUploaded == plainAPI.syncBodySizes.reduce(0, +))
+        #expect(plain.engineState.bytesUploaded == plain.engineState.streams["heart_rate"]?.bytes)
+    }
+
     @Test func aRefusalFallsBackToPlainJSONForTheRun() async {
         let health = MockHealthStore(streams: [.quantity(.heartRate)],
                                      pages: [.quantity(.heartRate): [samples(2), samples(2)]])
