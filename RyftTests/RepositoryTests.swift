@@ -408,3 +408,134 @@ struct ReadinessSnapshotTests {
         #expect(reloads.value == 1)
     }
 }
+
+// MARK: - T0: "Baselines · 0 of 7" beside scored tiles
+//
+// Item 3. The decisive questions, answered by tests: can the app lose or invent `baseline_days` / `calibrating`
+// on its own (c)? Can an unscored today produce the gauge (a)? What wire row does produce exactly the screenshot (b)?
+
+@Suite("T0: calibration on Today")
+@MainActor
+struct CalibrationSourceTests {
+    /// `GET /v1/days` example from API.md, trimmed to the fields that matter here.
+    private func wire(baseline: String, readiness: String = "80", computedAt: String = "2026-10-21T16:02:11.123456Z") -> Data {
+        Data("""
+        {"day":"2026-10-21","readiness":\(readiness),"state":"balanced","recovery":75,"strain":0.9,"sleep_actual_min":430,
+         "hrv_ms":58.2,"rhr":48.9,\(baseline)"computed_at":"\(computedAt)","scoring_state":"scored"}
+        """.utf8)
+    }
+
+    private func decode(_ data: Data) throws -> DailyScore { try APIClient.jsonDecoder.decode(DailyScore.self, from: data) }
+
+    // MARK: (c) the app's own round trip: negative results
+
+    @Test func theWireFieldsSurviveTheReadModelRoundTrip() throws {
+        let env = AppEnvironment.test()
+        let repo = Repository(env: env)
+        for (days, calibrating) in [(0, true), (3, true), (30, false), (0, false)] {
+            let key = "2026-10-21"
+            let score = DailyScore(day: key, readiness: 80, recovery: 75, baselineDays: days, calibrating: calibrating,
+                                   computedAt: env.clock.now(), scoringState: .scored)
+            repo.store(detail: DayDetail(score: score, sleep: nil, workouts: []))
+            let viaDetail = try #require(repo.day(key)).score
+            #expect(viaDetail.baselineDays == days && viaDetail.calibrating == calibrating)
+            // The history list reads the same row; the detail wins over the list score, and both agree.
+            repo.store(scores: [score])
+            let viaList = try #require(repo.history(from: DayFormat.date(from: key)!, to: DayFormat.date(from: key)!).first)
+            #expect(viaList.baselineDays == days && viaList.calibrating == calibrating)
+            #expect(repo.score(key)?.calibrating == calibrating)
+        }
+    }
+
+    @Test func theLegacyCacheImportKeepsThemToo() throws {
+        // LegacyCacheMigration stores the old JSON through the same encode/decode; it has no field of its own.
+        let score = DailyScore(day: "2026-10-21", readiness: 80, baselineDays: 5, calibrating: true)
+        let back = try #require(WireCoding.decode(DailyScore.self, WireCoding.encode(score)))
+        #expect(back.baselineDays == 5 && back.calibrating)
+    }
+
+    // MARK: (a) an unscored today cannot make the gauge: negative results
+
+    @Test func absentFieldsDecodeToNotCalibrating() throws {
+        // A cached copy from before the field existed, or a platform that omits it: 0 days, calibrating false.
+        let absent = try decode(wire(baseline: ""))
+        #expect(absent.baselineDays == 0 && !absent.calibrating)
+        var f = TodaySyncFacts(now: Date(timeIntervalSince1970: 1_792_600_000))
+        f.today = absent
+        f.hasScoredDay = true // the history is scored: not the first import
+        #expect(TodayStates.hero(f) == .score) // never "0 of 7" from a missing field
+    }
+
+    @Test func anUnscoredDayIsNotCalibratingEither() throws {
+        // API.md → GET /v1/days/{day}: all numbers null, state "calibrating", calibrating false, computed_at 0001.
+        let unscored = try decode(Data(#"{"day":"2026-10-21","state":"calibrating","baseline_days":0,"calibrating":false,"computed_at":"0001-01-01T00:00:00Z"}"#.utf8))
+        #expect(!TodayStates.isScored(unscored))
+        var f = TodaySyncFacts(now: Date(timeIntervalSince1970: 1_792_600_000))
+        f.today = unscored
+        f.hasScoredDay = true
+        #expect(TodayStates.hero(f) == .score)
+        let empty = DailyScore.empty(day: "2026-10-21") // MockData.detail(for:) / unknown days
+        #expect(empty.resolvedState == .calibrating && !empty.calibrating && empty.baselineDays == 0)
+        f.today = empty
+        #expect(TodayStates.hero(f) == .score)
+        // And the tiles of such a row are blank, they cannot show "Recovery 75 %": the screenshot's today was scored.
+        #expect(empty.recovery == nil && unscored.recovery == nil)
+    }
+
+    // MARK: (b) the row that reproduces the screenshot
+
+    @Test func aScoredRowWithCalibratingTrueAndZeroBaselineDaysIsTheScreenshot() throws {
+        let row = try decode(wire(baseline: #""baseline_days":0,"calibrating":true,"#))
+        #expect(row.readiness == 80 && row.recovery == 75 && row.calibrating && row.baselineDays == 0)
+        var f = TodaySyncFacts(now: Date(timeIntervalSince1970: 1_792_600_000))
+        f.today = row
+        f.hasScoredDay = true
+        // Today's gauge: Baselines 0 of 7 ...
+        #expect(TodayStates.hero(f) == .calibrating(nights: 0))
+        // ... while the widget, deciding the same thing from the same row, shows the score.
+        let widget = ReadinessSnapshot.make(day: row.day, today: row, previous: nil, state: .scored,
+                                            now: Date(timeIntervalSince1970: 1_792_600_000))
+        #expect(widget?.kind == .score)
+    }
+
+    /// Desired (brief §2 table): a calibrating flag on a scored today with ≥ 7 scored days behind it is not
+    /// "0 of 7 nights"; the latest scored day's readiness shows with a "Recalculating" note. T2 decides the exact
+    /// state; what must hold is that the gauge does not contradict its own tiles and the widget.
+    @Test func todayDoesNotShowBaselinesBesideItsScoredTiles() throws {
+        let row = try decode(wire(baseline: #""baseline_days":0,"calibrating":true,"#))
+        var f = TodaySyncFacts(now: Date(timeIntervalSince1970: 1_792_600_000))
+        f.today = row
+        f.hasScoredDay = true
+        f.previous = DailyScore(day: "2026-10-20", readiness: 78, baselineDays: 30)
+        withKnownIssue("T2: one TodayState decides gauge, tiles and widget; history with 7+ scored days is not calibrating") {
+            #expect(TodayStates.hero(f) != .calibrating(nights: 0))
+        }
+    }
+
+    @Test func theUnknownDayHasItsOwnState() {
+        withKnownIssue("T2: DailyScore.empty must not carry .calibrating (an unknown day is unknown)") {
+            #expect(DailyScore.empty(day: "2026-10-21").resolvedState != .calibrating)
+        }
+    }
+
+    /// The whole path in the app: wire row → repository → AppState.today → TodayViewModel: tiles say 75 %, the
+    /// hero says baselines, from one `DailyScore`.
+    @Test func gaugeAndTilesComeFromTheSameRow() async throws {
+        let env = AppEnvironment.test()
+        let state = AppState(env: env)
+        let row = try decode(wire(baseline: #""baseline_days":0,"calibrating":true,"#))
+        state.history = (1...30).map { DailyScore(day: DayFormat.string(from: DayFormat.shift(env.clock.now(), days: -$0)),
+                                                  readiness: 70, baselineDays: 30) }
+        state.today = DayDetail(score: DailyScore(day: DayFormat.string(from: env.clock.now()), readiness: row.readiness,
+                                                  recovery: row.recovery, strain: row.strain,
+                                                  sleepActualMin: row.sleepActualMin, baselineDays: 0, calibrating: true,
+                                                  computedAt: env.clock.now(), scoringState: .scored),
+                                sleep: nil, workouts: [])
+        let sync = SyncService(env: env)
+        let vm = TodayViewModel(state: state, sync: sync,
+                                coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock),
+                                apiStatus: APIStatus())
+        #expect(vm.recovery == 75)                       // tile
+        #expect(vm.hero == .calibrating(nights: 0))      // gauge, 30 scored days in the history
+    }
+}
