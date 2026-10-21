@@ -25,12 +25,15 @@ Store "What's New".
   Profile → Sign-in methods to add Sign in with Apple to an email account.
 - A readiness widget for the home and lock screen: today's readiness, or "Scoring your
   night…" until it's ready.
+- Start a strength workout from anywhere: Today (today's plan, or an empty workout or your
+  last one again), the app icon's quick action, Siri, Shortcuts, Spotlight, the Action Button
+  and a Control Center / Lock Screen control. A workout in progress is resumed, never doubled.
+- The workout on the Lock Screen and in the Dynamic Island for the whole session: elapsed time
+  and the next set (e.g. "Bench press · set 3 of 4 · 5 × 80 kg"), the rest countdown between.
 - Save your strength workouts to Apple Health, if you want: asked once after your first
   logged workout, and in Profile → Data. RYFT writes only the workout, nothing else, and
   not when your watch recorded the session too. The workout summary says where its heart
   rate came from.
-
-### Added
 - Bedtime & wake: set when you want to wake up (weekdays and weekend, or each day) and how much
   of your sleep need you aim for. RYFT tells you when to be in bed tonight (Today from 17:00,
   Sleep → Bedtime, the widget), reminds you to wind down, and can wake you with a real alarm

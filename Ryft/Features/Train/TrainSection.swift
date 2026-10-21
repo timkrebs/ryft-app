@@ -192,23 +192,61 @@ struct TrainTodayCard: View {
         } else if let todayText = model.todayText {
             Card {
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("Train").ryftLabelStyle()
-                        Spacer()
-                        Image(systemName: "dumbbell.fill").foregroundStyle(Theme.accent).accessibilityHidden(true)
-                    }
+                    header
                     Text("Today: \(todayText)")
                         .font(.ryft(.body))
                         .foregroundStyle(Theme.textPrimary)
                     Button {
-                        coordinator.startFromToday()
+                        Task { await coordinator.quickStart(.auto) }
                     } label: {
-                        Label("Start", systemImage: "play.fill")
+                        Label("Start strength workout", systemImage: "play.fill")
                     }
                     .buttonStyle(TealButtonStyle())
                     .accessibilityIdentifier("today.train.start")
                 }
             }
+        } else {
+            // No plan: start one anyway, empty or as last time.
+            let last = model.historyDetail
+            Card {
+                VStack(alignment: .leading, spacing: 12) {
+                    header
+                    Text("Quick start")
+                        .font(.ryft(.body))
+                        .foregroundStyle(Theme.textPrimary)
+                    HStack(spacing: 10) {
+                        Button {
+                            Task { await coordinator.quickStart(.empty) }
+                        } label: {
+                            Label("Empty workout", systemImage: "plus")
+                        }
+                        .buttonStyle(TealButtonStyle())
+                        .accessibilityIdentifier("today.train.empty")
+                        if last != nil {
+                            Button {
+                                Task { await coordinator.quickStart(.repeatLast) }
+                            } label: {
+                                Label("Repeat last", systemImage: "arrow.counterclockwise")
+                            }
+                            .buttonStyle(TealButtonStyle(prominent: false))
+                            .accessibilityIdentifier("today.train.repeat")
+                        }
+                    }
+                    if let last {
+                        Text(last)
+                            .font(.ryft(.caption))
+                            .foregroundStyle(Theme.textTertiary)
+                    }
+                }
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Train").ryftLabelStyle()
+            Spacer()
+            Image(systemName: "dumbbell.fill").foregroundStyle(Theme.accent).accessibilityHidden(true)
         }
     }
 }

@@ -80,6 +80,25 @@ final class TrainLibrary {
         if let today { store.saveDocument(today, key: Self.todayKey) } else { store.removeDocument(key: Self.todayKey) }
     }
 
+    /// The cached plan day was fetched on another day (it has no date of its own).
+    func todayIsStale(now: Date = .now, calendar: Calendar = .current) -> Bool {
+        guard today != nil, let at = store.documentFetchedAt(key: Self.todayKey) else { return false }
+        return !calendar.isDate(at, inSameDayAs: now)
+    }
+
+    /// Today's plan day again, given at most `limit`: a quick start shouldn't wait on a slow network.
+    /// `false` when it couldn't be fetched in time.
+    func refreshToday(limit: Duration = .seconds(3)) async -> Bool {
+        let src = remote
+        let fetch = Task { @MainActor in try await self.loadToday(from: src) }
+        let deadline = Task {
+            try? await Task.sleep(for: limit)
+            fetch.cancel()
+        }
+        defer { deadline.cancel() }
+        return (try? await fetch.value) != nil
+    }
+
     /// Plan detail (days → exercises), cached afterwards.
     func loadPlan(id: UUID) async -> Plan? {
         if let p = store.plan(id: id), !p.days.isEmpty {

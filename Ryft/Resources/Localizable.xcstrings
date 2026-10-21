@@ -282,6 +282,16 @@
         }
       }
     },
+    "Add an exercise" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Füge eine Übung hinzu"
+          }
+        }
+      }
+    },
     "Add Sign in with Apple to open this account with your Apple ID too. Your data stays in this account." : {
       "localizations" : {
         "de" : {
@@ -628,6 +638,16 @@
         }
       }
     },
+    "Empty workout" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leeres Workout"
+          }
+        }
+      }
+    },
     "Engine" : {
       "localizations" : {
         "de" : {
@@ -804,6 +824,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Herzfrequenz, HRV, Ruhepuls, Atemfrequenz, Blutsauerstoff, VO₂max, Schritte, aktive Energie, Schlaf und Workouts."
+          }
+        }
+      }
+    },
+    "Here's your workout." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hier ist dein Workout."
           }
         }
       }
@@ -1018,6 +1048,16 @@
         }
       }
     },
+    "No workout is running. Say “Start a RYFT workout” to start one." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gerade läuft kein Workout. Sag „Start a RYFT workout“, um eines zu starten."
+          }
+        }
+      }
+    },
     "Not given" : {
       "localizations" : {
         "de" : {
@@ -1168,6 +1208,16 @@
         }
       }
     },
+    "Opens the strength workout in progress in RYFT." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet das laufende Workout in RYFT."
+          }
+        }
+      }
+    },
     "Opens what's needed" : {
       "localizations" : {
         "de" : {
@@ -1248,6 +1298,16 @@
         }
       }
     },
+    "Quick start" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schnellstart"
+          }
+        }
+      }
+    },
     "Read the privacy policy" : {
       "localizations" : {
         "de" : {
@@ -1318,6 +1378,26 @@
         }
       }
     },
+    "Repeat last" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letztes wiederholen"
+          }
+        }
+      }
+    },
+    "Repeat last workout" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letztes Workout wiederholen"
+          }
+        }
+      }
+    },
     "respiratory rate" : {
       "localizations" : {
         "de" : {
@@ -1334,6 +1414,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ruheherzfrequenz"
+          }
+        }
+      }
+    },
+    "Resume workout" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workout fortsetzen"
           }
         }
       }
@@ -1658,12 +1748,42 @@
         }
       }
     },
+    "Start or resume workout" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workout starten oder fortsetzen"
+          }
+        }
+      }
+    },
+    "Start strength workout" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Krafttraining starten"
+          }
+        }
+      }
+    },
     "Starting with your last few days" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Beginnt mit deinen letzten Tagen"
+          }
+        }
+      }
+    },
+    "Starts a strength workout in RYFT: today's plan, an empty workout or your last one again. A workout in progress is resumed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Startet ein Krafttraining in RYFT: den heutigen Plan, ein leeres Workout oder dein letztes noch einmal. Ein laufendes Workout wird fortgesetzt."
           }
         }
       }
@@ -1934,6 +2054,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Der Plan für heute Nacht gilt für eine andere Zeitzone als die dieses iPhones."
+          }
+        }
+      }
+    },
+    "Today's plan" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heutiger Plan"
           }
         }
       }
