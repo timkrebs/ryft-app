@@ -26,6 +26,11 @@ Store "What's New".
 - A readiness widget for the home and lock screen: today's readiness, or "Scoring your
   night…" until it's ready.
 
+### Added
+- Save your strength workouts to Apple Health, if you want: asked once after your first
+  logged workout, and in Profile → Data. RYFT writes only the workout, nothing else. The
+  workout summary says where its heart rate came from.
+
 ### Changed
 - The first sync shows scores for the last few days first and imports the rest after;
   every sync sends last night before the day's heart rate.

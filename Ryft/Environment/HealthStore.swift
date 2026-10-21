@@ -135,6 +135,13 @@ protocol HealthStore: AnyObject {
     /// The newest heart-rate record per source since `since` (sleep when no source wrote
     /// heart rate): iPhones write no heart rate, so these are the watches and their apps.
     func newestRecords(since: Date) async throws -> [SourceFreshness]
+    /// Asks to write workouts (and nothing else) to Apple Health; `true` when allowed.
+    func requestWorkoutWriteAccess() async throws -> Bool
+    /// Whether RYFT may write workouts (iOS says so for writing, never for reading).
+    var canWriteWorkouts: Bool { get }
+    /// A strength workout RYFT logged, as an `HKWorkout`: start, end, brand "RYFT" and the
+    /// session's id as its external UUID. No heart-rate samples: the watch records those.
+    func saveStrengthWorkout(sessionID: UUID, start: Date, end: Date) async throws
 }
 
 extension HealthKitManager: HealthStore {
@@ -225,6 +232,24 @@ extension HealthKitManager: HealthStore {
             }
         }
         return newest
+    }
+
+    func requestWorkoutWriteAccess() async throws -> Bool {
+        try await store.requestAuthorization(toShare: [workoutType], read: [])
+        return canWriteWorkouts
+    }
+
+    var canWriteWorkouts: Bool { store.authorizationStatus(for: workoutType) == .sharingAuthorized }
+
+    func saveStrengthWorkout(sessionID: UUID, start: Date, end: Date) async throws {
+        let configuration = HKWorkoutConfiguration()
+        configuration.activityType = .traditionalStrengthTraining
+        let builder = HKWorkoutBuilder(healthStore: store, configuration: configuration, device: .local())
+        try await builder.beginCollection(at: start)
+        try await builder.addMetadata([HKMetadataKeyWorkoutBrandName: "RYFT",
+                                       HKMetadataKeyExternalUUID: sessionID.uuidString])
+        try await builder.endCollection(at: end)
+        _ = try await builder.finishWorkout()
     }
 
     private static func archive(_ anchor: HKQueryAnchor?) -> Data? {
@@ -362,6 +387,21 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
     var night: RawNight?
     var freshness: [SourceFreshness] = []
     func lastNight(before now: Date) async throws -> RawNight? { night }
+
+    /// Workout writing: what iOS answers, and what was written.
+    var allowsWorkoutWrites = true
+    private(set) var writeRequests = 0
+    private(set) var savedWorkouts: [(sessionID: UUID, start: Date, end: Date)] = []
+    var canWriteWorkouts: Bool { writeRequests > 0 && allowsWorkoutWrites }
+
+    func requestWorkoutWriteAccess() async throws -> Bool {
+        writeRequests += 1
+        return allowsWorkoutWrites
+    }
+
+    func saveStrengthWorkout(sessionID: UUID, start: Date, end: Date) async throws {
+        savedWorkouts.append((sessionID, start, end))
+    }
     func newestRecords(since: Date) async throws -> [SourceFreshness] { freshness.filter { $0.newest >= since } }
 
     private func read(_ limit: Int, onMain: Bool) throws {

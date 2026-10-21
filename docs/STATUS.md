@@ -1,5 +1,27 @@
 # Status — 2026-10-21
 
+## Beta feedback 1: save strength workouts to Apple Health (§3, opt-in)
+
+- `WorkoutHealthExport` (per account): off until chosen; asked once in the first workout's
+  summary ("Save workouts to Apple Health?"), and a switch in Profile → Data. Turning it on asks
+  iOS for **write access to workouts only** (`toShare: [workoutType]`); RYFT then writes one
+  `HKWorkout` per completed session (`.traditionalStrengthTraining`, start–end,
+  `HKMetadataKeyWorkoutBrandName` "RYFT", `HKMetadataKeyExternalUUID` = session id). No heart rate,
+  no energy (RYFT measures neither).
+- **No double count:** workouts RYFT wrote come back through the anchored workout query; the sync
+  skips them (by source bundle) and still moves the anchor. The platform already attaches the
+  session's load to an overlapping watch workout or makes its own (`API.md` → sessions complete).
+  Confirmation requested in `docs/API_REQUESTS.md`.
+- The summary says "Heart rate from Garmin Connect" when the platform matched a watch's workout,
+  else how to get heart-rate strain next time.
+- `NSHealthUpdateUsageDescription` (en + de) now says what's true; `docs/APP_STORE_METADATA.md`
+  (both descriptions and the App Review notes) too. `PrivacyInfo.xcprivacy` unchanged (Health data
+  was already declared; writing is not collection).
+- **Your step:** the privacy policy at ryftapp.de/privacy needs the same line (RYFT may write
+  strength workouts to Apple Health, opt-in).
+- **On your iPhone:** turn it on after a workout; the workout appears in Fitness / Health with
+  RYFT as its source; the next sync doesn't list it twice on Strain.
+
 ## Sync and performance brief: where it stands
 
 `CLAUDE_FOLLOWUP_SYNC_PERFORMANCE.md`, eight PRs: #8 gates and honest errors, #10 engine

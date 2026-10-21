@@ -359,6 +359,22 @@ struct ProfileView: View {
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
+            Toggle(isOn: Binding(get: { WorkoutHealthExport.shared.isOn },
+                                 set: { on in
+                                     if on { Task { await WorkoutHealthExport.shared.turnOn() } } else { WorkoutHealthExport.shared.turnOff() }
+                                 })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Save strength workouts to Apple Health")
+                        .font(.ryft(.body))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text("Each workout you log, so it counts in your activity. Only the workout: no heart rate.")
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .tint(Theme.accent)
+            .accessibilityIdentifier("profile.saveWorkouts")
 
             Divider().overlay(Theme.separator)
             StatRow(title: "Last sync", value: model.lastSyncText)

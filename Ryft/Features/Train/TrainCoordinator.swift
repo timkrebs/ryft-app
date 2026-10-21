@@ -103,6 +103,8 @@ final class TrainCoordinator {
         active = nil
         // Shown over the session; Done closes both (`summaryDone`).
         summary = FinishSummary(sessionID: s.id, completed: result)
+        // To Apple Health, if you turned that on.
+        await WorkoutHealthExport.shared.save(sessionID: s.id, start: s.startedAt, end: s.endedAt ?? .now)
         await library.sessionCompleted()
     }
 
@@ -149,5 +151,76 @@ enum TrainPreview {
         let s = store.activeSession() ?? MockTrain.liveSession(in: store)
         coordinator.refreshActive()
         return SessionController(session: s, sync: sync, liveActivity: nil)
+    }
+}
+
+// MARK: - Apple Health (opt-in)
+
+/// "Save strength workouts to Apple Health": off until you say so. Asked once at the end of
+/// the first completed workout, and in Profile → Data. Turning it on asks iOS for write access
+/// to workouts only; RYFT then writes one `HKWorkout` per completed session and nothing else.
+@MainActor
+@Observable
+final class WorkoutHealthExport {
+    static let shared = WorkoutHealthExport(health: HealthKitManager.shared, defaults: .standard)
+
+    enum Choice: String {
+        case on, off
+    }
+
+    private let health: HealthStore
+    private let defaults: UserDefaults
+    private let account: () -> String?
+    /// Bumped on every change, so readers of `choice` update (it lives in defaults).
+    private var revision = 0
+
+    init(health: HealthStore, defaults: UserDefaults, account: (() -> String?)? = nil) {
+        self.health = health
+        self.defaults = defaults
+        self.account = account ?? { AccountScope.current(defaults) }
+    }
+
+    private var key: String { "health.saveWorkouts.\(account() ?? "signed-out")" }
+
+    /// `nil`: not asked yet. Per account.
+    var choice: Choice? {
+        _ = revision
+        return defaults.string(forKey: key).flatMap(Choice.init(rawValue:))
+    }
+
+    var isOn: Bool { choice == .on }
+    /// The first summary asks (Apple Health on this device, nothing chosen yet).
+    var shouldAsk: Bool { choice == nil && health.isAvailable }
+
+    private func set(_ choice: Choice) {
+        defaults.set(choice.rawValue, forKey: key)
+        revision += 1
+    }
+
+    /// Asks iOS for write access to workouts; on only when granted. `false` otherwise.
+    @discardableResult
+    func turnOn() async -> Bool {
+        let granted = (try? await health.requestWorkoutWriteAccess()) ?? false
+        set(granted ? .on : .off)
+        return granted
+    }
+
+    func turnOff() {
+        set(.off)
+    }
+
+    /// The first summary's "Not now": not asked again (Profile still has the switch).
+    func declined() {
+        set(.off)
+    }
+
+    /// After a completed session: written when on and still allowed in iOS.
+    func save(sessionID: UUID, start: Date, end: Date) async {
+        guard isOn, health.canWriteWorkouts, end > start else { return }
+        do {
+            try await health.saveStrengthWorkout(sessionID: sessionID, start: start, end: end)
+        } catch {
+            TrainStore.log.notice("Workout not saved to Apple Health: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }

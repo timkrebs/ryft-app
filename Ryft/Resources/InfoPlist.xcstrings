@@ -62,13 +62,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "RYFT does not write to Apple Health. iOS asks for this text because the app uses HealthKit; RYFT only reads your data to calculate your scores."
+            "value" : "RYFT saves your strength workouts to Apple Health so they count in your activity — only if you turn it on."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "RYFT schreibt nichts in Apple Health. iOS verlangt diesen Text, weil die App HealthKit nutzt; RYFT liest deine Daten nur, um deine Werte zu berechnen."
+            "value" : "RYFT speichert deine Krafttrainings in Apple Health, damit sie in deiner Aktivität zählen – nur wenn du das einschaltest."
           }
         }
       }

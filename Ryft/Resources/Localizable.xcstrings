@@ -448,6 +448,16 @@
         }
       }
     },
+    "Each workout you log, so it counts in your activity. Only the workout: no heart rate." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jedes Workout, das du loggst, damit es in deiner Aktivität zählt. Nur das Workout, keine Herzfrequenz."
+          }
+        }
+      }
+    },
     "Email and password" : {
       "localizations" : {
         "de" : {
@@ -608,6 +618,16 @@
         }
       }
     },
+    "Heart rate from %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Herzfrequenz von %@"
+          }
+        }
+      }
+    },
     "Heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts." : {
       "localizations" : {
         "de" : {
@@ -744,6 +764,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Maximale Herzfrequenz"
+          }
+        }
+      }
+    },
+    "No heart rate recorded. Start a strength workout on your watch too for heart-rate strain." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Herzfrequenz aufgezeichnet. Starte auch auf deiner Uhr ein Krafttraining, um Belastung aus der Herzfrequenz zu bekommen."
           }
         }
       }
@@ -1044,6 +1074,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT synchronisiert und bewertet deine Gesundheitsdaten nicht mehr. Gelöscht wird nichts: Deine Werte bleiben lesbar, und du kannst deine Daten jederzeit exportieren oder dein Konto löschen."
+          }
+        }
+      }
+    },
+    "Save strength workouts to Apple Health" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Krafttrainings in Apple Health sichern"
+          }
+        }
+      }
+    },
+    "Save workouts to Apple Health?" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workouts in Apple Health sichern?"
           }
         }
       }
@@ -1644,6 +1694,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Deine Sitzung ist abgelaufen. Melde dich erneut an, um weiterzumachen."
+          }
+        }
+      }
+    },
+    "Your strength workouts then count in your activity. RYFT writes only the workout, no heart rate. You can change this in Profile." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Krafttrainings zählen dann in deiner Aktivität. RYFT schreibt nur das Workout, keine Herzfrequenz. Du kannst das im Profil ändern."
           }
         }
       }

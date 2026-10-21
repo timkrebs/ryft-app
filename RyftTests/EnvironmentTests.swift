@@ -828,3 +828,87 @@ struct RawHealthTests {
         #expect(!SourceFreshness(source: "Apple Watch", bundleID: "com.apple.health.4B1C", newest: t).isApp)
     }
 }
+
+@Suite("Apple Health: saving strength workouts (opt-in)")
+@MainActor
+struct WorkoutHealthExportTests {
+    private func export(_ health: MockHealthStore, account: String = "a") -> WorkoutHealthExport {
+        WorkoutHealthExport(health: health, defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)")!,
+                            account: { account })
+    }
+
+    private let start = Date(timeIntervalSince1970: 1_792_400_000)
+
+    @Test func nothingIsWrittenUntilYouSaySo() async {
+        let health = MockHealthStore()
+        let e = export(health)
+        #expect(e.choice == nil && e.shouldAsk)
+        await e.save(sessionID: UUID(), start: start, end: start.addingTimeInterval(3_600))
+        #expect(health.savedWorkouts.isEmpty && health.writeRequests == 0)
+    }
+
+    @Test func turningItOnAsksOnceAndWritesTheSession() async throws {
+        let health = MockHealthStore()
+        let e = export(health)
+        #expect(await e.turnOn())
+        #expect(e.isOn && !e.shouldAsk && health.writeRequests == 1)
+        let id = UUID()
+        await e.save(sessionID: id, start: start, end: start.addingTimeInterval(3_000))
+        let saved = try #require(health.savedWorkouts.first)
+        #expect(saved.sessionID == id && saved.start == start && saved.end == start.addingTimeInterval(3_000))
+        await e.save(sessionID: UUID(), start: start, end: start) // no duration: nothing
+        #expect(health.savedWorkouts.count == 1)
+    }
+
+    @Test func aRefusalLeavesItOffAndNotNowIsNotAskedAgain() async {
+        let health = MockHealthStore()
+        health.allowsWorkoutWrites = false
+        let e = export(health)
+        #expect(!(await e.turnOn()))
+        #expect(e.choice == .off)
+        await e.save(sessionID: UUID(), start: start, end: start.addingTimeInterval(600))
+        #expect(health.savedWorkouts.isEmpty)
+
+        let other = export(MockHealthStore())
+        other.declined()
+        #expect(!other.shouldAsk && !other.isOn)
+    }
+
+    @Test func eachAccountChoosesForItself() async {
+        let health = MockHealthStore()
+        let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)")!
+        var account = "a"
+        let e = WorkoutHealthExport(health: health, defaults: defaults, account: { account })
+        await e.turnOn()
+        account = "b"
+        #expect(e.choice == nil && e.shouldAsk)
+    }
+
+    @Test func workoutsRYFTWroteAreNotUploadedAgain() async throws {
+        let own = try #require(SyncEngine.ownBundleID)
+        func workout(_ bundle: String?) -> Workout {
+            Workout(id: UUID(), activity: "strength", start: start, end: start.addingTimeInterval(3_600), avgHr: nil,
+                    maxHr: nil, energyKcal: nil, distanceM: nil, source: "RYFT", sourceBundleId: bundle)
+        }
+        let watch = workout("com.garmin.connect.mobile")
+        let health = MockHealthStore(streams: [.workouts], pages: [.workouts: [HealthDelta(workouts: [workout(own), watch]),
+                                                                              HealthDelta(workouts: [workout(own)])]])
+        let api = MockPlatformAPI()
+        let sync = SyncService(env: .test(api: api, health: health))
+        await sync.syncNow()
+        #expect(api.syncRequests.flatMap(\.workouts).map(\.id) == [watch.id]) // the watch's only
+        #expect(health.committed == [.workouts, .workouts]) // both pages' anchors still move
+    }
+
+    @Test func theSummarySaysWhereHeartRateCameFrom() {
+        func workout(_ source: String, hr: Double?) -> Workout {
+            Workout(id: UUID(), activity: "strength", start: start, end: start, avgHr: hr, maxHr: nil, energyKcal: nil,
+                    distanceM: nil, source: source)
+        }
+        #expect(SessionSummarySheet.heartRateLine(workout("Garmin Connect", hr: 112))
+                == String(localized: "Heart rate from Garmin Connect"))
+        let none = String(localized: "No heart rate recorded. Start a strength workout on your watch too for heart-rate strain.")
+        #expect(SessionSummarySheet.heartRateLine(workout("ryft-session", hr: nil)) == none)
+        #expect(SessionSummarySheet.heartRateLine(workout("Garmin Connect", hr: nil)) == none)
+    }
+}
