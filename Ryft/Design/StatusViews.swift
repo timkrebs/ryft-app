@@ -172,6 +172,15 @@ struct SyncStatusLineView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     /// "Try again" was tapped: the return to "Up to date" is announced once.
     @State private var retried = false
+    /// The line on screen and since when: each one stays at least `minimumShown` so it can be read
+    /// (ui.md §2.2), then the newest one cross-fades in. Lines in between are skipped.
+    @State private var shown: SyncLine?
+    @State private var shownAt = Date.distantPast
+
+    static let minimumShown: TimeInterval = 0.6
+
+    /// What's drawn: the line held on screen, until the newest one may replace it.
+    private var current: SyncLine { shown ?? line }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -179,11 +188,26 @@ struct SyncStatusLineView: View {
         }
         .accessibilityIdentifier("today.syncLine")
         .onChange(of: line) { old, new in announce(old, new) }
+        .task(id: line) { await show(line) }
+    }
+
+    /// Shows `next` once the line on screen has been up `minimumShown`; a newer line cancels the wait.
+    private func show(_ next: SyncLine) async {
+        if shown != nil {
+            let wait = Self.minimumShown - Date.now.timeIntervalSince(shownAt)
+            if wait > 0 {
+                try? await Task.sleep(for: .milliseconds(Int(wait * 1000)))
+                guard !Task.isCancelled else { return }
+            }
+        }
+        guard shown != next else { return }
+        withAnimation(Theme.Motion.respecting(reduceMotion)) { shown = next }
+        shownAt = .now
     }
 
     @ViewBuilder
     private func content(now: Date) -> some View {
-        switch line {
+        switch current {
         case .actionNeeded:
             if let action {
                 Button(action: action) {
@@ -235,7 +259,7 @@ struct SyncStatusLineView: View {
     /// The line as one button (Sync details), or as text without an action.
     @ViewBuilder
     private func tappable(now: Date, hint: LocalizedStringKey) -> some View {
-        let color = line.isActive ? Theme.textSecondary : Theme.textTertiary
+        let color = current.isActive ? Theme.textSecondary : Theme.textTertiary
         if let action {
             Button(action: action) {
                 label(now: now)
@@ -252,17 +276,17 @@ struct SyncStatusLineView: View {
 
     private func label(now: Date) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: line.systemImage)
-                .symbolEffect(.pulse, options: .repeating, isActive: line.isActive && !reduceMotion)
+            Image(systemName: current.systemImage)
+                .symbolEffect(.pulse, options: .repeating, isActive: current.isActive && !reduceMotion)
                 .accessibilityHidden(true)
             // Wraps at every size, never truncates ("Demodaten · Aktuell · gerade eben" at AX3 is
             // three lines); the fixed vertical size keeps a parent from squeezing it into an ellipsis.
-            Text(line.text(now: now))
+            Text(current.text(now: now))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .font(.ryft(.caption))
-        .frame(maxWidth: line.isStale ? nil : .infinity)
+        .frame(maxWidth: current.isStale ? nil : .infinity)
     }
 
     /// VoiceOver hears the stale claim, and the return to "Up to date" after a manual Try again;
