@@ -384,7 +384,11 @@ struct MockDataSource: RyftDataSource {
     /// `sleep_base_manual: false` goes back to the learned value (or 460). A birth year
     /// sets the Tanaka estimate unless max HR is manual; `max_hr_manual: false` returns to it.
     func patchMe(_ p: UserPatch) async throws -> User {
-        let u = MockData.user
+        try await patchMe(p, on: MockData.user)
+    }
+
+    /// `p` applied on top of `u` (the mock platform keeps the user between patches).
+    func patchMe(_ p: UserPatch, on u: User) async throws -> User {
         if p.sleepBaseMin != nil, p.sleepBaseManual == false { throw APIError.http(422, "conflicting baseline") }
         if p.maxHr != nil, p.maxHrManual == false { throw APIError.http(422, "conflicting max HR") }
         var base = u.sleepBaseMin, source = u.sleepBaseSource
