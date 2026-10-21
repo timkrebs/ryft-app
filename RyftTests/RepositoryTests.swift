@@ -345,3 +345,66 @@ private extension DayDetail {
         return d
     }
 }
+
+@Suite("Readiness widget snapshot")
+@MainActor
+struct ReadinessSnapshotTests {
+    private let day = "2026-10-21"
+    private let now = Date(timeIntervalSince1970: 1_792_560_000)
+
+    private func score(_ readiness: Int?, calibrating: Bool = false, nights: Int = 30, state: ScoringState? = nil) -> DailyScore {
+        DailyScore(day: day, readiness: readiness, baselineDays: nights, calibrating: calibrating, scoringState: state)
+    }
+
+    @Test func itShowsWhatTodayShows() {
+        let previous = DailyScore(day: "2026-10-20", readiness: 76)
+        #expect(ReadinessSnapshot.make(day: day, today: score(84), previous: previous, state: .pending, now: now)?.kind == .score)
+        let pending = ReadinessSnapshot.make(day: day, today: nil, previous: previous, state: .pending, now: now)
+        #expect(pending?.kind == .pending && pending?.previousReadiness == 76 && pending?.readiness == nil)
+        #expect(ReadinessSnapshot.make(day: day, today: score(nil, calibrating: true, nights: 3), previous: nil,
+                                       state: .waitingForSleep, now: now)?.kind == .waitingForSleep) // the night first
+        let calibrating = ReadinessSnapshot.make(day: day, today: score(nil, calibrating: true, nights: 3), previous: nil,
+                                                 state: .scored, now: now)
+        #expect(calibrating?.kind == .calibrating && calibrating?.baselineNights == 3)
+        #expect(ReadinessSnapshot.make(day: day, today: nil, previous: previous, state: nil, now: now)?.kind == .waitingForSleep)
+        #expect(ReadinessSnapshot.make(day: day, today: nil, previous: nil, state: nil, now: now) == nil)
+    }
+
+    @Test func itIsWrittenOnlyWhenWhatItShowsChanged() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("readiness-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let a = try #require(ReadinessSnapshot.make(day: day, today: score(84), previous: nil, state: nil, now: now))
+        #expect(ReadinessSnapshot.publish(a, to: file))
+        var later = a
+        later.updatedAt = now.addingTimeInterval(600)
+        #expect(!ReadinessSnapshot.publish(later, to: file)) // the same on the widget: no reload
+        later.readiness = 85
+        #expect(ReadinessSnapshot.publish(later, to: file))
+        // The widget's copy decodes the same JSON (its keys and its ISO 8601 dates).
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
+        #expect(json?["kind"] as? String == "score" && json?["readiness"] as? Int == 85)
+        #expect(json?["updatedAt"] is String)
+        #expect(ReadinessSnapshot.publish(nil, to: file)) // signed out: gone
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
+    @Test func theRepositoryPublishesAfterARefreshAndOnTheServersWord() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("readiness-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let (repo, clock, _) = makeRepo()
+        #expect(repo.widgetFile == nil) // tests and previews never write the shared file
+        repo.widgetFile = file
+        let reloads = Counter()
+        repo.reloadWidget = { reloads.add() }
+
+        try await repo.refreshDay(clock.now())
+        let written = try #require(ReadinessSnapshot.decoder.decode(ReadinessSnapshot.self, from: Data(contentsOf: file)) as ReadinessSnapshot?)
+        #expect(written.kind == .score && written.day == DayFormat.string(from: clock.now()))
+        #expect(reloads.value == 1)
+
+        try await repo.refreshDay(clock.now(), force: true) // the same score again
+        #expect(reloads.value == 1)
+        repo.todayStatus = TodayState(day: "1999-01-01", state: .pending, scoredAt: nil, modelVersion: "x") // another day's
+        #expect(reloads.value == 1)
+    }
+}

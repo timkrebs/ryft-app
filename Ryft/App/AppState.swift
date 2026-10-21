@@ -21,7 +21,9 @@ final class AppState {
     var selectedTab: AppTab
     /// The platform's latest `GET /v1/me/sync`: what it has, what scoring is doing (pending
     /// days, today's state). Asked at launch and while a sync waits for scores.
-    var syncStatus: SyncStatus?
+    var syncStatus: SyncStatus? {
+        didSet { repository.todayStatus = syncStatus?.today }
+    }
     /// Today in one in-between state on mock data (previews; `-RyftScenario` in demo mode).
     var todayScenario: TodayScenario?
     private(set) var dismissedInsightIDs: Set<String> = []

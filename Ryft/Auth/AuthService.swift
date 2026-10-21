@@ -659,6 +659,8 @@ final class AuthService {
         TrainStore.shared.wipe()
         TrainLibrary.shared.wipe()
         RestActivityController.shared.end()
+        // The lock screen must not keep showing this account's readiness.
+        ReadinessSnapshot.clear()
     }
 }
 

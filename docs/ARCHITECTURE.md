@@ -130,6 +130,13 @@ source from HealthKit); `TodayStates` decides from it alone, so tests build fact
 `TodayScenario` (`-RyftScenario import|pending|calibrating|watch` in Debug demo mode, and
 previews) applies one state on mock data for screenshots and the UI tests.
 
+**The readiness widget** reads what Today shows from `readiness.json` in the App Group
+container (`group.dev.timkrebs.ryft`). `Repository.publishWidget()` writes it after every
+days write and when `AppState.syncStatus` changes today's state (`ReadinessSnapshot.make`
+mirrors the hero's priority), and reloads the widget only when what it shows changed.
+`ReadinessSnapshot` exists in both targets (the folders can't share a file); its JSON
+shape is the contract. Only the live graph writes (`AppEnvironment.sharesWithWidget`).
+
 **Tests** (`ViewModelTests`). Each view model runs against `AppEnvironment.test` with a
 `MockPlatformAPI`, `MockHealthStore`, a `TestClock` and its own defaults suite and response
 cache, so nothing leaks between parallel suites. Covered states:

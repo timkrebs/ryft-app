@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftData
+import WidgetKit
 
 /// Offline-first access to the platform's read models.
 ///
@@ -65,6 +66,7 @@ final class Repository {
         self.env = env
         liveStore = store ?? env.persistence
         self.policy = policy
+        widgetFile = env.sharesWithWidget ? ReadinessSnapshot.sharedFile : nil
     }
 
     private var store: Persistence {
@@ -342,6 +344,7 @@ final class Repository {
         r.scoreData = WireCoding.encode(detail.score)
         r.scoreFetchedAt = now
         changed(.days)
+        publishWidget()
     }
 
     func store(scores: [DailyScore]) {
@@ -351,6 +354,32 @@ final class Repository {
             r.scoreFetchedAt = now
         }
         changed(.days)
+        publishWidget()
+    }
+
+    // MARK: widget
+
+    /// Today's scoring state from `GET /v1/me/sync` (AppState sets it): fresher than the
+    /// cached score's while a night is being scored.
+    var todayStatus: TodayState? {
+        didSet { if todayStatus != oldValue { publishWidget() } }
+    }
+
+    /// Where the readiness widget reads from; tests point it elsewhere. `nil` without the
+    /// App Group capability: nothing is written.
+    @ObservationIgnored var widgetFile: URL?
+    @ObservationIgnored var reloadWidget: () -> Void = { WidgetCenter.shared.reloadTimelines(ofKind: ReadinessSnapshot.widgetKind) }
+
+    /// What Today shows, for the home- and lock-screen widget: written when it changed, and
+    /// only then is the widget reloaded (a new score, a night pending, the next day).
+    func publishWidget() {
+        guard let file = widgetFile else { return }
+        let key = DayFormat.string(from: now)
+        let previous = history(from: DayFormat.shift(now, days: -7), to: DayFormat.shift(now, days: -1))
+            .last { $0.readiness != nil }
+        let state = todayStatus?.day == key ? todayStatus?.state : score(key)?.scoringState
+        let snapshot = ReadinessSnapshot.make(day: key, today: score(key), previous: previous, state: state, now: now)
+        if ReadinessSnapshot.publish(snapshot, to: file) { reloadWidget() }
     }
 
     /// The cached scores become exactly `scores` (previews, tests); opened details stay.
@@ -484,4 +513,98 @@ final class Repository {
     static func trendKey(_ metric: TrendMetric, _ range: TrendRange) -> String {
         "\(metric.rawValue)-\(range.rawValue)"
     }
+}
+
+// MARK: - widget snapshot
+
+/// What the readiness widget shows, written into the App Group container by the app.
+/// Keep identical to `RyftWidgets/ReadinessSnapshot.swift`: the widget decodes this JSON.
+struct ReadinessSnapshot: Codable, Equatable {
+    enum Kind: String, Codable {
+        /// Today's readiness.
+        case score
+        /// The night is being scored.
+        case pending
+        /// No night has arrived for today.
+        case waitingForSleep
+        /// Fewer than 7 nights behind the baselines.
+        case calibrating
+    }
+
+    /// The day it's about, `yyyy-MM-dd`; another day on the widget is "waiting for sleep".
+    var day: String
+    var kind: Kind
+    var readiness: Int?
+    /// The latest readiness before `day`, dimmed while the night isn't scored.
+    var previousReadiness: Int?
+    /// While calibrating.
+    var baselineNights: Int?
+    var updatedAt: Date
+
+    static let appGroup = "group.dev.timkrebs.ryft"
+    static let widgetKind = "ReadinessWidget"
+
+    static var sharedFile: URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)?
+            .appendingPathComponent("readiness.json")
+    }
+
+    /// Today's state as Today decides it (`TodayStates.hero`): a score; else a night pending
+    /// or awaited; else the baselines; `nil` with nothing to show at all.
+    static func make(day: String, today: DailyScore?, previous: DailyScore?, state: ScoringState?,
+                     now: Date) -> ReadinessSnapshot? {
+        var s = ReadinessSnapshot(day: day, kind: .waitingForSleep, readiness: nil,
+                                  previousReadiness: previous?.readiness, baselineNights: nil, updatedAt: now)
+        if let readiness = today?.readiness {
+            s.kind = .score
+            s.readiness = readiness
+        } else if state == .pending {
+            s.kind = .pending
+        } else if state == .waitingForSleep {
+            s.kind = .waitingForSleep
+        } else if let today, today.calibrating {
+            s.kind = .calibrating
+            s.baselineNights = today.baselineDays
+        } else if today == nil, previous == nil {
+            return nil
+        }
+        return s
+    }
+
+    /// Writes `snapshot` (or removes the file for `nil`) when what it shows changed; `true`
+    /// when it did, so the caller reloads the widget.
+    @discardableResult
+    static func publish(_ snapshot: ReadinessSnapshot?, to file: URL) -> Bool {
+        let current = (try? Data(contentsOf: file)).flatMap { try? decoder.decode(ReadinessSnapshot.self, from: $0) }
+        guard current?.shown != snapshot?.shown else { return false }
+        guard let snapshot else {
+            try? FileManager.default.removeItem(at: file)
+            return true
+        }
+        guard let data = try? encoder.encode(snapshot) else { return false }
+        return (try? data.write(to: file, options: .atomic)) != nil
+    }
+
+    /// Sign-out: the next account's readiness, or none, never this one's on the lock screen.
+    static func clear() {
+        guard let file = sharedFile, publish(nil, to: file) else { return }
+        WidgetCenter.shared.reloadTimelines(ofKind: widgetKind)
+    }
+
+    /// Everything but `updatedAt`.
+    private var shown: [String?] {
+        [day, kind.rawValue, readiness.map(String.init), previousReadiness.map(String.init), baselineNights.map(String.init)]
+    }
+
+    static let encoder: JSONEncoder = {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        return e
+    }()
+
+    static let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        return d
+    }()
 }
