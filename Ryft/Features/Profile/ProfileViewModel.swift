@@ -615,7 +615,7 @@ struct ReportContext: Equatable, Sendable {
     /// Exactly as the platform sent it; it goes into `request_ids`.
     let requestID: String?
     /// The error body's `code` (`consent_required`), if any.
-    var code: String? = nil
+    var code: String?
 
     /// "403 consent_required".
     var statusText: String { [status, code ?? ""].filter { !$0.isEmpty }.joined(separator: " ") }
@@ -650,6 +650,7 @@ enum FeedbackPayload {
     /// Characters as the platform counts them (Unicode scalars: Go's runes).
     static func length(_ text: String) -> Int { text.unicodeScalars.count }
 
+    // swiftlint:disable:next function_parameter_count
     static func make(message: String, category: FeedbackCategory, includeDiagnostics: Bool, diagnosticsText: String,
                      requests: [APIStatus.RequestFailure], gates: Set<APIErrorCode>, flags: [String: Bool],
                      context: ReportContext?, about: FeedbackAbout) -> FeedbackPost {
@@ -1057,7 +1058,7 @@ extension AppInfo {
         var info = utsname()
         uname(&info)
         return withUnsafeBytes(of: info.machine) { raw in
-            String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
+            String(bytes: raw.prefix { $0 != 0 }, encoding: .utf8) ?? "unknown"
         }
     }
 }
