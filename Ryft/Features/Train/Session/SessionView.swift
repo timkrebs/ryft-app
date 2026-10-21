@@ -265,10 +265,15 @@ struct SessionSummarySheet: View {
     let summary: FinishSummary
     @Environment(TrainSyncService.self) private var sync
     @Environment(TrainLibrary.self) private var library
+    @Environment(AppState.self) private var state
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var notes = ""
     @State private var celebrate = false
+    /// Where the strain's heart rate came from (the platform's workout for the session).
+    @State private var heartRate: String?
+    @State private var savingToHealth = false
+    private var export: WorkoutHealthExport { .shared }
 
     private var session: LocalSession? { sync.store.session(id: summary.sessionID) }
 
@@ -315,6 +320,15 @@ struct SessionSummarySheet: View {
                     if completed == nil && session?.pendingCompletion == true {
                         WillSyncNote().frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    if let heartRate {
+                        Label(heartRate, systemImage: "heart")
+                            .font(.ryft(.callout))
+                            .foregroundStyle(Theme.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("summary.heartRate")
+                    }
+                    if export.shouldAsk { saveToHealth }
                     if !prs.isEmpty {
                         Card {
                             VStack(alignment: .leading, spacing: 12) {
@@ -348,7 +362,60 @@ struct SessionSummarySheet: View {
             notes = session?.notes ?? ""
             celebrate = true
         }
+        .task(id: completed?.workoutId) { await loadHeartRate() }
         .interactiveDismissDisabled()
+    }
+
+    /// Once, after the first completed workout: RYFT writes nothing to Apple Health unless asked.
+    private var saveToHealth: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Save workouts to Apple Health?", systemImage: "heart.text.square")
+                    .font(.ryft(.headline))
+                    .foregroundStyle(Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Your strength workouts then appear in Fitness and Health. RYFT writes only the workout, no heart rate. You can change this in Profile.")
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 12) {
+                    Button {
+                        savingToHealth = true
+                        Task {
+                            defer { savingToHealth = false }
+                            guard await export.turnOn(), let s = session, let end = s.endedAt else { return }
+                            await export.save(sessionID: s.id, start: s.startedAt, end: end)
+                        }
+                    } label: {
+                        Text("Save")
+                    }
+                    .buttonStyle(TealButtonStyle(prominent: true))
+                    .disabled(savingToHealth)
+                    Button { export.turnOff() } label: { Text("Not now") }
+                        .buttonStyle(TealButtonStyle(prominent: false))
+                        .disabled(savingToHealth)
+                }
+                if export.needsAccess { HealthWriteAccessHint() }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("summary.saveToHealth")
+    }
+
+    /// "Heart rate from Garmin Connect" when the platform matched a watch's workout; otherwise
+    /// how to get heart-rate strain next time.
+    private func loadHeartRate() async {
+        guard let id = completed?.workoutId else { return }
+        guard let detail = try? await state.source.workout(id: id) else { return }
+        heartRate = Self.heartRateLine(detail.workout)
+    }
+
+    static func heartRateLine(_ workout: Workout) -> String {
+        if workout.avgHr != nil, workout.source != "ryft-session" {
+            return String(localized: "Heart rate from \(workout.source)")
+        }
+        // A watch workout may still be on its way (it's matched once it syncs).
+        return String(localized: "No heart rate yet. With a strength workout on your watch too, it arrives once the watch syncs.")
     }
 
     private func duration(_ doc: TrainSession?) -> String {

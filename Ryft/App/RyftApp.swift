@@ -221,6 +221,12 @@ struct RyftApp: App {
                     await LaunchSignpost.afterFirstFrame()
                     await screens.profile.report.flush()
                 }
+                // Saving workouts follows what Health allows now; a watch workout that arrived
+                // after a session replaces RYFT's in Fitness.
+                Task(priority: .utility) {
+                    await LaunchSignpost.afterFirstFrame()
+                    await WorkoutHealthExport.shared.appBecameActive(now: .now)
+                }
             } else if phase == .background {
                 // Not a cancel: the page in flight finishes (in a background task), and what's
                 // left of an import goes to the backfill task.
