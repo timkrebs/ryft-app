@@ -365,6 +365,12 @@ final class Repository {
         didSet { if todayStatus != oldValue { publishWidget() } }
     }
 
+    /// Tonight's bedtime from Bedtime & wake (`BedtimePlanner`): "Bed by 22:41" on the widget
+    /// in the evening.
+    var tonightBedtime: Date? {
+        didSet { if tonightBedtime != oldValue { publishWidget() } }
+    }
+
     /// Where the readiness widget reads from; tests point it elsewhere. `nil` without the
     /// App Group capability: nothing is written.
     @ObservationIgnored var widgetFile: URL?
@@ -378,7 +384,8 @@ final class Repository {
         let previous = history(from: DayFormat.shift(now, days: -7), to: DayFormat.shift(now, days: -1))
             .last { $0.readiness != nil }
         let state = todayStatus?.day == key ? todayStatus?.state : score(key)?.scoringState
-        let snapshot = ReadinessSnapshot.make(day: key, today: score(key), previous: previous, state: state, now: now)
+        let snapshot = ReadinessSnapshot.make(day: key, today: score(key), previous: previous, state: state, now: now,
+                                              bedtime: tonightBedtime)
         if ReadinessSnapshot.publish(snapshot, to: file) { reloadWidget() }
     }
 
@@ -540,6 +547,8 @@ struct ReadinessSnapshot: Codable, Equatable {
     /// While calibrating.
     var baselineNights: Int?
     var updatedAt: Date
+    /// Tonight's bedtime (Bedtime & wake): "Bed by 22:41" in the evening.
+    var bedtime: Date?
 
     static let appGroup = "group.dev.timkrebs.ryft"
     static let widgetKind = "ReadinessWidget"
@@ -552,9 +561,10 @@ struct ReadinessSnapshot: Codable, Equatable {
     /// Today's state as Today decides it (`TodayStates.hero`): a score; else a night pending
     /// or awaited; else the baselines; `nil` with nothing to show at all.
     static func make(day: String, today: DailyScore?, previous: DailyScore?, state: ScoringState?,
-                     now: Date) -> ReadinessSnapshot? {
+                     now: Date, bedtime: Date? = nil) -> ReadinessSnapshot? {
         var s = ReadinessSnapshot(day: day, kind: .waitingForSleep, readiness: nil,
-                                  previousReadiness: previous?.readiness, baselineNights: nil, updatedAt: now)
+                                  previousReadiness: previous?.readiness, baselineNights: nil, updatedAt: now,
+                                  bedtime: bedtime.flatMap { $0 > now ? $0 : nil })
         if let readiness = today?.readiness {
             s.kind = .score
             s.readiness = readiness
@@ -593,7 +603,8 @@ struct ReadinessSnapshot: Codable, Equatable {
 
     /// Everything but `updatedAt`.
     private var shown: [String?] {
-        [day, kind.rawValue, readiness.map(String.init), previousReadiness.map(String.init), baselineNights.map(String.init)]
+        [day, kind.rawValue, readiness.map(String.init), previousReadiness.map(String.init), baselineNights.map(String.init),
+         bedtime.map { String($0.timeIntervalSince1970) }]
     }
 
     static let encoder: JSONEncoder = {

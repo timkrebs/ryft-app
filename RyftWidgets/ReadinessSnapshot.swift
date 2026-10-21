@@ -24,6 +24,8 @@ struct ReadinessSnapshot: Codable, Equatable {
     /// While calibrating.
     var baselineNights: Int?
     var updatedAt: Date
+    /// Tonight's bedtime (Bedtime & wake): "Bed by 22:41" in the evening.
+    var bedtime: Date?
 
     static let appGroup = "group.dev.timkrebs.ryft"
     static let widgetKind = "ReadinessWidget"
@@ -48,7 +50,15 @@ struct ReadinessSnapshot: Codable, Equatable {
         guard day != Self.dayString(date) else { return self }
         return ReadinessSnapshot(day: Self.dayString(date), kind: .waitingForSleep, readiness: nil,
                                  previousReadiness: readiness ?? previousReadiness, baselineNights: nil,
-                                 updatedAt: updatedAt)
+                                 updatedAt: updatedAt, bedtime: nil)
+    }
+
+    /// "Bed by 22:41" from 17:00 the evening before until bedtime (00:30 too).
+    func bedtimeShown(at date: Date, calendar: Calendar = .current) -> Date? {
+        guard let bedtime, bedtime > date,
+              let evening = calendar.date(bySettingHour: 17, minute: 0, second: 0, of: bedtime.addingTimeInterval(-12 * 3_600)),
+              date >= evening else { return nil }
+        return bedtime
     }
 
     static func dayString(_ date: Date) -> String {

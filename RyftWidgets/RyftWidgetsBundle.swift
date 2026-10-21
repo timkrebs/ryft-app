@@ -11,5 +11,10 @@ struct RyftWidgetsBundle: WidgetBundle {
         if #available(iOSApplicationExtension 18.0, *) {
             StartWorkoutControl()
         }
+        #if canImport(AlarmKit)
+        if #available(iOSApplicationExtension 26.0, *) {
+            WakeAlarmLiveActivity()
+        }
+        #endif
     }
 }

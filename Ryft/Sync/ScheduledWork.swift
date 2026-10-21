@@ -22,11 +22,17 @@ enum BackgroundWork {
     /// Before launch finishes (App.init). `backlogBytes` is `SyncService.backlogBytes`.
     @MainActor
     static func register(coordinator: SyncCoordinator, backlogBytes: @escaping @MainActor () -> Int?,
+                         afterRefresh: @escaping @MainActor () async -> Void = {},
                          compact: @escaping @MainActor () -> Void) {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: refreshTaskID, using: nil) { task in
             guard let task = task as? BGAppRefreshTask else { return }
             scheduleRefresh()
-            let work = Task { await coordinator.run(.background) }
+            // The sync, then what follows from it (tonight's bedtime moves with the day's strain).
+            let work = Task {
+                let outcome = await coordinator.run(.background)
+                await afterRefresh()
+                return outcome
+            }
             task.expirationHandler = {
                 work.cancel()
                 Task { await coordinator.cancel() }

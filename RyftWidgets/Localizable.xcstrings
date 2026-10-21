@@ -11,6 +11,16 @@
         }
       }
     },
+    "Bed by %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ins Bett um %@"
+          }
+        }
+      }
+    },
     "High" : {
       "localizations" : {
         "de" : {
@@ -144,6 +154,26 @@
         }
       }
     },
+    "SNOOZING" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SCHLUMMERT"
+          }
+        }
+      }
+    },
+    "Snoozing" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlummert"
+          }
+        }
+      }
+    },
     "Start or resume workout" : {
       "localizations" : {
         "de" : {
@@ -190,6 +220,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Warte auf die letzte Nacht"
+          }
+        }
+      }
+    },
+    "Your alarm rings again" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Wecker klingelt gleich wieder"
           }
         }
       }

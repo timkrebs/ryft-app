@@ -156,6 +156,10 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     private var journals: [String: JournalDay] = [:]
     private(set) var journalPuts: [String: JournalPut] = [:]
     private(set) var planWakes: [String] = []
+    /// Scripts `GET /v1/sleep/plan` (tests); the mock plan otherwise.
+    var planFor: (@Sendable (String) -> SleepPlan)?
+    /// The mock plan's "now": `wake` resolves to its next occurrence after it, as on the server.
+    var now: @Sendable () -> Date = { .now }
     private(set) var mePatches: [UserPatch] = []
 
     private(set) var calls: [String] = []
@@ -300,7 +304,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     func sleepPlan(wake: String) async throws -> SleepPlan {
         try enter("sleepPlan")
         lock.withLock { planWakes.append(wake) }
-        return MockJournal.sleepPlan(wake: wake)
+        if let plan = planFor?(wake) { return plan }
+        return MockJournal.sleepPlan(wake: wake, now: now())
     }
 
     private func enterJournal(_ name: String) throws {
@@ -374,12 +379,33 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     // MARK: screens
 
-    func me() async throws -> User { try enter("me"); return withAccount(try await screens.me()) }
+    func me() async throws -> User {
+        try enter("me")
+        if let patched = lock.withLock({ patchedUser }) { return withAccount(patched) }
+        return withAccount(try await screens.me())
+    }
+
     func patchMe(_ p: UserPatch) async throws -> User {
         try enter("patchMe")
         lock.withLock { mePatches.append(p) }
-        return withAccount(try await screens.patchMe(p))
+        await beforePatchMe?()
+        // On top of the earlier patches, like the platform's stored user.
+        let base = lock.withLock { patchedUser }
+        let user: User
+        if let mock = screens as? MockDataSource {
+            user = try await mock.patchMe(p, on: base ?? MockData.user)
+        } else {
+            user = try await screens.patchMe(p)
+        }
+        lock.withLock { patchedUser = user }
+        return withAccount(user)
     }
+
+    /// The user after the patches so far (`nil`: none yet).
+    private var patchedUser: User?
+
+    /// Runs before each `PATCH /v1/me` answers (tests hold one open with it).
+    var beforePatchMe: (@Sendable () async -> Void)?
 
     /// The scripted access, consent and hint on top of the mock user.
     private func withAccount(_ user: User) -> User {

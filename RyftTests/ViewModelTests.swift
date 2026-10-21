@@ -660,35 +660,28 @@ struct ProfileViewModelTests {
         #expect(vm.canChangePassword)
         #expect(vm.providerBadge?.systemImage == "envelope.fill")
         #expect(vm.timezoneDetail == nil)
-
-        vm.applyUser()
-        #expect(vm.maxHR == 185 && vm.sleepBase == 450)
+        #expect(vm.bodySettings.maxHR == 185 && vm.bodySettings.sleepBase == 450)
     }
 
-    @Test func recomputeWaitsForScoringOnTheClock() async {
+    @Test func rescoringSendsNoSettings() async {
         let api = MockPlatformAPI()
         let (env, state, clock) = makeState(api: api)
         let vm = { let sync = SyncService(env: env); return ProfileViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
-        let run = Task { await vm.applyAndRecompute() }
-
+        let run = Task { await vm.bodySettings.rescore() }
         #expect(await eventually { clock.pendingSleeps == 1 })
-        #expect(vm.recomputing)
-        #expect(vm.recomputeStatus == String(localized: "Recomputing — scores update in a few seconds."))
-        #expect(api.count("recompute") == 1 && api.count("patchMe") == 1)
+        #expect(api.count("recompute") == 1 && api.count("patchMe") == 0) // settings saved when they changed
         clock.advance(by: SyncService.rescoreDelay)
         await run.value
-
-        #expect(!vm.recomputing)
-        #expect(vm.recomputeStatus == String(localized: "Scores recomputed with your new settings."))
+        #expect(!vm.bodySettings.rescoring)
     }
 
-    @Test func failedRecomputeSaysWhy() async {
+    @Test func failedRescoreSaysWhy() async {
         let api = MockPlatformAPI()
         let (env, state, _) = makeState(api: api)
         let vm = { let sync = SyncService(env: env); return ProfileViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
         api.failure = APIError.http(429, "")
-        await vm.applyAndRecompute()
-        #expect(vm.recomputeStatus == APIError.http(429, "").localizedDescription)
+        await vm.bodySettings.rescore()
+        #expect(vm.bodySettings.rescoreStatus == APIError.http(429, "").localizedDescription)
     }
 
     @Test func healthStatusComesFromTheStore() async {
@@ -1262,22 +1255,36 @@ struct ProfilePrivacyTests {
 
     @Test func birthYearSetsTheEstimateAndManualCanGoBack() async {
         let (vm, _, state) = profile()
+        let body = vm.bodySettings
         state.user = MockData.user
-        #expect(vm.maxHRSourceText == String(localized: "Default · add your birth year for an estimate"))
-        #expect(vm.birthYear == nil && vm.birthYears.first == OnboardingCoordinator.latestBirthYear(now: .now))
-        #expect(vm.birthYears.last == 1920)
+        #expect(body.maxHRSourceText == String(localized: "Default · add your birth year for an estimate"))
+        #expect(body.birthYear == nil && body.birthYears.first == OnboardingCoordinator.latestBirthYear(now: .now))
+        #expect(body.birthYears.last == 1920)
 
-        await vm.setBirthYear(1990)
-        #expect(vm.birthYear == 1990 && state.user?.maxHrSource == .estimated)
-        #expect(vm.maxHRSourceText?.contains("1990") == true)
-        #expect(vm.maxHR == state.user?.maxHr && !vm.canUseMaxHREstimate)
+        await body.setBirthYear(1990)
+        #expect(body.birthYear == 1990 && state.user?.maxHrSource == .estimated)
+        #expect(body.maxHRSourceText?.contains("1990") == true)
+        #expect(body.maxHR == state.user?.maxHr && !body.canUseMaxHREstimate)
 
         var manual = MockData.user
         manual.maxHrSource = .manual
         state.user = manual
-        #expect(vm.canUseMaxHREstimate && vm.maxHRSourceText == String(localized: "Set by you"))
-        await vm.useMaxHREstimate()
-        #expect(vm.recomputeStatus == String(localized: "Back to the estimate. Apply & recompute rescores past days with it."))
+        #expect(body.canUseMaxHREstimate && body.maxHRSourceText == String(localized: "Set by you"))
+        #expect(await body.useMaxHREstimate())
+        #expect(body.savedChange) // the sheet offers the rescore
+    }
+
+    @Test func maxHeartRateSavesAsYoursAndARefusalSaysTheRange() async {
+        let api = MockPlatformAPI()
+        let (vm, _, state) = profile(api)
+        let body = vm.bodySettings
+        state.user = MockData.user
+        #expect(await body.setMaxHR(184))
+        #expect(api.mePatches.last?.maxHr == 184 && state.user?.maxHr == 184)
+        api.failNext = APIError.http(422, "max_hr out of range")
+        #expect(!(await body.setMaxHR(229)))
+        #expect(body.error == String(localized: "RYFT takes a maximum heart rate between 100 and 230 bpm."))
+        #expect(body.maxHR == 184)
     }
 }
 
