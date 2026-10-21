@@ -1363,3 +1363,148 @@ struct OnboardingEdgeTests {
         #expect(auth.signInMethods.isEmpty && !auth.hasAppleSignIn)
     }
 }
+
+// MARK: - T0 refresh resilience: root-cause tests
+//
+// Each test states the behaviour the brief wants (CLAUDE_FOLLOWUP_REFRESH_RESILIENCE.md §1) and is wrapped in
+// `withKnownIssue` because it fails today: T1 removes the wrapper when it fixes the cause. A test that passes
+// today is a negative result (that candidate is not the cause).
+
+#if DEBUG
+@Suite("T0: refresh is all-or-nothing")
+@MainActor
+struct RefreshAllOrNothingTests {
+    private func model(_ api: MockPlatformAPI) -> (TodayViewModel, AppState, TestClock) {
+        let (env, state, clock) = makeState(api: api)
+        let sync = SyncService(env: env)
+        let vm = TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        return (vm, state, clock)
+    }
+
+    /// Item 1: `AppState.refresh` (`try await (day, days, me)`, AppState.swift ~L106): `/v1/me` or `/v1/days`
+    /// failing turns a refresh whose other calls worked into the generic card. `/v1/days/{day}` alone does not
+    /// (Repository.refreshDay returns the cached copy when a request fails).
+    @Test(arguments: [("me", FaultInjection.Fault.timeout), ("days", .unavailable), ("me", .tooManyRequests)])
+    func oneFailingReadShowsTheCard(route: String, fault: FaultInjection.Fault) async {
+        let api = MockPlatformAPI()
+        let (vm, state, _) = model(api)
+        await state.refresh()                  // everything cached and current
+        api.faults[route] = fault
+
+        await vm.refresh()                     // pull to refresh
+
+        #expect(state.lastUpdated != nil)      // the day itself loaded fine
+        withKnownIssue("T1: per-resource refresh; one failed read must not replace the screen's state with an error") {
+            #expect(vm.status == nil, "got \(String(describing: vm.status))")
+        }
+    }
+
+    /// Negative result: a failing `/v1/days/{day}` with a cached copy is swallowed by the repository.
+    @Test func aFailingDayWithACachedCopyIsSwallowed() async {
+        let api = MockPlatformAPI()
+        let (vm, state, _) = model(api)
+        await state.refresh()
+        api.faults["day"] = .timeout
+        await vm.refresh()
+        #expect(vm.status == nil)
+    }
+
+    /// The tuple's first throw leaves `refresh` before trends and insights (`try?` lines after it) are asked:
+    /// a failed `/v1/me` costs the screen its trend refresh too.
+    @Test func aFailedMeSkipsTheRestOfTheRefresh() async {
+        let api = MockPlatformAPI()
+        let (_, state, _) = model(api)
+        await state.refresh()
+        let trends = api.count("trends"), insights = api.count("insights")
+        api.faults["me"] = .timeout
+
+        await state.refresh(force: true)
+
+        withKnownIssue("T1: trends and insights are independent of /v1/me") {
+            #expect(api.count("trends") == trends + 1 && api.count("insights") == insights + 1)
+        }
+    }
+
+    /// Item 1, second path: `AppState.refreshDays` (after a sync, a silent push) sets `state.error` itself and
+    /// rethrows; the coordinator then reports `.failed` as well.
+    @Test func aFailedHistoryAfterASyncShowsTheCard() async {
+        let api = MockPlatformAPI()
+        let (vm, state, _) = model(api)
+        await state.refresh()
+        api.faults["days"] = .timeout
+
+        try? await state.refreshDays([])
+
+        withKnownIssue("T1: refreshDays must not own the Today error card") {
+            #expect(vm.status == nil, "got \(String(describing: vm.status))")
+        }
+    }
+
+    /// Item 2, cancellation. `.refreshable` cancels its task; `APIClient.perform` wraps the resulting
+    /// `URLError.cancelled` in `APIError.transport`, `AppState.refresh` stores any error (it never looks at
+    /// `Task.isCancelled`), so a cancelled pull to refresh leaves the card behind.
+    @Test(arguments: [FaultInjection.Fault.cancel])
+    func aCancelledRefreshIsNotAFailure(fault: FaultInjection.Fault) async {
+        let api = MockPlatformAPI()
+        let (vm, state, _) = model(api)
+        await state.refresh()
+        api.faults["days"] = fault
+        api.faults["me"] = fault
+
+        await state.refresh(force: true)
+
+        withKnownIssue("T1: cancellation is never a failure (no card, no count, no lastError)") {
+            #expect(state.error == nil, "state.error = \(state.error ?? "-")")
+            #expect(vm.status == nil)
+        }
+    }
+
+    /// The other cancellation shape: Swift's `CancellationError` (a cancelled `Task.sleep` in the 429 wait,
+    /// a cancelled token refresh) is not mapped to `APIError.transport` at all.
+    @Test func aSwiftCancellationErrorIsNotAFailureEither() async {
+        let api = MockPlatformAPI()
+        let (vm, state, _) = model(api)
+        await state.refresh()
+        api.failure = CancellationError()
+
+        await state.refresh(force: true)
+
+        withKnownIssue("T1: cancellation is never a failure") {
+            #expect(state.error == nil && vm.status == nil)
+        }
+    }
+
+    /// And after a sync, `refreshDays` stores a `CancellationError` before the coordinator treats it as a cancel.
+    @Test func refreshDaysStoresACancellationBeforeRethrowing() async {
+        let api = MockPlatformAPI()
+        let (_, state, _) = model(api)
+        await state.refresh()
+        api.failure = CancellationError()
+
+        try? await state.refreshDays([])
+
+        withKnownIssue("T1: cancellation is never a failure") { #expect(state.error == nil) }
+    }
+
+    /// Item 5: the card's Details exists only for an `APIError.http`. A transport error (timeout, cancelled)
+    /// has `details == nil`, so the card shows "Try again" alone: no status, no resource, no request ID.
+    /// An HTTP error carries "HTTP 503 · Request ID fault-me" behind Details (the brief is wrong about that).
+    @Test func transportFailuresHaveNoDetails() async {
+        for (fault, expectsDetails) in [(FaultInjection.Fault.unavailable, true), (.timeout, false), (.cancel, false)] {
+            let api = MockPlatformAPI()
+            let (vm, state, _) = model(api)
+            await state.refresh()
+            api.faults["me"] = fault
+            await state.refresh(force: true)
+            guard case .error(_, let details) = vm.status else { Issue.record("no card for \(fault)"); continue }
+            #expect((details != nil) == expectsDetails, "\(fault): details = \(details ?? "nil")")
+            if fault == .unavailable { #expect(details == "HTTP 503 · Request ID fault-me") }
+            if !expectsDetails {
+                withKnownIssue("T1: every error card has Details (resource, status or kind, request ID if any)") {
+                    #expect(details != nil)
+                }
+            }
+        }
+    }
+}
+#endif

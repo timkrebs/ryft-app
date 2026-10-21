@@ -429,3 +429,42 @@ extension APIClientStatusTests {
         #expect(!APIClient.isOpenBehindInviteGate("POST", "/v1/sync"))
     }
 }
+
+/// Never answers, so a test can cancel the task that waits for it.
+final class HangingURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {}
+    override func stopLoading() {}
+}
+
+@Suite("T0: APIClient cancellation")
+struct APIClientCancellationTests {
+    /// What `.refreshable` does to the task awaiting a request: `URLSession` throws `URLError.cancelled`,
+    /// `APIClient.perform` wraps it in `APIError.transport` (APIClient.swift ~L391), and nothing downstream
+    /// tells it from a failure. Negative result for the mapping: it is `.transport`, not `CancellationError`.
+    @Test func aCancelledTaskSurfacesAsATransportError() async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [HangingURLProtocol.self]
+        let client = APIClient(session: URLSession(configuration: config), tokens: FakeTokens(), sleep: { _ in },
+                               baseURL: URL(string: "https://api.test")!)
+        let task = Task { () -> Error? in
+            do {
+                _ = try await client.data("GET", path: "/v1/me", body: Optional<Int>.none)
+                return nil
+            } catch { return error }
+        }
+        try? await Task.sleep(for: .milliseconds(200))
+        task.cancel()
+        let error = await task.value
+
+        guard case .transport(let inner)? = error as? APIError else {
+            Issue.record("expected APIError.transport, got \(String(describing: error))")
+            return
+        }
+        #expect((inner as? URLError)?.code == .cancelled)
+        withKnownIssue("T1: APIClient (or its caller) must tell cancellation from failure, e.g. rethrow CancellationError") {
+            #expect(error is CancellationError)
+        }
+    }
+}
