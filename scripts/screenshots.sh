@@ -7,6 +7,7 @@
 #   scripts/screenshots.sh ["iPhone 17 Pro"] [tab, screen or scenario ...]
 #   screens: notifications invite consent aboutYou aboutYouSaved accountHint signInMethods syncDetails baselineSleepNeed sleepNeed bedtime tonight
 #   scenarios (Today in one in-between state, `-RyftScenario`): import pending calibrating watch
+#     waitingForSleep pendingNoPrevious recalculating recalculatingYesterday needsVitals (Today's rows, ui.md §1.6)
 #   SHOT_LANG=de: German (files end in -de)
 set -eu
 cd "$(dirname "$0")/.."
@@ -43,7 +44,8 @@ for scheme in dark light; do
     xcrun simctl terminate "$DEVICE" "$BUNDLE" 2>/dev/null || true
     case $tab in
       notifications|invite|consent|aboutYou|aboutYouSaved|accountHint|signInMethods|syncDetails|baselineSleepNeed|sleepNeed|bedtime|tonight) set -- -RyftScreen "$tab" ;;
-      import|pending|calibrating|watch) set -- -RyftTab today -RyftScenario "$tab" ;;
+      import|pending|calibrating|watch|waitingForSleep|pendingNoPrevious|recalculating|recalculatingYesterday|needsVitals)
+        set -- -RyftTab today -RyftScenario "$tab" ;;
       *) set -- -RyftTab "$tab" ;;
     esac
     name="$tab-$scheme"
