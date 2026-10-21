@@ -876,7 +876,7 @@ private struct HealthPermissionScreen: View {
                     .fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: 14) {
                     point("waveform.path.ecg", "What RYFT reads",
-                          "Heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts. RYFT never writes to Apple Health.")
+                          "Heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts. RYFT writes nothing to Apple Health unless you turn on saving strength workouts.")
                     point("server.rack", "Where it goes",
                           "To your RYFT account, where the scores are calculated. Never used for advertising, never sold.")
                     point("hand.raised", "You decide",
@@ -959,6 +959,26 @@ struct HealthAccessHint: View {
     }
 }
 
+/// Saving workouts was refused (iOS asks only once) or the access was taken away since.
+struct HealthWriteAccessHint: View {
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Allow it in Health → Sharing → Apps → RYFT → Workouts.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.warning)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Button("Open Health") { HealthLinks.open(with: openURL) }
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.accent)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("health.writeAccessHint")
+    }
+}
+
 enum HealthLinks {
     /// The Health app (its Apps list holds RYFT's permissions); Settings if Health is missing.
     @MainActor
@@ -985,4 +1005,8 @@ enum HealthLinks {
 
 #Preview("Health hint", traits: .sizeThatFitsLayout) {
     SchemePair { HealthAccessHint() }
+}
+
+#Preview("Health write access hint", traits: .sizeThatFitsLayout) {
+    SchemePair { Card { HealthWriteAccessHint() }.padding() }
 }
