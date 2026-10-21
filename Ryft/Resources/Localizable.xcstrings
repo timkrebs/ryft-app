@@ -1508,12 +1508,12 @@
         }
       }
     },
-    "We'll let you know here when notifications reach your account. Your choices are kept." : {
+    "We'll let you know here when notifications reach your account." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Wir sagen dir hier Bescheid, sobald Mitteilungen dein Konto erreichen. Deine Auswahl bleibt erhalten."
+            "value" : "Wir sagen dir hier Bescheid, sobald Mitteilungen dein Konto erreichen."
           }
         }
       }
@@ -1648,12 +1648,12 @@
         }
       }
     },
-    "Your choices below are kept for when you turn them on." : {
+    "Your choices below are kept for when you turn notifications back on." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deine Auswahl unten bleibt erhalten, bis du sie einschaltest."
+            "value" : "Deine Auswahl unten bleibt erhalten, bis du Mitteilungen wieder einschaltest."
           }
         }
       }

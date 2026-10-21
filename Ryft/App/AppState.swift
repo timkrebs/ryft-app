@@ -263,8 +263,10 @@ extension AppState {
     /// Pre-filled with mock data so previews render without awaiting anything.
     static func preview(empty: Bool = false, calibrating: Bool = false, online: Bool = true,
                         auth: AuthService? = nil, coachMarks: Bool = false,
-                        flags: [FeatureFlag: Bool] = [:], scenario: TodayScenario? = nil) -> AppState {
-        let s = AppState(env: .preview(online: online, auth: auth, flags: flags, coachMarks: coachMarks))
+                        flags: [FeatureFlag: Bool] = [:], scenario: TodayScenario? = nil,
+                        notifier: MockNotifier? = nil) -> AppState {
+        let s = AppState(env: .preview(online: online, auth: auth, flags: flags, coachMarks: coachMarks,
+                                       notifier: notifier))
         s.todayScenario = scenario
         guard !empty else {
             s.previewUnconfigured = true

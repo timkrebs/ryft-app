@@ -8,7 +8,8 @@
   notifications"), **denied** (switches + "Notifications are off in iOS Settings" with Open
   Settings), **allowed**. Quiet hours: the pickers only while on, default 22:30–07:00.
 - When the flag reaches the account (flags refresh on app-active), the screen switches to the
-  live mode by itself, and Today's pre-prompt shows once as before (`PushRegistrar`).
+  live mode when it next appears (it applies the waiting answer, `FlagStore.applyPending`), and
+  Today's pre-prompt shows once for an account that synced before (tested).
 - The fix for the tester is the flag: `push.enabled` to 100 % (Needs you).
 - Screenshots: `docs/screenshots/notifications-{dark,light}[-de].png` (rolling out).
 

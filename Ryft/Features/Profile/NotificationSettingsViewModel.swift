@@ -23,17 +23,8 @@ final class NotificationSettingsViewModel {
         prefs = state.user?.notifications ?? .allOn
     }
 
-    enum Permission: Equatable {
-        case notAsked, allowed, denied
-    }
-
     /// `push.enabled` for this account.
     var isRolledOut: Bool { state.env.flags.isOn(.pushEnabled) }
-
-    var permission: Permission {
-        if push.isAllowed { return .allowed }
-        return push.status == .notDetermined ? .notAsked : .denied
-    }
 
     /// What the screen is, which decides its controls.
     enum Mode: Equatable {
@@ -48,17 +39,17 @@ final class NotificationSettingsViewModel {
 
     var mode: Mode {
         guard isRolledOut else { return .rollingOut }
-        switch permission {
-        case .notAsked: return .notAsked
-        case .denied: return .denied
-        case .allowed: return .allowed
-        }
+        if push.isAllowed { return .allowed }
+        return push.status == .notDetermined ? .notAsked : .denied
     }
 
     /// The category switches and quiet hours: only once notifications can reach the account.
     var showsSwitches: Bool { mode != .rollingOut }
 
+    /// The screen appears: a flag answer that arrived meanwhile (`FlagStore.applyPending`), the
+    /// iOS permission, the saved choices.
     func load() async {
+        (state.env.flags as? FlagStore)?.applyPending()
         await push.refresh()
         if let saved = state.user?.notifications { prefs = saved }
     }

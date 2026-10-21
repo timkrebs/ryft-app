@@ -47,6 +47,7 @@ private struct NotificationSettingsScreen: View {
                     .font(.ryft(.headline))
                     .foregroundStyle(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
                 VStack(alignment: .leading, spacing: 10) {
                     Text("You'll get").ryftLabelStyle()
                     ForEach(NotificationCategory.allCases) { category in
@@ -63,12 +64,13 @@ private struct NotificationSettingsScreen: View {
                     }
                 }
                 Divider().overlay(Theme.separator)
-                Text("We'll let you know here when notifications reach your account. Your choices are kept.")
+                Text("We'll let you know here when notifications reach your account.")
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("notifications.rollingOut")
     }
 
@@ -92,7 +94,8 @@ private struct NotificationSettingsScreen: View {
                     Label("Notifications are off in iOS Settings", systemImage: "bell.slash")
                         .font(.ryft(.body))
                         .foregroundStyle(Theme.textPrimary)
-                    Text("Your choices below are kept for when you turn them on.")
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Your choices below are kept for when you turn notifications back on.")
                         .font(.ryft(.callout))
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -101,6 +104,7 @@ private struct NotificationSettingsScreen: View {
                     }
                 }
             }
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("notifications.denied")
         }
     }
@@ -180,10 +184,22 @@ private struct NotificationSettingsScreen: View {
     NavigationStack { NotificationSettingsView() }.previewEnvironment()
 }
 
-#Preview("Notifications · rolling out · light · de") {
-    NavigationStack { NotificationSettingsView() }
-        .previewEnvironment(scheme: .light)
-        .environment(\.locale, Locale(identifier: "de"))
+#Preview("Notifications · rolling out · light") {
+    NavigationStack { NotificationSettingsView() }.previewEnvironment(scheme: .light)
+}
+
+#Preview("Notifications · off in iOS · dark") {
+    let notifier = MockNotifier()
+    notifier.status = .denied
+    return NavigationStack { NotificationSettingsView() }
+        .previewEnvironment(.preview(flags: [.pushEnabled: true], notifier: notifier))
+}
+
+#Preview("Notifications · allowed · light") {
+    let notifier = MockNotifier()
+    notifier.status = .authorized
+    return NavigationStack { NotificationSettingsView() }
+        .previewEnvironment(.preview(flags: [.pushEnabled: true], notifier: notifier), scheme: .light)
 }
 
 #Preview("Notifications · light") {
