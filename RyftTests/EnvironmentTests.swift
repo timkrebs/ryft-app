@@ -301,3 +301,82 @@ struct SyncEngineTests {
         #expect(sync.engineState.streams["heart_rate"]?.records == 2) // counted from zero
     }
 }
+
+/// The review on #10.
+@Suite("Sync engine: account changes, checkpoints")
+@MainActor
+struct SyncEngineReviewTests {
+    @Test func aWipeDuringARunIsNotUndoneByIt() async {
+        let clock = TestClock()
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(2)]])
+        health.commit(HealthPage(delta: HealthDelta(), anchor: nil, more: false), for: .sleep)
+        let api = MockPlatformAPI()
+        api.beforeSync = { try? await clock.sleep(for: .seconds(1)) }
+        let env = AppEnvironment.test(api: api, health: health, clock: clock)
+        let sync = SyncService(env: env)
+        let run = Task { await sync.syncNow() }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+
+        await env.auth.signOut() // signed out meanwhile: the wipe, then the account change
+        SyncEngineState.wipe(defaults: env.defaults)
+        sync.accountChanged()
+        clock.advance(by: .seconds(1))
+        await run.value
+
+        #expect(SyncEngineState.load(account: env.auth.accountID, defaults: env.defaults) == SyncEngineState())
+        #expect(sync.engineState.streams.isEmpty) // late reports of that run were ignored
+    }
+
+    @Test func progressIsCheckpointedWithEachAnchor() async {
+        let clock = TestClock()
+        let health = MockHealthStore(streams: [.quantity(.heartRate)],
+                                     pages: [.quantity(.heartRate): [samples(2), samples(3)]])
+        health.commit(HealthPage(delta: HealthDelta(), anchor: nil, more: false), for: .sleep)
+        let api = MockPlatformAPI()
+        api.beforeSync = { try? await clock.sleep(for: .seconds(1)) }
+        let env = AppEnvironment.test(api: api, health: health, clock: clock)
+        let sync = SyncService(env: env)
+        let run = Task { await sync.syncNow() }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(1)) // page 0 accepted and committed; page 1 uploading
+        #expect(await eventually { clock.pendingSleeps == 1 && api.count("sync") == 2 })
+
+        // If iOS ended the app now, the next launch would find page 0's progress.
+        let saved = SyncEngineState.load(account: env.auth.accountID, defaults: env.defaults)
+        #expect(saved.streams["heart_rate"]?.records == 2)
+        clock.advance(by: .seconds(1))
+        await run.value
+    }
+
+    @Test func anAccountThatSyncedBeforeAndAFullResyncSkipTheWindow() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(2)]],
+                                     recent: [.quantity(.heartRate): [samples(1)]])
+        health.commit(HealthPage(delta: HealthDelta(), anchor: nil, more: false), for: .sleep)
+        let api = MockPlatformAPI()
+        api.syncResponse = SyncResponse(samples: 1, sleep: 0, workouts: 0, daysTouched: ["2026-10-20"])
+        let sync = SyncService(env: .test(api: api, health: health))
+
+        await sync.syncNow()
+        #expect(sync.engineState.recentDone && health.recentReads == 0)
+
+        await sync.fullResync() // anchors gone: still the whole window, no backlog left
+        #expect(health.recentReads == 0 && !sync.hasBacklog && sync.engineState.backfillDone)
+    }
+
+    @Test func cancellingTheCoordinatorReachesTheUpload() async {
+        let clock = TestClock()
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(2)]])
+        let api = MockPlatformAPI()
+        api.beforeSync = { try? await clock.sleep(for: .seconds(60)) }
+        let env = AppEnvironment.test(api: api, health: health, clock: clock)
+        let state = AppState(env: env)
+        let sync = SyncService(env: env)
+        let c = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: clock)
+        let run = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        await c.cancel() // sign-out
+        let outcome = await run.value
+        #expect(outcome.cancelled)
+        #expect(sync.engineState.lastError == nil && sync.lastError == nil) // cancelled, not failed
+    }
+}

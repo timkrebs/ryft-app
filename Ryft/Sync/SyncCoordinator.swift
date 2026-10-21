@@ -80,6 +80,8 @@ actor SyncCoordinator {
     }
 
     var isRunning: Bool { running != nil }
+    /// A rerun waits behind the running sync.
+    var hasQueuedRun: Bool { queued != nil }
 
     /// Runs (or joins) a sync for `trigger` and returns how it ended.
     @discardableResult
@@ -134,10 +136,14 @@ actor SyncCoordinator {
         guard runningID == id else { return }
         running = nil
         runningID = nil
-        // The first score is on screen; the rest of the upload follows (unless a queued
-        // rerun is about to upload anyway).
-        if continuing, queued == nil {
-            Task(priority: Trigger.backlog.priority) { [weak self] in await self?.run(.backlog) }
+        // The first score is on screen; the rest of the upload follows.
+        guard continuing else { return }
+        if queued != nil {
+            // The queued rerun uploads it, even if all that was queued is a push's refresh.
+            queuedTrigger = merge(queuedTrigger, .backlog)
+        } else {
+            // Started (and registered) now, so a cancel() right after finds it.
+            _ = start(.backlog)
         }
     }
 
@@ -163,7 +169,9 @@ actor SyncCoordinator {
                 let started = clock.now()
                 (touched, outcome.attempts) = try await uploadWithBackoff(steps, clock)
                 outcome.touched = touched
-                outcome.backlog = await steps.hasBacklog
+                // Only an upload that sent something leaves a backlog to continue (offline,
+                // gated or demo uploads send nothing).
+                outcome.backlog = touched.isEmpty ? false : await steps.hasBacklog
                 guard !touched.isEmpty else {
                     try Task.checkCancellation()
                     await steps.report(.refreshing)
