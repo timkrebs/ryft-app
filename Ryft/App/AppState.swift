@@ -7,6 +7,7 @@
 // phone never computes scores itself.
 import Foundation
 import Observation
+import os
 
 enum AppTab: String, CaseIterable, Hashable {
     case today, sleep, strain, insights, profile
@@ -120,6 +121,8 @@ final class AppState {
     /// without a data source, nothing is sent.
     func pullToRefresh(coordinator: SyncCoordinator) async {
         guard hasDataSource, isDemo || env.connectivity.isOnline else { return }
+        let signposts = Signposts.reads
+        let spinner = signposts.beginInterval("pull", id: signposts.makeSignpostID())
         let clock = env.clock
         let (uploaded, upload) = AsyncStream<Void>.makeStream()
         Task {
@@ -133,13 +136,16 @@ final class AppState {
         // and the spinner cap below must be able to stop waiting.
         let (settled, settle) = AsyncStream<Void>.makeStream()
         let phase2 = Task { [self] in
+            let interval = signposts.beginInterval("pull-now", id: signposts.makeSignpostID())
             async let today: Void = refreshToday(now)
             async let status: Void = coordinator.refreshStatus()
             _ = await (today, status)
+            signposts.endInterval("pull-now", interval)
             settle.finish()
         }
         let phases = Task { [self] in
             await Self.firstOf({ for await _ in uploaded { break } }, { try? await clock.sleep(for: Self.uploadHeadStart) })
+            let interval = signposts.beginInterval("pull-rest", id: signposts.makeSignpostID())
             await withTaskGroup(of: Void.self) { group in
                 let from = DayFormat.shift(now, days: -(Self.historyDays - 1))
                 group.addTask { try? await self.repository.refreshHistory(from: from, to: now, mode: .latest, userInitiated: true) }
@@ -147,10 +153,12 @@ final class AppState {
                 group.addTask { try? await self.repository.refreshTrend(.readiness, .week, mode: .latest, userInitiated: true) }
                 group.addTask { try? await self.repository.refreshInsights(mode: .latest, userInitiated: true) }
             }
+            signposts.endInterval("pull-rest", interval)
             await phase2.value
         }
         pullPhases = phases
         await Self.firstOf({ for await _ in settled {} }, { try? await clock.sleep(for: Self.spinnerCap) })
+        signposts.endInterval("pull", spinner)
     }
 
     private func refreshToday(_ now: Date) async {

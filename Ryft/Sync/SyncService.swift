@@ -12,9 +12,11 @@ import UIKit
 import os
 
 /// Intervals for Instruments (os_signpost; "Points of Interest" shows them): a sync's
-/// stages (read, map, encode, upload, score-wait, refresh) and the launch.
+/// stages (read, map, encode, upload, score-wait, refresh), the platform reads (a try's budget
+/// wait and fetch; a pull's spinner and its phases) and the launch.
 enum Signposts {
     static let sync = OSSignposter(subsystem: "dev.timkrebs.ryft", category: "sync")
+    static let reads = OSSignposter(subsystem: "dev.timkrebs.ryft", category: "reads")
     static let launch = OSSignposter(subsystem: "dev.timkrebs.ryft", category: "launch")
 }
 

@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import SwiftData
 import WidgetKit
+import os
 
 /// Offline-first access to the platform's read models.
 ///
@@ -959,13 +960,26 @@ final class ReadScheduler {
         var attempt = 0
         while true {
             try Task.checkCancellation()
-            try await budget.acquire(key.resource.priority)
+            // Instruments: how long a try queued for the budget, and how long its request took.
+            let signposts = Signposts.reads
+            let queued = signposts.beginInterval("budget", id: signposts.makeSignpostID(),
+                                                 "\(key.resource.rawValue, privacy: .public)")
+            do {
+                try await budget.acquire(key.resource.priority)
+            } catch {
+                signposts.endInterval("budget", queued)
+                throw error
+            }
+            signposts.endInterval("budget", queued)
+            let request = signposts.beginInterval("fetch", id: signposts.makeSignpostID(),
+                                                  "\(key.resource.rawValue, privacy: .public) try \(attempt + 1)")
             let outcome: Result<T, Error>
             do {
                 outcome = .success(try await APIClient.$singleAttempt.withValue(true) { try await fetch() })
             } catch {
                 outcome = .failure(error)
             }
+            signposts.endInterval("fetch", request)
             await budget.release()
             // Signed out or another account meanwhile: the answer isn't theirs, and neither is its outcome.
             guard env?.auth.accountID == account else { throw CancellationError() }
