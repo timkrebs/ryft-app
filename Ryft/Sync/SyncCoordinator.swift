@@ -211,10 +211,15 @@ actor SyncCoordinator {
         guard runningID == id else { return }
         running = nil
         runningID = nil
-        // The first score is on screen; the rest of the upload follows (unless a queued
-        // rerun is about to upload anyway). In the background `BGProcessingTask` takes it.
-        if continuing, queued == nil, !inBackground {
-            Task(priority: Trigger.backlog.priority) { [weak self] in await self?.run(.backlog) }
+        // The first score is on screen; the rest of the upload follows. In the background
+        // `BGProcessingTask` takes it.
+        guard continuing, !inBackground else { return }
+        if queued != nil {
+            // The queued rerun uploads it, even if all that was queued is a push's refresh.
+            queuedTrigger = merge(queuedTrigger, .backlog)
+        } else {
+            // Started (and registered) now, so a cancel() right after finds it.
+            _ = start(.backlog, afterUpload: [])
         }
     }
 
@@ -252,7 +257,9 @@ actor SyncCoordinator {
                 (touched, outcome.attempts) = try await uploadWithBackoff(steps, clock)
                 uploadDone()
                 outcome.touched = touched
-                outcome.backlog = await steps.hasBacklog
+                // Only an upload that sent something leaves a backlog to continue (offline,
+                // gated or demo uploads send nothing).
+                outcome.backlog = touched.isEmpty ? false : await steps.hasBacklog
                 outcome.waitingForUnlock = await steps.isWaitingForUnlock
                 if await inBackground() {
                     // The system's time is short: the silent push refreshes once scoring is done.

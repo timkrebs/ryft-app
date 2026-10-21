@@ -64,8 +64,11 @@ final class SyncService {
         machine.enter(next)
     }
 
-    /// Another account: its own engine state.
+    /// Another account: its own engine state. The previous account's upload is cancelled,
+    /// and what it still reports is ignored (it can't restore wiped state either:
+    /// `SyncEngineState.wipe`).
     func accountChanged() {
+        inFlight?.cancel()
         engineState = SyncEngineState.load(account: auth.accountID, defaults: env.defaults)
         hasBacklog = false
         pausedFor = nil
@@ -94,14 +97,17 @@ final class SyncService {
     /// queued for rescoring. Concurrent calls share one upload. `SyncCoordinator`
     /// waits for scoring and refreshes afterwards.
     func upload() async throws -> [String] {
-        if let t = inFlight { return try await t.value }
+        // The coordinator's cancel (sign-out, background time over) reaches the upload.
+        if let t = inFlight { return try await withTaskCancellationHandler { try await t.value } onCancel: { t.cancel() } }
         let t = Task { try await run() }
         inFlight = t
         defer { inFlight = nil }
-        return try await t.value
+        return try await withTaskCancellationHandler { try await t.value } onCancel: { t.cancel() }
     }
 
     private func run() async throws -> [String] {
+        // Only this run's outcome counts: an early return (offline, gated) leaves no backlog.
+        hasBacklog = false
         guard auth.isSignedIn, let account = auth.accountID else {
             lastError = APIError.signedOut.localizedDescription
             throw APIError.signedOut
@@ -134,7 +140,7 @@ final class SyncService {
                                          osVersion: AppInfo.osVersion, now: env.clock.now())
         do {
             let result = try await engine.run(context, gate: { [weak self] in await self?.gate?() }) { [weak self] event in
-                await self?.apply(event)
+                await self?.apply(event, for: account)
             }
             lastDaysTouched = result.touched
             hasBacklog = result.backlog
@@ -153,6 +159,11 @@ final class SyncService {
             }
             settings.lastSync = env.clock.now()
             return result.touched
+        } catch is CancellationError {
+            // Stopped from outside (sign-out, background time over): nothing to show.
+            lastDaysTouched = await engine.touchedSoFar
+            advance(to: .idle)
+            throw CancellationError()
         } catch {
             lastError = error.localizedDescription
             lastErrorDetails = error.diagnosticDetails
@@ -162,7 +173,9 @@ final class SyncService {
         }
     }
 
-    private func apply(_ event: SyncEngine.Event) {
+    private func apply(_ event: SyncEngine.Event, for account: String) {
+        // A run of the previous account: its news isn't this account's.
+        guard auth.accountID == account else { return }
         switch event {
         case .reading(let stream):
             // A page read ahead while another uploads: the upload is what's happening.
@@ -185,6 +198,8 @@ final class SyncService {
         health.resetAnchors()
         if let account = auth.accountID {
             var state = SyncEngineState.load(account: account, defaults: env.defaults)
+            // The whole window in one go: no first-score window that would leave a backlog.
+            state.recentDone = true
             state.backfillDone = false
             state.streams = [:]
             state.save(account: account, defaults: env.defaults)
@@ -270,6 +285,11 @@ struct SyncEngineState: Codable, Equatable, Sendable {
 
     static let keyPrefix = "sync.engine."
 
+    /// How many wipes happened (kept beside the state, outside its prefix); a run saves
+    /// only while it's the count it started with.
+    static func wipes(_ defaults: UserDefaults) -> Int { defaults.integer(forKey: wipesKey) }
+    private static let wipesKey = "syncEngineWipes"
+
     static func load(account: String?, defaults: UserDefaults) -> SyncEngineState {
         guard let account, let data = defaults.data(forKey: keyPrefix + account),
               let state = try? JSONDecoder().decode(SyncEngineState.self, from: data) else { return SyncEngineState() }
@@ -280,8 +300,10 @@ struct SyncEngineState: Codable, Equatable, Sendable {
         if let data = try? JSONEncoder().encode(self) { defaults.set(data, forKey: Self.keyPrefix + account) }
     }
 
-    /// Log out, account deletion: every account's state goes with the anchors.
+    /// Log out, account deletion: every account's state goes with the anchors. A run still
+    /// going (of the account that ended) can't save over it afterwards (`wipes`).
     static func wipe(defaults: UserDefaults) {
+        defaults.set(wipes(defaults) + 1, forKey: wipesKey)
         for key in defaults.dictionaryRepresentation().keys
         where key.hasPrefix(keyPrefix) || key.hasPrefix(PendingDeletions.keyPrefix) {
             defaults.removeObject(forKey: key)
@@ -374,6 +396,9 @@ actor SyncEngine {
     /// `requestStop()`: end after the page being uploaded.
     private var stopRequested = false
     private var stoppedEarly = false
+    /// `SyncEngineState.wipes` when the run started: a wipe since then (sign-out) means
+    /// this run's state isn't anyone's to keep.
+    private var wipesAtStart = 0
 
     /// Ends the run after the page being uploaded (its anchor committed); the run then
     /// reports a backlog. For the app going to the background.
@@ -396,17 +421,20 @@ actor SyncEngine {
              report: @escaping @Sendable (Event) async -> Void) async throws -> Result {
         self.gate = gate
         account = context.account
+        wipesAtStart = SyncEngineState.wipes(defaults)
         state = SyncEngineState.load(account: account, defaults: defaults)
         touched = []
         maxRecords = health.pageSize
         stopRequested = false
         stoppedEarly = false
         var result = Result()
-        defer { state.save(account: account, defaults: defaults) }
+        defer { persist() }
         do {
             state.lastError = nil
             state.lastRequestID = nil
-            if !state.recentDone, !health.hasAnchors {
+            // An account that synced before has nothing to gain from the window.
+            if !state.recentDone, health.hasAnchors { state.recentDone = true }
+            if !state.recentDone {
                 let since = Calendar.current.date(byAdding: .day, value: -Self.recentDays, to: context.now) ?? context.now
                 try await set(.recent, report)
                 try await drain(.recent(since: since), context, report)
@@ -438,6 +466,11 @@ actor SyncEngine {
             state.phase = .idle
             await finished(context, report)
             return finish(result)
+        } catch is CancellationError {
+            // Stopped from outside (sign-out, background time over): not an error to show.
+            state.phase = .idle
+            await finished(context, report)
+            throw CancellationError()
         } catch {
             state.lastError = error.localizedDescription
             state.lastRequestID = (error as? APIError)?.requestID
@@ -465,6 +498,12 @@ actor SyncEngine {
         state.stream = nil
         state.updatedAt = context.now
         await report(.state(state))
+    }
+
+    /// Saves the state, unless the account's state was wiped since the run began.
+    private func persist() {
+        guard SyncEngineState.wipes(defaults) == wipesAtStart else { return }
+        state.save(account: account, defaults: defaults)
     }
 
     private func finish(_ result: Result) -> Result {
@@ -527,6 +566,8 @@ actor SyncEngine {
                     state.pendingDeletions = PendingDeletions.add(page.deleted, stream: stream, account: account,
                                                                   defaults: defaults)
                 }
+                // Checkpointed with its anchor: a run the system ends keeps its progress.
+                persist()
             }
             // The app went to the background: this page is in, the rest waits.
             if stopRequested, page.more || next != nil {
