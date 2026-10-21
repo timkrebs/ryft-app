@@ -54,6 +54,24 @@
           }
         }
       }
+    },
+    "NSHealthUpdateUsageDescription" : {
+      "comment" : "Privacy - Health Update Usage Description",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT does not write to Apple Health. iOS asks for this text because the app uses HealthKit; RYFT only reads your data to calculate your scores."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT schreibt nichts in Apple Health. iOS verlangt diesen Text, weil die App HealthKit nutzt; RYFT liest deine Daten nur, um deine Werte zu berechnen."
+          }
+        }
+      }
     }
   },
   "version" : "1.3"
