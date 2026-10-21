@@ -1,5 +1,47 @@
 # Status — 2026-10-21
 
+## Today while data is on its way (sync brief §4.1–§4.7)
+
+- **First import** (`ImportCard`): "Setting up RYFT" instead of the gauge until a day is
+  scored: Reading Apple Health → Uploading → Scoring (the step lit from the sync's phase),
+  nights, heart-rate readings and workouts as sent (each record counted once, the first
+  score's window included), "Imported through 22 Aug · 61 of 90 days" from the days the
+  records fall on, "You can leave the app…", and the push question ("Tell me when my first
+  scores are ready", before the first sync, once). After the first score: a slim row under
+  the header until the backfill is done.
+- **Calibrating** (`BaselineGauge`): a ring segment per baseline night, "Baselines · 3 of 7
+  nights", with the existing "N nights to go" sentence. Never an empty ring.
+- **Night not scored yet** (`PendingGauge` + `RawNightCard`): outline only, yesterday's
+  readiness dimmed with its date, "Scoring your night…" and "Usually ready within 20 s"
+  (`expected_within_sec`), or "Waiting for last night's sleep". Beside it last night from
+  Apple Health (asleep time, bed–wake, the source), labelled "not scored yet"; the tiles
+  show "–". When the score lands: a cross-fade and one success haptic.
+- **Watch hasn't synced** (`WatchSyncHintCard`): the freshest heart-rate source (sleep if
+  none) quiet for > 6 h in the morning, > 12 h otherwise, named from HealthKit; an app's
+  wording ("Open the Garmin Connect app…") or an Apple device's.
+- **One status line** (`SyncStatusLineView`) under the greeting replaces `UpdatedLabel` and
+  the offline pill on Today: action needed (tappable) › offline › locked › syncing · stream
+  › uploading N readings › scoring › updating › paused › up to date · 2 min ago.
+  `SyncService.progress` is no longer English debug text (`SyncActivity`).
+- **Day markers** (`DayMarker`): a dot (scored) or a hollow dot (pending) under Strain's
+  week and beside Sleep's night. Today has no date strip to mark.
+- **Sync details** (Profile → Data): engine state, queue, backlog, bytes; per stream the
+  count, newest record and the last page's accepted / ignored; the last 20 requests with
+  status, code and request ID (`APIStatus.requests`); "Sync last 3 days again", "Full
+  resync", "Copy diagnostics" (counts, dates and IDs, no health values).
+- **Fixed on the way:** `Repository.refreshHistory` skipped the 90 days when only today was
+  cached (a screen's own load ran first, as the demo's instant answers always do): demo
+  mode showed no earlier days.
+- Screenshots: `docs/screenshots/{import,pending,calibrating,watch,strain,syncDetails}-{dark,light}.png`,
+  German `{import,pending}-{dark,light}-de.png` (`SHOT_LANG=de scripts/screenshots.sh …`).
+- Tests: `TodayStatesTests` (which state wins, in which order), `SyncDetailsTests`,
+  `SyncEngineImportCountTests`, `RawHealthTests`; UI: `TodayStatesUITests` (import card and
+  pending gauge in demo mode, in UISmoke).
+
+**Simulator only.** On your iPhone: the import card on a fresh account, the pending gauge
+and raw night the morning after, the watch hint after a day without opening Garmin Connect
+(§6 of the brief).
+
 ## Performance: launch, read models, signposts, gzip (sync brief §3)
 
 - **Signposts** for every sync stage (read, map, encode, gzip, upload, score-wait,

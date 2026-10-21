@@ -76,6 +76,7 @@ struct StrainView: View {
                                 .font(.ryftNumber(size: 11))
                                 .foregroundStyle(Theme.textPrimary)
                         }
+                        DayMarker(kind: day.marker)
                     }
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity)

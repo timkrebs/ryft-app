@@ -4,8 +4,10 @@
 # never reaches (the onboarding steps, Profile → Sign-in methods) are opened
 # directly with the Debug launch argument `-RyftScreen` (RyftApp → DebugScreen).
 #
-#   scripts/screenshots.sh ["iPhone 17 Pro"] [tab or screen ...]
-#   screens: invite consent aboutYou accountHint signInMethods
+#   scripts/screenshots.sh ["iPhone 17 Pro"] [tab, screen or scenario ...]
+#   screens: invite consent aboutYou accountHint signInMethods syncDetails
+#   scenarios (Today in one in-between state, `-RyftScenario`): import pending calibrating watch
+#   SHOT_LANG=de: German (files end in -de)
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -35,16 +37,23 @@ xcrun simctl status_bar "$DEVICE" override --time "9:41" --batteryState charged 
 xcrun simctl install "$DEVICE" "$APP"
 mkdir -p "$OUT"
 
+LANG_SHOT=${SHOT_LANG:-}
 for scheme in dark light; do
   for tab in $TABS; do
     xcrun simctl terminate "$DEVICE" "$BUNDLE" 2>/dev/null || true
     case $tab in
-      invite|consent|aboutYou|accountHint|signInMethods) open="-RyftScreen" ;;
-      *) open="-RyftTab" ;;
+      invite|consent|aboutYou|accountHint|signInMethods|syncDetails) set -- -RyftScreen "$tab" ;;
+      import|pending|calibrating|watch) set -- -RyftTab today -RyftScenario "$tab" ;;
+      *) set -- -RyftTab "$tab" ;;
     esac
-    xcrun simctl launch "$DEVICE" "$BUNDLE" -demoMode YES "$open" "$tab" -appearance "$scheme" >/dev/null
+    name="$tab-$scheme"
+    if [ -n "$LANG_SHOT" ]; then
+      set -- "$@" -AppleLanguages "($LANG_SHOT)" -AppleLocale "$LANG_SHOT"
+      name="$name-$LANG_SHOT"
+    fi
+    xcrun simctl launch "$DEVICE" "$BUNDLE" -demoMode YES "$@" -appearance "$scheme" >/dev/null
     sleep "${SHOT_DELAY:-3}"
-    xcrun simctl io "$DEVICE" screenshot --type=png "$OUT/$tab-$scheme.png" >/dev/null 2>&1
-    echo "$OUT/$tab-$scheme.png"
+    xcrun simctl io "$DEVICE" screenshot --type=png "$OUT/$name.png" >/dev/null 2>&1
+    echo "$OUT/$name.png"
   done
 done

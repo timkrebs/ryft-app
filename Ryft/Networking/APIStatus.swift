@@ -15,6 +15,8 @@ final class APIStatus {
     private(set) var retryNotice: String?
     /// Newest first, at most `maxFailures`.
     private(set) var failures: [RequestFailure] = []
+    /// Every request's outcome, served or not, newest first, at most `maxFailures` (Sync details).
+    private(set) var requests: [RequestFailure] = []
     /// Gates the platform reported for this account and not yet passed: a `403` with a
     /// code, or `X-RYFT-Gate` on a request it served anyway (warn mode).
     private(set) var gates: Set<APIErrorCode> = []
@@ -47,6 +49,13 @@ final class APIStatus {
     func record(_ failure: RequestFailure) {
         failures.insert(failure, at: 0)
         if failures.count > Self.maxFailures { failures.removeLast(failures.count - Self.maxFailures) }
+        served(failure)
+    }
+
+    /// A request the platform answered (failures go through `record` too).
+    func served(_ request: RequestFailure) {
+        requests.insert(request, at: 0)
+        if requests.count > Self.maxFailures { requests.removeLast(requests.count - Self.maxFailures) }
     }
 
     // MARK: gates

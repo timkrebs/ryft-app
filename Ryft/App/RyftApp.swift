@@ -397,7 +397,7 @@ struct RootView: View {
 #if DEBUG
 /// Screens a screenshot run can open directly (`scripts/screenshots.sh`, `-RyftScreen <name>`).
 enum DebugScreen: String {
-    case invite, consent, aboutYou, accountHint, signInMethods
+    case invite, consent, aboutYou, accountHint, signInMethods, syncDetails
 
     static var requested: DebugScreen? {
         UserDefaults.standard.string(forKey: "RyftScreen").flatMap(DebugScreen.init(rawValue:))
@@ -415,11 +415,22 @@ enum DebugScreen: String {
                              keep: {}, useOther: {})
         case .signInMethods:
             NavigationStack { SignInMethodsView() }.environment(Self.emailAccount)
+        case .syncDetails:
+            DebugSyncDetails()
         }
     }
 
     /// One instance for the run: the screen loads its sign-in methods into it.
     @MainActor private static let emailAccount = AuthService.preview(provider: "email")
+}
+
+/// Profile → Data → Sync details, without the taps.
+private struct DebugSyncDetails: View {
+    @Environment(ScreenModels.self) private var screens
+
+    var body: some View {
+        NavigationStack { SyncDetailsView(model: screens.profile.syncDetails) }
+    }
 }
 #endif
 

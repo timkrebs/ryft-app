@@ -74,6 +74,14 @@ final class PushRegistrar {
         }
     }
 
+    /// The first import's question ("Tell me when my first scores are ready"): before the
+    /// first sync has finished, while iOS hasn't asked and it wasn't dismissed yet.
+    var showsImportPrompt: Bool {
+        _ = revision
+        guard isEnabled, env.auth.isSignedIn, status == .notDetermined else { return false }
+        return defaults.integer(forKey: key(Self.dismissCountKey)) == 0
+    }
+
     // MARK: lifecycle
 
     /// At launch, on every return to the app and after sign-in: picks up a change

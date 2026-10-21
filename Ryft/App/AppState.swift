@@ -22,6 +22,8 @@ final class AppState {
     /// The platform's latest `GET /v1/me/sync`: what it has, what scoring is doing (pending
     /// days, today's state). Asked at launch and while a sync waits for scores.
     var syncStatus: SyncStatus?
+    /// Today in one in-between state on mock data (previews; `-RyftScenario` in demo mode).
+    var todayScenario: TodayScenario?
     private(set) var dismissedInsightIDs: Set<String> = []
 
     static let historyDays = 90
@@ -37,6 +39,10 @@ final class AppState {
         self.repository = repository ?? Repository(env: env)
         // `-RyftTab sleep` selects the initial tab (handy for screenshots).
         selectedTab = UserDefaults.standard.string(forKey: "RyftTab").flatMap(AppTab.init(rawValue:)) ?? .today
+        #if DEBUG
+        // `-RyftScenario import` (or pending, calibrating, watch): screenshots and UI tests, demo mode only.
+        if env.isDemo { todayScenario = UserDefaults.standard.string(forKey: "RyftScenario").flatMap(TodayScenario.init) }
+        #endif
         dismissedInsightIDs = loadDismissed()
     }
 
@@ -255,8 +261,9 @@ extension AppState {
     /// Pre-filled with mock data so previews render without awaiting anything.
     static func preview(empty: Bool = false, calibrating: Bool = false, online: Bool = true,
                         auth: AuthService? = nil, coachMarks: Bool = false,
-                        flags: [FeatureFlag: Bool] = [:]) -> AppState {
+                        flags: [FeatureFlag: Bool] = [:], scenario: TodayScenario? = nil) -> AppState {
         let s = AppState(env: .preview(online: online, auth: auth, flags: flags, coachMarks: coachMarks))
+        s.todayScenario = scenario
         guard !empty else {
             s.previewUnconfigured = true
             return s

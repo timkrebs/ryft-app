@@ -702,3 +702,129 @@ struct SyncGzipTests {
         #expect(sync.lastError == nil && health.committed.count == 2)
     }
 }
+
+@Suite("Sync engine: what the import card counts")
+@MainActor
+struct SyncEngineImportCountTests {
+    @Test func theRecentWindowAndTheBackfillAreCountedOnceEach() async throws {
+        let health = MockHealthStore(pages: [.quantity(.heartRate): [samples(5), samples(5)]],
+                                     recent: [.quantity(.heartRate): [samples(4)]])
+        let api = MockPlatformAPI()
+        api.syncResponse = SyncResponse(samples: 1, sleep: 0, workouts: 0, daysTouched: ["2026-10-21"])
+        let sync = SyncService(env: .test(api: api, health: health))
+
+        _ = try await sync.upload() // the recent window
+        #expect(sync.engineState.streams["heart_rate"]?.recentRecords == 4)
+        #expect(sync.engineState.streams["heart_rate"]?.sent == 4)
+
+        _ = try await sync.upload() // the backfill sends those again, among the rest
+        let hr = try #require(sync.engineState.streams["heart_rate"])
+        #expect(hr.records == 10 && hr.sent == 10) // the larger, not 14
+        let expected = Set(samples(5).samples.map { DayFormat.string(from: $0.start) }) // local days
+        #expect(hr.days == expected)
+        #expect(hr.lastUploadAt != nil)
+        #expect(sync.engineState.coveredDays == expected)
+    }
+
+    @Test func daysAreFormattedPerDayAndCoverEveryRecord() {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: Date(timeIntervalSince1970: 1_792_300_000))
+        let dates = (0..<3 * 24).map { start.addingTimeInterval(Double($0) * 3_600) }.shuffled() + [start]
+        #expect(SyncEngine.days(of: dates).count == 3)
+        #expect(SyncEngine.days(of: []).isEmpty)
+    }
+
+    @Test func coverageIsKeptForTheNewestDaysOnly() async {
+        let t = Date(timeIntervalSince1970: 1_792_300_000)
+        let spread = HealthDelta(samples: (0..<200).map {
+            Sample(type: .heartRate, start: t.addingTimeInterval(-Double($0) * 86_400), end: t, value: 60, unit: "bpm",
+                   source: "Garmin")
+        })
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [spread]])
+        let sync = SyncService(env: .test(health: health))
+        await sync.syncNow()
+        let days = sync.engineState.streams["heart_rate"]?.days ?? []
+        #expect(days.count == SyncEngineState.StreamProgress.maxDays)
+        #expect(days.contains(DayFormat.string(from: t)))
+    }
+
+    @Test func syncingTheLastThreeDaysAgainReadsTheWindowThenGoesOn() async throws {
+        let health = MockHealthStore(pages: [.quantity(.heartRate): [samples(3)]],
+                                     recent: [.quantity(.heartRate): [samples(2)]])
+        let api = MockPlatformAPI()
+        api.syncResponse = SyncResponse(samples: 3, sleep: 0, workouts: 0, daysTouched: ["2026-10-19"])
+        let sync = SyncService(env: .test(api: api, health: health))
+        _ = try await sync.upload()
+        _ = try await sync.upload()
+        #expect(sync.engineState.backfillDone)
+        let reads = health.recentReads
+
+        sync.resendRecent()
+        #expect(sync.engineState.recentRequested && !sync.engineState.recentDone)
+        _ = try await sync.upload()
+
+        #expect(health.recentReads == reads + 1) // the window again, though anchors exist
+        #expect(sync.engineState.recentDone && !sync.engineState.recentRequested)
+        #expect(sync.engineState.backfillDone) // not an import again
+        #expect(sync.engineState.phase == .incremental)
+    }
+
+    @Test func aStateFromAnOlderBuildDecodesWithTheNewFields() throws {
+        let old = #"{"phase":"backfill","streams":{"sleep":{"records":12,"bytes":3000,"backfilled":false,"lastAccepted":12}}}"#
+        let state = try JSONDecoder().decode(SyncEngineState.self, from: Data(old.utf8))
+        let sleep = try #require(state.streams["sleep"])
+        #expect(sleep.records == 12 && sleep.recentRecords == 0 && sleep.days.isEmpty && sleep.lastUploadAt == nil)
+        #expect(!state.recentRequested)
+    }
+
+    @Test func theRunReportsWhatItIsDoingAndClearsItAfter() async {
+        let health = MockHealthStore(streams: [.sleep], pages: [.sleep: [samples(2)]])
+        let api = MockPlatformAPI()
+        let sync = SyncService(env: .test(api: api, health: health))
+        let seen = Counter()
+        api.beforeSync = { @MainActor in
+            if case .uploading(.sleep, records: 2)? = sync.activity { seen.add() }
+        }
+        await sync.syncNow()
+        #expect(seen.value == 1)
+        #expect(sync.activity == nil && sync.progress.isEmpty)
+        #expect(SyncActivity.reading(.sleep).text == String(localized: "Syncing · \(HealthStream.sleep.displayName)"))
+    }
+}
+
+@Suite("Apple Health: last night and the newest record")
+struct RawHealthTests {
+    private let t = Date(timeIntervalSince1970: 1_792_400_000)
+
+    private func segment(_ from: Double, _ to: Double, _ stage: SleepStage, _ source: String) -> SleepSegment {
+        SleepSegment(start: t.addingTimeInterval(from * 60), end: t.addingTimeInterval(to * 60), stage: stage, source: source)
+    }
+
+    @Test func theNightIsTheSourceWithTheMostSleep() throws {
+        let night = try #require(RawNight.from([
+            segment(0, 20, .inBed, "Garmin Connect"),       // in bed: not asleep, but the bedtime
+            segment(20, 200, .core, "Garmin Connect"),
+            segment(200, 210, .awake, "Garmin Connect"),
+            segment(210, 450, .deep, "Garmin Connect"),
+            segment(30, 300, .asleep, "iPhone"),
+        ]))
+        #expect(night.source == "Garmin Connect")
+        #expect(night.asleepMin == 180 + 240)
+        #expect(night.bedtime == t && night.wake == t.addingTimeInterval(450 * 60))
+        #expect(RawNight.from([segment(0, 30, .inBed, "iPhone")]) == nil)
+        #expect(RawNight.from([]) == nil)
+    }
+
+    @Test func theNightWindowStartsTheEveningBefore() {
+        let cal = Calendar.current
+        let morning = cal.date(bySettingHour: 7, minute: 0, second: 0, of: t)!
+        let window = RawNight.window(before: morning)
+        #expect(cal.component(.hour, from: window) == 18)
+        #expect(morning.timeIntervalSince(window) == 13 * 3_600)
+    }
+
+    @Test func anAppIsToldApartFromAnAppleDevice() {
+        #expect(SourceFreshness(source: "Garmin Connect", bundleID: "com.garmin.connect.mobile", newest: t).isApp)
+        #expect(!SourceFreshness(source: "Apple Watch", bundleID: "com.apple.health.4B1C", newest: t).isApp)
+    }
+}

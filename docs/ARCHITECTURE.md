@@ -114,6 +114,22 @@ view because they are design, picked from `Theme` by a state the view model expo
   - Views read them with `@Environment(Type.self)`.
   - Bindings into them use `Bindable(object).property`.
 
+**Today's in-between states** (sync brief §4). `TodayViewModel.facts` gathers what they're
+decided from into one value (`TodaySyncFacts`: the engine state, the sync's phase and
+activity, `GET /v1/me/sync`, the cached scores, last night and the newest record per
+source from HealthKit); `TodayStates` decides from it alone, so tests build facts directly:
+- **hero** (the gauge's place): the first import's card until a day is scored › a night
+  not scored yet (`today.state` `pending` / `waiting_for_sleep` and no readiness) › the
+  baseline gauge while `calibrating` › the score. A landed score is never pending again,
+  whatever an older `GET /v1/me/sync` said.
+- **import row**: the backfill still going after the first score.
+- **status line** (`SyncLine`): a gate › offline › locked › reading / uploading › scoring ›
+  updating › paused › "Up to date · 2 min ago".
+- **watch hint**: the freshest heart-rate (else sleep) source quiet for over 6 h in the
+  morning or 12 h in the day, named as HealthKit names it.
+`TodayScenario` (`-RyftScenario import|pending|calibrating|watch` in Debug demo mode, and
+previews) applies one state on mock data for screenshots and the UI tests.
+
 **Tests** (`ViewModelTests`). Each view model runs against `AppEnvironment.test` with a
 `MockPlatformAPI`, `MockHealthStore`, a `TestClock` and its own defaults suite and response
 cache, so nothing leaks between parallel suites. Covered states:

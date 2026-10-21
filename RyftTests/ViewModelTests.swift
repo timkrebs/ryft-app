@@ -132,6 +132,354 @@ struct TodayViewModelTests {
     }
 }
 
+// MARK: - Today's in-between states
+
+/// Which state wins, from the facts alone (`TodayStates`), then through the view model.
+@Suite("Today: in-between states")
+@MainActor
+struct TodayStatesTests {
+    private let morning = Calendar.current.date(bySettingHour: 7, minute: 30, second: 0, of: Date(timeIntervalSince1970: 1_792_400_000))!
+    private var todayKey: String { DayFormat.string(from: morning) }
+
+    private func facts(_ change: (inout TodaySyncFacts) -> Void = { _ in }) -> TodaySyncFacts {
+        var f = TodaySyncFacts(now: morning)
+        f.engine.backfillDone = true
+        f.hasScoredDay = true
+        f.lastUpdated = morning.addingTimeInterval(-120)
+        change(&f)
+        return f
+    }
+
+    private func score(readiness: Int?, calibrating: Bool = false, baselineDays: Int = 30,
+                       state: ScoringState? = .scored, day: String? = nil) -> DailyScore {
+        DailyScore(day: day ?? todayKey, readiness: readiness, state: readiness == nil ? .calibrating : .balanced,
+                   baselineDays: baselineDays, calibrating: calibrating, computedAt: readiness == nil ? nil : morning,
+                   scoringState: state)
+    }
+
+    private func status(_ state: ScoringState, day: String? = nil, expected: Int = 20) -> SyncStatus {
+        SyncStatus(gate: nil, lastSyncAt: morning, lastSyncDevice: "iPhone", latest: [:],
+                   today: TodayState(day: day ?? todayKey, state: state, scoredAt: nil, modelVersion: "2026.10.1"),
+                   pendingDays: state == .pending ? [todayKey] : [], expectedWithinSec: expected, resyncRequestedAt: nil)
+    }
+
+    // MARK: hero
+
+    @Test func theImportCardShowsUntilADayIsScored() {
+        let importing = facts {
+            $0.engine = TodayScenario.importingEngine(now: morning)
+            $0.hasScoredDay = false
+            $0.phase = .uploading
+        }
+        guard case .importing(let p) = TodayStates.hero(importing) else {
+            Issue.record("expected the import card, got \(TodayStates.hero(importing))")
+            return
+        }
+        #expect(p.step == .uploading)
+        #expect(p.nights == 58 && p.heartRateReadings == 84_213 && p.workouts == 41)
+        #expect(p.coveredDays == 61)
+        #expect(p.oldestDay == DayFormat.date(from: DayFormat.string(from: DayFormat.shift(morning, days: -60))))
+        #expect(TodayStates.importRow(importing) == nil) // the card says it all
+
+        // The first score: the gauge's place goes back to the score, the import to a slim row.
+        var scored = importing
+        scored.hasScoredDay = true
+        scored.today = score(readiness: 72)
+        #expect(TodayStates.hero(scored) == .score)
+        #expect(TodayStates.importRow(scored)?.coveredDays == 61)
+
+        // The backfill done: no row.
+        scored.engine.backfillDone = true
+        #expect(TodayStates.importRow(scored) == nil)
+    }
+
+    @Test func noImportWithoutASyncingAccount() {
+        let demo = facts { $0.syncs = false; $0.engine.backfillDone = false; $0.hasScoredDay = false }
+        #expect(TodayStates.hero(demo) == .score)
+        #expect(TodayStates.importRow(demo) == nil)
+    }
+
+    @Test func importStepsFollowThePipeline() {
+        func step(_ phase: SyncPhase, pending: [String] = [], streams: Bool = true) -> ImportProgress.Step {
+            TodayStates.progress(facts {
+                $0.phase = phase
+                $0.engine = streams ? TodayScenario.importingEngine(now: morning) : SyncEngineState()
+                if !pending.isEmpty { $0.status = status(.pending) }
+            }).step
+        }
+        #expect(step(.reading) == .reading)
+        #expect(step(.uploading) == .uploading)
+        #expect(step(.awaitingScores) == .scoring)
+        #expect(step(.refreshing) == .scoring)
+        #expect(step(.idle, pending: [todayKey]) == .scoring) // the platform is on it
+        #expect(step(.idle) == .uploading) // between runs, mid-import
+        #expect(step(.idle, streams: false) == .reading) // nothing sent yet
+    }
+
+    @Test func coverageCountsOnlyTheWindow() {
+        var engine = SyncEngineState()
+        var hr = SyncEngineState.StreamProgress()
+        hr.days = [todayKey, DayFormat.string(from: DayFormat.shift(morning, days: -89)),
+                   DayFormat.string(from: DayFormat.shift(morning, days: -90)), "2025-01-01"]
+        engine.streams = ["heart_rate": hr]
+        let p = TodayStates.progress(facts { $0.engine = engine })
+        #expect(p.coveredDays == 2)
+        #expect(p.fraction == 2.0 / 90)
+        #expect(ImportProgress(step: .reading).coverageText == String(localized: "Starting with your last few days"))
+    }
+
+    @Test func aNightBeingScoredShowsThePendingGaugeWithTheDayBefore() {
+        let yesterday = score(readiness: 78, day: DayFormat.string(from: DayFormat.shift(morning, days: -1)))
+        let f = facts {
+            $0.status = status(.pending, expected: 20)
+            $0.previous = yesterday
+        }
+        #expect(TodayStates.hero(f) == .pending(PendingNight(waitingForSleep: false, expectedWithinSec: 20,
+                                                              previousReadiness: 78,
+                                                              previousDay: DayFormat.date(from: yesterday.day))))
+        // No answer from GET /v1/me/sync yet: the upload's estimate.
+        let fromUpload = facts { $0.today = score(readiness: nil, state: .pending); $0.expectedScoringSec = 45 }
+        guard case .pending(let night) = TodayStates.hero(fromUpload) else { Issue.record("expected pending"); return }
+        #expect(night.expectedWithinSec == 45 && !night.waitingForSleep)
+    }
+
+    @Test func noNightYetWaitsForSleepWithoutAnEstimate() {
+        let f = facts { $0.status = status(.waitingForSleep) }
+        guard case .pending(let night) = TodayStates.hero(f) else { Issue.record("expected pending"); return }
+        #expect(night.waitingForSleep && night.expectedWithinSec == nil)
+        #expect(night.title == String(localized: "Waiting for last night's sleep"))
+    }
+
+    @Test func aScoreThatLandedIsNeverPendingAgain() {
+        // The silent push refreshed the day; GET /v1/me/sync wasn't asked again since.
+        let f = facts { $0.today = score(readiness: 81); $0.status = status(.pending) }
+        #expect(TodayStates.hero(f) == .score)
+        // Yesterday's answer doesn't speak for today.
+        let old = facts {
+            $0.today = score(readiness: 81)
+            $0.status = status(.pending, day: DayFormat.string(from: DayFormat.shift(morning, days: -1)))
+        }
+        #expect(TodayStates.todayState(old) == .scored)
+    }
+
+    @Test func pendingWinsOverCalibratingThenTheBaselineShows() {
+        let calibrating = score(readiness: nil, calibrating: true, baselineDays: 4, state: .scored)
+        let pending = facts { $0.today = calibrating; $0.status = status(.pending) }
+        #expect(TodayStates.hero(pending).isPending)
+        let scored = facts { $0.today = calibrating; $0.status = status(.scored) }
+        #expect(TodayStates.hero(scored) == .calibrating(nights: 4))
+    }
+
+    // MARK: status line
+
+    @Test func theLineSaysTheMostUrgentThingFirst() {
+        var f = facts {
+            $0.gate = .consent
+            $0.online = false
+            $0.waitingForUnlock = true
+            $0.activity = .uploading(.quantity(.heartRate), records: 12_400)
+            $0.phase = .awaitingScores
+            $0.syncFailed = true
+        }
+        #expect(TodayStates.line(f) == .actionNeeded(.consent))
+        f.gate = nil
+        #expect(TodayStates.line(f) == .offline)
+        f.online = true
+        #expect(TodayStates.line(f) == .waitingForUnlock)
+        f.waitingForUnlock = false
+        #expect(TodayStates.line(f) == .uploading(records: 12_400))
+        f.activity = .reading(.sleep)
+        #expect(TodayStates.line(f) == .reading(.sleep))
+        f.activity = nil
+        #expect(TodayStates.line(f) == .scoring(night: false))
+        f.phase = .refreshing
+        #expect(TodayStates.line(f) == .updating)
+        f.phase = .idle
+        #expect(TodayStates.line(f) == .paused)
+        f.syncFailed = false
+        #expect(TodayStates.line(f) == .upToDate(morning.addingTimeInterval(-120), demo: false))
+    }
+
+    @Test func theLineSaysTheNightIsBeingScoredWhileThePlatformIsOnIt() {
+        let f = facts { $0.status = status(.pending) }
+        #expect(TodayStates.line(f) == .scoring(night: true))
+        let waiting = facts { $0.status = status(.waitingForSleep) }
+        #expect(TodayStates.line(waiting) == .upToDate(morning.addingTimeInterval(-120), demo: false))
+    }
+
+    @Test func theLineReadsLikeAFewWords() {
+        let now = morning
+        #expect(SyncLine.upToDate(now.addingTimeInterval(-20), demo: false).text(now: now)
+                == String(localized: "Up to date · just now"))
+        #expect(SyncLine.upToDate(nil, demo: true).text(now: now)
+                == String(localized: "Demo data · ") + String(localized: "Not updated yet"))
+        #expect(SyncLine.actionNeeded(.invite).text(now: now) == String(localized: "Action needed: enter your invite code"))
+        #expect(SyncLine.actionNeeded(.aboutYou).text(now: now) == String(localized: "Action needed: agree to the privacy policy"))
+        #expect(SyncLine.uploading(records: 12_400).isActive && !SyncLine.offline.isActive)
+    }
+
+    // MARK: watch hint
+
+    @Test func aQuietSourceIsNamedAfterSixHoursInTheMorning() throws {
+        let garmin = SourceFreshness(source: "Garmin Connect", bundleID: "com.garmin.connect.mobile",
+                                     newest: morning.addingTimeInterval(-7 * 3_600))
+        let hint = try #require(TodayStates.watchHint(facts { $0.freshness = [garmin] }))
+        #expect(hint == WatchSyncHint(source: "Garmin Connect", since: garmin.newest, isApp: true))
+        #expect(hint.text(now: morning).contains("Garmin Connect"))
+        // Five hours: not yet.
+        let recent = SourceFreshness(source: "Garmin Connect", bundleID: nil, newest: morning.addingTimeInterval(-5 * 3_600))
+        #expect(TodayStates.watchHint(facts { $0.freshness = [recent] }) == nil)
+    }
+
+    @Test func duringTheDayTwelveHoursAndTheFreshestSourceCount() {
+        let afternoon = morning.addingTimeInterval(7 * 3_600) // 14:30
+        let watch = SourceFreshness(source: "Apple Watch", bundleID: "com.apple.health.1", newest: afternoon.addingTimeInterval(-11 * 3_600))
+        let old = SourceFreshness(source: "Oura", bundleID: "com.ouraring.oura", newest: afternoon.addingTimeInterval(-40 * 3_600))
+        var f = facts { $0.freshness = [old, watch] }
+        f.now = afternoon
+        #expect(TodayStates.watchHint(f) == nil) // the watch synced 11 h ago
+        f.freshness = [old]
+        #expect(TodayStates.watchHint(f)?.source == "Oura")
+        // Not while importing, locked, or for an account that doesn't sync.
+        #expect(TodayStates.watchHint(facts { $0.freshness = [old]; $0.engine.backfillDone = false }) == nil)
+        #expect(TodayStates.watchHint(facts { $0.freshness = [old]; $0.waitingForUnlock = true }) == nil)
+        #expect(TodayStates.watchHint(facts { $0.freshness = [old]; $0.syncs = false }) == nil)
+    }
+
+    @Test func pendingNightSaysWhenToExpectIt() {
+        #expect(PendingNight(waitingForSleep: false, expectedWithinSec: 20).detail == String(localized: "Usually ready within 20 s."))
+        #expect(PendingNight(waitingForSleep: false, expectedWithinSec: 150).detail == String(localized: "Usually ready within 3 min."))
+        #expect(PendingNight(waitingForSleep: false).detail == String(localized: "Usually ready within a minute."))
+    }
+
+    @Test func dayMarkersFollowTheScoringState() {
+        #expect(DayMarker.kind(for: nil) == nil)
+        #expect(DayMarker.kind(for: score(readiness: 70)) == .scored)
+        #expect(DayMarker.kind(for: score(readiness: 70, state: .pending)) == .pending)
+        #expect(DayMarker.kind(for: score(readiness: nil, state: .waitingForSleep)) == .pending)
+        #expect(DayMarker.kind(for: score(readiness: 70, state: nil)) == .scored) // a cache from before the field
+        #expect(DayMarker.kind(for: score(readiness: nil, state: nil)) == nil)
+    }
+
+    // MARK: through the view model
+
+    private func model(_ state: AppState) -> TodayViewModel {
+        let sync = SyncService(env: state.env)
+        return TodayViewModel(state: state, sync: sync,
+                              coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: state.env.clock),
+                              apiStatus: APIStatus())
+    }
+
+    @Test func aFreshAccountImportsAndTheSentenceSaysSo() {
+        let env = AppEnvironment.test()
+        let vm = model(AppState(env: env))
+        #expect(vm.hero.isImporting) // signed in, nothing scored, no backfill yet
+        #expect(vm.sentence == String(localized: "Your history is on its way."))
+        #expect(vm.syncLine == .upToDate(nil, demo: false))
+    }
+
+    @Test func scenariosDriveTheStatesInDemoMode() {
+        let state = AppState.preview(scenario: .pending)
+        let vm = model(state)
+        #expect(vm.hero.isPending)
+        #expect(vm.rawNight?.source == "Garmin Connect")
+        #expect(vm.readiness == nil && vm.sleepText == Fmt.placeholder) // nothing pretends to be today's
+        #expect(vm.sentence == String(localized: "Yesterday's readiness, until last night is scored."))
+        state.todayScenario = .importing
+        #expect(vm.hero.isImporting && vm.showsImportPushPrompt)
+        state.todayScenario = .calibrating
+        #expect(vm.hero == .calibrating(nights: MockData.calibratingScore.baselineDays))
+        state.todayScenario = .watch
+        #expect(vm.watchHint?.source == "Garmin Connect")
+    }
+
+    @Test func healthFactsComeFromAppleHealth() async {
+        let health = MockHealthStore()
+        let now = Date()
+        health.night = RawNight(asleepMin: 400, bedtime: now.addingTimeInterval(-30_000), wake: now.addingTimeInterval(-3_000),
+                                source: "Garmin Connect")
+        health.freshness = [SourceFreshness(source: "Garmin Connect", bundleID: nil, newest: now.addingTimeInterval(-3_000)),
+                            SourceFreshness(source: "Old band", bundleID: nil, newest: now.addingTimeInterval(-30 * 86_400))]
+        let (_, state, _) = makeState(health: health, now: now)
+        let vm = model(state)
+        await vm.loadHealthFacts()
+        #expect(vm.lastNightRaw == health.night)
+        #expect(vm.freshness.map(\.source) == ["Garmin Connect"]) // older than two weeks: not the watch in use
+    }
+}
+
+// MARK: - Sync details
+
+@Suite("Profile: sync details")
+@MainActor
+struct SyncDetailsTests {
+    @Test func streamsComeInDrainOrderWithTheirLastAnswer() async {
+        let health = MockHealthStore(streams: [.sleep, .quantity(.heartRate)], pages: [.quantity(.heartRate): [
+            HealthDelta(samples: (0..<4).map { _ in Sample(type: .heartRate, start: .now, end: .now, value: 60, unit: "bpm", source: "x") })
+        ]])
+        let api = MockPlatformAPI()
+        api.syncResponse = SyncResponse(samples: 3, sleep: 0, workouts: 0, daysTouched: [],
+                                        ignored: SyncIgnored(samples: IgnoredCounts(duplicate: 1, outsideWindow: 0, unknownType: 0),
+                                                             sleep: .none, workouts: .none))
+        let (_, state, _) = makeState(api: api, health: health)
+        let sync = SyncService(env: state.env)
+        let model = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        await sync.syncNow()
+
+        #expect(model.streams.map { $0.id } == ["sleep", "heart_rate"])
+        // Sleep had nothing: drained (backfilled), nothing sent, no answer to show.
+        #expect(model.streams[0].progress?.sent == 0 && model.streams[0].progress?.backfilled == true)
+        #expect(model.streams[0].lastPageText == nil && model.streams[0].newestText == String(localized: "Nothing sent yet"))
+        let hr = model.streams[1]
+        #expect(hr.progress?.sent == 4)
+        #expect(SyncDetailsModel.StreamRow(id: "hrv_sdnn", name: "HRV", progress: nil).title == "HRV")
+        #expect(SyncDetailsModel.StreamRow(id: "x", name: "resting heart rate", progress: nil).title == "Resting heart rate")
+        #expect(hr.lastPageText == String(localized: "\(3.formatted()) accepted") + " · " + String(localized: "\(1.formatted()) duplicates"))
+        #expect(model.phaseText == String(localized: "Up to date"))
+        #expect(model.backlogText == String(localized: "None"))
+    }
+
+    @Test func diagnosticsHoldCountsAndIDsButNoHealthValues() async {
+        let status = APIStatus()
+        status.served(.init(date: .now, method: "POST", path: "/v1/sync", status: 200, requestID: "rid-1"))
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [
+            HealthDelta(samples: [Sample(type: .heartRate, start: .now, end: .now, value: 61.5, unit: "bpm", source: "x")])
+        ]])
+        let (_, state, _) = makeState(health: health)
+        let sync = SyncService(env: state.env)
+        let model = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: status)
+        await sync.syncNow()
+        await model.loadQueue()
+
+        let text = model.diagnostics
+        #expect(text.contains("rid-1") && text.contains("heart_rate: 1 rec"))
+        #expect(text.contains(state.env.settings.deviceId.uuidString.lowercased()))
+        #expect(!text.contains("61.5")) // a value never leaves through diagnostics
+        #expect(model.queueText == String(localized: "Idle"))
+    }
+
+    @Test func syncingTheLastThreeDaysAgainRunsThePipeline() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [
+            HealthDelta(samples: [Sample(type: .heartRate, start: .now, end: .now, value: 60, unit: "bpm", source: "x")])
+        ]], recent: [.quantity(.heartRate): [
+            HealthDelta(samples: [Sample(type: .heartRate, start: .now, end: .now, value: 60, unit: "bpm", source: "x")])
+        ]])
+        let api = MockPlatformAPI()
+        // Nothing to score: the coordinator doesn't wait on the test clock.
+        api.syncResponse = SyncResponse(samples: 1, sleep: 0, workouts: 0, daysTouched: [])
+        let (_, state, _) = makeState(api: api, health: health)
+        let sync = SyncService(env: state.env)
+        let model = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        await sync.syncNow()
+        let before = health.recentReads
+
+        await model.resendRecent()
+
+        #expect(health.recentReads == before + 1)
+        #expect(!sync.engineState.recentRequested)
+    }
+}
+
 // MARK: - Strain
 
 @Suite("Strain view model")

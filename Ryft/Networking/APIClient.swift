@@ -331,6 +331,8 @@ final class APIClient: RyftDataSource {
                 if let warned = response.map(Self.gates), !warned.isEmpty {
                     await status.observe(warned, enforced: false)
                 }
+                await status.served(.init(date: .now, method: method, path: path, status: code,
+                                          requestID: response?.value(forHTTPHeaderField: "X-Request-ID")))
                 return (code, data)
             }
             let retryAfter = response.flatMap(Self.retryAfter)

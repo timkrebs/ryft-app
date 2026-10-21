@@ -39,9 +39,14 @@ struct SleepView: View {
                     .font(.ryft(.title))
                     .foregroundStyle(Theme.textPrimary)
                     .accessibilityAddTraits(.isHeader)
-                Text(model.subtitle)
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
+                HStack(spacing: 5) {
+                    Text(model.subtitle)
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textSecondary)
+                    if model.mode == .day, model.marker != nil { DayMarker(kind: model.marker) }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityValue(Text(model.mode == .day ? model.marker?.spoken ?? "" : ""))
             }
             Spacer()
             stepButton("chevron.right", label: "Next night", days: 1, enabled: model.canStepForward)
