@@ -255,9 +255,11 @@ struct SyncStatusLineView: View {
             Image(systemName: line.systemImage)
                 .symbolEffect(.pulse, options: .repeating, isActive: line.isActive && !reduceMotion)
                 .accessibilityHidden(true)
+            // Wraps at every size, never truncates ("Demodaten · Aktuell · gerade eben" at AX3 is
+            // three lines); the fixed vertical size keeps a parent from squeezing it into an ellipsis.
             Text(line.text(now: now))
-                .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .font(.ryft(.caption))
         .frame(maxWidth: line.isStale ? nil : .infinity)
@@ -662,7 +664,11 @@ private struct SetupStep: View {
 
 #Preview("Sync status line · stale · AX3", traits: .sizeThatFitsLayout) {
     SchemePair {
-        SyncStatusLineView(line: .stale(since: PreviewIssue.at(14, 5), offersRetry: true), action: {}, retry: {})
+        VStack(spacing: 12) {
+            SyncStatusLineView(line: .stale(since: PreviewIssue.at(14, 5), offersRetry: true), action: {}, retry: {})
+            // The longest up-to-date line (demo prefix) wraps instead of truncating.
+            SyncStatusLineView(line: .upToDate(.now, demo: true), action: {})
+        }
     }
     .environment(\.dynamicTypeSize, .accessibility3)
 }
