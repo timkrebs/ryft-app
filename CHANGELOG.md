@@ -51,6 +51,9 @@ Store "What's New".
   "Sync last 3 days again" and "Copy diagnostics" for support.
 
 ### Fixed
+- Profile → Notifications no longer shows switches that look on while notifications are
+  still being rolled out to your account: it says what you'll get, and when iOS has them
+  turned off it says so with a way to Settings.
 - A missing consent or invite code no longer shows as "RYFT didn't accept your sign-in";
   the app asks for what's missing and syncs once it's done.
 - Demo data (and a first launch that opened Strain or Sleep first) showed only today:

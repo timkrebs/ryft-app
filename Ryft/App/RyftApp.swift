@@ -410,6 +410,8 @@ struct RootView: View {
 #if DEBUG
 /// Screens a screenshot run can open directly (`scripts/screenshots.sh`, `-RyftScreen <name>`).
 enum DebugScreen: String {
+    /// Profile → Notifications.
+    case notifications
     case invite, consent, aboutYou, aboutYouSaved, accountHint, signInMethods, syncDetails, baselineSleepNeed, sleepNeed
     /// Bedtime & wake's editor, and Tonight with the default schedule.
     case bedtime, tonight
@@ -421,6 +423,7 @@ enum DebugScreen: String {
     @MainActor @ViewBuilder
     var view: some View {
         switch self {
+        case .notifications: NavigationStack { NotificationSettingsView() }
         case .invite: OnboardingStepPreview(step: .invite)
         case .consent: OnboardingStepPreview(step: .consent)
         case .aboutYou: OnboardingStepPreview(step: .aboutYou)
