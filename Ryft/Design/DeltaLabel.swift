@@ -3,8 +3,9 @@ import SwiftUI
 /// "▲ +4 ms · +8 %": arrow, signed change, and the percentage for raw
 /// physiology. The colour comes from direction × the metric's polarity: teal when
 /// the change is good, Alert when it's bad, secondary ink when the metric has no
-/// good direction. Under 2 % it reads "—". The arrow and sign carry the meaning,
-/// so it never rests on colour alone.
+/// good direction. Under 2 % it reads "Steady" (spoken "No change"); without a delta
+/// nothing renders, so no "—" ever stands in for a value. The arrow and sign carry the
+/// meaning, so it never rests on colour alone.
 struct DeltaLabel: View {
     let spec: MetricSpec
     let delta: MetricDelta?
@@ -32,7 +33,7 @@ struct DeltaLabel: View {
     }
 
     static func text(_ d: MetricDelta, spec: MetricSpec) -> String {
-        if d.isFlat { return "—" }
+        if d.isFlat { return String(localized: "Steady", comment: "A change under 2 %, before \"vs 7 d\".") }
         let up = d.value > 0
         var s = "\(up ? "▲" : "▼") \(up ? "+" : "−")\(spec.deltaMagnitude(abs(d.value)))"
         if spec.deltaShowsPercent, let p = d.percent {
@@ -78,4 +79,30 @@ struct DeltaLabel: View {
             DeltaLabel(spec: .hrv, delta: MetricDelta(current: 52.5, reference: 52), reference: "vs 7 d")
         }
     }
+}
+
+#Preview("DeltaLabel · up, down, flat, none", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        VStack(alignment: .leading, spacing: 10) {
+            DeltaLabel(spec: .readiness, delta: MetricDelta(current: 84, reference: 78), reference: String(localized: "vs 7 d"))
+            DeltaLabel(spec: .readiness, delta: MetricDelta(current: 70, reference: 78), reference: String(localized: "vs 7 d"))
+            DeltaLabel(spec: .readiness, delta: MetricDelta(current: 80, reference: 79.6), reference: String(localized: "vs 7 d"))
+            // nil: nothing at all, no gap (the border shows it takes no space).
+            DeltaLabel(spec: .readiness, delta: nil, reference: String(localized: "vs 7 d"))
+                .border(Theme.separator)
+            ChartHeader(spec: .readiness, value: 80, delta: nil)
+        }
+    }
+}
+
+#Preview("DeltaLabel · de · AX3", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        VStack(alignment: .leading, spacing: 10) {
+            DeltaLabel(spec: .readiness, delta: MetricDelta(current: 80, reference: 79.6), reference: String(localized: "vs 7 d"))
+            ChartHeader(spec: .readiness, value: 80, delta: MetricDelta(current: 80, reference: 79.6))
+            ChartHeader(spec: .readiness, value: 80, delta: nil)
+        }
+    }
+    .environment(\.locale, Locale(identifier: "de"))
+    .environment(\.dynamicTypeSize, .accessibility3)
 }

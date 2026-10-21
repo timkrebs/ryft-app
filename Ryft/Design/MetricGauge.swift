@@ -36,6 +36,8 @@ struct MetricGauge: View {
     var title: String? = nil
     /// The orbit mark above the value (large gauges only).
     var showsMark = false
+    /// Read after the value, e.g. a `GaugeNote` shown under the gauge ("Recalculating your baselines").
+    var accessibilityNote: String? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown: Double = 0
@@ -169,7 +171,8 @@ struct MetricGauge: View {
         var parts = [String(localized: "\(spec.number(value)) of \(spec.number(scale.upperBound))")]
         if let band { parts.append(band.label) }
         if let delta { parts.append(DeltaLabel.spoken(delta, spec: spec, reference: deltaReference)) }
-        return parts.joined(separator: ", ")
+        let spoken = parts.joined(separator: ", ")
+        return accessibilityNote.map { "\(spoken). \($0)" } ?? spoken
     }
 
     /// First appearance fills from 0 (250 ms); later values move on from the current
@@ -330,6 +333,28 @@ struct PendingGauge: View {
     }
 }
 
+/// A plain line under a gauge (ui.md §1.2 D, §1.7): a static symbol and a caption in secondary
+/// ink, centred, wrapping. Not a card and not an action: it says why the gauge reads as it does.
+struct GaugeNote: View {
+    let text: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: systemImage)
+                .accessibilityHidden(true)
+            Text(text)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.ryft(.caption))
+        .foregroundStyle(Theme.textSecondary)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 #Preview("Baseline and pending", traits: .sizeThatFitsLayout) {
     SchemePair {
         HStack(spacing: 16) {
@@ -366,4 +391,33 @@ struct PendingGauge: View {
             }
         }
     }
+}
+
+#Preview("Gauge notes", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        VStack(spacing: 20) {
+            VStack(spacing: 8) {
+                MetricGauge(spec: .readiness, value: 80, size: .large, title: String(localized: "Overall readiness"),
+                            showsMark: true, accessibilityNote: String(localized: "Recalculating your baselines"))
+                GaugeNote(text: String(localized: "Recalculating your baselines"), systemImage: "arrow.triangle.2.circlepath")
+            }
+            VStack(spacing: 8) {
+                BaselineGauge(nights: 0)
+                GaugeNote(text: String(localized: "Baselines need heart-rate variability and resting heart rate from nights with your watch."),
+                          systemImage: "info.circle")
+            }
+        }
+    }
+}
+
+#Preview("Gauge notes · de · AX3", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        VStack(spacing: 12) {
+            GaugeNote(text: String(localized: "Recalculating your baselines"), systemImage: "arrow.triangle.2.circlepath")
+            GaugeNote(text: String(localized: "Baselines need heart-rate variability and resting heart rate from nights with your watch."),
+                      systemImage: "info.circle")
+        }
+    }
+    .environment(\.locale, Locale(identifier: "de"))
+    .environment(\.dynamicTypeSize, .accessibility3)
 }

@@ -55,7 +55,7 @@ struct ChartStyleTests {
     @Test func smallChangesReadAsFlat() {
         let d = MetricDelta(current: 50.5, reference: 50)
         #expect(d.isFlat)
-        #expect(DeltaLabel.text(d, spec: .hrv) == "—")
+        #expect(DeltaLabel.text(d, spec: .hrv) == String(localized: "Steady")) // never a bare "—" (ui.md §4)
     }
 
     @Test func scoresChangeInPointsWithoutPercent() {
@@ -75,19 +75,20 @@ struct ChartStyleTests {
     // MARK: T0 item 4: "— vs 7 d" next to a full line
 
     /// Today's Trends card: 7 readiness points, the newest 80. `vsSevenDayMean` is NOT nil here (it needs one
-    /// earlier point inside the 7 days before the newest); the delta is "flat" (< 2 %), and a flat delta renders
-    /// as "—" followed by the reference "vs 7 d" (DeltaLabel.text, DeltaLabel.swift ~L41). A nil delta renders
-    /// nothing at all (`if let delta`), so the placeholder in the screenshot is the flat case.
-    @Test func aFlatSevenDayDeltaReadsAsABareDash() throws {
+    /// earlier point inside the 7 days before the newest); the delta is "flat" (< 2 %). It used to render as "—"
+    /// followed by "vs 7 d", which read as a missing value; it reads "Steady vs 7 d" now (ui.md §4, decision UI-2).
+    /// A nil delta renders nothing at all (`if let delta`).
+    @Test func aFlatSevenDayDeltaReadsSteady() throws {
         let values: [Double] = [79, 81, 78, 80, 79, 81, 80]
         let points = values.enumerated().map { TrendPoint(day: "2026-10-\(15 + $0.offset)", value: $0.element) }
         let delta = try #require(MetricDelta.vsSevenDayMean(points))
         #expect(delta.isFlat)
-        #expect(DeltaLabel.text(delta, spec: .readiness) == "—")
+        #expect(DeltaLabel.text(delta, spec: .readiness) == String(localized: "Steady"))
+        #expect(DeltaLabel.text(delta, spec: .readiness) != "—")
+        #expect(DeltaLabel.color(delta, spec: .readiness) == Theme.textSecondary)
         #expect(DeltaLabel.spoken(delta, spec: .readiness, reference: "vs 7 d") == "No change vs 7 d")
-        withKnownIssue("T2: a flat delta must not look like a missing one (hide it, or say 'no change')") {
-            #expect(DeltaLabel.text(delta, spec: .readiness) != "—")
-        }
+        // A real change keeps its arrow and sign.
+        #expect(DeltaLabel.text(MetricDelta(current: 84, reference: 78), spec: .readiness).hasPrefix("▲ +"))
     }
 
     @Test func theDeltaIsNilOnlyWithoutAnEarlierPointInTheWeek() {

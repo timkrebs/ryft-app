@@ -102,6 +102,17 @@
         }
       }
     },
+    "%@, %@, not today's score" : {
+      "comment" : "VoiceOver value of a dimmed Today tile: value, its day (e.g. Yesterday).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, %2$@, nicht der Wert von heute"
+          }
+        }
+      }
+    },
     "%@: %@" : {
       "localizations" : {
         "de" : {
@@ -404,6 +415,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ausgangswerte"
+          }
+        }
+      }
+    },
+    "Baselines need heart-rate variability and resting heart rate from nights with your watch." : {
+      "comment" : "Note under the baseline gauge when a long history has no HRV or resting heart rate (row B).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgangswerte brauchen Herzfrequenzvariabilität und Ruhepuls aus Nächten mit deiner Uhr."
           }
         }
       }
@@ -1288,6 +1310,17 @@
         }
       }
     },
+    "Recalculating your baselines" : {
+      "comment" : "Note under Today's gauge while the platform recalculates the baselines (row D).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgangswerte werden neu berechnet"
+          }
+        }
+      }
+    },
     "Remind me before bedtime" : {
       "localizations" : {
         "de" : {
@@ -1738,6 +1771,17 @@
         }
       }
     },
+    "Steady" : {
+      "comment" : "A change under 2 %, before \"vs 7 d\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stabil"
+          }
+        }
+      }
+    },
     "Step %lld of 3: %@" : {
       "localizations" : {
         "de" : {
@@ -1974,6 +2018,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Um deine Werte zu berechnen, verarbeitet RYFT Gesundheitsdaten aus Apple Health. Das heißt:"
+          }
+        }
+      }
+    },
+    "today.tile.calibrating" : {
+      "comment" : "Under each of Today's tiles while the baselines fill (still calibrating, not done).",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kalibriert noch"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "calibrating"
           }
         }
       }
