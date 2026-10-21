@@ -252,4 +252,35 @@ struct BetaMirrorDecodingTests {
         #expect(json.contains(#""app_version":"1.0.0 (1)""#) && json.contains(#""os_version":"iOS 27.1""#))
         #expect(json.contains(#""source_bundle_id":"com.apple.health.81E2""#))
     }
+
+    /// API.md → `POST /v1/feedback`: the example body, field for field, through the shared encoder.
+    @Test func feedbackPostMatchesTheExample() throws {
+        let example = #"""
+        { "message": "Recovery 41 after a great night?", "category": "data",
+          "app_version": "0.9.0", "build": "41", "device_model": "iPhone17,1", "os_version": "iOS 26.1",
+          "request_ids": ["01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c"],
+          "diagnostics": { "last_sync": "2026-10-20T06:58:00Z", "healthkit_types": 9 } }
+        """#
+        let post = FeedbackPost(message: "Recovery 41 after a great night?", category: .data, appVersion: "0.9.0",
+                                build: "41", deviceModel: "iPhone17,1", osVersion: "iOS 26.1",
+                                requestIds: ["01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c"],
+                                diagnostics: ["last_sync": "2026-10-20T06:58:00Z", "healthkit_types": "9"])
+        func object(_ data: Data) throws -> [String: Any] {
+            try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        let sent = try object(APIClient.jsonEncoder.encode(post))
+        let wanted = try object(Data(example.utf8))
+        #expect(Set(sent.keys) == Set(wanted.keys))
+        for key in ["message", "category", "app_version", "build", "device_model", "os_version"] {
+            #expect(sent[key] as? String == wanted[key] as? String, "\(key)")
+        }
+        #expect(sent["request_ids"] as? [String] == wanted["request_ids"] as? [String])
+        // The mirror's values are strings (API.md's Swift mirror); the keys are the example's.
+        let diagnostics = try #require(sent["diagnostics"] as? [String: String])
+        #expect(Set(diagnostics.keys) == Set(try #require(wanted["diagnostics"] as? [String: Any]).keys))
+        #expect(diagnostics["last_sync"] == "2026-10-20T06:58:00Z")
+        // Only the message is required; the platform defaults the category to `other`.
+        let bare = try object(APIClient.jsonEncoder.encode(FeedbackPost(message: "Hi")))
+        #expect(Set(bare.keys) == ["message", "request_ids"])
+    }
 }
