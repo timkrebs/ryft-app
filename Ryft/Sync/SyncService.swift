@@ -209,11 +209,19 @@ final class SyncService {
         await syncNow()
     }
 
-    /// `GET /v1/me/sync` → `resync_requested_at`: the operator found data missing. Newer
-    /// than this account's last full re-sync: the next upload is one.
+    /// A `GET /v1/me/sync` answer, wherever it was asked (the launch check, a scoring
+    /// wait): what the sync acts on.
+    func receive(_ status: SyncStatus) {
+        if let requested = status.resyncRequestedAt { fullResyncRequested(at: requested) }
+    }
+
+    /// `resync_requested_at`: the operator found data missing. A request this account
+    /// hasn't handled yet (compared as the server sent it, never with the phone's
+    /// clock) makes the next upload a full re-sync.
     func fullResyncRequested(at requested: Date) {
-        guard let account = auth.accountID, requested > (engineState.lastFullResyncAt ?? .distantPast),
-              !engineState.fullResyncRequested else { return }
+        guard let account = auth.accountID,
+              requested > (engineState.handledResyncRequest ?? .distantPast) else { return }
+        engineState.handledResyncRequest = requested
         engineState.fullResyncRequested = true
         engineState.save(account: account, defaults: env.defaults)
     }
@@ -273,8 +281,10 @@ struct SyncEngineState: Codable, Equatable, Sendable {
     var backlogBytes = 0
     /// HealthKit deletions kept for the platform (`PendingDeletions`), counted.
     var pendingDeletions = 0
-    /// The last full re-sync (Profile, or the operator's request).
+    /// The last full re-sync (Profile, or the operator's request), phone time.
     var lastFullResyncAt: Date?
+    /// The operator's latest `resync_requested_at` acted on, as the server sent it.
+    var handledResyncRequest: Date?
     /// `resync_requested_at` asked for one; the next upload does it.
     var fullResyncRequested = false
     var lastError: String?
@@ -295,6 +305,7 @@ struct SyncEngineState: Codable, Equatable, Sendable {
         backlogBytes = try c.decodeIfPresent(Int.self, forKey: .backlogBytes) ?? 0
         pendingDeletions = try c.decodeIfPresent(Int.self, forKey: .pendingDeletions) ?? 0
         lastFullResyncAt = try c.decodeIfPresent(Date.self, forKey: .lastFullResyncAt)
+        handledResyncRequest = try c.decodeIfPresent(Date.self, forKey: .handledResyncRequest)
         fullResyncRequested = try c.decodeIfPresent(Bool.self, forKey: .fullResyncRequested) ?? false
         lastError = try c.decodeIfPresent(String.self, forKey: .lastError)
         lastRequestID = try c.decodeIfPresent(String.self, forKey: .lastRequestID)

@@ -54,9 +54,13 @@ private final class FakeSteps: SyncSteps {
     /// `GET /v1/me/sync` → `gate`.
     var gate: APIErrorCode?
 
+    /// How long each ask of `GET /v1/me/sync` takes, on the clock.
+    var askDuration: Duration = .zero
+
     /// `scored` per ask: the touched days are pending until one says `true`.
     func syncStatus() async throws -> SyncStatus {
         events.append("poll")
+        if askDuration > .zero { try await clock.sleep(for: askDuration) }
         let done = scored.isEmpty ? false : scored.removeFirst()
         return SyncStatus(gate: gate, lastSyncAt: nil, lastSyncDevice: nil, latest: [:],
                           today: TodayState(day: "2026-10-19", state: done ? .scored : .pending, scoredAt: nil,
@@ -109,15 +113,16 @@ struct SyncCoordinatorTests {
         let c = SyncCoordinator(steps: steps, clock: clock)
         let run = Task { await c.run(.appActive) }
 
-        // The platform's estimate (3 s), doubling, a minute at most, five minutes in all.
+        // The platform's estimate (3 s), doubling, a minute at most, five minutes in all;
+        // no ask at the deadline itself (the days are refreshed now anyway).
         let waits = [3, 6, 12, 24, 48, 60, 60, 60, 27]
         for wait in waits {
             #expect(await eventually { clock.pendingSleeps == 1 })
             clock.advance(by: .seconds(wait))
         }
         let outcome = await run.value
-        #expect(outcome.polls == waits.count)
-        #expect(steps.count("poll") == waits.count)
+        #expect(outcome.polls == waits.count - 1)
+        #expect(steps.count("poll") == waits.count - 1)
         #expect(steps.events.contains("days:2026-10-19")) // refreshed anyway
     }
 
@@ -766,5 +771,29 @@ struct SyncCoordinatorScoringTests {
         // A push after that finds nothing waiting: it refreshes on its own.
         let pushed = await c.run(.silentPush(days: ["2026-10-19"]))
         #expect(!pushed.cancelled && steps.events.last != nil)
+    }
+}
+
+/// The review on #12.
+@Suite("Sync coordinator: the scoring deadline")
+@MainActor
+struct SyncCoordinatorDeadlineTests {
+    @Test func fiveMinutesMeansFiveMinutesWithSlowAsksToo() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.scored = []
+        steps.askDuration = .seconds(10) // every ask is slow
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let start = clock.now()
+        let run = Task { await c.run(.appActive) }
+        var done = false
+        for _ in 0..<2_000 where !done {
+            guard await eventually({ clock.pendingSleeps > 0 || steps.events.contains("days:2026-10-19") }) else { break }
+            done = steps.events.contains("days:2026-10-19")
+            if !done { clock.advance(by: .seconds(1)) }
+        }
+        _ = await run.value
+        #expect(clock.now().timeIntervalSince(start) <= 300) // refreshed by the deadline, asks included
+        #expect(steps.events.contains("days:2026-10-19"))
     }
 }

@@ -33,6 +33,8 @@ final class ScreenModels {
         }
         // Nothing syncs before consent, nor behind an enforced invite gate.
         sync.gate = { [onboarding] in onboarding.syncGate }
+        // The launch check's sync status reaches the sync (an operator's re-sync request).
+        onboarding.statusReceived = { [sync] in sync.receive($0) }
         push = PushRegistrar(env: state.env)
         journal = JournalStore(env: state.env)
         today = TodayViewModel(state: state, sync: sync, coordinator: coordinator, push: push,

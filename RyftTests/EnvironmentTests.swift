@@ -608,4 +608,37 @@ struct SyncScoringStateTests {
 
         #expect(sync.lastScoring == SyncScoring(queuedDays: ["2026-10-20"], expectedWithinSec: 25))
     }
+
+    @Test func theLaunchChecksResyncRequestReachesTheSync() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(1)]])
+        health.commit(HealthPage(delta: HealthDelta(), anchor: nil, more: false), for: .sleep) // synced before
+        let api = MockPlatformAPI()
+        api.resyncRequestedAt = Date(timeIntervalSince1970: 1_792_500_000)
+        let env = AppEnvironment.test(api: api, health: health)
+        let sync = SyncService(env: env)
+        let onboarding = OnboardingCoordinator(state: AppState(env: env), apiStatus: APIStatus()) {}
+        onboarding.statusReceived = { sync.receive($0) }
+
+        await onboarding.check() // the launch's GET /v1/me/sync, no scoring wait involved
+        await sync.syncNow()
+
+        #expect(health.resets == 1) // the next upload was a full re-sync
+    }
+
+    @Test func resyncRequestsAreComparedAsTheServerSentThem() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [:])
+        let clock = TestClock(now: Date(timeIntervalSince1970: 2_000_000_000)) // the phone runs far ahead
+        let sync = SyncService(env: .test(health: health, clock: clock))
+        let request = Date(timeIntervalSince1970: 1_792_500_000)
+
+        sync.fullResyncRequested(at: request)
+        await sync.syncNow()
+        #expect(health.resets == 1) // honoured although "older" than the phone's clock
+        sync.fullResyncRequested(at: request) // the same request again
+        await sync.syncNow()
+        #expect(health.resets == 1)
+        sync.fullResyncRequested(at: request.addingTimeInterval(60)) // a new one
+        await sync.syncNow()
+        #expect(health.resets == 2)
+    }
 }

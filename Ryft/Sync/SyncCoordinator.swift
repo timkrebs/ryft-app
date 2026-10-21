@@ -337,28 +337,40 @@ actor SyncCoordinator {
 
     /// Until scoring has finished the touched days, by the platform's word: a silent push
     /// for one of them, or `GET /v1/me/sync` no longer listing them as pending. The first
-    /// wait is the platform's estimate, then waits double up to a minute, five minutes in
-    /// all. A gate ends the wait (nothing is scored behind it). Gives up quietly: the
-    /// days are refreshed either way. Returns how often it asked.
+    /// wait is the platform's estimate; after each wait the status is asked while the next
+    /// wait runs (doubling up to a minute), and an answer that says "scored" (or names a
+    /// gate, behind which nothing is scored) ends that wait at once. Five minutes on the
+    /// clock in all; an ask still running then is cancelled. Gives up quietly: the days
+    /// are refreshed either way. Returns how often it asked.
     private static func awaitScoring(_ days: [String], _ steps: SyncSteps, _ clock: AppClock,
                                      _ scoring: ScoringSignal) async throws -> Int {
-        var pending = Set(days)
+        await scoring.begin(Set(days))
         let expected = await steps.expectedScoringSeconds ?? defaultExpectedScoring
         var delay = max(minimumPollDelay, .seconds(expected))
-        var waited = Duration.zero
+        let deadline = clock.now().addingTimeInterval(maximumScoringWait.timeInterval)
         var polls = 0
-        while waited < maximumScoringWait {
-            delay = min(delay, maximumScoringWait - waited)
-            if try await scoring.wait(for: pending, timeout: delay, clock: clock) { return polls }
-            waited += delay
-            polls += 1
-            delay = min(delay * 2, maximumPollDelay)
-            // A failed ask is one more wait, not the end.
-            guard let status = try? await steps.syncStatus() else { continue }
-            if status.gate != nil { return polls }
-            pending.formIntersection(status.pendingDays)
-            if pending.isEmpty { return polls }
+        var asking: Task<Void, Never>?
+        defer { asking?.cancel() }
+        do {
+            while true {
+                let left = deadline.timeIntervalSince(clock.now())
+                guard left > 0 else { break }
+                if try await scoring.wait(timeout: min(delay, .seconds(left)), clock: clock) { break }
+                guard deadline > clock.now() else { break }
+                polls += 1
+                asking?.cancel()
+                asking = Task {
+                    // A failed ask is one more wait, not the end.
+                    guard let status = try? await steps.syncStatus() else { return }
+                    await scoring.answer(pending: Set(status.pendingDays), gated: status.gate != nil)
+                }
+                delay = min(delay * 2, maximumPollDelay)
+            }
+        } catch {
+            await scoring.end()
+            throw error
         }
+        await scoring.end()
         return polls
     }
 
@@ -373,15 +385,30 @@ actor SyncCoordinator {
     }
 }
 
-/// The silent push's "scoring finished these days", handed to a pipeline that waits for it
-/// (`SyncCoordinator.awaitScoring`).
+/// "Scoring finished these days", for a pipeline waiting on them (`awaitScoring`): from the
+/// silent push, or from a `GET /v1/me/sync` answer. A word that comes between two waits
+/// is kept, so the next wait returns at once.
 actor ScoringSignal {
-    private var waiting: (days: Set<String>, continuation: CheckedContinuation<Bool, Never>)?
+    /// The days the pipeline waits for; `nil` when none does.
+    private var awaited: Set<String>?
+    private var done = false
+    private var waiting: CheckedContinuation<Bool, Never>?
     /// The wait that's open; a parked half that arrives after it closed returns at once.
     private var open: UUID?
 
-    /// `true` when a push for one of `days` came within `timeout`; `false` after it.
-    func wait(for days: Set<String>, timeout: Duration, clock: AppClock) async throws -> Bool {
+    func begin(_ days: Set<String>) {
+        awaited = days
+        done = false
+    }
+
+    func end() {
+        awaited = nil
+        done = false
+    }
+
+    /// `true` when the days were scored (or are known to be) before `timeout` ended.
+    func wait(timeout: Duration, clock: AppClock) async throws -> Bool {
+        if done { return true }
         let id = UUID()
         open = id
         return try await withThrowingTaskGroup(of: Bool.self) { group in
@@ -389,7 +416,7 @@ actor ScoringSignal {
                 try await clock.sleep(for: timeout)
                 return false
             }
-            group.addTask { await self.park(days, id) }
+            group.addTask { await self.park(id) }
             let first: Bool
             do {
                 first = try await group.next() ?? false
@@ -405,24 +432,37 @@ actor ScoringSignal {
         }
     }
 
-    /// A push arrived for `days`: `true` when a waiting pipeline took it.
+    /// A push arrived for `days`: `true` when a pipeline waits for one of them.
     func signal(_ days: Set<String>) -> Bool {
-        guard let w = waiting, !w.days.isDisjoint(with: days) else { return false }
-        waiting = nil
-        w.continuation.resume(returning: true)
+        guard let awaited, !awaited.isDisjoint(with: days) else { return false }
+        finish()
         return true
     }
 
-    private func park(_ days: Set<String>, _ id: UUID) async -> Bool {
+    /// `GET /v1/me/sync` answered: the awaited days still pending, and whether a gate stands.
+    func answer(pending: Set<String>, gated: Bool) {
+        guard let current = awaited else { return }
+        let left = current.intersection(pending)
+        awaited = left
+        if gated || left.isEmpty { finish() }
+    }
+
+    private func finish() {
+        done = true
+        waiting?.resume(returning: true)
+        waiting = nil
+    }
+
+    private func park(_ id: UUID) async -> Bool {
         await withCheckedContinuation { c in
-            if open == id { waiting = (days, c) } else { c.resume(returning: false) }
+            if open == id, !done { waiting = c } else { c.resume(returning: done) }
         }
     }
 
     private func close(_ id: UUID) {
         guard open == id else { return }
         open = nil
-        waiting?.continuation.resume(returning: false)
+        waiting?.resume(returning: false)
         waiting = nil
     }
 }
@@ -458,7 +498,7 @@ final class LiveSyncSteps: SyncSteps {
         let status = try await state.env.api.syncStatus()
         state.syncStatus = status
         if let gate = status.gate { apiStatus.observe([gate], enforced: false) }
-        if let requested = status.resyncRequestedAt { sync.fullResyncRequested(at: requested) }
+        sync.receive(status)
         return status
     }
 

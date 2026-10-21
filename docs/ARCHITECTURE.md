@@ -221,11 +221,14 @@ graph of `await`s and a `TaskGroup`:
   - The gate (`SyncService.gate`) is asked before every page.
 - **Scoring, by the platform's word** (no clock comparison): after an upload the
   pipeline waits `SyncResponse.scoring.expected_within_sec`, then asks `GET /v1/me/sync`
-  until `pending_days` no longer holds the touched days, doubling the wait up to a
-  minute, five minutes at most. The silent push for a scored day ends the wait at once
-  (`ScoringSignal`) and joins the run, so it isn't refreshed twice. A `gate` in the
-  answer ends the wait and goes to onboarding; `resync_requested_at` newer than the
-  account's last full re-sync makes the next upload one.
+  (while the next wait runs) until `pending_days` no longer holds the touched days,
+  doubling the wait up to a minute, five minutes on the clock in all. An answer that
+  says "scored", or the silent push for a scored day, ends the wait at once
+  (`ScoringSignal`, which also keeps a word that arrives between waits); the push then
+  joins the run, so the day isn't refreshed twice. A `gate` in the answer ends the wait
+  and goes to onboarding. Every answer (the launch check's too) goes to
+  `SyncService.receive`: a `resync_requested_at` this account hasn't handled (compared
+  as the server sent it) makes the next upload a full re-sync.
 - **Nothing touched.** A sync that uploaded nothing only refreshes what's stale.
 - **Silent push.** It skips the upload and refreshes the pushed day.
 - **One in flight.** A trigger while a sync runs queues one rerun; later triggers join it.

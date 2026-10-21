@@ -145,6 +145,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     var scoringToday = TodayState(day: DayFormat.string(from: .now), state: .scored, scoredAt: .now,
                                   modelVersion: "2026.10.1")
     var pendingDays: [String] = []
+    /// `GET /v1/me/sync` → `resync_requested_at` (the operator's request).
+    var resyncRequestedAt: Date?
     private(set) var consentPosts: [String] = []
     private(set) var inviteAttempts: [String] = []
     /// `false`: the journal endpoints answer `404`, as before M5 is deployed.
@@ -251,7 +253,7 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         return lock.withLock {
             SyncStatus(gate: gate, lastSyncAt: syncRequests.isEmpty ? nil : .now, lastSyncDevice: "iPhone",
                        latest: [:], today: scoringToday, pendingDays: pendingDays, expectedWithinSec: 20,
-                       resyncRequestedAt: nil)
+                       resyncRequestedAt: resyncRequestedAt)
         }
     }
 
