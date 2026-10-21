@@ -4,6 +4,13 @@
 
 Plan for the whole brief: `docs/work/2026-10-21-beta-feedback-1/plan.md`.
 
+**The whole brief:** six PRs. #20 sleep need (this section), #21 notifications, #22 quick
+start, #24 Apple Health (opt-in), #23 Bedtime & wake, and `docs: beta feedback 1`
+(TestFlight notes en + de with replies to the two comments, review log). Every PR was
+reviewed and the findings addressed (`review.md` next to the plan). Merge order, expected
+conflicts and **Needs you** are in the plan. In short: `push.enabled` on, the privacy policy
+line, the platform requests, Time Sensitive (optional), Convert to Folder, device checks.
+
 - One vocabulary: **Sleep need** (tonight's, from the platform) and **Baseline sleep need**
   (the part you set). One editor (`BodySettingsEditor`) and two forms (baseline sleep need in
   15-minute steps, 4–12 h; maximum heart rate 100–230 bpm) from three places: onboarding →
