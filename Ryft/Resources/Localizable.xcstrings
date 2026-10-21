@@ -66,6 +66,16 @@
         }
       }
     },
+    "%@ · %lld %%" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$lld %%"
+          }
+        }
+      }
+    },
     "%@ · Request ID %@" : {
       "localizations" : {
         "de" : {
@@ -82,12 +92,32 @@
         }
       }
     },
+    "%@ · weekend %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · Wochenende %2$@"
+          }
+        }
+      }
+    },
     "%@: %@" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@: %2$@"
+          }
+        }
+      }
+    },
+    "%lld min" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Min."
           }
         }
       }
@@ -148,6 +178,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld von %2$lld Nächten. Die Bereitschaft erscheint, sobald die Ausgangswerte vollständig sind."
+          }
+        }
+      }
+    },
+    "A notification %lld min before tonight's bedtime. It moves with your day." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Mitteilung %lld Min. vor deiner heutigen Schlafenszeit. Sie bewegt sich mit deinem Tag."
+          }
+        }
+      }
+    },
+    "A notification at your wake time. It won't ring like an alarm on this iOS version." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Mitteilung zu deiner Aufwachzeit. Sie klingelt auf dieser iOS-Version nicht wie ein Wecker."
+          }
+        }
+      }
+    },
+    "A real alarm: it rings in Silent mode and Focus, with Stop and Snooze." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein echter Wecker: Er klingelt auch im Stumm-Modus und bei Fokus, mit Stopp und Schlummern."
           }
         }
       }
@@ -268,6 +328,26 @@
         }
       }
     },
+    "Aim for" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziel"
+          }
+        }
+      }
+    },
+    "alarm" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wecker"
+          }
+        }
+      }
+    },
     "Always yours" : {
       "localizations" : {
         "de" : {
@@ -324,6 +404,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ausgangswerte · %1$lld von %2$lld Nächten"
+          }
+        }
+      }
+    },
+    "Bedtime & wake" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlafenszeit & Aufwachen"
+          }
+        }
+      }
+    },
+    "Bedtime reminder" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erinnerung zur Schlafenszeit"
           }
         }
       }
@@ -588,6 +688,16 @@
         }
       }
     },
+    "for %lld %%" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "für %lld %%"
+          }
+        }
+      }
+    },
     "From Apple Health · not scored yet" : {
       "localizations" : {
         "de" : {
@@ -604,6 +714,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vollständig neu synchronisieren"
+          }
+        }
+      }
+    },
+    "Get by" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durchkommen"
           }
         }
       }
@@ -718,6 +838,36 @@
         }
       }
     },
+    "In bed by" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Im Bett um"
+          }
+        }
+      }
+    },
+    "In bed by %@ for %lld %% of your need: %@." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um %1$@ im Bett für %2$lld %% deines Bedarfs: %3$@."
+          }
+        }
+      }
+    },
+    "In bed by %@ for your full %@." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um %1$@ im Bett für deine vollen %2$@."
+          }
+        }
+      }
+    },
     "In your RYFT account, on servers in the EU. Never sold, never used for advertising." : {
       "localizations" : {
         "de" : {
@@ -818,6 +968,16 @@
         }
       }
     },
+    "Not allowed in iOS Settings." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In den iOS-Einstellungen nicht erlaubt."
+          }
+        }
+      }
+    },
     "Not given" : {
       "localizations" : {
         "de" : {
@@ -898,6 +1058,16 @@
         }
       }
     },
+    "Off" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus"
+          }
+        }
+      }
+    },
     "Offline — will sync when back" : {
       "localizations" : {
         "de" : {
@@ -948,6 +1118,46 @@
         }
       }
     },
+    "Peak" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bestform"
+          }
+        }
+      }
+    },
+    "Perform" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leistung"
+          }
+        }
+      }
+    },
+    "Planned %@ to %@, actual %@ to %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geplant %1$@ bis %2$@, tatsächlich %3$@ bis %4$@"
+          }
+        }
+      }
+    },
+    "Planned %@–%@ · actual %@–%@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geplant %1$@–%2$@ · tatsächlich %3$@–%4$@"
+          }
+        }
+      }
+    },
     "Policy updated" : {
       "localizations" : {
         "de" : {
@@ -994,6 +1204,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Apple Health lesen"
+          }
+        }
+      }
+    },
+    "Remind me before bedtime" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erinnere mich vor der Schlafenszeit"
+          }
+        }
+      }
+    },
+    "Remind me to wind down" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erinnere mich ans Runterfahren"
+          }
+        }
+      }
+    },
+    "reminder" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erinnerung"
           }
         }
       }
@@ -1168,6 +1408,16 @@
         }
       }
     },
+    "Same time on weekdays" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gleiche Zeit an Wochentagen"
+          }
+        }
+      }
+    },
     "Saved. Past days keep their scores until you rescore them." : {
       "localizations" : {
         "de" : {
@@ -1238,6 +1488,16 @@
         }
       }
     },
+    "Set up Bedtime & wake" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlafenszeit & Aufwachen einrichten"
+          }
+        }
+      }
+    },
     "Setting up RYFT" : {
       "localizations" : {
         "de" : {
@@ -1298,6 +1558,26 @@
         }
       }
     },
+    "Snooze" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlummern"
+          }
+        }
+      }
+    },
+    "Snoozing" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlummert"
+          }
+        }
+      }
+    },
     "Starting with your last few days" : {
       "localizations" : {
         "de" : {
@@ -1334,6 +1614,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schritte"
+          }
+        }
+      }
+    },
+    "Stop" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stopp"
           }
         }
       }
@@ -1398,6 +1688,16 @@
         }
       }
     },
+    "Tell RYFT when you want to wake up. It tells you when to go to bed, with what today's strain and your sleep debt add." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sag RYFT, wann du aufwachen willst. RYFT sagt dir, wann du ins Bett solltest – mit dem, was die heutige Belastung und dein Schlafdefizit dazugeben."
+          }
+        }
+      }
+    },
     "The last 90 days are rescored with your settings." : {
       "localizations" : {
         "de" : {
@@ -1424,6 +1724,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Die Datenschutzerklärung wurde gerade aktualisiert. Lies die neue Fassung und stimme dann erneut zu."
+          }
+        }
+      }
+    },
+    "The wake-up alarm is off: iOS doesn't allow RYFT's alarms. Turn it on again to allow them." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Wecker ist aus: iOS erlaubt RYFTs Wecker nicht. Schalte ihn wieder ein, um sie zu erlauben."
           }
         }
       }
@@ -1508,6 +1818,16 @@
         }
       }
     },
+    "Time to get up" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeit aufzustehen"
+          }
+        }
+      }
+    },
     "To calculate your scores, RYFT processes health data from Apple Health. Here is what that means." : {
       "localizations" : {
         "de" : {
@@ -1518,12 +1838,52 @@
         }
       }
     },
+    "Tonight's bedtime needs a connection. It appears once you're online." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Schlafenszeit für heute Nacht braucht eine Verbindung. Sie erscheint, sobald du online bist."
+          }
+        }
+      }
+    },
+    "Tonight's plan is for another time zone than this iPhone's." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Plan für heute Nacht gilt für eine andere Zeitzone als die dieses iPhones."
+          }
+        }
+      }
+    },
     "Too many tries. Wait an hour, then try the code again." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zu viele Versuche. Warte eine Stunde und versuche den Code dann erneut."
+          }
+        }
+      }
+    },
+    "Try another wake time" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Andere Aufwachzeit ausprobieren"
+          }
+        }
+      }
+    },
+    "Turn off Bedtime & wake" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlafenszeit & Aufwachen ausschalten"
           }
         }
       }
@@ -1678,6 +2038,56 @@
         }
       }
     },
+    "Wake %@ · need %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufwachen %1$@ · Bedarf %2$@"
+          }
+        }
+      }
+    },
+    "Wake me at my wake time" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weck mich zu meiner Aufwachzeit"
+          }
+        }
+      }
+    },
+    "Wake-up alarm" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wecker"
+          }
+        }
+      }
+    },
+    "Weekdays" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wochentage"
+          }
+        }
+      }
+    },
+    "Weekend" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wochenende"
+          }
+        }
+      }
+    },
     "What changed" : {
       "localizations" : {
         "de" : {
@@ -1704,6 +2114,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wer sie sehen kann"
+          }
+        }
+      }
+    },
+    "Wind down" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Runterfahren"
           }
         }
       }
@@ -1834,6 +2254,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Deine Sitzung ist abgelaufen. Melde dich erneut an, um weiterzumachen."
+          }
+        }
+      }
+    },
+    "Your wake time from Bedtime & wake." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Aufwachzeit aus „Schlafenszeit & Aufwachen“."
           }
         }
       }
@@ -7623,18 +8053,6 @@
           "stringUnit" : {
             "state" : "machine_translated",
             "value" : "Planname"
-          }
-        }
-      }
-    },
-    "Planner" : {
-      "comment" : "Mode of the Sleep screen that shows a planner.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Planer"
           }
         }
       }
