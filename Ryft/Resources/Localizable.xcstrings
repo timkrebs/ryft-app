@@ -183,6 +183,67 @@
         }
       }
     },
+    "%lld of %lld nights with heart-rate data. Readiness appears once the baselines are complete." : {
+      "comment" : "VoiceOver value of the baseline gauge when a long history lacks HRV and resting heart rate.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld of %#@nights@. Readiness appears once the baselines are complete."
+          },
+          "substitutions" : {
+            "nights" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg night with heart-rate data"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg nights with heart-rate data"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %#@nights@. Die Bereitschaft erscheint, sobald die Ausgangswerte vollständig sind."
+          },
+          "substitutions" : {
+            "nights" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Nacht mit Herzfrequenzdaten"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Nächten mit Herzfrequenzdaten"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld of %lld nights. Readiness appears once the baselines are complete." : {
       "localizations" : {
         "de" : {
@@ -446,6 +507,67 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ausgangswerte · %1$lld von %2$lld Nächten"
+          }
+        }
+      }
+    },
+    "Baselines · %lld of %lld nights with heart-rate data" : {
+      "comment" : "Under the baseline gauge when a long history lacks HRV and resting heart rate: nights with both, of 7.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Baselines · %1$lld of %#@nights@"
+          },
+          "substitutions" : {
+            "nights" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg night with heart-rate data"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg nights with heart-rate data"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgangswerte · %1$lld von %#@nights@"
+          },
+          "substitutions" : {
+            "nights" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Nacht mit Herzfrequenzdaten"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Nächten mit Herzfrequenzdaten"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }

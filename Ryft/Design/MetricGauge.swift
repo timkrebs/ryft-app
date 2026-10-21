@@ -37,7 +37,7 @@ struct MetricGauge: View {
     /// The orbit mark above the value (large gauges only).
     var showsMark = false
     /// Read after the value, e.g. a `GaugeNote` shown under the gauge ("Recalculating your baselines").
-    var accessibilityNote: String? = nil
+    var accessibilityNote: String?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown: Double = 0
@@ -64,15 +64,23 @@ struct MetricGauge: View {
         VStack(spacing: size == .small ? 4 : 8) {
             dial
             if size == .large {
-                HStack(spacing: 6) {
-                    bandText
-                    if band != nil, delta != nil {
-                        Text("·").font(.ryft(.caption)).foregroundStyle(Theme.textTertiary)
+                // One line when it fits; at large text sizes (German at AX3) the band word over the change,
+                // wrapping: never cut off.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        bandText
+                        if band != nil, delta != nil {
+                            Text("·").font(.ryft(.caption)).foregroundStyle(Theme.textTertiary)
+                        }
+                        DeltaLabel(spec: spec, delta: delta, reference: deltaReference)
                     }
-                    DeltaLabel(spec: spec, delta: delta, reference: deltaReference)
+                    .lineLimit(1)
+                    VStack(spacing: 2) {
+                        bandText
+                        DeltaLabel(spec: spec, delta: delta, reference: deltaReference)
+                    }
+                    .multilineTextAlignment(.center)
                 }
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
             } else if size == .medium {
                 // Two short lines fit the 112 pt width where one long one wouldn't.
                 VStack(spacing: 2) {
@@ -97,6 +105,7 @@ struct MetricGauge: View {
             Text(band.label)
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -191,9 +200,12 @@ struct MetricGauge: View {
 /// The readiness gauge's place while the baselines are learned: a segment per night of
 /// the seven, filled for the nights behind them. Never an empty ring.
 struct BaselineGauge: View {
-    /// `DailyScore.baselineDays`.
+    /// `DailyScore.baselineDays`, or with `countsHeartRateNights` the nights with HRV and resting HR.
     let nights: Int
     var required = DailyScore.baselineNightsRequired
+    /// A long history short of heart-rate nights (`TodayPresentation.Note.needsVitals`): the caption
+    /// says which nights count, never a bare "nights" beside a history of many.
+    var countsHeartRateNights = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown = 0
@@ -235,13 +247,22 @@ struct BaselineGauge: View {
             }
             .frame(width: Self.diameter, height: Self.diameter)
             .padding(6)
-            Text("Baselines · \(min(nights, required)) of \(required) nights")
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textSecondary)
+            Group {
+                if countsHeartRateNights {
+                    Text("Baselines · \(min(nights, required)) of \(required) nights with heart-rate data")
+                } else {
+                    Text("Baselines · \(min(nights, required)) of \(required) nights")
+                }
+            }
+            .font(.ryft(.caption))
+            .foregroundStyle(Theme.textSecondary)
+            .multilineTextAlignment(.center)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Baselines"))
-        .accessibilityValue(Text("\(min(nights, required)) of \(required) nights. Readiness appears once the baselines are complete."))
+        .accessibilityValue(countsHeartRateNights
+            ? Text("\(min(nights, required)) of \(required) nights with heart-rate data. Readiness appears once the baselines are complete.")
+            : Text("\(min(nights, required)) of \(required) nights. Readiness appears once the baselines are complete."))
         .onAppear {
             // One segment after another, unless motion is reduced.
             if reduceMotion { shown = nights } else {
@@ -401,8 +422,17 @@ struct GaugeNote: View {
                             showsMark: true, accessibilityNote: String(localized: "Recalculating your baselines"))
                 GaugeNote(text: String(localized: "Recalculating your baselines"), systemImage: "arrow.triangle.2.circlepath")
             }
+            // Row B over a long history without HRV: the platform's readiness, the reason under it ...
             VStack(spacing: 8) {
-                BaselineGauge(nights: 0)
+                MetricGauge(spec: .readiness, value: 80, size: .large, title: String(localized: "Overall readiness"),
+                            showsMark: true,
+                            accessibilityNote: String(localized: "Baselines need heart-rate variability and resting heart rate from nights with your watch."))
+                GaugeNote(text: String(localized: "Baselines need heart-rate variability and resting heart rate from nights with your watch."),
+                          systemImage: "info.circle")
+            }
+            // ... or without a readiness, the baselines counting the nights that do count.
+            VStack(spacing: 8) {
+                BaselineGauge(nights: 2, countsHeartRateNights: true)
                 GaugeNote(text: String(localized: "Baselines need heart-rate variability and resting heart rate from nights with your watch."),
                           systemImage: "info.circle")
             }
@@ -413,9 +443,24 @@ struct GaugeNote: View {
 #Preview("Gauge notes · de · AX3", traits: .sizeThatFitsLayout) {
     SchemePair {
         VStack(spacing: 12) {
+            BaselineGauge(nights: 2, countsHeartRateNights: true)
             GaugeNote(text: String(localized: "Recalculating your baselines"), systemImage: "arrow.triangle.2.circlepath")
             GaugeNote(text: String(localized: "Baselines need heart-rate variability and resting heart rate from nights with your watch."),
                       systemImage: "info.circle")
+        }
+    }
+    .environment(\.locale, Locale(identifier: "de"))
+    .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("MetricGauge · large caption · de · AX3", traits: .sizeThatFitsLayout) {
+    // "Hoch · ▲ +11 ggü. 7 Tg." doesn't fit one line here: the band word over the change, wrapping.
+    SchemePair {
+        VStack(spacing: 16) {
+            MetricGauge(spec: .readiness, value: 84, size: .large, delta: MetricDelta(current: 84, reference: 73),
+                        title: String(localized: "Overall readiness"), showsMark: true)
+            MetricGauge(spec: .readiness, value: 80, size: .large, delta: MetricDelta(current: 80, reference: 79.6),
+                        title: String(localized: "Overall readiness"), showsMark: true)
         }
     }
     .environment(\.locale, Locale(identifier: "de"))

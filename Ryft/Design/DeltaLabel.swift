@@ -13,6 +13,8 @@ struct DeltaLabel: View {
     var reference: String? = nil
     var font: Font = .ryft(.caption)
 
+    /// The change stays whole ("▲ +11"); the reference wraps beside it when the line is too long
+    /// (German at large text sizes), never cut off. A caller that needs one line limits it.
     var body: some View {
         if let delta {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -20,13 +22,14 @@ struct DeltaLabel: View {
                     .font(font)
                     .monospacedDigit()
                     .foregroundStyle(Self.color(delta, spec: spec))
+                    .fixedSize()
                 if let reference {
                     Text(reference)
                         .font(font)
                         .foregroundStyle(Theme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .lineLimit(1)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(Self.spoken(delta, spec: spec, reference: reference)))
         }
