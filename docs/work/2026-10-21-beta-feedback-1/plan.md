@@ -17,6 +17,24 @@ write) and T3 (intents, URL routes); ui-validator on every PR with visible chang
 | T5 | `sleep: bedtime & wake with reminder and alarm` | §4 | T1 (Profile → Sleep) |
 | T6 | `docs: beta feedback 1` | §5, §6 | T1–T5 |
 
+## Where it stands (2026-10-21)
+
+| # | PR | Base | Review | CI |
+| --- | --- | --- | --- | --- |
+| T1 | #20 | `main` | addressed | green |
+| T2 | #21 | `main` | addressed | green |
+| T3 | #22 | `main` | addressed | green |
+| T4 | #24 | `chore/app-groups-fleet` (#18) + #19 | addressed | green |
+| T5 | #23 | `feat/editable-sleep-need` (#20) | addressed | see the PR |
+| T6 | this | `feat/editable-sleep-need` (#20) | — | — |
+
+Merge order: #20, then #23 and this PR (retarget to `main` after #20); #21 and #22 any time;
+#24 after #18 and #19 (then retarget to `main`). Expected conflicts, all in files several
+tickets touched: `docs/STATUS.md` and `CHANGELOG.md` (keep every section),
+`Ryft/App/RyftApp.swift` (`DebugScreen` cases, keep all), `RyftWidgets/RyftWidgets.swift`
+(the widget bundle: keep the Train control and the wake-alarm activity) and
+`Localizable.xcstrings` (keep both sets of keys).
+
 ## T1 — editable sleep need
 - One vocabulary: **Sleep need** (tonight's, from the API) and **Baseline sleep need** (the editable part), en + de.
 - One editor (`BodySettingsEditor`) and two sheets (baseline sleep need: 15-min steps, 4–12 h; maximum heart
@@ -68,9 +86,20 @@ write) and T3 (intents, URL routes); ui-validator on every PR with visible chang
   DST and midnight-spanning plans; flag gating.
 
 ## T6 — docs
-- `docs/API_REQUESTS.md` §5 (schedule on the account, planned vs actual, server bedtime reminder, RYFT-written
-  workouts), `docs/TESTFLIGHT_NOTES.md` (en + de, replies to the two comments), `docs/STATUS.md`, CHANGELOG.
+- `docs/API_REQUESTS.md` §5 shipped with the features it belongs to: Bedtime & wake §1–4 (schedule on
+  the account, planned vs actual, server `BEDTIME` push, `day=`) in T5, Train §3 (RYFT-written workouts)
+  in T4. This PR: `docs/TESTFLIGHT_NOTES.md` (en + de, replies to the two comments), this plan, the
+  review log, `docs/STATUS.md`.
 
 ## Needs the user (collected as we go)
-- `push.enabled` to 100 % (brief), privacy policy line for T4, §5 to the platform session, device checks.
+- `push.enabled` to 100 % (the brief's `curl`), then open the app twice and allow notifications.
+- `ryftapp.de/privacy`: RYFT may write strength workouts to Apple Health, opt-in (T4).
+- Paste `API_REQUESTS.md` → Bedtime & wake §1–4 and Train §3 into the platform session.
+- Xcode: Time Sensitive Notifications capability (optional; the wake notification below iOS 26).
+  App Groups are in #17/#18. App Intents, quick actions and AlarmKit need no capability (AlarmKit:
+  `NSAlarmKitUsageDescription`, done).
+- Convert `Ryft/` and `RyftTests/` to folders (Xcode → the group → Convert to Folder), then
+  `AppShortcuts.xcstrings` can give Siri German phrases.
+- Device checks: quick action, Action Button, Control Center control, alarm in Silent mode, the bedtime
+  reminder, the `HKWorkout` in Fitness (and only one with a watch workout).
 - #18's PR title fails `pr-title.yml`; #17 is contained in #18.
