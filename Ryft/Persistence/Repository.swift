@@ -568,24 +568,25 @@ struct ReadinessSnapshot: Codable, Equatable {
 
     /// Today's gauge as `TodayPresentation.decide` picked it, in the widget's kinds (the JSON is
     /// unchanged): today's readiness; a night pending or awaited, or another day's readiness,
-    /// dimmed; the baselines; `nil` with nothing scored at all.
+    /// dimmed; the baselines; `nil` with nothing scored at all. The latest readiness before today
+    /// goes along in every kind: tomorrow shows it dimmed until its night is scored (`asOf`).
     static func make(day: String, presentation p: TodayPresentation, now: Date,
                      bedtime: Date? = nil) -> ReadinessSnapshot? {
-        var s = ReadinessSnapshot(day: day, kind: .waitingForSleep, readiness: nil, previousReadiness: nil,
+        var s = ReadinessSnapshot(day: day, kind: .waitingForSleep, readiness: nil, previousReadiness: p.previousReadiness,
                                   baselineNights: nil, updatedAt: now, bedtime: bedtime.flatMap { $0 > now ? $0 : nil })
         switch p.gauge {
         case .readiness(let readiness?) where !p.tiles.isEarlierDay:
             s.kind = .score
             s.readiness = readiness
-        case .readiness(let readiness):
-            // Row D from an earlier day (the widget has no note), or no readiness: the last one, dimmed.
-            s.previousReadiness = readiness
+        case .readiness:
+            // Row D from an earlier day (the widget has no note; its readiness is the latest one), or
+            // no readiness: the last one, dimmed.
+            break
         case .baselines(let nights):
             s.kind = .calibrating
             s.baselineNights = nights
         case .pending(let night):
             s.kind = night.waitingForSleep ? .waitingForSleep : .pending
-            s.previousReadiness = night.previousReadiness.map { Int($0.rounded()) }
         case .firstImport:
             return nil
         }

@@ -554,14 +554,29 @@ struct TodayPresentationTests {
         #expect(decide(screenshot, old, .scored).row == .calibrating)
     }
 
-    /// A phone-only account (no HRV): legitimately calibrating, and the note says why.
-    @Test func row4B_aLongHistoryWithoutHRVNeedsVitals() {
+    /// A phone-only account (no HRV): legitimately calibrating. Not "0 / 7" beside a scored day's tiles
+    /// (lead decision 2, amended): the platform's readiness with the reason under it, today's tiles as they are.
+    @Test func row4B_aLongHistoryWithoutHRVShowsTheReadinessAndWhy() {
         let p = decide(screenshot, history(30, vitals: false), .scored)
-        #expect(p.row == .calibrating && p.gauge == .baselines(nights: 0))
-        #expect(p.tiles == TodayPresentation.Tiles(source: screenshot, calibrating: true))
+        #expect(p.row == .calibrating && p.gauge == .readiness(80))
+        #expect(p.tiles == TodayPresentation.Tiles(source: screenshot)) // no "calibrating" caption: the note says it
         #expect(p.note == .needsVitals && !p.showsDelta)
+        #expect(p.gauge != .baselines(nights: 0))
         #expect(decide(screenshot, history(7, vitals: false), .scored).note == .needsVitals)
-        #expect(decide(screenshot, history(6, vitals: false), .scored).note == nil) // the history is short
+        // A short history is row B as before: today's baseline days, "calibrating" under the tiles.
+        let short = decide(screenshot, history(6, vitals: false), .scored)
+        #expect(short.gauge == .baselines(nights: 0) && short.note == nil && short.tiles.calibrating)
+    }
+
+    /// Without a readiness from the platform: the baselines, counting the nights that count (with HRV and RHR).
+    @Test func row4B_aLongHistoryWithoutHRVOrReadinessCountsHeartRateNights() {
+        var prior = history(30, vitals: false)
+        for i in prior.indices.suffix(3) { prior[i].hrvMs = 55; prior[i].rhr = 50 }
+        let p = decide(scoredWithoutReadiness, prior, .scored)
+        #expect(p.row == .calibrating && p.gauge == .baselines(nights: 3)) // not today's baseline_days (0)
+        #expect(p.tiles == TodayPresentation.Tiles(source: scoredWithoutReadiness))
+        #expect(p.note == .needsVitals && !p.showsDelta)
+        #expect(p.previousReadiness == 76)
     }
 
     @Test func row4B_aShortHistoryCountsTodaysBaselineDays() {
@@ -580,6 +595,41 @@ struct TodayPresentationTests {
         #expect(p.note == nil && p.showsDelta)
     }
 
+    /// The "vs 7 d" delta only beside today's settled readiness (row A with a number): never next to an empty
+    /// gauge, a night being scored, the baselines, the import, or a calibrating or borrowed number (review T2).
+    @Test func theDeltaOnlyStandsBesideTodaysReadiness() throws {
+        let a = DailyScore(day: key, readiness: 84, recovery: 82, strain: 12.4, baselineDays: 30, computedAt: now,
+                           scoringState: .scored)
+        #expect(decide(a, history(), .scored).showsDelta)                                       // A
+        // A scored day the platform gave no readiness (not calibrating, not scoring): "—", no change beside it.
+        let empty = DailyScore(day: key, recovery: 60, strain: 3, baselineDays: 30, computedAt: now, scoringState: .scored)
+        let e = decide(empty, history(), .scored)
+        #expect(e.row == .scored && e.gauge == .readiness(nil) && !e.showsDelta)
+        let vitals = history(30, vitals: false)
+        #expect(!decide(screenshot, history(4), .scored).showsDelta)                            // B, short
+        #expect(!decide(screenshot, vitals, .scored).showsDelta)                                // B with a readiness
+        #expect(!decide(scoredWithoutReadiness, vitals, .scored).showsDelta)                    // B, heart-rate nights
+        #expect(!decide(try placeholder(), history(), .pending).showsDelta)                     // C
+        #expect(!decide(nil, history(), .waitingForSleep).showsDelta)                           // C, waiting
+        #expect(!decide(screenshot, history(), .scored).showsDelta)                             // D
+        #expect(!decide(scoredWithoutReadiness, history(), .scored).showsDelta)                 // D from yesterday
+        #expect(!decide(nil, [], nil).showsDelta)                                               // E
+        // Through the view model: a 7-day trend is cached, the gauge is empty, and no change is shown.
+        let vm = model(today: empty, history: history(), status: .scored)
+        #expect(vm.readiness == nil && !vm.readinessWeek.isEmpty && vm.readinessDelta == nil)
+        #expect(model(today: a, history: history(), status: .scored).readinessDelta != nil)
+        #expect(model(today: nil, history: [], status: nil, backfillDone: true).readinessDelta == nil)
+    }
+
+    /// Every row carries the latest readiness before today (the widget writes it; tomorrow shows it dimmed).
+    @Test func everyRowCarriesTheLatestReadiness() throws {
+        #expect(decide(screenshot, history(), .scored).previousReadiness == 76)                   // D
+        #expect(decide(scoredWithoutReadiness, history(), .scored).previousReadiness == 76)       // D from yesterday
+        #expect(decide(screenshot, history(30, vitals: false), .scored).previousReadiness == 76)  // B
+        #expect(decide(try placeholder(), history(), .pending).previousReadiness == 76)           // C
+        #expect(decide(nil, [], nil).previousReadiness == nil)                                    // E
+    }
+
     @Test func priorIgnoresUnscoredRowsAndTodayItself() throws {
         var prior = history(3)
         prior.append(DailyScore.empty(day: dayKey(-1))) // an unscored copy of yesterday
@@ -591,8 +641,14 @@ struct TodayPresentationTests {
 
     // MARK: through the view model
 
-    private func model(today: DailyScore?, history: [DailyScore], status: ScoringState?) -> TodayViewModel {
+    private func model(today: DailyScore?, history: [DailyScore], status: ScoringState?,
+                       backfillDone: Bool = false) -> TodayViewModel {
         let env = AppEnvironment.test(clock: TestClock(now: now))
+        if backfillDone, let account = env.auth.accountID {
+            var engine = SyncEngineState()
+            engine.backfillDone = true
+            engine.save(account: account, defaults: env.defaults)
+        }
         let state = AppState(env: env)
         state.history = history
         if let today { state.today = DayDetail(score: today, sleep: nil, workouts: []) }
@@ -618,14 +674,26 @@ struct TodayPresentationTests {
         #expect(a.hero == .score && a.readiness == 84 && a.readinessDelta != nil)
         #expect(a.recoveryCaption == a.recoveryBand && a.recoveryBand != nil && a.tileCaption == nil && !a.tilesDimmed)
         #expect(a.gaugeNote == nil && a.gaugeSpokenNote == nil && a.showsTiles)
-        // B: "calibrating" under all three, no band word, no delta.
-        let b = model(today: screenshot, history: history(30, vitals: false), status: .scored)
+        // B, a short history: "calibrating" under all three, no band word, no delta.
+        let b = model(today: screenshot, history: history(4), status: .scored)
         #expect(b.hero == .calibrating(nights: 0) && b.readinessDelta == nil)
         #expect(b.sentence == String(localized: "Your baselines are still forming."))
         #expect(b.tileCaption == String(localized: "today.tile.calibrating", defaultValue: "calibrating"))
         #expect(b.recoveryCaption == b.tileCaption && b.recoveryBand == nil && !b.tilesDimmed)
         #expect(b.recoveryText == Fmt.percent(75) && b.strainText == Fmt.strain(0.9))
-        #expect(b.gaugeNote == .needsVitals && b.gaugeSpokenNote == nil)
+        #expect(b.gaugeNote == nil && b.gaugeSpokenNote == nil)
+        // B, a long history without HRV: the platform's 80, no delta, today's tiles without "calibrating", the
+        // reason under the gauge and read with it.
+        let bv = model(today: screenshot, history: history(30, vitals: false), status: .scored)
+        #expect(bv.hero == .score && bv.readiness == 80 && bv.readinessDelta == nil)
+        #expect(bv.sentence == String(localized: "Your baselines are still forming."))
+        #expect(bv.tileCaption == nil && !bv.tilesDimmed && bv.recoveryCaption == bv.recoveryBand && bv.recoveryBand != nil)
+        #expect(bv.recoveryText == Fmt.percent(75) && bv.strainText == Fmt.strain(0.9))
+        #expect(bv.gaugeNote == .needsVitals && bv.gaugeSpokenNote == TodayPresentation.Note.needsVitals.text)
+        // ... and without a readiness: the baselines counting heart-rate nights, the note read on its own.
+        let bb = model(today: scoredWithoutReadiness, history: history(30, vitals: false), status: .scored)
+        #expect(bb.hero == .calibrating(nights: 0) && bb.gaugeNote == .needsVitals && bb.gaugeSpokenNote == nil)
+        #expect(bb.tileCaption == nil && bb.sentence == String(localized: "Your baselines are still forming."))
         // C: yesterday's tiles, dimmed and dated; the raw night stays out until Apple Health has one.
         let c = model(today: try placeholder(), history: history(), status: .pending)
         #expect(c.hero.isPending && c.readiness == nil && c.readinessDelta == nil)
@@ -645,9 +713,43 @@ struct TodayPresentationTests {
         let date = yesterday.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
         #expect(dy.sentence == String(localized: "Readiness from \(date), while your baselines are recalculated."))
         #expect(dy.gaugeSpokenNote?.hasPrefix(TodayPresentation.Note.recalculating.text + ". ") == true)
-        // E: no tiles, no note.
+        // E: no tiles, no note; during the import the card stands in ...
         let e = model(today: nil, history: [], status: nil)
-        #expect(e.presentation.row == .firstImport && !e.showsTiles && e.gaugeNote == nil)
+        #expect(e.hero.isImporting && e.presentation.row == .firstImport && !e.showsTiles && e.gaugeNote == nil)
+        // ... and with the backfill done and still nothing scored, the row alone hides them.
+        let done = model(today: nil, history: [], status: nil, backfillDone: true)
+        #expect(!done.hero.isImporting && done.presentation.row == .firstImport)
+        #expect(!done.showsTiles && done.gaugeNote == nil && done.readiness == nil)
+        #expect(done.sentence == String(localized: "Your scores appear after the first synced night."))
+    }
+
+    /// The dimmed number's day, in the sentence as on the gauge and tiles: a night without the watch
+    /// left a gap, so the latest readiness is from two days ago, not yesterday's (review T2).
+    @Test func rowC_afterAGapDayTheSentenceSaysWhichDay() throws {
+        let gap = Array(history().dropLast()) // no yesterday: the latest scored day is two days ago, readiness 70
+        let c = model(today: try placeholder(), history: gap, status: .pending)
+        let twoDaysAgo = try #require(DayFormat.date(from: dayKey(-2)))
+        guard case .pending(let night) = c.hero else { Issue.record("expected pending"); return }
+        #expect(night.previousReadiness == 70 && night.previousDay == twoDaysAgo)
+        let date = twoDaysAgo.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+        #expect(c.sentence == String(localized: "Readiness from \(date), until last night is scored."))
+        #expect(c.tileCaption == Fmt.dayTitle(twoDaysAgo, today: now) && c.tileCaption != String(localized: "Yesterday"))
+        // Yesterday scored: the sentence says so.
+        let y = model(today: try placeholder(), history: history(), status: .pending)
+        #expect(y.sentence == String(localized: "Yesterday's readiness, until last night is scored."))
+    }
+
+    /// `TodayView` reads one `TodayContent` per body: it says what the accessors say.
+    @Test func theContentIsWhatTheAccessorsSay() throws {
+        for vm in [model(today: screenshot, history: history(), status: .scored),
+                   model(today: try placeholder(), history: history(), status: .pending),
+                   model(today: screenshot, history: history(30, vitals: false), status: .scored)] {
+            let c = vm.content
+            #expect(c.hero == vm.hero && c.presentation == vm.presentation && c.sentence == vm.sentence)
+            #expect(c.readiness == vm.readiness && c.readinessDelta == vm.readinessDelta && c.gaugeNote == vm.gaugeNote)
+            #expect(c.sleepText == vm.sleepText && c.recoveryCaption == vm.recoveryCaption && c.tilesDimmed == vm.tilesDimmed)
+            #expect(c.rawNight == vm.rawNight && c.showsTiles == vm.showsTiles)
+        }
     }
 
     @Test func everyRowHasADemoScenario() {
@@ -660,7 +762,11 @@ struct TodayPresentationTests {
         }
         #expect(vm(.importing).hero.isImporting)
         #expect(vm(.calibrating).presentation.row == .calibrating && vm(.calibrating).gaugeNote == nil)
-        #expect(vm(.needsVitals).presentation.row == .calibrating && vm(.needsVitals).gaugeNote == .needsVitals)
+        let vitals = vm(.needsVitals)
+        #expect(vitals.presentation.row == .calibrating && vitals.gaugeNote == .needsVitals)
+        #expect(vitals.readiness == 80 && vitals.tileCaption == nil && vitals.recoveryText == Fmt.percent(75))
+        let baselines = vm(.needsVitalsBaselines)
+        #expect(baselines.hero == .calibrating(nights: 2) && baselines.gaugeNote == .needsVitals)
         let pending = vm(.pending)
         #expect(pending.presentation.row == .pending && pending.rawNight != nil && pending.tilesDimmed)
         let waiting = vm(.waitingForSleep)

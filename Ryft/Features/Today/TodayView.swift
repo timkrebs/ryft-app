@@ -15,19 +15,21 @@ struct TodayView: View {
     @State private var landed = 0
 
     var body: some View {
+        // The day's facts and decision, read once for the whole body.
+        let day = model.content
         NavigationStack {
             ScrollViewReader { proxy in
                 ScreenScaffold {
                     if model.hasDataSource {
-                        greeting
-                        if let row = model.importRow { ImportRow(progress: row) }
-                        hero
+                        greeting(day)
+                        if let row = day.importRow { ImportRow(progress: row) }
+                        hero(day)
                             .coachMarkTarget(.gauges)
                             .id(CoachMarkTarget.gauges)
-                        if let night = model.rawNight { RawNightCard(night: night) }
-                        if let hint = model.watchHint { WatchSyncHintCard(hint: hint) }
-                        if model.showsTiles {
-                            tiles
+                        if let night = day.rawNight { RawNightCard(night: night) }
+                        if let hint = day.watchHint { WatchSyncHintCard(hint: hint) }
+                        if day.showsTiles {
+                            tiles(day)
                                 .coachMarkTarget(.physiology)
                                 .id(CoachMarkTarget.physiology)
                         }
@@ -49,27 +51,27 @@ struct TodayView: View {
                             JournalCard(store: screens.journal) { showsJournal = true }
                         }
                         // From 17:00: when to be in bed tonight (Bedtime & wake).
-                        if screens.bedtime.isEnabled, screens.bedtime.isEvening(), !model.hero.isImporting {
+                        if screens.bedtime.isEnabled, screens.bedtime.isEvening(), !day.hero.isImporting {
                             TonightCard(planner: screens.bedtime)
                         }
-                        if model.showsTrain, !model.hero.isImporting { TrainTodayCard() }
-                        if !model.hero.isImporting {
-                            trends
+                        if model.showsTrain, !day.hero.isImporting { TrainTodayCard() }
+                        if !day.hero.isImporting {
+                            trends(day)
                                 .coachMarkTarget(.trends)
                                 .id(CoachMarkTarget.trends)
                         }
                         status
                     } else {
-                        greeting
+                        greeting(day)
                         SetupCard { model.open(.profile) }
                     }
                 }
                 .coachMarks(model.coachMarks, enabled: model.showsCoachMarks)
-                .onAppear { LaunchSignpost.todayAppeared(cached: model.readiness != nil || model.lastUpdated != nil) }
+                .onAppear { LaunchSignpost.todayAppeared(cached: day.readiness != nil || model.lastUpdated != nil) }
                 // Last night from Apple Health and the newest record per source, after each sync.
                 .task(id: model.healthFactsKey) { await model.loadHealthFacts() }
                 // The night was pending and its score landed: one subtle change, one haptic.
-                .onChange(of: model.hero.isPending) { was, now in
+                .onChange(of: day.hero.isPending) { was, now in
                     if was, !now { landed += 1 }
                 }
                 .sensoryFeedback(.success, trigger: landed)
@@ -94,13 +96,13 @@ struct TodayView: View {
 
     // MARK: sections
 
-    private var greeting: some View {
+    private func greeting(_ day: TodayContent) -> some View {
         VStack(spacing: 8) {
             VStack(spacing: 6) {
                 Text(model.greeting)
                     .font(.ryft(.title))
                     .foregroundStyle(Theme.textPrimary)
-                Text(model.sentence)
+                Text(day.sentence)
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -116,9 +118,9 @@ struct TodayView: View {
 
     /// The gauge, or what takes its place while data is on its way.
     @ViewBuilder
-    private var hero: some View {
+    private func hero(_ day: TodayContent) -> some View {
         Group {
-            switch model.hero {
+            switch day.hero {
             case .importing(let progress):
                 ImportCard(progress: progress, asksForPush: model.showsImportPushPrompt) {
                     Task { await model.enablePush() }
@@ -133,19 +135,20 @@ struct TodayView: View {
                     .accessibilityIdentifier("today.pendingGauge")
             case .calibrating(let nights):
                 VStack(spacing: 8) {
-                    BaselineGauge(nights: nights)
+                    // Over a long history without HRV the nights counted are the ones with heart-rate data.
+                    BaselineGauge(nights: nights, countsHeartRateNights: day.gaugeNote == .needsVitals)
                         .accessibilityIdentifier("today.baselineGauge")
                     // Row B over a long history without HRV: why the nights don't fill.
-                    if let note = model.gaugeNote { gaugeNote(note) }
+                    if let note = day.gaugeNote { gaugeNote(note) }
                 }
                 .padding(.vertical, 4)
             case .score:
                 VStack(spacing: 8) {
-                    readinessRing
-                    // Row D: in the band/delta line's place, read as part of the gauge.
-                    if let note = model.gaugeNote {
+                    readinessRing(day)
+                    // Rows D and B: in the band/delta line's place, read as part of the gauge.
+                    if let note = day.gaugeNote {
                         gaugeNote(note)
-                            .accessibilityHidden(model.gaugeSpokenNote != nil)
+                            .accessibilityHidden(day.gaugeSpokenNote != nil)
                     }
                 }
                 .padding(.vertical, 4)
@@ -153,16 +156,16 @@ struct TodayView: View {
         }
         .transition(.opacity)
         // One row to another: a 250 ms cross-fade (ui.md §1.3); an instant swap under Reduce Motion.
-        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: model.hero.kind)
-        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: model.gaugeNote)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: day.hero.kind)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: day.gaugeNote)
     }
 
     /// Readiness on its 0–100 scale with band ticks, the band word and the change
     /// against the days before (from the 7-day trend, row A only).
-    private var readinessRing: some View {
-        MetricGauge(spec: .readiness, value: model.readiness, size: .large, delta: model.readinessDelta,
+    private func readinessRing(_ day: TodayContent) -> some View {
+        MetricGauge(spec: .readiness, value: day.readiness, size: .large, delta: day.readinessDelta,
                     title: String(localized: "Overall readiness"), showsMark: true,
-                    accessibilityNote: model.gaugeSpokenNote)
+                    accessibilityNote: day.gaugeSpokenNote)
             .accessibilityIdentifier("today.readinessGauge")
     }
 
@@ -173,22 +176,22 @@ struct TodayView: View {
     }
 
     /// One day for all three (ui.md §1): today's, or the latest scored day dimmed with its date.
-    private var tiles: some View {
+    private func tiles(_ day: TodayContent) -> some View {
         // Three columns truncate at accessibility sizes; stack the tiles there.
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
         return layout {
-            MetricTile(title: "Sleep", value: model.sleepText, systemImage: "moon.fill",
-                       tint: Theme.metricSleep, caption: model.tileCaption, isDimmed: model.tilesDimmed,
+            MetricTile(title: "Sleep", value: day.sleepText, systemImage: "moon.fill",
+                       tint: Theme.metricSleep, caption: day.tileCaption, isDimmed: day.tilesDimmed,
                        accessibilityHint: "Opens Sleep") {
                 model.open(.sleep)
             }
-            MetricTile(title: "Recovery", value: model.recoveryText, systemImage: "heart",
-                       tint: Theme.band(forScore: model.recovery),
-                       caption: model.recoveryCaption, isDimmed: model.tilesDimmed, accessibilityHint: "Opens Insights") {
+            MetricTile(title: "Recovery", value: day.recoveryText, systemImage: "heart",
+                       tint: Theme.band(forScore: day.recovery),
+                       caption: day.recoveryCaption, isDimmed: day.tilesDimmed, accessibilityHint: "Opens Insights") {
                 model.open(.insights)
             }
-            MetricTile(title: "Strain", value: model.strainText, systemImage: "bolt.fill",
-                       tint: Theme.metricStrain, caption: model.tileCaption, isDimmed: model.tilesDimmed,
+            MetricTile(title: "Strain", value: day.strainText, systemImage: "bolt.fill",
+                       tint: Theme.metricStrain, caption: day.tileCaption, isDimmed: day.tilesDimmed,
                        accessibilityHint: "Opens Strain") {
                 model.open(.strain)
             }
@@ -196,14 +199,14 @@ struct TodayView: View {
         .fixedSize(horizontal: false, vertical: !typeSize.isAccessibilitySize)
     }
 
-    private var trends: some View {
+    private func trends(_ day: TodayContent) -> some View {
         Button {
             model.open(.insights)
         } label: {
             Card {
                 VStack(alignment: .leading, spacing: 12) {
                     CardHeader(title: "Trends", showsChevron: true)
-                    TrendChart(points: model.readinessWeek, spec: .readiness, window: .week,
+                    TrendChart(points: day.readinessWeek, spec: .readiness, window: .week,
                                interactive: false, height: 110)
                 }
             }
@@ -524,6 +527,20 @@ struct OfflinePill: View {
 #Preview("Today · B needs HRV (note) · light · de") {
     TodayView().previewEnvironment(.preview(scenario: .needsVitals), scheme: .light)
         .environment(\.locale, Locale(identifier: "de"))
+}
+
+#Preview("Today · B needs HRV, no readiness") {
+    TodayView().previewEnvironment(.preview(scenario: .needsVitalsBaselines))
+}
+
+#Preview("Today · B needs HRV, no readiness · light · de") {
+    TodayView().previewEnvironment(.preview(scenario: .needsVitalsBaselines), scheme: .light)
+        .environment(\.locale, Locale(identifier: "de"))
+}
+
+#Preview("Today · B needs HRV, no readiness · AX3") {
+    TodayView().previewEnvironment(.preview(scenario: .needsVitalsBaselines))
+        .environment(\.dynamicTypeSize, .accessibility3)
 }
 
 #Preview("Today · C pending") {

@@ -391,14 +391,18 @@ struct ReadinessSnapshotTests {
         let screenshot = DailyScore(day: day, readiness: 80, recovery: 75, strain: 0.9, baselineDays: 0, calibrating: true,
                                     computedAt: now, scoringState: .scored)
         let d = try #require(make(screenshot, prior: history(), state: .scored))
-        #expect(d.kind == .score && d.readiness == 80)
+        #expect(d.kind == .score && d.readiness == 80 && d.previousReadiness == 76)
         // D from yesterday (today scored, no readiness): yesterday's readiness, dimmed.
         let noReadiness = score(nil, calibrating: true, nights: 0, state: .scored)
         let dYesterday = try #require(make(noReadiness, prior: history(readiness: 76), state: .scored))
         #expect(dYesterday.kind == .waitingForSleep && dYesterday.previousReadiness == 76 && dYesterday.readiness == nil)
-        // B with a readiness: the baselines on both, not the score on the widget and baselines on Today.
+        // B over a long history without HRV, with a readiness: the score on both (Today has the note).
         let b = try #require(make(screenshot, prior: history(vitals: false), state: .scored))
-        #expect(b.kind == .calibrating && b.baselineNights == 0 && b.readiness == nil)
+        #expect(b.kind == .score && b.readiness == 80 && b.previousReadiness == 76)
+        // ... without one: the baselines, the heart-rate nights counted, and the latest readiness kept for tomorrow
+        // (the widget's `asOf` dims it once the day turns).
+        let bNights = try #require(make(noReadiness, prior: history(vitals: false), state: .scored))
+        #expect(bNights.kind == .calibrating && bNights.baselineNights == 0 && bNights.previousReadiness == 76)
         // C from the unknown day: pending, never the baselines.
         let c = try #require(make(.empty(day: day), prior: history(), state: .pending))
         #expect(c.kind == .pending && c.previousReadiness == 76)
@@ -412,23 +416,32 @@ struct ReadinessSnapshotTests {
                                     calibrating: true, computedAt: now, scoringState: .scored)
         let placeholder = DailyScore(day: day, state: .calibrating, computedAt: Date(timeIntervalSince1970: -62_135_596_800),
                                      scoringState: .pending)
-        // (today, history, GET /v1/me/sync's today, the widget's kind and number)
-        let cases: [(DailyScore?, [DailyScore], ScoringState?, ReadinessSnapshot.Kind?, Int?)] = [
-            (score(84), history(), .scored, .score, 84),                                    // A
-            (score(nil, calibrating: true, nights: 3), Array(history().suffix(3)), .scored, .calibrating, 3), // B
-            (screenshot, history(vitals: false), .scored, .calibrating, 0),                // B, needs HRV
-            (placeholder, history(), .pending, .pending, 76),                               // C, unscored today
-            (nil, history(), .waitingForSleep, .waitingForSleep, 76),                       // C, no night yet
-            (screenshot, history(), .scored, .score, 80),                                   // D, the screenshot
-            (score(nil, calibrating: true, nights: 0), history(), .scored, .waitingForSleep, 76), // D from yesterday
-            (nil, [], nil, nil, nil),                                                       // E
+        var twoHeartRateNights = history(vitals: false)
+        for i in twoHeartRateNights.indices.suffix(2) { twoHeartRateNights[i].hrvMs = 55; twoHeartRateNights[i].rhr = 50 }
+        // (today, history, GET /v1/me/sync's today, the backfill done, the widget's kind and number)
+        let cases: [(DailyScore?, [DailyScore], ScoringState?, Bool, ReadinessSnapshot.Kind?, Int?)] = [
+            (score(84), history(), .scored, true, .score, 84),                                    // A
+            (score(nil, calibrating: true, nights: 3), Array(history().suffix(3)), .scored, true, .calibrating, 3), // B
+            (screenshot, history(vitals: false), .scored, true, .score, 80),                     // B, needs HRV
+            (score(nil, calibrating: true, nights: 0), twoHeartRateNights, .scored, true, .calibrating, 2), // B, no readiness
+            (placeholder, history(), .pending, true, .pending, 76),                               // C, unscored today
+            (nil, history(), .waitingForSleep, true, .waitingForSleep, 76),                       // C, no night yet
+            (screenshot, history(), .scored, true, .score, 80),                                   // D, the screenshot
+            (score(nil, calibrating: true, nights: 0), history(), .scored, true, .waitingForSleep, 76), // D from yesterday
+            (nil, [], nil, false, nil, nil),                                                      // E, importing
+            (nil, [], nil, true, nil, nil),                                                       // E, backfill done
         ]
         // Local noon on `day`: the repository's and the view model's "today" is `day` in any time zone.
         let noon = try #require(DayFormat.date(from: day)).addingTimeInterval(12 * 3_600)
-        for (index, (today, prior, scoring, kind, number)) in cases.enumerated() {
+        for (index, (today, prior, scoring, backfillDone, kind, number)) in cases.enumerated() {
             let file = FileManager.default.temporaryDirectory.appendingPathComponent("readiness-\(UUID().uuidString).json")
             defer { try? FileManager.default.removeItem(at: file) }
             let env = AppEnvironment.test(clock: TestClock(now: noon))
+            if backfillDone, let account = env.auth.accountID {
+                var engine = SyncEngineState()
+                engine.backfillDone = true
+                engine.save(account: account, defaults: env.defaults)
+            }
             let state = AppState(env: env)
             state.repository.widgetFile = file
             state.repository.reloadWidget = {}
@@ -461,7 +474,8 @@ struct ReadinessSnapshotTests {
             case .score where !vm.tilesDimmed && vm.readiness != nil:
                 #expect(written?.kind == .score && written?.readiness == vm.readiness.map { Int($0) }, "case \(index)")
             case .score where vm.presentation.row == .firstImport:
-                #expect(written == nil, "case \(index)")
+                // E after the import: nothing scored, no widget, no tiles.
+                #expect(written == nil && !vm.showsTiles && backfillDone, "case \(index)")
             case .score:
                 #expect(written?.kind == .waitingForSleep && written?.previousReadiness == vm.readiness.map { Int($0) },
                         "case \(index)")
@@ -472,7 +486,7 @@ struct ReadinessSnapshotTests {
                 #expect(written?.previousReadiness == night.previousReadiness.map { Int($0) }, "case \(index)")
             case .importing:
                 // A signed-in test account with nothing scored is importing: the card, and no widget.
-                #expect(vm.presentation.row == .firstImport && written == nil, "case \(index)")
+                #expect(vm.presentation.row == .firstImport && written == nil && !backfillDone, "case \(index)")
             }
         }
     }
@@ -575,7 +589,8 @@ struct CalibrationSourceTests {
 
     @Test func anUnscoredDayIsNotCalibratingEither() throws {
         // API.md → GET /v1/days/{day}: all numbers null, state "calibrating", calibrating false, computed_at 0001.
-        let unscored = try decode(Data(#"{"day":"2026-10-21","state":"calibrating","baseline_days":0,"calibrating":false,"computed_at":"0001-01-01T00:00:00Z"}"#.utf8))
+        let unscored = try decode(Data((#"{"day":"2026-10-21","state":"calibrating","baseline_days":0,"calibrating":false,"#
+            + #""computed_at":"0001-01-01T00:00:00Z"}"#).utf8))
         #expect(!TodayStates.isScored(unscored))
         var f = TodaySyncFacts(now: Date(timeIntervalSince1970: 1_792_600_000))
         f.today = unscored
@@ -652,9 +667,10 @@ struct CalibrationSourceTests {
         let vm = TodayViewModel(state: state, sync: sync,
                                 coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock),
                                 apiStatus: APIStatus())
-        // The history has no HRV or resting HR: legitimately calibrating, and the note says why (row B).
-        #expect(vm.recovery == 75)                       // tile
-        #expect(vm.hero == .calibrating(nights: 0))      // gauge
+        // The history has no HRV or resting HR: legitimately calibrating (row B). Not "0 of 7" beside these tiles
+        // (lead decision 2, amended): the platform's readiness from the same row, and the note says why.
+        #expect(vm.recovery == 75 && vm.tileCaption == nil)                   // tile
+        #expect(vm.hero == .score && vm.readiness == 80 && vm.readinessDelta == nil) // gauge
         #expect(vm.gaugeNote == .needsVitals)
         // With HRV and resting HR in the history it's the screenshot: the score, from the same row (row D).
         state.history = (1...30).map { DailyScore(day: DayFormat.string(from: DayFormat.shift(env.clock.now(), days: -$0)),

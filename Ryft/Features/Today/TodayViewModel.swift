@@ -51,37 +51,12 @@ final class TodayViewModel {
     var hasDataSource: Bool { state.hasDataSource }
     var greeting: String { ReadinessCopy.greeting(at: env.clock.now()) }
     /// Says what the gauge shows, about the same day (ui.md §1.5).
-    var sentence: String {
-        guard hasDataSource else { return String(localized: "Let's get you set up.") }
-        if hero.isImporting { return String(localized: "Your history is on its way.") }
-        let p = presentation
-        switch p.gauge {
-        case .pending(let night):
-            if night.waitingForSleep { return String(localized: "Last night hasn't reached RYFT yet.") }
-            // The gauge and the line say it's scoring; this says what the dimmed number is.
-            return night.previousReadiness == nil ? String(localized: "Your night is being scored.")
-                : String(localized: "Yesterday's readiness, until last night is scored.")
-        case .baselines:
-            return String(localized: "Your baselines are still forming.")
-        case .readiness where p.row == .recalculating:
-            guard p.tiles.isEarlierDay, let day = p.tiles.source?.date else {
-                return String(localized: "Your baselines are being recalculated.")
-            }
-            // A date, never "Yesterday": the sentence reads "Readiness from Tue 20 Oct, …" in both languages.
-            let date = day.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
-            return String(localized: "Readiness from \(date), while your baselines are recalculated.")
-        case .readiness, .firstImport:
-            return ReadinessCopy.sentence(score: score)
-        }
-    }
+    var sentence: String { content.sentence }
     var isOffline: Bool { !env.connectivity.isOnline }
     var showsHealthHint: Bool { state.hasNoHealthData }
 
     /// The gauge's number: the readiness of the day it shows (rows A and D), else nil.
-    var readiness: Double? {
-        guard case .readiness(let value) = presentation.gauge else { return nil }
-        return value.map(Double.init)
-    }
+    var readiness: Double? { content.readiness }
 
     /// Only once there's a score to point at.
     var showsCoachMarks: Bool {
@@ -89,50 +64,28 @@ final class TodayViewModel {
     }
     var readinessWeek: [TrendPoint] { state.readinessWeek?.points ?? [] }
     /// Only for today's settled score (row A): a calibrating or borrowed number has no fair comparison.
-    var readinessDelta: MetricDelta? { presentation.showsDelta ? .vsSevenDayMean(readinessWeek) : nil }
+    var readinessDelta: MetricDelta? { content.readinessDelta }
     /// "Recalculating your baselines" (row D) or why the baselines can't fill (row B), under the gauge.
-    var gaugeNote: TodayPresentation.Note? { hero.isImporting ? nil : presentation.note }
-    /// What VoiceOver adds to the readiness gauge's value in row D: the note, and the day when it isn't today.
-    var gaugeSpokenNote: String? {
-        let p = presentation
-        guard p.row == .recalculating, let note = p.note else { return nil }
-        guard p.tiles.isEarlierDay, let day = p.tiles.source?.date else { return note.text }
-        let date = day.formatted(.dateTime.weekday(.wide).day().month(.wide))
-        return note.text + ". " + String(localized: "From \(date)")
-    }
+    var gaugeNote: TodayPresentation.Note? { content.gaugeNote }
+    /// What VoiceOver adds to the readiness gauge's value: the note, and the day when it isn't today.
+    var gaugeSpokenNote: String? { content.gaugeSpokenNote }
 
     // MARK: tiles: one day for all three (ui.md §1)
 
-    private var tiles: TodayPresentation.Tiles { presentation.tiles }
     /// Hidden while nothing was ever scored (row E), like during the first import.
-    var showsTiles: Bool { !hero.isImporting && presentation.row != .firstImport }
-    var sleepText: String {
-        guard let day = tiles.source else { return Fmt.placeholder }
-        // Today's detail has the night when the row predates `sleep_actual_min`; an earlier day stands alone.
-        return Fmt.duration(minutes: day.sleepActualMin ?? (tiles.isEarlierDay ? nil : state.today?.sleep?.totalMin))
-    }
-    var recovery: Int? { tiles.source?.recovery }
-    var recoveryText: String { Fmt.percent(recovery) }
+    var showsTiles: Bool { content.showsTiles }
+    var sleepText: String { content.sleepText }
+    var recovery: Int? { content.recovery }
+    var recoveryText: String { content.recoveryText }
     /// The band word: only for today's score, not for a dimmed or calibrating one.
-    var recoveryBand: String? {
-        guard !tiles.isEarlierDay, !tiles.calibrating else { return nil }
-        return recovery.map { MetricSpec.scoreBand(Double($0)).label }
-    }
-    var strainText: String { Fmt.strain(tiles.source?.strain) }
+    var recoveryBand: String? { content.recoveryBand }
+    var strainText: String { content.strainText }
     /// Not today's values (the night is being scored, or row D from an earlier day): dimmed and dated.
-    var tilesDimmed: Bool { tiles.source != nil && tiles.isEarlierDay }
+    var tilesDimmed: Bool { content.tilesDimmed }
     /// Under every tile: the shown day ("Yesterday", "Tue 20 Oct") while dimmed, "calibrating" in row B.
-    var tileCaption: String? {
-        guard let day = tiles.source else { return nil }
-        if tiles.isEarlierDay { return Fmt.dayTitle(day.date, today: env.clock.now()) }
-        if tiles.calibrating {
-            return String(localized: "today.tile.calibrating", defaultValue: "calibrating",
-                          comment: "Under each of Today's tiles while the baselines fill (still calibrating, not done).")
-        }
-        return nil
-    }
+    var tileCaption: String? { content.tileCaption }
     /// Recovery's caption: the day or "calibrating" when there is one, else the band word.
-    var recoveryCaption: String? { tileCaption ?? recoveryBand }
+    var recoveryCaption: String? { content.recoveryCaption }
 
     var status: Status? {
         if let step = gate { return Self.actionNeeded(step) }
@@ -196,16 +149,22 @@ final class TodayViewModel {
     var hero: TodayHero { TodayStates.hero(facts) }
     /// Gauge, tiles and note, decided once from the same facts (`TodayPresentation.decide`).
     var presentation: TodayPresentation { TodayPresentation.decide(facts.scores) }
+    /// Everything Today shows about the day from one `facts` build and one `decide`: `TodayView`
+    /// takes it once per body (each accessor above builds both again).
+    var content: TodayContent {
+        let f = facts
+        let p = TodayPresentation.decide(f.scores)
+        return TodayContent(facts: f, presentation: p, hero: TodayStates.hero(f, presentation: p),
+                            hasDataSource: hasDataSource, readinessWeek: readinessWeek,
+                            detailSleepMin: state.today?.sleep?.totalMin)
+    }
     /// The import's slim row under the header, once a day is scored and the backfill goes on.
     var importRow: ImportProgress? { TodayStates.importRow(facts) }
     var syncLine: SyncLine { TodayStates.line(facts) }
     var watchHint: WatchSyncHint? { TodayStates.watchHint(facts) }
     /// Last night from Apple Health beside the pending gauge (raw totals, not a score); not while
     /// waiting for sleep, when no night has arrived.
-    var rawNight: RawNight? {
-        guard case .pending = hero else { return nil }
-        return presentation.rawNight
-    }
+    var rawNight: RawNight? { content.rawNight }
 
     /// Reloads `lastNightRaw` and `freshness` when a sync ends or the day is fetched again.
     var healthFactsKey: Date? { sync.engineState.updatedAt ?? state.lastUpdated }
@@ -278,6 +237,117 @@ final class TodayViewModel {
     func dismissPushPrompt() { push?.dismissPrompt() }
 }
 
+/// What Today shows about the day, from one read of its facts and one decision. A value: `TodayView`
+/// takes it once per body and its sections read from it.
+struct TodayContent {
+    let facts: TodaySyncFacts
+    let presentation: TodayPresentation
+    let hero: TodayHero
+    let hasDataSource: Bool
+    /// The 7-day readiness trend, for row A's delta and the Trends card.
+    let readinessWeek: [TrendPoint]
+    /// Today's opened night, for a row from before `sleep_actual_min`.
+    let detailSleepMin: Int?
+
+    private var tiles: TodayPresentation.Tiles { presentation.tiles }
+
+    /// Says what the gauge shows, about the same day (ui.md §1.5).
+    var sentence: String {
+        guard hasDataSource else { return String(localized: "Let's get you set up.") }
+        if hero.isImporting { return String(localized: "Your history is on its way.") }
+        let p = presentation
+        switch p.gauge {
+        case .pending(let night):
+            if night.waitingForSleep { return String(localized: "Last night hasn't reached RYFT yet.") }
+            // The gauge and the line say it's scoring; this says what the dimmed number is, and from which day.
+            guard night.previousReadiness != nil else { return String(localized: "Your night is being scored.") }
+            if let day = night.previousDay,
+               !Calendar.current.isDate(day, inSameDayAs: DayFormat.shift(facts.now, days: -1)) {
+                // A gap day before last night (a night without the watch): its date, as the gauge and tiles have it.
+                let date = day.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+                return String(localized: "Readiness from \(date), until last night is scored.")
+            }
+            return String(localized: "Yesterday's readiness, until last night is scored.")
+        case .baselines:
+            return String(localized: "Your baselines are still forming.")
+        case .readiness where p.note == .needsVitals:
+            // The platform's readiness while its baselines can't fill; the note under the gauge says why.
+            return String(localized: "Your baselines are still forming.")
+        case .readiness where p.row == .recalculating:
+            guard p.tiles.isEarlierDay, let day = p.tiles.source?.date else {
+                return String(localized: "Your baselines are being recalculated.")
+            }
+            // A date, never "Yesterday": the sentence reads "Readiness from Tue 20 Oct, …" in both languages.
+            let date = day.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+            return String(localized: "Readiness from \(date), while your baselines are recalculated.")
+        case .readiness, .firstImport:
+            return ReadinessCopy.sentence(score: facts.today)
+        }
+    }
+
+    /// The gauge's number: the readiness of the day it shows, else nil.
+    var readiness: Double? {
+        guard case .readiness(let value) = presentation.gauge else { return nil }
+        return value.map(Double.init)
+    }
+
+    /// Only for today's settled score (row A): a calibrating or borrowed number has no fair comparison.
+    var readinessDelta: MetricDelta? { presentation.showsDelta ? .vsSevenDayMean(readinessWeek) : nil }
+
+    /// "Recalculating your baselines" (row D) or why the baselines can't fill (row B), under the gauge.
+    var gaugeNote: TodayPresentation.Note? { hero.isImporting ? nil : presentation.note }
+
+    /// What VoiceOver adds to the readiness gauge's value (rows D and B with a readiness): the note, and the
+    /// day when it isn't today. Under the baselines gauge the note is read on its own.
+    var gaugeSpokenNote: String? {
+        let p = presentation
+        guard case .readiness = p.gauge, let note = gaugeNote else { return nil }
+        guard p.tiles.isEarlierDay, let day = p.tiles.source?.date else { return note.text }
+        let date = day.formatted(.dateTime.weekday(.wide).day().month(.wide))
+        return note.text + ". " + String(localized: "From \(date)")
+    }
+
+    /// Hidden while nothing was ever scored (row E), like during the first import.
+    var showsTiles: Bool { !hero.isImporting && presentation.row != .firstImport }
+    var sleepText: String {
+        guard let day = tiles.source else { return Fmt.placeholder }
+        // Today's detail has the night when the row predates `sleep_actual_min`; an earlier day stands alone.
+        return Fmt.duration(minutes: day.sleepActualMin ?? (tiles.isEarlierDay ? nil : detailSleepMin))
+    }
+    var recovery: Int? { tiles.source?.recovery }
+    var recoveryText: String { Fmt.percent(recovery) }
+    /// The band word: only for today's score, not for a dimmed or calibrating one.
+    var recoveryBand: String? {
+        guard !tiles.isEarlierDay, !tiles.calibrating else { return nil }
+        return recovery.map { MetricSpec.scoreBand(Double($0)).label }
+    }
+    var strainText: String { Fmt.strain(tiles.source?.strain) }
+    /// Not today's values (the night is being scored, or row D from an earlier day): dimmed and dated.
+    var tilesDimmed: Bool { tiles.source != nil && tiles.isEarlierDay }
+    /// Under every tile: the shown day ("Yesterday", "Tue 20 Oct") while dimmed, "calibrating" in row B.
+    var tileCaption: String? {
+        guard let day = tiles.source else { return nil }
+        if tiles.isEarlierDay { return Fmt.dayTitle(day.date, today: facts.now) }
+        if tiles.calibrating {
+            return String(localized: "today.tile.calibrating", defaultValue: "calibrating",
+                          comment: "Under each of Today's tiles while the baselines fill (still calibrating, not done).")
+        }
+        return nil
+    }
+    /// Recovery's caption: the day or "calibrating" when there is one, else the band word.
+    var recoveryCaption: String? { tileCaption ?? recoveryBand }
+
+    /// Last night from Apple Health beside the pending gauge (raw totals, not a score); not while
+    /// waiting for sleep, when no night has arrived.
+    var rawNight: RawNight? {
+        guard case .pending = hero else { return nil }
+        return presentation.rawNight
+    }
+    /// The import's slim row under the header, once a day is scored and the backfill goes on.
+    var importRow: ImportProgress? { TodayStates.importRow(facts) }
+    var watchHint: WatchSyncHint? { TodayStates.watchHint(facts) }
+}
+
 // MARK: - in-between states (what's true while data is on its way)
 
 /// What Today's in-between states are decided from: the sync engine, the platform's
@@ -309,12 +379,6 @@ struct TodaySyncFacts: Equatable {
     var expectedScoringSec: Int?
     var lastNight: RawNight?
     var freshness: [SourceFreshness] = []
-
-    /// The latest day before today with a readiness.
-    var previous: DailyScore? {
-        let key = DayFormat.string(from: now)
-        return prior.last { $0.day < key && $0.readiness != nil }
-    }
 
     /// What the day's numbers are decided from (`TodayPresentation.decide`).
     var scores: TodayScoreFacts {
@@ -491,8 +555,13 @@ enum TodayStates {
     /// The import before anything is scored; otherwise the gauge `TodayPresentation.decide`
     /// picks: a night not scored yet, the baselines being learned, or the score.
     static func hero(_ f: TodaySyncFacts) -> TodayHero {
+        hero(f, presentation: .decide(f.scores))
+    }
+
+    /// The same, from `f`'s decision already made (`TodayContent`).
+    static func hero(_ f: TodaySyncFacts, presentation p: TodayPresentation) -> TodayHero {
         if isImporting(f), !f.hasScoredDay { return .importing(progress(f)) }
-        switch TodayPresentation.decide(f.scores).gauge {
+        switch p.gauge {
         case .pending(let night): return .pending(night)
         case .baselines(let nights): return .calibrating(nights: nights)
         // Nothing scored and no import running: the empty gauge, "Your scores appear after the first synced night".
@@ -584,9 +653,9 @@ struct TodayPresentation: Equatable, Sendable {
     enum Row: Equatable, Sendable { case scored, calibrating, pending, recalculating, firstImport }
 
     enum Gauge: Equatable, Sendable {
-        /// The source day's readiness (rows A, D).
+        /// The source day's readiness (rows A, D; B when the platform computed one, with `needsVitals`).
         case readiness(Int?)
-        /// `baseline_days` of the latest scored day, which is today whenever this shows (B).
+        /// Row B: today's `baseline_days`; with `needsVitals`, the nights with HRV and resting HR instead.
         case baselines(nights: Int)
         /// The outline, the latest readiness dimmed and dated (C).
         case pending(PendingNight)
@@ -607,7 +676,8 @@ struct TodayPresentation: Equatable, Sendable {
     enum Note: Equatable, Sendable {
         /// Row D: the platform says calibrating while the history has the nights a baseline needs.
         case recalculating
-        /// Row B with a long history but under 7 nights with HRV and resting HR in it (lead decision 2).
+        /// Row B with a long history but under 7 nights with HRV and resting HR in it (lead decision 2,
+        /// amended): under today's readiness, or under the baselines counting those nights.
         case needsVitals
     }
 
@@ -617,9 +687,17 @@ struct TodayPresentation: Equatable, Sendable {
     var note: Note?
     /// Row C while scoring (not waiting for sleep): last night from Apple Health for `RawNightCard`.
     var rawNight: RawNight?
+    /// The latest scored day's readiness before today, whatever the row: the widget's dimmed number,
+    /// and tomorrow's until it's scored (`ReadinessSnapshot.asOf`).
+    var previousReadiness: Int?
 
-    /// The gauge's "vs 7 d" delta only in row A (ui.md §4).
-    var showsDelta: Bool { row == .scored }
+    /// The gauge's "vs 7 d" delta: only beside today's settled readiness, row A with a number (ui.md §4).
+    /// Never next to an empty gauge ("—", a scored day without a readiness), a night being scored, the
+    /// baselines or the import; nor beside a calibrating or borrowed number (B, D), which has no fair comparison.
+    var showsDelta: Bool {
+        guard row == .scored, case .readiness(.some) = gauge else { return false }
+        return true
+    }
 
     /// Nights with HRV and resting HR among the 30 scored days before, as `baseline_days` counts them.
     static let vitalsWindow = 30
@@ -630,6 +708,12 @@ struct TodayPresentation: Equatable, Sendable {
     static func decide(_ f: TodayScoreFacts) -> TodayPresentation {
         let prior = f.prior.filter { $0.day < f.day && $0.standing != .unscored }
         let latestPrior = prior.last { $0.readiness != nil }
+        var p = pick(f, prior: prior, latestPrior: latestPrior)
+        p.previousReadiness = latestPrior?.readiness
+        return p
+    }
+
+    private static func pick(_ f: TodayScoreFacts, prior: [DailyScore], latestPrior: DailyScore?) -> TodayPresentation {
         let vitals = prior.suffix(vitalsWindow).count { $0.hrvMs != nil && $0.rhr != nil }
         let scoredToday = f.today.flatMap { $0.standing == .unscored ? nil : $0 }
         let scoring = f.scoringState == .pending || f.scoringState == .waitingForSleep
@@ -660,12 +744,17 @@ struct TodayPresentation: Equatable, Sendable {
                                      tiles: Tiles(source: source, isEarlierDay: today.readiness == nil),
                                      note: .recalculating)
         }
-        // 4 (B): `baseline_days` of today, the latest scored day here.
+        // 4 (B), a long history without the heart-rate nights a baseline needs (a phone without a watch):
+        // the platform's readiness when it computed one, else the baselines counting those nights. The
+        // note says why, so the tiles don't add "calibrating" (lead decision 2, amended in review).
+        if today.calibrating, prior.count >= DailyScore.baselineNightsRequired {
+            return TodayPresentation(row: .calibrating, gauge: today.readiness.map { .readiness($0) } ?? .baselines(nights: vitals),
+                                     tiles: Tiles(source: today), note: .needsVitals)
+        }
+        // 4 (B), a short history: `baseline_days` of today, the latest scored day here.
         if today.calibrating {
-            let longHistory = prior.count >= DailyScore.baselineNightsRequired
             return TodayPresentation(row: .calibrating, gauge: .baselines(nights: today.baselineDays),
-                                     tiles: Tiles(source: today, calibrating: true),
-                                     note: longHistory ? .needsVitals : nil)
+                                     tiles: Tiles(source: today, calibrating: true), note: nil)
         }
         // 5 (A)
         return TodayPresentation(row: .scored, gauge: .readiness(today.readiness), tiles: Tiles(source: today), note: nil)
@@ -700,8 +789,9 @@ enum TodayScenario: String, CaseIterable {
     /// Row D: the screenshot's row (80 · 75 % · 0.9, calibrating, 0 baseline days) over a full history;
     /// the same with today scored but without a readiness.
     case recalculating, recalculatingYesterday
-    /// Row B with a long history that has no HRV or resting HR (a phone-only account).
-    case needsVitals
+    /// Row B with a long history that has no HRV or resting HR (a phone-only account): the platform's
+    /// readiness with the note; the same without a readiness, the baselines counting heart-rate nights.
+    case needsVitals, needsVitalsBaselines
 
     func apply(to base: TodaySyncFacts) -> TodaySyncFacts {
         var f = base
@@ -737,15 +827,19 @@ enum TodayScenario: String, CaseIterable {
             f.engine.backfillDone = true
             f.freshness = [SourceFreshness(source: "Garmin Connect", bundleID: "com.garmin.connect.mobile",
                                            newest: now.addingTimeInterval(-14 * 3_600))]
-        case .recalculating, .recalculatingYesterday, .needsVitals:
+        case .recalculating, .recalculatingYesterday, .needsVitals, .needsVitalsBaselines:
             f.engine.backfillDone = true
             f.hasScoredDay = true
-            let withReadiness = self != .recalculatingYesterday
+            let withReadiness = self != .recalculatingYesterday && self != .needsVitalsBaselines
             f.today = DailyScore(day: key, readiness: withReadiness ? 80 : nil, state: withReadiness ? .balanced : .calibrating,
                                  recovery: withReadiness ? 75 : nil, strain: withReadiness ? 0.9 : nil,
                                  sleepActualMin: withReadiness ? 437 : nil, baselineDays: 0, calibrating: true,
                                  computedAt: now.addingTimeInterval(-3_600), scoringState: .scored)
-            f.prior = Self.prior(now: now, vitals: self != .needsVitals)
+            f.prior = Self.prior(now: now, vitals: self != .needsVitals && self != .needsVitalsBaselines)
+            if self == .needsVitalsBaselines {
+                // Two recent nights with the watch: "2 of 7 nights with heart-rate data".
+                for i in f.prior.indices.suffix(2) { f.prior[i].hrvMs = 52; f.prior[i].rhr = 51 }
+            }
             f.status = Self.status(now: now, .scored)
         }
         return f

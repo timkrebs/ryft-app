@@ -1473,6 +1473,17 @@
         }
       }
     },
+    "Readiness from %@, until last night is scored." : {
+      "comment" : "Today's sentence in row C when the dimmed readiness is from before yesterday (a gap day). The argument is a short date, e.g. Tue 20 Oct.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bereitschaft vom %@, bis die letzte Nacht bewertet ist."
+          }
+        }
+      }
+    },
     "Readiness from %@, while your baselines are recalculated." : {
       "comment" : "Today's sentence in row D when the readiness shown is from an earlier day. The argument is a short date, e.g. Tue 20 Oct.",
       "localizations" : {
