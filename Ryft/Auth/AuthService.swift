@@ -664,6 +664,8 @@ final class AuthService {
         // Bedtime & wake's schedules and planned nights (its reminders and alarms go with the
         // account change: `BedtimePlanner.accountChanged`).
         BedtimePlanner.wipe(defaults: .standard)
+        // Whether to save workouts to Apple Health is the account's choice.
+        WorkoutHealthExport.wipe(defaults: .standard)
     }
 }
 
