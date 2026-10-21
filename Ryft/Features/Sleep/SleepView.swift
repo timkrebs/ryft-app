@@ -91,6 +91,8 @@ struct SleepView: View {
 struct SleepDaySection: View {
     let sleep: SleepDetail
     let score: DailyScore?
+    @Environment(ScreenModels.self) private var screens
+    @State private var showsNeed = false
 
     private var summary: SleepNightSummary { SleepNightSummary(sleep: sleep, score: score) }
 
@@ -122,11 +124,19 @@ struct SleepDaySection: View {
                 .accessibilityElement(children: .combine)
             }
             if let need = sleep.need {
-                Card { SleepNeedBar(need: need) }
+                Button { showsNeed = true } label: {
+                    Card { SleepNeedBar(need: need) }
+                }
+                .buttonStyle(PressableButtonStyle())
+                .accessibilityHint(Text("Shows how your sleep need adds up, and your baseline to change"))
+                .accessibilityIdentifier("sleep.need")
             }
             stages
             scores
             details
+        }
+        .sheet(isPresented: $showsNeed) {
+            SleepNeedSheet(need: sleep.need, total: summary.need, editor: screens.bodySettings)
         }
     }
 
@@ -213,13 +223,77 @@ struct SleepDaySection: View {
                 StatRow(title: "Efficiency", value: summary.efficiency)
                 Divider().overlay(Theme.separator)
                 if summary.needBreakdown == nil {
-                    StatRow(title: "Sleep need", value: summary.need)
+                    Button { showsNeed = true } label: {
+                        HStack(spacing: 8) {
+                            StatRow(title: "Sleep need", value: summary.need)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Theme.textTertiary)
+                                .accessibilityHidden(true)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(Text("Shows your baseline sleep need to change"))
                 }
                 StatRow(title: "Actual", value: summary.actual, detail: summary.actualOfNeed)
                 StatRow(title: "Sleep debt", value: summary.debt,
                         valueColor: summary.debtIsHigh ? Theme.warning : Theme.textPrimary)
             }
         }
+    }
+}
+
+/// The night's sleep need, term by term (`base + strain + debt − nap credit`), and the
+/// baseline (the part that's yours to set) one tap away.
+struct SleepNeedSheet: View {
+    /// `nil` for nights scored before the breakdown existed.
+    let need: SleepNeed?
+    let total: String
+    let editor: BodySettingsEditor
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if let need {
+                        Card { SleepNeedBar(need: need) }
+                    } else {
+                        Card {
+                            VStack(alignment: .leading, spacing: 8) {
+                                StatRow(title: "Sleep need", value: total)
+                                Text("This night was scored before RYFT broke the need down.")
+                                    .font(.ryft(.caption))
+                                    .foregroundStyle(Theme.textTertiary)
+                            }
+                        }
+                    }
+                    Text("Your baseline is yours to set. The top-ups follow yesterday's strain and your sleep debt; a nap lowers the next night's need.")
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Card {
+                        NavigationLink {
+                            BaselineSleepNeedForm(editor: editor)
+                        } label: {
+                            SettingRowLabel(title: "Change baseline", value: editor.sleepBaseText,
+                                            detail: editor.sleepBaseSourceText)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("sleepNeed.changeBaseline")
+                    }
+                }
+                .padding(Theme.Metrics.screenPadding)
+            }
+            .background(Theme.background.ignoresSafeArea())
+            .navigationTitle(Text("Sleep need"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
+            }
+        }
+        .presentationDetents([.large])
     }
 }
 
@@ -423,6 +497,19 @@ struct SleepRangeSection: View {
             }
         }
     }
+}
+
+#Preview("Sleep need · dark") {
+    let state = AppState.preview()
+    SleepNeedSheet(need: MockData.todayDetail.sleep?.need, total: "8h 58m", editor: BodySettingsEditor(state: state))
+        .previewEnvironment(state)
+}
+
+#Preview("Sleep need · light · de") {
+    let state = AppState.preview()
+    SleepNeedSheet(need: nil, total: "8h 10m", editor: BodySettingsEditor(state: state))
+        .previewEnvironment(state, scheme: .light)
+        .environment(\.locale, Locale(identifier: "de"))
 }
 
 #Preview("Sleep · dark") {

@@ -12,6 +12,8 @@ final class ScreenModels {
     let strain: StrainViewModel
     let insights: InsightsViewModel
     let profile: ProfileViewModel
+    /// Baseline sleep need, maximum heart rate, birth year: onboarding, Sleep and Profile.
+    var bodySettings: BodySettingsEditor { profile.bodySettings }
     let trainToday: TrainTodayViewModel
     let coordinator: SyncCoordinator
     let push: PushRegistrar

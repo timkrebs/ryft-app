@@ -378,8 +378,12 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     func patchMe(_ p: UserPatch) async throws -> User {
         try enter("patchMe")
         lock.withLock { mePatches.append(p) }
+        await beforePatchMe?()
         return withAccount(try await screens.patchMe(p))
     }
+
+    /// Runs before each `PATCH /v1/me` answers (tests hold one open with it).
+    var beforePatchMe: (@Sendable () async -> Void)?
 
     /// The scripted access, consent and hint on top of the mock user.
     private func withAccount(_ user: User) -> User {

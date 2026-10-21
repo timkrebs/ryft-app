@@ -27,6 +27,9 @@ Store "What's New".
   night…" until it's ready.
 
 ### Changed
+- Your baseline sleep need and maximum heart rate can be changed where you see them: in
+  onboarding, from the sleep need on Sleep, and in Profile → Sleep and Body. A change saves
+  at once; past days are rescored when you ask.
 - The first sync shows scores for the last few days first and imports the rest after;
   every sync sends last night before the day's heart rate.
 - Leaving the app no longer stops an import: it continues in the background. A sync that

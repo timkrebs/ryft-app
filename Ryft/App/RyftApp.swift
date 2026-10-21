@@ -397,7 +397,7 @@ struct RootView: View {
 #if DEBUG
 /// Screens a screenshot run can open directly (`scripts/screenshots.sh`, `-RyftScreen <name>`).
 enum DebugScreen: String {
-    case invite, consent, aboutYou, accountHint, signInMethods, syncDetails
+    case invite, consent, aboutYou, aboutYouSaved, accountHint, signInMethods, syncDetails, baselineSleepNeed, sleepNeed
 
     static var requested: DebugScreen? {
         UserDefaults.standard.string(forKey: "RyftScreen").flatMap(DebugScreen.init(rawValue:))
@@ -409,6 +409,7 @@ enum DebugScreen: String {
         case .invite: OnboardingStepPreview(step: .invite)
         case .consent: OnboardingStepPreview(step: .consent)
         case .aboutYou: OnboardingStepPreview(step: .aboutYou)
+        case .aboutYouSaved: OnboardingStepPreview(step: .aboutYou, saved: true)
         case .accountHint:
             AccountHintSheet(hint: AccountHint(kind: "other_account_on_device", otherProvider: "email",
                                                otherLastSync: .now.addingTimeInterval(-86_400)),
@@ -417,11 +418,27 @@ enum DebugScreen: String {
             NavigationStack { SignInMethodsView() }.environment(Self.emailAccount)
         case .syncDetails:
             DebugSyncDetails()
+        case .baselineSleepNeed, .sleepNeed:
+            DebugBodySettings(screen: self)
         }
     }
 
     /// One instance for the run: the screen loads its sign-in methods into it.
     @MainActor private static let emailAccount = AuthService.preview(provider: "email")
+}
+
+/// The baseline sleep need editor, or Sleep's need breakdown, without the taps.
+private struct DebugBodySettings: View {
+    let screen: DebugScreen
+    @Environment(ScreenModels.self) private var screens
+
+    var body: some View {
+        if screen == .sleepNeed {
+            SleepNeedSheet(need: MockData.todayDetail.sleep?.need, total: "8h 58m", editor: screens.bodySettings)
+        } else {
+            NavigationStack { BaselineSleepNeedForm(editor: screens.bodySettings, showsClose: true) }
+        }
+    }
 }
 
 /// Profile → Data → Sync details, without the taps.

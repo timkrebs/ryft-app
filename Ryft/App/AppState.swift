@@ -165,11 +165,16 @@ final class AppState {
 
     func updateUser(_ patch: UserPatch) async {
         do {
-            user = try await source.patchMe(patch)
+            try await patchUser(patch)
         } catch {
             self.error = error.localizedDescription
             self.errorDetails = error.diagnosticDetails
         }
+    }
+
+    /// `PATCH /v1/me`; a failure is the caller's to show (a sheet shows it inline).
+    func patchUser(_ patch: UserPatch) async throws {
+        user = try await source.patchMe(patch)
     }
 
     // MARK: per-screen data (cache-first, revalidated)
