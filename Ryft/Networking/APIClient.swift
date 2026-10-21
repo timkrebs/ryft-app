@@ -122,6 +122,7 @@ final class APIClient: RyftDataSource {
 
     private let settings = Settings.shared
     private let session: URLSession
+    private let backgroundSession: URLSession
     private let tokens: AccessTokenProvider?
     private let sleep: @Sendable (Int) async throws -> Void
     /// Replaces the configured API URL (tests).
@@ -142,13 +143,29 @@ final class APIClient: RyftDataSource {
         return c
     }()
 
+    /// For runs the system woke the app for (HealthKit delivery, BG tasks, silent push):
+    /// fail fast instead of waiting for a network, so the run ends before iOS ends it.
+    static let backgroundConfiguration: URLSessionConfiguration = {
+        let c = URLSessionConfiguration.default
+        c.timeoutIntervalForRequest = 20
+        c.timeoutIntervalForResource = 25
+        c.waitsForConnectivity = false
+        return c
+    }()
+
+    /// Set by `SyncCoordinator` for a background run: its requests use `backgroundSession`.
+    @TaskLocal static var runsInBackground = false
+
     /// `tokens` defaults to `AuthService.shared`, resolved per request on the
     /// main actor. `sleep` waits out `Retry-After` (tests skip the wait).
-    init(session: URLSession = URLSession(configuration: APIClient.defaultConfiguration),
+    /// `session` (tests: a stubbed one) serves background runs too unless `backgroundSession` is given.
+    init(session: URLSession? = nil, backgroundSession: URLSession? = nil,
          tokens: AccessTokenProvider? = nil,
          sleep: @escaping @Sendable (Int) async throws -> Void = { try await Task.sleep(for: .seconds($0)) },
          baseURL: URL? = nil, status: APIStatus? = nil) {
-        self.session = session
+        self.session = session ?? URLSession(configuration: APIClient.defaultConfiguration)
+        self.backgroundSession = backgroundSession ?? session
+            ?? URLSession(configuration: APIClient.backgroundConfiguration)
         self.baseURL = baseURL
         self.tokens = tokens
         self.sleep = sleep
@@ -362,7 +379,7 @@ final class APIClient: RyftDataSource {
         var req = request
         req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         do {
-            let (data, resp) = try await session.data(for: req)
+            let (data, resp) = try await (Self.runsInBackground ? backgroundSession : session).data(for: req)
             return (data, resp as? HTTPURLResponse)
         } catch {
             throw APIError.transport(error)

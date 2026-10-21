@@ -377,6 +377,9 @@ struct PushRegistrarTests {
 private final class NoSteps: SyncSteps {
     func upload() async throws -> [String] { [] }
     var hasBacklog: Bool { false }
+    var isWaitingForUnlock: Bool { false }
+    var isUploading: Bool { false }
+    func stopAfterCurrentPage() async {}
     func isScored(_ days: [String], since: Date) async throws -> Bool { true }
     func refreshDays(_ days: [String]) async throws {}
     func refreshTrends() async throws {}

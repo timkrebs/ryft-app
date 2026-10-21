@@ -7,9 +7,15 @@ import Foundation
 protocol SyncSteps: AnyObject {
     /// Reads new HealthKit records page by page and uploads them; returns `days_touched`.
     func upload() async throws -> [String]
-    /// The last upload stopped early on purpose (the first score's window went first);
-    /// another run follows once this one has refreshed.
+    /// The last upload stopped early on purpose (the first score's window went first,
+    /// or the app went to the background); another run follows.
     var hasBacklog: Bool { get }
+    /// The last upload found HealthKit locked (protected data): it resumes after the unlock.
+    var isWaitingForUnlock: Bool { get }
+    /// Reading or uploading right now.
+    var isUploading: Bool { get }
+    /// Ends the upload after the page in flight (the app went to the background).
+    func stopAfterCurrentPage() async
     /// Whether every touched day was rescored at or after `since` (`computed_at`).
     func isScored(_ days: [String], since: Date) async throws -> Bool
     /// Fetches the touched days (and today) regardless of their TTL.
@@ -31,8 +37,16 @@ protocol SyncSteps: AnyObject {
 ///   triggers join that rerun (coalesced).
 /// - **Priorities.** User-initiated work (pull to refresh, app active, back
 ///   online) runs above background work (BG refresh, HealthKit delivery, silent push).
-/// - **Cancellation.** `cancel()` stops the running pipeline (sign-out, app
-///   backgrounded); waits are `clock.sleep` and throw `CancellationError`.
+/// - **Cancellation.** `cancel()` stops the running pipeline (sign-out, or a
+///   background task's time running out); waits are `clock.sleep` and throw
+///   `CancellationError`.
+/// - **Background.** Going to the background doesn't cancel: `windDown()` lets the
+///   page in flight finish (anchor committed) and ends the upload there. While the app
+///   is in the background (its lifecycle, not the trigger) a run uploads and skips the
+///   scoring wait (the silent push refreshes), requests use the background session
+///   (`APIClient.runsInBackground`), and a backlog goes to `BGProcessingTask`.
+/// - **HealthKit delivery.** `run(_:afterUpload:)` calls the delivery's completion right
+///   after the upload step, not after scoring waits and refreshes.
 /// - **Backoff.** Transient failures (transport, 5xx after `APIClient`'s own
 ///   retries) retry with exponential backoff (2 s, 4 s); 4xx don't.
 actor SyncCoordinator {
@@ -40,15 +54,18 @@ actor SyncCoordinator {
         case userInitiated, appActive, reconnect, healthKit, background
         /// The rest of an upload that stopped early (the first score came first).
         case backlog
+        /// `BGProcessingTask`: the backfill, with minutes to spare.
+        case processing
         /// A silent push: refresh these days, no upload.
         case silentPush(days: [String])
 
         var priority: TaskPriority {
             switch self {
             case .userInitiated, .appActive, .reconnect: return .userInitiated
-            case .healthKit, .background, .silentPush, .backlog: return .utility
+            case .healthKit, .background, .silentPush, .backlog, .processing: return .utility
             }
         }
+
     }
 
     struct Outcome: Equatable, Sendable {
@@ -59,6 +76,8 @@ actor SyncCoordinator {
         var error: String?
         /// The upload left a backlog; a `.backlog` run follows.
         var backlog = false
+        /// HealthKit was locked; nothing is lost, the rest follows the unlock.
+        var waitingForUnlock = false
     }
 
     /// Polls for scoring after an upload; waits double each time (3 s, 6 s, 12 s).
@@ -73,21 +92,41 @@ actor SyncCoordinator {
     private var runningID: UUID?
     private var queued: Task<Outcome, Never>?
     private var queuedTrigger: Trigger?
+    /// HealthKit deliveries waiting for the queued rerun's upload.
+    private var queuedAfterUpload: [@Sendable () -> Void] = []
+    /// Where the app is, from its lifecycle (RyftApp: the scene phase, and the launch state
+    /// for a launch straight into the background), not from what triggered a run: HealthKit
+    /// also delivers while the user looks at Today.
+    private(set) var inBackground: Bool
+    /// A run in the background left a backlog: `BGProcessingTask` takes it (RyftApp
+    /// schedules the backfill task).
+    private let backlogInBackground: (@MainActor @Sendable () -> Void)?
 
-    init(steps: SyncSteps, clock: AppClock) {
+    init(steps: SyncSteps, clock: AppClock, inBackground: Bool = false,
+         backlogInBackground: (@MainActor @Sendable () -> Void)? = nil) {
         self.steps = steps
         self.clock = clock
+        self.inBackground = inBackground
+        self.backlogInBackground = backlogInBackground
+    }
+
+    /// The app became active.
+    func enterForeground() {
+        inBackground = false
     }
 
     var isRunning: Bool { running != nil }
     /// A rerun waits behind the running sync.
     var hasQueuedRun: Bool { queued != nil }
 
-    /// Runs (or joins) a sync for `trigger` and returns how it ended.
+    /// Runs (or joins) a sync for `trigger` and returns how it ended. `afterUpload` (a
+    /// HealthKit delivery's completion) is called as soon as the upload step is over,
+    /// however it ended; a joined rerun calls it after its own upload.
     @discardableResult
-    func run(_ trigger: Trigger) async -> Outcome {
-        guard let current = running else { return await start(trigger).value }
+    func run(_ trigger: Trigger, afterUpload: (@Sendable () -> Void)? = nil) async -> Outcome {
+        guard let current = running else { return await start(trigger, afterUpload: afterUpload.map { [$0] } ?? []).value }
         // Busy: one rerun after the current one, shared by every trigger meanwhile.
+        if let afterUpload { queuedAfterUpload.append(afterUpload) }
         if let queued {
             queuedTrigger = merge(queuedTrigger, trigger)
             return await queued.value
@@ -102,29 +141,66 @@ actor SyncCoordinator {
         return await next.value
     }
 
-    /// Stops the running pipeline and drops a queued rerun.
+    /// Stops the running pipeline and drops a queued rerun (its deliveries are completed).
     func cancel() {
         running?.cancel()
+        dropQueued()
+    }
+
+    /// The app went to the background: the page being uploaded finishes and the upload
+    /// stops there (a backlog stays); a scoring wait or refresh is abandoned. Returns when
+    /// the run has ended, so the caller can end its background task.
+    func windDown() async {
+        inBackground = true
+        dropQueued()
+        guard let running else { return }
+        if await steps.isUploading {
+            await steps.stopAfterCurrentPage()
+        } else {
+            running.cancel()
+        }
+        _ = await running.value
+    }
+
+    private func dropQueued() {
         queued?.cancel()
         queued = nil
         queuedTrigger = nil
+        let waiting = queuedAfterUpload
+        queuedAfterUpload = []
+        waiting.forEach { $0() }
     }
 
     private func startQueued() async -> Outcome {
+        // Cancelled (dropQueued completed its deliveries): the queue may already hold a
+        // replacement, which isn't this task's to take.
+        guard !Task.isCancelled else { return Outcome(cancelled: true) }
         let trigger = queuedTrigger ?? .background
+        let afterUpload = queuedAfterUpload
         queued = nil
         queuedTrigger = nil
-        guard !Task.isCancelled else { return Outcome(cancelled: true) }
-        return await start(trigger).value
+        queuedAfterUpload = []
+        return await start(trigger, afterUpload: afterUpload).value
     }
 
-    private func start(_ trigger: Trigger) -> Task<Outcome, Never> {
+    private func start(_ trigger: Trigger, afterUpload: [@Sendable () -> Void]) -> Task<Outcome, Never> {
         let id = UUID()
+        // A BG task only ever runs in the background; everything else follows the app.
+        let background = inBackground || trigger == .processing
         // The run clears itself before its outcome is returned, so `isRunning` is
         // false as soon as anyone has the outcome.
         let task = Task(priority: trigger.priority) { [weak self, steps, clock] in
-            let outcome = await Self.pipeline(trigger, steps: steps, clock: clock)
-            await self?.finished(id, continuing: outcome.backlog && !outcome.cancelled && outcome.error == nil)
+            let outcome = await APIClient.$runsInBackground.withValue(background) {
+                // Asked after the upload: a foreground run can end up in the background.
+                await Self.pipeline(trigger, steps: steps, clock: clock,
+                                    inBackground: { [weak self] in
+                                        if background { return true }
+                                        return await self?.inBackground ?? true
+                                    },
+                                    afterUpload: afterUpload)
+            }
+            await self?.finished(id, backlog: outcome.backlog && !outcome.cancelled && outcome.error == nil,
+                                 trigger: trigger, background: background)
             return outcome
         }
         running = task
@@ -132,18 +208,24 @@ actor SyncCoordinator {
         return task
     }
 
-    private func finished(_ id: UUID, continuing: Bool) {
+    private func finished(_ id: UUID, backlog: Bool, trigger: Trigger, background: Bool) {
         guard runningID == id else { return }
         running = nil
         runningID = nil
+        guard backlog else { return }
+        // In the background the backfill task takes the rest (it loops by itself when it's
+        // the one running).
+        if background || inBackground {
+            if trigger != .processing, let backlogInBackground { Task { @MainActor in backlogInBackground() } }
+            return
+        }
         // The first score is on screen; the rest of the upload follows.
-        guard continuing else { return }
         if queued != nil {
             // The queued rerun uploads it, even if all that was queued is a push's refresh.
             queuedTrigger = merge(queuedTrigger, .backlog)
         } else {
             // Started (and registered) now, so a cancel() right after finds it.
-            _ = start(.backlog)
+            _ = start(.backlog, afterUpload: [])
         }
     }
 
@@ -159,19 +241,38 @@ actor SyncCoordinator {
 
     // MARK: the pipeline
 
-    private static func pipeline(_ trigger: Trigger, steps: SyncSteps, clock: AppClock) async -> Outcome {
+    private static func pipeline(_ trigger: Trigger, steps: SyncSteps, clock: AppClock,
+                                 inBackground: @Sendable () async -> Bool,
+                                 afterUpload: [@Sendable () -> Void]) async -> Outcome {
         var outcome = Outcome()
+        // A HealthKit delivery's completion follows the upload step, however it ended.
+        var uploadReported = false
+        func uploadDone() {
+            guard !uploadReported else { return }
+            uploadReported = true
+            afterUpload.forEach { $0() }
+        }
+        defer { uploadDone() }
         do {
             let touched: [String]
             if case .silentPush(let days) = trigger {
+                uploadDone()
                 touched = days
             } else {
                 let started = clock.now()
                 (touched, outcome.attempts) = try await uploadWithBackoff(steps, clock)
+                uploadDone()
                 outcome.touched = touched
                 // Only an upload that sent something leaves a backlog to continue (offline,
                 // gated or demo uploads send nothing).
                 outcome.backlog = touched.isEmpty ? false : await steps.hasBacklog
+                outcome.waitingForUnlock = await steps.isWaitingForUnlock
+                if await inBackground() {
+                    // The system's time is short: the silent push refreshes once scoring is done.
+                    try Task.checkCancellation()
+                    await steps.report(.done)
+                    return outcome
+                }
                 guard !touched.isEmpty else {
                     try Task.checkCancellation()
                     await steps.report(.refreshing)
@@ -258,6 +359,9 @@ final class LiveSyncSteps: SyncSteps {
     }
 
     var hasBacklog: Bool { sync.hasBacklog }
+    var isWaitingForUnlock: Bool { sync.waitingForUnlock }
+    var isUploading: Bool { sync.isSyncing }
+    func stopAfterCurrentPage() async { await sync.stopAfterCurrentPage() }
 
     func isScored(_ days: [String], since: Date) async throws -> Bool {
         guard let first = days.min().flatMap(DayFormat.date(from:)),

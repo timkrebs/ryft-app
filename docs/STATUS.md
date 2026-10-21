@@ -1,5 +1,30 @@
 # Status — 2026-10-21
 
+## Background sync: leaving the app, BG processing, HealthKit delivery, locked phone (sync brief §2)
+
+- **Leaving the app doesn't stop the import any more.** The page in flight finishes in a
+  background task (anchor committed); the rest goes to the new `BGProcessingTask`
+  "backfill" (identifier in Info.plist; the `processing` background mode was already
+  there), which runs until the backlog is gone and reschedules itself when iOS ends it.
+  Only sign-out cancels.
+- **HealthKit delivery:** observers registered during launch (`RyftApp.init`), so a
+  background launch for a delivery finds them; `.immediate` for sleep, workouts and HRV
+  only; each delivery completes right after its upload, not after scoring and refreshes.
+- **Locked phone:** waiting for the unlock, not a failure; it resumes on
+  `protectedDataDidBecomeAvailable` and on the next app start.
+- **Background runs** fail fast (no waiting for a network, 20 s per request, 25 s per
+  resource) and skip the scoring wait; the platform's silent push refreshes the days.
+- **Deletions in Apple Health** are collected per account (bounded) for the platform,
+  which can't match them yet (request in `docs/API_REQUESTS.md`, later PR).
+
+Verified: 471 unit tests (+ delivery completion timing incl. joined, failed and cancelled
+runs, background session and skipped scoring wait, finishing in a background task and its
+expiry, the backfill loop and its expiry, the engine stopping after the page in flight,
+locked phone and resume, deletions kept and bounded, observers once).
+**Not verified on a device:** background launches for HealthKit deliveries and the BG
+processing task only happen on a real iPhone. To try the backfill task in the debugger:
+`e -l objc -- (void)[[BGTaskScheduler sharedScheduler] _simulateLaunchForTaskWithIdentifier:@"dev.timkrebs.ryft.backfill"]`.
+
 ## Sync engine: order, first score first, pipelined (sync brief §2, first part)
 
 - **`SyncEngine`** (actor) reads, maps, encodes and uploads; `SyncService` stays the

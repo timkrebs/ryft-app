@@ -5,6 +5,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>dev.timkrebs.ryft.refresh</string>
+		<string>dev.timkrebs.ryft.backfill</string>
 		<string>dev.timkrebs.ryft.compact</string>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>

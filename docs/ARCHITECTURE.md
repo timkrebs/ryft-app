@@ -223,12 +223,35 @@ graph of `await`s and a `TaskGroup`:
 - **One in flight.** A trigger while a sync runs queues one rerun; later triggers join it.
 - **Priorities.** User-initiated, app active and reconnect run at `.userInitiated`;
   background, HealthKit and push at `.utility`.
-- **Cancellation.** `cancel()` runs on sign-out (account change) and when the app goes to
-  the background. Waits are `clock.sleep`, so they throw `CancellationError` promptly.
+- **Cancellation.** `cancel()` runs on sign-out (account change) and when a background
+  task's time runs out. Waits are `clock.sleep`, so they throw `CancellationError` promptly.
+- **Leaving the app** doesn't cancel: `BackgroundWork.finishInBackground` holds a
+  `beginBackgroundTask` while `windDown()` lets the page in flight finish (anchor
+  committed) and stops the upload there; a scoring wait is abandoned. What's left goes to
+  the `BGProcessingTask` "backfill" (network required, power above an estimated 10 MB),
+  which runs until the backlog is gone; at expiry it cancels at once, reschedules and
+  completes (the page in flight goes again: uploads are idempotent).
+- **In the background** (the app's lifecycle, not the trigger: launched into the
+  background, or after `windDown` until the scene is active again; a BG task always) a
+  run uploads and skips the scoring wait (the platform's silent push refreshes), its
+  requests use `APIClient`'s background session (no waiting for a network, 20 s / 25 s),
+  and a backlog it leaves goes to the backfill task. A HealthKit delivery while the user
+  looks at Today is a foreground run and refreshes Today.
+- **HealthKit delivery.** The observers (sleep, workouts, HRV; `.immediate`) are
+  registered in `RyftApp.init` when the account has seen the Health explanation, so a
+  background launch for a delivery finds them; bootstrap covers the first time (once).
+  `run(.healthKit, afterUpload:)` calls the delivery's completion right after the upload
+  step, also when it failed, was cancelled or joined another run.
+- **Locked phone.** HealthKit's `errorDatabaseInaccessible` is a wait, not a failure
+  (`SyncService.waitingForUnlock`); `protectedDataDidBecomeAvailable` and the next app
+  start run it again.
+- **Deletions.** The anchored reads' `deletedObjects` are kept per account and stream
+  (`PendingDeletions`, 2 000 per stream) until the platform can take them.
 - **Backoff.** Transport errors and 5xx (after `APIClient`'s own 503/429 handling) retry
   the upload at 2 s, then 4 s; 4xx don't.
 - **Time-scheduled work** (`Sync/ScheduledWork.swift`):
   - `BGAppRefreshTask` runs a `.background` sync about every 2 h.
+  - `BGProcessingTask` "backfill" (`dev.timkrebs.ryft.backfill`): the rest of an import.
   - `BGProcessingTask` runs nightly from 03:00 on power and compacts the cache:
     - days older than a year
     - workout details and exercise histories not fetched for 30 days

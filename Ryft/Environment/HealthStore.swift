@@ -25,6 +25,17 @@ struct HealthPage {
     let delta: HealthDelta
     let anchor: Data?
     let more: Bool
+    /// HealthKit UUIDs deleted in Apple Health since the previous anchor.
+    var deleted: [UUID] = []
+}
+
+/// HealthKit is unreadable while the phone is locked (protected data): a delivery or a
+/// background task that fires then gets `errorDatabaseInaccessible`. Not a failure: the
+/// sync waits for the unlock.
+enum ProtectedData {
+    static func isLocked(_ error: Error) -> Bool {
+        (error as? HKError)?.code == .errorDatabaseInaccessible
+    }
 }
 
 /// What HealthKit grants is never visible for reads, only whether the prompt still has to show.
@@ -45,8 +56,11 @@ protocol HealthStore: AnyObject {
     var hasAnchors: Bool { get }
     func requestAuthorization() async throws
     func accessStatus() async -> HealthAccess
+    /// `.immediate` delivery for the observed types; idempotent, called on every launch.
     func enableBackgroundDelivery() async
-    func startObserving(onChange: @escaping () async -> Void)
+    /// Registers the observers once (during launch). `onChange` gets the delivery's
+    /// completion and calls it as soon as the upload is done.
+    func startObserving(onChange: @escaping @Sendable (_ done: @escaping @Sendable () -> Void) -> Void)
     /// The page after `anchor` (an uncommitted page's), or after the committed anchor when
     /// `nil`; at most `limit` records. Without any anchor: the backfill window.
     func nextPage(_ stream: HealthStream, after anchor: Data?, limit: Int) async throws -> HealthPage
@@ -91,13 +105,16 @@ extension HealthKitManager: HealthStore {
                 return HealthPage(delta: HealthDelta(), anchor: nil, more: false)
             }
             let p = try await quantityPage(spec, anchor: anchor, predicate: predicate, limit: limit)
-            return HealthPage(delta: HealthDelta(samples: p.items), anchor: Self.archive(p.anchor), more: p.more)
+            return HealthPage(delta: HealthDelta(samples: p.items), anchor: Self.archive(p.anchor), more: p.more,
+                              deleted: p.deleted)
         case .sleep:
             let p = try await sleepPage(anchor: anchor, predicate: predicate, limit: limit)
-            return HealthPage(delta: HealthDelta(sleep: p.items), anchor: Self.archive(p.anchor), more: p.more)
+            return HealthPage(delta: HealthDelta(sleep: p.items), anchor: Self.archive(p.anchor), more: p.more,
+                              deleted: p.deleted)
         case .workouts:
             let p = try await workoutPage(anchor: anchor, predicate: predicate, limit: limit)
-            return HealthPage(delta: HealthDelta(workouts: p.items), anchor: Self.archive(p.anchor), more: p.more)
+            return HealthPage(delta: HealthDelta(workouts: p.items), anchor: Self.archive(p.anchor), more: p.more,
+                              deleted: p.deleted)
         }
     }
 
@@ -140,11 +157,20 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
         get { locked { _nextError } }
         set { locked { _nextError = newValue } }
     }
+    /// Called on every commit, before the anchor moves (tests check what's stored by then).
+    var onCommit: ((HealthStream) -> Void)?
 
     private(set) var authorizationRequests = 0
     private(set) var backgroundDeliveryEnabled = false
     private(set) var observing = false
+    private(set) var observerRegistrations = 0
     private(set) var resets = 0
+    /// UUIDs deleted per stream, handed out with the stream's next page.
+    var deletions: [HealthStream: [UUID]] {
+        get { locked { _deletions } }
+        set { locked { _deletions = newValue } }
+    }
+    private var _deletions: [HealthStream: [UUID]] = [:]
     var committed: [HealthStream] { locked { _committed } }
     var pageReads: Int { locked { _pageReads } }
     var recentReads: Int { locked { _recentReads } }
@@ -162,7 +188,7 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
     private var _limits: [Int] = []
     private var _readsOnMainThread = 0
     private var position: [HealthStream: Int] = [:]
-    private var onChange: (() async -> Void)?
+    private var onChange: (@Sendable (_ done: @escaping @Sendable () -> Void) -> Void)?
 
     init(streams: [HealthStream] = [.quantity(.heartRate), .sleep, .workouts],
          pages: [HealthStream: [HealthDelta]] = [:], recent: [HealthStream: [HealthDelta]] = [:]) {
@@ -177,13 +203,16 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
     func accessStatus() async -> HealthAccess { access }
     func enableBackgroundDelivery() async { backgroundDeliveryEnabled = true }
 
-    func startObserving(onChange: @escaping () async -> Void) {
+    func startObserving(onChange: @escaping @Sendable (_ done: @escaping @Sendable () -> Void) -> Void) {
+        // Once, like the live store: launch and bootstrap both call it.
+        guard !observing else { return }
         observing = true
+        observerRegistrations += 1
         self.onChange = onChange
     }
 
-    /// Simulates HealthKit background delivery.
-    func deliverChange() async { await onChange?() }
+    /// Simulates HealthKit background delivery; `done` is the delivery's completion.
+    func deliverChange(done: @escaping @Sendable () -> Void = {}) { onChange?(done) }
 
     func nextPage(_ stream: HealthStream, after anchor: Data?, limit: Int) async throws -> HealthPage {
         let onMain = MainThread.isCurrent
@@ -191,9 +220,12 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
             try read(limit, onMain: onMain)
             let index = anchor.flatMap(Self.index).map { $0 + 1 } ?? position[stream, default: 0]
             let queue = _pages[stream] ?? []
-            guard index < queue.count else { return HealthPage(delta: HealthDelta(), anchor: nil, more: false) }
+            guard index < queue.count else {
+                return HealthPage(delta: HealthDelta(), anchor: nil, more: false, deleted: _deletions[stream] ?? [])
+            }
             _pageReads += 1
-            return HealthPage(delta: queue[index], anchor: Self.anchor(index), more: index + 1 < queue.count)
+            return HealthPage(delta: queue[index], anchor: Self.anchor(index), more: index + 1 < queue.count,
+                              deleted: index == 0 ? _deletions[stream] ?? [] : [])
         }
     }
 
@@ -210,8 +242,10 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
     }
 
     func commit(_ page: HealthPage, for stream: HealthStream) {
+        onCommit?(stream)
         locked {
             _committed.append(stream)
+            if !page.deleted.isEmpty { _deletions[stream] = nil }
             let current = position[stream, default: 0]
             position[stream] = page.anchor.flatMap(Self.index).map { $0 + 1 } ?? current
         }

@@ -51,7 +51,14 @@ struct RyftApp: App {
         let state = AppState(env: .live)
         // The JSON response cache of earlier versions moves into SwiftData once.
         LegacyCacheMigration.runOnce(into: state.repository, train: .shared, defaults: .standard)
-        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: .shared), clock: AppEnvironment.live.clock)
+        // Launched straight into the background (a HealthKit delivery, a BG task): the
+        // coordinator starts there; the scene's activation brings it to the foreground.
+        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: .shared),
+                                          clock: AppEnvironment.live.clock,
+                                          inBackground: UIApplication.shared.applicationState == .background) {
+            // A run in the background left a backlog: the backfill task takes it.
+            if let left = SyncService.shared.backlogBytes { BackgroundWork.scheduleBackfill(backlogBytes: left) }
+        }
         self.coordinator = coordinator
         _state = State(initialValue: state)
         let screens = ScreenModels(state: state, sync: .shared, coordinator: coordinator,
@@ -62,10 +69,19 @@ struct RyftApp: App {
         // A build without its platform values stops here (Debug) or shows only the
         // misconfigured-build screen (Release, RootView). Never a fallback host.
         PlatformConfig.checkAtLaunch()
-        // Background refresh (in addition to HealthKit delivery) and the nightly cache compaction.
-        BackgroundWork.register(coordinator: coordinator) { [repository = state.repository] in
-            repository.compact()
+        // Background refresh, the backfill (in addition to HealthKit delivery) and the nightly
+        // cache compaction.
+        BackgroundWork.register(coordinator: coordinator, backlogBytes: { SyncService.shared.backlogBytes }) {
+            [repository = state.repository] in repository.compact()
         }
+        // HealthKit wakes the app for deliveries, possibly in a background launch where the
+        // scene's tasks don't run: the observers exist before launch finishes. Only for an
+        // account that has seen the Health explanation (bootstrap covers the first time).
+        if AuthService.shared.isSignedIn, Settings.shared.healthIntroDone, HealthKitManager.isAvailable {
+            Self.observeHealthKit(HealthKitManager.shared, coordinator: coordinator)
+        }
+        // A sync that found HealthKit locked runs again once the phone is unlocked.
+        BackgroundWork.resumeOnUnlock(coordinator: coordinator) { SyncService.shared.waitingForUnlock }
         Self.configureAppearance()
         #if DEBUG
         // UI tests: `-RyftResetTrain YES` starts without sessions or a queue.
@@ -143,15 +159,20 @@ struct RyftApp: App {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 (env.flags as? FlagStore)?.applyPending()
-                Task { await coordinator.run(.appActive) }
+                Task {
+                    await coordinator.enterForeground()
+                    await coordinator.run(.appActive)
+                }
                 Task { await refreshTrain() }
                 // Allowed in Settings meanwhile, a new token or language: tell the platform.
                 Task { await screens.push.refresh() }
                 Task { await screens.featureFlags?.refresh() }
                 Task { await screens.onboarding.check() }
             } else if phase == .background {
-                // Foreground work stops; the system's background tasks take over.
-                Task { await coordinator.cancel() }
+                // Not a cancel: the page in flight finishes (in a background task), and what's
+                // left of an import goes to the backfill task.
+                _ = BackgroundWork.finishInBackground(coordinator: coordinator, app: UIApplication.shared,
+                                                      backlogBytes: { sync.backlogBytes })
                 BackgroundWork.scheduleRefresh()
                 BackgroundWork.scheduleCompaction()
             }
@@ -189,11 +210,18 @@ struct RyftApp: App {
             return
         }
         try? await env.health.requestAuthorization()
-        await env.health.enableBackgroundDelivery()
-        env.health.startObserving { [coordinator] in
-            await coordinator.run(.healthKit)
-        }
+        Self.observeHealthKit(env.health, coordinator: coordinator)
         await coordinator.run(.appActive)
+    }
+
+    /// The observers (once; launch or bootstrap, whichever comes first) and `.immediate`
+    /// delivery (every launch, idempotent). A delivery completes right after its upload.
+    @MainActor
+    static func observeHealthKit(_ health: HealthStore, coordinator: SyncCoordinator) {
+        health.startObserving { done in
+            Task { await coordinator.run(.healthKit, afterUpload: done) }
+        }
+        Task { await health.enableBackgroundDelivery() }
     }
 
     private struct BootstrapKey: Equatable {

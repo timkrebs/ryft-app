@@ -30,8 +30,11 @@ final class SyncService {
     private(set) var lastDaysTouched: [String] = []
     /// The engine's persisted state (phase, per-stream progress, last error).
     private(set) var engineState: SyncEngineState
-    /// The last run stopped early on purpose (the first score came first); another follows.
+    /// The last run stopped early on purpose (the first score came first, or the app went
+    /// to the background); another follows.
     private(set) var hasBacklog = false
+    /// HealthKit was locked (the phone is locked): the sync resumes after the unlock.
+    private(set) var waitingForUnlock = false
     /// Uploads wait behind this gate (no consent to the current policy, no beta access)
     /// until it's passed. Not an error: something the user does (`OnboardingCoordinator`).
     private(set) var pausedFor: APIErrorCode?
@@ -69,6 +72,24 @@ final class SyncService {
         engineState = SyncEngineState.load(account: auth.accountID, defaults: env.defaults)
         hasBacklog = false
         pausedFor = nil
+        waitingForUnlock = false
+    }
+
+    /// The app went to the background: the page being uploaded finishes (its anchor
+    /// committed), then the upload stops with a backlog.
+    func stopAfterCurrentPage() async {
+        await engine.requestStop()
+    }
+
+    /// What's left of the backfill, estimated (`BGProcessingTask` wants power above 10 MB);
+    /// `nil` when nothing is left, signed out or in demo mode.
+    var backlogBytes: Int? {
+        guard auth.isSignedIn, !env.isDemo, hasBacklog || !engineState.backfillDone else { return nil }
+        if engineState.backlogBytes > 0 { return engineState.backlogBytes }
+        // Not measured yet (the first-score window just went up, or an older state): the
+        // streams not yet backfilled, estimated.
+        let remaining = health.streams.map(\.anchorID).filter { engineState.streams[$0]?.backfilled != true }
+        return SyncEngineState.backlogEstimate(engineState.streams, remaining: remaining)
     }
 
     /// Uploads and keeps any error for the screens (Profile → Re-sync, tests).
@@ -116,6 +137,7 @@ final class SyncService {
         lastErrorDetails = nil
         lastUploaded = 0
         hasBacklog = false
+        waitingForUnlock = false
         defer { progress = "" }
         let context = SyncEngine.Context(account: account, deviceID: settings.deviceId,
                                          deviceName: UIDevice.current.name, appVersion: AppInfo.version,
@@ -126,6 +148,12 @@ final class SyncService {
             }
             lastDaysTouched = result.touched
             hasBacklog = result.backlog
+            if result.waitingForUnlock {
+                // Locked phone: not a failure. Unlock (or the next app start) resumes it.
+                waitingForUnlock = true
+                advance(to: .idle)
+                return result.touched
+            }
             if let gate = result.pausedFor {
                 // The platform refused at a gate (consent withdrawn, policy updated, access
                 // revoked): pause, keep the uncommitted page's anchor, and let the gate prompt.
@@ -221,9 +249,43 @@ struct SyncEngineState: Codable, Equatable, Sendable {
     /// Per `HealthStream.anchorID`.
     var streams: [String: StreamProgress] = [:]
     var bytesUploaded = 0
+    /// What's left of the backfill, estimated; 0 once it's done.
+    var backlogBytes = 0
+    /// HealthKit deletions kept for the platform (`PendingDeletions`), counted.
+    var pendingDeletions = 0
     var lastError: String?
     var lastRequestID: String?
     var updatedAt: Date?
+
+    init() {}
+
+    // A state saved by an older build decodes with the new fields at their defaults.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        phase = (try? c.decodeIfPresent(Phase.self, forKey: .phase)) ?? .idle
+        stream = try c.decodeIfPresent(String.self, forKey: .stream)
+        recentDone = try c.decodeIfPresent(Bool.self, forKey: .recentDone) ?? false
+        backfillDone = try c.decodeIfPresent(Bool.self, forKey: .backfillDone) ?? false
+        streams = try c.decodeIfPresent([String: StreamProgress].self, forKey: .streams) ?? [:]
+        bytesUploaded = try c.decodeIfPresent(Int.self, forKey: .bytesUploaded) ?? 0
+        backlogBytes = try c.decodeIfPresent(Int.self, forKey: .backlogBytes) ?? 0
+        pendingDeletions = try c.decodeIfPresent(Int.self, forKey: .pendingDeletions) ?? 0
+        lastError = try c.decodeIfPresent(String.self, forKey: .lastError)
+        lastRequestID = try c.decodeIfPresent(String.self, forKey: .lastRequestID)
+        updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
+    }
+
+    /// Before a stream's backfill measured it, a 90-day stream is assumed this big (an
+    /// Apple Watch's heart rate alone is ~25 MB of JSON): enough to wait for power.
+    static let unmeasuredStreamBytes = 10_000_000
+
+    /// The backfill still to go: each stream not yet drained, at the average size of the
+    /// drained ones (or `unmeasuredStreamBytes` before any is).
+    static func backlogEstimate(_ streams: [String: StreamProgress], remaining: [String]) -> Int {
+        let done = streams.values.filter(\.backfilled)
+        let average = done.isEmpty ? unmeasuredStreamBytes : done.map(\.bytes).reduce(0, +) / done.count
+        return remaining.reduce(0) { total, id in total + max(0, average - (streams[id]?.bytes ?? 0)) }
+    }
 
     static let keyPrefix = "sync.engine."
 
@@ -246,9 +308,33 @@ struct SyncEngineState: Codable, Equatable, Sendable {
     /// going (of the account that ended) can't save over it afterwards (`wipes`).
     static func wipe(defaults: UserDefaults) {
         defaults.set(wipes(defaults) + 1, forKey: wipesKey)
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(keyPrefix) {
+        for key in defaults.dictionaryRepresentation().keys
+        where key.hasPrefix(keyPrefix) || key.hasPrefix(PendingDeletions.keyPrefix) {
             defaults.removeObject(forKey: key)
         }
+    }
+}
+
+/// HealthKit UUIDs deleted in Apple Health (`deletedObjects` of the anchored reads), per
+/// account and stream. The platform can't take them yet (samples go up without their
+/// UUID; `docs/API_REQUESTS.md`), so they're kept, bounded, until it can.
+enum PendingDeletions {
+    static let keyPrefix = "sync.deleted."
+    /// Per stream; the oldest go first beyond it.
+    static let limitPerStream = 2_000
+
+    static func load(account: String, defaults: UserDefaults) -> [String: [String]] {
+        (defaults.dictionary(forKey: keyPrefix + account) as? [String: [String]]) ?? [:]
+    }
+
+    /// Adds `ids` to the stream's list; returns the total kept for the account.
+    @discardableResult
+    static func add(_ ids: [UUID], stream: HealthStream, account: String, defaults: UserDefaults) -> Int {
+        var all = load(account: account, defaults: defaults)
+        let list = (all[stream.anchorID] ?? []) + ids.map { $0.uuidString.lowercased() }
+        all[stream.anchorID] = Array(list.suffix(limitPerStream))
+        defaults.set(all, forKey: keyPrefix + account)
+        return all.values.reduce(0) { $0 + $1.count }
     }
 }
 
@@ -289,6 +375,8 @@ actor SyncEngine {
         var backlog = false
         /// Refused at a gate; the page's anchor isn't committed.
         var pausedFor: APIErrorCode?
+        /// HealthKit was locked (protected data); nothing is lost, the rest follows the unlock.
+        var waitingForUnlock = false
     }
 
     /// The first score's window.
@@ -309,9 +397,18 @@ actor SyncEngine {
     /// The most records per page this run; a 413 lowers it.
     private var maxRecords = 0
     private var gate: @Sendable () async -> APIErrorCode? = { nil }
+    /// `requestStop()`: end after the page being uploaded.
+    private var stopRequested = false
+    private var stoppedEarly = false
     /// `SyncEngineState.wipes` when the run started: a wipe since then (sign-out) means
     /// this run's state isn't anyone's to keep.
     private var wipesAtStart = 0
+
+    /// Ends the run after the page being uploaded (its anchor committed); the run then
+    /// reports a backlog. For the app going to the background.
+    func requestStop() {
+        stopRequested = true
+    }
 
     init(health: HealthStore, api: PlatformAPI, defaults: UserDefaults) {
         self.health = health
@@ -332,6 +429,8 @@ actor SyncEngine {
         state = SyncEngineState.load(account: account, defaults: defaults)
         touched = []
         maxRecords = health.pageSize
+        stopRequested = false
+        stoppedEarly = false
         var result = Result()
         defer { persist() }
         do {
@@ -343,6 +442,7 @@ actor SyncEngine {
                 let since = Calendar.current.date(byAdding: .day, value: -Self.recentDays, to: context.now) ?? context.now
                 try await set(.recent, report)
                 try await drain(.recent(since: since), context, report)
+                if stoppedEarly { return await stopped(result, context, report) }
                 state.recentDone = true
                 // Something to score: let the coordinator refresh before the long backfill.
                 if !touched.isEmpty {
@@ -354,7 +454,14 @@ actor SyncEngine {
             }
             try await set(state.backfillDone ? .incremental : .backfill, report)
             try await drain(.anchored, context, report)
+            if stoppedEarly { return await stopped(result, context, report) }
             state.backfillDone = true
+            state.backlogBytes = 0
+            state.phase = .idle
+            await finished(context, report)
+            return finish(result)
+        } catch let error where ProtectedData.isLocked(error) {
+            result.waitingForUnlock = true
             state.phase = .idle
             await finished(context, report)
             return finish(result)
@@ -375,6 +482,19 @@ actor SyncEngine {
             await finished(context, report)
             throw error
         }
+    }
+
+    /// Stopped on request after a page: the rest is a backlog.
+    private func stopped(_ result: Result, _ context: Context, _ report: @Sendable (Event) async -> Void) async -> Result {
+        var r = result
+        r.backlog = true
+        if !state.backfillDone {
+            let remaining = health.streams.map(\.anchorID).filter { state.streams[$0]?.backfilled != true }
+            state.backlogBytes = SyncEngineState.backlogEstimate(state.streams, remaining: remaining)
+        }
+        state.phase = .idle
+        await finished(context, report)
+        return finish(r)
     }
 
     /// The run's last word: no stream in progress, and when it ended.
@@ -444,10 +564,22 @@ actor SyncEngine {
                 continue
             }
             if case .anchored = mode {
+                // The deletions before the anchor: once the anchor moves, HealthKit won't
+                // report them again.
+                if !page.deleted.isEmpty {
+                    state.pendingDeletions = PendingDeletions.add(page.deleted, stream: stream, account: account,
+                                                                  defaults: defaults)
+                }
                 health.commit(page, for: stream)
                 if !page.more, !state.backfillDone { state.streams[stream.anchorID, default: .init()].backfilled = true }
                 // Checkpointed with its anchor: a run the system ends keeps its progress.
                 persist()
+            }
+            // The app went to the background: this page is in, the rest waits.
+            if stopRequested, page.more || next != nil {
+                stoppedEarly = true
+                _ = try? await ahead
+                return
             }
             let read = try await ahead
             guard let next, let read else { return }
