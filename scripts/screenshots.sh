@@ -7,8 +7,12 @@
 #   scripts/screenshots.sh ["iPhone 17 Pro"] [tab, screen or scenario ...]
 #   screens: notifications invite consent aboutYou aboutYouSaved accountHint signInMethods syncDetails baselineSleepNeed sleepNeed bedtime tonight
 #   scenarios (Today in one in-between state, `-RyftScenario`): import pending calibrating watch
-#     waitingForSleep pendingNoPrevious recalculating recalculatingYesterday needsVitals (Today's rows, ui.md §1.6)
-#   SHOT_LANG=de: German (files end in -de)
+#     waitingForSleep pendingNoPrevious recalculating recalculatingYesterday needsVitals needsVitalsBaselines
+#     (Today's rows, ui.md §1.6)
+#   SHOT_LANG=de: German (files end in -de), in Germany's region (de_DE)
+#   SHOT_LOCALE=de_AT: another region for SHOT_LANG
+# Times use each locale's own clock ("23:17" in German), not this simulator's 24-Hour Time switch
+# (`AppleICUForce12HourTime`), which the app honours as a user's setting.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -39,21 +43,25 @@ xcrun simctl install "$DEVICE" "$APP"
 mkdir -p "$OUT"
 
 LANG_SHOT=${SHOT_LANG:-}
+case $LANG_SHOT in
+  de) LOCALE_SHOT=${SHOT_LOCALE:-de_DE} ;;
+  *) LOCALE_SHOT=${SHOT_LOCALE:-$LANG_SHOT} ;;
+esac
 for scheme in dark light; do
   for tab in $TABS; do
     xcrun simctl terminate "$DEVICE" "$BUNDLE" 2>/dev/null || true
     case $tab in
       notifications|invite|consent|aboutYou|aboutYouSaved|accountHint|signInMethods|syncDetails|baselineSleepNeed|sleepNeed|bedtime|tonight) set -- -RyftScreen "$tab" ;;
-      import|pending|calibrating|watch|waitingForSleep|pendingNoPrevious|recalculating|recalculatingYesterday|needsVitals)
+      import|pending|calibrating|watch|waitingForSleep|pendingNoPrevious|recalculating|recalculatingYesterday|needsVitals|needsVitalsBaselines)
         set -- -RyftTab today -RyftScenario "$tab" ;;
       *) set -- -RyftTab "$tab" ;;
     esac
     name="$tab-$scheme"
     if [ -n "$LANG_SHOT" ]; then
-      set -- "$@" -AppleLanguages "($LANG_SHOT)" -AppleLocale "$LANG_SHOT"
+      set -- "$@" -AppleLanguages "($LANG_SHOT)" -AppleLocale "$LOCALE_SHOT"
       name="$name-$LANG_SHOT"
     fi
-    xcrun simctl launch "$DEVICE" "$BUNDLE" -demoMode YES "$@" -appearance "$scheme" >/dev/null
+    xcrun simctl launch "$DEVICE" "$BUNDLE" -demoMode YES "$@" -appearance "$scheme" -AppleICUForce12HourTime NO >/dev/null
     sleep "${SHOT_DELAY:-3}"
     xcrun simctl io "$DEVICE" screenshot --type=png "$OUT/$name.png" >/dev/null 2>&1
     echo "$OUT/$name.png"
