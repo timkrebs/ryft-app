@@ -63,9 +63,10 @@ final class TodayViewModel {
     var strainText: String { Fmt.strain(score?.strain) }
 
     var status: Status? {
-        if let step = onboarding?.pendingGate ?? sync.pausedFor.map(Self.step(for:)) {
-            return Self.actionNeeded(step)
-        }
+        // With onboarding, its facts decide (a sync paused only until the account is known
+        // isn't the user's to fix); without it, a sync the platform refused at a gate.
+        let gate = onboarding.map { $0.pendingGate } ?? sync.pausedFor.map(Self.step(for:))
+        if let step = gate { return Self.actionNeeded(step) }
         if let notice = apiStatus.retryNotice { return .retrying(notice) }
         if let error = state.error {
             // With data on screen, the failure only means it's not the latest.

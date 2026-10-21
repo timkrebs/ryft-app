@@ -106,6 +106,8 @@ final class SyncService {
                     advance(to: .reading)
                     progress = "Reading \(stream.anchorID)…"
                     let page = try await health.nextPage(stream)
+                    // Consent withdrawn or a gate reported meanwhile: stop before this page goes up.
+                    if let gate = gate?() { throw APIError.http(403, "", code: gate) }
                     // On 413 the anchor isn't committed, so the loop re-reads the same page, smaller.
                     guard try await upload(page.delta, touched: &touched) else { continue }
                     health.commit(page, for: stream)

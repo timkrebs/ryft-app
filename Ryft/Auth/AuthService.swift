@@ -387,8 +387,11 @@ final class AuthService {
     var hasAppleSignIn: Bool { signInMethods.contains { $0.provider == "apple" } || provider == "apple" }
 
     func loadSignInMethods() async {
-        guard let client, session != nil else { return }
-        if let methods = try? await client.identities() { signInMethods = methods }
+        guard let client, let account = accountID else { return }
+        let methods = try? await client.identities()
+        // Another account meanwhile: those were the previous one's.
+        guard let methods, accountID == account else { return }
+        signInMethods = methods
     }
 
     /// "Add Sign in with Apple"'s request hook: no scopes (the account has its name), a fresh nonce.
@@ -628,6 +631,11 @@ final class AuthService {
             wipeLocalData()
             defaults.removeObject(forKey: Self.lastUserKey)
             needsNewPassword = false
+        }
+        if newSession?.user.id != session?.user.id {
+            // Sign-in methods belong to the account they were loaded for.
+            signInMethods = []
+            linkError = nil
         }
         session = newSession
         user = newSession?.user

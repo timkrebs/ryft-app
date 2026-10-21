@@ -154,7 +154,9 @@ final class TrainSyncService {
     static func isRetryable(_ error: APIError) -> Bool {
         switch error {
         case .transport, .notConfigured, .signedOut: return true
-        case .http(let code, _, _, _): return code == 401 || code == 408 || code == 429 || code >= 500
+        // A gate (invite, consent) is passed later: keep the op for then.
+        case .http(let code, _, _, let gate): return code == 401 || code == 408 || code == 429 || code >= 500
+            || (code == 403 && gate != nil)
         }
     }
 

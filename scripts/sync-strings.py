@@ -10,11 +10,15 @@ and `LocalizedStringKey`), then:
 - removes keys no source uses any more, unless marked `extractionState: manual`
   (Info.plist and push loc-keys are).
 
-Then `make lint` lists what still needs German. Usage (after a build):
+Then `make lint` lists what still needs German. Usage (after a build into the same
+DerivedData, as `make build` does):
 
-    python3 scripts/sync-strings.py [--derived-data build/DerivedData] [--check]
+    python3 scripts/sync-strings.py [--derived-data build/DerivedData]
+        [--configuration Debug] [--platform iphonesimulator] [--check]
 
-`--check` changes nothing and exits 1 if the catalog is out of date.
+Only that configuration and platform are read, so an older Release or device build in
+the same DerivedData can't stand in for the current one. `--check` changes nothing and
+exits 1 if the catalog is out of date.
 """
 import argparse
 import glob
@@ -54,16 +58,15 @@ def skipped_lines(source: str) -> set[int]:
     return lines
 
 
-def extracted_keys(derived: str, target: str) -> set[str]:
-    pattern = os.path.join(derived, "Build/Intermediates.noindex/Ryft.build/*",
-                           f"{target}.build/Objects-normal/*/*.stringsdata")
-    files = glob.glob(pattern)
-    if not files:
-        sys.exit(f"No .stringsdata for {target} under {derived}: build first (make build).")
-    # One architecture is enough; every arch extracts the same keys.
-    arch = os.path.dirname(files[0])
+def extracted_keys(derived: str, configuration: str, platform: str, target: str) -> set[str]:
+    objects = os.path.join(derived, "Build/Intermediates.noindex/Ryft.build",
+                           f"{configuration}-{platform}", f"{target}.build/Objects-normal")
+    archs = sorted(d for d in glob.glob(os.path.join(objects, "*")) if glob.glob(os.path.join(d, "*.stringsdata")))
+    if not archs:
+        sys.exit(f"No .stringsdata for {target} in {objects}: build first (make build).")
+    # Every architecture of one build extracts the same keys; take the first.
     keys: set[str] = set()
-    for path in glob.glob(os.path.join(arch, "*.stringsdata")):
+    for path in glob.glob(os.path.join(archs[0], "*.stringsdata")):
         with open(path) as f:
             data = json.load(f)
         skipped = skipped_lines(data.get("source", ""))
@@ -92,11 +95,13 @@ def merged(strings: dict, added: list[str], removed: set[str]) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--derived-data", default="build/DerivedData")
+    parser.add_argument("--configuration", default="Debug")
+    parser.add_argument("--platform", default="iphonesimulator")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     stale = False
     for target, path in TARGETS.items():
-        keys = extracted_keys(args.derived_data, target)
+        keys = extracted_keys(args.derived_data, args.configuration, args.platform, target)
         with open(path) as f:
             catalog = json.load(f)
         strings = catalog["strings"]

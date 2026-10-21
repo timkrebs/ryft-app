@@ -184,11 +184,16 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
             throw APIError.http(403, "consent required", code: .consentRequired)
         }
         lock.withLock { syncRequests.append(req) }
+        afterSync?()
         return syncResponse
     }
 
     /// `CONSENT_ENFORCE=on`: sync without consent to the current policy answers `403`.
     var enforcesConsent = false
+    /// Runs after each accepted sync (tests change the world between pages with it).
+    var afterSync: (@Sendable () -> Void)?
+    /// After a withdrawal every call fails (the re-check gets no answer).
+    var failAfterRevoke = false
 
     func postAppleAuthorization(code: String) async throws {
         try enter("appleAuthorization")
@@ -247,7 +252,10 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     func revokeConsent() async throws {
         try enter("revokeConsent")
-        lock.withLock { accountConsent = nil }
+        lock.withLock {
+            accountConsent = nil
+            if failAfterRevoke { failure = APIError.transport(URLError(.timedOut)) }
+        }
     }
 
     func redeemInvite(code: String) async throws {

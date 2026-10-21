@@ -13,7 +13,7 @@ DEVICE=${1:-"iPhone 17 Pro"}
 shift 2>/dev/null || true
 TABS=${*:-"today sleep strain insights profile"}
 BUNDLE=dev.timkrebs.ryft
-DD=.build/DerivedData
+DD=build/DerivedData   # shared with make build / make strings
 OUT=docs/screenshots
 
 # Names can repeat across runtimes; pin the first available match by UDID.

@@ -404,13 +404,14 @@ mode) serves the request and names the gate in `X-RYFT-Gate`:
   facts from `GET /v1/me`, `GET /v1/config` and `GET /v1/me/sync` plus the reported
   gates. It checks on every launch and sign-in (`bootstrap`), when `APIStatus.gates`
   changes, after each step, and on app active (at most every 60 s).
-  - First run of an account on this phone (Apple Health not explained yet): the steps
-    full screen in RootView (invite → consent → about you → Health), a splash while
-    the first check runs (at most 10 s).
+  - First run of an account on this phone (it hasn't reached the tabs yet; tracked per
+    account, not by the device's Health permission): the steps full screen in RootView
+    (invite → consent → about you → Health), a splash while the first check runs (at
+    most 10 s).
   - Afterwards: a gate as a sheet over the tabs; "Not now" is remembered for the
     session and Today shows "Action needed".
-- **`SyncService.gate`** asks the coordinator before every upload: nothing syncs before
-  consent or behind an enforced invite gate (`pausedFor`). A sync the platform refuses at
+- **`SyncService.gate`** asks the coordinator before every page: nothing syncs before
+  consent, before the account is known, or behind an enforced invite gate (`pausedFor`). A sync the platform refuses at
   a gate pauses the same way and keeps the anchor of the page it couldn't send.
 - `account_hint` (the platform's guess that this is the same person signed in another
   way) shows once per account; Profile → Sign-in methods links Apple to an email account

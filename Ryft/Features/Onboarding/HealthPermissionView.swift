@@ -97,15 +97,14 @@ final class OnboardingCoordinator {
     private(set) var aboutYouSaved = false
     private var hintSeen = false
 
-    /// Whether Apple Health was explained for this account (`Settings.healthIntroDone`; tests pass their own).
-    private let healthIntroDone: @MainActor () -> Bool
+    /// This account reached the tabs on this phone once (`reachedTabs()`); per account, so
+    /// another account on a phone that already allowed Apple Health still gets its steps.
+    private var firstRunDone = false
 
-    init(state: AppState, apiStatus: APIStatus, healthIntroDone: (@MainActor () -> Bool)? = nil,
-         startSync: @escaping @MainActor () async -> Void) {
+    init(state: AppState, apiStatus: APIStatus, startSync: @escaping @MainActor () async -> Void) {
         self.state = state
         self.apiStatus = apiStatus
         self.startSync = startSync
-        self.healthIntroDone = healthIntroDone ?? { [settings = state.env.settings] in settings.healthIntroDone }
     }
 
     private var env: AppEnvironment { state.env }
@@ -126,8 +125,15 @@ final class OnboardingCoordinator {
         return Self.missing(facts)
     }
 
-    /// The account's first run on this phone: Apple Health hasn't been explained yet.
-    var isFirstRun: Bool { !healthIntroDone() }
+    /// The account's first run on this phone: it hasn't reached the tabs yet.
+    var isFirstRun: Bool { !firstRunDone }
+
+    /// RootView showed the tabs: from now on a gate is a sheet over them.
+    func reachedTabs() {
+        guard !firstRunDone, let account = env.auth.accountID else { return }
+        firstRunDone = true
+        defaults.set(true, forKey: Self.key("firstRunDone", account))
+    }
 
     /// The first run waits for the platform's answer before showing anything (no flash of tabs).
     var holdsFirstRun: Bool { isFirstRun && phase != .ready && !env.isDemo && env.auth.isSignedIn }
@@ -154,10 +160,13 @@ final class OnboardingCoordinator {
     }
 
     /// What `SyncService` waits for: consent to the policy in force, or an enforced invite gate.
-    /// The warn-mode invite gate doesn't hold sync back (the platform serves it).
+    /// Until the account is known (first check still running or failed, nothing cached),
+    /// nothing goes up either: a consent can't be assumed. The warn-mode invite gate
+    /// doesn't hold sync back (the platform serves it).
     var syncGate: APIErrorCode? {
         guard !env.isDemo else { return nil }
         if apiStatus.inviteBlocked { return .inviteRequired }
+        guard user != nil else { return .consentRequired }
         return missing.contains(.consent) ? .consentRequired : nil
     }
 
@@ -308,6 +317,7 @@ final class OnboardingCoordinator {
         clearError()
         phase = .idle
         aboutYouSaved = false
+        firstRunDone = account.map { defaults.bool(forKey: Self.key("firstRunDone", $0)) } ?? false
         aboutYouDone = account.map { defaults.bool(forKey: Self.key("aboutYouDone", $0)) } ?? false
         hintSeen = account.map { defaults.bool(forKey: Self.key("hintSeen", $0)) } ?? false
     }
@@ -379,6 +389,11 @@ final class OnboardingCoordinator {
     func withdrawConsent() async -> Bool {
         await perform {
             try await self.api.revokeConsent()
+            // Withdrawn now, whatever the re-check below manages: sync stops at once.
+            if var u = self.user {
+                u.consent = nil
+                self.state.user = u
+            }
             // Asked again only when the user wants to (Profile → Privacy, Today's action).
             self.deferred.insert(.consent)
             await self.check(force: true)

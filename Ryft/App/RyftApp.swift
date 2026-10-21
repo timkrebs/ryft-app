@@ -125,7 +125,8 @@ struct RyftApp: App {
                     Task { await refreshTrain() }
                 }
                 // Runs at launch (restored session) and again after each sign-in.
-                .task(id: BootstrapKey(account: auth.accountID, healthIntroDone: settings.healthIntroDone)) {
+                .task(id: BootstrapKey(account: auth.accountID, healthIntroDone: settings.healthIntroDone,
+                                       inviteBlocked: APIStatus.shared.inviteBlocked)) {
                     await bootstrap()
                 }
                 // ryft://train/session — the rest timer Live Activity; everything else
@@ -174,8 +175,9 @@ struct RyftApp: App {
         // Every start and sign-in: what the account still needs (invite, consent, about you).
         // This also creates the platform user and sets its timezone before anything syncs.
         await screens.onboarding.check()
-        // Behind the invite gate nothing but onboarding answers.
-        guard !screens.onboarding.missing.contains(.invite) else { return }
+        // Behind an enforced invite gate nothing but onboarding answers; this reruns once
+        // it's passed (`BootstrapKey.inviteBlocked`). A warning blocks nothing.
+        guard !APIStatus.shared.inviteBlocked else { return }
         guard env.health.isAvailable else {
             await state.refresh()
             return
@@ -196,6 +198,7 @@ struct RyftApp: App {
     private struct BootstrapKey: Equatable {
         let account: String?
         let healthIntroDone: Bool
+        let inviteBlocked: Bool
     }
 
     // MARK: appearance
@@ -308,6 +311,8 @@ struct RootView: View {
 
     private var tabs: some View {
         tabView
+            // From now on this account's gates are sheets, not the full-screen flow.
+            .onAppear { onboarding.reachedTabs() }
             // A gate after the first run (policy updated, consent withdrawn): over the
             // current screen, never a reset to Welcome.
             .sheet(item: Bindable(onboarding).sheetStep) { step in

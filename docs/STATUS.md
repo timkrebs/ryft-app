@@ -23,9 +23,10 @@ What changed:
 - **`OnboardingCoordinator`** decides from `GET /v1/me`, `GET /v1/config` and
   `GET /v1/me/sync` on every launch and sign-in: invite (only when the platform says its
   gate applies), consent (policy in force), about you (birth year → the platform's max-HR
-  estimate). Full screen on an account's first run, a sheet over the tabs afterwards;
-  Today shows "Action needed" while one is put off. Nothing syncs before consent; after
-  agreeing the first sync starts at once.
+  estimate). Full screen on an account's first run (per account), a sheet over the tabs
+  afterwards; Today shows "Action needed" while one is put off. Nothing syncs before
+  consent or while the account is unknown, the gate is re-checked before every page, and
+  after agreeing the first sync starts at once. Train keeps writes refused at a gate.
 - **`account_hint`** → "This is a new RYFT account" once per account, with "Use the other
   account" (signs out).
 - **Profile:** Sign-in methods (identities, "Add Sign in with Apple" through Supabase
@@ -35,8 +36,9 @@ What changed:
   `source_bundle_id`. Mirror: the Beta and "Accounts and sync state" shapes, contract
   check extended to `SyncStatus` and `ModelInfo`.
 
-Verified: 432 unit tests (47 new: the status matrix, the onboarding decision table, the
-flow, no sync before consent, account switch, invite link), the contract check (24
+Verified: 441 unit tests (56 new: the status matrix, the onboarding decision table, the
+flow, no sync before consent or an unknown account, a gate between pages, account switch,
+invite link, the review's edge cases), the contract check (24
 examples), strict build, `make lint`, `make style`. Screens captured in the simulator
 (dark/light, en/de): `docs/screenshots/onboarding-*.png`.
 

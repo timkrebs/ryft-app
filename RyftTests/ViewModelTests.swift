@@ -450,9 +450,10 @@ private func onboarding(_ api: MockPlatformAPI = MockPlatformAPI(), introDone: B
                         status: APIStatus? = nil) -> (OnboardingCoordinator, AppState, SyncStarts) {
     let (_, state, _) = makeState(api: api)
     let starts = SyncStarts()
-    let model = OnboardingCoordinator(state: state, apiStatus: status ?? APIStatus(), healthIntroDone: { introDone }) {
+    let model = OnboardingCoordinator(state: state, apiStatus: status ?? APIStatus()) {
         starts.runs += 1
     }
+    if introDone { model.reachedTabs() }
     return (model, state, starts)
 }
 
@@ -530,7 +531,8 @@ struct OnboardingCoordinatorTests {
             Sample(type: .heartRate, start: .now, end: .now, value: 60, unit: "bpm", source: "Watch")])]])
         let env = AppEnvironment.test(api: api, health: health)
         let state = AppState(env: env)
-        let model = OnboardingCoordinator(state: state, apiStatus: APIStatus(), healthIntroDone: { true }) {}
+        let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
+        model.reachedTabs()
         let sync = SyncService(env: env)
         sync.gate = { model.syncGate }
         await model.check()
@@ -690,7 +692,8 @@ struct OnboardingCoordinatorTests {
         let api = MockPlatformAPI()
         api.accountConsent = nil
         let (env, state, _) = makeState(api: api)
-        let model = OnboardingCoordinator(state: state, apiStatus: APIStatus(), healthIntroDone: { true }) {}
+        let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
+        model.reachedTabs()
         await model.check()
         model.later(.consent)
         let sync = SyncService(env: env)
@@ -713,7 +716,8 @@ struct ProfilePrivacyTests {
     private func profile(_ api: MockPlatformAPI = MockPlatformAPI())
         -> (ProfileViewModel, OnboardingCoordinator, AppState) {
         let (env, state, _) = makeState(api: api)
-        let onboarding = OnboardingCoordinator(state: state, apiStatus: APIStatus(), healthIntroDone: { true }) {}
+        let onboarding = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
+        onboarding.reachedTabs()
         let sync = SyncService(env: env)
         let vm = ProfileViewModel(state: state, sync: sync, coordinator: coordinator(state, sync),
                                   onboarding: onboarding, apiStatus: APIStatus())
@@ -762,5 +766,81 @@ struct ProfilePrivacyTests {
         #expect(vm.canUseMaxHREstimate && vm.maxHRSourceText == String(localized: "Set by you"))
         await vm.useMaxHREstimate()
         #expect(vm.recomputeStatus == String(localized: "Back to the estimate. Apply & recompute rescores past days with it."))
+    }
+}
+
+/// A flag set from any thread.
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.withLock { value } }
+    func set() { lock.withLock { value = true } }
+}
+
+/// The review on #8: what must hold however the platform answers.
+@Suite("Onboarding: edge cases")
+@MainActor
+struct OnboardingEdgeTests {
+    @Test func nothingSyncsWhileTheAccountIsUnknown() async {
+        let api = MockPlatformAPI()
+        api.failure = APIError.transport(URLError(.timedOut)) // the first check gets no answer
+        let (model, state, _) = onboarding(api)
+        await model.check()
+        #expect(state.user == nil && model.missing.isEmpty)
+        #expect(model.syncGate == .consentRequired) // a consent can't be assumed
+        #expect(model.pendingGate == nil) // and it isn't the user's to fix
+    }
+
+    @Test func withdrawingClearsTheConsentEvenIfTheRecheckFails() async {
+        let api = MockPlatformAPI()
+        let (model, state, _) = onboarding(api, introDone: true)
+        await model.check()
+        api.failAfterRevoke = true
+        #expect(await model.withdrawConsent())
+        #expect(state.user?.consent == nil && model.syncGate == .consentRequired)
+    }
+
+    @Test func anotherAccountOnAPhoneThatAllowedHealthStillGetsItsSteps() async {
+        let api = MockPlatformAPI()
+        api.accountConsent = nil
+        let (model, _, _) = onboarding(api, introDone: true) // the first account reached the tabs
+        await model.check()
+        #expect(!model.isFirstRun)
+        model.switchAccount("second-account")
+        #expect(model.isFirstRun) // per account, not per device
+    }
+
+    @Test func aGateWhileUploadingStopsBeforeTheNextPage() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [
+            HealthDelta(samples: [Sample(type: .heartRate, start: .now, end: .now, value: 60, unit: "bpm", source: "W")]),
+            HealthDelta(samples: [Sample(type: .heartRate, start: .now, end: .now, value: 61, unit: "bpm", source: "W")]),
+        ]])
+        let api = MockPlatformAPI()
+        let sync = SyncService(env: .test(api: api, health: health))
+        let withdrawn = Flag()
+        sync.gate = { withdrawn.isSet ? .consentRequired : nil }
+        api.afterSync = { withdrawn.set() } // consent withdrawn meanwhile
+
+        _ = try? await sync.upload()
+
+        #expect(api.count("sync") == 1 && health.committed.count == 1) // the second page stays
+        #expect(sync.pausedFor == .consentRequired && sync.lastError == nil)
+    }
+
+    @Test func trainKeepsWritesRefusedAtAGate() {
+        #expect(TrainSyncService.isRetryable(.http(403, "", code: .inviteRequired)))
+        #expect(TrainSyncService.isRetryable(.http(403, "", code: .consentRequired)))
+        #expect(!TrainSyncService.isRetryable(.http(403, "built-in"))) // a real refusal is set aside
+    }
+
+    @Test func signInMethodsBelongToTheirAccount() async {
+        let client = MockAuthClient(session: .preview(provider: "email"))
+        let auth = AuthService(client: client, defaults: UserDefaults(suiteName: "ryft.test.\(UUID())") ?? .standard,
+                               wipeLocalData: {}, deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                               postAppleAuthorization: { _ in })
+        await auth.loadSignInMethods()
+        #expect(auth.signInMethods.map(\.provider) == ["email"])
+        await auth.signOut()
+        #expect(auth.signInMethods.isEmpty && !auth.hasAppleSignIn)
     }
 }
