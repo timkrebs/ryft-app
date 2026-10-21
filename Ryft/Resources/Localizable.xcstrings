@@ -740,6 +740,17 @@
         }
       }
     },
+    "From %@" : {
+      "comment" : "VoiceOver, after the readiness gauge in row D: the day the readiness is from, e.g. Tuesday, 20 October.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vom %@"
+          }
+        }
+      }
+    },
     "From Apple Health · not scored yet" : {
       "localizations" : {
         "de" : {
@@ -1296,6 +1307,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Datenschutzerklärung lesen"
+          }
+        }
+      }
+    },
+    "Readiness from %@, while your baselines are recalculated." : {
+      "comment" : "Today's sentence in row D when the readiness shown is from an earlier day. The argument is a short date, e.g. Tue 20 Oct.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bereitschaft vom %@, bis deine Ausgangswerte neu berechnet sind."
           }
         }
       }
@@ -2436,6 +2458,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Du bekommst"
+          }
+        }
+      }
+    },
+    "Your baselines are being recalculated." : {
+      "comment" : "Today's sentence in row D when today's readiness is shown.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Ausgangswerte werden neu berechnet."
+          }
+        }
+      }
+    },
+    "Your baselines are still forming." : {
+      "comment" : "Today's sentence while the baselines fill (row B).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Ausgangswerte entstehen noch."
           }
         }
       }
