@@ -23,6 +23,8 @@ Store "What's New".
 - Beta onboarding: invite code, consent to health-data processing, birth year for a
   maximum heart-rate estimate. Profile → Privacy to see or withdraw the consent, and
   Profile → Sign-in methods to add Sign in with Apple to an email account.
+- A readiness widget for the home and lock screen: today's readiness, or "Scoring your
+  night…" until it's ready.
 
 ### Changed
 - The first sync shows scores for the last few days first and imports the rest after;

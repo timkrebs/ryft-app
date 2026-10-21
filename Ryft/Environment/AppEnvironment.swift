@@ -34,6 +34,8 @@ final class AppEnvironment {
 
     /// Demo mode serves the realistic sample history instead of the account.
     var isDemo: Bool { demoOverride ?? settings.demoMode }
+    /// The live graph (previews and tests pin demo mode): only it writes what the widget reads.
+    var sharesWithWidget: Bool { demoOverride == nil }
     var api: PlatformAPI { isDemo ? demoAPI : liveAPI }
 
     init(settings: Settings, health: HealthStore, liveAPI: PlatformAPI, demoAPI: PlatformAPI, auth: AuthService,

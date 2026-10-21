@@ -1,6 +1,16 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Baselines %lld of %lld" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgangswerte %1$lld von %2$lld"
+          }
+        }
+      }
+    },
     "Done" : {
       "comment" : "Live Activity button that opens the workout in the app.",
       "localizations" : {
@@ -23,6 +33,46 @@
         }
       }
     },
+    "High" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hoch"
+          }
+        }
+      }
+    },
+    "Last readiness %lld." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letzte Bereitschaft %lld."
+          }
+        }
+      }
+    },
+    "Low" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Niedrig"
+          }
+        }
+      }
+    },
+    "Moderate" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mittel"
+          }
+        }
+      }
+    },
     "Next: %@" : {
       "comment" : "Live Activity: the next set, e.g. Next: Bench press · set 3 of 4.",
       "localizations" : {
@@ -30,6 +80,46 @@
           "stringUnit" : {
             "state" : "machine_translated",
             "value" : "Als Nächstes: %@"
+          }
+        }
+      }
+    },
+    "Open RYFT to see your readiness." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffne RYFT, um deine Bereitschaft zu sehen."
+          }
+        }
+      }
+    },
+    "Readiness" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bereitschaft"
+          }
+        }
+      }
+    },
+    "Readiness %lld · %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bereitschaft %1$lld · %2$@"
+          }
+        }
+      }
+    },
+    "Readiness %lld, %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bereitschaft %1$lld, %2$@"
           }
         }
       }
@@ -63,6 +153,36 @@
           "stringUnit" : {
             "state" : "machine_translated",
             "value" : "PAUSE VORBEI"
+          }
+        }
+      }
+    },
+    "Scoring your night…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Nacht wird bewertet …"
+          }
+        }
+      }
+    },
+    "Today's readiness, or how far scoring your night is." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Bereitschaft heute, oder wie weit die Bewertung deiner Nacht ist."
+          }
+        }
+      }
+    },
+    "Waiting for last night" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warte auf die letzte Nacht"
           }
         }
       }

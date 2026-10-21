@@ -1,5 +1,26 @@
 # Status — 2026-10-21
 
+## Readiness widget (sync brief §4.8)
+
+- `ReadinessWidget` in `RyftWidgets`: home screen (small) and lock screen (circular,
+  rectangular, inline). Today's readiness with its band word; "Scoring your night…" or
+  "Waiting for last night" with the last readiness dimmed; the baseline nights while
+  calibrating; "Open RYFT to see your readiness." without a snapshot. At midnight the
+  timeline turns the day over by itself (yesterday's score is no score for today).
+- The app writes `readiness.json` (`ReadinessSnapshot`, the same JSON shape in both
+  targets) into the App Group container whenever the Repository stores days or
+  `GET /v1/me/sync` changes today's state, and reloads the widget only when what it shows
+  changed. Sign-out removes it. Previews and tests never write the shared file.
+- **Your step in Xcode (blocked on it):** Ryft target → Signing & Capabilities → + Capability
+  → App Groups → + → `group.dev.timkrebs.ryft`; then the RyftWidgetsExtension target →
+  the same capability and the same group (tick it). Automatic signing registers the
+  group. Then `make lint` (check-entitlements) and commit the entitlements Xcode wrote.
+  Until then the app writes nothing and the widget says "Open RYFT…".
+- Not captured as a screenshot: a widget on the simulator's home screen needs a manual
+  add. Previews: `RyftWidgets/ReadinessWidget.swift` (each family, dark and light, de).
+  **On your iPhone:** add the widget (home and lock screen), open RYFT once, check it
+  shows today's readiness; the morning after, "Scoring your night…" until the score lands.
+
 ## Today while data is on its way (sync brief §4.1–§4.7)
 
 - **First import** (`ImportCard`): "Setting up RYFT" instead of the gauge until a day is

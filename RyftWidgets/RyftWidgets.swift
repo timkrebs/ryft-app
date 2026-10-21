@@ -5,7 +5,7 @@ import SwiftUI
 import WidgetKit
 
 /// The brand palette (the app's asset catalog isn't in this bundle).
-private enum Brand {
+enum Brand {
     static let graphite = Color(red: 0x0B / 255, green: 0x0F / 255, blue: 0x0E / 255)
     static let slate = Color(red: 0x1A / 255, green: 0x22 / 255, blue: 0x26 / 255)
     static let mist = Color(red: 0xE8 / 255, green: 0xE7 / 255, blue: 0xE3 / 255)
