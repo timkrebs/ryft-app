@@ -197,8 +197,10 @@ struct DailyScore: Codable, Identifiable, Hashable {
     var id: String { day }
     var date: Date { DayFormat.date(from: day) ?? .now }
 
+    /// A day nothing is known about (MockData's days outside the history): no state, never
+    /// calibrating. Its `standing` is `.unscored`.
     static func empty(day: String) -> DailyScore {
-        DailyScore(day: day, state: .calibrating)
+        DailyScore(day: day)
     }
 
     init(day: String, readiness: Int? = nil, state: ReadinessState? = nil, recovery: Int? = nil,
@@ -301,6 +303,26 @@ struct DailyScore: Codable, Identifiable, Hashable {
 
     /// "Calibrating — N nights to go" is `7 − baseline_days` (≥ 1 while calibrating).
     var nightsToGo: Int { max(1, Self.baselineNightsRequired - baselineDays) }
+}
+
+/// What a row says about its day (app-side, not a wire field). The platform's placeholder for a
+/// day it hasn't scored (`computed_at` 0001, `state: calibrating`, `calibrating: false`) and
+/// `DailyScore.empty` are `.unscored`, never calibrating. Presentation branches on this, never on
+/// `state == .calibrating` or `calibrating` alone.
+enum ScoreStanding: Equatable, Sendable {
+    case unscored
+    /// Scored while the baselines fill: the row's `baseline_days`.
+    case calibrating(baselineDays: Int)
+    case scored
+}
+
+extension DailyScore {
+    /// `.unscored`: no readiness and `computed_at` nil or not after 1970. Else `calibrating`
+    /// → `.calibrating`.
+    var standing: ScoreStanding {
+        if readiness == nil, (computedAt ?? .distantPast) <= Date(timeIntervalSince1970: 0) { return .unscored }
+        return calibrating ? .calibrating(baselineDays: baselineDays) : .scored
+    }
 }
 
 // MARK: - Sleep
