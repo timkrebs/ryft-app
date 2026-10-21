@@ -272,6 +272,7 @@ struct SessionSummarySheet: View {
     @State private var celebrate = false
     /// Where the strain's heart rate came from (the platform's workout for the session).
     @State private var heartRate: String?
+    @State private var savingToHealth = false
     private var export: WorkoutHealthExport { .shared }
 
     private var session: LocalSession? { sync.store.session(id: summary.sessionID) }
@@ -373,23 +374,28 @@ struct SessionSummarySheet: View {
                     .font(.ryft(.headline))
                     .foregroundStyle(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Your strength workouts then count in your activity. RYFT writes only the workout, no heart rate. You can change this in Profile.")
+                Text("Your strength workouts then appear in Fitness and Health. RYFT writes only the workout, no heart rate. You can change this in Profile.")
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 12) {
                     Button {
+                        savingToHealth = true
                         Task {
-                            guard await export.turnOn(), let s = session else { return }
-                            await export.save(sessionID: s.id, start: s.startedAt, end: s.endedAt ?? .now)
+                            defer { savingToHealth = false }
+                            guard await export.turnOn(), let s = session, let end = s.endedAt else { return }
+                            await export.save(sessionID: s.id, start: s.startedAt, end: end)
                         }
                     } label: {
                         Text("Save")
                     }
                     .buttonStyle(TealButtonStyle(prominent: true))
-                    Button { export.declined() } label: { Text("Not now") }
+                    .disabled(savingToHealth)
+                    Button { export.turnOff() } label: { Text("Not now") }
                         .buttonStyle(TealButtonStyle(prominent: false))
+                        .disabled(savingToHealth)
                 }
+                if export.needsAccess { HealthWriteAccessHint() }
             }
         }
         .accessibilityElement(children: .contain)
@@ -408,7 +414,8 @@ struct SessionSummarySheet: View {
         if workout.avgHr != nil, workout.source != "ryft-session" {
             return String(localized: "Heart rate from \(workout.source)")
         }
-        return String(localized: "No heart rate recorded. Start a strength workout on your watch too for heart-rate strain.")
+        // A watch workout may still be on its way (it's matched once it syncs).
+        return String(localized: "No heart rate yet. With a strength workout on your watch too, it arrives once the watch syncs.")
     }
 
     private func duration(_ doc: TrainSession?) -> String {

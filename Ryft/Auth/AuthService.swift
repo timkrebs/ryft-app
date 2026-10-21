@@ -661,6 +661,8 @@ final class AuthService {
         RestActivityController.shared.end()
         // The lock screen must not keep showing this account's readiness.
         ReadinessSnapshot.clear()
+        // Whether to save workouts to Apple Health is the account's choice.
+        WorkoutHealthExport.wipe(defaults: .standard)
     }
 }
 

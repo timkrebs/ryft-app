@@ -359,7 +359,8 @@ struct ProfileView: View {
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
-            Toggle(isOn: Binding(get: { WorkoutHealthExport.shared.isOn },
+            // On only while iOS still allows it; otherwise where to allow it.
+            Toggle(isOn: Binding(get: { WorkoutHealthExport.shared.isWriting },
                                  set: { on in
                                      if on { Task { await WorkoutHealthExport.shared.turnOn() } } else { WorkoutHealthExport.shared.turnOff() }
                                  })) {
@@ -367,7 +368,7 @@ struct ProfileView: View {
                     Text("Save strength workouts to Apple Health")
                         .font(.ryft(.body))
                         .foregroundStyle(Theme.textPrimary)
-                    Text("Each workout you log, so it counts in your activity. Only the workout: no heart rate.")
+                    Text("Each workout you log appears in Fitness and Health. Only the workout: no heart rate.")
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -375,6 +376,7 @@ struct ProfileView: View {
             }
             .tint(Theme.accent)
             .accessibilityIdentifier("profile.saveWorkouts")
+            if WorkoutHealthExport.shared.needsAccess { HealthWriteAccessHint() }
 
             Divider().overlay(Theme.separator)
             StatRow(title: "Last sync", value: model.lastSyncText)

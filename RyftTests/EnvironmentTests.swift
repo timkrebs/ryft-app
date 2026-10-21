@@ -869,9 +869,121 @@ struct WorkoutHealthExportTests {
         await e.save(sessionID: UUID(), start: start, end: start.addingTimeInterval(600))
         #expect(health.savedWorkouts.isEmpty)
 
+        #expect(e.needsAccess)          // where to allow it (iOS won't ask again)
+        e.turnOff()
+        #expect(!e.needsAccess)
+
         let other = export(MockHealthStore())
-        other.declined()
-        #expect(!other.shouldAsk && !other.isOn)
+        other.turnOff()                  // "Not now"
+        #expect(!other.shouldAsk && !other.isOn && !other.needsAccess)
+    }
+
+    @Test func accessTakenAwayInHealthShowsOffAndWritesNothing() async {
+        let health = MockHealthStore()
+        let e = export(health)
+        await e.turnOn()
+        #expect(e.isWriting && !e.needsAccess)
+        health.allowsWorkoutWrites = false        // Health → Sharing → Apps → RYFT
+        await e.appBecameActive(now: start)
+        #expect(e.isOn && !e.isWriting && e.needsAccess)
+        await e.save(sessionID: UUID(), start: start, end: start.addingTimeInterval(600))
+        #expect(health.savedWorkouts.isEmpty)
+    }
+
+    @Test func eachSessionIsWrittenOnceAndNotWhenTheWatchRecordedIt() async {
+        let health = MockHealthStore()
+        let e = export(health)
+        await e.turnOn()
+        let id = UUID()
+        await e.save(sessionID: id, start: start, end: start.addingTimeInterval(3_600))
+        await e.save(sessionID: id, start: start, end: start.addingTimeInterval(3_600))
+        #expect(health.savedWorkouts.count == 1)
+
+        // A watch strength workout over most of the session: that one counts.
+        let later = start.addingTimeInterval(86_400)
+        health.otherWorkouts = [DateInterval(start: later.addingTimeInterval(-300), end: later.addingTimeInterval(2_000))]
+        await e.save(sessionID: UUID(), start: later, end: later.addingTimeInterval(3_600))
+        #expect(health.savedWorkouts.count == 1)
+        // Less than half of it: both stay.
+        health.otherWorkouts = [DateInterval(start: later, end: later.addingTimeInterval(1_000))]
+        await e.save(sessionID: UUID(), start: later, end: later.addingTimeInterval(3_600))
+        #expect(health.savedWorkouts.count == 2)
+    }
+
+    @Test func aWatchWorkoutThatArrivesLaterReplacesRYFTs() async {
+        let health = MockHealthStore()
+        let e = export(health)
+        await e.turnOn()
+        await e.save(sessionID: UUID(), start: start, end: start.addingTimeInterval(3_600))
+        #expect(health.savedWorkouts.count == 1)
+        // The watch workout ended after the session and synced to Health afterwards.
+        health.otherWorkouts = [DateInterval(start: start.addingTimeInterval(-60), end: start.addingTimeInterval(3_700))]
+        await e.appBecameActive(now: start.addingTimeInterval(7_200))
+        #expect(health.savedWorkouts.isEmpty)
+    }
+
+    @Test func overlapMeansAtLeastHalfOfTheSession() {
+        let session = DateInterval(start: start, duration: 3_600)
+        #expect(StrengthOverlap.covers(DateInterval(start: start, duration: 1_800), session: session))
+        #expect(!StrengthOverlap.covers(DateInterval(start: start, duration: 1_799), session: session))
+        #expect(StrengthOverlap.covers(DateInterval(start: start.addingTimeInterval(-7_200), duration: 10_000), session: session))
+        #expect(!StrengthOverlap.covers(DateInterval(start: start.addingTimeInterval(3_600), duration: 600), session: session))
+    }
+
+    @Test func demoModeWritesNothing() async {
+        let health = MockHealthStore()
+        let e = WorkoutHealthExport(health: health, defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)")!,
+                                    account: { "a" }, isDemo: { true })
+        await e.turnOn()
+        await e.save(sessionID: UUID(), start: start, end: start.addingTimeInterval(600))
+        #expect(health.savedWorkouts.isEmpty)
+    }
+
+    @Test func signingOutForgetsEveryAccountsChoice() async {
+        let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)")!
+        var account = "a"
+        let e = WorkoutHealthExport(health: MockHealthStore(), defaults: defaults, account: { account })
+        await e.turnOn()
+        account = "b"
+        e.turnOff()
+        defaults.set(true, forKey: "health.other")
+        WorkoutHealthExport.wipe(defaults: defaults)
+        #expect(e.choice == nil)
+        account = "a"
+        #expect(e.choice == nil && defaults.bool(forKey: "health.other"))
+    }
+
+    @Test func finishingWritesTheSessionOnceWhenComplete() async throws {
+        let store = TrainStore(inMemory: true)
+        let trainSync = TrainSyncService(store: store, remote: { MockPlatformAPI() }, monitorsNetwork: false)
+        let coordinator = TrainCoordinator(sync: trainSync, library: TrainLibrary.preview(store: store))
+        let s = SessionFactory.empty(in: store)
+        s.startedAt = Date.now.addingTimeInterval(-1_800)
+        SessionFactory.add(MockTrain.bench, to: s, sets: 1, in: store)
+        let c = SessionController(session: s, sync: trainSync, liveActivity: nil)
+        let ex = try #require(c.exercises.first)
+        c.toggleCheck(try #require(ex.sets.first), in: ex)
+        let health = MockHealthStore()
+        let e = export(health)
+        await e.turnOn()
+
+        await coordinator.finish(c, export: e)
+        await coordinator.finish(c, export: e)   // a second tap
+        #expect(health.savedWorkouts.map(\.sessionID) == [s.id])
+        #expect(health.savedWorkouts.first?.end == s.endedAt)
+        c.stop()
+    }
+
+    @Test func onlyTheAppsOwnWorkoutsAreLeftOut() {
+        func workout(_ bundle: String?) -> Workout {
+            Workout(id: UUID(), activity: "strength", start: start, end: start.addingTimeInterval(3_600), avgHr: nil,
+                    maxHr: nil, energyKcal: nil, distanceM: nil, source: "RYFT", sourceBundleId: bundle)
+        }
+        let watch = workout("com.apple.health")
+        let kept = SyncEngine.withoutOwnWorkouts(HealthDelta(workouts: [workout("dev.test.ryft"), watch, workout(nil)]),
+                                                 own: "dev.test.ryft")
+        #expect(kept.workouts.count == 2 && kept.workouts.first?.id == watch.id)
+        #expect(SyncEngine.withoutOwnWorkouts(HealthDelta(workouts: [watch]), own: nil).workouts.count == 1)
     }
 
     @Test func eachAccountChoosesForItself() async {
@@ -907,7 +1019,7 @@ struct WorkoutHealthExportTests {
         }
         #expect(SessionSummarySheet.heartRateLine(workout("Garmin Connect", hr: 112))
                 == String(localized: "Heart rate from Garmin Connect"))
-        let none = String(localized: "No heart rate recorded. Start a strength workout on your watch too for heart-rate strain.")
+        let none = String(localized: "No heart rate yet. With a strength workout on your watch too, it arrives once the watch syncs.")
         #expect(SessionSummarySheet.heartRateLine(workout("ryft-session", hr: nil)) == none)
         #expect(SessionSummarySheet.heartRateLine(workout("Garmin Connect", hr: nil)) == none)
     }

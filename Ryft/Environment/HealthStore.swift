@@ -141,7 +141,28 @@ protocol HealthStore: AnyObject {
     var canWriteWorkouts: Bool { get }
     /// A strength workout RYFT logged, as an `HKWorkout`: start, end, brand "RYFT" and the
     /// session's id as its external UUID. No heart-rate samples: the watch records those.
-    func saveStrengthWorkout(sessionID: UUID, start: Date, end: Date) async throws
+    /// Once per session, and not when the watch (or another app) recorded it.
+    func saveStrengthWorkout(sessionID: UUID, start: Date, end: Date) async throws -> WorkoutSaveResult
+    /// RYFT's workouts since `since` that another app or the watch recorded too (the watch's
+    /// ended after the session): deleted, so Fitness lists each once. How many.
+    func removeOwnWorkoutsRecordedElsewhere(since: Date) async throws -> Int
+}
+
+enum WorkoutSaveResult: Equatable, Sendable {
+    case saved
+    /// This session's workout is in Apple Health already (a second tap, a retry).
+    case alreadySaved
+    /// A strength workout from the watch or another app covers at least half of the session
+    /// (the platform's rule for attaching the session's load).
+    case recordedElsewhere
+}
+
+/// The overlap rule for a session and another app's workout: at least half of the session.
+enum StrengthOverlap {
+    static func covers(_ other: DateInterval, session: DateInterval) -> Bool {
+        guard let overlap = other.intersection(with: session) else { return false }
+        return overlap.duration >= session.duration / 2
+    }
 }
 
 extension HealthKitManager: HealthStore {
@@ -241,15 +262,60 @@ extension HealthKitManager: HealthStore {
 
     var canWriteWorkouts: Bool { store.authorizationStatus(for: workoutType) == .sharingAuthorized }
 
-    func saveStrengthWorkout(sessionID: UUID, start: Date, end: Date) async throws {
+    func saveStrengthWorkout(sessionID: UUID, start: Date, end: Date) async throws -> WorkoutSaveResult {
+        let session = HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyExternalUUID, allowedValues: [sessionID.uuidString])
+        let ours = NSCompoundPredicate(andPredicateWithSubpredicates: [session, HKQuery.predicateForObjects(from: .default())])
+        if try await !workouts(ours, limit: 1).isEmpty { return .alreadySaved }
+        if try await recordedElsewhere(DateInterval(start: start, end: end)) { return .recordedElsewhere }
         let configuration = HKWorkoutConfiguration()
         configuration.activityType = .traditionalStrengthTraining
         let builder = HKWorkoutBuilder(healthStore: store, configuration: configuration, device: .local())
-        try await builder.beginCollection(at: start)
-        try await builder.addMetadata([HKMetadataKeyWorkoutBrandName: "RYFT",
-                                       HKMetadataKeyExternalUUID: sessionID.uuidString])
-        try await builder.endCollection(at: end)
-        _ = try await builder.finishWorkout()
+        do {
+            try await builder.beginCollection(at: start)
+            try await builder.addMetadata([HKMetadataKeyWorkoutBrandName: "RYFT",
+                                           HKMetadataKeyExternalUUID: sessionID.uuidString])
+            try await builder.endCollection(at: end)
+            _ = try await builder.finishWorkout()
+        } catch {
+            builder.discardWorkout()
+            throw error
+        }
+        return .saved
+    }
+
+    func removeOwnWorkoutsRecordedElsewhere(since: Date) async throws -> Int {
+        let ours = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            HKQuery.predicateForObjects(from: .default()),
+            HKQuery.predicateForSamples(withStart: since, end: nil, options: []),
+        ])
+        var duplicates: [HKWorkout] = []
+        for workout in try await workouts(ours) where try await recordedElsewhere(DateInterval(start: workout.startDate, end: workout.endDate)) {
+            duplicates.append(workout)
+        }
+        if !duplicates.isEmpty { try await store.delete(duplicates) }
+        return duplicates.count
+    }
+
+    /// Strength, functional strength or cross training from another source over `session`.
+    private func recordedElsewhere(_ session: DateInterval) async throws -> Bool {
+        let types: [HKWorkoutActivityType] = [.traditionalStrengthTraining, .functionalStrengthTraining, .crossTraining]
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            HKQuery.predicateForSamples(withStart: session.start, end: session.end, options: []),
+            NSCompoundPredicate(orPredicateWithSubpredicates: types.map { HKQuery.predicateForWorkouts(with: $0) }),
+        ])
+        let own = Bundle.main.bundleIdentifier
+        return try await workouts(predicate).contains {
+            $0.sourceRevision.source.bundleIdentifier != own
+                && StrengthOverlap.covers(DateInterval(start: $0.startDate, end: $0.endDate), session: session)
+        }
+    }
+
+    private func workouts(_ predicate: NSPredicate, limit: Int = HKObjectQueryNoLimit) async throws -> [HKWorkout] {
+        try await withCheckedThrowingContinuation { continuation in
+            store.execute(HKSampleQuery(sampleType: workoutType, predicate: predicate, limit: limit, sortDescriptors: nil) { _, samples, error in
+                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: samples as? [HKWorkout] ?? []) }
+            })
+        }
     }
 
     private static func archive(_ anchor: HKQueryAnchor?) -> Data? {
@@ -388,19 +454,51 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
     var freshness: [SourceFreshness] = []
     func lastNight(before now: Date) async throws -> RawNight? { night }
 
-    /// Workout writing: what iOS answers, and what was written.
-    var allowsWorkoutWrites = true
-    private(set) var writeRequests = 0
-    private(set) var savedWorkouts: [(sessionID: UUID, start: Date, end: Date)] = []
-    var canWriteWorkouts: Bool { writeRequests > 0 && allowsWorkoutWrites }
+    /// Workout writing: what iOS answers, what was written, and what the watch recorded.
+    var allowsWorkoutWrites: Bool {
+        get { locked { _allowsWorkoutWrites } }
+        set { locked { _allowsWorkoutWrites = newValue } }
+    }
+    var writeRequests: Int { locked { _writeRequests } }
+    var savedWorkouts: [(sessionID: UUID, start: Date, end: Date)] { locked { _savedWorkouts } }
+    /// Other sources' strength workouts.
+    var otherWorkouts: [DateInterval] {
+        get { locked { _otherWorkouts } }
+        set { locked { _otherWorkouts = newValue } }
+    }
+    private var _allowsWorkoutWrites = true
+    private var _writeRequests = 0
+    private var _savedWorkouts: [(sessionID: UUID, start: Date, end: Date)] = []
+    private var _otherWorkouts: [DateInterval] = []
+    var canWriteWorkouts: Bool { locked { _writeRequests > 0 && _allowsWorkoutWrites } }
 
     func requestWorkoutWriteAccess() async throws -> Bool {
-        writeRequests += 1
-        return allowsWorkoutWrites
+        locked {
+            _writeRequests += 1
+            return _allowsWorkoutWrites
+        }
     }
 
-    func saveStrengthWorkout(sessionID: UUID, start: Date, end: Date) async throws {
-        savedWorkouts.append((sessionID, start, end))
+    func saveStrengthWorkout(sessionID: UUID, start: Date, end: Date) async throws -> WorkoutSaveResult {
+        locked {
+            if _savedWorkouts.contains(where: { $0.sessionID == sessionID }) { return .alreadySaved }
+            let session = DateInterval(start: start, end: end)
+            if _otherWorkouts.contains(where: { StrengthOverlap.covers($0, session: session) }) { return .recordedElsewhere }
+            _savedWorkouts.append((sessionID, start, end))
+            return .saved
+        }
+    }
+
+    func removeOwnWorkoutsRecordedElsewhere(since: Date) async throws -> Int {
+        locked {
+            let before = _savedWorkouts.count
+            _savedWorkouts.removeAll { saved in
+                saved.start >= since && _otherWorkouts.contains {
+                    StrengthOverlap.covers($0, session: DateInterval(start: saved.start, end: saved.end))
+                }
+            }
+            return before - _savedWorkouts.count
+        }
     }
     func newestRecords(since: Date) async throws -> [SourceFreshness] { freshness.filter { $0.newest >= since } }
 

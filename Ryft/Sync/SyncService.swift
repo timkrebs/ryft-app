@@ -720,8 +720,8 @@ actor SyncEngine {
     /// Strength workouts RYFT itself wrote to Apple Health stay on the phone: the platform
     /// already attaches the session's load to a matching workout (or makes one), so sending ours
     /// would only list it twice. Their anchor still moves on.
-    static func withoutOwnWorkouts(_ delta: HealthDelta) -> HealthDelta {
-        guard let own = ownBundleID, delta.workouts.contains(where: { $0.sourceBundleId == own }) else { return delta }
+    static func withoutOwnWorkouts(_ delta: HealthDelta, own: String? = ownBundleID) -> HealthDelta {
+        guard let own, delta.workouts.contains(where: { $0.sourceBundleId == own }) else { return delta }
         var d = delta
         d.workouts.removeAll { $0.sourceBundleId == own }
         return d

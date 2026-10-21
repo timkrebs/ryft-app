@@ -11,16 +11,29 @@
 - **No double count:** workouts RYFT wrote come back through the anchored workout query; the sync
   skips them (by source bundle) and still moves the anchor. The platform already attaches the
   session's load to an overlapping watch workout or makes its own (`API.md` → sessions complete).
-  Confirmation requested in `docs/API_REQUESTS.md`.
+  Confirmation requested in `docs/API_REQUESTS.md` → Train §3.
+- **No duplicates in Fitness:** once per session (checked by the external UUID in Health, and a
+  second tap or a second Finish does nothing); not written when a strength, functional
+  strength or cross-training workout from the watch or another app covers at least half of the
+  session; when the watch's arrives later (its workout ended after the session), RYFT deletes
+  its own the next time the app comes back (3 days back). Never in demo mode.
+- **Permission:** the switch shows on only while iOS still allows it, rechecked whenever the app
+  comes back. Refused (iOS asks once) or taken away in Health: "Allow it in Health → Sharing →
+  Apps → RYFT → Workouts" with Open Health. The choice is per account and the sign-out wipe
+  deletes it.
 - The summary says "Heart rate from Garmin Connect" when the platform matched a watch's workout,
-  else how to get heart-rate strain next time.
+  else "No heart rate yet": a watch workout may still be on its way. Onboarding's line now says
+  RYFT writes nothing to Apple Health unless you turn on saving strength workouts (also the
+  TestFlight review notes).
 - `NSHealthUpdateUsageDescription` (en + de) now says what's true; `docs/APP_STORE_METADATA.md`
   (both descriptions and the App Review notes) too. `PrivacyInfo.xcprivacy` unchanged (Health data
   was already declared; writing is not collection).
 - **Your step:** the privacy policy at ryftapp.de/privacy needs the same line (RYFT may write
   strength workouts to Apple Health, opt-in).
 - **On your iPhone:** turn it on after a workout; the workout appears in Fitness / Health with
-  RYFT as its source; the next sync doesn't list it twice on Strain.
+  RYFT as its source; the next sync doesn't list it twice on Strain. With a watch strength
+  workout too: Fitness lists one (end the watch's after the session, then open RYFT again).
+  Whether a workout without energy samples counts toward any ring is not claimed in the copy.
 
 ## Sync and performance brief: where it stands
 
