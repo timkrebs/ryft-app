@@ -157,8 +157,9 @@ Must match `PrivacyInfo.xcprivacy` and the code (security-privacy-reviewer check
 | Contact Info → Email Address, Name | Yes | Yes | No | App Functionality |
 | Identifiers → User ID | Yes | Yes | No | App Functionality |
 | Identifiers → Device ID (install ID sent with sync) | Yes | Yes | No | App Functionality |
-| User Content → Other (journal answers, workout logs, feedback text) | Yes | Yes | No | App Functionality; Customer Support (feedback) |
-| Diagnostics → Crash / Other diagnostic data | Only if the user attaches diagnostics to feedback | Yes | No | App Functionality |
+| User Content → Other (workout notes, journal answers, workout logs, feedback text) | Yes | Yes | No | App Functionality |
+| Diagnostics → Other Diagnostic Data (Report a problem → "Include diagnostics": app version, device, iOS, locale, the last 20 requests without query strings, sync phase and counts with day-precision dates, gates, flags) | Yes, when the user sends a report with diagnostics on (the default) | Yes | No | App Functionality |
+| Diagnostics → Crash Data | No | — | — | — |
 
 "Data Used to Track You": **none**. If any row changes, update the label and the privacy policy together.
 
