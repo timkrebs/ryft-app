@@ -9,9 +9,10 @@
 - From outside the app's screens (`WorkoutLauncher`): the home-screen quick action (Start
   workout / Resume workout, kept current), App Intents with App Shortcuts ("Start a RYFT
   workout", "Resume my RYFT workout"; Siri, Spotlight, Shortcuts, the Action Button), the
-  Control Center / Lock Screen control (iOS 18+, `RyftWidgets/StartWorkoutControl.swift`) and
-  `ryft://train/start?kind=empty|repeatLast`. A start that arrives while the session is restored
-  (cold launch) waits for it; signed out, nothing starts.
+  Control Center / Lock Screen control (iOS 18+, `RyftWidgets/StartWorkoutControl.swift`). A
+  start runs once the tabs are on screen for an account; before that (cold launch, onboarding,
+  the Health explanation) it waits; signing out or another account drops it. No link starts a
+  workout (any app could open one); `ryft://train/session` only resumes.
 - The control's intent exists in both targets (`OpenWorkoutIntent`, "keep identical", like the
   Live Activity's attributes): with `openAppWhenRun` the system performs the app's copy.
   Apple's forums say an `OpenURLIntent` would need a universal link (no AASA yet).
