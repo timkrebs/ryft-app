@@ -1,5 +1,17 @@
 # Status — 2026-10-21
 
+## Beta feedback 1: notifications that explain themselves (§2)
+
+- Profile → Notifications has one `mode`: **rolling out** (`push.enabled` off for the
+  account: no switches at all, the four kinds as a list with when each is sent, "We'll let
+  you know here…", the stored choices kept), **not asked** (switches + "Allow
+  notifications"), **denied** (switches + "Notifications are off in iOS Settings" with Open
+  Settings), **allowed**. Quiet hours: the pickers only while on, default 22:30–07:00.
+- When the flag reaches the account (flags refresh on app-active), the screen switches to the
+  live mode by itself, and Today's pre-prompt shows once as before (`PushRegistrar`).
+- The fix for the tester is the flag: `push.enabled` to 100 % (Needs you).
+- Screenshots: `docs/screenshots/notifications-{dark,light}[-de].png` (rolling out).
+
 ## Sync and performance brief: where it stands
 
 `CLAUDE_FOLLOWUP_SYNC_PERFORMANCE.md`, eight PRs: #8 gates and honest errors, #10 engine

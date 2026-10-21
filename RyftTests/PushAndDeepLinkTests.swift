@@ -464,6 +464,34 @@ struct NotificationSettingsViewModelTests {
         #expect(api.count("patchNotifications") == 1)
     }
 
+    @Test func theScreenShowsWhatCanHappenNow() async {
+        // Off for the account: no switches at all (none that look on), the list in words.
+        let off = AppState(env: .test(api: api))
+        let rolling = NotificationSettingsViewModel(state: off, push: PushRegistrar(env: off.env))
+        #expect(rolling.mode == .rollingOut && !rolling.showsSwitches)
+
+        // On, iOS hasn't asked: switches and "Allow".
+        let notifier = MockNotifier()
+        let on = AppState(env: .test(api: api, notifier: notifier, flags: [.pushEnabled: true]))
+        let push = PushRegistrar(env: on.env)
+        let live = NotificationSettingsViewModel(state: on, push: push)
+        await live.load()
+        #expect(live.mode == .notAsked && live.showsSwitches)
+
+        // Turned off in iOS Settings: switches stay, with "Open Settings".
+        notifier.status = .denied
+        await live.load()
+        #expect(live.mode == .denied && live.showsSwitches)
+
+        notifier.status = .authorized
+        await live.load()
+        #expect(live.mode == .allowed && live.showsSwitches)
+    }
+
+    @Test func quietHoursDefaultToHalfPastTenUntilSeven() {
+        #expect(NotificationSettingsViewModel.defaultQuietHours == QuietHours(from: "22:30", to: "07:00"))
+    }
+
     @Test func hhmmConversions() {
         #expect(NotificationSettingsViewModel.string(NotificationSettingsViewModel.date("06:05")) == "06:05")
         #expect(NotificationSettingsViewModel.string(NotificationSettingsViewModel.date("23:59")) == "23:59")

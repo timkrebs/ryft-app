@@ -18,16 +18,14 @@ private struct NotificationSettingsScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Metrics.sectionSpacing) {
-                if model.isRolledOut {
+                if model.showsSwitches {
                     permission
-                } else {
-                    rollout
-                }
-                Group {
                     categories
                     quietHours
+                } else {
+                    // No switches that look on while nothing can be sent.
+                    rollout
                 }
-                .disabled(!model.isRolledOut)
                 if let error = model.error {
                     InlineMessage(message: error, systemImage: "exclamationmark.circle")
                 }
@@ -41,21 +39,43 @@ private struct NotificationSettingsScreen: View {
         .task { await model.load() }
     }
 
-    /// `push.enabled` is off for this account.
+    /// `push.enabled` is off for this account: what will come, as a list to read.
     private var rollout: some View {
         Card {
-            Label("Notifications are being rolled out. Your choices are kept for when they reach your account.",
-                  systemImage: "bell.slash")
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 14) {
+                Label("Notifications are being rolled out", systemImage: "bell.badge")
+                    .font(.ryft(.headline))
+                    .foregroundStyle(Theme.textPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("You'll get").ryftLabelStyle()
+                    ForEach(NotificationCategory.allCases) { category in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(NotificationSettingsViewModel.title(category))
+                                .font(.ryft(.body))
+                                .foregroundStyle(Theme.textPrimary)
+                            Text(NotificationSettingsViewModel.detail(category))
+                                .font(.ryft(.caption))
+                                .foregroundStyle(Theme.textTertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                }
+                Divider().overlay(Theme.separator)
+                Text("We'll let you know here when notifications reach your account. Your choices are kept.")
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+        .accessibilityIdentifier("notifications.rollingOut")
     }
 
     @ViewBuilder
     private var permission: some View {
-        switch model.permission {
-        case .allowed:
+        switch model.mode {
+        case .allowed, .rollingOut:
             EmptyView()
         case .notAsked:
             Card {
@@ -69,7 +89,10 @@ private struct NotificationSettingsScreen: View {
         case .denied:
             Card {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Notifications for RYFT are off in Settings. Your choices below are kept for when you turn them on.")
+                    Label("Notifications are off in iOS Settings", systemImage: "bell.slash")
+                        .font(.ryft(.body))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text("Your choices below are kept for when you turn them on.")
                         .font(.ryft(.callout))
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -78,6 +101,7 @@ private struct NotificationSettingsScreen: View {
                     }
                 }
             }
+            .accessibilityIdentifier("notifications.denied")
         }
     }
 
@@ -154,6 +178,12 @@ private struct NotificationSettingsScreen: View {
 
 #Preview("Notifications · rolling out") {
     NavigationStack { NotificationSettingsView() }.previewEnvironment()
+}
+
+#Preview("Notifications · rolling out · light · de") {
+    NavigationStack { NotificationSettingsView() }
+        .previewEnvironment(scheme: .light)
+        .environment(\.locale, Locale(identifier: "de"))
 }
 
 #Preview("Notifications · light") {

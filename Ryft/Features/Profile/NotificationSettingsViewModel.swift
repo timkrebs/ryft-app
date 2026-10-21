@@ -15,7 +15,7 @@ final class NotificationSettingsViewModel {
     private(set) var error: String?
 
     /// The default window when quiet hours are switched on.
-    static let defaultQuietHours = QuietHours(from: "22:00", to: "07:00")
+    static let defaultQuietHours = QuietHours(from: "22:30", to: "07:00")
 
     init(state: AppState, push: PushRegistrar) {
         self.state = state
@@ -27,13 +27,36 @@ final class NotificationSettingsViewModel {
         case notAsked, allowed, denied
     }
 
-    /// `push.enabled` for this account; off: the screen explains the rollout, toggles disabled.
+    /// `push.enabled` for this account.
     var isRolledOut: Bool { state.env.flags.isOn(.pushEnabled) }
 
     var permission: Permission {
         if push.isAllowed { return .allowed }
         return push.status == .notDetermined ? .notAsked : .denied
     }
+
+    /// What the screen is, which decides its controls.
+    enum Mode: Equatable {
+        /// `push.enabled` is off for this account: what will come, and no switch that looks on.
+        case rollingOut
+        /// On; iOS hasn't asked yet: the switches, and "Allow notifications".
+        case notAsked
+        /// On, but off in iOS Settings: the switches stay, with "Open Settings".
+        case denied
+        case allowed
+    }
+
+    var mode: Mode {
+        guard isRolledOut else { return .rollingOut }
+        switch permission {
+        case .notAsked: return .notAsked
+        case .denied: return .denied
+        case .allowed: return .allowed
+        }
+    }
+
+    /// The category switches and quiet hours: only once notifications can reach the account.
+    var showsSwitches: Bool { mode != .rollingOut }
 
     func load() async {
         await push.refresh()
