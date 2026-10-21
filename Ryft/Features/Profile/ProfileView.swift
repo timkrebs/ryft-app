@@ -385,6 +385,15 @@ struct ProfileView: View {
                 PrimaryButton(title: "Full re-sync", style: .destructive) { showResyncConfirm = true }
             }
             .disabled(!model.canSync)
+            NavigationLink {
+                SyncDetailsView(model: model.syncDetails)
+            } label: {
+                Label("Sync details", systemImage: "list.bullet.rectangle")
+                    .font(.ryft(.body))
+                    .foregroundStyle(Theme.accent)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            }
+            .accessibilityIdentifier("profile.syncDetails")
 
             if model.canExport {
                 PrimaryButton(title: "Export my data", style: .secondary, busy: model.exporting) { await model.export() }
@@ -504,6 +513,123 @@ struct ProfileView: View {
 }
 
 // MARK: - building blocks
+
+/// Profile → Data → Sync details: what the sync knows, stream by stream, the last requests
+/// with their IDs, and "Sync last 3 days again", "Full resync", "Copy diagnostics".
+struct SyncDetailsView: View {
+    let model: SyncDetailsModel
+    @State private var showResyncConfirm = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Metrics.sectionSpacing) {
+                engine
+                streams
+                requests
+                actions
+            }
+            .padding(.horizontal, Theme.Metrics.screenPadding)
+            .padding(.vertical, 16)
+        }
+        .scrollIndicators(.hidden)
+        .background(Theme.background.ignoresSafeArea())
+        .navigationTitle(Text("Sync details"))
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await model.loadQueue() }
+        .confirmationDialog("Re-upload the last 90 days of Health data?", isPresented: $showResyncConfirm,
+                            titleVisibility: .visible) {
+            Button("Re-sync", role: .destructive) {
+                Task { await model.fullResync() }
+            }
+        } message: {
+            Text("This uploads everything again. It can take a few minutes on the first run.")
+        }
+    }
+
+    private var engine: some View {
+        ProfileSection(title: "Engine") {
+            StatRow(title: "State", value: model.phaseText)
+            StatRow(title: "Queue", value: model.queueText)
+            StatRow(title: "Backlog", value: model.backlogText)
+            StatRow(title: "Uploaded", value: model.uploadedText)
+            if model.engine.pendingDeletions > 0 {
+                StatRow(title: "Deletions kept", value: model.engine.pendingDeletions.formatted())
+            }
+            if let error = model.lastErrorText {
+                Text(error)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(Theme.warning)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var streams: some View {
+        ProfileSection(title: "Streams") {
+            ForEach(model.streams) { row in
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(row.title)
+                            .font(.ryft(.callout))
+                            .foregroundStyle(Theme.textPrimary)
+                        Spacer()
+                        Text((row.progress?.sent ?? 0).formatted())
+                            .font(.ryft(.callout))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+                    Text(row.newestText)
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textTertiary)
+                    if let last = row.lastPageText {
+                        Text(last)
+                            .font(.ryft(.caption))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.textTertiary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
+
+    private var requests: some View {
+        ProfileSection(title: "Last requests") {
+            if model.requests.isEmpty {
+                Text("No requests since launch.")
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textTertiary)
+            }
+            ForEach(model.requests) { r in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: "\(r.status)\(r.code.map { " \($0)" } ?? "") \(r.method) \(r.path)")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle((200..<300).contains(r.status) ? Theme.textSecondary : Theme.warning)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(verbatim: "\(r.requestID ?? "–") · \(r.date.formatted(date: .omitted, time: .standard))")
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(Theme.textTertiary)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+    }
+
+    private var actions: some View {
+        VStack(spacing: 10) {
+            PrimaryButton(title: "Sync last 3 days again", style: .secondary) { await model.resendRecent() }
+                .disabled(!model.canSync)
+            PrimaryButton(title: "Full resync", style: .destructive) { showResyncConfirm = true }
+                .disabled(!model.canSync)
+            PrimaryButton(title: model.copied ? "Copied" : "Copy diagnostics", style: .secondary) {
+                model.copyDiagnostics()
+            }
+            .accessibilityHint(Text("Counts, dates and request IDs for support; no health data"))
+        }
+    }
+}
 
 private struct ProfileSection<Content: View>: View {
     let title: LocalizedStringKey
@@ -643,6 +769,29 @@ private extension View {
             .padding(.vertical, 12)
             .background(Theme.surfaceRaised.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
+}
+
+#Preview("Sync details · dark") {
+    let state = AppState.preview()
+    let sync = SyncService(env: state.env)
+    NavigationStack {
+        SyncDetailsView(model: SyncDetailsModel(state: state, sync: sync,
+                                                coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
+                                                                             clock: state.env.clock)))
+    }
+    .previewEnvironment(state)
+}
+
+#Preview("Sync details · light · de") {
+    let state = AppState.preview()
+    let sync = SyncService(env: state.env)
+    NavigationStack {
+        SyncDetailsView(model: SyncDetailsModel(state: state, sync: sync,
+                                                coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
+                                                                             clock: state.env.clock)))
+    }
+    .previewEnvironment(state, scheme: .light)
+    .environment(\.locale, Locale(identifier: "de"))
 }
 
 #Preview("Profile · dark") {

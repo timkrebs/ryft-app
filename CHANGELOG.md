@@ -31,7 +31,16 @@ Store "What's New".
   finds the iPhone locked waits for the unlock instead of failing.
 - New scores appear as soon as the platform has computed them, instead of after a fixed
   wait.
+- Today says what's true while your data is on its way: a "Setting up RYFT" card with real
+  counts during the first import, the baseline nights while RYFT learns your normal, and
+  "Scoring your night…" with last night from Apple Health until the score lands. One
+  status line under the greeting says what the sync is doing; a hint names the watch app
+  that hasn't synced to Apple Health. Strain and Sleep mark days that aren't scored yet.
+- Profile → Data → Sync details: each stream's progress, the last requests with their IDs,
+  "Sync last 3 days again" and "Copy diagnostics" for support.
 
 ### Fixed
 - A missing consent or invite code no longer shows as "RYFT didn't accept your sign-in";
   the app asks for what's missing and syncs once it's done.
+- Demo data (and a first launch that opened Strain or Sleep first) showed only today:
+  the earlier days load again.

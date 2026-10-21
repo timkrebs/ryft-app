@@ -18,6 +18,20 @@ enum Signposts {
     static let launch = OSSignposter(subsystem: "dev.timkrebs.ryft", category: "launch")
 }
 
+/// What a sync run is doing, for the status line and Profile.
+enum SyncActivity: Equatable, Sendable {
+    case reading(HealthStream)
+    /// A page of `records` going up.
+    case uploading(HealthStream, records: Int)
+
+    var text: String {
+        switch self {
+        case .reading(let stream): return String(localized: "Syncing · \(stream.displayName)")
+        case .uploading(_, let records): return String(localized: "Uploading \(records.formatted()) readings")
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class SyncService {
@@ -29,7 +43,10 @@ final class SyncService {
     @ObservationIgnored private var machine: GKTableMachine<SyncPhase>!
     /// Reading or uploading HealthKit data.
     var isSyncing: Bool { phase == .reading || phase == .uploading }
-    private(set) var progress = ""
+    /// What the run is doing right now, for the status line; `nil` between runs.
+    private(set) var activity: SyncActivity?
+    /// `activity` in words ("Syncing · sleep"), for Profile.
+    var progress: String { activity?.text ?? "" }
     private(set) var lastError: String?
     /// Status and request ID of `lastError`, for the inline message's Details.
     private(set) var lastErrorDetails: String?
@@ -151,7 +168,7 @@ final class SyncService {
         lastUploaded = 0
         hasBacklog = false
         waitingForUnlock = false
-        defer { progress = "" }
+        defer { activity = nil }
         let context = SyncEngine.Context(account: account, deviceID: settings.deviceId,
                                          deviceName: UIDevice.current.name, appVersion: AppInfo.version,
                                          osVersion: AppInfo.osVersion, now: env.clock.now(),
@@ -198,16 +215,30 @@ final class SyncService {
         switch event {
         case .reading(let stream):
             // A page read ahead while another uploads: the upload is what's happening.
-            if phase != .uploading { advance(to: .reading) }
-            progress = "Reading \(stream.anchorID)…"
-        case .uploading(_, let records):
+            if phase != .uploading {
+                advance(to: .reading)
+                activity = .reading(stream)
+            }
+        case .uploading(let stream, let records):
             advance(to: .uploading)
-            progress = "Uploading \(records) records…"
+            activity = .uploading(stream, records: records)
         case .accepted(_, let response):
             lastUploaded += response.samples + response.sleep + response.workouts
         case .state(let state):
             engineState = state
         }
+    }
+
+    /// "Sync last 3 days again" (Sync details): the first score's window once more,
+    /// date-bounded (the platform counts what it already has as duplicates), then what's new.
+    /// The caller runs the sync.
+    func resendRecent() {
+        guard let account = auth.accountID else { return }
+        var state = SyncEngineState.load(account: account, defaults: env.defaults)
+        state.recentDone = false
+        state.recentRequested = true
+        state.save(account: account, defaults: env.defaults)
+        engineState = state
     }
 
     /// Forget anchors and re-upload the backfill window. Use after changing
@@ -276,6 +307,33 @@ struct SyncEngineState: Codable, Equatable, Sendable {
         var backfilled = false
         var lastAccepted = 0
         var lastIgnored: IgnoredCounts?
+        /// Records sent in the first score's window; the backfill sends them again, so the
+        /// stream's count is the larger of the two, never their sum.
+        var recentRecords = 0
+        /// The days its records fall on (a night by its wake), newest `maxDays`.
+        var days: Set<String> = []
+        var lastUploadAt: Date?
+
+        static let maxDays = 120
+
+        /// Records the stream has sent, each counted once.
+        var sent: Int { max(records, recentRecords) }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            records = try c.decodeIfPresent(Int.self, forKey: .records) ?? 0
+            bytes = try c.decodeIfPresent(Int.self, forKey: .bytes) ?? 0
+            oldest = try c.decodeIfPresent(Date.self, forKey: .oldest)
+            newest = try c.decodeIfPresent(Date.self, forKey: .newest)
+            backfilled = try c.decodeIfPresent(Bool.self, forKey: .backfilled) ?? false
+            lastAccepted = try c.decodeIfPresent(Int.self, forKey: .lastAccepted) ?? 0
+            lastIgnored = try c.decodeIfPresent(IgnoredCounts.self, forKey: .lastIgnored)
+            recentRecords = try c.decodeIfPresent(Int.self, forKey: .recentRecords) ?? 0
+            days = try c.decodeIfPresent(Set<String>.self, forKey: .days) ?? []
+            lastUploadAt = try c.decodeIfPresent(Date.self, forKey: .lastUploadAt)
+        }
     }
 
     var phase: Phase = .idle
@@ -297,6 +355,8 @@ struct SyncEngineState: Codable, Equatable, Sendable {
     var handledResyncRequest: Date?
     /// `resync_requested_at` asked for one; the next upload does it.
     var fullResyncRequested = false
+    /// "Sync last 3 days again": the next upload sends the first score's window again.
+    var recentRequested = false
     var lastError: String?
     var lastRequestID: String?
     var updatedAt: Date?
@@ -317,10 +377,14 @@ struct SyncEngineState: Codable, Equatable, Sendable {
         lastFullResyncAt = try c.decodeIfPresent(Date.self, forKey: .lastFullResyncAt)
         handledResyncRequest = try c.decodeIfPresent(Date.self, forKey: .handledResyncRequest)
         fullResyncRequested = try c.decodeIfPresent(Bool.self, forKey: .fullResyncRequested) ?? false
+        recentRequested = try c.decodeIfPresent(Bool.self, forKey: .recentRequested) ?? false
         lastError = try c.decodeIfPresent(String.self, forKey: .lastError)
         lastRequestID = try c.decodeIfPresent(String.self, forKey: .lastRequestID)
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
     }
+
+    /// The days any stream has sent records for.
+    var coveredDays: Set<String> { streams.values.reduce(into: Set<String>()) { $0.formUnion($1.days) } }
 
     /// Before a stream's backfill measured it, a 90-day stream is assumed this big (an
     /// Apple Watch's heart rate alone is ~25 MB of JSON): enough to wait for power.
@@ -453,6 +517,8 @@ actor SyncEngine {
     private var gate: @Sendable () async -> APIErrorCode? = { nil }
     /// `requestStop()`: end after the page being uploaded.
     private var stopRequested = false
+    /// Draining the first score's window (its records are sent again in the backfill).
+    private var drainingRecent = false
     private var stoppedEarly = false
     /// `SyncEngineState.wipes` when the run started: a wipe since then (sign-out) means
     /// this run's state isn't anyone's to keep.
@@ -492,17 +558,19 @@ actor SyncEngine {
         do {
             state.lastError = nil
             state.lastRequestID = nil
-            // An account that synced before has nothing to gain from the window.
-            if !state.recentDone, health.hasAnchors { state.recentDone = true }
+            // An account that synced before has nothing to gain from the window, unless
+            // it was asked for (Sync details).
+            if !state.recentDone, health.hasAnchors, !state.recentRequested { state.recentDone = true }
             if !state.recentDone {
                 let since = Calendar.current.date(byAdding: .day, value: -Self.recentDays, to: context.now) ?? context.now
                 try await set(.recent, report)
                 try await drain(.recent(since: since), context, report)
                 if stoppedEarly { return await stopped(result, context, report) }
                 state.recentDone = true
+                state.recentRequested = false
                 // Something to score: let the coordinator refresh before the long backfill.
                 if !touched.isEmpty {
-                    state.phase = .backfill
+                    state.phase = state.backfillDone ? .incremental : .backfill
                     await finished(context, report)
                     result.backlog = true
                     return finish(result)
@@ -598,6 +666,7 @@ actor SyncEngine {
     private func drain(_ mode: Mode, _ context: Context, _ report: @escaping @Sendable (Event) async -> Void) async throws {
         let streams = health.streams
         guard !streams.isEmpty else { return }
+        if case .recent = mode { drainingRecent = true } else { drainingRecent = false }
         var cursor = Cursor(index: 0, after: nil)
         await report(.reading(streams[0]))
         guard var page = try await Self.read(health, mode, streams[0], after: nil, limit: limit(for: streams[0])) else {
@@ -713,8 +782,13 @@ actor SyncEngine {
     /// what went over the wire, gzipped or not.
     private func record(_ delta: HealthDelta, bytes: Int, sent: Int, response: SyncResponse, stream: HealthStream) {
         var p = state.streams[stream.anchorID, default: .init()]
-        p.records += delta.count
+        if drainingRecent { p.recentRecords += delta.count } else { p.records += delta.count }
         p.bytes += bytes
+        p.lastUploadAt = Date()
+        p.days.formUnion(Self.days(of: delta.samples.map(\.start) + delta.sleep.map(\.end) + delta.workouts.map(\.start)))
+        if p.days.count > SyncEngineState.StreamProgress.maxDays {
+            p.days = Set(p.days.sorted().suffix(SyncEngineState.StreamProgress.maxDays))
+        }
         let starts = delta.samples.map(\.start) + delta.sleep.map(\.start) + delta.workouts.map(\.start)
         let ends = delta.samples.map(\.end) + delta.sleep.map(\.end) + delta.workouts.map(\.end)
         if let lo = starts.min() { p.oldest = min(p.oldest ?? lo, lo) }
@@ -746,6 +820,19 @@ actor SyncEngine {
             gzipRefused = true
             return (try await api.sync(encoded: body, contentEncoding: nil), body.count)
         }
+    }
+
+    /// The local days `dates` fall on: a page's records mostly run in order, so a day is
+    /// formatted once, not per record (20 000 in a page).
+    static func days(of dates: [Date], calendar: Calendar = .current) -> Set<String> {
+        var days = Set<String>()
+        var current: DateInterval?
+        for date in dates {
+            if let current, date >= current.start, date < current.end { continue }
+            current = calendar.dateInterval(of: .day, for: date)
+            days.insert(DayFormat.string(from: date))
+        }
+        return days
     }
 
     /// JSON for a page: several MB for a full one, so never on the main actor.

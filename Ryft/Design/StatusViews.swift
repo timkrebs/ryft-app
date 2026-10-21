@@ -126,6 +126,81 @@ struct UpdatedLabel: View {
     }
 }
 
+/// Today's one status line under the greeting: what the sync is doing, or how fresh the
+/// numbers are. Never a modal; tappable only when there's something to do (a gate).
+struct SyncStatusLineView: View {
+    let line: SyncLine
+    var action: (() -> Void)? = nil
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            if case .actionNeeded = line, let action {
+                Button(action: action) {
+                    label(now: context.date)
+                        .foregroundStyle(Theme.accent)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(Text("Opens what's needed"))
+                .accessibilityIdentifier("today.actionNeeded")
+            } else {
+                label(now: context.date)
+                    .foregroundStyle(line.isActive ? Theme.textSecondary : Theme.textTertiary)
+            }
+        }
+        .accessibilityIdentifier("today.syncLine")
+    }
+
+    private func label(now: Date) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: line.systemImage)
+                .symbolEffect(.pulse, options: .repeating, isActive: line.isActive && !reduceMotion)
+                .accessibilityHidden(true)
+            Text(line.text(now: now))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+        }
+        .font(.ryft(.caption))
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// Under a day in a picker: scored (a dot), pending (a hollow dot), no data (nothing),
+/// from `DailyScore.scoringState`.
+struct DayMarker: View {
+    enum Kind: Equatable {
+        case scored, pending
+
+        /// For VoiceOver after the day's value; `nil` when scored.
+        var spoken: String? { self == .pending ? String(localized: "not scored yet") : nil }
+    }
+
+    let kind: Kind?
+
+    static func kind(for score: DailyScore?) -> Kind? {
+        guard let score else { return nil }
+        switch score.scoringState {
+        case .pending, .waitingForSleep: return .pending
+        default: return TodayStates.isScored(score) ? .scored : nil
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            switch kind {
+            case .scored: Circle().fill(Theme.textTertiary)
+            case .pending: Circle().strokeBorder(Theme.textSecondary, lineWidth: 1)
+            case nil: Color.clear
+            }
+        }
+        .frame(width: 5, height: 5)
+        .accessibilityHidden(true)
+    }
+}
+
 /// Setup card for the unconfigured state.
 struct SetupCard: View {
     var action: () -> Void
@@ -188,4 +263,33 @@ private struct SetupStep: View {
             SetupCard {}
         }
     }
+}
+
+#Preview("Sync status line", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        VStack(spacing: 12) {
+            SyncStatusLineView(line: .upToDate(.now.addingTimeInterval(-120), demo: false))
+            SyncStatusLineView(line: .reading(.sleep))
+            SyncStatusLineView(line: .uploading(records: 12_400))
+            SyncStatusLineView(line: .scoring(night: true))
+            SyncStatusLineView(line: .waitingForUnlock)
+            SyncStatusLineView(line: .offline)
+            SyncStatusLineView(line: .actionNeeded(.consent)) {}
+            HStack(spacing: 12) {
+                DayMarker(kind: .scored)
+                DayMarker(kind: .pending)
+                DayMarker(kind: nil)
+            }
+        }
+    }
+}
+
+#Preview("Sync status line · de", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        VStack(spacing: 12) {
+            SyncStatusLineView(line: .uploading(records: 12_400))
+            SyncStatusLineView(line: .actionNeeded(.invite)) {}
+        }
+    }
+    .environment(\.locale, Locale(identifier: "de"))
 }

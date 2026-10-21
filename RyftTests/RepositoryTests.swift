@@ -79,6 +79,18 @@ struct RepositoryFreshnessTests {
         #expect(!repo.history(from: shift(noon, -89), to: noon).isEmpty)
     }
 
+    @Test func todayCachedByAScreenDoesNotStandInForTheHistory() async throws {
+        let api = MockPlatformAPI()
+        let noon = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: .now)!
+        let (repo, _, _) = makeRepo(api: api, now: noon)
+        try await repo.refreshDay(noon) // Strain's own load, first
+        try await repo.refreshHistory(from: shift(noon, -89), to: noon)
+        #expect(api.count("days") == 1)
+        #expect(repo.history(from: shift(noon, -89), to: noon).count > 1)
+        try await repo.refreshHistory(from: shift(noon, -89), to: noon)
+        #expect(api.count("days") == 1) // now it is cached and fresh
+    }
+
     @Test func trendsAreFreshForAnHour() async throws {
         let api = MockPlatformAPI()
         let (repo, clock, _) = makeRepo(api: api)

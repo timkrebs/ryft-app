@@ -65,6 +65,9 @@ final class SleepViewModel {
     var range: SleepRange? { mode.rangeKind.flatMap(state.cachedSleepRange) }
     var sleep: SleepDetail? { detail?.sleep }
     var score: DailyScore? { detail?.score }
+    /// The night's scoring state beside its title (`DayMarker`); the cached 90 days when the
+    /// detail isn't loaded.
+    var marker: DayMarker.Kind? { DayMarker.kind(for: score ?? state.score(for: date)) }
     var hasNoHealthData: Bool { state.hasNoHealthData }
 
     /// "Last night", "Yesterday", "Mon, 13 Oct"; "Last 7 nights" / "Last 30 nights".

@@ -335,6 +335,30 @@ extension APIClientStatusTests {
         #expect(await status.failures.first?.code == "consent_required")
     }
 
+    @Test func everyAnsweredRequestIsLoggedForSyncDetails() async throws {
+        let status = await APIStatus()
+        StubURLProtocol.script([.init(status: 200, headers: ["X-Request-ID": "rid-ok"]),
+                                .init(status: 403, body: Self.codeBody("consent_required"))])
+        _ = try await gatedClient(status).data("GET", path: "/v1/me", body: Optional<Int>.none, base: base)
+        _ = try? await gatedClient(status).data("POST", path: "/v1/sync", body: ["a": 1], base: base)
+        let requests = await status.requests
+        #expect(requests.map(\.status) == [403, 200]) // newest first
+        #expect(requests.last?.requestID == "rid-ok" && requests.last?.path == "/v1/me")
+        #expect(requests.first?.code == "consent_required")
+        #expect(await status.failures.count == 1) // the served one isn't a failure
+    }
+
+    @Test func theRequestLogKeepsTheNewestTwenty() async {
+        let status = await APIStatus()
+        for i in 0..<25 {
+            await status.served(.init(date: .now, method: "GET", path: "/v1/days/\(i)", status: 200, requestID: nil))
+        }
+        let requests = await status.requests
+        let limit = await APIStatus.maxFailures
+        #expect(requests.count == limit)
+        #expect(requests.first?.path == "/v1/days/24")
+    }
+
     @Test func inviteRequiredStopsEverythingButOnboarding() async throws {
         let status = await APIStatus()
         StubURLProtocol.script([.init(status: 403, body: Self.codeBody("invite_required")), .init(status: 200)])

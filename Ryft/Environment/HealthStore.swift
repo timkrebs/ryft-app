@@ -15,6 +15,65 @@ enum HealthStream: Hashable, Sendable {
         case .workouts: return "workouts"
         }
     }
+
+    /// Lower case, for "Syncing · heart rate" and Sync details.
+    var displayName: String {
+        switch self {
+        case .sleep: return String(localized: "sleep")
+        case .workouts: return String(localized: "workouts")
+        case .quantity(let t):
+            switch t {
+            case .heartRate: return String(localized: "heart rate")
+            case .hrvSDNN: return String(localized: "HRV")
+            case .restingHR: return String(localized: "resting heart rate")
+            case .respiratoryRate: return String(localized: "respiratory rate")
+            case .spo2: return String(localized: "blood oxygen")
+            case .vo2max: return String(localized: "VO₂ max")
+            case .activeEnergy: return String(localized: "active energy")
+            case .steps: return String(localized: "steps")
+            }
+        }
+    }
+}
+
+/// Last night as Apple Health has it, before RYFT scored it: raw totals from one source,
+/// not a score (the phone computes no scores).
+struct RawNight: Equatable, Sendable {
+    let asleepMin: Int
+    let bedtime: Date
+    let wake: Date
+    let source: String
+
+    /// The source that recorded the most sleep: its asleep stages summed, from its first
+    /// segment (in bed included) to its last. `nil` without any sleep.
+    static func from(_ segments: [SleepSegment]) -> RawNight? {
+        let asleep: Set<SleepStage> = [.asleep, .core, .deep, .rem]
+        let nights = Dictionary(grouping: segments, by: \.source).compactMap { source, list -> RawNight? in
+            let minutes = list.filter { asleep.contains($0.stage) }
+                .reduce(0.0) { $0 + $1.end.timeIntervalSince($1.start) } / 60
+            guard minutes >= 1, let bed = list.map(\.start).min(), let wake = list.map(\.end).max() else { return nil }
+            return RawNight(asleepMin: Int(minutes.rounded()), bedtime: bed, wake: wake, source: source)
+        }
+        return nights.max { ($0.asleepMin, $0.source) < ($1.asleepMin, $1.source) }
+    }
+
+    /// Since 18:00 the evening before `now`.
+    static func window(before now: Date, calendar: Calendar = .current) -> Date {
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: now) ?? now
+        return calendar.date(bySettingHour: 18, minute: 0, second: 0, of: yesterday) ?? yesterday
+    }
+}
+
+/// The newest record one source wrote to Apple Health, for "your watch hasn't synced".
+struct SourceFreshness: Equatable, Sendable {
+    /// As HealthKit names it ("Garmin Connect", "Tim's Apple Watch").
+    let source: String
+    /// `com.apple.health.…` for an Apple device; the writing app's otherwise.
+    let bundleID: String?
+    let newest: Date
+
+    /// An app that syncs to Apple Health only while it runs, unlike Apple's own devices.
+    var isApp: Bool { !(bundleID ?? "").hasPrefix("com.apple.health") }
 }
 
 /// One page of new records, with the opaque anchor that marks its end. The caller
@@ -70,6 +129,12 @@ protocol HealthStore: AnyObject {
     func commit(_ page: HealthPage, for stream: HealthStream)
     func migrateLegacyAnchors()
     func resetAnchors()
+    /// Last night's sleep as Apple Health has it (`RawNight.from`), since 18:00 the evening
+    /// before `now`; `nil` without any.
+    func lastNight(before now: Date) async throws -> RawNight?
+    /// The newest heart-rate record per source since `since` (sleep when no source wrote
+    /// heart rate): iPhones write no heart rate, so these are the watches and their apps.
+    func newestRecords(since: Date) async throws -> [SourceFreshness]
 }
 
 extension HealthKitManager: HealthStore {
@@ -121,6 +186,45 @@ extension HealthKitManager: HealthStore {
     func commit(_ page: HealthPage, for stream: HealthStream) {
         guard let anchor = page.anchor.flatMap(Self.unarchive) else { return }
         save(anchor: anchor, for: stream.anchorID)
+    }
+
+    func lastNight(before now: Date) async throws -> RawNight? {
+        let predicate = HKQuery.predicateForSamples(withStart: RawNight.window(before: now), end: now, options: [])
+        let query = HKSampleQueryDescriptor(predicates: [.categorySample(type: sleepType, predicate: predicate)],
+                                            sortDescriptors: [SortDescriptor(\.startDate)])
+        let samples = try await query.result(for: store)
+        return RawNight.from(samples.compactMap { s in
+            Self.sleepStage(s.value).map { SleepSegment(start: s.startDate, end: s.endDate, stage: $0, source: Self.sourceName(s)) }
+        })
+    }
+
+    func newestRecords(since: Date) async throws -> [SourceFreshness] {
+        let heartRate = try await newestRecords(of: HKQuantityType(.heartRate), since: since)
+        return heartRate.isEmpty ? try await newestRecords(of: sleepType, since: since) : heartRate
+    }
+
+    /// One query for the type's sources, then the newest record of each (a handful).
+    private func newestRecords(of type: HKSampleType, since: Date) async throws -> [SourceFreshness] {
+        let window = HKQuery.predicateForSamples(withStart: since, end: nil, options: [])
+        let sources: Set<HKSource> = try await withCheckedThrowingContinuation { continuation in
+            store.execute(HKSourceQuery(sampleType: type, samplePredicate: window) { _, sources, error in
+                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: sources ?? []) }
+            })
+        }
+        var newest: [SourceFreshness] = []
+        for source in sources {
+            let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [window, HKQuery.predicateForObjects(from: source)])
+            let latest: HKSample? = try await withCheckedThrowingContinuation { continuation in
+                store.execute(HKSampleQuery(sampleType: type, predicate: predicate, limit: 1,
+                                            sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)]) { _, samples, error in
+                    if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: samples?.first) }
+                })
+            }
+            if let latest {
+                newest.append(SourceFreshness(source: source.name, bundleID: source.bundleIdentifier, newest: latest.endDate))
+            }
+        }
+        return newest
     }
 
     private static func archive(_ anchor: HKQueryAnchor?) -> Data? {
@@ -253,6 +357,12 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
 
     func migrateLegacyAnchors() {}
     func resetAnchors() { locked { resets += 1; position = [:] } }
+
+    /// What `lastNight` and `newestRecords` answer.
+    var night: RawNight?
+    var freshness: [SourceFreshness] = []
+    func lastNight(before now: Date) async throws -> RawNight? { night }
+    func newestRecords(since: Date) async throws -> [SourceFreshness] { freshness.filter { $0.newest >= since } }
 
     private func read(_ limit: Int, onMain: Bool) throws {
         if onMain { _readsOnMainThread += 1 }

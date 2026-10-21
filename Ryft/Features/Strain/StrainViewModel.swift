@@ -21,11 +21,16 @@ final class StrainViewModel {
         let date: Date
         let strain: Double?
         let isSelected: Bool
+        /// Scored, pending or no data (`DailyScore.scoringState`).
+        var marker: DayMarker.Kind? = nil
         var id: Date { date }
         var initial: String { date.formatted(.dateTime.weekday(.narrow)) }
         var name: String { date.formatted(.dateTime.weekday(.wide)) }
         var shortValue: String { strain.map { String(Int($0.rounded())) } ?? Fmt.placeholder }
-        var spokenValue: String { String(localized: "Strain \(Fmt.strain(strain))") }
+        var spokenValue: String {
+            let value = String(localized: "Strain \(Fmt.strain(strain))")
+            return marker?.spoken.map { "\(value), \($0)" } ?? value
+        }
     }
 
     init(state: AppState, store: TrainStore) {
@@ -58,8 +63,9 @@ final class StrainViewModel {
     var week: [StripDay] {
         (0..<7).reversed().map { offset in
             let day = DayFormat.shift(today, days: -offset)
-            return StripDay(date: day, strain: state.score(for: day)?.strain,
-                            isSelected: calendar.isDate(day, inSameDayAs: date))
+            let score = state.score(for: day)
+            return StripDay(date: day, strain: score?.strain, isSelected: calendar.isDate(day, inSameDayAs: date),
+                            marker: DayMarker.kind(for: score))
         }
     }
 
