@@ -380,7 +380,9 @@ struct SyncEngineBackgroundTests {
         let env = AppEnvironment.test(api: api, health: health)
         let state = AppState(env: env)
         let sync = SyncService(env: env)
-        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock)
+        // Launched in the background for the delivery.
+        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock,
+                                          inBackground: true)
 
         RyftApp.observeHealthKit(health, coordinator: coordinator) // launch
         RyftApp.observeHealthKit(health, coordinator: coordinator) // bootstrap
@@ -479,6 +481,82 @@ struct SyncEngineReviewTests {
         #expect(outcome.cancelled)
         #expect(sync.engineState.lastError == nil && sync.lastError == nil) // cancelled, not failed
     }
+}
+
+/// The review on #11.
+@Suite("Sync engine: background details")
+@MainActor
+struct SyncEngineBackgroundReviewTests {
+    @Test func deletionsAreKeptBeforeTheAnchorMoves() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(1)]])
+        health.deletions = [.quantity(.heartRate): [UUID()]]
+        let env = AppEnvironment.test(health: health)
+        let account = env.auth.accountID ?? ""
+        let keptAtCommit = Counter()
+        health.onCommit = { _ in
+            if !PendingDeletions.load(account: account, defaults: env.defaults).isEmpty { keptAtCommit.add() }
+        }
+        await SyncService(env: env).syncNow()
+        #expect(keptAtCommit.value >= 1)
+    }
+
+    @Test func aBackgroundUploadEndsDoneNotSyncing() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(1)]])
+        let api = MockPlatformAPI()
+        api.syncResponse = SyncResponse(samples: 1, sleep: 0, workouts: 0, daysTouched: ["2026-10-20"])
+        let env = AppEnvironment.test(api: api, health: health)
+        let sync = SyncService(env: env)
+        let c = SyncCoordinator(steps: LiveSyncSteps(state: AppState(env: env), sync: sync), clock: env.clock,
+                                inBackground: true)
+        _ = await c.run(.healthKit)
+        #expect(sync.phase == .done && !sync.isSyncing)
+    }
+
+    @Test func theBacklogEstimateNeedsAnAccountAndFallsBackWhenUnmeasured() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate), .sleep], pages: [:],
+                                     recent: [.sleep: [samples(1)]])
+        let api = MockPlatformAPI()
+        api.syncResponse = SyncResponse(samples: 1, sleep: 0, workouts: 0, daysTouched: ["2026-10-20"])
+        let env = AppEnvironment.test(api: api, health: health)
+        let sync = SyncService(env: env)
+        _ = try? await sync.upload() // the first-score window: a backlog, nothing measured yet
+        #expect(sync.hasBacklog)
+        // Not 0: both streams still to backfill, unmeasured, so the task waits for power.
+        #expect((sync.backlogBytes ?? 0) > BackgroundWork.backfillPowerThreshold)
+        await env.auth.signOut()
+        #expect(sync.backlogBytes == nil)
+    }
+
+    @Test func anExpiredBackfillCancelsTheLiveUpload() async {
+        let clock = TestClock()
+        let health = MockHealthStore(streams: [.quantity(.heartRate)],
+                                     pages: [.quantity(.heartRate): [samples(1), samples(1)]])
+        health.commit(HealthPage(delta: HealthDelta(), anchor: nil, more: false), for: .sleep)
+        let api = MockPlatformAPI()
+        api.beforeSync = { try? await clock.sleep(for: .seconds(20)) }
+        let env = AppEnvironment.test(api: api, health: health, clock: clock)
+        let sync = SyncService(env: env)
+        let c = SyncCoordinator(steps: LiveSyncSteps(state: AppState(env: env), sync: sync), clock: clock,
+                                inBackground: true)
+        let task = FakeProcessingTask()
+        var scheduled: [Int] = []
+        let run = Task {
+            await BackgroundWork.runBackfill(task, coordinator: c, backlogBytes: { 1 }) { scheduled.append($0) }
+        }
+        #expect(await eventually { clock.pendingSleeps == 1 && task.expirationHandler != nil })
+        task.expirationHandler?()
+        await run.value
+        #expect(task.completed == false && scheduled == [1])
+        #expect(api.count("sync") == 1) // the second page never went up
+    }
+}
+
+/// A `BGProcessingTask` stand-in.
+@MainActor
+final class FakeProcessingTask: BackgroundTaskHandle {
+    var expirationHandler: (() -> Void)?
+    private(set) var completed: Bool?
+    func setTaskCompleted(success: Bool) { completed = success }
 }
 
 @Suite("Sync: the server's scoring state")

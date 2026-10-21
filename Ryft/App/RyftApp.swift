@@ -51,7 +51,14 @@ struct RyftApp: App {
         let state = AppState(env: .live)
         // The JSON response cache of earlier versions moves into SwiftData once.
         LegacyCacheMigration.runOnce(into: state.repository, train: .shared, defaults: .standard)
-        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: .shared), clock: AppEnvironment.live.clock)
+        // Launched straight into the background (a HealthKit delivery, a BG task): the
+        // coordinator starts there; the scene's activation brings it to the foreground.
+        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: .shared),
+                                          clock: AppEnvironment.live.clock,
+                                          inBackground: UIApplication.shared.applicationState == .background) {
+            // A run in the background left a backlog: the backfill task takes it.
+            if let left = SyncService.shared.backlogBytes { BackgroundWork.scheduleBackfill(backlogBytes: left) }
+        }
         self.coordinator = coordinator
         _state = State(initialValue: state)
         let screens = ScreenModels(state: state, sync: .shared, coordinator: coordinator,
@@ -152,7 +159,10 @@ struct RyftApp: App {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 (env.flags as? FlagStore)?.applyPending()
-                Task { await coordinator.run(.appActive) }
+                Task {
+                    await coordinator.enterForeground()
+                    await coordinator.run(.appActive)
+                }
                 Task { await refreshTrain() }
                 // Allowed in Settings meanwhile, a new token or language: tell the platform.
                 Task { await screens.push.refresh() }

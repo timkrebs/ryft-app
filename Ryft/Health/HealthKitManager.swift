@@ -180,7 +180,13 @@ final class HealthKitManager {
     var observedTypes: [HKSampleType] { [sleepType, workoutType, HKQuantityType(.heartRateVariabilitySDNN)] }
 
     /// `.immediate` for the observed types only. Idempotent: called on every launch.
+    /// Registrations outlive launches: earlier versions asked `.hourly` for every read
+    /// type, so the unobserved ones are turned off again.
     func enableBackgroundDelivery() async {
+        let observed = Set(observedTypes.map(\.identifier))
+        for t in readTypes.compactMap({ $0 as? HKSampleType }) where !observed.contains(t.identifier) {
+            try? await store.disableBackgroundDelivery(for: t)
+        }
         for t in observedTypes {
             try? await store.enableBackgroundDelivery(for: t, frequency: .immediate)
         }

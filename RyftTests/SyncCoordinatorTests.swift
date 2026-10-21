@@ -12,7 +12,7 @@ private final class FakeSteps: SyncSteps {
     var touched: [String] = ["2026-10-19"]
     /// Upload failures, one per attempt, before it succeeds.
     var uploadFailures: [Error] = []
-    /// `isScored` answers per poll.
+    /// Per ask of `GET /v1/me/sync`: whether scoring has finished the touched days.
     var scored: [Bool] = [true]
     var uploadDuration: Duration = .zero
     /// Backlog after each upload, in order (then none).
@@ -373,12 +373,13 @@ struct SyncCoordinatorBackgroundTests {
     @Test func backgroundRunsUseTheBackgroundSessionAndSkipTheScoringWait() async {
         let clock = TestClock()
         let steps = FakeSteps(clock: clock)
-        let c = SyncCoordinator(steps: steps, clock: clock)
+        let c = SyncCoordinator(steps: steps, clock: clock, inBackground: true) // launched for a delivery
 
         let outcome = await c.run(.healthKit)
 
         #expect(steps.backgroundUploads == [true])
         #expect(outcome.polls == 0 && !steps.events.contains("poll")) // the silent push refreshes
+        await c.enterForeground()
         let foreground = Task { await c.run(.userInitiated) }
         #expect(await eventually { clock.pendingSleeps == 1 })
         clock.advance(by: .seconds(3))
@@ -415,7 +416,8 @@ struct SyncCoordinatorBackgroundTests {
         await c.windDown()
         #expect(await run.value.cancelled)
         #expect(steps.stopRequests == 0)
-        let again = Task { await c.run(.appActive) } // the user is back: foreground again
+        await c.enterForeground() // the user is back
+        let again = Task { await c.run(.appActive) }
         #expect(await eventually { clock.pendingSleeps == 1 })
         #expect(await !c.inBackground)
         await c.cancel()
@@ -479,7 +481,7 @@ struct BackgroundWorkTests {
         #expect(task.completed == true && scheduled.isEmpty)
     }
 
-    @Test func anExpiredBackfillStopsAfterThePageAndIsScheduledAgain() async {
+    @Test func anExpiredBackfillIsCancelledAtOnceAndScheduledAgain() async {
         let clock = TestClock()
         let steps = FakeSteps(clock: clock)
         steps.uploadDuration = .seconds(5)
@@ -490,13 +492,11 @@ struct BackgroundWorkTests {
             await BackgroundWork.runBackfill(task, coordinator: c, backlogBytes: { 30_000_000 }) { scheduled.append($0) }
         }
         #expect(await eventually { steps.isUploading && task.expirationHandler != nil })
-        task.expirationHandler?() // the system's time is up
-        #expect(await eventually { steps.stopRequests == 1 })
-        clock.advance(by: .seconds(5))
+        task.expirationHandler?() // the system's time is up: no waiting for the page
         await run.value
 
         #expect(steps.count("upload") == 1) // not another page after the expiry
-        #expect(scheduled == [30_000_000] && task.completed == true)
+        #expect(scheduled == [30_000_000] && task.completed == false)
     }
 
     @Test func leavingTheAppFinishesThePageInABackgroundTask() async {
@@ -589,6 +589,90 @@ struct SyncCoordinatorBacklogEdgeTests {
         try? await Task.sleep(for: .milliseconds(50))
         #expect(steps.count("upload") == 1) // no loop
     }
+}
+
+/// The review on #11.
+@Suite("Sync coordinator: lifecycle")
+@MainActor
+struct SyncCoordinatorLifecycleTests {
+    @Test func aDeliveryWhileTheUserLooksStillRefreshesToday() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        let c = SyncCoordinator(steps: steps, clock: clock) // foreground
+        let run = Task { await c.run(.healthKit) }
+        #expect(await eventually { clock.pendingSleeps == 1 }) // waits for the score like any foreground run
+        clock.advance(by: .seconds(3))
+        _ = await run.value
+        #expect(steps.backgroundUploads == [false] && steps.events.contains("days:2026-10-19"))
+    }
+
+    @Test func comingBackOnlineInTheBackgroundStaysInTheBackground() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        await c.windDown()
+        _ = await c.run(.reconnect)
+        #expect(await c.inBackground)
+        #expect(steps.backgroundUploads == [true] && !steps.events.contains("poll"))
+    }
+
+    @Test func aBacklogLeftInTheBackgroundGoesToTheBackfillTask() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.backlogs = [true, true]
+        let scheduled = Counter()
+        let c = SyncCoordinator(steps: steps, clock: clock, inBackground: true) { scheduled.add() }
+
+        _ = await c.run(.healthKit)
+        #expect(await eventually { scheduled.value == 1 })
+        _ = await c.run(.processing) // the backfill task loops by itself
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(scheduled.value == 1 && steps.count("upload") == 2)
+    }
+
+    @Test func aCancelledRerunLeavesItsReplacementAlone() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.touched = []
+        steps.uploadDuration = .seconds(5)
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let first = Task { await c.run(.appActive) }
+        #expect(await eventually { steps.isUploading })
+        let a = SyncCoordinatorBackgroundTests.Completions()
+        let queuedA = Task { await c.run(.healthKit, afterUpload: { a.done() }) }
+        #expect(await waitForQueue(c))
+        let wound = Task { await c.windDown() } // cancels A (completing it), waits for the page
+        #expect(await eventually { a.calls == 1 && steps.stopRequests == 1 })
+        let b = SyncCoordinatorBackgroundTests.Completions()
+        let queuedB = Task { await c.run(.healthKit, afterUpload: { b.done() }) } // a replacement
+        #expect(await waitForQueue(c))
+
+        clock.advance(by: .seconds(5)) // the page in flight ends
+        await wound.value
+        _ = await first.value
+        _ = await queuedA.value
+        #expect(await eventually { steps.count("upload") == 2 && steps.isUploading }) // B uploads
+        #expect(b.calls == 0) // not completed by A on the way out
+        clock.advance(by: .seconds(5))
+        _ = await queuedB.value
+        #expect(b.calls == 1)
+    }
+
+    private func waitForQueue(_ c: SyncCoordinator) async -> Bool {
+        for _ in 0..<10_000 {
+            if await c.hasQueuedRun { return true }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return false
+    }
+}
+
+/// Counts from any thread.
+final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+    var value: Int { lock.withLock { n } }
+    func add() { lock.withLock { n += 1 } }
 }
 
 @Suite("Sync coordinator: scoring from the server")

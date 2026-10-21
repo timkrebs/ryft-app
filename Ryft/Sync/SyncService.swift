@@ -85,10 +85,14 @@ final class SyncService {
     }
 
     /// What's left of the backfill, estimated (`BGProcessingTask` wants power above 10 MB);
-    /// `nil` when nothing is left.
+    /// `nil` when nothing is left, signed out or in demo mode.
     var backlogBytes: Int? {
-        guard hasBacklog || !engineState.backfillDone else { return nil }
-        return engineState.backlogBytes
+        guard auth.isSignedIn, !env.isDemo, hasBacklog || !engineState.backfillDone else { return nil }
+        if engineState.backlogBytes > 0 { return engineState.backlogBytes }
+        // Not measured yet (the first-score window just went up, or an older state): the
+        // streams not yet backfilled, estimated.
+        let remaining = health.streams.map(\.anchorID).filter { engineState.streams[$0]?.backfilled != true }
+        return SyncEngineState.backlogEstimate(engineState.streams, remaining: remaining)
     }
 
     /// Uploads and keeps any error for the screens (Profile → Re-sync, tests).
@@ -591,12 +595,14 @@ actor SyncEngine {
                 continue
             }
             if case .anchored = mode {
-                health.commit(page, for: stream)
-                if !page.more, !state.backfillDone { state.streams[stream.anchorID, default: .init()].backfilled = true }
+                // The deletions before the anchor: once the anchor moves, HealthKit won't
+                // report them again.
                 if !page.deleted.isEmpty {
                     state.pendingDeletions = PendingDeletions.add(page.deleted, stream: stream, account: account,
                                                                   defaults: defaults)
                 }
+                health.commit(page, for: stream)
+                if !page.more, !state.backfillDone { state.streams[stream.anchorID, default: .init()].backfilled = true }
                 // Checkpointed with its anchor: a run the system ends keeps its progress.
                 persist()
             }
