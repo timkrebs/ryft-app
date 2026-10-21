@@ -68,7 +68,12 @@ private final class FakeSteps: SyncSteps {
                           pendingDays: done ? [] : touched, expectedWithinSec: 3, resyncRequestedAt: nil)
     }
 
-    func refreshDays(_ days: [String]) async throws { events.append("days:\(days.joined(separator: ","))") }
+    /// When the touched days were refreshed, on the clock.
+    private(set) var refreshedAt: Date?
+    func refreshDays(_ days: [String]) async throws {
+        events.append("days:\(days.joined(separator: ","))")
+        refreshedAt = clock.now()
+    }
     func refreshTrends() async throws { events.append("trends") }
     func refreshInsights() async throws { events.append("insights") }
     func refreshStale() async { events.append("stale") }
@@ -790,15 +795,17 @@ struct SyncCoordinatorDeadlineTests {
         steps.askDuration = .seconds(10) // every ask is slow
         let c = SyncCoordinator(steps: steps, clock: clock)
         let start = clock.now()
+        let deadline = start.addingTimeInterval(300)
         let run = Task { await c.run(.appActive) }
-        var done = false
-        for _ in 0..<2_000 where !done {
+        // Time moves up to the deadline and no further: the refresh must come without more of it,
+        // asks included. (Ticking on until the refresh shows would count the ticks that ran
+        // while the pipeline was busy cancelling an ask, not waiting.)
+        while clock.now() < deadline, !steps.events.contains("days:2026-10-19") {
             guard await eventually({ clock.pendingSleeps > 0 || steps.events.contains("days:2026-10-19") }) else { break }
-            done = steps.events.contains("days:2026-10-19")
-            if !done { clock.advance(by: .seconds(1)) }
+            if !steps.events.contains("days:2026-10-19") { clock.advance(by: .seconds(1)) }
         }
+        #expect(await eventually { steps.events.contains("days:2026-10-19") })
         _ = await run.value
-        #expect(clock.now().timeIntervalSince(start) <= 300) // refreshed by the deadline, asks included
-        #expect(steps.events.contains("days:2026-10-19"))
+        #expect(steps.refreshedAt.map { $0 <= deadline } == true)
     }
 }
