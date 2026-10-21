@@ -77,4 +77,10 @@ final class APIStatus {
         gates = []
         inviteBlocked = false
     }
+
+    /// Another account (or signed out): the last requests were the previous one's, and Report a problem sends them.
+    func forgetRequests() {
+        requests = []
+        failures = []
+    }
 }

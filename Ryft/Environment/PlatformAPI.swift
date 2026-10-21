@@ -244,8 +244,12 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     var feedbackDailyLimit = 10
     private var feedbackDays: [String] = []
 
+    /// Runs before each report is taken (tests hold one open with it).
+    var beforeFeedback: (@Sendable (FeedbackPost) async -> Void)?
+
     func postFeedback(_ post: FeedbackPost) async throws {
         try enter("feedback")
+        await beforeFeedback?(post)
         let today = DayFormat.string(from: now())
         try lock.withLock {
             guard feedbackDays.filter({ $0 == today }).count < feedbackDailyLimit else {
