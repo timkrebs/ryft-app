@@ -3,6 +3,7 @@
 import SwiftUI
 import BackgroundTasks
 import UIKit
+import os
 
 /// The entry point. Under unit tests the app is only their host: an empty window
 /// and none of the live work (bootstrap, HealthKit, background tasks, demo loads),
@@ -48,6 +49,7 @@ struct RyftApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        LaunchSignpost.begin()
         let state = AppState(env: .live)
         // The JSON response cache of earlier versions moves into SwiftData once.
         LegacyCacheMigration.runOnce(into: state.repository, train: .shared, defaults: .standard)
@@ -129,8 +131,9 @@ struct RyftApp: App {
                 .onChange(of: sync.phase) { _, phase in
                     if phase == .done { screens.push.syncSucceeded() }
                 }
-                // GET /v1/config now, then whenever its ttl_sec (6 h) has passed.
-                .task { await screens.featureFlags?.run() }
+                // GET /v1/config now, then whenever its ttl_sec (6 h) has passed. After the
+                // first frame, below the work the user waits for.
+                .task(priority: .utility) { await screens.featureFlags?.run() }
                 .task {
                     appDelegate.handlers = PushHandlers(registrar: screens.push, router: screens.router,
                                                         coordinator: coordinator)
@@ -163,11 +166,12 @@ struct RyftApp: App {
                     await coordinator.enterForeground()
                     await coordinator.run(.appActive)
                 }
-                Task { await refreshTrain() }
+                // Concurrently and below the sync: Today shows the cache meanwhile.
+                Task(priority: .utility) { await refreshTrain() }
                 // Allowed in Settings meanwhile, a new token or language: tell the platform.
-                Task { await screens.push.refresh() }
-                Task { await screens.featureFlags?.refresh() }
-                Task { await screens.onboarding.check() }
+                Task(priority: .utility) { await screens.push.refresh() }
+                Task(priority: .utility) { await screens.featureFlags?.refresh() }
+                Task(priority: .utility) { await screens.onboarding.check() }
             } else if phase == .background {
                 // Not a cancel: the page in flight finishes (in a background task), and what's
                 // left of an import goes to the backfill task.
@@ -399,6 +403,23 @@ enum DebugScreen: String {
     @MainActor private static let emailAccount = AuthService.preview(provider: "email")
 }
 #endif
+
+/// Cold launch → the first Today frame (with or without cached data), for Instruments.
+@MainActor
+enum LaunchSignpost {
+    private static var state: OSSignpostIntervalState?
+
+    static func begin() {
+        state = Signposts.launch.beginInterval("launch", id: Signposts.launch.makeSignpostID())
+    }
+
+    /// Today appeared; only the first time ends the interval.
+    static func firstFrame(cached: Bool) {
+        guard let state else { return }
+        Signposts.launch.endInterval("launch", state, "\(cached ? "cached data" : "no data")")
+        Self.state = nil
+    }
+}
 
 /// While the SDK reads the Keychain: the mark on Graphite, like the launch screen.
 struct SplashView: View {

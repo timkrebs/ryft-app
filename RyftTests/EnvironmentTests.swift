@@ -642,3 +642,42 @@ struct SyncScoringStateTests {
         #expect(health.resets == 2)
     }
 }
+
+@Suite("Sync: gzip")
+@MainActor
+struct SyncGzipTests {
+    @Test func gzipRoundTripsAndShrinksASyncPage() throws {
+        let page = SyncRequest(deviceId: UUID(), deviceName: "iPhone", appVersion: "1.0.0 (1)", osVersion: "iOS 27.1",
+                               samples: samples(5_000).samples, sleep: [], workouts: [])
+        let json = try APIClient.jsonEncoder.encode(page)
+        let zipped = try Gzip.compress(json)
+        #expect(zipped.prefix(2) == Data([0x1F, 0x8B])) // a gzip header
+        #expect(try Gzip.decompress(zipped) == json)
+        #expect(zipped.count * 8 < json.count) // the repeated keys shrink well
+        #expect(try Gzip.decompress(Gzip.compress(Data())) == Data())
+    }
+
+    @Test func pagesGoUpGzippedOnlyWhenTheFlagSaysSo() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(3)]])
+        let api = MockPlatformAPI()
+        await SyncService(env: .test(api: api, health: health)).syncNow()
+        #expect(api.syncEncodings == [nil])
+
+        let gzipHealth = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(3)]])
+        let gzipAPI = MockPlatformAPI()
+        await SyncService(env: .test(api: gzipAPI, health: gzipHealth, flags: [.syncGzip: true])).syncNow()
+        #expect(gzipAPI.syncEncodings == ["gzip"])
+        #expect(gzipAPI.syncRequests.first?.samples.count == 3) // the platform reads the same page
+    }
+
+    @Test func aRefusalFallsBackToPlainJSONForTheRun() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)],
+                                     pages: [.quantity(.heartRate): [samples(2), samples(2)]])
+        let api = MockPlatformAPI()
+        api.refusesGzip = true
+        let sync = SyncService(env: .test(api: api, health: health, flags: [.syncGzip: true]))
+        await sync.syncNow()
+        #expect(api.syncEncodings == ["gzip", nil, nil]) // the page again, plain, then plain
+        #expect(sync.lastError == nil && health.committed.count == 2)
+    }
+}

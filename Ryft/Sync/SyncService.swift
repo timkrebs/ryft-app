@@ -9,6 +9,14 @@ import Foundation
 import GameplayKit
 import Observation
 import UIKit
+import os
+
+/// Intervals for Instruments (os_signpost; "Points of Interest" shows them): a sync's
+/// stages (read, map, encode, upload, score-wait, refresh) and the launch.
+enum Signposts {
+    static let sync = OSSignposter(subsystem: "dev.timkrebs.ryft", category: "sync")
+    static let launch = OSSignposter(subsystem: "dev.timkrebs.ryft", category: "launch")
+}
 
 @MainActor
 @Observable
@@ -146,7 +154,8 @@ final class SyncService {
         defer { progress = "" }
         let context = SyncEngine.Context(account: account, deviceID: settings.deviceId,
                                          deviceName: UIDevice.current.name, appVersion: AppInfo.version,
-                                         osVersion: AppInfo.osVersion, now: env.clock.now())
+                                         osVersion: AppInfo.osVersion, now: env.clock.now(),
+                                         gzip: env.flags.isOn(.syncGzip))
         do {
             let result = try await engine.run(context, gate: { [weak self] in await self?.gate?() }) { [weak self] event in
                 await self?.apply(event, for: account)
@@ -396,6 +405,8 @@ actor SyncEngine {
         let appVersion: String
         let osVersion: String
         let now: Date
+        /// Bodies go up gzipped (`sync.gzip`, once the platform takes it).
+        var gzip = false
     }
 
     enum Event: Sendable {
@@ -436,6 +447,8 @@ actor SyncEngine {
     private var bytesPerRecord: [HealthStream: Double] = [:]
     /// The most records per page this run; a 413 lowers it.
     private var maxRecords = 0
+    /// The platform refused a gzipped body this run: plain JSON from then on.
+    private var gzipRefused = false
     private var gate: @Sendable () async -> APIErrorCode? = { nil }
     /// `requestStop()`: end after the page being uploaded.
     private var stopRequested = false
@@ -469,6 +482,7 @@ actor SyncEngine {
         state = SyncEngineState.load(account: account, defaults: defaults)
         touched = []
         scoring = nil
+        gzipRefused = false
         maxRecords = health.pageSize
         stopRequested = false
         stoppedEarly = false
@@ -635,6 +649,8 @@ actor SyncEngine {
     private static func read(_ health: HealthStore, _ mode: Mode, _ stream: HealthStream?, after: Data?,
                              limit: Int) async throws -> HealthPage? {
         guard let stream else { return nil }
+        let signpost = Signposts.sync.beginInterval("read", id: Signposts.sync.makeSignpostID(), "\(stream.anchorID)")
+        defer { Signposts.sync.endInterval("read", signpost) }
         switch mode {
         case .recent(let since): return try await health.recentPage(stream, since: since, after: after, limit: limit)
         case .anchored: return try await health.nextPage(stream, after: after, limit: limit)
@@ -673,8 +689,11 @@ actor SyncEngine {
         let body = try await Self.encode(request)
         bytesPerRecord[stream] = Double(body.count) / Double(delta.count)
         let response: SyncResponse
+        let upload = Signposts.sync.beginInterval("upload", id: Signposts.sync.makeSignpostID(),
+                                                  "\(delta.count) records, \(body.count) bytes")
+        defer { Signposts.sync.endInterval("upload", upload) }
         do {
-            response = try await api.sync(encoded: body)
+            response = try await send(body, gzip: context.gzip && !gzipRefused)
         } catch let error as APIError where error.status == 413 && maxRecords > Self.minimumPageSize {
             maxRecords = max(Self.minimumPageSize, min(maxRecords, delta.count) / 2)
             return false
@@ -711,10 +730,32 @@ actor SyncEngine {
         state.bytesUploaded += bytes
     }
 
+    /// The body, gzipped when asked; a refusal of gzip (`400`, `415`) sends it again as
+    /// plain JSON and keeps it plain for the rest of the run.
+    private func send(_ body: Data, gzip: Bool) async throws -> SyncResponse {
+        guard gzip else { return try await api.sync(encoded: body, contentEncoding: nil) }
+        do {
+            return try await api.sync(encoded: try await Self.compress(body), contentEncoding: "gzip")
+        } catch let error as APIError where error.status == 415 || error.status == 400 {
+            gzipRefused = true
+            return try await api.sync(encoded: body, contentEncoding: nil)
+        }
+    }
+
     /// JSON for a page: several MB for a full one, so never on the main actor.
     @concurrent
     private static func encode(_ request: SyncRequest) async throws -> Data {
         MainThread.assertOff("Encoding a sync page")
+        let signpost = Signposts.sync.beginInterval("encode", id: Signposts.sync.makeSignpostID())
+        defer { Signposts.sync.endInterval("encode", signpost) }
         return try APIClient.jsonEncoder.encode(request)
+    }
+
+    @concurrent
+    private static func compress(_ body: Data) async throws -> Data {
+        MainThread.assertOff("Compressing a sync page")
+        let signpost = Signposts.sync.beginInterval("gzip", id: Signposts.sync.makeSignpostID())
+        defer { Signposts.sync.endInterval("gzip", signpost) }
+        return try Gzip.compress(body)
     }
 }

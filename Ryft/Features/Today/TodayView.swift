@@ -50,6 +50,7 @@ struct TodayView: View {
                     }
                 }
                 .coachMarks(model.coachMarks, enabled: model.showsCoachMarks)
+                .onAppear { LaunchSignpost.firstFrame(cached: model.readiness != nil || model.lastUpdated != nil) }
                 .sheet(isPresented: $showsJournal) {
                     JournalSheet(model: JournalSheetModel(store: screens.journal))
                 }

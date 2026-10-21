@@ -34,10 +34,29 @@ final class Repository {
     @ObservationIgnored private var demoStoreInstance: TrainStore?
     /// Set while importing the legacy cache: writes go to the account's store even in demo mode.
     @ObservationIgnored private var forceLive = false
-    /// Bumped on every write; reads touch it so views re-render when the store changes.
-    private(set) var revision = 0
-    /// Decoded values for the current revision (decoding JSON on every read would add up).
+    /// What a write changes. Each kind has its own revision and memo entries, so a
+    /// trends write neither re-decodes the days nor re-renders a view that only shows days.
+    enum Kind: String, CaseIterable {
+        case days, trends, insights, user, sleep, workouts
+    }
+
+    // One observed revision per kind; reads touch theirs, writes bump theirs.
+    private(set) var daysRevision = 0
+    private(set) var trendsRevision = 0
+    private(set) var insightsRevision = 0
+    private(set) var userRevision = 0
+    private(set) var sleepRevision = 0
+    private(set) var workoutsRevision = 0
+
+    /// Every write so far, of any kind.
+    var revision: Int {
+        daysRevision + trendsRevision + insightsRevision + userRevision + sleepRevision + workoutsRevision
+    }
+
+    /// Decoded values per kind (decoding JSON on every read would add up), until that kind changes.
     @ObservationIgnored private var memo: [String: Any] = [:]
+    /// JSON decodes behind the memo (tests and the perf notes count them).
+    @ObservationIgnored private(set) var decodes = 0
 
     /// Longest range the history query returns (no full-table loads).
     static let maxHistoryRows = 400
@@ -63,14 +82,28 @@ final class Repository {
 
     // MARK: reads
 
-    private func memoized<T>(_ key: String, _ make: () -> T) -> T {
-        _ = revision
+    private func memoized<T>(_ kind: Kind, _ key: String, _ make: () -> T) -> T {
+        touch(kind)
+        let key = "\(kind.rawValue).\(key)"
         // Look the key up first: a missing entry cast `as? T` with an Optional `T`
         // "succeeds" as `.some(nil)` and would hide the value.
         if let entry = memo[key], let hit = entry as? T { return hit }
+        decodes += 1
         let value = make()
         memo[key] = value
         return value
+    }
+
+    /// Makes the caller depend on `kind` (SwiftUI re-renders it when that kind changes).
+    private func touch(_ kind: Kind) {
+        switch kind {
+        case .days: _ = daysRevision
+        case .trends: _ = trendsRevision
+        case .insights: _ = insightsRevision
+        case .user: _ = userRevision
+        case .sleep: _ = sleepRevision
+        case .workouts: _ = workoutsRevision
+        }
     }
 
     private func dayRow(_ key: String) -> CachedDay? {
@@ -80,12 +113,12 @@ final class Repository {
     }
 
     func day(_ key: String) -> DayDetail? {
-        memoized("day.\(key)") { WireCoding.decode(DayDetail.self, dayRow(key)?.detailData) }
+        memoized(.days, "day.\(key)") { WireCoding.decode(DayDetail.self, dayRow(key)?.detailData) }
     }
 
     /// The day's score: from its detail when opened (newer), else from the history list.
     func score(_ key: String) -> DailyScore? {
-        memoized("score.\(key)") {
+        memoized(.days, "score.\(key)") {
             let row = dayRow(key)
             return WireCoding.decode(DayDetail.self, row?.detailData)?.score
                 ?? WireCoding.decode(DailyScore.self, row?.scoreData)
@@ -95,7 +128,7 @@ final class Repository {
     /// Scored days in `[from, to]`, oldest first.
     func history(from: Date, to: Date) -> [DailyScore] {
         let lo = calendar.startOfDay(for: from), hi = calendar.startOfDay(for: to)
-        return memoized("history.\(DayFormat.string(from: lo)).\(DayFormat.string(from: hi))") {
+        return memoized(.days, "history.\(DayFormat.string(from: lo)).\(DayFormat.string(from: hi))") {
             var d = FetchDescriptor<CachedDay>(predicate: #Predicate { $0.date >= lo && $0.date <= hi },
                                                sortBy: [SortDescriptor(\.date)])
             d.fetchLimit = Self.maxHistoryRows
@@ -107,7 +140,7 @@ final class Repository {
 
     func trend(_ metric: TrendMetric, _ range: TrendRange) -> TrendSeries? {
         let key = Self.trendKey(metric, range)
-        return memoized("trend.\(key)") {
+        return memoized(.trends, key) {
             var d = FetchDescriptor<CachedTrend>(predicate: #Predicate { $0.key == key })
             d.fetchLimit = 1
             return WireCoding.decode(TrendSeries.self, (try? context.fetch(d))?.first?.data)
@@ -115,7 +148,7 @@ final class Repository {
     }
 
     func insights() -> [Insight] {
-        memoized("insights") {
+        memoized(.insights, "all") {
             var d = FetchDescriptor<CachedInsight>(sortBy: [SortDescriptor(\.position)])
             d.fetchLimit = 50
             return ((try? context.fetch(d)) ?? []).compactMap { WireCoding.decode(Insight.self, $0.data) }
@@ -123,7 +156,7 @@ final class Repository {
     }
 
     func user() -> User? {
-        memoized("user") {
+        memoized(.user, "current") {
             var d = FetchDescriptor<CachedUser>(sortBy: [SortDescriptor(\.fetchedAt, order: .reverse)])
             d.fetchLimit = 1
             return WireCoding.decode(User.self, (try? context.fetch(d))?.first?.data)
@@ -132,7 +165,7 @@ final class Repository {
 
     func sleepRange(_ kind: SleepRangeKind) -> SleepRange? {
         let k = kind.rawValue
-        return memoized("sleep.\(k)") {
+        return memoized(.sleep, k) {
             var d = FetchDescriptor<CachedSleepRange>(predicate: #Predicate { $0.kind == k })
             d.fetchLimit = 1
             return WireCoding.decode(SleepRange.self, (try? context.fetch(d))?.first?.data)
@@ -140,7 +173,7 @@ final class Repository {
     }
 
     func workout(_ id: UUID) -> WorkoutDetail? {
-        memoized("workout.\(id)") {
+        memoized(.workouts, id.uuidString) {
             var d = FetchDescriptor<CachedWorkout>(predicate: #Predicate { $0.id == id })
             d.fetchLimit = 1
             return WireCoding.decode(WorkoutDetail.self, (try? context.fetch(d))?.first?.data)
@@ -149,7 +182,7 @@ final class Repository {
 
     /// When the day's detail was last fetched ("Updated 07:15").
     func detailFetchedAt(_ key: String) -> Date? {
-        _ = revision
+        touch(.days)
         return dayRow(key)?.detailFetchedAt
     }
 
@@ -271,10 +304,25 @@ final class Repository {
 
     // MARK: writes
 
-    private func changed() {
+    /// After a write of `kinds`: saved, their decoded values dropped, their readers told.
+    private func changed(_ kinds: Kind...) {
         store.save()
-        memo = [:]
-        revision += 1
+        forget(kinds)
+    }
+
+    private func forget(_ kinds: [Kind]) {
+        for kind in kinds {
+            let prefix = kind.rawValue + "."
+            memo = memo.filter { !$0.key.hasPrefix(prefix) }
+            switch kind {
+            case .days: daysRevision += 1
+            case .trends: trendsRevision += 1
+            case .insights: insightsRevision += 1
+            case .user: userRevision += 1
+            case .sleep: sleepRevision += 1
+            case .workouts: workoutsRevision += 1
+            }
+        }
     }
 
     private func row(for key: String) -> CachedDay {
@@ -290,7 +338,7 @@ final class Repository {
         r.detailFetchedAt = now
         r.scoreData = WireCoding.encode(detail.score)
         r.scoreFetchedAt = now
-        changed()
+        changed(.days)
     }
 
     func store(scores: [DailyScore]) {
@@ -299,7 +347,7 @@ final class Repository {
             r.scoreData = WireCoding.encode(s)
             r.scoreFetchedAt = now
         }
-        changed()
+        changed(.days)
     }
 
     /// The cached scores become exactly `scores` (previews, tests); opened details stay.
@@ -324,7 +372,7 @@ final class Repository {
         } else {
             context.insert(CachedTrend(key: key, data: data, fetchedAt: now))
         }
-        changed()
+        changed(.trends)
     }
 
     /// Replaces the cards (the platform's list is the whole truth).
@@ -334,14 +382,14 @@ final class Repository {
             guard let data = WireCoding.encode(insight) else { continue }
             context.insert(CachedInsight(id: insight.id, position: i, data: data, fetchedAt: now))
         }
-        changed()
+        changed(.insights)
     }
 
     func store(user: User) {
         guard let data = WireCoding.encode(user) else { return }
         try? context.delete(model: CachedUser.self)
         context.insert(CachedUser(id: user.id, data: data, fetchedAt: now))
-        changed()
+        changed(.user)
     }
 
     func store(sleepRange: SleepRange) {
@@ -355,7 +403,7 @@ final class Repository {
         } else {
             context.insert(CachedSleepRange(kind: k, data: data, fetchedAt: now))
         }
-        changed()
+        changed(.sleep)
     }
 
     func store(workout: WorkoutDetail) {
@@ -369,7 +417,7 @@ final class Repository {
         } else {
             context.insert(CachedWorkout(id: id, data: data, fetchedAt: now))
         }
-        changed()
+        changed(.workouts)
     }
 
     /// Every cached series refetches the next time it's shown (new scores came in).
@@ -377,7 +425,7 @@ final class Repository {
         var d = FetchDescriptor<CachedTrend>()
         d.fetchLimit = 500
         for row in (try? context.fetch(d)) ?? [] { row.fetchedAt = .distantPast }
-        changed()
+        changed(.trends)
     }
 
     /// Nightly (`BGProcessingTask`): days beyond a year, workouts and Train
@@ -403,14 +451,13 @@ final class Repository {
         let oldDocs = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key.starts(with: prefix) && $0.fetchedAt < month })
         removed += count(oldDocs)
         try? context.delete(model: CachedDocument.self, where: #Predicate { $0.key.starts(with: prefix) && $0.fetchedAt < month })
-        changed()
+        changed(.days, .trends, .workouts)
         return removed
     }
 
     /// The store changed underneath (sign-out wiped it): forget decoded values.
     func invalidate() {
-        memo = [:]
-        revision += 1
+        forget(Kind.allCases)
     }
 
     /// Every read model (demo toggle; sign-out wipes the whole store via `Persistence.wipe`).
@@ -421,13 +468,13 @@ final class Repository {
         try? context.delete(model: CachedUser.self)
         try? context.delete(model: CachedSleepRange.self)
         try? context.delete(model: CachedWorkout.self)
-        changed()
+        changed(.days, .trends, .insights, .user, .sleep, .workouts)
     }
 
     /// Runs `body` against the account's store, whatever the Demo data switch says.
     func writingToAccountStore(_ body: () -> Void) {
         forceLive = true
-        defer { forceLive = false; memo = [:]; revision += 1 }
+        defer { forceLive = false; forget(Kind.allCases) }
         body()
     }
 
