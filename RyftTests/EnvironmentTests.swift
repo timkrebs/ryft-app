@@ -828,3 +828,330 @@ struct RawHealthTests {
         #expect(!SourceFreshness(source: "Apple Watch", bundleID: "com.apple.health.4B1C", newest: t).isApp)
     }
 }
+
+// MARK: - Report a problem
+
+/// A queue whose saves never reach the disk (a full disk).
+@MainActor
+private final class FailingFeedbackQueue: FeedbackQueueStore {
+    func load() -> [QueuedFeedback] { [] }
+    func save(_ items: [QueuedFeedback]) -> Bool { false }
+}
+
+@Suite("Report a problem")
+@MainActor
+struct ReportProblemTests {
+    private let about = FeedbackAbout(appVersion: "1.0.0", build: "20261021.141128", deviceModel: "iPhone17,1",
+                                      osVersion: "iOS 27.0.1", locale: "de_DE")
+
+    /// Request `i` of a newest-first list (`i == 0` is the newest).
+    private func request(_ i: Int, status: Int = 503, path: String = "/v1/days/2026-10-21",
+                         id: String? = nil) -> APIStatus.RequestFailure {
+        APIStatus.RequestFailure(date: Date(timeIntervalSince1970: 1_792_600_000 - Double(i)), method: "GET",
+                                 path: path, status: status, requestID: id ?? "req-\(i)")
+    }
+
+    private func make(_ message: String = "It broke.", text: String = "RYFT 1.0.0 · iOS 27.0.1",
+                      requests: [APIStatus.RequestFailure] = [], includeDiagnostics: Bool = true,
+                      context: ReportContext? = nil) -> FeedbackPost {
+        FeedbackPayload.make(message: message, category: .bug, includeDiagnostics: includeDiagnostics,
+                             diagnosticsText: text, requests: requests, gates: [.consentRequired],
+                             flags: ["sync.gzip": false, "push.enabled": true], context: context, about: about)
+    }
+
+    private func model(_ api: MockPlatformAPI = MockPlatformAPI(), online: Bool = true,
+                       queue: FeedbackQueueStore? = nil) -> (ReportProblemModel, AppEnvironment) {
+        let env = AppEnvironment.test(api: api, online: online)
+        let model = ReportProblemModel(env: env, apiStatus: APIStatus(), queue: queue) { "RYFT 1.0.0 · iOS 27.0.1" }
+        model.message = "Today said calibrating after a full week."
+        return (model, env)
+    }
+
+    // MARK: payload
+
+    @Test func thePayloadCarriesTheInstallTheContextAndTheFailedRequests() throws {
+        let requests = [request(0, status: 200, id: "ok-0"), request(1, id: "fail-1"), request(2, status: 429, id: "fail-2")]
+        let context = ReportContext(resource: "Today", status: "503", requestID: "ctx-1")
+        let post = make("  It broke.\n", requests: requests, context: context)
+        #expect(post.message == "It broke." && post.category == .bug)
+        #expect(post.appVersion == "1.0.0" && post.build == "20261021.141128")
+        #expect(post.deviceModel == "iPhone17,1" && post.osVersion == "iOS 27.0.1")
+        // The context's first, then the failed ones, newest first; a served request has no place there.
+        #expect(post.requestIds == ["ctx-1", "fail-1", "fail-2"])
+        let d = try #require(post.diagnostics)
+        #expect(d["sync_details"] == "RYFT 1.0.0 · iOS 27.0.1")
+        #expect(d["gates"] == "consent_required" && d["locale"] == "de_DE")
+        #expect(d["flags"] == "push.enabled=1,sync.gzip=0")
+        #expect(d["report_context"] == "Today · 503 · ctx-1")
+        #expect(d["requests"] == requests.map(FeedbackPayload.line).joined(separator: "\n"))
+    }
+
+    @Test func thePayloadStaysWithinAPIMDsLimits() {
+        let long = String(repeating: "x", count: 70)
+        var requests = (0..<30).map { request($0) }
+        requests.insert(request(0, id: String(repeating: "a", count: 65)), at: 0) // too long for the platform
+        requests.insert(request(0, id: ""), at: 0)
+        requests.insert(request(0, id: "req-1"), at: 0) // twice
+        let post = FeedbackPayload.make(message: String(repeating: "é", count: 4100), category: .other,
+                                        includeDiagnostics: true, diagnosticsText: "", requests: requests, gates: [],
+                                        flags: [:], context: nil,
+                                        about: FeedbackAbout(appVersion: long, build: long, deviceModel: long,
+                                                             osVersion: long, locale: "en"))
+        #expect(FeedbackPayload.length(post.message) == 4000)
+        #expect(post.requestIds.count == 20 && Set(post.requestIds).count == 20)
+        #expect(post.requestIds.first == "req-1" && post.requestIds.allSatisfy { (1...64).contains($0.utf8.count) })
+        #expect([post.appVersion, post.build, post.deviceModel, post.osVersion].allSatisfy { $0?.count == 64 })
+        #expect(post.diagnostics?["gates"] == "-")
+    }
+
+    @Test func withoutDiagnosticsOnlyTheMessageGoes() {
+        let post = make(requests: [request(0)], includeDiagnostics: false,
+                        context: ReportContext(resource: "Today", status: "503", requestID: "ctx-1"))
+        #expect(post.message == "It broke." && post.category == .bug)
+        #expect(post.appVersion == nil && post.build == nil && post.deviceModel == nil && post.osVersion == nil)
+        #expect(post.requestIds.isEmpty && post.diagnostics == nil)
+    }
+
+    @Test func diagnosticsStayWithin32KiBDroppingTheOldestRequestsFirst() throws {
+        let text = String(repeating: "phase incremental · stream hrv: 12 rec\n", count: 100) // ~4 KB
+        let requests = (0..<20).map { request($0, path: "/v1/trends?metric=x&range=" + String(repeating: "w", count: 1_800)) }
+        let all = requests.map(FeedbackPayload.line)
+        #expect(FeedbackPayload.size(["sync_details": text, "requests": all.joined(separator: "\n")])
+            > FeedbackPayload.maxDiagnosticsBytes)
+
+        let d = try #require(make(text: text, requests: requests).diagnostics)
+
+        #expect(FeedbackPayload.size(d) <= FeedbackPayload.maxDiagnosticsBytes)
+        #expect(d["sync_details"] == text)
+        let kept = try #require(d["requests"]).components(separatedBy: "\n")
+        #expect(kept.count > 10 && kept.count < 20)
+        #expect(kept == Array(all.prefix(kept.count))) // the newest stay, the oldest went
+    }
+
+    @Test func aHugeSyncTextKeepsItsHeadAndLosesTheRequests() throws {
+        let text = "RYFT 1.0.0 · iOS 27.0.1\n" + String(repeating: "stream heartRate: 1200 rec 48000 B\n", count: 3_000)
+        let d = try #require(make(text: text, requests: (0..<20).map { request($0) }).diagnostics)
+        #expect(FeedbackPayload.size(d) <= FeedbackPayload.maxDiagnosticsBytes)
+        #expect(FeedbackPayload.size(d) > FeedbackPayload.maxDiagnosticsBytes - 200) // as much as fits
+        #expect(d["requests"] == nil)
+        let kept = try #require(d["sync_details"])
+        #expect(kept.hasPrefix("RYFT 1.0.0 · iOS 27.0.1\nstream heartRate") && kept.hasSuffix("\n…"))
+        #expect(d["gates"] != nil && d["flags"] != nil)
+    }
+
+    @Test func aQueuedReportGoesOutAsItWasWritten() throws {
+        let post = make(requests: [request(0)], context: ReportContext(resource: "Today", status: "503", requestID: "ctx-1"))
+        let queued = QueuedFeedback(post, queuedAt: Date(timeIntervalSince1970: 1_792_600_000))
+        // Through the cache's own coder (snake_case): the diagnostics' keys must come back as they were.
+        let back = try #require(WireCoding.decode([QueuedFeedback].self, WireCoding.encode([queued])))
+        #expect(back == [queued])
+        func object(_ p: FeedbackPost) throws -> NSDictionary {
+            try #require(try JSONSerialization.jsonObject(with: APIClient.jsonEncoder.encode(p)) as? NSDictionary)
+        }
+        #expect(try object(back[0].post) == object(post))
+        #expect(back[0].post.diagnostics?["sync_details"] != nil)
+    }
+
+    // MARK: sending
+
+    @Test func sentWhenThePlatformTakesIt() async throws {
+        let api = MockPlatformAPI()
+        let (model, env) = model(api)
+        #expect(model.canSend)
+        await model.send()
+        #expect(model.result == .sent && !model.sending)
+        #expect(api.feedbackPosts.map(\.message) == ["Today said calibrating after a full week."])
+        #expect(model.waiting == 0 && PersistentFeedbackQueue(env: env).load().isEmpty)
+        let posted = try #require(api.feedbackPosts.first)
+        #expect(posted.category == .other && posted.diagnostics?["sync_details"] == "RYFT 1.0.0 · iOS 27.0.1")
+    }
+
+    @Test func offlineItIsQueuedAndSentOnReconnect() async {
+        let api = MockPlatformAPI()
+        let (model, env) = model(api, online: false)
+        await model.send()
+        #expect(model.result == .queued && model.waiting == 1)
+        #expect(api.count("feedback") == 0)
+
+        await model.flush() // still offline: nothing goes
+        #expect(api.count("feedback") == 0 && model.waiting == 1)
+
+        env.connectivityMonitor.update(true)
+        await model.flush()
+        #expect(api.feedbackPosts.map(\.message) == ["Today said calibrating after a full week."])
+        #expect(model.waiting == 0 && PersistentFeedbackQueue(env: env).load().isEmpty)
+    }
+
+    @Test func theQueueSurvivesARelaunch() async {
+        let api = MockPlatformAPI()
+        let (model, env) = model(api, online: false)
+        await model.send()
+        #expect(model.result == .queued)
+
+        // The app was closed: a new model over the same store finds the report and sends it.
+        let relaunched = ReportProblemModel(env: env, apiStatus: APIStatus()) { "" }
+        #expect(relaunched.waiting == 1 && relaunched.message.isEmpty)
+        env.connectivityMonitor.update(true)
+        await relaunched.flush()
+        #expect(api.feedbackPosts.map(\.message) == ["Today said calibrating after a full week."])
+        #expect(api.feedbackPosts.first?.diagnostics?["sync_details"] == "RYFT 1.0.0 · iOS 27.0.1")
+        #expect(relaunched.waiting == 0)
+    }
+
+    @Test func aBusyPlatformQueuesTheReport() async {
+        let api = MockPlatformAPI()
+        let (model, _) = model(api)
+        api.failNext = APIError.http(503, "busy")
+        await model.send()
+        #expect(model.result == .queued && model.waiting == 1)
+        await model.flush()
+        #expect(api.feedbackPosts.count == 1 && model.waiting == 0)
+    }
+
+    @Test func noConnectionAfterAllQueuesTheReport() async {
+        let api = MockPlatformAPI()
+        let (model, _) = model(api)
+        api.failNext = APIError.transport(URLError(.notConnectedToInternet))
+        await model.send()
+        #expect(model.result == .queued && model.waiting == 1)
+    }
+
+    @Test func rateLimitedKeepsTheMessageAndQueuesNothing() async {
+        let api = MockPlatformAPI()
+        let (model, _) = model(api)
+        for i in 0..<10 {
+            model.message = "Report \(i)"
+            await model.send()
+            #expect(model.result == .sent)
+        }
+        model.message = "The eleventh today."
+        await model.send()
+        #expect(model.result == .rateLimited)
+        #expect(model.message == "The eleventh today." && !model.canSend)
+        #expect(model.waiting == 0 && api.feedbackPosts.count == 10)
+        #expect(model.resultDetails?.contains("429") == true)
+    }
+
+    @Test func aQueuedReportWaitsOutTheDailyCap() async {
+        let api = MockPlatformAPI()
+        let (model, env) = model(api, online: false)
+        await model.send()
+        api.feedbackDailyLimit = 0
+        env.connectivityMonitor.update(true)
+        await model.flush()
+        #expect(model.waiting == 1) // kept for tomorrow, not dropped
+    }
+
+    @Test func aRefusedReportIsDropped() async {
+        let api = MockPlatformAPI()
+        let (model, _) = model(api)
+        api.failNext = APIError.http(422, "message must have 1-4000 characters", requestID: "r-422")
+        await model.send()
+        #expect(model.result == .rejected && model.waiting == 0)
+        #expect(model.message == "Today said calibrating after a full week.")
+        #expect(model.resultDetails?.contains("r-422") == true)
+    }
+
+    @Test func aReportThatCanNotBeSavedSaysSo() async {
+        let api = MockPlatformAPI()
+        let (offline, _) = model(api, online: false, queue: FailingFeedbackQueue())
+        await offline.send()
+        #expect(offline.result == .saveFailed && offline.message == "Today said calibrating after a full week.")
+
+        let (busy, _) = model(api, queue: FailingFeedbackQueue())
+        api.failNext = APIError.http(503, "busy")
+        await busy.send()
+        #expect(busy.result == .saveFailed && api.feedbackPosts.isEmpty)
+    }
+
+    @Test func fromDetailsItIsABugReportPrefilled() async {
+        let api = MockPlatformAPI()
+        let (model, _) = model(api)
+        model.message = ""
+        let context = ReportContext(resource: "Today", status: "503", requestID: "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c")
+        model.prepare(context)
+        #expect(model.category == .bug && model.context == context)
+        #expect(model.message == ReportProblemModel.prefill(context) && model.includeDiagnostics)
+        await model.send()
+        #expect(api.feedbackPosts.first?.requestIds.first == "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c")
+
+        // From Profile afterwards: a fresh report about nothing in particular.
+        model.prepare(nil)
+        #expect(model.result == nil && model.context == nil)
+        #expect(model.message.isEmpty && model.category == .other)
+    }
+
+    @Test func aDraftStaysUntilItIsSent() {
+        let (model, _) = model()
+        model.message = "Half a thought"
+        model.prepare(nil)
+        #expect(model.message == "Half a thought")
+    }
+
+    @Test func overTheLimitOrBlankCanNotBeSent() {
+        let (model, _) = model()
+        model.message = String(repeating: "a", count: 3_500)
+        #expect(!model.showsCount && model.canSend)
+        model.message = String(repeating: "a", count: 4_000)
+        #expect(model.showsCount && !model.isTooLong && model.canSend)
+        model.message = String(repeating: "a", count: 4_001)
+        #expect(model.isTooLong && !model.canSend)
+        model.message = " \n "
+        #expect(!model.canSend)
+    }
+
+    // MARK: privacy
+
+    /// The diagnostics are counts, times, statuses and IDs: none of the cached scores' values or fields.
+    @Test func noHealthValuesInTheDiagnostics() async throws {
+        let env = AppEnvironment.test()
+        let state = AppState(env: env)
+        await state.refresh() // MockData's scores in the read models
+        let fixture = try Fixture.decode([DailyScore].self, "days")
+        state.repository.store(scores: fixture)
+        let status = APIStatus()
+        status.served(.init(date: .now, method: "GET", path: "/v1/days/2026-10-18", status: 200,
+                            requestID: "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c"))
+        status.record(.init(date: .now, method: "GET", path: "/v1/me", status: 503,
+                            requestID: "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9d"))
+        let sync = SyncService(env: env)
+        let profile = ProfileViewModel(state: state, sync: sync,
+                                       coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
+                                                                    clock: env.clock),
+                                       apiStatus: status)
+        profile.report.message = "It broke."
+        let post = profile.report.payload()
+        let sent = try #require(String(data: APIClient.jsonEncoder.encode(post), encoding: .utf8))
+        #expect(post.diagnostics?["sync_details"]?.isEmpty == false && post.diagnostics?["requests"] != nil)
+
+        let scores = fixture + state.history + [state.today?.score].compactMap { $0 }
+        #expect(scores.contains { $0.readiness != nil })
+        var values = Set<String>()
+        for s in scores {
+            // Whole numbers below 60 also read as minutes and seconds in timestamps: those are left out.
+            for v in [s.readiness, s.recovery, s.steps, s.activeKcal, s.sleepPerformance, s.sleepNeedMin,
+                      s.sleepActualMin, s.sleepDebtMin, s.sleepQuality, s.sleepConsistency].compactMap({ $0 }) where v >= 60 {
+                values.insert(String(v))
+            }
+            for v in [s.strain, s.hrvMs, s.rhr, s.respRate, s.spo2, s.hrvBaselineMs, s.rhrBaseline, s.volumeKg]
+                .compactMap({ $0 }) {
+                values.insert(v == v.rounded() && v >= 60 ? String(Int(v)) : String(v))
+            }
+        }
+        // Every string the report carries, as written (not JSON-escaped). Whole numbers only (not digits inside
+        // hex IDs); the requests' HTTP statuses are statuses.
+        let strings = [post.message, post.appVersion, post.build, post.deviceModel, post.osVersion].compactMap { $0 }
+            + post.requestIds + (post.diagnostics ?? [:]).flatMap { [$0.key, $0.value] }
+        let words = strings.joined(separator: "\n")
+            .split { !($0.isASCII && ($0.isLetter || $0.isNumber || $0 == ".")) }
+            .map { $0.hasSuffix(".") ? String($0.dropLast()) : String($0) }
+        let tokens = Set(words.filter { $0.wholeMatch(of: /[0-9]+(\.[0-9]+)?/) != nil })
+            .subtracting(status.requests.map { String($0.status) })
+        #expect(tokens.count > 3) // the dates, sizes and counts are there
+        #expect(tokens.isDisjoint(with: values), "health values in the report: \(tokens.intersection(values))")
+        for field in ["readiness", "recovery", "sleep_performance", "hrv_ms", "\"rhr\"", "sleep_actual_min",
+                      "resp_rate", "calibrating\":"] {
+            #expect(!sent.contains(field), "\(field)")
+        }
+    }
+}

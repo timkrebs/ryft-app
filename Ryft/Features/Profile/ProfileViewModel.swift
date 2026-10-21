@@ -14,6 +14,8 @@ final class ProfileViewModel {
     private let onboarding: OnboardingCoordinator?
     /// Data → Sync details.
     let syncDetails: SyncDetailsModel
+    /// About → Report a problem, and "Send to RYFT" from an error's Details.
+    let report: ReportProblemModel
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, onboarding: OnboardingCoordinator? = nil,
          apiStatus: APIStatus? = nil) {
@@ -23,7 +25,10 @@ final class ProfileViewModel {
         self.onboarding = onboarding
         self.apiStatus = apiStatus ?? .shared
         bodySettings = BodySettingsEditor(state: state)
-        syncDetails = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator, apiStatus: apiStatus)
+        let details = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator, apiStatus: apiStatus)
+        syncDetails = details
+        // The same text as Sync details → Copy diagnostics.
+        report = ReportProblemModel(env: state.env, apiStatus: apiStatus ?? .shared) { details.diagnostics }
     }
 
     private var env: AppEnvironment { state.env }
@@ -596,5 +601,463 @@ final class BodySettingsEditor {
             errorDetails = error.diagnosticDetails
         }
         return false
+    }
+}
+
+// MARK: - report a problem
+
+/// What a report is about when it comes from an error's Details (ui.md §5.3: the chip and the prefill).
+struct ReportContext: Equatable, Sendable {
+    /// The resource's name as Details shows it ("Today").
+    let resource: String
+    /// "503", or "No response" for a transport failure or timeout.
+    let status: String
+    /// Exactly as the platform sent it; it goes into `request_ids`.
+    let requestID: String?
+    /// The error body's `code` (`consent_required`), if any.
+    var code: String? = nil
+
+    /// "403 consent_required".
+    var statusText: String { [status, code ?? ""].filter { !$0.isEmpty }.joined(separator: " ") }
+}
+
+/// The install a report comes from: the top-level fields of `POST /v1/feedback`, and the locale.
+struct FeedbackAbout: Equatable, Sendable {
+    var appVersion: String
+    var build: String
+    var deviceModel: String
+    var osVersion: String
+    /// "de_DE": which strings the reporter saw.
+    var locale: String
+
+    @MainActor static var current: FeedbackAbout {
+        FeedbackAbout(appVersion: AppInfo.marketingVersion, build: AppInfo.build, deviceModel: AppInfo.deviceModel,
+                      osVersion: AppInfo.osVersion, locale: Locale.current.identifier)
+    }
+}
+
+/// `POST /v1/feedback` within API.md's limits: message 1–4000 characters, the four strings up to 64, at most
+/// 20 request IDs of up to 64, diagnostics up to 32 KiB of JSON. The diagnostics are counts, times, statuses,
+/// IDs, gates and flags (the Sync details text, the last requests), never a health value.
+enum FeedbackPayload {
+    static let maxMessage = 4000
+    static let maxField = 64
+    static let maxRequestIDs = 20
+    static let maxDiagnosticsBytes = 32 * 1024
+    /// The last requests sent along (`APIStatus` keeps as many).
+    static let maxRequests = 20
+
+    /// Characters as the platform counts them (Unicode scalars: Go's runes).
+    static func length(_ text: String) -> Int { text.unicodeScalars.count }
+
+    static func make(message: String, category: FeedbackCategory, includeDiagnostics: Bool, diagnosticsText: String,
+                     requests: [APIStatus.RequestFailure], gates: Set<APIErrorCode>, flags: [String: Bool],
+                     context: ReportContext?, about: FeedbackAbout) -> FeedbackPost {
+        let text = clipped(message.trimmingCharacters(in: .whitespacesAndNewlines), to: maxMessage)
+        // Off: nothing is attached but the message (ui.md §5.2).
+        guard includeDiagnostics else { return FeedbackPost(message: text, category: category) }
+        return FeedbackPost(message: text, category: category,
+                            appVersion: clipped(about.appVersion, to: maxField),
+                            build: clipped(about.build, to: maxField),
+                            deviceModel: clipped(about.deviceModel, to: maxField),
+                            osVersion: clipped(about.osVersion, to: maxField),
+                            requestIds: requestIDs(context: context, requests: requests),
+                            diagnostics: diagnostics(text: diagnosticsText, requests: requests, gates: gates,
+                                                     flags: flags, context: context, locale: about.locale))
+    }
+
+    /// The context's ID first, then the failed requests' IDs, newest first: each once, 1–64 bytes, at most 20.
+    static func requestIDs(context: ReportContext?, requests: [APIStatus.RequestFailure]) -> [String] {
+        let failed = requests.filter { !(200..<300).contains($0.status) }.compactMap(\.requestID)
+        var seen = Set<String>()
+        let ids = ([context?.requestID].compactMap { $0 } + failed)
+            .filter { !$0.isEmpty && $0.utf8.count <= maxField && seen.insert($0).inserted }
+        return Array(ids.prefix(maxRequestIDs))
+    }
+
+    /// One request: "2026-10-21T18:12:03Z GET /v1/days/2026-10-21 503 - 01a14ffa-…" (date, method, path,
+    /// status, code, request ID).
+    static func line(_ r: APIStatus.RequestFailure) -> String {
+        "\(r.date.ISO8601Format()) \(r.method) \(r.path) \(r.status) \(r.code ?? "-") \(r.requestID ?? "-")"
+    }
+
+    /// `sync_details` (Copy diagnostics), `requests` (newest first), `gates`, `flags`, `locale` and, from an
+    /// error's Details, `report_context`. Over 32 KiB the oldest requests go first, then the end of the text.
+    static func diagnostics(text: String, requests: [APIStatus.RequestFailure], gates: Set<APIErrorCode>,
+                            flags: [String: Bool], context: ReportContext?, locale: String) -> [String: String] {
+        var base = [
+            "gates": gates.isEmpty ? "-" : gates.map(\.rawValue).sorted().joined(separator: ","),
+            "flags": flags.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value ? 1 : 0)" }.joined(separator: ","),
+            "locale": locale,
+        ]
+        if let context {
+            base["report_context"] = [context.resource, context.statusText, context.requestID ?? "-"]
+                .joined(separator: " · ")
+        }
+        func assembled(_ lines: [String], _ text: String) -> [String: String] {
+            var d = base
+            if !text.isEmpty { d["sync_details"] = text }
+            if !lines.isEmpty { d["requests"] = lines.joined(separator: "\n") }
+            return d
+        }
+        var lines = requests.prefix(maxRequests).map(line)
+        while size(assembled(lines, text)) > maxDiagnosticsBytes, !lines.isEmpty { lines.removeLast() }
+        let whole = assembled(lines, text)
+        guard size(whole) > maxDiagnosticsBytes else { return whole }
+        // Still over without a single request: keep the head of the text (the engine), cut its end.
+        let scalars = Array(text.unicodeScalars)
+        func cut(_ n: Int) -> String {
+            var head = String.UnicodeScalarView()
+            head.append(contentsOf: scalars.prefix(n))
+            return String(head) + "\n…"
+        }
+        var low = 0, high = scalars.count
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if size(assembled([], cut(mid))) <= maxDiagnosticsBytes { low = mid } else { high = mid - 1 }
+        }
+        let trimmed = assembled([], cut(low))
+        if size(trimmed) <= maxDiagnosticsBytes { return trimmed }
+        return size(base) <= maxDiagnosticsBytes ? base : [:]
+    }
+
+    /// The bytes the platform measures: the object as the shared encoder writes it.
+    static func size(_ diagnostics: [String: String]) -> Int {
+        (try? APIClient.jsonEncoder.encode(diagnostics).count) ?? .max
+    }
+
+    static func clipped(_ text: String, to limit: Int) -> String {
+        guard length(text) > limit else { return text }
+        var view = String.UnicodeScalarView()
+        view.append(contentsOf: text.unicodeScalars.prefix(limit))
+        return String(view)
+    }
+}
+
+/// A report waiting for a connection: the `FeedbackPost` as it will go out (the mirror stays `Encodable`).
+/// The diagnostics are pairs, so the cache's snake-case coder can't rename their keys.
+struct QueuedFeedback: Codable, Equatable, Identifiable {
+    struct Entry: Codable, Equatable {
+        let key: String
+        let value: String
+    }
+
+    let id: UUID
+    let queuedAt: Date
+    let message: String
+    let category: FeedbackCategory?
+    let appVersion: String?
+    let build: String?
+    let deviceModel: String?
+    let osVersion: String?
+    let requestIds: [String]
+    let diagnostics: [Entry]?
+
+    init(_ post: FeedbackPost, id: UUID = UUID(), queuedAt: Date) {
+        self.id = id
+        self.queuedAt = queuedAt
+        message = post.message
+        category = post.category
+        appVersion = post.appVersion
+        build = post.build
+        deviceModel = post.deviceModel
+        osVersion = post.osVersion
+        requestIds = post.requestIds
+        diagnostics = post.diagnostics.map { pairs in
+            pairs.sorted { $0.key < $1.key }.map { Entry(key: $0.key, value: $0.value) }
+        }
+    }
+
+    var post: FeedbackPost {
+        FeedbackPost(message: message, category: category, appVersion: appVersion, build: build,
+                     deviceModel: deviceModel, osVersion: osVersion, requestIds: requestIds,
+                     diagnostics: diagnostics.map { entries in
+                         Dictionary(entries.map { ($0.key, $0.value) }) { _, last in last }
+                     })
+    }
+}
+
+/// Where reports wait for a connection. Tests replace it to make saving fail.
+@MainActor
+protocol FeedbackQueueStore: AnyObject {
+    func load() -> [QueuedFeedback]
+    /// `false`: the list didn't reach the disk.
+    @discardableResult func save(_ items: [QueuedFeedback]) -> Bool
+}
+
+/// `CachedDocument` "feedback.queue", wiped with the account's other documents on sign-out. Demo data's
+/// reports wait under their own key, so they never reach the account's platform.
+@MainActor
+final class PersistentFeedbackQueue: FeedbackQueueStore {
+    static let key = "feedback.queue"
+    static let demoKey = "feedback.queue.demo"
+
+    private let env: AppEnvironment
+
+    init(env: AppEnvironment) {
+        self.env = env
+    }
+
+    private var key: String { env.isDemo ? Self.demoKey : Self.key }
+
+    func load() -> [QueuedFeedback] {
+        env.persistence.document([QueuedFeedback].self, key: key) ?? []
+    }
+
+    @discardableResult
+    func save(_ items: [QueuedFeedback]) -> Bool {
+        let store = env.persistence
+        if items.isEmpty {
+            store.removeDocument(key: key)
+        } else {
+            store.saveDocument(items, key: key, at: env.clock.now())
+        }
+        // The store logs a failed save and keeps the change pending: then it isn't on disk.
+        return load().map(\.id) == items.map(\.id) && !store.context.hasChanges
+    }
+}
+
+/// Profile → About → Report a problem, and "Send to RYFT" from an error's Details (ui.md §5).
+///
+/// A report is saved before it's posted, so closing the app or losing the connection doesn't lose it.
+/// `204` → sent; no connection, a timeout or `5xx` → queued and sent on reconnect (`flush`); `429` (10 a day)
+/// → rate limited, the message kept, nothing queued; `400`/`413`/`422` → rejected, dropped.
+@MainActor
+@Observable
+final class ReportProblemModel {
+    /// `sent` and `queued` replace the form; the others show on it, with the message kept.
+    enum Result: Equatable { case sent, queued, rateLimited, rejected, saveFailed }
+
+    /// How a post went.
+    enum Delivery {
+        case delivered
+        case rateLimited(Error)
+        case rejected(Error)
+        case later
+    }
+
+    /// The character count shows above this (ui.md §5.2).
+    static let countFrom = 3500
+    /// Reports kept for later at most (the platform takes 10 a day).
+    static let maxQueued = 20
+
+    private let env: AppEnvironment
+    private let apiStatus: APIStatus
+    private let diagnostics: @MainActor () -> String
+    private let queue: FeedbackQueueStore
+
+    var message = ""
+    var category: FeedbackCategory = .other
+    var includeDiagnostics = true
+    private(set) var context: ReportContext?
+    private(set) var result: Result?
+    /// The refusal's status and request ID, for Details.
+    private(set) var resultDetails: String?
+    private(set) var sending = false
+    /// Reports saved for later: "1 waiting to send".
+    private(set) var waiting = 0
+    /// Being posted (by `send` or `flush`): never twice at once.
+    @ObservationIgnored private var inFlight: Set<UUID> = []
+    @ObservationIgnored private var flushing = false
+    /// A preview or screenshot staged the screen: the next `prepare` leaves it.
+    @ObservationIgnored private var staged = false
+
+    /// `diagnostics` is the Sync details text (Copy diagnostics).
+    init(env: AppEnvironment, apiStatus: APIStatus, queue: FeedbackQueueStore? = nil,
+         diagnostics: @escaping @MainActor () -> String) {
+        self.env = env
+        self.apiStatus = apiStatus
+        self.diagnostics = diagnostics
+        self.queue = queue ?? PersistentFeedbackQueue(env: env)
+        reloadWaiting()
+    }
+
+    // MARK: form
+
+    var length: Int { FeedbackPayload.length(message) }
+    var showsCount: Bool { length > Self.countFrom }
+    var isTooLong: Bool { length > FeedbackPayload.maxMessage }
+
+    var canSend: Bool {
+        !sending && !isTooLong && result != .rateLimited
+            && !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func prefill(_ context: ReportContext) -> String {
+        String(localized: "Refreshing \(context.resource) didn't work.")
+    }
+
+    /// The screen appears: from Details (`context`) a bug report about it, pre-filled; from Profile the draft
+    /// as it was. A report that was sent or queued starts a fresh one.
+    func prepare(_ context: ReportContext?) {
+        if staged {
+            staged = false
+            return
+        }
+        if result == .sent || result == .queued {
+            message = ""
+            includeDiagnostics = true
+        }
+        result = nil
+        resultDetails = nil
+        let oldPrefill = self.context.map(Self.prefill)
+        let hadContext = self.context != nil
+        self.context = context
+        if let context {
+            category = .bug
+            if message.isEmpty || message == oldPrefill { message = Self.prefill(context) }
+        } else if hadContext {
+            category = .other
+            if message == oldPrefill { message = "" }
+        }
+        reloadWaiting()
+    }
+
+    /// The request as it would go out now.
+    func payload() -> FeedbackPost {
+        FeedbackPayload.make(message: message, category: category, includeDiagnostics: includeDiagnostics,
+                             diagnosticsText: includeDiagnostics ? diagnostics() : "", requests: apiStatus.requests,
+                             gates: apiStatus.gates, flags: flagValues, context: context, about: .current)
+    }
+
+    private var flagValues: [String: Bool] {
+        Dictionary(uniqueKeysWithValues: FeatureFlag.allCases.map { ($0.rawValue, env.flags.isOn($0)) })
+    }
+
+    func copyMessage() {
+        UIPasteboard.general.string = message
+    }
+
+    // MARK: sending
+
+    func send() async {
+        guard canSend else { return }
+        sending = true
+        result = nil
+        resultDetails = nil
+        defer { sending = false }
+        let item = QueuedFeedback(payload(), queuedAt: env.clock.now())
+        // Saved first: a report the app is closed on, or that meets no connection, isn't lost.
+        let saved = queue.save(Array((queue.load() + [item]).suffix(Self.maxQueued)))
+        reloadWaiting()
+        guard env.connectivity.isOnline else {
+            keepForLater(item, saved: saved)
+            return
+        }
+        inFlight.insert(item.id)
+        let delivery = await deliver(item)
+        inFlight.remove(item.id)
+        switch delivery {
+        case .delivered:
+            dequeue(item)
+            result = .sent
+        case .rateLimited(let error):
+            dequeue(item)
+            result = .rateLimited
+            resultDetails = error.diagnosticDetails
+        case .rejected(let error):
+            dequeue(item)
+            result = .rejected
+            resultDetails = error.diagnosticDetails
+        case .later:
+            keepForLater(item, saved: saved)
+        }
+    }
+
+    /// Back online, or the app became active: what's queued goes out, oldest first. It stops at a report that
+    /// can't go yet (no connection, `5xx`) or at the daily cap; the rest waits for the next time.
+    func flush() async {
+        guard !flushing, env.connectivity.isOnline, env.isDemo || env.auth.isSignedIn else { return }
+        flushing = true
+        defer {
+            flushing = false
+            reloadWaiting()
+        }
+        for item in queue.load().sorted(by: { $0.queuedAt < $1.queuedAt }) where !inFlight.contains(item.id) {
+            inFlight.insert(item.id)
+            let delivery = await deliver(item)
+            inFlight.remove(item.id)
+            switch delivery {
+            case .delivered, .rejected: dequeue(item)
+            case .rateLimited, .later: return
+            }
+        }
+    }
+
+    /// `429` is the daily cap. `400`, `413` and `422` refuse the report itself: dropped. No connection, a
+    /// timeout, `5xx`, an ended session or a route that isn't live yet: later.
+    nonisolated static func classify(_ error: Error) -> Delivery {
+        switch (error as? APIError)?.status {
+        case 429?: return .rateLimited(error)
+        case 400?, 413?, 422?: return .rejected(error)
+        default: return .later
+        }
+    }
+
+    private func deliver(_ item: QueuedFeedback) async -> Delivery {
+        do {
+            try await env.api.postFeedback(item.post)
+            return .delivered
+        } catch {
+            return Self.classify(error)
+        }
+    }
+
+    /// Queued, or, when it couldn't be saved, not kept at all (it mustn't go out after "Couldn't save").
+    private func keepForLater(_ item: QueuedFeedback, saved: Bool) {
+        if saved {
+            result = .queued
+        } else {
+            dequeue(item)
+            result = .saveFailed
+        }
+    }
+
+    private func dequeue(_ item: QueuedFeedback) {
+        queue.save(queue.load().filter { $0.id != item.id })
+        reloadWaiting()
+    }
+
+    /// The queue may have changed underneath (sign-out wipes it).
+    func reloadWaiting() {
+        waiting = queue.load().count
+    }
+
+    // MARK: previews and screenshots
+
+    /// One state of the screen, without a platform.
+    func stage(message: String = "", category: FeedbackCategory = .other, includeDiagnostics: Bool = true,
+               context: ReportContext? = nil, result: Result? = nil, sending: Bool = false, waiting: Int = 0) {
+        staged = true
+        self.message = message
+        self.category = category
+        self.includeDiagnostics = includeDiagnostics
+        self.context = context
+        self.result = result
+        resultDetails = result == .rateLimited ? "HTTP 429 · Request ID 01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c" : nil
+        self.sending = sending
+        self.waiting = waiting
+    }
+}
+
+extension AppInfo {
+    /// "1.0.0".
+    static var marketingVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    }
+
+    /// "20261021.081500".
+    static var build: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+    }
+
+    /// The hardware model, "iPhone17,1" (in the simulator, the model it simulates).
+    static var deviceModel: String {
+        if let simulated = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] { return simulated }
+        var info = utsname()
+        uname(&info)
+        return withUnsafeBytes(of: info.machine) { raw in
+            String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
+        }
     }
 }
