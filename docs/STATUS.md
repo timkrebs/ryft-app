@@ -22,8 +22,9 @@
 - **Hourly buckets:** not built; waiting for the platform's answer (§3 of the requests).
 
 **Measured in the simulator** (iPhone 18 Pro simulator on this Mac, Debug, demo mode, no
-cached data; indicative only): `launch` interval 684 ms on the first launch, 328 ms and
-320 ms on the next two.
+cached data; indicative only): `launch` interval 995 ms on the first launch after
+installing, then 543, 542 and 535 ms. (Ended at `onAppear`, the same launches measured
+684, 328 and 320 ms: about 210 ms of Today's rendering weren't counted.)
 **Not measured yet: everything on your iPhone.** Please, on a Release-like build:
 1. Instruments → Time Profiler + Points of Interest, during the first import and while
    scrolling Today during a sync: main-thread time and the `upload` / `encode` intervals.
