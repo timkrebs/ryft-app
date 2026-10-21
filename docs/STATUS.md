@@ -5,23 +5,39 @@
 - **Sleep schedule** (`SleepSchedule`, per account on this phone until the platform keeps it):
   wake time per weekday (weekdays + weekend, or each day), goal Peak 100 % · Perform 85 % · Get
   by 70 % (`bedtime_100/85/70`), wind-down 15/30/45/60 min, reminder and alarm switches. Edited in
-  Sleep → Bedtime → Bedtime & wake and Profile → Sleep → Bedtime & wake.
+  Sleep → Bedtime → Bedtime & wake and Profile → Sleep → Bedtime & wake. Opening "Set up" and
+  going back saves nothing; "Turn off Bedtime & wake" returns the row to Off.
 - **Tonight** (`TonightCard`): on Today from 17:00 and in Sleep → Bedtime: "In bed by 22:41 for
   100 % · wake 06:30 · need 8h 33m", the three goals, "Why this need" from `basis`. Numbers only
-  from `GET /v1/sleep/plan`. Without a schedule: an invitation.
+  from `GET /v1/sleep/plan`. Without a schedule: an invitation. Offline: the last plan for that
+  night, "As of 18:02"; without one, a line saying it needs a connection.
+- **Which night**: the next wake, today's while it is still ahead, else tomorrow's, as the API
+  resolves `wake=HH:MM`. Friday 07:30 with Saturday at 08:00: the API answers for Friday 08:00
+  and the app moves the bedtimes by a day (`BedtimePlanner.align`); `day=` is requested in
+  `docs/API_REQUESTS.md` → Bedtime & wake, with the sleep schedule, planned vs actual and a
+  server `BEDTIME` push.
 - **Adapts** (`BedtimePlanner`): asked again when the app becomes active, after today was fetched
   again (a sync that touched it) and in the background refresh; the reminders move only when the
-  bedtime moved by ≥ 10 min.
+  bedtime moved by ≥ 10 min. One refresh at a time; an answer for a schedule or account that
+  changed meanwhile is dropped.
+- **Teardown**: signed out, another account, the flag off or "Turn off": reminders, alarms and
+  the widget's bedtime go at once (online or not); the sign-out wipe deletes every
+  `sleep.schedule.*` / `sleep.planned.*`. A reminder turned off goes at once, offline too.
 - **Reminder**: a local notification (`BEDTIME`) at bedtime − wind-down for the next 7 nights:
   tonight's from the plan, later nights from tonight's time in bed at each night's wake (refined
-  as the app plans them). Notification permission is asked when you turn it on.
-- **Alarm**: AlarmKit on iOS 26+ (weekly alarm per weekday at the wake time, rings in Silent mode
-  and Focus, Stop and Snooze 9 min; the snooze countdown is a Live Activity in the widget). Below
-  iOS 26 a notification at the wake time, labelled as not ringing like an alarm.
+  as the app plans them). Notification permission is asked when you turn it on (provisional
+  counts as not yet: it would arrive silently). With previews hidden the lock screen says
+  "Bedtime reminder", not the need.
+- **Alarm**: AlarmKit on iOS 26+ (one weekly alarm per wake time, rings in Silent mode and Focus,
+  Stop and Snooze 9 min; the snooze countdown is a Live Activity in the widget). Below iOS 26 a
+  notification at the wake time, labelled as not ringing like an alarm. Set again once per launch
+  (a restore or an iOS update leaves the switch on without alarms); when iOS doesn't allow it
+  (any more) the switch turns off and Tonight and Bedtime & wake say why.
   `NSAlarmKitUsageDescription` in Info.plist (en + de). No "smart wake".
 - **Planned vs actual**: the next morning Sleep → Day shows "Planned 22:41–06:30 · actual
-  23:12–06:28" (planned nights kept 14 days).
-- **Widget**: "Bed by 22:41" from 17:00 until then (snapshot field `bedtime`).
+  23:12–06:28" (planned nights kept 14 days; a night keeps its plan once its bedtime passed).
+- **Widget**: "Bed by 22:41" from 17:00 the evening before until then, 00:30 too (snapshot field
+  `bedtime`), updated with every plan.
 - Screenshots: `docs/screenshots/{tonight,bedtime}-{dark,light}[-de].png`.
 - **Simulator / tests only.** On your iPhone: the reminder arriving at bedtime − wind-down; the
   alarm ringing in Silent mode with a Focus on, Stop and Snooze; "Bed by" on the widget in the

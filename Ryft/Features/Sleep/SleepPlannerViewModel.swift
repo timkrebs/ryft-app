@@ -172,11 +172,13 @@ struct SleepSchedule: Codable, Equatable, Sendable {
     /// The night ending on `day` wakes at that weekday's time.
     func wakeTime(on day: Date, calendar: Calendar = .current) -> String { wake[Self.index(of: day, calendar: calendar)] }
 
-    /// The wake of the night after `now`: it ends tomorrow, except after midnight (before
-    /// 03:00), when the night in progress ends this morning.
+    /// The next wake: today's while it is still ahead (the night in progress), else tomorrow's.
+    /// The API resolves `wake=HH:MM` the same way, to its next occurrence (`BedtimePlanner.align`).
     func nextWake(after now: Date, calendar: Calendar = .current) -> Date {
-        let day = calendar.component(.hour, from: now) < 3 ? now : calendar.date(byAdding: .day, value: 1, to: now) ?? now
-        return Self.date(wakeTime(on: day, calendar: calendar), on: day, calendar: calendar)
+        let today = Self.date(wakeTime(on: now, calendar: calendar), on: now, calendar: calendar)
+        if today > now { return today }
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: now) ?? now
+        return Self.date(wakeTime(on: tomorrow, calendar: calendar), on: tomorrow, calendar: calendar)
     }
 
     /// `hhmm` on `day`, local (a DST gap moves it forward, as the clock does).
@@ -190,15 +192,27 @@ struct SleepSchedule: Codable, Equatable, Sendable {
     mutating func setWeekdays(_ hhmm: String) { for i in 0..<5 { wake[i] = hhmm } }
     mutating func setWeekend(_ hhmm: String) { wake[5] = hhmm; wake[6] = hhmm }
 
+    /// Back to two times: every weekday takes Monday's, the weekend Saturday's (the alarms
+    /// would otherwise ring at times no longer shown).
+    mutating func setSameOnWeekdays(_ on: Bool) {
+        sameOnWeekdays = on
+        guard on else { return }
+        setWeekdays(wake[0])
+        setWeekend(wake[5])
+    }
+
     static func key(_ account: String?) -> String { "sleep.schedule.\(account ?? "signed-out")" }
 
     static func load(account: String?, defaults: UserDefaults) -> SleepSchedule? {
-        defaults.data(forKey: key(account)).flatMap { try? JSONDecoder().decode(SleepSchedule.self, from: $0) }
+        let schedule = defaults.data(forKey: key(account)).flatMap { try? JSONDecoder().decode(SleepSchedule.self, from: $0) }
+        return schedule?.wake.count == 7 ? schedule : nil
     }
 
     func save(account: String?, defaults: UserDefaults) {
         if let data = try? JSONEncoder().encode(self) { defaults.set(data, forKey: Self.key(account)) }
     }
+
+    static func remove(account: String?, defaults: UserDefaults) { defaults.removeObject(forKey: key(account)) }
 }
 
 /// The night a schedule planned, kept so the morning can compare with what happened.
@@ -209,22 +223,36 @@ struct PlannedNight: Codable, Equatable, Sendable {
 
 /// Tonight's bedtime from the schedule and `GET /v1/sleep/plan`, the reminder before it and
 /// the wake alarm. Re-asks after syncs that touch today and in the evening refresh; moves the
-/// reminders only when the bedtime moved by 10 minutes or more. Behind `sleep.planner`.
+/// reminders only when the bedtime moved by 10 minutes or more. Behind `sleep.planner`: with
+/// the flag off, signed out or on another account, nothing of it stays on the phone.
 @MainActor
 @Observable
 final class BedtimePlanner {
     private let state: AppState
     private let alarms: WakeAlarms
 
-    /// `nil` until set up ("Bedtime & wake").
+    /// `nil` until set up ("Bedtime & wake") and after "Turn off".
     private(set) var schedule: SleepSchedule?
+    /// Tonight's plan, for the schedule's next wake (`align`).
     private(set) var plan: SleepPlan?
-    /// The wake `plan` was asked for.
-    private(set) var wake: Date?
-    private(set) var isLoading = false
+    /// Set when `plan` is the last one fetched (offline, or the request failed).
+    private(set) var asOf: Date?
     private(set) var error: String?
+    /// iOS doesn't allow the alarm (any more): it was turned off, and this says why.
+    private(set) var alarmProblem: String?
+    /// What each night planned, by its wake day (planned vs actual).
+    private var records: [String: PlannedNight] = [:]
     /// The reminders were last set for this bedtime (the 10-minute rule).
     @ObservationIgnored private(set) var scheduledBedtime: Date?
+    /// Bumped by every schedule or account change: an answer asked for before it is dropped.
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var refreshing: Task<Void, Never>?
+    @ObservationIgnored private var again = false
+    /// The alarm times as last set in this process; unknown at launch, so the first look sets them.
+    @ObservationIgnored private var alarmsSet: [String]?
+    @ObservationIgnored private var alarmsKnown = false
+    /// Nothing of RYFT's is scheduled (after `teardown`); unknown at launch.
+    @ObservationIgnored private var tornDown = false
 
     /// A bedtime that moved less than this keeps its reminder.
     static let rescheduleThreshold: TimeInterval = 10 * 60
@@ -232,11 +260,18 @@ final class BedtimePlanner {
     static let nightsAhead = 7
     static let reminderPrefix = "bedtime."
     static let wakePrefix = "wake."
+    static let cacheKey = "sleep.tonight"
+
+    /// Tonight's plan as last fetched (offline-first).
+    struct Cached: Codable, Equatable {
+        let plan: SleepPlan
+        let fetchedAt: Date
+    }
 
     init(state: AppState, alarms: WakeAlarms? = nil) {
         self.state = state
         self.alarms = alarms ?? SystemWakeAlarms(notifier: state.env.notifier)
-        schedule = SleepSchedule.load(account: state.env.auth.accountID, defaults: state.env.defaults)
+        load()
     }
 
     private var env: AppEnvironment { state.env }
@@ -265,34 +300,84 @@ final class BedtimePlanner {
         return parts.joined(separator: " · ")
     }
 
-    /// From 17:00 on Today; the Sleep tab always shows it.
-    func isEvening(calendar: Calendar = .current) -> Bool { calendar.component(.hour, from: now) >= 17 }
+    /// Today shows Tonight from 17:00, and after midnight while tonight's bedtime is still ahead.
+    func isEvening(calendar: Calendar = .current) -> Bool {
+        let hour = calendar.component(.hour, from: now)
+        return hour >= 17 || (hour < 5 && (bedtime ?? .distantPast) > now)
+    }
 
-    /// Another account signed in: its schedule.
-    func accountChanged() {
-        schedule = SleepSchedule.load(account: env.auth.accountID, defaults: env.defaults)
+    /// This account's schedule, records and last plan.
+    private func load() {
+        let account = env.auth.accountID
+        schedule = SleepSchedule.load(account: account, defaults: env.defaults)
+        records = env.defaults.data(forKey: Self.recordsKey(account))
+            .flatMap { try? JSONDecoder().decode([String: PlannedNight].self, from: $0) } ?? [:]
         plan = nil
+        asOf = nil
+        error = nil
+        alarmProblem = nil
         scheduledBedtime = nil
+        if let schedule { adoptCached(for: schedule.nextWake(after: now)) }
+    }
+
+    /// Signed out or another account signed in: the previous account's reminders, alarms and
+    /// widget bedtime go; this account's come back.
+    func accountChanged() async {
+        generation += 1
+        load()
+        await teardown()
+        await refresh()
+    }
+
+    /// Everything this phone scheduled: the reminders, the alarms, the widget's bedtime.
+    func teardown() async {
+        await cancelReminders()
+        await alarms.cancelAll()
+        alarmsSet = nil
+        alarmsKnown = true
+        scheduledBedtime = nil
+        state.repository.tonightBedtime = nil
+        tornDown = true
+    }
+
+    /// The sign-out wipe: every account's schedule and records on this phone.
+    static func wipe(defaults: UserDefaults) {
+        for key in defaults.dictionaryRepresentation().keys
+        where key.hasPrefix("sleep.schedule.") || key.hasPrefix("sleep.planned.") {
+            defaults.removeObject(forKey: key)
+        }
     }
 
     // MARK: editing
 
-    /// Saves the schedule and plans with it: reminders and alarms follow at once.
-    func update(_ new: SleepSchedule) async {
-        let old = schedule
+    /// Saves the schedule (`nil`: turned off) and plans with it. A reminder turned off goes at
+    /// once, online or not; the alarms follow the wake times.
+    func update(_ new: SleepSchedule?) async {
+        generation += 1
         schedule = new
-        new.save(account: env.auth.accountID, defaults: env.defaults)
-        if old?.wake != new.wake || old?.alarmOn != new.alarmOn { await setAlarms(for: new) }
-        scheduledBedtime = nil // the goal or the wind-down may have moved it
+        let account = env.auth.accountID
+        if let new { new.save(account: account, defaults: env.defaults) } else { SleepSchedule.remove(account: account, defaults: env.defaults) }
+        scheduledBedtime = nil   // the goal or the wind-down may have moved it
+        if new?.alarmOn == true { alarmProblem = nil }
+        if new?.reminderOn != true { await cancelReminders() }
+        await syncAlarms()
+        guard new != nil else {
+            plan = nil
+            error = nil
+            state.repository.tonightBedtime = nil
+            return
+        }
         await refresh()
     }
 
     /// Turning the reminder on asks for notifications (a good moment: you asked for it).
-    /// `false` when iOS says no.
+    /// Provisional ones arrive silently in Notification Center, so they ask too. `false` when iOS says no.
     func allowReminders() async -> Bool {
         let status = await env.notifier.authorizationStatus()
-        if status == .notDetermined { return (try? await env.notifier.requestAuthorization()) ?? false }
-        return status == .authorized || status == .provisional || status == .ephemeral
+        if status == .notDetermined || status == .provisional {
+            return (try? await env.notifier.requestAuthorization()) ?? false
+        }
+        return status == .authorized || status == .ephemeral
     }
 
     /// The alarm asks for AlarmKit (iOS 26+) or notifications (older iOS).
@@ -300,43 +385,124 @@ final class BedtimePlanner {
 
     // MARK: planning
 
-    /// Asks for tonight's plan and keeps the reminders in step with it.
+    /// Asks for tonight's plan and keeps the reminders, the alarms and the widget in step with
+    /// it. One at a time: a call while one runs makes it run once more when it's done.
     func refresh() async {
-        guard isEnabled, let schedule, state.hasDataSource else { return }
-        let wake = schedule.nextWake(after: now)
-        guard env.connectivity.isOnline else { return }
-        isLoading = plan == nil
-        defer { isLoading = false }
-        do {
-            let fresh = try await env.api.sleepPlan(wake: SleepPlannerViewModel.hhmm(wake))
-            plan = fresh
-            self.wake = wake
-            error = nil
-            record(PlannedNight(bed: schedule.goal.bedtime(in: fresh), wake: fresh.wake))
-            await rescheduleIfMoved(schedule: schedule, plan: fresh, wake: wake)
-        } catch {
-            if plan == nil { self.error = error.localizedDescription }
+        if let running = refreshing {
+            again = true
+            return await running.value
         }
+        let task = Task {
+            repeat {
+                again = false
+                await planTonight()
+            } while again
+            refreshing = nil
+        }
+        refreshing = task
+        await task.value
     }
 
-    private func rescheduleIfMoved(schedule: SleepSchedule, plan: SleepPlan, wake: Date) async {
+    private func planTonight() async {
+        guard isEnabled, state.hasDataSource, let schedule else {
+            // The flag went off, nobody is signed in or nothing is set up: nothing stays scheduled.
+            if !tornDown { await teardown() }
+            return
+        }
+        tornDown = false
+        await fetchPlan(for: schedule)
+        // After the plan: Tonight doesn't wait for the alarms.
+        await syncAlarms()
+    }
+
+    private func fetchPlan(for schedule: SleepSchedule) async {
+        let gen = generation
+        let wake = schedule.nextWake(after: now)
+        adoptCached(for: wake)
+        if env.connectivity.isOnline {
+            do {
+                let fresh = try await env.api.sleepPlan(wake: SleepPlannerViewModel.hhmm(wake))
+                guard gen == generation else { return }   // the schedule or the account changed meanwhile
+                guard let aligned = Self.align(fresh, to: wake) else {
+                    if plan == nil { error = String(localized: "Tonight's plan is for another time zone than this iPhone's.") }
+                    return
+                }
+                plan = aligned
+                asOf = nil
+                error = nil
+                env.persistence.saveDocument(Cached(plan: aligned, fetchedAt: now), key: Self.cacheKey, at: now)
+            } catch {
+                guard gen == generation else { return }
+                if plan == nil { self.error = error.localizedDescription } else { markCached() }
+            }
+        } else if plan == nil {
+            error = String(localized: "Tonight's bedtime needs a connection. It appears once you're online.")
+        } else {
+            markCached()
+        }
+        guard let plan, gen == generation else { return }
+        let bed = schedule.goal.bedtime(in: plan)
+        state.repository.tonightBedtime = bed
+        record(PlannedNight(bed: bed, wake: plan.wake))
+        await rescheduleIfMoved(schedule: schedule, plan: plan)
+    }
+
+    /// Takes the stored plan when it is for `wake`, and drops one for another night.
+    private func adoptCached(for wake: Date) {
+        if let plan, abs(plan.wake.timeIntervalSince(wake)) <= 60 { return }
+        plan = nil
+        asOf = nil
+        guard let cached = env.persistence.document(Cached.self, key: Self.cacheKey),
+              abs(cached.plan.wake.timeIntervalSince(wake)) <= 60 else { return }
+        plan = cached.plan
+        asOf = cached.fetchedAt
+    }
+
+    /// The plan shown is the stored one: say since when.
+    private func markCached() {
+        if asOf == nil { asOf = env.persistence.document(Cached.self, key: Self.cacheKey)?.fetchedAt ?? now }
+    }
+
+    /// The plan for `wake`. The API takes `HH:MM` and answers for its next occurrence, so on a
+    /// morning when tomorrow's wake time is later than now (Friday 07:30, Saturday 08:00) it
+    /// answers for today's. Tonight's need is the same either way, and the bedtimes are
+    /// `wake − share · in_bed_min`, so they move with the wake by that day
+    /// (`docs/API_REQUESTS.md` → `day=`). Any other difference (the profile's time zone isn't
+    /// this iPhone's): `nil`.
+    static func align(_ plan: SleepPlan, to wake: Date, calendar: Calendar = .current) -> SleepPlan? {
+        if abs(plan.wake.timeIntervalSince(wake)) <= 60 { return plan }
+        guard let nextDay = calendar.date(byAdding: .day, value: 1, to: plan.wake),
+              abs(nextDay.timeIntervalSince(wake)) <= 60 else { return nil }
+        let shift = wake.timeIntervalSince(plan.wake)
+        return SleepPlan(wake: wake, needMin: plan.needMin, inBedMin: plan.inBedMin, efficiency: plan.efficiency,
+                         bedtime100: plan.bedtime100.addingTimeInterval(shift),
+                         bedtime85: plan.bedtime85.addingTimeInterval(shift),
+                         bedtime70: plan.bedtime70.addingTimeInterval(shift), basis: plan.basis)
+    }
+
+    private func rescheduleIfMoved(schedule: SleepSchedule, plan: SleepPlan) async {
         let bed = schedule.goal.bedtime(in: plan)
         if let last = scheduledBedtime, abs(last.timeIntervalSince(bed)) < Self.rescheduleThreshold { return }
-        await scheduleReminders(schedule: schedule, plan: plan, wake: wake)
+        await scheduleReminders(schedule: schedule, plan: plan)
         scheduledBedtime = bed
-        state.repository.tonightBedtime = bed
+    }
+
+    private func cancelReminders() async {
+        let pending = await env.notifier.pendingIDs().filter { $0.hasPrefix(Self.reminderPrefix) }
+        env.notifier.removePending(ids: pending)
     }
 
     /// Tonight's reminder from the plan; the following nights from tonight's time in bed at
-    /// each night's wake (refined when the app plans those nights).
-    func scheduleReminders(schedule: SleepSchedule, plan: SleepPlan, wake: Date, calendar: Calendar = .current) async {
-        let pending = await env.notifier.pendingIDs().filter { $0.hasPrefix(Self.reminderPrefix) }
-        env.notifier.removePending(ids: pending)
+    /// each night's wake (refined when the app plans those nights). Stops when the schedule
+    /// changes meanwhile.
+    func scheduleReminders(schedule: SleepSchedule, plan: SleepPlan, calendar: Calendar = .current) async {
+        let gen = generation
+        await cancelReminders()
         guard schedule.reminderOn else { return }
         let share = Double(schedule.goal.rawValue) / 100
         let sleepMin = Int((Double(plan.needMin) * share).rounded())
         for night in 0..<Self.nightsAhead {
-            let wakeDay = calendar.date(byAdding: .day, value: night, to: wake) ?? wake
+            let wakeDay = calendar.date(byAdding: .day, value: night, to: plan.wake) ?? plan.wake
             let nightWake = night == 0 ? plan.wake
                 : SleepSchedule.date(schedule.wakeTime(on: wakeDay, calendar: calendar), on: wakeDay, calendar: calendar)
             let bed = night == 0 ? schedule.goal.bedtime(in: plan)
@@ -352,16 +518,32 @@ final class BedtimePlanner {
             content.categoryIdentifier = PushCategories.bedtime
             let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: fire)
             let id = Self.reminderPrefix + DayFormat.string(from: wakeDay)
+            guard gen == generation else { return }
             try? await env.notifier.add(UNNotificationRequest(identifier: id, content: content,
                                                               trigger: UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)))
         }
     }
 
-    private func setAlarms(for schedule: SleepSchedule) async {
-        if schedule.alarmOn {
-            try? await alarms.schedule(schedule.wake)
-        } else {
+    /// Sets the wake alarms the schedule asks for, once per change, and once at launch (a
+    /// restore, a new iPhone or an iOS update leaves `alarmOn` without alarms). When iOS doesn't
+    /// allow them (any more), the alarm turns off and `alarmProblem` says why.
+    private func syncAlarms() async {
+        let want = isEnabled && state.hasDataSource && schedule?.alarmOn == true ? schedule?.wake : nil
+        if alarmsKnown, alarmsSet == want { return }
+        alarmsKnown = true
+        alarmsSet = want
+        guard let want else { return await alarms.cancelAll() }
+        do {
+            guard await alarms.isAllowed() else { throw WakeAlarmError.notAllowed }
+            try await alarms.schedule(want)
+        } catch {
+            alarmsSet = nil
             await alarms.cancelAll()
+            alarmProblem = String(localized: "The wake-up alarm is off: iOS doesn't allow RYFT's alarms. Turn it on again to allow them.")
+            guard var off = schedule else { return }
+            off.alarmOn = false
+            schedule = off
+            off.save(account: env.auth.accountID, defaults: env.defaults)
         }
     }
 
@@ -369,21 +551,22 @@ final class BedtimePlanner {
 
     private static func recordsKey(_ account: String?) -> String { "sleep.planned.\(account ?? "signed-out")" }
 
-    /// Keyed by the night's wake day; the last 14 are kept.
+    /// Keyed by the night's wake day; the last 14 are kept. Once the planned bedtime has
+    /// passed the night keeps it (after midnight today's strain starts again from zero).
     private func record(_ night: PlannedNight) {
-        let key = Self.recordsKey(env.auth.accountID)
-        var all = (env.defaults.data(forKey: key).flatMap { try? JSONDecoder().decode([String: PlannedNight].self, from: $0) }) ?? [:]
-        all[DayFormat.string(from: night.wake)] = night
-        if all.count > 14 { for k in all.keys.sorted().dropLast(14) { all[k] = nil } }
-        if let data = try? JSONEncoder().encode(all) { env.defaults.set(data, forKey: key) }
+        let day = DayFormat.string(from: night.wake)
+        if let kept = records[day], kept.bed <= now || kept == night { return }
+        records[day] = night
+        if records.count > 14 { for k in records.keys.sorted().dropLast(14) { records[k] = nil } }
+        if let data = try? JSONEncoder().encode(records) { env.defaults.set(data, forKey: Self.recordsKey(env.auth.accountID)) }
     }
 
     /// What the schedule planned for the night ending on `day`.
-    func planned(nightEnding day: String) -> PlannedNight? {
-        let key = Self.recordsKey(env.auth.accountID)
-        let all = env.defaults.data(forKey: key).flatMap { try? JSONDecoder().decode([String: PlannedNight].self, from: $0) }
-        return all?[day]
-    }
+    func planned(nightEnding day: String) -> PlannedNight? { records[day] }
+}
+
+enum WakeAlarmError: Error {
+    case notAllowed
 }
 
 // MARK: - wake alarm
@@ -394,10 +577,23 @@ final class BedtimePlanner {
 protocol WakeAlarms: AnyObject {
     /// AlarmKit (a real alarm) or a notification.
     var ringsLikeAnAlarm: Bool { get }
+    /// Asks iOS when it hasn't been asked.
     func authorize() async -> Bool
+    /// Allowed already; never asks (launch, a restore).
+    func isAllowed() async -> Bool
     /// Replaces RYFT's wake alarms: one per weekday at `times` ("HH:MM", Monday first).
     func schedule(_ times: [String]) async throws
     func cancelAll() async
+}
+
+extension WakeAlarms {
+    /// The weekdays (Monday-first indices) that share each time, earliest first: one repeating
+    /// alarm per time.
+    static func groups(_ times: [String]) -> [(time: String, days: [Int])] {
+        var groups: [String: [Int]] = [:]
+        for (i, hhmm) in times.enumerated() { groups[hhmm, default: []].append(i) }
+        return groups.keys.sorted().map { ($0, groups[$0] ?? []) }
+    }
 }
 
 final class SystemWakeAlarms: WakeAlarms {
@@ -418,9 +614,18 @@ final class SystemWakeAlarms: WakeAlarms {
         #if canImport(AlarmKit)
         if #available(iOS 26.0, *) { return await AlarmKitWake.authorize() }
         #endif
+        // Provisional notifications arrive silently: not a wake-up.
         let status = await notifier.authorizationStatus()
-        if status == .notDetermined { return (try? await notifier.requestAuthorization()) ?? false }
-        return status == .authorized || status == .provisional || status == .ephemeral
+        if status == .notDetermined || status == .provisional { return (try? await notifier.requestAuthorization()) ?? false }
+        return status == .authorized || status == .ephemeral
+    }
+
+    func isAllowed() async -> Bool {
+        #if canImport(AlarmKit)
+        if #available(iOS 26.0, *) { return AlarmManager.shared.authorizationState == .authorized }
+        #endif
+        let status = await notifier.authorizationStatus()
+        return status == .authorized || status == .ephemeral
     }
 
     func schedule(_ times: [String]) async throws {
@@ -432,6 +637,8 @@ final class SystemWakeAlarms: WakeAlarms {
         }
         #endif
         // Below iOS 26: a notification at each weekday's wake time (it won't ring like an alarm).
+        // Time Sensitive breaks through Focus once the capability is added in Xcode; without it
+        // iOS delivers it as an ordinary notification.
         for (i, hhmm) in times.enumerated() {
             let parts = hhmm.split(separator: ":").compactMap { Int($0) }
             guard parts.count == 2 else { continue }
@@ -461,12 +668,25 @@ final class SystemWakeAlarms: WakeAlarms {
 /// Records what it was asked to do (tests, previews).
 final class MockWakeAlarms: WakeAlarms {
     var ringsLikeAnAlarm = true
+    /// What iOS answers when asked, and whether it was allowed already.
     var allows = true
+    var allowed = true
     private(set) var scheduled: [String]?
+    private(set) var schedulings = 0
     private(set) var cancellations = 0
 
-    func authorize() async -> Bool { allows }
-    func schedule(_ times: [String]) async throws { scheduled = times }
+    func authorize() async -> Bool {
+        allowed = allows
+        return allows
+    }
+
+    func isAllowed() async -> Bool { allowed }
+
+    func schedule(_ times: [String]) async throws {
+        schedulings += 1
+        scheduled = times
+    }
+
     func cancelAll() async {
         cancellations += 1
         scheduled = nil
@@ -479,7 +699,8 @@ final class MockWakeAlarms: WakeAlarms {
 @available(iOS 26.0, *)
 struct WakeAlarmMetadata: AlarmMetadata {}
 
-/// The wake alarm with AlarmKit: one weekly alarm per weekday, Stop and Snooze (9 minutes).
+/// The wake alarm with AlarmKit: one weekly alarm per wake time (weekdays sharing it), Stop and
+/// Snooze (9 minutes).
 @available(iOS 26.0, *)
 @MainActor
 enum AlarmKitWake {
@@ -496,17 +717,23 @@ enum AlarmKitWake {
 
     static func schedule(_ times: [String]) async throws {
         let weekdays: [Locale.Weekday] = [.monday, .tuesday, .wednesday, .thursday, .friday, .saturday, .sunday]
-        for (i, hhmm) in times.enumerated() {
-            let parts = hhmm.split(separator: ":").compactMap { Int($0) }
+        for group in SystemWakeAlarms.groups(times) {
+            let parts = group.time.split(separator: ":").compactMap { Int($0) }
             guard parts.count == 2 else { continue }
             let schedule = Alarm.Schedule.relative(.init(time: .init(hour: parts[0], minute: parts[1]),
-                                                         repeats: .weekly([weekdays[i]])))
-            let alert = AlarmPresentation.Alert(
-                title: LocalizedStringResource("Time to get up"),
-                stopButton: AlarmButton(text: LocalizedStringResource("Stop"), textColor: .white, systemImageName: "stop.circle"),
-                secondaryButton: AlarmButton(text: LocalizedStringResource("Snooze"), textColor: .white,
-                                             systemImageName: "zzz"),
-                secondaryButtonBehavior: .countdown)
+                                                         repeats: .weekly(group.days.map { weekdays[$0] })))
+            let snoozeButton = AlarmButton(text: LocalizedStringResource("Snooze"), textColor: .white, systemImageName: "zzz")
+            let alert: AlarmPresentation.Alert
+            if #available(iOS 26.1, *) {
+                // The system draws Stop itself from 26.1 on.
+                alert = AlarmPresentation.Alert(title: LocalizedStringResource("Time to get up"),
+                                                secondaryButton: snoozeButton, secondaryButtonBehavior: .countdown)
+            } else {
+                alert = AlarmPresentation.Alert(
+                    title: LocalizedStringResource("Time to get up"),
+                    stopButton: AlarmButton(text: LocalizedStringResource("Stop"), textColor: .white, systemImageName: "stop.circle"),
+                    secondaryButton: snoozeButton, secondaryButtonBehavior: .countdown)
+            }
             let countdown = AlarmPresentation.Countdown(title: LocalizedStringResource("Snoozing"))
             let attributes = AlarmAttributes(presentation: AlarmPresentation(alert: alert, countdown: countdown),
                                              metadata: WakeAlarmMetadata(), tintColor: .teal)

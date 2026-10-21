@@ -231,6 +231,7 @@ struct SleepDaySection: View {
                         .monospacedDigit()
                         .foregroundStyle(Theme.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityLabel(Text("Planned \(Fmt.time(planned.bed)) to \(Fmt.time(planned.wake)), actual \(summary.bedtime) to \(summary.wake)"))
                         .accessibilityIdentifier("sleep.plannedVsActual")
                 }
                 Divider().overlay(Theme.separator)

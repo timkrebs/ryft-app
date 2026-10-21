@@ -53,9 +53,11 @@ struct ReadinessSnapshot: Codable, Equatable {
                                  updatedAt: updatedAt, bedtime: nil)
     }
 
-    /// "Bed by 22:41" from 17:00 until bedtime.
+    /// "Bed by 22:41" from 17:00 the evening before until bedtime (00:30 too).
     func bedtimeShown(at date: Date, calendar: Calendar = .current) -> Date? {
-        guard let bedtime, bedtime > date, calendar.component(.hour, from: date) >= 17 else { return nil }
+        guard let bedtime, bedtime > date,
+              let evening = calendar.date(bySettingHour: 17, minute: 0, second: 0, of: bedtime.addingTimeInterval(-12 * 3_600)),
+              date >= evening else { return nil }
         return bedtime
     }
 

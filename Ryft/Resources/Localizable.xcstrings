@@ -1138,6 +1138,16 @@
         }
       }
     },
+    "Planned %@ to %@, actual %@ to %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geplant %1$@ bis %2$@, tatsächlich %3$@ bis %4$@"
+          }
+        }
+      }
+    },
     "Planned %@–%@ · actual %@–%@" : {
       "localizations" : {
         "de" : {
@@ -1718,6 +1728,16 @@
         }
       }
     },
+    "The wake-up alarm is off: iOS doesn't allow RYFT's alarms. Turn it on again to allow them." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Wecker ist aus: iOS erlaubt RYFTs Wecker nicht. Schalte ihn wieder ein, um sie zu erlauben."
+          }
+        }
+      }
+    },
     "This Apple ID already belongs to another RYFT account. Log out and continue with Apple to use that one." : {
       "localizations" : {
         "de" : {
@@ -1818,6 +1838,26 @@
         }
       }
     },
+    "Tonight's bedtime needs a connection. It appears once you're online." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Schlafenszeit für heute Nacht braucht eine Verbindung. Sie erscheint, sobald du online bist."
+          }
+        }
+      }
+    },
+    "Tonight's plan is for another time zone than this iPhone's." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Plan für heute Nacht gilt für eine andere Zeitzone als die dieses iPhones."
+          }
+        }
+      }
+    },
     "Too many tries. Wait an hour, then try the code again." : {
       "localizations" : {
         "de" : {
@@ -1834,6 +1874,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Andere Aufwachzeit ausprobieren"
+          }
+        }
+      }
+    },
+    "Turn off Bedtime & wake" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlafenszeit & Aufwachen ausschalten"
           }
         }
       }

@@ -118,35 +118,38 @@ struct TonightCard: View {
                 CardHeader(title: "Tonight")
                 if let schedule = planner.schedule, let plan = planner.plan, let bed = planner.bedtime {
                     VStack(alignment: .leading, spacing: 4) {
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text("In bed by")
-                                .font(.ryft(.body))
-                                .foregroundStyle(Theme.textSecondary)
-                            Text(Fmt.time(bed))
-                                .font(.ryft(.metric))
-                                .monospacedDigit()
-                                .foregroundStyle(Theme.textPrimary)
-                            Text("for \(schedule.goal.rawValue) %")
-                                .font(.ryft(.body))
-                                .foregroundStyle(Theme.textSecondary)
+                        // One line, or three at the largest text sizes.
+                        ViewThatFits(in: .horizontal) {
+                            HStack(alignment: .firstTextBaseline, spacing: 6) { headline(bed: bed, goal: schedule.goal) }
+                            VStack(alignment: .leading, spacing: 2) { headline(bed: bed, goal: schedule.goal) }
                         }
                         Text("Wake \(Fmt.time(plan.wake)) · need \(Fmt.duration(minutes: plan.needMin))")
                             .font(.ryft(.callout))
                             .monospacedDigit()
                             .foregroundStyle(Theme.textSecondary)
+                        if let asOf = planner.asOf {
+                            Text("As of \(Fmt.time(asOf))")
+                                .font(.ryft(.caption))
+                                .foregroundStyle(Theme.textTertiary)
+                        }
                     }
                     .accessibilityElement(children: .combine)
                     VStack(spacing: 8) {
                         ForEach(SleepSchedule.Goal.allCases) { goal in
-                            HStack {
-                                Text("\(goal.title) · \(goal.rawValue) %")
-                                    .foregroundStyle(goal == schedule.goal ? Theme.textPrimary : Theme.textSecondary)
-                                Spacer()
-                                Text(Fmt.time(goal.bedtime(in: plan)))
-                                    .monospacedDigit()
-                                    .foregroundStyle(goal == schedule.goal ? Theme.textPrimary : Theme.textSecondary)
+                            ViewThatFits(in: .horizontal) {
+                                HStack {
+                                    goalTitle(goal)
+                                    Spacer()
+                                    goalTime(goal, plan: plan)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    goalTitle(goal)
+                                    goalTime(goal, plan: plan)
+                                }
                             }
                             .font(.ryft(.callout))
+                            .foregroundStyle(goal == schedule.goal ? Theme.textPrimary : Theme.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .accessibilityElement(children: .combine)
                         }
                     }
@@ -158,6 +161,9 @@ struct TonightCard: View {
                             .foregroundStyle(Theme.textPrimary)
                     }
                     .tint(Theme.textSecondary)
+                    if let problem = planner.alarmProblem {
+                        InlineMessage(message: problem, systemImage: "alarm")
+                    }
                     scheduleLink(title: "Bedtime & wake")
                 } else if planner.schedule == nil {
                     Text("Tell RYFT when you want to wake up. It tells you when to go to bed, with what today's strain and your sleep debt add.")
@@ -174,6 +180,31 @@ struct TonightCard: View {
         }
         .task { if planner.plan == nil { await planner.refresh() } }
         .accessibilityIdentifier("tonight.card")
+    }
+
+    private func goalTitle(_ goal: SleepSchedule.Goal) -> some View {
+        Text("\(goal.title) · \(goal.rawValue) %")
+    }
+
+    /// Never broken across lines.
+    private func goalTime(_ goal: SleepSchedule.Goal, plan: SleepPlan) -> some View {
+        Text(Fmt.time(goal.bedtime(in: plan)))
+            .monospacedDigit()
+            .fixedSize()
+    }
+
+    @ViewBuilder
+    private func headline(bed: Date, goal: SleepSchedule.Goal) -> some View {
+        Text("In bed by")
+            .font(.ryft(.body))
+            .foregroundStyle(Theme.textSecondary)
+        Text(Fmt.time(bed))
+            .font(.ryft(.metric))
+            .monospacedDigit()
+            .foregroundStyle(Theme.textPrimary)
+        Text("for \(goal.rawValue) %")
+            .font(.ryft(.body))
+            .foregroundStyle(Theme.textSecondary)
     }
 
     private func scheduleLink(title: LocalizedStringKey) -> some View {
@@ -197,7 +228,10 @@ struct SleepScheduleView: View {
     @State private var reminderRefused = false
     @State private var alarmRefused = false
     @State private var saving: Task<Void, Never>?
+    /// Changed here: only then does leaving save (opening "Set up" and going back doesn't).
+    @State private var edited = false
     @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
 
     init(planner: BedtimePlanner) {
         self.planner = planner
@@ -218,6 +252,7 @@ struct SleepScheduleView: View {
                 windDown
                 reminder
                 alarm
+                if planner.schedule != nil { turnOff }
             }
             .padding(Theme.Metrics.screenPadding)
         }
@@ -227,6 +262,7 @@ struct SleepScheduleView: View {
         .toolbar(.visible, for: .navigationBar)
         // Saves a moment after the last change (a wheel sends many).
         .onChange(of: draft) { _, new in
+            edited = true
             saving?.cancel()
             saving = Task {
                 try? await Task.sleep(for: .milliseconds(400))
@@ -234,15 +270,39 @@ struct SleepScheduleView: View {
                 await planner.update(new)
             }
         }
-        .onDisappear {
-            // A change made just before leaving still counts.
-            if draft != planner.schedule { Task { await planner.update(draft) } }
+        // iOS stopped allowing the alarm: the planner turned it off.
+        .onChange(of: planner.schedule?.alarmOn) { _, on in
+            if on == false, draft.alarmOn { draft.alarmOn = false }
         }
+        .onDisappear {
+            saving?.cancel()
+            // A change made just before leaving still counts.
+            if edited, draft != planner.schedule { Task { [draft] in await planner.update(draft) } }
+        }
+    }
+
+    /// Back to "Off": no reminders, no alarms, no Tonight.
+    private var turnOff: some View {
+        Button(role: .destructive) {
+            saving?.cancel()
+            edited = false
+            Task {
+                await planner.update(nil)
+                dismiss()
+            }
+        } label: {
+            Text("Turn off Bedtime & wake")
+                .font(.ryft(.body))
+                .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .foregroundStyle(Theme.warning)
+        .accessibilityIdentifier("schedule.turnOff")
     }
 
     private var wake: some View {
         section("Wake up at") {
-            Toggle("Same time on weekdays", isOn: $draft.sameOnWeekdays)
+            Toggle("Same time on weekdays", isOn: Binding(get: { draft.sameOnWeekdays },
+                                                          set: { draft.setSameOnWeekdays($0) }))
                 .font(.ryft(.body))
                 .tint(Theme.accent)
             if draft.sameOnWeekdays {
@@ -296,7 +356,12 @@ struct SleepScheduleView: View {
             Toggle(isOn: Binding(get: { draft.reminderOn }, set: { on in
                 guard on else { draft.reminderOn = false; return }
                 Task {
-                    if await planner.allowReminders() { draft.reminderOn = true } else { reminderRefused = true }
+                    if await planner.allowReminders() {
+                        draft.reminderOn = true
+                    } else {
+                        reminderRefused = true
+                        announceRefusal()
+                    }
                 }
             })) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -318,7 +383,12 @@ struct SleepScheduleView: View {
             Toggle(isOn: Binding(get: { draft.alarmOn }, set: { on in
                 guard on else { draft.alarmOn = false; return }
                 Task {
-                    if await planner.allowAlarm() { draft.alarmOn = true } else { alarmRefused = true }
+                    if await planner.allowAlarm() {
+                        draft.alarmOn = true
+                    } else {
+                        alarmRefused = true
+                        announceRefusal()
+                    }
                 }
             })) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -332,8 +402,20 @@ struct SleepScheduleView: View {
                 }
             }
             .tint(Theme.accent)
-            if alarmRefused { refused }
+            if alarmRefused {
+                refused
+            } else if let problem = planner.alarmProblem {
+                Text(problem)
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+
+    /// VoiceOver hears why the switch stayed off.
+    private func announceRefusal() {
+        AccessibilityNotification.Announcement(String(localized: "Not allowed in iOS Settings.")).post()
     }
 
     /// iOS said no: where to change it.
