@@ -54,6 +54,25 @@ final class SessionController: Identifiable {
         machine.enter(.active)
         followRest()
         startTicker()
+        // On the lock screen from the start: the workout, or the rest it was in.
+        if rest.isRunning { persistRest(exercise: nil) } else { showWorkout() }
+    }
+
+    /// The Live Activity's workout view: elapsed time and the next set.
+    private func showWorkout() {
+        lastActivityNext = nextLabel()
+        liveActivity?.workout(session: session.id, title: session.title, startedAt: session.startedAt,
+                              next: lastActivityNext ?? "")
+    }
+
+    /// What the lock screen says comes next, so a change that doesn't move it sends nothing.
+    private var lastActivityNext: String?
+
+    /// After an edit (a set checked, unchecked, added, deleted or changed; an exercise added,
+    /// removed or moved): the lock screen's next set follows.
+    private func refreshActivity() {
+        guard nextLabel() != lastActivityNext else { return }
+        if rest.isRunning { persistRest(exercise: nil) } else { showWorkout() }
     }
 
     /// Resting while the timer runs, active otherwise (unless paused or ending).
@@ -111,11 +130,25 @@ final class SessionController: Identifiable {
     }
 
     func nextLabel(after ex: LocalSessionExercise? = nil) -> String {
+        guard !exercises.isEmpty else { return String(localized: "Add an exercise") }
         guard let next = nextUp(after: ex) else { return String(localized: "Last set done — finish when ready") }
         let sets = next.exercise.orderedSets
         let n = (sets.firstIndex { $0.id == next.set.id } ?? 0) + 1
-        return String(localized: "\(next.exercise.name) · set \(n) of \(sets.count)",
-                      comment: "Next set in the rest timer, e.g. Bench press · set 3 of 4.")
+        let label = String(localized: "\(next.exercise.name) · set \(n) of \(sets.count)",
+                           comment: "Next set in the rest timer, e.g. Bench press · set 3 of 4.")
+        // "· 5 × 80 kg" when the set is filled in (from the plan or the last time).
+        guard let target = Self.target(reps: next.set.reps, kg: next.set.weightKg) else { return label }
+        return "\(label) · \(target)"
+    }
+
+    /// "5 × 80 kg", "5 reps", "80 kg"; `nil` with neither.
+    static func target(reps: Int?, kg: Double?) -> String? {
+        switch (reps, kg) {
+        case let (r?, w?): return "\(r) × \(Fmt.kg(w))"
+        case let (r?, nil): return String(localized: "\(r) reps")
+        case let (nil, w?): return Fmt.kg(w)
+        case (nil, nil): return nil
+        }
     }
 
     /// Within a superset the partner comes next; otherwise the first open set.
@@ -170,12 +203,18 @@ final class SessionController: Identifiable {
             s.setIndex = i
             s.updatedAt = .now
         }
-        sync.sessionChanged(session)
+        edited()
     }
 
     private func changed(_ set: LocalSet) {
         set.updatedAt = .now
+        edited()
+    }
+
+    /// Any change: the upload follows (debounced), and the lock screen's next set.
+    private func edited() {
         sync.sessionChanged(session)
+        refreshActivity()
     }
 
     // MARK: keypad
@@ -304,7 +343,7 @@ final class SessionController: Identifiable {
 
     func add(_ exercise: Exercise) {
         SessionFactory.add(exercise, to: session, sets: 3, in: store)
-        sync.sessionChanged(session)
+        edited()
     }
 
     func remove(_ ex: LocalSessionExercise) {
@@ -313,14 +352,14 @@ final class SessionController: Identifiable {
         session.exercises.removeAll { $0.id == ex.id }
         store.context.delete(ex)
         renumber()
-        sync.sessionChanged(session)
+        edited()
     }
 
     func move(from source: IndexSet, to destination: Int) {
         var list = exercises
         list.move(fromOffsets: source, toOffset: destination)
         for (i, ex) in list.enumerated() { ex.position = i }
-        sync.sessionChanged(session)
+        edited()
     }
 
     /// Links an exercise with the one below it, or takes it out of its superset.
@@ -335,7 +374,7 @@ final class SessionController: Identifiable {
             ex.supersetGroup = group
             list[i + 1].supersetGroup = group
         }
-        sync.sessionChanged(session)
+        edited()
     }
 
     /// A superset left with one exercise isn't one any more.
@@ -385,7 +424,7 @@ final class SessionController: Identifiable {
         followRest()
         session.restEndsAt = nil
         session.restTotal = 0
-        liveActivity?.end()
+        showWorkout()
     }
 
     func dismissRestBanner() {
@@ -398,9 +437,10 @@ final class SessionController: Identifiable {
         session.restTotal = rest.total
         store.save()
         guard let end = rest.endsAt else { return }
-        liveActivity?.show(session: session.title, endsAt: end, total: rest.total,
-                           exercise: exercise ?? nextUp?.exercise.name ?? session.title,
-                           next: nextLabel())
+        lastActivityNext = nextLabel()
+        liveActivity?.show(session: session.id, title: session.title, startedAt: session.startedAt, endsAt: end,
+                           total: rest.total, exercise: exercise ?? nextUp?.exercise.name ?? session.title,
+                           next: lastActivityNext ?? "")
     }
 
     private func restEnded() {
@@ -408,7 +448,8 @@ final class SessionController: Identifiable {
         session.restEndsAt = nil
         session.restTotal = 0
         store.save()
-        liveActivity?.finish(next: nextLabel())
+        lastActivityNext = nextLabel()
+        liveActivity?.finish(session: session.id, next: lastActivityNext ?? "")
     }
 
     private func startTicker() {

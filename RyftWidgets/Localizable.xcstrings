@@ -21,28 +21,6 @@
         }
       }
     },
-    "Done" : {
-      "comment" : "Live Activity button that opens the workout in the app.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "Fertig"
-          }
-        }
-      }
-    },
-    "Go" : {
-      "comment" : "Live Activity countdown once the rest is over.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "Los"
-          }
-        }
-      }
-    },
     "High" : {
       "localizations" : {
         "de" : {
@@ -90,6 +68,16 @@
           "stringUnit" : {
             "state" : "machine_translated",
             "value" : "Als Nächstes: %@"
+          }
+        }
+      }
+    },
+    "Open" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnen"
           }
         }
       }
@@ -156,17 +144,6 @@
         }
       }
     },
-    "REST OVER" : {
-      "comment" : "Lock screen label once the rest is over (uppercase).",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "PAUSE VORBEI"
-          }
-        }
-      }
-    },
     "Scoring your night…" : {
       "localizations" : {
         "de" : {
@@ -197,6 +174,36 @@
         }
       }
     },
+    "Start or resume workout" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workout starten oder fortsetzen"
+          }
+        }
+      }
+    },
+    "Start workout" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workout starten"
+          }
+        }
+      }
+    },
+    "Starts a strength workout in RYFT, or resumes the one in progress." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Startet ein Krafttraining in RYFT oder setzt das laufende Workout fort."
+          }
+        }
+      }
+    },
     "Today's readiness, or how far scoring your night is." : {
       "localizations" : {
         "de" : {
@@ -223,6 +230,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dein Wecker klingelt gleich wieder"
+          }
+        }
+      }
+    },
+    "WORKOUT" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "WORKOUT"
+          }
+        }
+      }
+    },
+    "Workout" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workout"
           }
         }
       }

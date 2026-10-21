@@ -150,4 +150,11 @@ extension TrainStore {
         try? context.delete(model: CachedDocument.self, where: #Predicate { $0.key == key })
         save()
     }
+
+    /// When the document under `key` was saved; `nil` without one.
+    func documentFetchedAt(key: String) -> Date? {
+        var d = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key == key })
+        d.fetchLimit = 1
+        return (try? context.fetch(d))?.first?.fetchedAt
+    }
 }
