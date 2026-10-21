@@ -19,6 +19,9 @@ final class AppState {
     var errorDetails: String?
     var isLoading = false
     var selectedTab: AppTab
+    /// The platform's latest `GET /v1/me/sync`: what it has, what scoring is doing (pending
+    /// days, today's state). Asked at launch and while a sync waits for scores.
+    var syncStatus: SyncStatus?
     private(set) var dismissedInsightIDs: Set<String> = []
 
     static let historyDays = 90

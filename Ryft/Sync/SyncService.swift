@@ -35,6 +35,9 @@ final class SyncService {
     private(set) var hasBacklog = false
     /// HealthKit was locked (the phone is locked): the sync resumes after the unlock.
     private(set) var waitingForUnlock = false
+    /// What the last upload's responses said about scoring: the days queued, how long it
+    /// has recently taken (`SyncResponse.scoring`).
+    private(set) var lastScoring: SyncScoring?
     /// Uploads wait behind this gate (no consent to the current policy, no beta access)
     /// until it's passed. Not an error: something the user does (`OnboardingCoordinator`).
     private(set) var pausedFor: APIErrorCode?
@@ -128,6 +131,8 @@ final class SyncService {
         }
         pausedFor = nil
         health.migrateLegacyAnchors()
+        // The operator asked for one (`resync_requested_at`): this upload re-reads everything.
+        if engineState.fullResyncRequested { resetForFullResync() }
         advance(to: .reading)
         lastError = nil
         lastErrorDetails = nil
@@ -144,6 +149,7 @@ final class SyncService {
             }
             lastDaysTouched = result.touched
             hasBacklog = result.backlog
+            lastScoring = result.scoring
             if result.waitingForUnlock {
                 // Locked phone: not a failure. Unlock (or the next app start) resumes it.
                 waitingForUnlock = true
@@ -195,17 +201,31 @@ final class SyncService {
     /// `backfillDays` or if the backend database was recreated. The engine counts it as a
     /// backfill again (the platform answers the overlap as duplicates).
     func fullResync() async {
-        health.resetAnchors()
-        if let account = auth.accountID {
-            var state = SyncEngineState.load(account: account, defaults: env.defaults)
-            // The whole window in one go: no first-score window that would leave a backlog.
-            state.recentDone = true
-            state.backfillDone = false
-            state.streams = [:]
-            state.save(account: account, defaults: env.defaults)
-            engineState = state
-        }
+        resetForFullResync()
         await syncNow()
+    }
+
+    /// `GET /v1/me/sync` → `resync_requested_at`: the operator found data missing. Newer
+    /// than this account's last full re-sync: the next upload is one.
+    func fullResyncRequested(at requested: Date) {
+        guard let account = auth.accountID, requested > (engineState.lastFullResyncAt ?? .distantPast),
+              !engineState.fullResyncRequested else { return }
+        engineState.fullResyncRequested = true
+        engineState.save(account: account, defaults: env.defaults)
+    }
+
+    private func resetForFullResync() {
+        health.resetAnchors()
+        guard let account = auth.accountID else { return }
+        var state = SyncEngineState.load(account: account, defaults: env.defaults)
+        // The whole window in one go: no first-score window that would leave a backlog.
+        state.recentDone = true
+        state.backfillDone = false
+        state.streams = [:]
+        state.fullResyncRequested = false
+        state.lastFullResyncAt = env.clock.now()
+        state.save(account: account, defaults: env.defaults)
+        engineState = state
     }
 }
 
@@ -249,6 +269,10 @@ struct SyncEngineState: Codable, Equatable, Sendable {
     var backlogBytes = 0
     /// HealthKit deletions kept for the platform (`PendingDeletions`), counted.
     var pendingDeletions = 0
+    /// The last full re-sync (Profile, or the operator's request).
+    var lastFullResyncAt: Date?
+    /// `resync_requested_at` asked for one; the next upload does it.
+    var fullResyncRequested = false
     var lastError: String?
     var lastRequestID: String?
     var updatedAt: Date?
@@ -266,6 +290,8 @@ struct SyncEngineState: Codable, Equatable, Sendable {
         bytesUploaded = try c.decodeIfPresent(Int.self, forKey: .bytesUploaded) ?? 0
         backlogBytes = try c.decodeIfPresent(Int.self, forKey: .backlogBytes) ?? 0
         pendingDeletions = try c.decodeIfPresent(Int.self, forKey: .pendingDeletions) ?? 0
+        lastFullResyncAt = try c.decodeIfPresent(Date.self, forKey: .lastFullResyncAt)
+        fullResyncRequested = try c.decodeIfPresent(Bool.self, forKey: .fullResyncRequested) ?? false
         lastError = try c.decodeIfPresent(String.self, forKey: .lastError)
         lastRequestID = try c.decodeIfPresent(String.self, forKey: .lastRequestID)
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
@@ -373,6 +399,8 @@ actor SyncEngine {
         var pausedFor: APIErrorCode?
         /// HealthKit was locked (protected data); nothing is lost, the rest follows the unlock.
         var waitingForUnlock = false
+        /// The responses' `scoring`, merged: every day queued, the longest expected wait.
+        var scoring: SyncScoring?
     }
 
     /// The first score's window.
@@ -388,6 +416,7 @@ actor SyncEngine {
     private var state = SyncEngineState()
     private var account = ""
     private var touched = Set<String>()
+    private var scoring: SyncScoring?
     /// Measured on the last page of each stream.
     private var bytesPerRecord: [HealthStream: Double] = [:]
     /// The most records per page this run; a 413 lowers it.
@@ -424,6 +453,7 @@ actor SyncEngine {
         wipesAtStart = SyncEngineState.wipes(defaults)
         state = SyncEngineState.load(account: account, defaults: defaults)
         touched = []
+        scoring = nil
         maxRecords = health.pageSize
         stopRequested = false
         stoppedEarly = false
@@ -509,6 +539,7 @@ actor SyncEngine {
     private func finish(_ result: Result) -> Result {
         var r = result
         r.touched = touched.sorted()
+        r.scoring = scoring
         return r
     }
 
@@ -632,6 +663,8 @@ actor SyncEngine {
             return false
         }
         touched.formUnion(response.daysTouched)
+        scoring = SyncScoring(queuedDays: Set(scoring?.queuedDays ?? []).union(response.scoring.queuedDays).sorted(),
+                              expectedWithinSec: max(scoring?.expectedWithinSec ?? 0, response.scoring.expectedWithinSec))
         record(delta, bytes: body.count, response: response, stream: stream)
         await report(.accepted(stream, response))
         await report(.state(state))

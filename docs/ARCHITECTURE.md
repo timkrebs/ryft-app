@@ -192,12 +192,13 @@ That covers pull to refresh, app active, back online, HealthKit delivery, `BGApp
 and the silent push. Ad-hoc tasks and `onDaysTouched` are gone. The pipeline is a dependency
 graph of `await`s and a `TaskGroup`:
 
-    upload ──▶ awaitScoring(days_touched, ≤ 3 polls: 3 s, 6 s, 12 s) ──▶ refreshDays ──┬─▶ refreshTrends
-                                                                                         └─▶ refreshInsights
+    upload ──▶ awaitScoring(days_touched) ──▶ refreshDays ──┬─▶ refreshTrends
+                                                             └─▶ refreshInsights
 
 - **Stages.** They are a `SyncSteps` protocol.
-  - `LiveSyncSteps`: `SyncService.upload()` runs the `SyncEngine` (below);
-    `isScored` compares `computed_at` with the upload start; refreshes go through the Repository.
+  - `LiveSyncSteps`: `SyncService.upload()` runs the `SyncEngine` (below); `syncStatus()`
+    asks `GET /v1/me/sync` and keeps the answer in `AppState.syncStatus`; refreshes go
+    through the Repository.
   - The tests use fakes on the `TestClock`.
 - **The upload: `SyncEngine`** (an actor, `Sync/SyncService.swift`; `SyncService` is its
   `@MainActor` observable face):
@@ -218,6 +219,13 @@ graph of `await`s and a `TaskGroup`:
     current stream, per-stream records, bytes and date range, the last error with its
     request ID. Wiped on sign-out with the anchors.
   - The gate (`SyncService.gate`) is asked before every page.
+- **Scoring, by the platform's word** (no clock comparison): after an upload the
+  pipeline waits `SyncResponse.scoring.expected_within_sec`, then asks `GET /v1/me/sync`
+  until `pending_days` no longer holds the touched days, doubling the wait up to a
+  minute, five minutes at most. The silent push for a scored day ends the wait at once
+  (`ScoringSignal`) and joins the run, so it isn't refreshed twice. A `gate` in the
+  answer ends the wait and goes to onboarding; `resync_requested_at` newer than the
+  account's last full re-sync makes the next upload one.
 - **Nothing touched.** A sync that uploaded nothing only refreshes what's stale.
 - **Silent push.** It skips the upload and refreshes the pushed day.
 - **One in flight.** A trigger while a sync runs queues one rerun; later triggers join it.
@@ -257,7 +265,8 @@ graph of `await`s and a `TaskGroup`:
 - **Tests** (`SyncCoordinatorTests`, `ScheduledWorkTests`):
   - stage order
   - nothing uploaded
-  - poll limits and growth
+  - the scoring wait: the platform's estimate, doubling to a minute, five minutes, the
+    push ending it, a gate ending it
   - coalescing (four triggers → two uploads)
   - cancellation mid-wait
   - exponential backoff, and no retry on 4xx

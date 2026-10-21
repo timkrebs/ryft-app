@@ -380,7 +380,8 @@ private final class NoSteps: SyncSteps {
     var isWaitingForUnlock: Bool { false }
     var isUploading: Bool { false }
     func stopAfterCurrentPage() async {}
-    func isScored(_ days: [String], since: Date) async throws -> Bool { true }
+    var expectedScoringSeconds: Int? { nil }
+    func syncStatus() async throws -> SyncStatus { try await MockPlatformAPI().syncStatus() }
     func refreshDays(_ days: [String]) async throws {}
     func refreshTrends() async throws {}
     func refreshInsights() async throws {}

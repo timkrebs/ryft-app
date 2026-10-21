@@ -259,6 +259,7 @@ final class OnboardingCoordinator {
         if let config = answer.config { self.config = config }
         if let status = answer.status {
             syncStatus = status
+            state.syncStatus = status
             // The platform no longer reports a gate this phone still remembers: it's passed.
             switch status.gate {
             case nil:

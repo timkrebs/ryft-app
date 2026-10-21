@@ -16,8 +16,11 @@ protocol SyncSteps: AnyObject {
     var isUploading: Bool { get }
     /// Ends the upload after the page in flight (the app went to the background).
     func stopAfterCurrentPage() async
-    /// Whether every touched day was rescored at or after `since` (`computed_at`).
-    func isScored(_ days: [String], since: Date) async throws -> Bool
+    /// How long scoring has recently taken (`SyncResponse.scoring.expected_within_sec` of the
+    /// last upload); `nil` before an upload said.
+    var expectedScoringSeconds: Int? { get }
+    /// `GET /v1/me/sync`: the days scoring hasn't finished, today's state, any gate.
+    func syncStatus() async throws -> SyncStatus
     /// Fetches the touched days (and today) regardless of their TTL.
     func refreshDays(_ days: [String]) async throws
     func refreshTrends() async throws
@@ -30,9 +33,14 @@ protocol SyncSteps: AnyObject {
 
 /// Runs syncs as one pipeline with explicit dependencies:
 ///
-///     upload ──▶ awaitScoring(days_touched, ≤ 3 polls) ──▶ refreshDays ──┬─▶ refreshTrends
-///                                                                        └─▶ refreshInsights
+///     upload ──▶ awaitScoring(days_touched) ──▶ refreshDays ──┬─▶ refreshTrends
+///                                                             └─▶ refreshInsights
 ///
+/// - **Scoring, from the server.** After an upload the pipeline waits the platform's
+///   own estimate (`expected_within_sec`), then asks `GET /v1/me/sync` until
+///   `pending_days` no longer holds the touched days (doubling waits up to a minute, five
+///   minutes at most). The silent push for a scored day ends the wait at once and joins
+///   the run instead of queuing another refresh. A gate ends it too.
 /// - **One in flight.** A trigger while a sync runs queues a single rerun; more
 ///   triggers join that rerun (coalesced).
 /// - **Priorities.** User-initiated work (pull to refresh, app active, back
@@ -90,14 +98,19 @@ actor SyncCoordinator {
         var waitingForUnlock = false
     }
 
-    /// Polls for scoring after an upload; waits double each time (3 s, 6 s, 12 s).
-    static let maxPolls = 3
-    static let firstPollDelay: Duration = .seconds(3)
+    /// API.md: `expected_within_sec` is 30 until the platform has measured scoring.
+    static let defaultExpectedScoring = 30
+    static let minimumPollDelay: Duration = .seconds(2)
+    static let maximumPollDelay: Duration = .seconds(60)
+    /// After this long the days are refreshed anyway (their scores may still be pending).
+    static let maximumScoringWait: Duration = .seconds(300)
     static let maxUploadAttempts = 3
     static let firstBackoff: Duration = .seconds(2)
 
     private let steps: SyncSteps
     private let clock: AppClock
+    /// The silent push's "scored" for a pipeline that waits for it.
+    private let scoring = ScoringSignal()
     private var running: Task<Outcome, Never>?
     private var runningID: UUID?
     private var queued: Task<Outcome, Never>?
@@ -122,6 +135,10 @@ actor SyncCoordinator {
     @discardableResult
     func run(_ trigger: Trigger, afterUpload: (@Sendable () -> Void)? = nil) async -> Outcome {
         if trigger.isForeground { inBackground = false }
+        // The push a waiting pipeline was waiting for: it refreshes those days now; nothing to queue.
+        if case .silentPush(let days) = trigger, let current = running, await scoring.signal(Set(days)) {
+            return await current.value
+        }
         guard let current = running else { return await start(trigger, afterUpload: afterUpload.map { [$0] } ?? []).value }
         // Busy: one rerun after the current one, shared by every trigger meanwhile.
         if let afterUpload { queuedAfterUpload.append(afterUpload) }
@@ -187,10 +204,10 @@ actor SyncCoordinator {
         let background = trigger.isBackground || inBackground
         // The run clears itself before its outcome is returned, so `isRunning` is
         // false as soon as anyone has the outcome.
-        let task = Task(priority: trigger.priority) { [weak self, steps, clock] in
+        let task = Task(priority: trigger.priority) { [weak self, steps, clock, scoring] in
             let outcome = await APIClient.$runsInBackground.withValue(background) {
                 // Asked after the upload: a foreground run can end up in the background.
-                await Self.pipeline(trigger, steps: steps, clock: clock,
+                await Self.pipeline(trigger, steps: steps, clock: clock, scoring: scoring,
                                     inBackground: { [weak self] in
                                         if background { return true }
                                         return await self?.inBackground ?? true
@@ -235,7 +252,7 @@ actor SyncCoordinator {
 
     // MARK: the pipeline
 
-    private static func pipeline(_ trigger: Trigger, steps: SyncSteps, clock: AppClock,
+    private static func pipeline(_ trigger: Trigger, steps: SyncSteps, clock: AppClock, scoring: ScoringSignal,
                                  inBackground: @Sendable () async -> Bool,
                                  afterUpload: [@Sendable () -> Void]) async -> Outcome {
         var outcome = Outcome()
@@ -253,7 +270,6 @@ actor SyncCoordinator {
                 uploadDone()
                 touched = days
             } else {
-                let started = clock.now()
                 (touched, outcome.attempts) = try await uploadWithBackoff(steps, clock)
                 uploadDone()
                 outcome.touched = touched
@@ -275,7 +291,7 @@ actor SyncCoordinator {
                     return outcome
                 }
                 await steps.report(.awaitingScores)
-                outcome.polls = try await awaitScoring(touched, since: started, steps, clock)
+                outcome.polls = try await awaitScoring(touched, steps, clock, scoring)
             }
             outcome.touched = touched
             try Task.checkCancellation()
@@ -313,16 +329,31 @@ actor SyncCoordinator {
         throw CancellationError() // unreachable: the last attempt returns or throws
     }
 
-    /// Waits until scoring caught up with the upload, at most `maxPolls` times.
-    /// Gives up quietly: the days are refreshed either way.
-    private static func awaitScoring(_ days: [String], since: Date, _ steps: SyncSteps, _ clock: AppClock) async throws -> Int {
-        var delay = firstPollDelay
-        for poll in 1...maxPolls {
-            try await clock.sleep(for: delay)
-            if (try? await steps.isScored(days, since: since)) == true { return poll }
-            delay *= 2
+    /// Until scoring has finished the touched days, by the platform's word: a silent push
+    /// for one of them, or `GET /v1/me/sync` no longer listing them as pending. The first
+    /// wait is the platform's estimate, then waits double up to a minute, five minutes in
+    /// all. A gate ends the wait (nothing is scored behind it). Gives up quietly: the
+    /// days are refreshed either way. Returns how often it asked.
+    private static func awaitScoring(_ days: [String], _ steps: SyncSteps, _ clock: AppClock,
+                                     _ scoring: ScoringSignal) async throws -> Int {
+        var pending = Set(days)
+        let expected = await steps.expectedScoringSeconds ?? defaultExpectedScoring
+        var delay = max(minimumPollDelay, .seconds(expected))
+        var waited = Duration.zero
+        var polls = 0
+        while waited < maximumScoringWait {
+            delay = min(delay, maximumScoringWait - waited)
+            if try await scoring.wait(for: pending, timeout: delay, clock: clock) { return polls }
+            waited += delay
+            polls += 1
+            delay = min(delay * 2, maximumPollDelay)
+            // A failed ask is one more wait, not the end.
+            guard let status = try? await steps.syncStatus() else { continue }
+            if status.gate != nil { return polls }
+            pending.formIntersection(status.pendingDays)
+            if pending.isEmpty { return polls }
         }
-        return maxPolls
+        return polls
     }
 
     /// Worth retrying: no answer, or a server error that `APIClient` gave up on. Not 4xx.
@@ -336,15 +367,71 @@ actor SyncCoordinator {
     }
 }
 
+/// The silent push's "scoring finished these days", handed to a pipeline that waits for it
+/// (`SyncCoordinator.awaitScoring`).
+actor ScoringSignal {
+    private var waiting: (days: Set<String>, continuation: CheckedContinuation<Bool, Never>)?
+    /// The wait that's open; a parked half that arrives after it closed returns at once.
+    private var open: UUID?
+
+    /// `true` when a push for one of `days` came within `timeout`; `false` after it.
+    func wait(for days: Set<String>, timeout: Duration, clock: AppClock) async throws -> Bool {
+        let id = UUID()
+        open = id
+        return try await withThrowingTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                try await clock.sleep(for: timeout)
+                return false
+            }
+            group.addTask { await self.park(days, id) }
+            let first: Bool
+            do {
+                first = try await group.next() ?? false
+            } catch {
+                // Cancelled (sign-out, background): the parked half must end too.
+                group.cancelAll()
+                close(id)
+                throw error
+            }
+            group.cancelAll()
+            close(id)
+            return first
+        }
+    }
+
+    /// A push arrived for `days`: `true` when a waiting pipeline took it.
+    func signal(_ days: Set<String>) -> Bool {
+        guard let w = waiting, !w.days.isDisjoint(with: days) else { return false }
+        waiting = nil
+        w.continuation.resume(returning: true)
+        return true
+    }
+
+    private func park(_ days: Set<String>, _ id: UUID) async -> Bool {
+        await withCheckedContinuation { c in
+            if open == id { waiting = (days, c) } else { c.resume(returning: false) }
+        }
+    }
+
+    private func close(_ id: UUID) {
+        guard open == id else { return }
+        open = nil
+        waiting?.continuation.resume(returning: false)
+        waiting = nil
+    }
+}
+
 /// The stages against the real app: SyncService uploads, the Repository refreshes.
 @MainActor
 final class LiveSyncSteps: SyncSteps {
     private let state: AppState
     private let sync: SyncService
+    private let apiStatus: APIStatus
 
-    init(state: AppState, sync: SyncService) {
+    init(state: AppState, sync: SyncService, apiStatus: APIStatus? = nil) {
         self.state = state
         self.sync = sync
+        self.apiStatus = apiStatus ?? .shared
     }
 
     func upload() async throws -> [String] {
@@ -357,13 +444,16 @@ final class LiveSyncSteps: SyncSteps {
     var isUploading: Bool { sync.isSyncing }
     func stopAfterCurrentPage() async { await sync.stopAfterCurrentPage() }
 
-    func isScored(_ days: [String], since: Date) async throws -> Bool {
-        guard let first = days.min().flatMap(DayFormat.date(from:)),
-              let last = days.max().flatMap(DayFormat.date(from:)) else { return true }
-        let scores = try await state.env.api.days(from: first, to: last)
-        state.repository.store(scores: scores)
-        let scored = Dictionary(scores.map { ($0.day, $0.computedAt) }, uniquingKeysWith: { a, _ in a })
-        return days.allSatisfy { day in (scored[day] ?? nil).map { $0 >= since } ?? false }
+    var expectedScoringSeconds: Int? { sync.lastScoring?.expectedWithinSec }
+
+    /// `GET /v1/me/sync`, kept for the screens (Today's pending and scored states). A gate
+    /// goes to onboarding; an operator's re-sync request to the next upload.
+    func syncStatus() async throws -> SyncStatus {
+        let status = try await state.env.api.syncStatus()
+        state.syncStatus = status
+        if let gate = status.gate { apiStatus.observe([gate], enforced: false) }
+        if let requested = status.resyncRequestedAt { sync.fullResyncRequested(at: requested) }
+        return status
     }
 
     func refreshDays(_ days: [String]) async throws {

@@ -29,6 +29,8 @@ Store "What's New".
   every sync sends last night before the day's heart rate.
 - Leaving the app no longer stops an import: it continues in the background. A sync that
   finds the iPhone locked waits for the unlock instead of failing.
+- New scores appear as soon as the platform has computed them, instead of after a fixed
+  wait.
 
 ### Fixed
 - A missing consent or invite code no longer shows as "RYFT didn't accept your sign-in";
