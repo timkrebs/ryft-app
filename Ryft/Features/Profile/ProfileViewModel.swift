@@ -391,7 +391,8 @@ final class SyncDetailsModel {
     }
 
     func copyDiagnostics() {
-        UIPasteboard.general.string = diagnostics
+        // Health times to the second: on this iPhone only, and not for long.
+        LocalPasteboard.copy(diagnostics)
         copied = true
     }
 }
@@ -731,9 +732,13 @@ enum FeedbackPayload {
     /// "duration" back to "What's included" in `ReportProblemView.included`).
     static func duration(of request: APIStatus.RequestFailure) -> Int? { nil }
 
-    /// The path without its query or fragment: `?wake=06:30` is a wake time.
+    /// The path without its query or fragment (`?wake=06:30` is a wake time), and `{id}` for every UUID in it
+    /// (`/v1/devices/{id}/push` carries the install ID). Days stay: day precision is fine.
     static func path(_ raw: String) -> String {
-        String(raw.prefix { $0 != "?" && $0 != "#" })
+        raw.prefix { $0 != "?" && $0 != "#" }
+            .split(separator: "/", omittingEmptySubsequences: false)
+            .map { UUID(uuidString: String($0)) == nil ? String($0) : "{id}" }
+            .joined(separator: "/")
     }
 
     /// The sync, one line each:
@@ -901,8 +906,6 @@ final class ReportProblemModel {
     static let countFrom = 3500
     /// Reports kept for later at most (the platform takes 10 a day).
     static let maxQueued = 20
-    /// "Copy message" leaves the text on this iPhone's pasteboard for this long.
-    static let pasteboardLifetime: TimeInterval = 10 * 60
 
     private let env: AppEnvironment
     private let apiStatus: APIStatus
@@ -1005,11 +1008,8 @@ final class ReportProblemModel {
         Dictionary(uniqueKeysWithValues: FeatureFlag.allCases.map { ($0.rawValue, env.flags.isOn($0)) })
     }
 
-    /// On this iPhone only (not Handoff's universal clipboard), and gone after ten minutes.
     func copyMessage() {
-        UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: message]],
-                                      options: [.localOnly: true,
-                                                .expirationDate: Date.now.addingTimeInterval(Self.pasteboardLifetime)])
+        LocalPasteboard.copy(message)
     }
 
     // MARK: sending
@@ -1158,11 +1158,23 @@ final class ReportProblemModel {
 }
 
 extension ProfileViewModel {
-    /// Signed out or another account: the last requests and a report's draft were the previous account's, and
-    /// must never go out as this one.
-    func accountChanged() {
-        apiStatus.forgetRequests()
+    /// Signed out or another account (`previous`: the account before): its last requests (and the responses still
+    /// on their way) and a report's draft were that account's, and must never go out as this one. A first sign-in
+    /// leaves no account behind, so its first requests (Apple authorization, the gate check) stay.
+    func accountChanged(from previous: String?) {
+        if previous != nil { apiStatus.forgetRequests() }
         report.accountChanged()
+    }
+}
+
+/// Copies text for this iPhone only (not Handoff's universal clipboard), gone after ten minutes: Copy message
+/// and Copy diagnostics.
+enum LocalPasteboard {
+    static let lifetime: TimeInterval = 10 * 60
+
+    @MainActor static func copy(_ text: String) {
+        UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: text]],
+                                      options: [.localOnly: true, .expirationDate: Date.now.addingTimeInterval(lifetime)])
     }
 }
 

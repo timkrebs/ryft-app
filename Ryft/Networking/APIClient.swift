@@ -303,6 +303,8 @@ final class APIClient: RyftDataSource {
             throw APIError.notConfigured
         }
         let status = await statusSink()
+        // What comes back belongs to the account this started for (`APIStatus.forgetRequests`).
+        let epoch = await status.epoch
         // One gate, not twenty failed requests: behind the invite gate only onboarding goes out.
         if await status.inviteBlocked, !Self.isOpenBehindInviteGate(method, path) {
             throw APIError.http(403, "invite required", code: .inviteRequired)
@@ -329,10 +331,10 @@ final class APIClient: RyftDataSource {
                 if unavailable > 0 { await status.finishedWaiting() }
                 // Served, but a gate in warn mode would have refused it: prompt for what's missing.
                 if let warned = response.map(Self.gates), !warned.isEmpty {
-                    await status.observe(warned, enforced: false)
+                    await status.observe(warned, enforced: false, epoch: epoch)
                 }
                 await status.served(.init(date: .now, method: method, path: path, status: code,
-                                          requestID: response?.value(forHTTPHeaderField: "X-Request-ID")))
+                                          requestID: response?.value(forHTTPHeaderField: "X-Request-ID")), epoch: epoch)
                 return (code, data)
             }
             let retryAfter = response.flatMap(Self.retryAfter)
@@ -367,9 +369,9 @@ final class APIClient: RyftDataSource {
             let requestID = response?.value(forHTTPHeaderField: "X-Request-ID") ?? body?.requestId
             let error = APIError.http(code, message, requestID: requestID, code: body?.code)
             APIStatus.log.error("\(code) \(body?.code?.rawValue ?? "", privacy: .public) on \(method, privacy: .public) \(path, privacy: .public), request \(requestID ?? "-", privacy: .public)")
-            if let gate = error.gate { await status.observe([gate], enforced: true) }
+            if let gate = error.gate { await status.observe([gate], enforced: true, epoch: epoch) }
             await status.record(.init(date: .now, method: method, path: path, status: code,
-                                      code: body?.code?.rawValue, requestID: requestID))
+                                      code: body?.code?.rawValue, requestID: requestID), epoch: epoch)
             throw error
         }
     }

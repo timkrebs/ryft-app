@@ -838,6 +838,46 @@ private final class FailingFeedbackQueue: FeedbackQueueStore {
     func save(_ items: [QueuedFeedback]) -> Bool { false }
 }
 
+/// Holds each message's first post (the hook sleeps on the test clock); a repeat goes straight through, so a
+/// double post fails on the count instead of waiting forever.
+private final class FirstPostHold: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seen: Set<String> = []
+    func isFirst(_ message: String) -> Bool { lock.withLock { seen.insert(message).inserted } }
+}
+
+/// Answers every request: `200`, with a gate header on `/v1/gate` and a `404` on `/v1/missing`.
+private final class LateReplyURLProtocol: URLProtocol {
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let path = request.url?.path ?? ""
+        var headers = ["X-Request-ID": "late-1"]
+        if path == "/v1/gate" { headers["X-RYFT-Gate"] = "consent_required" }
+        guard let url = request.url,
+              let response = HTTPURLResponse(url: url, statusCode: path == "/v1/missing" ? 404 : 200,
+                                             httpVersion: "HTTP/1.1", headerFields: headers) else { return }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("{}".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+/// A token after one second on the test clock: the request is on its way while the test switches accounts.
+private final class SlowTokens: AccessTokenProvider, @unchecked Sendable {
+    let clock: TestClock
+    init(clock: TestClock) { self.clock = clock }
+    func accessToken() async throws -> String {
+        try? await clock.sleep(for: .seconds(1))
+        return "token"
+    }
+    func refreshedAccessToken() async throws -> String { "token" }
+    func rejectedAfterRefresh() async {}
+}
+
 @Suite("Report a problem")
 @MainActor
 struct ReportProblemTests {
@@ -895,6 +935,9 @@ struct ReportProblemTests {
         let r = request(0, status: 200, path: "/v1/sleep/plan?wake=06:30", id: "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c")
         #expect(FeedbackPayload.line(r) == "GET /v1/sleep/plan 200 - 01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c \(r.date.ISO8601Format())")
         #expect(FeedbackPayload.path("/v1/trends?metric=hrv&range=week#x") == "/v1/trends")
+        // IDs in a path become `{id}` (the install ID in `/v1/devices/…/push`); days stay.
+        #expect(FeedbackPayload.path("/v1/devices/01A14FFA-EB7C-73E3-9CF9-262C70D5ED9C/push") == "/v1/devices/{id}/push")
+        #expect(FeedbackPayload.path("/v1/journal/2026-10-21") == "/v1/journal/2026-10-21")
         let newest = Date(timeIntervalSince1970: 1_792_600_000)
         #expect(FeedbackPayload.syncLines(Self.sync) == [
             "phase incremental · recent true · backfill true",
@@ -1158,9 +1201,15 @@ struct ReportProblemTests {
         report.stage(message: "A's words", category: .data, includeDiagnostics: false, context: .preview,
                      result: .rateLimited)
 
-        profile.accountChanged()
+        // A first sign-in leaves no account behind: the draft goes, nothing else.
+        profile.accountChanged(from: nil)
+        #expect(status.requests.count == 2 && status.epoch == 0 && report.message.isEmpty)
 
-        #expect(status.requests.isEmpty && status.failures.isEmpty)
+        report.stage(message: "A's words", category: .data, includeDiagnostics: false, context: .preview,
+                     result: .rateLimited)
+        profile.accountChanged(from: "account-a")
+
+        #expect(status.requests.isEmpty && status.failures.isEmpty && status.epoch == 1)
         #expect(report.message.isEmpty && report.category == .other && report.includeDiagnostics)
         #expect(report.context == nil && report.result == nil && report.resultDetails == nil)
         #expect(report.payload().requestIds.isEmpty)
@@ -1182,15 +1231,19 @@ struct ReportProblemTests {
     // MARK: concurrency
 
     /// A report `send` posts while a flush runs is posted once: the flush reads the queue again before each post.
-    @Test func sendDuringAFlushPostsEachReportOnce() async {
+    @Test(.timeLimit(.minutes(1))) func sendDuringAFlushPostsEachReportOnce() async {
         let api = MockPlatformAPI()
         let clock = TestClock()
         let (model, env) = model(api, online: false, clock: clock)
         model.message = "A"
         await model.send() // queued while offline
         env.connectivityMonitor.update(true)
-        // B returns after 1 s, A after 2 s: B is settled (and dequeued) while the flush still waits on A.
-        api.beforeFeedback = { post in try? await clock.sleep(for: .seconds(post.message == "B" ? 1 : 2)) }
+        // B returns after 1 s, A after 2 s: B is settled (and dequeued) while the flush still waits on A. A second
+        // post of either isn't held, so a regression shows in the count.
+        let hold = FirstPostHold()
+        api.beforeFeedback = { post in
+            if hold.isFirst(post.message) { try? await clock.sleep(for: .seconds(post.message == "B" ? 1 : 2)) }
+        }
 
         model.message = "B"
         let sending = Task { await model.send() }
@@ -1200,12 +1253,68 @@ struct ReportProblemTests {
 
         clock.advance(by: .seconds(1))
         await sending.value
-        clock.advance(by: .seconds(1))
+        clock.advance(by: .seconds(60))
         await flushing.value
         await model.flush()
 
         #expect(api.feedbackPosts.map(\.message).sorted() == ["A", "B"])
         #expect(api.count("feedback") == 2 && model.waiting == 0)
+    }
+
+    /// The account ends while a flush has a report on its way: the next report doesn't go out (as anyone).
+    @Test(.timeLimit(.minutes(1))) func anAccountSwitchDuringAFlushStopsIt() async {
+        let api = MockPlatformAPI()
+        let clock = TestClock()
+        let (model, env) = model(api, online: false, clock: clock)
+        model.message = "First"
+        await model.send()
+        model.message = "Second"
+        await model.send()
+        #expect(model.waiting == 2)
+        env.connectivityMonitor.update(true)
+        let hold = FirstPostHold()
+        api.beforeFeedback = { post in
+            if hold.isFirst(post.message) { try? await clock.sleep(for: .seconds(1)) }
+        }
+
+        let flushing = Task { await model.flush() }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        await env.auth.signOut()
+        #expect(env.auth.accountID == nil)
+        clock.advance(by: .seconds(60))
+        await flushing.value
+
+        #expect(api.feedbackPosts.map(\.message) == ["First"]) // already on its way; the second stays home
+    }
+
+    /// A response to a request that started for the previous account lands nowhere: not in the requests, not
+    /// in the failures, not as a gate (`APIStatus.epoch`).
+    @Test(.timeLimit(.minutes(1))) func aResponseFromThePreviousAccountIsNotRecorded() async {
+        let clock = TestClock()
+        let status = APIStatus()
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [LateReplyURLProtocol.self]
+        let base = URL(string: "https://api.test")!
+        let client = APIClient(session: URLSession(configuration: config), tokens: SlowTokens(clock: clock),
+                               sleep: { _ in }, baseURL: base, status: status)
+        func get(_ path: String) -> Task<Void, Never> {
+            Task { _ = try? await client.data("GET", path: path, body: Optional<Int>.none, base: base) }
+        }
+
+        // Without a switch, a response is recorded.
+        let before = get("/v1/me")
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(1))
+        await before.value
+        #expect(status.requests.count == 1)
+
+        let late = ["/v1/me", "/v1/gate", "/v1/missing"].map(get)
+        #expect(await eventually { clock.pendingSleeps == 3 })
+        status.forgetRequests() // the account changed while they were on their way
+        clock.advance(by: .seconds(1))
+        for request in late { await request.value }
+
+        #expect(status.requests.isEmpty && status.failures.isEmpty && status.gates.isEmpty)
     }
 
     // MARK: privacy
@@ -1236,10 +1345,14 @@ struct ReportProblemTests {
         engine.save(account: try #require(env.auth.accountID), defaults: env.defaults)
 
         let status = APIStatus()
-        for (path, code) in [("/v1/sleep/plan?wake=06:30", 200), ("/v1/journal/2026-10-21", 200),
-                             ("/v1/trends?metric=hrv&range=week", 200), ("/v1/days/2026-10-18", 200), ("/v1/me", 503)] {
-            status.record(.init(date: env.clock.now(), method: "GET", path: path, status: code,
-                                requestID: "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c"))
+        let install = env.settings.deviceId.uuidString.lowercased()
+        let workout = UUID().uuidString.lowercased()
+        let requestIDs = (0..<7).map { _ in UUID().uuidString.lowercased() }
+        for (i, (method, path, code)) in [("GET", "/v1/sleep/plan?wake=06:30", 200), ("GET", "/v1/journal/2026-10-21", 200),
+                                          ("GET", "/v1/trends?metric=hrv&range=week", 200), ("GET", "/v1/days/2026-10-18", 200),
+                                          ("GET", "/v1/me", 503), ("POST", "/v1/devices/\(install)/push", 204),
+                                          ("GET", "/v1/workouts/\(workout)", 200)].enumerated() {
+            status.record(.init(date: env.clock.now(), method: method, path: path, status: code, requestID: requestIDs[i]))
         }
         let sync = SyncService(env: env)
         let profile = ProfileViewModel(state: state, sync: sync,
@@ -1274,7 +1387,19 @@ struct ReportProblemTests {
         #expect(!syncText.contains("422") && !syncText.contains("sample out of range")) // free text stays home
         let sent = try #require(String(data: APIClient.jsonEncoder.encode(post), encoding: .utf8))
         #expect(!sent.contains("wake=") && !sent.contains("06:30") && !sent.contains("metric="))
-        #expect(!sent.contains(env.settings.deviceId.uuidString.lowercased())) // the install ID stays home
+        // The install ID and other IDs in paths stay home: the only UUIDs are request IDs, in their place.
+        #expect(!sent.lowercased().contains(install) && !sent.lowercased().contains(workout))
+        let allowed = Set(requestIDs + [ReportContext.preview.requestID].compactMap { $0 })
+        let uuid = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/
+        for value in d.values {
+            for found in value.matches(of: uuid) { #expect(allowed.contains(String(found.output)), "\(found.output)") }
+        }
+        for line in try #require(d["requests"]).components(separatedBy: "\n") {
+            let path = line.components(separatedBy: " ")[1]
+            #expect(path.split(separator: "/").allSatisfy { UUID(uuidString: String($0)) == nil }, "\(path)")
+        }
+        #expect(d["requests"]?.contains("POST /v1/devices/{id}/push 204") == true)
+        #expect(d["requests"]?.contains("GET /v1/workouts/{id} 200") == true)
         for field in ["readiness", "recovery", "sleep_performance", "hrv_ms", "\"rhr\"", "sleep_actual_min",
                       "resp_rate", "calibrating\":"] {
             #expect(!sent.contains(field), "\(field)")
