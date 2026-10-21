@@ -71,4 +71,32 @@ struct ChartStyleTests {
         #expect(bar.typical == 43...47)
         #expect(RangeBar(spec: .hrv, value: 52, series: nil) == nil)
     }
+
+    // MARK: T0 item 4: "— vs 7 d" next to a full line
+
+    /// Today's Trends card: 7 readiness points, the newest 80. `vsSevenDayMean` is NOT nil here (it needs one
+    /// earlier point inside the 7 days before the newest); the delta is "flat" (< 2 %), and a flat delta renders
+    /// as "—" followed by the reference "vs 7 d" (DeltaLabel.text, DeltaLabel.swift ~L41). A nil delta renders
+    /// nothing at all (`if let delta`), so the placeholder in the screenshot is the flat case.
+    @Test func aFlatSevenDayDeltaReadsAsABareDash() throws {
+        let values: [Double] = [79, 81, 78, 80, 79, 81, 80]
+        let points = values.enumerated().map { TrendPoint(day: "2026-10-\(15 + $0.offset)", value: $0.element) }
+        let delta = try #require(MetricDelta.vsSevenDayMean(points))
+        #expect(delta.isFlat)
+        #expect(DeltaLabel.text(delta, spec: .readiness) == "—")
+        #expect(DeltaLabel.spoken(delta, spec: .readiness, reference: "vs 7 d") == "No change vs 7 d")
+        withKnownIssue("T2: a flat delta must not look like a missing one (hide it, or say 'no change')") {
+            #expect(DeltaLabel.text(delta, spec: .readiness) != "—")
+        }
+    }
+
+    @Test func theDeltaIsNilOnlyWithoutAnEarlierPointInTheWeek() {
+        let one = [TrendPoint(day: "2026-10-21", value: 80)]
+        #expect(MetricDelta.vsSevenDayMean(one) == nil)
+        let stale = [TrendPoint(day: "2026-10-01", value: 70), TrendPoint(day: "2026-10-21", value: 80)]
+        #expect(MetricDelta.vsSevenDayMean(stale) == nil)        // earlier points older than 7 days don't count
+        let gaps = [TrendPoint(day: "2026-10-15", value: nil), TrendPoint(day: "2026-10-20", value: 70),
+                    TrendPoint(day: "2026-10-21", value: 80)]
+        #expect(MetricDelta.vsSevenDayMean(gaps) != nil)
+    }
 }
