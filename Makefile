@@ -36,6 +36,7 @@ strings: build
 # String catalogs complete in English and German, nothing stale.
 lint: check-entitlements
 	python3 scripts/lint-strings.py
+	python3 scripts/check-shared-types.py
 
 # Every key in Ryft.entitlements has a capability; no empty arrays (CLAUDE.md → signing).
 check-entitlements:

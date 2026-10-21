@@ -207,6 +207,7 @@ struct TrainTodayCard: View {
             }
         } else {
             // No plan: start one anyway, empty or as last time.
+            let last = model.historyDetail
             Card {
                 VStack(alignment: .leading, spacing: 12) {
                     header
@@ -221,7 +222,7 @@ struct TrainTodayCard: View {
                         }
                         .buttonStyle(TealButtonStyle())
                         .accessibilityIdentifier("today.train.empty")
-                        if model.historyDetail != nil {
+                        if last != nil {
                             Button {
                                 Task { await coordinator.quickStart(.repeatLast) }
                             } label: {
@@ -231,7 +232,7 @@ struct TrainTodayCard: View {
                             .accessibilityIdentifier("today.train.repeat")
                         }
                     }
-                    if let last = model.historyDetail {
+                    if let last {
                         Text(last)
                             .font(.ryft(.caption))
                             .foregroundStyle(Theme.textTertiary)

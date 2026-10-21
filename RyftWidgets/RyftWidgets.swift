@@ -81,13 +81,14 @@ private struct LockScreenView: View {
                     Text(context.attributes.sessionTitle)
                         .font(.caption)
                         .foregroundStyle(Brand.mist.opacity(0.6))
+                        .privacySensitive()
                 }
                 Spacer()
                 Clock(context: context)
                     .font(.system(size: 40, weight: .semibold, design: .rounded))
                     .foregroundStyle(Brand.mist)
             }
-            if context.state.resting { Progress(state: context.state) }
+            if context.state.resting, !context.isStale { Progress(state: context.state) }
             HStack {
                 NextLine(state: context.state)
                     .font(.callout)
@@ -103,29 +104,29 @@ private struct LockScreenView: View {
     }
 }
 
-/// "Next: Bench press · set 3 of 4 · 5 × 80 kg".
+/// "Next: Bench press · set 3 of 4 · 5 × 80 kg" (hidden on a locked screen when the user asks
+/// iOS to hide sensitive content).
 private struct NextLine: View {
     let state: RestTimerAttributes.ContentState
 
     var body: some View {
         Text("Next: \(state.next)")
+            .privacySensitive()
     }
 }
 
-/// Resting: counts down to `endsAt`, "Go" once it's over. Otherwise the workout's elapsed time.
+/// Resting: counts down to `endsAt`. Otherwise (and once a rest has run out, even with the app
+/// not running to say so) the workout's elapsed time.
 private struct Clock: View {
     let context: ActivityViewContext<RestTimerAttributes>
 
     var body: some View {
         let state = context.state
-        if !state.resting {
-            Text(timerInterval: context.attributes.startedAt...Date.distantFuture, countsDown: false)
+        if !state.resting || context.isStale || state.endsAt <= .now {
+            Text(timerInterval: min(context.attributes.startedAt, .now)...Date.distantFuture, countsDown: false)
                 .monospacedDigit()
                 .multilineTextAlignment(.trailing)
                 .foregroundStyle(Brand.mist)
-        } else if state.endsAt <= .now {
-            Text("Go")
-                .foregroundStyle(Brand.teal)
         } else {
             Text(timerInterval: Date.now...state.endsAt, countsDown: true)
                 .monospacedDigit()
@@ -166,7 +167,8 @@ private struct DoneLink: View {
 }
 
 private extension RestTimerAttributes {
-    static let preview = RestTimerAttributes(sessionTitle: "Upper A", startedAt: .now.addingTimeInterval(-23 * 60))
+    static let preview = RestTimerAttributes(sessionTitle: "Upper A", startedAt: .now.addingTimeInterval(-23 * 60),
+                                             sessionID: UUID())
 }
 
 private extension RestTimerAttributes.ContentState {

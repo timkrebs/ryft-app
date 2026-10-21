@@ -37,15 +37,23 @@ struct RestTimerAttributes: ActivityAttributes {
     var sessionTitle: String
     /// When the workout started: the elapsed time counts from it.
     var startedAt: Date
+    /// The workout it shows; `nil` for one an older version started (never reused).
+    var sessionID: UUID?
 
-    init(sessionTitle: String, startedAt: Date) {
+    init(sessionTitle: String, startedAt: Date, sessionID: UUID?) {
         self.sessionTitle = sessionTitle
         self.startedAt = startedAt
+        self.sessionID = sessionID
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         sessionTitle = try c.decode(String.self, forKey: .sessionTitle)
-        startedAt = try c.decodeIfPresent(Date.self, forKey: .startedAt) ?? .now
+        startedAt = try c.decodeIfPresent(Date.self, forKey: .startedAt) ?? .distantPast
+        sessionID = try c.decodeIfPresent(UUID.self, forKey: .sessionID)
     }
 }
+
+/// The workout on the lock screen and in the Dynamic Island, from the session's start to its
+/// end: elapsed time and the next set, and the countdown while resting. Local only: started,
+/// updated and ended from the app, no push.

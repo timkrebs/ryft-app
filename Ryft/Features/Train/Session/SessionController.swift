@@ -60,7 +60,19 @@ final class SessionController: Identifiable {
 
     /// The Live Activity's workout view: elapsed time and the next set.
     private func showWorkout() {
-        liveActivity?.workout(session: session.title, startedAt: session.startedAt, next: nextLabel())
+        lastActivityNext = nextLabel()
+        liveActivity?.workout(session: session.id, title: session.title, startedAt: session.startedAt,
+                              next: lastActivityNext ?? "")
+    }
+
+    /// What the lock screen says comes next, so a change that doesn't move it sends nothing.
+    private var lastActivityNext: String?
+
+    /// After an edit (a set checked, unchecked, added, deleted or changed; an exercise added,
+    /// removed or moved): the lock screen's next set follows.
+    private func refreshActivity() {
+        guard nextLabel() != lastActivityNext else { return }
+        if rest.isRunning { persistRest(exercise: nil) } else { showWorkout() }
     }
 
     /// Resting while the timer runs, active otherwise (unless paused or ending).
@@ -118,6 +130,7 @@ final class SessionController: Identifiable {
     }
 
     func nextLabel(after ex: LocalSessionExercise? = nil) -> String {
+        guard !exercises.isEmpty else { return String(localized: "Add an exercise") }
         guard let next = nextUp(after: ex) else { return String(localized: "Last set done — finish when ready") }
         let sets = next.exercise.orderedSets
         let n = (sets.firstIndex { $0.id == next.set.id } ?? 0) + 1
@@ -156,8 +169,6 @@ final class SessionController: Identifiable {
     func toggleCheck(_ set: LocalSet, in ex: LocalSessionExercise) {
         if set.isCompleted {
             set.completedAt = nil
-            // The set is open again: it may be the next one.
-            if !rest.isRunning { showWorkout() }
         } else {
             let g = ghost(for: set, in: ex)
             if set.reps == nil { set.reps = g.reps }
@@ -192,12 +203,18 @@ final class SessionController: Identifiable {
             s.setIndex = i
             s.updatedAt = .now
         }
-        sync.sessionChanged(session)
+        edited()
     }
 
     private func changed(_ set: LocalSet) {
         set.updatedAt = .now
+        edited()
+    }
+
+    /// Any change: the upload follows (debounced), and the lock screen's next set.
+    private func edited() {
         sync.sessionChanged(session)
+        refreshActivity()
     }
 
     // MARK: keypad
@@ -326,7 +343,7 @@ final class SessionController: Identifiable {
 
     func add(_ exercise: Exercise) {
         SessionFactory.add(exercise, to: session, sets: 3, in: store)
-        sync.sessionChanged(session)
+        edited()
     }
 
     func remove(_ ex: LocalSessionExercise) {
@@ -335,14 +352,14 @@ final class SessionController: Identifiable {
         session.exercises.removeAll { $0.id == ex.id }
         store.context.delete(ex)
         renumber()
-        sync.sessionChanged(session)
+        edited()
     }
 
     func move(from source: IndexSet, to destination: Int) {
         var list = exercises
         list.move(fromOffsets: source, toOffset: destination)
         for (i, ex) in list.enumerated() { ex.position = i }
-        sync.sessionChanged(session)
+        edited()
     }
 
     /// Links an exercise with the one below it, or takes it out of its superset.
@@ -357,7 +374,7 @@ final class SessionController: Identifiable {
             ex.supersetGroup = group
             list[i + 1].supersetGroup = group
         }
-        sync.sessionChanged(session)
+        edited()
     }
 
     /// A superset left with one exercise isn't one any more.
@@ -420,9 +437,10 @@ final class SessionController: Identifiable {
         session.restTotal = rest.total
         store.save()
         guard let end = rest.endsAt else { return }
-        liveActivity?.show(session: session.title, startedAt: session.startedAt, endsAt: end, total: rest.total,
-                           exercise: exercise ?? nextUp?.exercise.name ?? session.title,
-                           next: nextLabel())
+        lastActivityNext = nextLabel()
+        liveActivity?.show(session: session.id, title: session.title, startedAt: session.startedAt, endsAt: end,
+                           total: rest.total, exercise: exercise ?? nextUp?.exercise.name ?? session.title,
+                           next: lastActivityNext ?? "")
     }
 
     private func restEnded() {
@@ -430,7 +448,8 @@ final class SessionController: Identifiable {
         session.restEndsAt = nil
         session.restTotal = 0
         store.save()
-        liveActivity?.finish(next: nextLabel())
+        lastActivityNext = nextLabel()
+        liveActivity?.finish(session: session.id, next: lastActivityNext ?? "")
     }
 
     private func startTicker() {

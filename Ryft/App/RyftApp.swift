@@ -84,9 +84,9 @@ struct RyftApp: App {
         }
         // A sync that found HealthKit locked runs again once the phone is unlocked.
         BackgroundWork.resumeOnUnlock(coordinator: coordinator) { SyncService.shared.waitingForUnlock }
-        // Quick actions, App Intents and the control start a workout for a signed-in account (or
-        // demo data); during the session restore they wait (`WorkoutLauncher.runPending`).
-        WorkoutLauncher.canStart = { AuthService.shared.isSignedIn || Settings.shared.demoMode }
+        // Quick actions, App Intents and the control start a workout once the tabs are on screen
+        // for an account (or demo data); before that they wait (`WorkoutLauncher`).
+        WorkoutLauncher.hasAccount = { AuthService.shared.isSignedIn || Settings.shared.demoMode }
         WorkoutLauncher.isRestoring = { AuthService.shared.state == .restoring }
         TrainCoordinator.shared.onActiveChange = { WorkoutLauncher.updateShortcutItems(resume: $0) }
         WorkoutLauncher.updateShortcutItems(resume: TrainCoordinator.shared.active != nil)
@@ -115,6 +115,9 @@ struct RyftApp: App {
                 // Signed out, or a different account: forget the previous user's screens.
                 .onChange(of: auth.accountID) { old, new in
                     Task { await coordinator.cancel() }
+                    // A workout asked for before, or the previous account's open one, doesn't carry over.
+                    WorkoutLauncher.discardPending()
+                    trainCoordinator.accountChanged()
                     if old != nil { state.reset() }
                     // That account's gates, steps and sync state are its own.
                     screens.onboarding.switchAccount(new)
@@ -126,6 +129,10 @@ struct RyftApp: App {
                     // A link that arrived signed out; this account's push registration.
                     screens.router.openPending()
                     Task { await screens.push.refresh() }
+                }
+                // A restore that ended signed out: a start asked for during it doesn't wait for a sign-in.
+                .onChange(of: auth.state) { _, now in
+                    if now == .signedOut { WorkoutLauncher.discardPending() }
                 }
                 // A gate the platform reported (a 403 with a code, or X-RYFT-Gate): what's missing now.
                 .onChange(of: APIStatus.shared.gates) { _, _ in
@@ -215,7 +222,6 @@ struct RyftApp: App {
 
     private func bootstrap() async {
         guard !env.isDemo else {
-            await WorkoutLauncher.runPending()
             await state.refresh()
             return
         }
@@ -227,8 +233,6 @@ struct RyftApp: App {
         // Behind an enforced invite gate nothing but onboarding answers; this reruns once
         // it's passed (`BootstrapKey.inviteBlocked`). A warning blocks nothing.
         guard !APIStatus.shared.inviteBlocked else { return }
-        // A workout asked for from the home screen or Siri while the session was restored.
-        await WorkoutLauncher.runPending()
         guard env.health.isAvailable else {
             await state.refresh()
             return
@@ -370,7 +374,14 @@ struct RootView: View {
 
     private var onboarding: OnboardingCoordinator { screens.onboarding }
 
+    /// The tabs: a workout asked for from the home screen, Siri or the control starts here.
     private var tabs: some View {
+        tabBar
+            .onAppear { Task { await WorkoutLauncher.tabsAppeared() } }
+            .onDisappear { WorkoutLauncher.tabsDisappeared() }
+    }
+
+    private var tabBar: some View {
         tabView
             // From now on this account's gates are sheets, not the full-screen flow.
             .onAppear { onboarding.reachedTabs() }

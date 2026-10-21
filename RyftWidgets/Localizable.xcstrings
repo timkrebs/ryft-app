@@ -11,17 +11,6 @@
         }
       }
     },
-    "Go" : {
-      "comment" : "Live Activity countdown once the rest is over.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "Los"
-          }
-        }
-      }
-    },
     "High" : {
       "localizations" : {
         "de" : {

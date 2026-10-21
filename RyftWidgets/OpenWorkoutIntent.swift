@@ -8,6 +8,7 @@ struct OpenWorkoutIntent: AppIntent {
     static let title: LocalizedStringResource = "Start or resume workout"
     static let openAppWhenRun = true
     static let isDiscoverable = false
+    static let authenticationPolicy = IntentAuthenticationPolicy.requiresAuthentication
 
     func perform() async throws -> some IntentResult {
         .result()

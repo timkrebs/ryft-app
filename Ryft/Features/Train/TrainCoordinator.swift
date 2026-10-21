@@ -26,10 +26,16 @@ final class TrainCoordinator {
     /// The home-screen quick action says Start or Resume (`WorkoutLauncher`).
     @ObservationIgnored var onActiveChange: ((Bool) -> Void)?
 
-    init(sync: TrainSyncService? = nil, library: TrainLibrary? = nil) {
+    /// The workout's Live Activity; `nil` in tests.
+    private let liveActivity: RestActivityController?
+
+    init(sync: TrainSyncService? = nil, library: TrainLibrary? = nil, liveActivities: Bool = true) {
         self.sync = sync ?? .shared
         self.library = library ?? .shared
+        liveActivity = liveActivities ? .shared : nil
         active = self.sync.store.activeSession()
+        // An activity left from a workout that's over (or an older version) goes.
+        liveActivity?.endAll(except: active?.id)
     }
 
     // MARK: quick start
@@ -58,8 +64,18 @@ final class TrainCoordinator {
             resume()
             return .resumed
         }
+        // The cached plan day has no date: one from another day is asked for again first.
+        var planned = library.today != nil
+        if planned, kind == .auto, library.todayIsStale() {
+            planned = await library.refreshToday() && library.today != nil
+            refreshActive()
+            if active != nil {
+                resume()
+                return .resumed
+            }
+        }
         switch kind {
-        case .auto where library.today != nil:
+        case .auto where planned:
             startFromToday()
             return .plan
         case .repeatLast:
@@ -118,7 +134,7 @@ final class TrainCoordinator {
     }
 
     private func open(_ s: LocalSession) {
-        let controller = live?.session.id == s.id ? live : SessionController(session: s, sync: sync, liveActivity: .shared)
+        let controller = live?.session.id == s.id ? live : SessionController(session: s, sync: sync, liveActivity: liveActivity)
         if live !== controller { live?.stop() }
         // The start sheet must be gone before the full-screen session can appear.
         guard showsStart else {
@@ -142,22 +158,23 @@ final class TrainCoordinator {
     }
 
     /// `ryft://train/session` from the Live Activity (`ryft://train/session/<id>`
-    /// is a deep link to a logged session, for `DeepLinkRouter`); `ryft://train/start`
-    /// (`?kind=empty|repeatLast`) starts or resumes a workout.
+    /// is a deep link to a logged session, for `DeepLinkRouter`). Only resumes: a link (any app
+    /// can open one) never starts a workout.
     func handle(_ url: URL) -> Bool {
-        guard url.scheme == "ryft", url.host == "train" else { return false }
-        switch url.path {
-        case "/session", "":
-            resume()
-            return true
-        case "/start":
-            let kind = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
-                .first { $0.name == "kind" }?.value.flatMap(QuickStart.init(rawValue:)) ?? .auto
-            Task { await WorkoutLauncher.start(kind, coordinator: self) }
-            return true
-        default:
-            return false
-        }
+        guard url.scheme == "ryft", url.host == "train", url.path == "/session" || url.path.isEmpty else { return false }
+        WorkoutLauncher.resume(coordinator: self)
+        return true
+    }
+
+    /// Signed out or another account: the previous account's workout closes (it stays stored
+    /// for that account) and leaves the lock screen.
+    func accountChanged() {
+        live?.stop()
+        live = nil
+        summary = nil
+        showsStart = false
+        liveActivity?.end()
+        refreshActive()
     }
 
     // MARK: ending
@@ -219,30 +236,55 @@ enum TrainPreview {
 
 // MARK: - starting from outside the app's screens
 
-/// Quick actions, App Intents (Siri, Shortcuts, Spotlight, the Action Button), the Control
-/// Center control and `ryft://train/start`: signed in (or in demo mode), each lands in
-/// `TrainCoordinator.quickStart`. A start that arrives while the session is still being
-/// restored (a cold launch from the home screen) waits for it (`runPending`).
+/// Quick actions, App Intents (Siri, Shortcuts, Spotlight, the Action Button) and the Control
+/// Center control: each lands in `TrainCoordinator.quickStart`, but only once the tabs are on
+/// screen for an account (or demo data). Asked for earlier (the session being restored on a cold
+/// launch, onboarding or the Health explanation still showing), it waits for the tabs; signing
+/// out or another account drops it.
 @MainActor
 enum WorkoutLauncher {
-    /// Set by `RyftApp`: whether a workout can start now, and whether that's still unknown.
-    static var canStart: () -> Bool = { false }
+    /// Set by `RyftApp`: a signed-in account or demo data; the session still being restored.
+    static var hasAccount: () -> Bool = { false }
     static var isRestoring: () -> Bool = { false }
+    /// The tabs are on screen (`RootView`), not onboarding or the Health explanation.
+    private(set) static var tabsVisible = false
     private static var pending: TrainCoordinator.QuickStart?
 
     static func start(_ kind: TrainCoordinator.QuickStart, coordinator: TrainCoordinator? = nil) async {
-        guard canStart() else {
-            if isRestoring() { pending = kind }
-            return
+        if hasAccount(), tabsVisible {
+            pending = nil
+            await (coordinator ?? .shared).quickStart(kind)
+        } else if hasAccount() || isRestoring() {
+            pending = kind
         }
-        await (coordinator ?? .shared).quickStart(kind)
     }
 
-    /// After the session is restored (bootstrap): the start that waited for it.
-    static func runPending(coordinator: TrainCoordinator? = nil) async {
+    /// Opens the workout in progress (the Live Activity, Siri's "resume"); `false` without one.
+    @discardableResult
+    static func resume(coordinator: TrainCoordinator? = nil) -> Bool {
+        let c = coordinator ?? .shared
+        guard hasAccount(), tabsVisible else { return false }
+        c.refreshActive()
+        guard c.active != nil else { return false }
+        c.resume()
+        return true
+    }
+
+    /// The tabs appeared: a start that waited for them runs now.
+    static func tabsAppeared(coordinator: TrainCoordinator? = nil) async {
+        tabsVisible = true
         guard let kind = pending else { return }
         pending = nil
         await start(kind, coordinator: coordinator)
+    }
+
+    static func tabsDisappeared() {
+        tabsVisible = false
+    }
+
+    /// Signed out (also a restore that ended signed out), or another account: nothing carries over.
+    static func discardPending() {
+        pending = nil
     }
 
     // MARK: home-screen quick actions
@@ -270,15 +312,16 @@ enum WorkoutLauncher {
 }
 
 /// UIKit's half of the quick actions: the one that launched the app, and later ones.
+@MainActor
 final class QuickActionSceneDelegate: NSObject, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let item = connectionOptions.shortcutItem else { return }
-        Task { @MainActor in _ = WorkoutLauncher.handle(item) }
+        _ = WorkoutLauncher.handle(item)
     }
 
     func windowScene(_ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem,
                      completionHandler: @escaping (Bool) -> Void) {
-        Task { @MainActor in completionHandler(WorkoutLauncher.handle(shortcutItem)) }
+        completionHandler(WorkoutLauncher.handle(shortcutItem))
     }
 }
 
@@ -308,6 +351,7 @@ struct StartStrengthWorkoutIntent: AppIntent {
     static let title: LocalizedStringResource = "Start strength workout"
     static let description = IntentDescription("Starts a strength workout in RYFT: today's plan, an empty workout or your last one again. A workout in progress is resumed.")
     static let openAppWhenRun = true
+    static let authenticationPolicy = IntentAuthenticationPolicy.requiresAuthentication
 
     @Parameter(title: "Workout")
     var workout: WorkoutChoice?
@@ -329,11 +373,12 @@ struct ResumeWorkoutIntent: AppIntent {
     static let title: LocalizedStringResource = "Resume workout"
     static let description = IntentDescription("Opens the strength workout in progress in RYFT.")
     static let openAppWhenRun = true
+    static let authenticationPolicy = IntentAuthenticationPolicy.requiresAuthentication
 
     @MainActor
-    func perform() async throws -> some IntentResult {
-        TrainCoordinator.shared.resume()
-        return .result()
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        if WorkoutLauncher.resume() { return .result(dialog: "Here's your workout.") }
+        return .result(dialog: "No workout is running. Say “Start a RYFT workout” to start one.")
     }
 }
 
@@ -344,6 +389,7 @@ struct OpenWorkoutIntent: AppIntent {
     static let title: LocalizedStringResource = "Start or resume workout"
     static let openAppWhenRun = true
     static let isDiscoverable = false
+    static let authenticationPolicy = IntentAuthenticationPolicy.requiresAuthentication
 
     @MainActor
     func perform() async throws -> some IntentResult {

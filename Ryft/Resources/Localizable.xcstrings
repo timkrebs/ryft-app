@@ -222,6 +222,16 @@
         }
       }
     },
+    "Add an exercise" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Füge eine Übung hinzu"
+          }
+        }
+      }
+    },
     "Add Sign in with Apple to open this account with your Apple ID too. Your data stays in this account." : {
       "localizations" : {
         "de" : {
@@ -628,6 +638,16 @@
         }
       }
     },
+    "Here's your workout." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hier ist dein Workout."
+          }
+        }
+      }
+    },
     "I agree that RYFT processes my health data to calculate my scores." : {
       "localizations" : {
         "de" : {
@@ -764,6 +784,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Seit dem Start keine Anfragen."
+          }
+        }
+      }
+    },
+    "No workout is running. Say “Start a RYFT workout” to start one." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gerade läuft kein Workout. Sag „Start a RYFT workout“, um eines zu starten."
           }
         }
       }
