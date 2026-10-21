@@ -843,6 +843,10 @@ private final class FailingFeedbackQueue: FeedbackQueueStore {
 struct ReportProblemTests {
     private let about = FeedbackAbout(appVersion: "1.0.0", build: "20261021.141128", deviceModel: "iPhone17,1",
                                       osVersion: "iOS 27.0.1", locale: "de_DE")
+    private static let sync = FeedbackSync(phase: "incremental", recentDone: true, backfillDone: true,
+                                           streams: [.init(id: "sleep", records: 412, days: 31,
+                                                           newest: Date(timeIntervalSince1970: 1_792_600_000))])
+    private static let syncText = FeedbackPayload.syncLines(sync).joined(separator: "\n")
 
     /// Request `i` of a newest-first list (`i == 0` is the newest).
     private func request(_ i: Int, status: Int = 503, path: String = "/v1/days/2026-10-21",
@@ -851,18 +855,18 @@ struct ReportProblemTests {
                                  path: path, status: status, requestID: id ?? "req-\(i)")
     }
 
-    private func make(_ message: String = "It broke.", text: String = "RYFT 1.0.0 · iOS 27.0.1",
-                      requests: [APIStatus.RequestFailure] = [], includeDiagnostics: Bool = true,
-                      context: ReportContext? = nil) -> FeedbackPost {
+    private func make(_ message: String = "It broke.", requests: [APIStatus.RequestFailure] = [],
+                      includeDiagnostics: Bool = true, context: ReportContext? = nil) -> FeedbackPost {
         FeedbackPayload.make(message: message, category: .bug, includeDiagnostics: includeDiagnostics,
-                             diagnosticsText: text, requests: requests, gates: [.consentRequired],
+                             requests: requests, sync: Self.sync, gates: [.consentRequired],
                              flags: ["sync.gzip": false, "push.enabled": true], context: context, about: about)
     }
 
-    private func model(_ api: MockPlatformAPI = MockPlatformAPI(), online: Bool = true,
+    private func model(_ api: MockPlatformAPI = MockPlatformAPI(), online: Bool = true, signedIn: Bool = true,
+                       clock: TestClock = TestClock(),
                        queue: FeedbackQueueStore? = nil) -> (ReportProblemModel, AppEnvironment) {
-        let env = AppEnvironment.test(api: api, online: online)
-        let model = ReportProblemModel(env: env, apiStatus: APIStatus(), queue: queue) { "RYFT 1.0.0 · iOS 27.0.1" }
+        let env = AppEnvironment.test(api: api, clock: clock, auth: .preview(signedIn: signedIn), online: online)
+        let model = ReportProblemModel(env: env, apiStatus: APIStatus(), queue: queue) { Self.sync }
         model.message = "Today said calibrating after a full week."
         return (model, env)
     }
@@ -879,11 +883,26 @@ struct ReportProblemTests {
         // The context's first, then the failed ones, newest first; a served request has no place there.
         #expect(post.requestIds == ["ctx-1", "fail-1", "fail-2"])
         let d = try #require(post.diagnostics)
-        #expect(d["sync_details"] == "RYFT 1.0.0 · iOS 27.0.1")
+        #expect(Set(d.keys) == FeedbackPayload.keys)
+        #expect(d["sync"] == Self.syncText)
         #expect(d["gates"] == "consent_required" && d["locale"] == "de_DE")
         #expect(d["flags"] == "push.enabled=1,sync.gzip=0")
         #expect(d["report_context"] == "Today · 503 · ctx-1")
         #expect(d["requests"] == requests.map(FeedbackPayload.line).joined(separator: "\n"))
+    }
+
+    @Test func linesFollowTheirTemplates() {
+        let r = request(0, status: 200, path: "/v1/sleep/plan?wake=06:30", id: "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c")
+        #expect(FeedbackPayload.line(r) == "GET /v1/sleep/plan 200 - 01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c \(r.date.ISO8601Format())")
+        #expect(FeedbackPayload.path("/v1/trends?metric=hrv&range=week#x") == "/v1/trends")
+        let newest = Date(timeIntervalSince1970: 1_792_600_000)
+        #expect(FeedbackPayload.syncLines(Self.sync) == [
+            "phase incremental · recent true · backfill true",
+            "queue running false · queued false · backlog 0 B",
+            "stream sleep · 412 rec · 31 days · newest \(DayFormat.string(from: newest))",
+        ])
+        let never = FeedbackSync(streams: [.init(id: "workouts", records: 0, days: 0, newest: nil)])
+        #expect(FeedbackPayload.syncLines(never).last == "stream workouts · 0 rec · 0 days · newest -")
     }
 
     @Test func thePayloadStaysWithinAPIMDsLimits() {
@@ -893,8 +912,8 @@ struct ReportProblemTests {
         requests.insert(request(0, id: ""), at: 0)
         requests.insert(request(0, id: "req-1"), at: 0) // twice
         let post = FeedbackPayload.make(message: String(repeating: "é", count: 4100), category: .other,
-                                        includeDiagnostics: true, diagnosticsText: "", requests: requests, gates: [],
-                                        flags: [:], context: nil,
+                                        includeDiagnostics: true, requests: requests, sync: FeedbackSync(),
+                                        gates: [], flags: [:], context: nil,
                                         about: FeedbackAbout(appVersion: long, build: long, deviceModel: long,
                                                              osVersion: long, locale: "en"))
         #expect(FeedbackPayload.length(post.message) == 4000)
@@ -902,6 +921,7 @@ struct ReportProblemTests {
         #expect(post.requestIds.first == "req-1" && post.requestIds.allSatisfy { (1...64).contains($0.utf8.count) })
         #expect([post.appVersion, post.build, post.deviceModel, post.osVersion].allSatisfy { $0?.count == 64 })
         #expect(post.diagnostics?["gates"] == "-")
+        #expect(post.diagnostics?["requests"]?.components(separatedBy: "\n").count == 20)
     }
 
     @Test func withoutDiagnosticsOnlyTheMessageGoes() {
@@ -913,43 +933,37 @@ struct ReportProblemTests {
     }
 
     @Test func diagnosticsStayWithin32KiBDroppingTheOldestRequestsFirst() throws {
-        let text = String(repeating: "phase incremental · stream hrv: 12 rec\n", count: 100) // ~4 KB
-        let requests = (0..<20).map { request($0, path: "/v1/trends?metric=x&range=" + String(repeating: "w", count: 1_800)) }
+        let requests = (0..<20).map { request($0, path: "/v1/workouts/" + String(repeating: "w", count: 1_800)) }
         let all = requests.map(FeedbackPayload.line)
-        #expect(FeedbackPayload.size(["sync_details": text, "requests": all.joined(separator: "\n")])
-            > FeedbackPayload.maxDiagnosticsBytes)
+        #expect(FeedbackPayload.size(["requests": all.joined(separator: "\n")]) > FeedbackPayload.maxDiagnosticsBytes)
 
-        let d = try #require(make(text: text, requests: requests).diagnostics)
+        let d = try #require(make(requests: requests).diagnostics)
 
         #expect(FeedbackPayload.size(d) <= FeedbackPayload.maxDiagnosticsBytes)
-        #expect(d["sync_details"] == text)
+        #expect(d["sync"] == Self.syncText)
         let kept = try #require(d["requests"]).components(separatedBy: "\n")
         #expect(kept.count > 10 && kept.count < 20)
         #expect(kept == Array(all.prefix(kept.count))) // the newest stay, the oldest went
     }
 
-    @Test func aHugeSyncTextKeepsItsHeadAndLosesTheRequests() throws {
-        let text = "RYFT 1.0.0 · iOS 27.0.1\n" + String(repeating: "stream heartRate: 1200 rec 48000 B\n", count: 3_000)
-        let d = try #require(make(text: text, requests: (0..<20).map { request($0) }).diagnostics)
+    @Test func aRequestTooBigForTheCapLeavesTheRest() throws {
+        let huge = request(0, path: "/v1/workouts/" + String(repeating: "w", count: 40_000))
+        let d = try #require(make(requests: [huge]).diagnostics)
         #expect(FeedbackPayload.size(d) <= FeedbackPayload.maxDiagnosticsBytes)
-        #expect(FeedbackPayload.size(d) > FeedbackPayload.maxDiagnosticsBytes - 200) // as much as fits
-        #expect(d["requests"] == nil)
-        let kept = try #require(d["sync_details"])
-        #expect(kept.hasPrefix("RYFT 1.0.0 · iOS 27.0.1\nstream heartRate") && kept.hasSuffix("\n…"))
-        #expect(d["gates"] != nil && d["flags"] != nil)
+        #expect(d["requests"] == nil && d["sync"] == Self.syncText && d["flags"] != nil)
     }
 
     @Test func aQueuedReportGoesOutAsItWasWritten() throws {
         let post = make(requests: [request(0)], context: ReportContext(resource: "Today", status: "503", requestID: "ctx-1"))
-        let queued = QueuedFeedback(post, queuedAt: Date(timeIntervalSince1970: 1_792_600_000))
+        let queued = QueuedFeedback(post, account: "acct-1", queuedAt: Date(timeIntervalSince1970: 1_792_600_000))
         // Through the cache's own coder (snake_case): the diagnostics' keys must come back as they were.
         let back = try #require(WireCoding.decode([QueuedFeedback].self, WireCoding.encode([queued])))
-        #expect(back == [queued])
+        #expect(back == [queued] && back[0].account == "acct-1")
         func object(_ p: FeedbackPost) throws -> NSDictionary {
             try #require(try JSONSerialization.jsonObject(with: APIClient.jsonEncoder.encode(p)) as? NSDictionary)
         }
         #expect(try object(back[0].post) == object(post))
-        #expect(back[0].post.diagnostics?["sync_details"] != nil)
+        #expect(back[0].post.diagnostics?["report_context"] == "Today · 503 · ctx-1")
     }
 
     // MARK: sending
@@ -957,13 +971,16 @@ struct ReportProblemTests {
     @Test func sentWhenThePlatformTakesIt() async throws {
         let api = MockPlatformAPI()
         let (model, env) = model(api)
+        model.category = .data
         #expect(model.canSend)
         await model.send()
         #expect(model.result == .sent && !model.sending)
         #expect(api.feedbackPosts.map(\.message) == ["Today said calibrating after a full week."])
         #expect(model.waiting == 0 && PersistentFeedbackQueue(env: env).load().isEmpty)
         let posted = try #require(api.feedbackPosts.first)
-        #expect(posted.category == .other && posted.diagnostics?["sync_details"] == "RYFT 1.0.0 · iOS 27.0.1")
+        #expect(posted.category == .data && posted.diagnostics?["sync"] == Self.syncText)
+        // The next report starts fresh.
+        #expect(model.message.isEmpty && model.category == .other && model.includeDiagnostics)
     }
 
     @Test func offlineItIsQueuedAndSentOnReconnect() async {
@@ -971,7 +988,7 @@ struct ReportProblemTests {
         let (model, env) = model(api, online: false)
         await model.send()
         #expect(model.result == .queued && model.waiting == 1)
-        #expect(api.count("feedback") == 0)
+        #expect(api.count("feedback") == 0 && model.category == .other)
 
         await model.flush() // still offline: nothing goes
         #expect(api.count("feedback") == 0 && model.waiting == 1)
@@ -989,12 +1006,12 @@ struct ReportProblemTests {
         #expect(model.result == .queued)
 
         // The app was closed: a new model over the same store finds the report and sends it.
-        let relaunched = ReportProblemModel(env: env, apiStatus: APIStatus()) { "" }
+        let relaunched = ReportProblemModel(env: env, apiStatus: APIStatus()) { FeedbackSync() }
         #expect(relaunched.waiting == 1 && relaunched.message.isEmpty)
         env.connectivityMonitor.update(true)
         await relaunched.flush()
         #expect(api.feedbackPosts.map(\.message) == ["Today said calibrating after a full week."])
-        #expect(api.feedbackPosts.first?.diagnostics?["sync_details"] == "RYFT 1.0.0 · iOS 27.0.1")
+        #expect(api.feedbackPosts.first?.diagnostics?["sync"] == Self.syncText)
         #expect(relaunched.waiting == 0)
     }
 
@@ -1074,6 +1091,7 @@ struct ReportProblemTests {
         #expect(model.message == ReportProblemModel.prefill(context) && model.includeDiagnostics)
         await model.send()
         #expect(api.feedbackPosts.first?.requestIds.first == "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c")
+        #expect(api.feedbackPosts.first?.category == .bug)
 
         // From Profile afterwards: a fresh report about nothing in particular.
         model.prepare(nil)
@@ -1100,55 +1118,163 @@ struct ReportProblemTests {
         #expect(!model.canSend)
     }
 
-    // MARK: privacy
+    // MARK: accounts
 
-    /// The diagnostics are counts, times, statuses and IDs: none of the cached scores' values or fields.
-    @Test func noHealthValuesInTheDiagnostics() async throws {
+    @Test func signedOutNothingIsQueued() async {
+        let api = MockPlatformAPI()
+        let (model, _) = model(api, signedIn: false)
+        await model.send()
+        #expect(model.result == .signedOut && model.waiting == 0 && api.count("feedback") == 0)
+        #expect(model.message == "Today said calibrating after a full week.")
+    }
+
+    @Test func anotherAccountsReportNeverGoesOut() async {
+        let api = MockPlatformAPI()
+        let (model, env) = model(api)
+        let queue = PersistentFeedbackQueue(env: env)
+        let account = env.auth.accountID ?? ""
+        queue.save([QueuedFeedback(FeedbackPost(message: "Someone else's"), account: "another-account",
+                                   queuedAt: env.clock.now()),
+                    QueuedFeedback(FeedbackPost(message: "Mine"), account: account, queuedAt: env.clock.now())])
+        model.reloadWaiting()
+        #expect(model.waiting == 2)
+        await model.flush()
+        #expect(api.feedbackPosts.map(\.message) == ["Mine"])
+        #expect(queue.load().isEmpty && model.waiting == 0)
+    }
+
+    @Test func anAccountChangeForgetsTheDraftAndTheRequests() {
         let env = AppEnvironment.test()
         let state = AppState(env: env)
-        await state.refresh() // MockData's scores in the read models
-        let fixture = try Fixture.decode([DailyScore].self, "days")
-        state.repository.store(scores: fixture)
         let status = APIStatus()
-        status.served(.init(date: .now, method: "GET", path: "/v1/days/2026-10-18", status: 200,
-                            requestID: "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c"))
-        status.record(.init(date: .now, method: "GET", path: "/v1/me", status: 503,
-                            requestID: "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9d"))
+        status.record(.init(date: .now, method: "GET", path: "/v1/me", status: 503, requestID: "a-1"))
+        status.served(.init(date: .now, method: "GET", path: "/v1/days/2026-10-21", status: 200, requestID: "a-2"))
         let sync = SyncService(env: env)
         let profile = ProfileViewModel(state: state, sync: sync,
                                        coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
                                                                     clock: env.clock),
                                        apiStatus: status)
-        profile.report.message = "It broke."
-        let post = profile.report.payload()
-        let sent = try #require(String(data: APIClient.jsonEncoder.encode(post), encoding: .utf8))
-        #expect(post.diagnostics?["sync_details"]?.isEmpty == false && post.diagnostics?["requests"] != nil)
+        let report = profile.report
+        report.stage(message: "A's words", category: .data, includeDiagnostics: false, context: .preview,
+                     result: .rateLimited)
 
-        let scores = fixture + state.history + [state.today?.score].compactMap { $0 }
-        #expect(scores.contains { $0.readiness != nil })
-        var values = Set<String>()
-        for s in scores {
-            // Whole numbers below 60 also read as minutes and seconds in timestamps: those are left out.
-            for v in [s.readiness, s.recovery, s.steps, s.activeKcal, s.sleepPerformance, s.sleepNeedMin,
-                      s.sleepActualMin, s.sleepDebtMin, s.sleepQuality, s.sleepConsistency].compactMap({ $0 }) where v >= 60 {
-                values.insert(String(v))
-            }
-            for v in [s.strain, s.hrvMs, s.rhr, s.respRate, s.spo2, s.hrvBaselineMs, s.rhrBaseline, s.volumeKg]
-                .compactMap({ $0 }) {
-                values.insert(v == v.rounded() && v >= 60 ? String(Int(v)) : String(v))
+        profile.accountChanged()
+
+        #expect(status.requests.isEmpty && status.failures.isEmpty)
+        #expect(report.message.isEmpty && report.category == .other && report.includeDiagnostics)
+        #expect(report.context == nil && report.result == nil && report.resultDetails == nil)
+        #expect(report.payload().requestIds.isEmpty)
+    }
+
+    @Test func aPostThatReturnsAfterAnAccountChangeLeavesTheNewScreenAlone() async {
+        let api = MockPlatformAPI()
+        let clock = TestClock()
+        let (model, _) = model(api, clock: clock)
+        api.beforeFeedback = { _ in try? await clock.sleep(for: .seconds(1)) }
+        let sending = Task { await model.send() }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        model.accountChanged()
+        clock.advance(by: .seconds(1))
+        await sending.value
+        #expect(model.result == nil && model.waiting == 0 && model.message.isEmpty)
+    }
+
+    // MARK: concurrency
+
+    /// A report `send` posts while a flush runs is posted once: the flush reads the queue again before each post.
+    @Test func sendDuringAFlushPostsEachReportOnce() async {
+        let api = MockPlatformAPI()
+        let clock = TestClock()
+        let (model, env) = model(api, online: false, clock: clock)
+        model.message = "A"
+        await model.send() // queued while offline
+        env.connectivityMonitor.update(true)
+        // B returns after 1 s, A after 2 s: B is settled (and dequeued) while the flush still waits on A.
+        api.beforeFeedback = { post in try? await clock.sleep(for: .seconds(post.message == "B" ? 1 : 2)) }
+
+        model.message = "B"
+        let sending = Task { await model.send() }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        let flushing = Task { await model.flush() }
+        #expect(await eventually { clock.pendingSleeps == 2 })
+
+        clock.advance(by: .seconds(1))
+        await sending.value
+        clock.advance(by: .seconds(1))
+        await flushing.value
+        await model.flush()
+
+        #expect(api.feedbackPosts.map(\.message).sorted() == ["A", "B"])
+        #expect(api.count("feedback") == 2 && model.waiting == 0)
+    }
+
+    // MARK: privacy
+
+    /// The diagnostics pass the allow-list: only known keys, every line one of its templates, no time of day
+    /// from Apple Health, no query string. Every number therefore is a count, a status, a byte size, a day or a
+    /// request's time, so a cached score can't hide in one (which is why there's no numeric loophole to test).
+    @Test func noHealthValuesInTheDiagnostics() async throws {
+        let env = AppEnvironment.test()
+        let state = AppState(env: env)
+        await state.refresh() // MockData's scores in the read models
+        state.repository.store(scores: try Fixture.decode([DailyScore].self, "days"))
+        // Streams whose newest records end at a wake time and after a workout, to the second.
+        let wake = try #require(Calendar.current.date(bySettingHour: 6, minute: 42, second: 17, of: env.clock.now()))
+        let workoutEnd = try #require(Calendar.current.date(bySettingHour: 18, minute: 31, second: 5, of: env.clock.now()))
+        var engine = SyncEngineState()
+        engine.phase = .incremental
+        engine.backfillDone = true
+        var sleep = SyncEngineState.StreamProgress()
+        sleep.records = 412
+        sleep.newest = wake
+        sleep.days = ["2026-10-18", "2026-10-19"]
+        var workouts = SyncEngineState.StreamProgress()
+        workouts.records = 3
+        workouts.newest = workoutEnd
+        engine.streams = ["sleep": sleep, "workouts": workouts]
+        engine.lastError = "422 sample out of range"
+        engine.save(account: try #require(env.auth.accountID), defaults: env.defaults)
+
+        let status = APIStatus()
+        for (path, code) in [("/v1/sleep/plan?wake=06:30", 200), ("/v1/journal/2026-10-21", 200),
+                             ("/v1/trends?metric=hrv&range=week", 200), ("/v1/days/2026-10-18", 200), ("/v1/me", 503)] {
+            status.record(.init(date: env.clock.now(), method: "GET", path: path, status: code,
+                                requestID: "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c"))
+        }
+        let sync = SyncService(env: env)
+        let profile = ProfileViewModel(state: state, sync: sync,
+                                       coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
+                                                                    clock: env.clock),
+                                       apiStatus: status)
+        profile.report.prepare(.preview)
+        let post = profile.report.payload()
+        let d = try #require(post.diagnostics)
+
+        #expect(Set(d.keys) == FeedbackPayload.keys)
+        let templates: [String: [Regex<Substring>]] = [
+            "requests": [/(?:GET|POST|PUT|PATCH|DELETE) \/[^ ?#]* \d{3} [a-z_-]+ \S+ \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/],
+            "sync": [/phase [a-z]+ · recent (?:true|false) · backfill (?:true|false)/,
+                     /queue running (?:true|false) · queued (?:true|false) · backlog \d+ B/,
+                     /stream [A-Za-z0-9_]+ · \d+ rec · \d+ days · newest (?:\d{4}-\d{2}-\d{2}|-)/],
+            "gates": [/-|[a-z_]+(?:,[a-z_]+)*/],
+            "flags": [/[a-z.]+=[01](?:,[a-z.]+=[01])*/],
+            "locale": [/[A-Za-z0-9_@=-]+/],
+            "report_context": [/[^·\n]+ · [^·\n]+ · \S+/],
+        ]
+        for (key, value) in d {
+            let patterns = try #require(templates[key])
+            for line in value.components(separatedBy: "\n") {
+                #expect(patterns.contains { line.wholeMatch(of: $0) != nil }, "\(key): \(line)")
             }
         }
-        // Every string the report carries, as written (not JSON-escaped). Whole numbers only (not digits inside
-        // hex IDs); the requests' HTTP statuses are statuses.
-        let strings = [post.message, post.appVersion, post.build, post.deviceModel, post.osVersion].compactMap { $0 }
-            + post.requestIds + (post.diagnostics ?? [:]).flatMap { [$0.key, $0.value] }
-        let words = strings.joined(separator: "\n")
-            .split { !($0.isASCII && ($0.isLetter || $0.isNumber || $0 == ".")) }
-            .map { $0.hasSuffix(".") ? String($0.dropLast()) : String($0) }
-        let tokens = Set(words.filter { $0.wholeMatch(of: /[0-9]+(\.[0-9]+)?/) != nil })
-            .subtracting(status.requests.map { String($0.status) })
-        #expect(tokens.count > 3) // the dates, sizes and counts are there
-        #expect(tokens.isDisjoint(with: values), "health values in the report: \(tokens.intersection(values))")
+        // No time of day from Apple Health: the newest records go as their day.
+        let syncText = try #require(d["sync"])
+        #expect(!syncText.contains(":") && syncText.contains("newest \(DayFormat.string(from: wake))"))
+        #expect(syncText.components(separatedBy: "\n").count == 2 + env.health.streams.count)
+        #expect(!syncText.contains("422") && !syncText.contains("sample out of range")) // free text stays home
+        let sent = try #require(String(data: APIClient.jsonEncoder.encode(post), encoding: .utf8))
+        #expect(!sent.contains("wake=") && !sent.contains("06:30") && !sent.contains("metric="))
+        #expect(!sent.contains(env.settings.deviceId.uuidString.lowercased())) // the install ID stays home
         for field in ["readiness", "recovery", "sleep_performance", "hrv_ms", "\"rhr\"", "sleep_actual_min",
                       "resp_rate", "calibrating\":"] {
             #expect(!sent.contains(field), "\(field)")

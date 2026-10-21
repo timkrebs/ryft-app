@@ -1026,6 +1026,8 @@ private struct ProfileSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title).ryftLabelStyle()
+                // A label, not a headline: past AX3 it would crowd out the content.
+                .dynamicTypeSize(...DynamicTypeSize.accessibility3)
             Card {
                 VStack(alignment: .leading, spacing: 14) { content() }
             }
@@ -1294,9 +1296,9 @@ struct ReportProblemView: View {
             guard !prepared else { return }
             prepared = true
             included = showsIncluded
+            // No keyboard on arrival: from Details the message is written already, and the keyboard would
+            // cover what's attached.
             model.prepare(context)
-            // From Details the message is written already: the caret waits at its end.
-            if context != nil { editing = true }
         }
         .onChange(of: model.includeDiagnostics) { _, on in if !on { included = false } }
     }
@@ -1304,7 +1306,8 @@ struct ReportProblemView: View {
     // MARK: compose
 
     @ViewBuilder private var form: some View {
-        if let context = model.context { ReportContextChip(context: context) }
+        // The request ID shows only while it's attached.
+        if let context = model.context { ReportContextChip(context: context, showsRequestID: model.includeDiagnostics) }
         notice
         Group {
             ProfileSection(title: "Message") { message }
@@ -1343,6 +1346,12 @@ struct ReportProblemView: View {
                           systemImage: "exclamationmark.circle", retryTitle: "Copy message") {
                 model.copyMessage()
             }
+        case .signedOut?:
+            InlineMessage(message: String(localized: "You're signed out, so this report can't be sent. Your message is kept."),
+                          systemImage: "person.crop.circle.badge.exclamationmark", retryTitle: "Copy message") {
+                model.copyMessage()
+            }
+            .accessibilityIdentifier("report.signedOut")
         default:
             EmptyView()
         }
@@ -1430,7 +1439,7 @@ struct ReportProblemView: View {
             if model.includeDiagnostics {
                 DisclosureGroup(isExpanded: $included) {
                     VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Self.included, id: \.self) { item in
+                        ForEach(included(about: model.context != nil), id: \.self) { item in
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Text(verbatim: "•").accessibilityHidden(true)
                                 Text(item).fixedSize(horizontal: false, vertical: true)
@@ -1439,7 +1448,7 @@ struct ReportProblemView: View {
                             .foregroundStyle(Theme.textSecondary)
                             .accessibilityElement(children: .combine)
                         }
-                        Text("No health values. Nothing from Apple Health, no scores, no sleep or heart data.")
+                        Text("No health values: no scores, no sleep, heart or workout data, and no times of day from Apple Health.")
                             .font(.ryft(.caption))
                             .foregroundStyle(Theme.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1449,7 +1458,7 @@ struct ReportProblemView: View {
                     .padding(.top, 8)
                 } label: {
                     Text("What's included")
-                        .font(.ryft(.callout))
+                        .font(.ryft(.body))
                         .foregroundStyle(Theme.textPrimary)
                         .frame(minHeight: 44)
                 }
@@ -1465,24 +1474,31 @@ struct ReportProblemView: View {
         }
     }
 
-    /// "What's included", in the order of `FeedbackPayload`.
-    private static var included: [String] {
-        [
+    /// "What's included": exactly what `FeedbackPayload` sends, in its order. When T1's data reaches it, add
+    /// "duration" to the requests row (`FeedbackPayload.duration`) and a per-resource row (`FeedbackPayload.diagnostics`).
+    private func included(about context: Bool) -> [String] {
+        var rows = [
             String(localized: "App version and build"),
             String(localized: "Device model and iOS version"),
-            String(localized: "The last 20 requests: method, path, status, error code, request ID, duration"),
-            String(localized: "Per resource: when it was loaded, last error"),
-            String(localized: "Sync state, account gates and feature flags"),
+            String(localized: "Language and region"),
+            String(localized: "The last 20 requests: method, path without its query, status, error code, request ID, time"),
+            String(localized: "Sync state: phase, queue and backlog, and per data type the number of records and days and the date of the newest record"),
+            String(localized: "Account gates and feature flags"),
         ]
+        if context { rows.append(String(localized: "From Details: what failed, its status and request ID")) }
+        return rows
     }
 
     // MARK: sent, queued
 
     private var outcome: some View {
         let sent = model.result == .sent
-        let headline: LocalizedStringKey = sent
-            ? "Thanks, your report reached RYFT."
-            : "Saved. It will be sent as soon as you're back online. You can close the app."
+        let headline: LocalizedStringKey = switch (sent, model.isDemo) {
+        case (true, false): "Thanks, your report reached RYFT."
+        // Demo data posts to the in-memory platform: it says so.
+        case (true, true): "Sent in demo mode: nothing reached RYFT."
+        case (false, _): "Saved. It will be sent as soon as you're back online. You can close the app."
+        }
         return VStack(spacing: 18) {
             Image(systemName: sent ? "checkmark.circle" : "clock")
                 .font(.system(size: 40, weight: .regular))
@@ -1508,9 +1524,13 @@ struct ReportProblemView: View {
 /// "About: Today · 503 · request 01a14ffa…" above a report from Details; VoiceOver reads the whole ID.
 private struct ReportContextChip: View {
     let context: ReportContext
+    /// Off with "Include diagnostics": the ID isn't sent then.
+    var showsRequestID = true
+
+    private var requestID: String? { showsRequestID ? context.requestID : nil }
 
     var body: some View {
-        text(context.requestID.map(Self.short))
+        text(requestID.map(Self.short))
             .font(.ryft(.caption))
             .monospacedDigit()
             .foregroundStyle(Theme.textSecondary)
@@ -1522,7 +1542,7 @@ private struct ReportContextChip: View {
             .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
                 .strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(text(context.requestID))
+            .accessibilityLabel(text(requestID))
     }
 
     private func text(_ id: String?) -> Text {
@@ -1552,7 +1572,7 @@ private func reportPreview(_ scheme: ColorScheme = .dark, de: Bool = false, size
                            context: ReportContext? = nil, showsIncluded: Bool = false,
                            stage: (ReportProblemModel) -> Void = { _ in }) -> some View {
     let state = AppState.preview()
-    let model = ReportProblemModel(env: state.env, apiStatus: APIStatus()) { "RYFT 1.0.0 (1) · iOS 27.0" }
+    let model = ReportProblemModel(env: state.env, apiStatus: APIStatus()) { FeedbackSync() }
     stage(model)
     return NavigationStack { ReportProblemView(model: model, context: context, showsIncluded: showsIncluded) }
         .previewEnvironment(state, scheme: scheme)
@@ -1584,6 +1604,8 @@ private let previewMessage = "Today said calibrating after a full week of nights
 #Preview("Report · sent · dark") { reportPreview { $0.stage(result: .sent) } }
 #Preview("Report · sent · light") { reportPreview(.light) { $0.stage(result: .sent) } }
 #Preview("Report · sent · AX3") { reportPreview(size: .accessibility3) { $0.stage(result: .sent) } }
+#Preview("Report · sent · demo · dark") { reportPreview { $0.stage(result: .sent, demo: true) } }
+#Preview("Report · sent · demo · light · de") { reportPreview(.light, de: true) { $0.stage(result: .sent, demo: true) } }
 #Preview("Report · queued · dark") { reportPreview { $0.stage(result: .queued, waiting: 1) } }
 #Preview("Report · queued · light") { reportPreview(.light) { $0.stage(result: .queued, waiting: 1) } }
 #Preview("Report · rate limited · dark") {
@@ -1591,6 +1613,16 @@ private let previewMessage = "Today said calibrating after a full week of nights
 }
 #Preview("Report · rate limited · light") {
     reportPreview(.light) { $0.stage(message: previewMessage, result: .rateLimited) }
+}
+#Preview("Report · signed out · dark") {
+    reportPreview { $0.stage(message: previewMessage, result: .signedOut) }
+}
+#Preview("Report · signed out · light") {
+    reportPreview(.light) { $0.stage(message: previewMessage, result: .signedOut) }
+}
+#Preview("Report · from Details · diagnostics off") {
+    reportPreview { $0.stage(message: ReportProblemModel.prefill(.preview), category: .bug, includeDiagnostics: false,
+                             context: .preview) }
 }
 #Preview("Report · over limit · dark") {
     reportPreview { $0.stage(message: String(repeating: "The tiles and the gauge disagree. ", count: 120)) }

@@ -302,6 +302,16 @@
         }
       }
     },
+    "Account gates and feature flags" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konto-Freigaben und Feature-Flags"
+          }
+        }
+      }
+    },
     "Action needed: agree to the privacy policy" : {
       "localizations" : {
         "de" : {
@@ -878,6 +888,16 @@
         }
       }
     },
+    "From Details: what failed, its status and request ID" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus den Details: was fehlgeschlagen ist, mit Status und Anfrage-ID"
+          }
+        }
+      }
+    },
     "Full resync" : {
       "localizations" : {
         "de" : {
@@ -1098,6 +1118,16 @@
         }
       }
     },
+    "Language and region" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sprache und Region"
+          }
+        }
+      }
+    },
     "Last night hasn't reached RYFT yet." : {
       "localizations" : {
         "de" : {
@@ -1158,6 +1188,16 @@
         }
       }
     },
+    "No health values: no scores, no sleep, heart or workout data, and no times of day from Apple Health." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Gesundheitswerte: keine Scores, keine Schlaf-, Herz- oder Trainingsdaten und keine Uhrzeiten aus Apple Health."
+          }
+        }
+      }
+    },
     "No heart rate yet. With a strength workout on your watch too, it arrives once the watch syncs." : {
       "localizations" : {
         "de" : {
@@ -1184,16 +1224,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Meine Werte wirken falsch"
-          }
-        }
-      }
-    },
-    "No health values. Nothing from Apple Health, no scores, no sleep or heart data." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keine Gesundheitswerte. Nichts aus Apple Health, keine Scores, keine Schlaf- oder Herzdaten."
           }
         }
       }
@@ -1414,16 +1444,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bestform"
-          }
-        }
-      }
-    },
-    "Per resource: when it was loaded, last error" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pro Datenquelle: wann geladen, letzter Fehler"
           }
         }
       }
@@ -1813,7 +1833,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gespeichert. Sie wird gesendet, sobald du wieder online bist. Du kannst die App schließen."
+            "value" : "Deine Meldung ist gespeichert und wird gesendet, sobald du wieder online bist. Du kannst die App schließen."
           }
         }
       }
@@ -1904,6 +1924,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wird gesendet …"
+          }
+        }
+      }
+    },
+    "Sent in demo mode: nothing reached RYFT." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Im Demo-Modus gesendet: Bei RYFT ist nichts angekommen."
           }
         }
       }
@@ -2158,12 +2188,12 @@
         }
       }
     },
-    "Sync state, account gates and feature flags" : {
+    "Sync state: phase, queue and backlog, and per data type the number of records and days and the date of the newest record" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sync-Status, Konto-Freigaben und Feature-Flags"
+            "value" : "Sync-Status: Phase, Warteschlange und Rückstand, und pro Datentyp die Anzahl der Einträge und Tage und das Datum des neuesten Eintrags"
           }
         }
       }
@@ -2208,12 +2238,12 @@
         }
       }
     },
-    "The last 20 requests: method, path, status, error code, request ID, duration" : {
+    "The last 20 requests: method, path without its query, status, error code, request ID, time" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Die letzten 20 Anfragen: Methode, Pfad, Status, Fehlercode, Anfrage-ID, Dauer"
+            "value" : "Die letzten 20 Anfragen: Methode, Pfad ohne Parameter, Status, Fehlercode, Anfrage-ID, Zeitpunkt"
           }
         }
       }
@@ -2754,6 +2784,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bei diesem Konto kannst du dich anmelden mit:"
+          }
+        }
+      }
+    },
+    "You're signed out, so this report can't be sent. Your message is kept." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du bist abgemeldet, deshalb kann diese Meldung nicht gesendet werden. Deine Nachricht bleibt erhalten."
           }
         }
       }

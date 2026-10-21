@@ -122,6 +122,8 @@ struct RyftApp: App {
                     if old != nil { state.reset() }
                     // That account's gates, steps and sync state are its own.
                     screens.onboarding.switchAccount(new)
+                    // Its last requests and a report's draft too: nothing of A's goes out as B.
+                    screens.profile.accountChanged()
                     // The previous account's reminders and alarms go; this one's come back.
                     Task { await screens.bedtime.accountChanged() }
                     sync.accountChanged()
