@@ -58,6 +58,9 @@ Store "What's New".
   "Sync last 3 days again" and "Copy diagnostics" for support.
 
 ### Fixed
+- Refreshing no longer shows an error when one part of your data is briefly unavailable: each
+  part loads on its own, short outages are retried quietly, and Today says how old its data is
+  ("Showing data from 14:05") only when it stays out of date.
 - Profile → Notifications no longer shows switches that look on while notifications are
   still being rolled out to your account: it says what you'll get, and when iOS has them
   turned off it says so with a way to Settings.
