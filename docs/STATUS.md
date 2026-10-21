@@ -1,5 +1,55 @@
 # Status — 2026-10-21
 
+## Sync and performance brief: where it stands
+
+`CLAUDE_FOLLOWUP_SYNC_PERFORMANCE.md`, eight PRs: #8 gates and honest errors, #10 engine
+off main, #11 background finish, #12 server scoring state, #13 launch and read models,
+#14 Today's in-between states, #15 readiness widget, and this one. The sections below this
+one are per PR.
+
+**Done when**, item by item (✅ built and tested here; 📱 needs your iPhone):
+
+| | Item | Where | Verified |
+| --- | --- | --- | --- |
+| ✅ | The 403 message is gone; gates prompt instead of failing | #8 | status-matrix tests; simulator screenshots |
+| ✅📱 | First scores within about a minute of granting Health | #10 (the last 3 days first, then the backfill) | engine tests; the minute only on a device |
+| ✅📱 | The 90-day import finishes even if the app is left | #11 (background task, `BGProcessingTask` "backfill") | coordinator tests; BG tasks only on a device |
+| ✅ | The night goes up before the heart-rate backlog | #10 (`HealthStore.streams` order) | `theNightGoesUpBeforeTheDayStreams` |
+| ✅📱 | HealthKit wakes complete promptly | #11 (completion after the upload) | coordinator tests; deliveries only on a device |
+| ✅📱 | Locked-phone wakes resume after the unlock | #11 (`waitingForUnlock`, protected-data notification) | engine tests with the locked error |
+| ✅📱 | No sync work on the main thread | #10 (`SyncEngine` actor, Debug assertion) | `…StayOffTheMainThread` tests; Instruments on a device |
+| ✅ | Cold start renders cached Today without the network | #13 (SwiftData first, the rest after the first frame) | simulator `launch` interval |
+| ✅ | Every in-between state exists, is honest and localised | #14, #15 | `TodayStatesTests`, `TodayStatesUITests`, screenshots en/de |
+| ✅ | `API_REQUESTS.md` has the platform requests | #13 (Sync and performance §1–4) | — |
+| 📱 | `STATUS.md` has the device measurements | below, to fill in | — |
+
+**Measured so far (simulator, Debug, indicative):** launch to Today's first committed
+frame 543 / 542 / 535 ms (995 ms right after installing); a 5 000-sample page gzips more
+than 8× (`SyncGzipTests`); unit tests 540 passed, UI smoke (incl. the import card and the
+pending gauge) passed.
+
+**On your iPhone (brief §6), please, and tell me what you saw:**
+1. A fresh account (or Profile → Full re-sync) → Health access → Today shows "Setting up
+   RYFT" → the first score within about a minute → leave the app mid-import → it goes on
+   (Profile → Data → Sync details: the days count up) → a notice when it's done.
+   Record: seconds to the first score, minutes to the end of the import, "Uploaded" in
+   Sync details.
+2. Lock the phone overnight → in the morning open RYFT → "Scoring your night…" with last
+   night from Apple Health → the score lands within seconds (one haptic). Screenshot both.
+3. A day without opening Garmin Connect → the hint names it. Screenshot.
+4. Airplane mode during an upload → the line says "Offline — will sync when back" →
+   airplane mode off → it resumes by itself.
+5. Instruments (Release build, Time Profiler + Points of Interest): main-thread time during
+   the first import and while scrolling Today during a sync, the `launch` interval with a
+   warm cache (target < 400 ms), the `upload` / `encode` intervals.
+
+**Still yours (Apple / Supabase / platform):**
+- Xcode: App Groups on Ryft and RyftWidgetsExtension (`group.dev.timkrebs.ryft`, #15).
+- Supabase: Manual Linking on (#8). Platform: both gates `on` after TestFlight (#8).
+- Paste `docs/API_REQUESTS.md` → Sync and performance §1–3 into the platform session
+  (gzip, HealthKit UUIDs with `deleted`, hourly buckets and the TRIMP question).
+- Xcode: convert the `Ryft` and `RyftTests` groups to folders (see #8's section below).
+
 ## Readiness widget (sync brief §4.8)
 
 - `ReadinessWidget` in `RyftWidgets`: home screen (small) and lock screen (circular,
