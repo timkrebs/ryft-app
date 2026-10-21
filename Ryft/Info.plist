@@ -52,6 +52,8 @@
 		<true/>
 	</dict>
 #endif
+	<key>NSAlarmKitUsageDescription</key>
+	<string>RYFT sets the wake-up alarm you choose in Bedtime &amp; wake, so it rings even in Silent mode and Focus.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>RYFT reads heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts to calculate your recovery, strain and sleep scores. The data is sent to your RYFT account and never used for advertising.</string>
 	<key>NSSupportsLiveActivities</key>

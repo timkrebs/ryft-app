@@ -365,6 +365,12 @@ final class Repository {
         didSet { if todayStatus != oldValue { publishWidget() } }
     }
 
+    /// Tonight's bedtime from Bedtime & wake (`BedtimePlanner`): "Bed by 22:41" on the widget
+    /// in the evening.
+    var tonightBedtime: Date? {
+        didSet { if tonightBedtime != oldValue { publishWidget() } }
+    }
+
     /// Where the readiness widget reads from; tests point it elsewhere. `nil` without the
     /// App Group capability: nothing is written.
     @ObservationIgnored var widgetFile: URL?

@@ -54,6 +54,24 @@
           }
         }
       }
+    },
+    "NSAlarmKitUsageDescription" : {
+      "comment" : "Privacy - AlarmKit Usage Description",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT sets the wake-up alarm you choose in Bedtime & wake, so it rings even in Silent mode and Focus."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT stellt den Wecker, den du in „Schlafenszeit & Aufwachen“ wählst, damit er auch im Stumm-Modus und bei Fokus klingelt."
+          }
+        }
+      }
     }
   },
   "version" : "1.3"
