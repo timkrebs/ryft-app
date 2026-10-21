@@ -454,6 +454,8 @@ enum DebugScreen: String {
     case reportProblem = "report-problem", reportProblemDetails = "report-problem-details"
     case reportProblemSent = "report-problem-sent", reportProblemQueued = "report-problem-queued"
     case reportProblemRateLimited = "report-problem-rate-limited"
+    /// "What's included" open, scrolled to it.
+    case reportProblemIncluded = "report-problem-included"
 
     static var requested: DebugScreen? {
         UserDefaults.standard.string(forKey: "RyftScreen").flatMap(DebugScreen.init(rawValue:))
@@ -480,7 +482,7 @@ enum DebugScreen: String {
         case .bedtime, .tonight:
             DebugBedtime(screen: self)
         case .reportProblem, .reportProblemDetails, .reportProblemSent, .reportProblemQueued,
-             .reportProblemRateLimited:
+             .reportProblemRateLimited, .reportProblemIncluded:
             DebugReportProblem(screen: self)
         }
     }
@@ -531,7 +533,9 @@ private struct DebugReportProblem: View {
         NavigationStack {
             if ready {
                 ReportProblemView(model: screens.profile.report,
-                                  context: screen == .reportProblemDetails ? .preview : nil)
+                                  context: screen == .reportProblemDetails ? .preview : nil,
+                                  showsIncluded: screen == .reportProblemIncluded)
+                    .defaultScrollAnchor(screen == .reportProblemIncluded ? .bottom : .top)
             }
         }
         .task {

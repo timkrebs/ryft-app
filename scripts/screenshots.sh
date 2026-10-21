@@ -7,6 +7,7 @@
 #   scripts/screenshots.sh ["iPhone 17 Pro"] [tab, screen or scenario ...]
 #   screens: notifications invite consent aboutYou aboutYouSaved accountHint signInMethods syncDetails baselineSleepNeed sleepNeed bedtime tonight
 #            report-problem report-problem-details report-problem-sent report-problem-queued report-problem-rate-limited
+#            report-problem-included
 #   scenarios (Today in one in-between state, `-RyftScenario`): import pending calibrating watch
 #   SHOT_LANG=de: German (files end in -de)
 set -eu
