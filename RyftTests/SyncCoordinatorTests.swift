@@ -14,6 +14,9 @@ private final class FakeSteps: SyncSteps {
     /// `isScored` answers per poll.
     var scored: [Bool] = [true]
     var uploadDuration: Duration = .zero
+    /// Backlog after each upload, in order (then none).
+    var backlogs: [Bool] = []
+    private(set) var hasBacklog = false
     private(set) var events: [String] = []
 
     init(clock: TestClock) { self.clock = clock }
@@ -22,6 +25,7 @@ private final class FakeSteps: SyncSteps {
         events.append("upload")
         if uploadDuration > .zero { try await clock.sleep(for: uploadDuration) }
         if !uploadFailures.isEmpty { throw uploadFailures.removeFirst() }
+        hasBacklog = backlogs.isEmpty ? false : backlogs.removeFirst()
         return touched
     }
 
@@ -218,5 +222,100 @@ struct ScheduledWorkTests {
         #expect(removed >= 2)
         #expect(repo.history(from: DayFormat.shift(clock.now(), days: -500), to: clock.now()).count == 1)
         #expect(repo.workout(MockData.todayDetail.workouts[0].id) == nil)
+    }
+}
+
+@Suite("Sync coordinator: backlog")
+@MainActor
+struct SyncCoordinatorBacklogTests {
+    @Test func aBacklogRunsOnAfterTheFirstScoreIsOnScreen() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.backlogs = [true]
+        steps.scored = [true, true]
+        let c = SyncCoordinator(steps: steps, clock: clock)
+
+        let run = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 }) // waiting for the first score
+        clock.advance(by: SyncCoordinator.firstPollDelay)
+        let first = await run.value
+        #expect(first.backlog)
+        #expect(steps.events.contains("days:2026-10-19")) // the first score refreshed…
+
+        #expect(await eventually { steps.count("upload") == 2 }) // …then the backlog uploads
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: SyncCoordinator.firstPollDelay)
+        #expect(await eventually { !steps.hasBacklog && steps.events.filter { $0.hasPrefix("days:") }.count == 2 })
+        #expect(SyncCoordinator.Trigger.backlog.priority == .utility)
+    }
+
+    @Test func aCancelledRunDoesNotContinue() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.backlogs = [true]
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let run = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        await c.cancel()
+        #expect(await run.value.cancelled)
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(steps.count("upload") == 1)
+    }
+}
+
+/// The review on #10.
+@Suite("Sync coordinator: backlog edge cases")
+@MainActor
+struct SyncCoordinatorBacklogEdgeTests {
+    @Test func theContinuationIsRegisteredAtOnceSoACancelFindsIt() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.backlogs = [true]
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let run = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: SyncCoordinator.firstPollDelay)
+        #expect(await run.value.backlog)
+        #expect(await c.isRunning) // the backlog run, already registered
+        await c.cancel()
+        var stopped = false
+        for _ in 0..<5_000 where !stopped {
+            stopped = await !c.isRunning
+            if !stopped { try? await Task.sleep(for: .milliseconds(1)) }
+        }
+        #expect(stopped)
+    }
+
+    @Test func aQueuedPushDoesNotSwallowTheBacklog() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.backlogs = [true]
+        steps.scored = [true, true]
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let run = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        let push = Task { await c.run(.silentPush(days: ["2026-10-20"])) } // queued behind it
+        var queued = false
+        for _ in 0..<10_000 where !queued {
+            queued = await c.hasQueuedRun
+            if !queued { try? await Task.sleep(for: .milliseconds(1)) }
+        }
+        clock.advance(by: SyncCoordinator.firstPollDelay)
+        _ = await run.value
+        #expect(await eventually { steps.count("upload") == 2 }) // the queued rerun uploads the rest
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: SyncCoordinator.firstPollDelay)
+        _ = await push.value
+    }
+
+    @Test func anUploadThatSentNothingLeavesNoBacklog() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.touched = [] // offline, gated or demo
+        steps.backlogs = [true] // a flag left from before
+        let outcome = await SyncCoordinator(steps: steps, clock: clock).run(.appActive)
+        #expect(!outcome.backlog)
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(steps.count("upload") == 1) // no loop
     }
 }

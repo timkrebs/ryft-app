@@ -196,8 +196,10 @@ final class APIClient: RyftDataSource {
 
     // MARK: endpoints
 
-    func sync(_ req: SyncRequest) async throws -> SyncResponse {
-        try await send("POST", path: "/v1/sync", body: req, base: settings.ingestURL)
+    /// `POST /v1/sync` with a body `SyncEngine` encoded off the main actor.
+    func sync(encoded body: Data) async throws -> SyncResponse {
+        let data = try await exchange("POST", path: "/v1/sync", encodedBody: body, base: settings.ingestURL).data
+        return try Self.jsonDecoder.decode(SyncResponse.self, from: data)
     }
 
     func me() async throws -> User {
@@ -268,6 +270,14 @@ final class APIClient: RyftDataSource {
     func exchange<B: Encodable>(_ method: String, path: String, body: B?, base: URL? = nil,
                                 accepting: Set<Int> = [],
                                 unavailableRetries: Int = APIClient.maxUnavailableRetries) async throws -> (status: Int, data: Data) {
+        try await exchange(method, path: path, encodedBody: body.map { try Self.jsonEncoder.encode($0) }, base: base,
+                           accepting: accepting, unavailableRetries: unavailableRetries)
+    }
+
+    /// The request with an already encoded JSON body (or none).
+    func exchange(_ method: String, path: String, encodedBody: Data?, base: URL? = nil,
+                  accepting: Set<Int> = [],
+                  unavailableRetries: Int = APIClient.maxUnavailableRetries) async throws -> (status: Int, data: Data) {
         guard let root = base ?? baseURL ?? settings.apiURL, root.host != nil,
               let url = URL(string: path, relativeTo: root) else {
             throw APIError.notConfigured
@@ -284,9 +294,9 @@ final class APIClient: RyftDataSource {
         req.setValue(Self.acceptLanguage, forHTTPHeaderField: "Accept-Language")
         // The install's id (as in POST /v1/sync): GET /v1/me derives `account_hint` from it.
         req.setValue(settings.deviceId.uuidString.lowercased(), forHTTPHeaderField: "X-RYFT-Device-ID")
-        if let body {
+        if let encodedBody {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try Self.jsonEncoder.encode(body)
+            req.httpBody = encodedBody
         }
         let tokens = await tokenProvider()
         var bearer = try await tokens.accessToken()

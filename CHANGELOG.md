@@ -24,6 +24,10 @@ Store "What's New".
   maximum heart-rate estimate. Profile → Privacy to see or withdraw the consent, and
   Profile → Sign-in methods to add Sign in with Apple to an email account.
 
+### Changed
+- The first sync shows scores for the last few days first and imports the rest after;
+  every sync sends last night before the day's heart rate.
+
 ### Fixed
 - A missing consent or invite code no longer shows as "RYFT didn't accept your sign-in";
   the app asks for what's missing and syncs once it's done.

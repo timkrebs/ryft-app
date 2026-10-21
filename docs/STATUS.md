@@ -1,5 +1,33 @@
 # Status — 2026-10-21
 
+## Sync engine: order, first score first, pipelined (sync brief §2, first part)
+
+- **`SyncEngine`** (actor) reads, maps, encodes and uploads; `SyncService` stays the
+  observable face. Streams go night-first (sleep, HRV, resting HR, breathing rate, SpO₂,
+  workouts, then heart rate, steps, energy, VO₂ max).
+- **First score first:** an account's first sync sends the last 3 days of every stream
+  and stops; the coordinator scores and refreshes Today, then continues with the anchored
+  90-day backfill (`.backlog` run).
+- **Pipelined, pages by bytes:** the next page is read while the current one uploads
+  (one ahead, never more); pages hold what fits 2 MB at the measured bytes per record;
+  `413` still halves.
+- **State per account** (`SyncEngineState`): phase, stream, per-stream counts, bytes and
+  date range, last error with request ID. The import card and Sync details build on it.
+
+**Finding #11 of the brief (sync work on the main thread) did not hold.** The brief says
+the target builds with `SWIFT_APPROACHABLE_CONCURRENCY = YES`; only the widget and UI-test
+targets do. In the app target a nonisolated `async` function runs on the global executor,
+so `HealthKitManager`'s mapping and `APIClient`'s encoding already ran off the main
+thread. A probe against `main` (a `HealthStore` recording `Thread.isMainThread` in
+`nextPage`, driven by the `@MainActor` `SyncService`) confirmed it: off the main thread.
+The engine keeps it that way whatever the build setting becomes, and
+`readingMappingEncodingAndUploadingStayOffTheMainThread` guards it. Instruments numbers on
+your iPhone are still open (perf section, later).
+
+Verified: 453 unit tests (+ order, nothing on the main thread, the two-phase backfill,
+one page ahead and never more, page sizes from measured bytes, persisted state and
+errors, a full re-sync, the backlog run and that a cancelled run doesn't continue).
+
 ## Account gates and honest errors (sync brief §1, `CLAUDE_FOLLOWUP_SYNC_403.md` §1–§3)
 
 **Root cause of "RYFT didn't accept your sign-in · HTTP 403"** (from the platform's

@@ -196,9 +196,28 @@ graph of `await`s and a `TaskGroup`:
                                                                                          └─▶ refreshInsights
 
 - **Stages.** They are a `SyncSteps` protocol.
-  - `LiveSyncSteps`: `SyncService.upload()` reads and uploads HealthKit page by page;
+  - `LiveSyncSteps`: `SyncService.upload()` runs the `SyncEngine` (below);
     `isScored` compares `computed_at` with the upload start; refreshes go through the Repository.
   - The tests use fakes on the `TestClock`.
+- **The upload: `SyncEngine`** (an actor, `Sync/SyncService.swift`; `SyncService` is its
+  `@MainActor` observable face):
+  - **Order:** the night and the overnight vitals first (sleep, HRV, resting HR, breathing
+    rate, SpO₂), then workouts, then heart rate, steps, active energy, VO₂ max.
+  - **First score first:** an account's first sync (no anchors) sends the last 3 days of
+    every stream (date-bounded, anchors never committed) and stops with a backlog; the
+    coordinator scores and refreshes, then a `.backlog` run does the anchored 90-day
+    backfill. The platform counts the overlap as `ignored.duplicate`.
+  - **Pipelined:** the next page is read (and mapped) while the current one uploads,
+    never more than one ahead; a page's anchor is committed only after its own upload.
+  - **Pages by bytes:** as many records as fit 2 MB of JSON at the bytes per record the
+    stream's last page measured; a `413` halves pages for the rest of the run.
+  - **Off the main actor:** reads run in the engine or its read-ahead task, JSON encoding
+    in a `@concurrent` function, the upload from the engine (`MainThread.assertOff` in
+    Debug, and `SyncEngineTests` check it with the mocks).
+  - **State per account** (`SyncEngineState`, UserDefaults like the anchors): phase,
+    current stream, per-stream records, bytes and date range, the last error with its
+    request ID. Wiped on sign-out with the anchors.
+  - The gate (`SyncService.gate`) is asked before every page.
 - **Nothing touched.** A sync that uploaded nothing only refreshes what's stale.
 - **Silent push.** It skips the upload and refreshes the pushed day.
 - **One in flight.** A trigger while a sync runs queues one rerun; later triggers join it.

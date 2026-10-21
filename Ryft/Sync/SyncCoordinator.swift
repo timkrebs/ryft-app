@@ -7,6 +7,9 @@ import Foundation
 protocol SyncSteps: AnyObject {
     /// Reads new HealthKit records page by page and uploads them; returns `days_touched`.
     func upload() async throws -> [String]
+    /// The last upload stopped early on purpose (the first score's window went first);
+    /// another run follows once this one has refreshed.
+    var hasBacklog: Bool { get }
     /// Whether every touched day was rescored at or after `since` (`computed_at`).
     func isScored(_ days: [String], since: Date) async throws -> Bool
     /// Fetches the touched days (and today) regardless of their TTL.
@@ -35,13 +38,15 @@ protocol SyncSteps: AnyObject {
 actor SyncCoordinator {
     enum Trigger: Equatable, Sendable {
         case userInitiated, appActive, reconnect, healthKit, background
+        /// The rest of an upload that stopped early (the first score came first).
+        case backlog
         /// A silent push: refresh these days, no upload.
         case silentPush(days: [String])
 
         var priority: TaskPriority {
             switch self {
             case .userInitiated, .appActive, .reconnect: return .userInitiated
-            case .healthKit, .background, .silentPush: return .utility
+            case .healthKit, .background, .silentPush, .backlog: return .utility
             }
         }
     }
@@ -52,6 +57,8 @@ actor SyncCoordinator {
         var attempts = 0
         var cancelled = false
         var error: String?
+        /// The upload left a backlog; a `.backlog` run follows.
+        var backlog = false
     }
 
     /// Polls for scoring after an upload; waits double each time (3 s, 6 s, 12 s).
@@ -73,6 +80,8 @@ actor SyncCoordinator {
     }
 
     var isRunning: Bool { running != nil }
+    /// A rerun waits behind the running sync.
+    var hasQueuedRun: Bool { queued != nil }
 
     /// Runs (or joins) a sync for `trigger` and returns how it ended.
     @discardableResult
@@ -115,7 +124,7 @@ actor SyncCoordinator {
         // false as soon as anyone has the outcome.
         let task = Task(priority: trigger.priority) { [weak self, steps, clock] in
             let outcome = await Self.pipeline(trigger, steps: steps, clock: clock)
-            await self?.finished(id)
+            await self?.finished(id, continuing: outcome.backlog && !outcome.cancelled && outcome.error == nil)
             return outcome
         }
         running = task
@@ -123,10 +132,19 @@ actor SyncCoordinator {
         return task
     }
 
-    private func finished(_ id: UUID) {
+    private func finished(_ id: UUID, continuing: Bool) {
         guard runningID == id else { return }
         running = nil
         runningID = nil
+        // The first score is on screen; the rest of the upload follows.
+        guard continuing else { return }
+        if queued != nil {
+            // The queued rerun uploads it, even if all that was queued is a push's refresh.
+            queuedTrigger = merge(queuedTrigger, .backlog)
+        } else {
+            // Started (and registered) now, so a cancel() right after finds it.
+            _ = start(.backlog)
+        }
     }
 
     /// A silent push's days join whatever else is waiting; any upload trigger wins over a push.
@@ -151,6 +169,9 @@ actor SyncCoordinator {
                 let started = clock.now()
                 (touched, outcome.attempts) = try await uploadWithBackoff(steps, clock)
                 outcome.touched = touched
+                // Only an upload that sent something leaves a backlog to continue (offline,
+                // gated or demo uploads send nothing).
+                outcome.backlog = touched.isEmpty ? false : await steps.hasBacklog
                 guard !touched.isEmpty else {
                     try Task.checkCancellation()
                     await steps.report(.refreshing)
@@ -235,6 +256,8 @@ final class LiveSyncSteps: SyncSteps {
         guard !state.isDemo, state.env.auth.isSignedIn, state.env.settings.isConfigured else { return [] }
         return try await sync.upload()
     }
+
+    var hasBacklog: Bool { sync.hasBacklog }
 
     func isScored(_ days: [String], since: Date) async throws -> Bool {
         guard let first = days.min().flatMap(DayFormat.date(from:)),

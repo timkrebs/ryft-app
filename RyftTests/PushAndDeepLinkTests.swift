@@ -376,6 +376,7 @@ struct PushRegistrarTests {
 /// A coordinator that's never run in these tests.
 private final class NoSteps: SyncSteps {
     func upload() async throws -> [String] { [] }
+    var hasBacklog: Bool { false }
     func isScored(_ days: [String], since: Date) async throws -> Bool { true }
     func refreshDays(_ days: [String]) async throws {}
     func refreshTrends() async throws {}
