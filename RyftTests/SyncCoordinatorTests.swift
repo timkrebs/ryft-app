@@ -14,6 +14,9 @@ private final class FakeSteps: SyncSteps {
     /// `isScored` answers per poll.
     var scored: [Bool] = [true]
     var uploadDuration: Duration = .zero
+    /// Backlog after each upload, in order (then none).
+    var backlogs: [Bool] = []
+    private(set) var hasBacklog = false
     private(set) var events: [String] = []
 
     init(clock: TestClock) { self.clock = clock }
@@ -22,6 +25,7 @@ private final class FakeSteps: SyncSteps {
         events.append("upload")
         if uploadDuration > .zero { try await clock.sleep(for: uploadDuration) }
         if !uploadFailures.isEmpty { throw uploadFailures.removeFirst() }
+        hasBacklog = backlogs.isEmpty ? false : backlogs.removeFirst()
         return touched
     }
 
@@ -218,5 +222,43 @@ struct ScheduledWorkTests {
         #expect(removed >= 2)
         #expect(repo.history(from: DayFormat.shift(clock.now(), days: -500), to: clock.now()).count == 1)
         #expect(repo.workout(MockData.todayDetail.workouts[0].id) == nil)
+    }
+}
+
+@Suite("Sync coordinator: backlog")
+@MainActor
+struct SyncCoordinatorBacklogTests {
+    @Test func aBacklogRunsOnAfterTheFirstScoreIsOnScreen() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.backlogs = [true]
+        steps.scored = [true, true]
+        let c = SyncCoordinator(steps: steps, clock: clock)
+
+        let run = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 }) // waiting for the first score
+        clock.advance(by: SyncCoordinator.firstPollDelay)
+        let first = await run.value
+        #expect(first.backlog)
+        #expect(steps.events.contains("days:2026-10-19")) // the first score refreshed…
+
+        #expect(await eventually { steps.count("upload") == 2 }) // …then the backlog uploads
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: SyncCoordinator.firstPollDelay)
+        #expect(await eventually { !steps.hasBacklog && steps.events.filter { $0.hasPrefix("days:") }.count == 2 })
+        #expect(SyncCoordinator.Trigger.backlog.priority == .utility)
+    }
+
+    @Test func aCancelledRunDoesNotContinue() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.backlogs = [true]
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let run = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        await c.cancel()
+        #expect(await run.value.cancelled)
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(steps.count("upload") == 1)
     }
 }

@@ -92,8 +92,9 @@ struct RyftApp: App {
                 .onChange(of: auth.accountID) { old, new in
                     Task { await coordinator.cancel() }
                     if old != nil { state.reset() }
-                    // That account's gates and steps are its own.
+                    // That account's gates, steps and sync state are its own.
                     screens.onboarding.switchAccount(new)
+                    sync.accountChanged()
                     // Flags are per account: that account's cached answer, then a fresh one.
                     (env.flags as? FlagStore)?.switchAccount(new)
                     guard new != nil else { return }

@@ -1,8 +1,10 @@
-// Drains HealthKit into the backend, page by page, persisting each anchor only
-// after its page was accepted. Safe to call from foreground, background
-// delivery and a BGAppRefreshTask alike; concurrent calls coalesce. Needs a
-// signed-in caller: the SDK restores the session from the Keychain without UI,
-// so background runs work too.
+// Drains HealthKit into the backend. `SyncEngine` (an actor) does the work off the
+// main actor: it reads a page, maps and encodes it, uploads it, and persists its
+// anchor only after the page was accepted, reading the next page while this one
+// uploads. `SyncService` is its observable face for the screens and the
+// coordinator. Safe to call from foreground, background delivery and a
+// BGAppRefreshTask alike; concurrent calls coalesce. Needs a signed-in caller: the
+// SDK restores the session from the Keychain without UI, so background runs work too.
 import Foundation
 import GameplayKit
 import Observation
@@ -26,6 +28,10 @@ final class SyncService {
     private(set) var lastUploaded = 0
     /// Days the last sync queued for rescoring (`days_touched`).
     private(set) var lastDaysTouched: [String] = []
+    /// The engine's persisted state (phase, per-stream progress, last error).
+    private(set) var engineState: SyncEngineState
+    /// The last run stopped early on purpose (the first score came first); another follows.
+    private(set) var hasBacklog = false
     /// Uploads wait behind this gate (no consent to the current policy, no beta access)
     /// until it's passed. Not an error: something the user does (`OnboardingCoordinator`).
     private(set) var pausedFor: APIErrorCode?
@@ -36,21 +42,30 @@ final class SyncService {
     static let rescoreDelay: Duration = .seconds(3)
 
     private let env: AppEnvironment
+    private let engine: SyncEngine
     private var health: HealthStore { env.health }
-    /// Always the account's platform: demo mode never syncs.
-    private var api: PlatformAPI { env.liveAPI }
     private var settings: Settings { env.settings }
     private var auth: AuthService { env.auth }
     private var inFlight: Task<[String], Error>?
 
     init(env: AppEnvironment) {
         self.env = env
+        // Always the account's platform: demo mode never syncs.
+        engine = SyncEngine(health: env.health, api: env.liveAPI, defaults: env.defaults)
+        engineState = SyncEngineState.load(account: env.auth.accountID, defaults: env.defaults)
         machine = SyncMachine.make { [weak self] to, _ in self?.phase = to }
     }
 
     /// Moves the pipeline on (refused transitions are ignored: the table guards them).
     func advance(to next: SyncPhase) {
         machine.enter(next)
+    }
+
+    /// Another account: its own engine state.
+    func accountChanged() {
+        engineState = SyncEngineState.load(account: auth.accountID, defaults: env.defaults)
+        hasBacklog = false
+        pausedFor = nil
     }
 
     /// Uploads and keeps any error for the screens (Profile → Re-sync, tests).
@@ -70,7 +85,7 @@ final class SyncService {
     }
 
     private func run() async throws -> [String] {
-        guard auth.isSignedIn else {
+        guard auth.isSignedIn, let account = auth.accountID else {
             lastError = APIError.signedOut.localizedDescription
             throw APIError.signedOut
         }
@@ -94,72 +109,395 @@ final class SyncService {
         lastError = nil
         lastErrorDetails = nil
         lastUploaded = 0
-        var touched = Set<String>()
-        // A 413 shrinks pages for the rest of this sync only.
-        let pageSize = health.pageSize
-        defer { progress = ""; health.pageSize = pageSize }
-
+        hasBacklog = false
+        defer { progress = "" }
+        let context = SyncEngine.Context(account: account, deviceID: settings.deviceId,
+                                         deviceName: UIDevice.current.name, appVersion: AppInfo.version,
+                                         osVersion: AppInfo.osVersion, now: env.clock.now())
         do {
-            for stream in health.streams {
-                var more = true
-                while more {
-                    advance(to: .reading)
-                    progress = "Reading \(stream.anchorID)…"
-                    let page = try await health.nextPage(stream)
-                    // Consent withdrawn or a gate reported meanwhile: stop before this page goes up.
-                    if let gate = gate?() { throw APIError.http(403, "", code: gate) }
-                    // On 413 the anchor isn't committed, so the loop re-reads the same page, smaller.
-                    guard try await upload(page.delta, touched: &touched) else { continue }
-                    health.commit(page, for: stream)
-                    more = page.more
-                }
+            let result = try await engine.run(context, gate: { [weak self] in await self?.gate?() }) { [weak self] event in
+                await self?.apply(event)
+            }
+            lastDaysTouched = result.touched
+            hasBacklog = result.backlog
+            if let gate = result.pausedFor {
+                // The platform refused at a gate (consent withdrawn, policy updated, access
+                // revoked): pause, keep the uncommitted page's anchor, and let the gate prompt.
+                pausedFor = gate
+                advance(to: .idle)
+                return result.touched
             }
             settings.lastSync = env.clock.now()
-        } catch let error where error.gate != nil {
-            // The platform refused at a gate (consent withdrawn, policy updated, access revoked):
-            // pause, keep the uncommitted page's anchor, and let the gate prompt.
-            pausedFor = error.gate
-            lastDaysTouched = touched.sorted()
-            advance(to: .idle)
-            return lastDaysTouched
+            return result.touched
         } catch {
             lastError = error.localizedDescription
             lastErrorDetails = error.diagnosticDetails
-            lastDaysTouched = touched.sorted()
+            lastDaysTouched = await engine.touchedSoFar
             advance(to: .failed)
             throw error
         }
-        lastDaysTouched = touched.sorted()
-        return lastDaysTouched
     }
 
-    /// Smallest page a 413 can shrink to; below that the error is real.
-    static let minimumPageSize = 250
-
-    /// `false` when the body was too large (413): `pageSize` is halved and the
-    /// caller reads the page again. 503/429 are retried inside APIClient.
-    private func upload(_ delta: HealthDelta, touched: inout Set<String>) async throws -> Bool {
-        guard !delta.isEmpty else { return true }
-        advance(to: .uploading)
-        progress = "Uploading \(delta.count) records…"
-        let req = SyncRequest(deviceId: settings.deviceId, deviceName: UIDevice.current.name,
-                              appVersion: AppInfo.version, osVersion: AppInfo.osVersion,
-                              samples: delta.samples, sleep: delta.sleep, workouts: delta.workouts)
-        do {
-            let resp = try await api.sync(req)
-            lastUploaded += resp.samples + resp.sleep + resp.workouts
-            touched.formUnion(resp.daysTouched)
-            return true
-        } catch let error as APIError where error.status == 413 && health.pageSize > Self.minimumPageSize {
-            health.pageSize = max(Self.minimumPageSize, health.pageSize / 2)
-            return false
+    private func apply(_ event: SyncEngine.Event) {
+        switch event {
+        case .reading(let stream):
+            // A page read ahead while another uploads: the upload is what's happening.
+            if phase != .uploading { advance(to: .reading) }
+            progress = "Reading \(stream.anchorID)…"
+        case .uploading(_, let records):
+            advance(to: .uploading)
+            progress = "Uploading \(records) records…"
+        case .accepted(_, let response):
+            lastUploaded += response.samples + response.sleep + response.workouts
+        case .state(let state):
+            engineState = state
         }
     }
 
     /// Forget anchors and re-upload the backfill window. Use after changing
-    /// `backfillDays` or if the backend database was recreated.
+    /// `backfillDays` or if the backend database was recreated. The engine counts it as a
+    /// backfill again (the platform answers the overlap as duplicates).
     func fullResync() async {
         health.resetAnchors()
+        if let account = auth.accountID {
+            var state = SyncEngineState.load(account: account, defaults: env.defaults)
+            state.backfillDone = false
+            state.streams = [:]
+            state.save(account: account, defaults: env.defaults)
+            engineState = state
+        }
         await syncNow()
+    }
+}
+
+// MARK: - engine
+
+/// What the engine knows about an account's sync, persisted per account (UserDefaults,
+/// like the anchors) so the screens and a relaunch see the same truth.
+struct SyncEngineState: Codable, Equatable, Sendable {
+    enum Phase: String, Codable, Sendable {
+        case idle
+        /// The first sync's last `SyncEngine.recentDays` days, for a first score within a minute.
+        case recent
+        /// The backfill window, the first time through.
+        case backfill
+        /// Anchored: only what's new.
+        case incremental
+    }
+
+    struct StreamProgress: Codable, Equatable, Sendable {
+        /// Records sent and their encoded size.
+        var records = 0
+        var bytes = 0
+        /// The oldest and newest record sent (anchored reads come in insertion order, not by date).
+        var oldest: Date?
+        var newest: Date?
+        /// Drained once in the backfill.
+        var backfilled = false
+        var lastAccepted = 0
+        var lastIgnored: IgnoredCounts?
+    }
+
+    var phase: Phase = .idle
+    /// The stream being read (`HealthStream.anchorID`).
+    var stream: String?
+    var recentDone = false
+    var backfillDone = false
+    /// Per `HealthStream.anchorID`.
+    var streams: [String: StreamProgress] = [:]
+    var bytesUploaded = 0
+    var lastError: String?
+    var lastRequestID: String?
+    var updatedAt: Date?
+
+    static let keyPrefix = "sync.engine."
+
+    static func load(account: String?, defaults: UserDefaults) -> SyncEngineState {
+        guard let account, let data = defaults.data(forKey: keyPrefix + account),
+              let state = try? JSONDecoder().decode(SyncEngineState.self, from: data) else { return SyncEngineState() }
+        return state
+    }
+
+    func save(account: String, defaults: UserDefaults) {
+        if let data = try? JSONEncoder().encode(self) { defaults.set(data, forKey: Self.keyPrefix + account) }
+    }
+
+    /// Log out, account deletion: every account's state goes with the anchors.
+    static func wipe(defaults: UserDefaults) {
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(keyPrefix) {
+            defaults.removeObject(forKey: key)
+        }
+    }
+}
+
+/// Reads HealthKit, maps, encodes and uploads, off the main actor:
+///
+/// - **Order.** `HealthStore.streams`: the night and overnight vitals before the
+///   high-volume day streams, so scoring has the night first.
+/// - **First score first.** On an account's first sync (no anchors), the last
+///   `recentDays` days of every stream go up first (date-bounded, anchors never
+///   committed; the platform counts the later re-send as duplicates). The run then stops
+///   with a backlog, so the coordinator refreshes, and the anchored backfill follows.
+/// - **Pipelined.** While a page uploads, the next one is read (one page ahead, never
+///   more). Its anchor is committed only after its own upload.
+/// - **Pages by bytes.** A page holds as many records as fit `targetPageBytes` at the
+///   bytes per record the last page of that stream measured; a `413` halves it for the
+///   rest of the run.
+actor SyncEngine {
+    struct Context: Sendable {
+        let account: String
+        let deviceID: UUID
+        let deviceName: String?
+        let appVersion: String
+        let osVersion: String
+        let now: Date
+    }
+
+    enum Event: Sendable {
+        case reading(HealthStream)
+        case uploading(HealthStream, records: Int)
+        case accepted(HealthStream, SyncResponse)
+        case state(SyncEngineState)
+    }
+
+    struct Result: Sendable {
+        var touched: [String] = []
+        var uploaded = 0
+        /// Stopped after the first score's window; the backfill follows.
+        var backlog = false
+        /// Refused at a gate; the page's anchor isn't committed.
+        var pausedFor: APIErrorCode?
+    }
+
+    /// The first score's window.
+    static let recentDays = 3
+    /// Uncompressed body per page (the platform takes 32 MiB; small pages fail cheaply).
+    static let targetPageBytes = 2_000_000
+    /// Smallest page a 413 can shrink to; below that the error is real.
+    static let minimumPageSize = 250
+
+    private let health: HealthStore
+    private let api: PlatformAPI
+    private let defaults: UserDefaults
+    private var state = SyncEngineState()
+    private var account = ""
+    private var touched = Set<String>()
+    /// Measured on the last page of each stream.
+    private var bytesPerRecord: [HealthStream: Double] = [:]
+    /// The most records per page this run; a 413 lowers it.
+    private var maxRecords = 0
+    private var gate: @Sendable () async -> APIErrorCode? = { nil }
+
+    init(health: HealthStore, api: PlatformAPI, defaults: UserDefaults) {
+        self.health = health
+        self.api = api
+        self.defaults = defaults
+    }
+
+    /// Days queued for rescoring by the pages accepted so far (after a failure, too).
+    var touchedSoFar: [String] { touched.sorted() }
+
+    /// `gate` is asked before every page: a gate that appears mid-run (consent withdrawn)
+    /// stops the next page before it goes up, uncommitted.
+    func run(_ context: Context, gate: @escaping @Sendable () async -> APIErrorCode?,
+             report: @escaping @Sendable (Event) async -> Void) async throws -> Result {
+        self.gate = gate
+        account = context.account
+        state = SyncEngineState.load(account: account, defaults: defaults)
+        touched = []
+        maxRecords = health.pageSize
+        var result = Result()
+        defer { state.save(account: account, defaults: defaults) }
+        do {
+            state.lastError = nil
+            state.lastRequestID = nil
+            if !state.recentDone, !health.hasAnchors {
+                let since = Calendar.current.date(byAdding: .day, value: -Self.recentDays, to: context.now) ?? context.now
+                try await set(.recent, report)
+                try await drain(.recent(since: since), context, report)
+                state.recentDone = true
+                // Something to score: let the coordinator refresh before the long backfill.
+                if !touched.isEmpty {
+                    state.phase = .backfill
+                    await finished(context, report)
+                    result.backlog = true
+                    return finish(result)
+                }
+            }
+            try await set(state.backfillDone ? .incremental : .backfill, report)
+            try await drain(.anchored, context, report)
+            state.backfillDone = true
+            state.phase = .idle
+            await finished(context, report)
+            return finish(result)
+        } catch let error where error.gate != nil {
+            result.pausedFor = error.gate
+            state.phase = .idle
+            await finished(context, report)
+            return finish(result)
+        } catch {
+            state.lastError = error.localizedDescription
+            state.lastRequestID = (error as? APIError)?.requestID
+            state.phase = .idle
+            await finished(context, report)
+            throw error
+        }
+    }
+
+    /// The run's last word: no stream in progress, and when it ended.
+    private func finished(_ context: Context, _ report: @Sendable (Event) async -> Void) async {
+        state.stream = nil
+        state.updatedAt = context.now
+        await report(.state(state))
+    }
+
+    private func finish(_ result: Result) -> Result {
+        var r = result
+        r.touched = touched.sorted()
+        return r
+    }
+
+    private func set(_ phase: SyncEngineState.Phase, _ report: @Sendable (Event) async -> Void) async throws {
+        try Task.checkCancellation()
+        state.phase = phase
+        await report(.state(state))
+    }
+
+    // MARK: draining
+
+    enum Mode {
+        /// Date-bounded, anchors kept in memory only.
+        case recent(since: Date)
+        /// From the committed anchor (the backfill window on the first query).
+        case anchored
+    }
+
+    /// Where the next read starts: a stream, and the uncommitted anchor of the page before.
+    private struct Cursor {
+        let index: Int
+        let after: Data?
+    }
+
+    /// Every stream, page by page, reading one page ahead while the current one uploads.
+    private func drain(_ mode: Mode, _ context: Context, _ report: @escaping @Sendable (Event) async -> Void) async throws {
+        let streams = health.streams
+        guard !streams.isEmpty else { return }
+        var cursor = Cursor(index: 0, after: nil)
+        await report(.reading(streams[0]))
+        guard var page = try await Self.read(health, mode, streams[0], after: nil, limit: limit(for: streams[0])) else {
+            return
+        }
+        while true {
+            try Task.checkCancellation()
+            let stream = streams[cursor.index]
+            state.stream = stream.anchorID
+            let next: Cursor? = page.more ? Cursor(index: cursor.index, after: page.anchor)
+                : cursor.index + 1 < streams.count ? Cursor(index: cursor.index + 1, after: nil) : nil
+            let nextStream = next.map { streams[$0.index] }
+            let nextLimit = nextStream.map(limit(for:)) ?? 0
+            if let nextStream { await report(.reading(nextStream)) }
+            // One page ahead, never more: it reads (and maps) while this one uploads.
+            async let ahead = Self.read(health, mode, nextStream, after: next?.after, limit: nextLimit)
+            guard try await upload(page.delta, stream: stream, context: context, report: report) else {
+                // 413: drop what was read ahead and read this page again, smaller.
+                _ = try? await ahead
+                page = try await Self.read(health, mode, stream, after: cursor.after, limit: limit(for: stream)) ?? page
+                continue
+            }
+            if case .anchored = mode {
+                health.commit(page, for: stream)
+                if !page.more, !state.backfillDone { state.streams[stream.anchorID, default: .init()].backfilled = true }
+            }
+            let read = try await ahead
+            guard let next, let read else { return }
+            cursor = next
+            page = read
+        }
+    }
+
+    /// A page of `stream` (`nil`: nothing to read). Nonisolated: when read ahead it runs on
+    /// the global executor beside the upload, mapping included.
+    private static func read(_ health: HealthStore, _ mode: Mode, _ stream: HealthStream?, after: Data?,
+                             limit: Int) async throws -> HealthPage? {
+        guard let stream else { return nil }
+        switch mode {
+        case .recent(let since): return try await health.recentPage(stream, since: since, after: after, limit: limit)
+        case .anchored: return try await health.nextPage(stream, after: after, limit: limit)
+        }
+    }
+
+    /// Records per page for `stream`: what fits `targetPageBytes` at its measured size.
+    private func limit(for stream: HealthStream) -> Int {
+        let perRecord = bytesPerRecord[stream] ?? Self.estimatedBytesPerRecord(stream)
+        let fitting = Int(Double(Self.targetPageBytes) / max(perRecord, 1))
+        return max(Self.minimumPageSize, min(maxRecords, fitting))
+    }
+
+    /// Before a page measured it: a sample is ~200 bytes of JSON, a workout ~400.
+    static func estimatedBytesPerRecord(_ stream: HealthStream) -> Double {
+        switch stream {
+        case .quantity: return 210
+        case .sleep: return 190
+        case .workouts: return 420
+        }
+    }
+
+    // MARK: uploading
+
+    /// `false` when the body was too large (413): pages shrink for the rest of the run
+    /// and the caller reads the page again. 503/429 are retried inside APIClient.
+    private func upload(_ delta: HealthDelta, stream: HealthStream, context: Context,
+                        report: @Sendable (Event) async -> Void) async throws -> Bool {
+        guard !delta.isEmpty else { return true }
+        // Consent withdrawn or a gate reported meanwhile: this page stays (its anchor too).
+        if let gate = await gate() { throw APIError.http(403, "", code: gate) }
+        await report(.uploading(stream, records: delta.count))
+        let request = SyncRequest(deviceId: context.deviceID, deviceName: context.deviceName,
+                                  appVersion: context.appVersion, osVersion: context.osVersion,
+                                  samples: delta.samples, sleep: delta.sleep, workouts: delta.workouts)
+        let body = try await Self.encode(request)
+        bytesPerRecord[stream] = Double(body.count) / Double(delta.count)
+        let response: SyncResponse
+        do {
+            response = try await api.sync(encoded: body)
+        } catch let error as APIError where error.status == 413 && maxRecords > Self.minimumPageSize {
+            maxRecords = max(Self.minimumPageSize, min(maxRecords, delta.count) / 2)
+            return false
+        }
+        touched.formUnion(response.daysTouched)
+        record(delta, bytes: body.count, response: response, stream: stream)
+        await report(.accepted(stream, response))
+        await report(.state(state))
+        return true
+    }
+
+    private func record(_ delta: HealthDelta, bytes: Int, response: SyncResponse, stream: HealthStream) {
+        var p = state.streams[stream.anchorID, default: .init()]
+        p.records += delta.count
+        p.bytes += bytes
+        let starts = delta.samples.map(\.start) + delta.sleep.map(\.start) + delta.workouts.map(\.start)
+        let ends = delta.samples.map(\.end) + delta.sleep.map(\.end) + delta.workouts.map(\.end)
+        if let lo = starts.min() { p.oldest = min(p.oldest ?? lo, lo) }
+        if let hi = ends.max() { p.newest = max(p.newest ?? hi, hi) }
+        switch stream {
+        case .quantity:
+            p.lastAccepted = response.accepted.samples
+            p.lastIgnored = response.ignored.samples
+        case .sleep:
+            p.lastAccepted = response.accepted.sleep
+            p.lastIgnored = response.ignored.sleep
+        case .workouts:
+            p.lastAccepted = response.accepted.workouts
+            p.lastIgnored = response.ignored.workouts
+        }
+        state.streams[stream.anchorID] = p
+        state.bytesUploaded += bytes
+    }
+
+    /// JSON for a page: several MB for a full one, so never on the main actor.
+    @concurrent
+    private static func encode(_ request: SyncRequest) async throws -> Data {
+        MainThread.assertOff("Encoding a sync page")
+        return try APIClient.jsonEncoder.encode(request)
     }
 }

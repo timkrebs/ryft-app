@@ -35,7 +35,7 @@ final class HealthKitManager {
     /// How far back the very first sync reaches. 90 days gives the scoring
     /// service enough history to build baselines on day one.
     var backfillDays = 90
-    /// Samples per anchored page. Keeps a single upload under a few MB.
+    /// The most samples one anchored page may hold; `SyncEngine` sizes pages below it by bytes.
     var pageSize = 20_000
 
     struct QuantitySpec {
@@ -111,7 +111,7 @@ final class HealthKitManager {
     }
 
     /// Only applied on the first query for a type (no anchor yet).
-    private var backfillPredicate: NSPredicate {
+    var backfillPredicate: NSPredicate {
         let start = Calendar.current.date(byAdding: .day, value: -backfillDays, to: .now)!
         return HKQuery.predicateForSamples(withStart: start, end: nil, options: [])
     }
@@ -128,45 +128,39 @@ final class HealthKitManager {
         let more: Bool
     }
 
-    func quantityPage(_ spec: QuantitySpec) async throws -> Page<Sample> {
-        let id = spec.type.rawValue
-        let current = anchor(for: id)
-        let predicate = current == nil ? backfillPredicate : nil
+    func quantityPage(_ spec: QuantitySpec, anchor: HKQueryAnchor?, predicate: NSPredicate?,
+                      limit: Int) async throws -> Page<Sample> {
         let desc = HKAnchoredObjectQueryDescriptor(
-            predicates: [.quantitySample(type: spec.hkType, predicate: predicate)],
-            anchor: current, limit: pageSize)
+            predicates: [.quantitySample(type: spec.hkType, predicate: predicate)], anchor: anchor, limit: limit)
         let result = try await desc.result(for: store)
+        MainThread.assertOff("Mapping \(spec.type.rawValue)")
         let items = result.addedSamples.map { s in
             Sample(type: spec.type, start: s.startDate, end: s.endDate,
                    value: s.quantity.doubleValue(for: spec.unit) * spec.scale,
                    unit: spec.unitLabel, source: Self.sourceName(s), sourceBundleId: Self.sourceBundleID(s))
         }
-        return Page(items: items, anchor: result.newAnchor, more: result.addedSamples.count >= pageSize)
+        return Page(items: items, anchor: result.newAnchor, more: result.addedSamples.count >= limit)
     }
 
-    func sleepPage() async throws -> Page<SleepSegment> {
-        let current = anchor(for: "sleep")
-        let predicate = current == nil ? backfillPredicate : nil
+    func sleepPage(anchor: HKQueryAnchor?, predicate: NSPredicate?, limit: Int) async throws -> Page<SleepSegment> {
         let desc = HKAnchoredObjectQueryDescriptor(
-            predicates: [.categorySample(type: sleepType, predicate: predicate)],
-            anchor: current, limit: pageSize)
+            predicates: [.categorySample(type: sleepType, predicate: predicate)], anchor: anchor, limit: limit)
         let result = try await desc.result(for: store)
+        MainThread.assertOff("Mapping sleep")
         let items = result.addedSamples.compactMap { s -> SleepSegment? in
             guard let stage = Self.sleepStage(s.value) else { return nil }
             return SleepSegment(start: s.startDate, end: s.endDate, stage: stage, source: Self.sourceName(s),
                                 sourceBundleId: Self.sourceBundleID(s))
         }
-        return Page(items: items, anchor: result.newAnchor, more: result.addedSamples.count >= pageSize)
+        return Page(items: items, anchor: result.newAnchor, more: result.addedSamples.count >= limit)
     }
 
-    func workoutPage() async throws -> Page<Workout> {
-        let current = anchor(for: "workouts")
-        let predicate = current == nil ? backfillPredicate : nil
-        let desc = HKAnchoredObjectQueryDescriptor(
-            predicates: [.workout(predicate)], anchor: current, limit: pageSize)
+    func workoutPage(anchor: HKQueryAnchor?, predicate: NSPredicate?, limit: Int) async throws -> Page<Workout> {
+        let desc = HKAnchoredObjectQueryDescriptor(predicates: [.workout(predicate)], anchor: anchor, limit: limit)
         let result = try await desc.result(for: store)
+        MainThread.assertOff("Mapping workouts")
         let items = result.addedSamples.map { Self.map(workout: $0) }
-        return Page(items: items, anchor: result.newAnchor, more: result.addedSamples.count >= pageSize)
+        return Page(items: items, anchor: result.newAnchor, more: result.addedSamples.count >= limit)
     }
 
     // MARK: background delivery

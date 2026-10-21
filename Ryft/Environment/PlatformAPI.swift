@@ -4,7 +4,8 @@ import Foundation
 /// (`RyftDataSource`), Train (`TrainDataSource`), and the calls services make.
 /// `APIClient` is the live implementation, `MockPlatformAPI` the in-memory one.
 protocol PlatformAPI: RyftDataSource, TrainDataSource {
-    func sync(_ req: SyncRequest) async throws -> SyncResponse
+    /// `POST /v1/sync`; the body is a `SyncRequest`, encoded by `SyncEngine` off the main actor.
+    func sync(encoded body: Data) async throws -> SyncResponse
     /// `POST /v1/me/apple-authorization`, once after Sign in with Apple.
     func postAppleAuthorization(code: String) async throws
     /// `GET /v1/config`: feature flags evaluated for the caller.
@@ -178,15 +179,30 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     // MARK: services
 
-    func sync(_ req: SyncRequest) async throws -> SyncResponse {
+    /// Runs before each sync answers (tests hold an upload open with it).
+    var beforeSync: (@Sendable () async -> Void)?
+
+    func sync(encoded body: Data) async throws -> SyncResponse {
+        let onMain = MainThread.isCurrent
         try enter("sync")
+        await beforeSync?()
         if enforcesConsent, gate == .consentRequired {
             throw APIError.http(403, "consent required", code: .consentRequired)
         }
-        lock.withLock { syncRequests.append(req) }
+        let req = try APIClient.jsonDecoder.decode(SyncRequest.self, from: body)
+        lock.withLock {
+            syncRequests.append(req)
+            syncBodySizes.append(body.count)
+            if onMain { syncsOnMainThread += 1 }
+        }
         afterSync?()
         return syncResponse
     }
+
+    /// The encoded size of every sync body, in order.
+    private(set) var syncBodySizes: [Int] = []
+    /// Syncs called from the main thread (uploads belong off it).
+    private(set) var syncsOnMainThread = 0
 
     /// `CONSENT_ENFORCE=on`: sync without consent to the current policy answers `403`.
     var enforcesConsent = false

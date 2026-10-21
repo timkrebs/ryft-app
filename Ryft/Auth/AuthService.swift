@@ -653,6 +653,7 @@ final class AuthService {
     /// re-syncs the full backfill) and per-user UserDefaults.
     static func wipeSharedLocalData() {
         HealthKitManager.shared.resetAnchors()
+        SyncEngineState.wipe(defaults: .standard)
         Settings.shared.clearPerUserState()
         // Cached read models, logged sessions, the offline library and queued uploads are per account.
         TrainStore.shared.wipe()

@@ -130,3 +130,174 @@ struct MockPlatformTests {
         #expect(cleared.quietHours == nil && !cleared.isOn(.pr))
     }
 }
+
+@Suite("Sync engine")
+@MainActor
+struct SyncEngineTests {
+    @Test func theNightGoesUpBeforeTheDayStreams() {
+        let order = HealthKitManager.shared.streams
+        #expect(order.first == .sleep)
+        #expect(Array(order.prefix(5)) == [.sleep, .quantity(.hrvSDNN), .quantity(.restingHR),
+                                           .quantity(.respiratoryRate), .quantity(.spo2)])
+        let heartRate = order.firstIndex(of: .quantity(.heartRate)) ?? -1
+        #expect((order.firstIndex(of: .workouts) ?? .max) < heartRate)
+        #expect(order.suffix(3) == [.quantity(.steps), .quantity(.activeEnergy), .quantity(.vo2max)])
+        #expect(Set(order).count == SampleType.allCases.count + 2) // every type, once
+    }
+
+    @Test func readingMappingEncodingAndUploadingStayOffTheMainThread() async {
+        let health = MockHealthStore(pages: [.quantity(.heartRate): [samples(3), samples(2)], .sleep: [samples(1)]])
+        let api = MockPlatformAPI()
+        let sync = SyncService(env: .test(api: api, health: health))
+
+        await sync.syncNow()
+
+        #expect(api.count("sync") == 3)
+        #expect(health.readsOnMainThread == 0)
+        #expect(api.syncsOnMainThread == 0)
+    }
+
+    @Test func aFirstSyncSendsTheLastDaysFirstAndLeavesTheBackfillForAfterTheScore() async throws {
+        let health = MockHealthStore(pages: [.quantity(.heartRate): [samples(5), samples(5)], .sleep: [samples(2)]],
+                                     recent: [.sleep: [samples(1)], .quantity(.heartRate): [samples(2)]])
+        let api = MockPlatformAPI()
+        api.syncResponse = SyncResponse(samples: 1, sleep: 0, workouts: 0, daysTouched: ["2026-10-21"])
+        let env = AppEnvironment.test(api: api, health: health)
+        let sync = SyncService(env: env)
+
+        let touched = try await sync.upload()
+
+        #expect(touched == ["2026-10-21"])
+        #expect(sync.hasBacklog)
+        #expect(api.syncRequests.map(\.samples.count) == [2, 1]) // the recent window only, in stream order
+        #expect(health.recentReads == 2 && health.pageReads == 0)
+        #expect(health.committed.isEmpty) // the recent window's anchors are never kept
+        #expect(sync.engineState.recentDone && sync.engineState.phase == .backfill)
+
+        _ = try await sync.upload()
+
+        #expect(!sync.hasBacklog)
+        #expect(api.syncRequests.map(\.samples.count) == [2, 1, 5, 5, 2])
+        #expect(health.committed == [.quantity(.heartRate), .quantity(.heartRate), .sleep, .workouts])
+        #expect(sync.engineState.backfillDone && sync.engineState.phase == .idle)
+        #expect(sync.engineState.streams["heart_rate"]?.backfilled == true)
+    }
+
+    @Test func aFirstSyncWithNothingRecentGoesStraightOn() async throws {
+        let health = MockHealthStore(pages: [.quantity(.heartRate): [samples(3)]])
+        let api = MockPlatformAPI()
+        api.syncResponse = SyncResponse(samples: 3, sleep: 0, workouts: 0, daysTouched: ["2026-10-18"])
+        let sync = SyncService(env: .test(api: api, health: health))
+
+        _ = try await sync.upload()
+
+        #expect(!sync.hasBacklog && health.pageReads == 1 && sync.engineState.backfillDone)
+    }
+
+    @Test func anAccountWithAnchorsSkipsTheRecentWindow() async throws {
+        let health = MockHealthStore(pages: [.quantity(.heartRate): [samples(1)]], recent: [.sleep: [samples(4)]])
+        health.commit(HealthPage(delta: HealthDelta(), anchor: nil, more: false), for: .workouts) // synced before
+        let api = MockPlatformAPI()
+        let sync = SyncService(env: .test(api: api, health: health))
+
+        _ = try await sync.upload()
+
+        #expect(health.recentReads == 0)
+        #expect(api.syncRequests.map(\.samples.count) == [1])
+    }
+
+    @Test func readsOnePageAheadWhileAPageUploadsAndNeverMore() async {
+        let clock = TestClock()
+        let health = MockHealthStore(streams: [.quantity(.heartRate)],
+                                     pages: [.quantity(.heartRate): [samples(2), samples(2), samples(2), samples(2)]])
+        let api = MockPlatformAPI()
+        api.beforeSync = { try? await clock.sleep(for: .seconds(1)) }
+        let sync = SyncService(env: .test(api: api, health: health, clock: clock))
+        health.commit(HealthPage(delta: HealthDelta(), anchor: nil, more: false), for: .sleep) // not a first sync
+        let run = Task { await sync.syncNow() }
+
+        // Page 0 is uploading: page 1 is read already, page 2 not yet.
+        #expect(await eventually { clock.pendingSleeps == 1 && health.pageReads == 2 })
+        #expect(health.committed.count == 1) // only the .sleep set up above
+        clock.advance(by: .seconds(1))
+        #expect(await eventually { clock.pendingSleeps == 1 && health.pageReads == 3 })
+        #expect(health.committed.count == 2) // page 0, after its upload
+        clock.advance(by: .seconds(1))
+        #expect(await eventually { clock.pendingSleeps == 1 && health.pageReads == 4 })
+        clock.advance(by: .seconds(1))
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(1))
+        await run.value
+
+        #expect(api.count("sync") == 4 && health.pageReads == 4)
+        #expect(health.committed.filter { $0 == .quantity(.heartRate) }.count == 4)
+    }
+
+    @Test func pagesAreSizedByTheBytesTheLastPageMeasured() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)],
+                                     pages: [.quantity(.heartRate): [samples(100), samples(100), samples(100)]])
+        health.commit(HealthPage(delta: HealthDelta(), anchor: nil, more: false), for: .sleep) // not a first sync
+        let api = MockPlatformAPI()
+        let sync = SyncService(env: .test(api: api, health: health))
+
+        await sync.syncNow()
+
+        let estimate = Int(Double(SyncEngine.targetPageBytes) / SyncEngine.estimatedBytesPerRecord(.quantity(.heartRate)))
+        // The first page, and the one read ahead while it uploaded: the estimate.
+        #expect(Array(health.limits.prefix(2)) == [estimate, estimate].map { min($0, health.pageSize) })
+        // The third, after the first page's encoded size was measured.
+        let measured = Double(api.syncBodySizes[0]) / 100
+        #expect(health.limits[2] == min(health.pageSize, Int(Double(SyncEngine.targetPageBytes) / measured)))
+    }
+
+    @Test func theEngineStateIsPersistedPerAccount() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(3)]])
+        let api = MockPlatformAPI()
+        api.syncResponse = SyncResponse(samples: 2, sleep: 0, workouts: 0, daysTouched: ["2026-10-18"],
+                                        ignored: SyncIgnored(samples: IgnoredCounts(duplicate: 1, outsideWindow: 0,
+                                                                                    unknownType: 0),
+                                                             sleep: .none, workouts: .none))
+        let env = AppEnvironment.test(api: api, health: health)
+        let sync = SyncService(env: env)
+
+        await sync.syncNow()
+
+        let saved = SyncEngineState.load(account: env.auth.accountID, defaults: env.defaults)
+        #expect(saved == sync.engineState)
+        let hr = saved.streams["heart_rate"]
+        #expect(hr?.records == 3 && hr?.lastAccepted == 2 && hr?.lastIgnored?.duplicate == 1)
+        #expect(hr?.oldest != nil && hr?.newest != nil)
+        #expect(saved.bytesUploaded == api.syncBodySizes.reduce(0, +))
+        #expect(SyncEngineState.load(account: "someone-else", defaults: env.defaults) == SyncEngineState())
+    }
+
+    @Test func aFailureIsPersistedWithItsRequestID() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(1)]])
+        let api = MockPlatformAPI()
+        api.failNext = APIError.http(500, "", requestID: "01a15a69-7142-7a8b-aba2-c099a5fcd1e4")
+        let env = AppEnvironment.test(api: api, health: health)
+        let sync = SyncService(env: env)
+
+        await sync.syncNow()
+
+        #expect(sync.engineState.lastRequestID == "01a15a69-7142-7a8b-aba2-c099a5fcd1e4")
+        #expect(sync.engineState.lastError != nil && sync.engineState.phase == .idle)
+        #expect(SyncEngineState.load(account: env.auth.accountID, defaults: env.defaults).lastRequestID != nil)
+        SyncEngineState.wipe(defaults: env.defaults)
+        #expect(SyncEngineState.load(account: env.auth.accountID, defaults: env.defaults) == SyncEngineState())
+    }
+
+    @Test func aFullResyncIsABackfillAgain() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(2)]])
+        let api = MockPlatformAPI()
+        let sync = SyncService(env: .test(api: api, health: health))
+        await sync.syncNow()
+        #expect(sync.engineState.backfillDone)
+
+        await sync.fullResync()
+
+        #expect(health.resets == 1)
+        #expect(sync.engineState.backfillDone) // drained again
+        #expect(sync.engineState.streams["heart_rate"]?.records == 2) // counted from zero
+    }
+}
