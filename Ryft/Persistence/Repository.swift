@@ -241,10 +241,13 @@ final class Repository {
             d.fetchLimit = Self.maxHistoryRows
             let rows = (try? context.fetch(d)) ?? []
             let todayKey = DayFormat.string(from: now)
-            // Today must be fresh; past days need a score fetched after they ended.
+            // Today must be fresh; past days need a score fetched after they ended. A cache
+            // with no past day never had the history: only today, cached by a screen's own
+            // load (Strain, Sleep) before this ran, as the demo's instant answers always do.
             let todayFresh = rows.first { $0.day == todayKey }.map { isFresh(day: $0.day, fetchedAt: $0.scoreFetchedAt) } ?? false
-            let pastFresh = rows.filter { $0.day != todayKey }.allSatisfy { isFresh(day: $0.day, fetchedAt: $0.scoreFetchedAt) }
-            if todayFresh, pastFresh, !rows.isEmpty { return }
+            let past = rows.filter { $0.day != todayKey }
+            let pastFresh = past.allSatisfy { isFresh(day: $0.day, fetchedAt: $0.scoreFetchedAt) }
+            if todayFresh, pastFresh, !past.isEmpty { return }
         }
         guard let scores = try await fetching({ try await env.api.days(from: from, to: to) }) else { return }
         store(scores: scores)
