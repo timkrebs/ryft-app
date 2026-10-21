@@ -16,6 +16,9 @@ final class TrainLibrary {
     var errorDetails: String?
 
     let store: TrainStore
+    /// The read pipeline (`ScreenModels` sets the app's): Train's reads share its budget, retries
+    /// and per-resource record. Without one (tests) each read goes straight to the source.
+    @ObservationIgnored var reads: ReadScheduler?
     private let remoteProvider: () -> TrainDataSource
     private var histories: [UUID: ExerciseHistory] = [:]
 
@@ -54,30 +57,50 @@ final class TrainLibrary {
 
     // MARK: refresh
 
-    /// App active / pull to refresh. Each part fails on its own; the cache stays.
+    /// App active / pull to refresh. Each part (exercises, plans, today's plan day) succeeds or
+    /// fails on its own; the cache stays. The message is the first failure's, if any.
     func refresh() async {
         isLoading = true
         defer { isLoading = false }
         let src = remote
+        var failure: Error?
         do {
-            let list = try await src.exercises()
-            store.cache(exercises: list)
-            exercises = store.exercises()
-            let c = try await src.plans()
-            catalog = c
-            store.saveDocument(c, key: Self.catalogKey)
-            try await loadToday(from: src)
+            if let list = try await read("exercises", { try await src.exercises() }) {
+                store.cache(exercises: list)
+                exercises = store.exercises()
+            }
+        } catch { failure = failure ?? error }
+        do {
+            if let c = try await read("plans", { try await src.plans() }) {
+                catalog = c
+                store.saveDocument(c, key: Self.catalogKey)
+            }
+        } catch { failure = failure ?? error }
+        do {
+            if let fresh = try await read("plans/today", { try await src.planToday() }) { setToday(fresh) }
+        } catch { failure = failure ?? error }
+        if let failure, !(failure is CancellationError) {
+            self.error = failure.localizedDescription
+            self.errorDetails = failure.diagnosticDetails
+        } else if failure == nil {
             error = nil
             errorDetails = nil
-        } catch {
-            self.error = error.localizedDescription
-            self.errorDetails = error.diagnosticDetails
         }
     }
 
+    /// Through the read pipeline when there is one (nil: offline or held back, nothing sent).
+    private func read<T: Sendable>(_ id: String, _ fetch: @escaping @MainActor () async throws -> T) async throws -> T? {
+        guard let reads else { return try await fetch() }
+        return try await reads.run(ReadKey(.train, id: id), fetch)
+    }
+
+    private func setToday(_ fresh: PlanToday?) {
+        today = fresh
+        if let fresh { store.saveDocument(fresh, key: Self.todayKey) } else { store.removeDocument(key: Self.todayKey) }
+    }
+
     private func loadToday(from src: TrainDataSource) async throws {
-        today = try await src.planToday()
-        if let today { store.saveDocument(today, key: Self.todayKey) } else { store.removeDocument(key: Self.todayKey) }
+        setToday(try await src.planToday())
     }
 
     /// The cached plan day was fetched on another day (it has no date of its own).

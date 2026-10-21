@@ -210,7 +210,8 @@ final class Repository {
 
     // MARK: refresh (network → store)
 
-    /// Runs `fetch` unless offline; drops the answer if the account changed meanwhile.
+    /// Runs `fetch` unless offline; drops the answer if the account changed meanwhile. For reads the
+    /// pipeline doesn't schedule yet (a workout's detail).
     private func fetching<T>(_ fetch: () async throws -> T) async throws -> T? {
         guard canFetch else { return nil }
         let account = env.auth.accountID
@@ -219,25 +220,47 @@ final class Repository {
         return value
     }
 
-    /// The day's detail: cached and fresh → no request. A failure with a cached
+    /// `fetch` through the read pipeline (`env.reads`): coalesced, retried, budgeted and recorded per
+    /// resource; offline nothing is sent. `store` writes the answer once, whoever else joined; an
+    /// answer for an account that's gone meanwhile is dropped unwritten.
+    private func scheduled<T: Sendable>(_ key: ReadKey, mode: ReadMode, userInitiated: Bool,
+                                        fetch: @escaping @MainActor () async throws -> T,
+                                        store: @escaping @MainActor (T) -> Void) async throws -> T? {
+        let account = env.auth.accountID
+        return try await env.reads.run(key, mode: mode, userInitiated: userInitiated) { [env] in
+            let value = try await fetch()
+            guard env.auth.accountID == account else { throw CancellationError() }
+            store(value)
+            return value
+        }
+    }
+
+    /// The day's detail: cached and fresh → no request (`.ifStale`). A failure with a cached
     /// copy keeps the copy (offline browsing); without one it throws.
     @discardableResult
-    func refreshDay(_ date: Date, force: Bool = false) async throws -> DayDetail? {
+    func refreshDay(_ date: Date, mode: ReadMode = .ifStale, userInitiated: Bool = false) async throws -> DayDetail? {
         let key = DayFormat.string(from: date)
-        if !force, isDetailFresh(key) { return day(key) }
+        if mode == .ifStale, isDetailFresh(key) { return day(key) }
+        let resource: ReadResource = key == DayFormat.string(from: now) ? .today : .day
         do {
-            guard let d = try await fetching({ try await env.api.day(date) }) else { return day(key) }
-            store(detail: d)
-            return d
+            let fetched = try await scheduled(ReadKey(resource, id: key), mode: mode, userInitiated: userInitiated,
+                                              fetch: { [env] in try await env.api.day(date) },
+                                              store: { [weak self] in self?.store(detail: $0) })
+            return fetched ?? day(key)
         } catch {
             if let cached = day(key) { return cached }
             throw error
         }
     }
 
-    /// Scores for `[from, to]`: skipped when every day in the range is cached and fresh.
-    func refreshHistory(from: Date, to: Date, force: Bool = false) async throws {
-        if !force {
+    @discardableResult
+    func refreshDay(_ date: Date, force: Bool) async throws -> DayDetail? {
+        try await refreshDay(date, mode: force ? .latest : .ifStale)
+    }
+
+    /// Scores for `[from, to]`: skipped (`.ifStale`) when every day in the range is cached and fresh.
+    func refreshHistory(from: Date, to: Date, mode: ReadMode = .ifStale, userInitiated: Bool = false) async throws {
+        if mode == .ifStale {
             let lo = calendar.startOfDay(for: from), hi = calendar.startOfDay(for: to)
             var d = FetchDescriptor<CachedDay>(predicate: #Predicate { $0.date >= lo && $0.date <= hi })
             d.fetchLimit = Self.maxHistoryRows
@@ -251,50 +274,77 @@ final class Repository {
             let pastFresh = past.allSatisfy { isFresh(day: $0.day, fetchedAt: $0.scoreFetchedAt) }
             if todayFresh, pastFresh, !past.isEmpty { return }
         }
-        guard let scores = try await fetching({ try await env.api.days(from: from, to: to) }) else { return }
-        store(scores: scores)
+        let id = "\(DayFormat.string(from: from))…\(DayFormat.string(from: to))"
+        _ = try await scheduled(ReadKey(.history, id: id), mode: mode, userInitiated: userInitiated,
+                                fetch: { [env] in try await env.api.days(from: from, to: to) },
+                                store: { [weak self] in self?.store(scores: $0) })
     }
 
-    func refreshTrend(_ metric: TrendMetric, _ range: TrendRange, force: Bool = false) async throws {
+    func refreshHistory(from: Date, to: Date, force: Bool) async throws {
+        try await refreshHistory(from: from, to: to, mode: force ? .latest : .ifStale)
+    }
+
+    func refreshTrend(_ metric: TrendMetric, _ range: TrendRange, mode: ReadMode = .ifStale,
+                      userInitiated: Bool = false) async throws {
         let key = Self.trendKey(metric, range)
-        if !force {
+        if mode == .ifStale {
             var d = FetchDescriptor<CachedTrend>(predicate: #Predicate { $0.key == key })
             d.fetchLimit = 1
             if fresh((try? context.fetch(d))?.first?.fetchedAt, ttl: policy.trend) { return }
         }
-        guard let s = try await fetching({ try await env.api.trends(metric: metric, range: range) }) else { return }
-        store(trend: s, metric: metric, range: range)
+        _ = try await scheduled(ReadKey(.trends, id: key), mode: mode, userInitiated: userInitiated,
+                                fetch: { [env] in try await env.api.trends(metric: metric, range: range) },
+                                store: { [weak self] in self?.store(trend: $0, metric: metric, range: range) })
     }
 
-    func refreshInsights(force: Bool = false) async throws {
-        if !force {
+    func refreshTrend(_ metric: TrendMetric, _ range: TrendRange, force: Bool) async throws {
+        try await refreshTrend(metric, range, mode: force ? .latest : .ifStale)
+    }
+
+    func refreshInsights(mode: ReadMode = .ifStale, userInitiated: Bool = false) async throws {
+        if mode == .ifStale {
             var d = FetchDescriptor<CachedInsight>()
             d.fetchLimit = 1
             if let row = (try? context.fetch(d))?.first, fresh(row.fetchedAt, ttl: policy.insights) { return }
         }
-        guard let list = try await fetching({ try await env.api.insights() }) else { return }
-        store(insights: list)
+        _ = try await scheduled(ReadKey(.insights), mode: mode, userInitiated: userInitiated,
+                                fetch: { [env] in try await env.api.insights() },
+                                store: { [weak self] in self?.store(insights: $0) })
     }
 
-    func refreshUser(force: Bool = false) async throws {
-        if !force {
+    func refreshInsights(force: Bool) async throws {
+        try await refreshInsights(mode: force ? .latest : .ifStale)
+    }
+
+    func refreshUser(mode: ReadMode = .ifStale, userInitiated: Bool = false) async throws {
+        if mode == .ifStale {
             var d = FetchDescriptor<CachedUser>()
             d.fetchLimit = 1
             if fresh((try? context.fetch(d))?.first?.fetchedAt, ttl: policy.user) { return }
         }
-        guard let u = try await fetching({ try await env.api.me() }) else { return }
-        store(user: u)
+        _ = try await scheduled(ReadKey(.me), mode: mode, userInitiated: userInitiated,
+                                fetch: { [env] in try await env.api.me() },
+                                store: { [weak self] in self?.store(user: $0) })
     }
 
-    func refreshSleepRange(_ kind: SleepRangeKind, force: Bool = false) async throws {
+    func refreshUser(force: Bool) async throws {
+        try await refreshUser(mode: force ? .latest : .ifStale)
+    }
+
+    func refreshSleepRange(_ kind: SleepRangeKind, mode: ReadMode = .ifStale) async throws {
         let k = kind.rawValue
-        if !force {
+        if mode == .ifStale {
             var d = FetchDescriptor<CachedSleepRange>(predicate: #Predicate { $0.kind == k })
             d.fetchLimit = 1
             if fresh((try? context.fetch(d))?.first?.fetchedAt, ttl: policy.sleepRange) { return }
         }
-        guard let r = try await fetching({ try await env.api.sleep(range: kind) }) else { return }
-        store(sleepRange: r)
+        _ = try await scheduled(ReadKey(.sleepRange, id: k), mode: mode, userInitiated: false,
+                                fetch: { [env] in try await env.api.sleep(range: kind) },
+                                store: { [weak self] in self?.store(sleepRange: $0) })
+    }
+
+    func refreshSleepRange(_ kind: SleepRangeKind, force: Bool) async throws {
+        try await refreshSleepRange(kind, mode: force ? .latest : .ifStale)
     }
 
     func refreshWorkout(_ id: UUID, force: Bool = false) async throws {
@@ -618,4 +668,357 @@ struct ReadinessSnapshot: Codable, Equatable {
         d.dateDecodingStrategy = .iso8601
         return d
     }()
+}
+
+// MARK: - read pipeline
+
+/// What the app reads from the platform, as the read pipeline (`ReadScheduler`) tracks it.
+enum ReadResource: String, Codable, CaseIterable, Sendable {
+    case today        // GET /v1/days/{today}
+    case day          // GET /v1/days/{day}, a past day (Sleep, Strain, touched days)
+    case history      // GET /v1/days?from&to (AppState.historyDays)
+    case me           // GET /v1/me
+    case syncStatus   // GET /v1/me/sync
+    case trends       // GET /v1/trends (Today's readiness week, Insights' series)
+    case insights     // GET /v1/insights
+    case journal      // GET /v1/behaviors, /v1/journal/{day}, /v1/behaviors/impact
+    case config       // GET /v1/config
+    case train        // TrainLibrary: exercises, plans, plans/today
+    case sleepRange   // GET /v1/sleep
+
+    var priority: RequestBudget.Priority { self == .today || self == .syncStatus ? .high : .normal }
+
+    /// Sync details → Loaded data; nil for `day` and `sleepRange`, which appear in Copy diagnostics only.
+    var displayName: String? {
+        switch self {
+        case .today: return String(localized: "Today")
+        case .history: return String(localized: "History")
+        case .me: return String(localized: "Profile")
+        case .syncStatus: return String(localized: "Sync status")
+        case .trends: return String(localized: "Trends")
+        case .insights: return String(localized: "Insights")
+        case .journal: return String(localized: "Journal")
+        case .config: return String(localized: "Remote settings")
+        case .train: return String(localized: "Train")
+        case .day, .sleepRange: return nil
+        }
+    }
+}
+
+/// One request's identity for coalescing: `ReadKey(.trends, id: "readiness-7d")`, `ReadKey(.day, id: "2026-10-19")`.
+struct ReadKey: Hashable, Sendable {
+    let resource: ReadResource
+    var id = ""
+
+    init(_ resource: ReadResource, id: String = "") {
+        self.resource = resource
+        self.id = id
+    }
+}
+
+/// How fresh the caller needs it.
+enum ReadMode: Equatable, Sendable {
+    /// `Repository.Policy` TTLs: nothing is sent while fresh.
+    case ifStale
+    /// Pull to refresh: fetch now, or join a fetch already in flight.
+    case latest
+    /// The server's data changed at `since` (scores landed, a push): only a fetch started at or after
+    /// `since` counts; an older one in flight gets one shared follow-up.
+    case changed(since: Date)
+}
+
+/// A read's last failure, after its retries. No health values: statuses, codes, IDs and times.
+struct ResourceError: Codable, Equatable, Sendable {
+    let kind: FailureKind
+    /// HTTP status; nil without a response.
+    let status: Int?
+    /// The error body's `code` as sent.
+    let code: String?
+    /// Exactly as received.
+    let requestID: String?
+    /// `URLError` code name ("timedOut") when there was no response.
+    let transport: String?
+    /// 1 + retries.
+    let attempts: Int
+    /// The last failed attempt.
+    let at: Date
+
+    /// Persisted through `WireCoding` (snake_case both ways): `requestID` must round-trip as `request_id`.
+    private enum CodingKeys: String, CodingKey {
+        case kind, status, code, requestID = "requestId", transport, attempts, at
+    }
+
+    init(kind: FailureKind, status: Int?, code: String?, requestID: String?, transport: String?, attempts: Int,
+         at: Date) {
+        self.kind = kind
+        self.status = status
+        self.code = code
+        self.requestID = requestID
+        self.transport = transport
+        self.attempts = attempts
+        self.at = at
+    }
+
+    init(_ error: Error, kind: FailureKind, attempts: Int, at: Date) {
+        let api = error as? APIError
+        var transport: String?
+        if case .transport(let inner)? = api { transport = (inner as? URLError)?.code.name ?? "transport" }
+        if let url = error as? URLError { transport = url.code.name }
+        self.init(kind: kind, status: api?.status, code: api?.code?.rawValue, requestID: api?.requestID,
+                  transport: transport, attempts: attempts, at: at)
+    }
+
+    /// "503", "timedOut", or the kind: what the status column shows.
+    var statusText: String { status.map(String.init) ?? transport ?? kind.rawValue }
+}
+
+/// What the read pipeline knows about one resource.
+struct ResourceState: Codable, Equatable, Sendable {
+    /// The last successful fetch. AppState's snapshot replaces it for `.today` with the row's
+    /// `detailFetchedAt` (exact for the current day, also across midnight).
+    var fetchedAt: Date?
+    var lastError: ResourceError?
+    /// Failed fetches in a row, after retries. A success resets it. Cancellation and gates never count.
+    var consecutiveFailures = 0
+    /// Retry-After beyond what a refresh waits: automatic refreshes send nothing before this.
+    var retryNotBefore: Date?
+
+    init(fetchedAt: Date? = nil, lastError: ResourceError? = nil, consecutiveFailures: Int = 0,
+         retryNotBefore: Date? = nil) {
+        self.fetchedAt = fetchedAt
+        self.lastError = lastError
+        self.consecutiveFailures = consecutiveFailures
+        self.retryNotBefore = retryNotBefore
+    }
+
+    /// Copy diagnostics (`resource | fetched_at | last_error status code request_id at | consecutive_failures`):
+    /// "today | 2026-10-21T14:05:12Z | 503 - 01a14ffa-… 2026-10-21T16:11:02Z | 3". Never a health value.
+    func diagnosticLine(_ resource: ReadResource) -> String {
+        let fetched = fetchedAt.map { $0.ISO8601Format() } ?? "-"
+        let error = lastError.map { e in
+            "\(e.statusText) \(e.code ?? "-") \(e.requestID ?? "-") \(e.at.ISO8601Format())"
+        } ?? "-"
+        return "\(resource.rawValue) | \(fetched) | \(error) | \(consecutiveFailures)"
+    }
+}
+
+/// The one retry layer for reads (ADR 0001), one per `AppEnvironment` (`env.reads`):
+///
+/// - **Coalesces** by `ReadKey`: a second read of a key in flight joins it (`ReadMode`).
+/// - **Retries** transient failures (`FailureKind`) by `RetryPolicy` (foreground, or background
+///   while `APIClient.runsInBackground`), honouring `Retry-After` up to the cap. `APIClient` makes
+///   one attempt per try (`singleAttempt`), so no request sees two retry layers.
+/// - **Budgets** every try through `RequestBudget` (3 in flight, 5 starts a second), releasing
+///   the slot during a backoff.
+/// - **Records** per resource: last success, last error, failures in a row (`ResourceState`),
+///   persisted for the live account (`CachedDocument` "reads.state").
+/// - **Owns** each fetch in an unstructured task, so a caller's cancellation (`.refreshable`,
+///   `.task(id:)`) neither cancels nor fails a shared read. Only `cancelAll()` does.
+///
+/// Offline (not demo) nothing is sent and nothing is recorded. Cancellation is never a failure.
+@MainActor
+@Observable
+final class ReadScheduler {
+    private(set) var states: [ReadResource: ResourceState] = [:]
+    private(set) var inFlight: Set<ReadKey> = []
+    /// Jitter source; tests set a fixed one.
+    @ObservationIgnored var random: @Sendable (ClosedRange<Double>) -> Double = { .random(in: $0) }
+    /// Admission for every try; tests may swap in their own limits.
+    @ObservationIgnored var budget: RequestBudget
+
+    /// Nothing was sent: offline, or the platform asked to wait longer than a refresh waits.
+    struct NotSent: Error {}
+
+    static let documentKey = "reads.state"
+    /// `Retry-After` beyond the policy's cap holds automatic refreshes back for at most this long.
+    static let maxHoldBack: TimeInterval = 300
+
+    /// Weak: the environment owns its scheduler.
+    @ObservationIgnored private weak var env: AppEnvironment?
+    @ObservationIgnored private let clock: AppClock
+    @ObservationIgnored private var flights: [ReadKey: Flight] = [:]
+    /// Bumped by `cancelAll()`: a follow-up queued before it doesn't start after it.
+    @ObservationIgnored private var generation = 0
+
+    private final class Flight {
+        let id: UUID
+        let started: Date
+        let task: Task<(any Sendable)?, Error>
+        var followUp: Task<(any Sendable)?, Error>?
+
+        init(id: UUID, started: Date, task: Task<(any Sendable)?, Error>) {
+            self.id = id
+            self.started = started
+            self.task = task
+        }
+    }
+
+    init(env: AppEnvironment) {
+        self.env = env
+        clock = env.clock
+        budget = RequestBudget(clock: env.clock)
+        if !env.isDemo, let saved = env.persistence.document([String: ResourceState].self, key: Self.documentKey) {
+            for (key, value) in saved { if let r = ReadResource(rawValue: key) { states[r] = value } }
+        }
+    }
+
+    /// Runs `fetch` for `key`, or joins the fetch in flight (see `ReadMode`). Offline (not demo):
+    /// nothing is sent, returns nil, nothing is recorded. Retries per `RetryPolicy` (`.background`
+    /// while `APIClient.runsInBackground`). Records the outcome for `key.resource`. Throws the last
+    /// error when it failed, `CancellationError` when it was cancelled. `userInitiated` (pull, Try
+    /// again) ignores `retryNotBefore`.
+    @discardableResult
+    func run<T: Sendable>(_ key: ReadKey, mode: ReadMode = .latest, userInitiated: Bool = false,
+                          _ fetch: @escaping @MainActor () async throws -> T) async throws -> T? {
+        guard let env, env.isDemo || env.connectivity.isOnline else { return nil }
+        if !userInitiated, let notBefore = states[key.resource]?.retryNotBefore, clock.now() < notBefore { return nil }
+        // No await between the lookup and the insert: two callers can't both start one.
+        let task: Task<(any Sendable)?, Error>
+        if let flight = flights[key] {
+            if case .changed(let since) = mode, flight.started < since {
+                task = flight.followUp ?? followUp(after: flight, key, userInitiated: userInitiated, fetch)
+            } else {
+                task = flight.task
+            }
+        } else {
+            task = start(key, fetch)
+        }
+        return try await task.value as? T
+    }
+
+    /// Cancels every read in flight (sign-out, account change); nothing is recorded for them.
+    func cancelAll() {
+        generation += 1
+        for flight in flights.values {
+            flight.task.cancel()
+            flight.followUp?.cancel()
+        }
+        flights = [:]
+        inFlight = []
+    }
+
+    /// Another account (or demo data): what this one knew is forgotten.
+    func reset() {
+        cancelAll()
+        states = [:]
+    }
+
+    /// Replaces what's known (previews, tests); nothing is sent or persisted.
+    func seed(_ states: [ReadResource: ResourceState]) {
+        self.states = states
+    }
+
+    /// Copy diagnostics: one line per resource, no health values.
+    var diagnosticLines: [String] {
+        ReadResource.allCases.map { (states[$0] ?? ResourceState()).diagnosticLine($0) }
+    }
+
+    // MARK: flights
+
+    private func start<T: Sendable>(_ key: ReadKey,
+                                    _ fetch: @escaping @MainActor () async throws -> T) -> Task<(any Sendable)?, Error> {
+        let id = UUID()
+        let account = env?.auth.accountID
+        inFlight.insert(key)
+        // Inherits the task-locals (`runsInBackground`); never detached.
+        let task = Task { [weak self] () async throws -> (any Sendable)? in
+            guard let self else { throw CancellationError() }
+            defer { self.landed(key, id) }
+            return try await self.attempts(key, account: account, fetch)
+        }
+        flights[key] = Flight(id: id, started: clock.now(), task: task)
+        return task
+    }
+
+    /// One shared rerun after `flight`, for `.changed` callers that need data newer than it.
+    private func followUp<T: Sendable>(after flight: Flight, _ key: ReadKey, userInitiated: Bool,
+                                       _ fetch: @escaping @MainActor () async throws -> T) -> Task<(any Sendable)?, Error> {
+        let previous = flight.task
+        let generation = generation
+        let task = Task { [weak self] () async throws -> (any Sendable)? in
+            _ = try? await previous.value
+            guard let self, self.generation == generation else { throw CancellationError() }
+            try Task.checkCancellation()
+            let value: T? = try await self.run(key, mode: .latest, userInitiated: userInitiated, fetch)
+            return value
+        }
+        flight.followUp = task
+        return task
+    }
+
+    private func landed(_ key: ReadKey, _ id: UUID) {
+        guard flights[key]?.id == id else { return }
+        flights[key] = nil
+        inFlight.remove(key)
+    }
+
+    /// The tries for one flight: single attempts through the budget, backoff between them.
+    private func attempts<T: Sendable>(_ key: ReadKey, account: String?,
+                                       _ fetch: @escaping @MainActor () async throws -> T) async throws -> T {
+        let policy: RetryPolicy = APIClient.runsInBackground ? .background : .foreground
+        var attempt = 0
+        while true {
+            try Task.checkCancellation()
+            try await budget.acquire(key.resource.priority)
+            let outcome: Result<T, Error>
+            do {
+                outcome = .success(try await APIClient.$singleAttempt.withValue(true) { try await fetch() })
+            } catch {
+                outcome = .failure(error)
+            }
+            await budget.release()
+            // Signed out or another account meanwhile: the answer isn't theirs, and neither is its outcome.
+            guard env?.auth.accountID == account else { throw CancellationError() }
+            switch outcome {
+            case .success(let value):
+                succeeded(key.resource)
+                return value
+            case .failure(let error):
+                let kind = FailureKind.of(error)
+                if kind == .cancelled || Task.isCancelled { throw CancellationError() }
+                attempt += 1
+                if let wait = policy.delay(before: attempt, after: error, random: random) {
+                    // The slot is free while waiting; the retry takes a new one.
+                    try await clock.sleep(for: wait)
+                    continue
+                }
+                failed(key.resource, error, kind: kind, attempts: attempt, cap: policy.retryAfterCap)
+                throw error
+            }
+        }
+    }
+
+    // MARK: outcomes
+
+    private func succeeded(_ resource: ReadResource) {
+        let now = clock.now()
+        var s = states[resource] ?? ResourceState()
+        let moved = s.fetchedAt.map { now.timeIntervalSince($0) > 60 } ?? true
+        let changed = s.consecutiveFailures != 0 || s.retryNotBefore != nil
+        s.fetchedAt = now
+        s.consecutiveFailures = 0
+        s.retryNotBefore = nil
+        states[resource] = s
+        if moved || changed { persist() }
+    }
+
+    private func failed(_ resource: ReadResource, _ error: Error, kind: FailureKind, attempts: Int, cap: Duration) {
+        let now = clock.now()
+        var s = states[resource] ?? ResourceState()
+        s.lastError = ResourceError(error, kind: kind, attempts: attempts, at: now)
+        if kind != .gate { s.consecutiveFailures += 1 }
+        if let seconds = RetryPolicy.retryAfter(error), Duration.seconds(seconds) > cap {
+            s.retryNotBefore = now.addingTimeInterval(min(TimeInterval(seconds), Self.maxHoldBack))
+        }
+        states[resource] = s
+        persist()
+    }
+
+    /// The live account's record survives a force-quit (a report sent afterwards still says what
+    /// failed); demo data never persists.
+    private func persist() {
+        guard let env, !env.isDemo else { return }
+        let document = Dictionary(uniqueKeysWithValues: states.map { ($0.key.rawValue, $0.value) })
+        env.persistence.saveDocument(document, key: Self.documentKey, at: clock.now())
+    }
 }

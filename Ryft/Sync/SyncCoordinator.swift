@@ -56,8 +56,9 @@ protocol SyncSteps: AnyObject {
 ///   (`APIClient.runsInBackground`), and a backlog goes to `BGProcessingTask`.
 /// - **HealthKit delivery.** `run(_:afterUpload:)` calls the delivery's completion right
 ///   after the upload step, not after scoring waits and refreshes.
-/// - **Backoff.** Transient failures (transport, 5xx after `APIClient`'s own
-///   retries) retry with exponential backoff (2 s, 4 s); 4xx don't.
+/// - **Backoff.** Transient upload failures (transport, 5xx after `APIClient`'s own
+///   retries) retry with exponential backoff (2 s, 4 s); 4xx don't. Reads after the upload
+///   go through `ReadScheduler` (its own retries, per resource) and never fail the run.
 actor SyncCoordinator {
     enum Trigger: Equatable, Sendable {
         case userInitiated, appActive, reconnect, healthKit, background
@@ -157,6 +158,13 @@ actor SyncCoordinator {
         }
         queued = next
         return await next.value
+    }
+
+    /// `GET /v1/me/sync` now, outside a run (pull to refresh's phase 2): through the read pipeline,
+    /// so a scoring poll in flight is joined, with the step's effects (the screens' state, gates,
+    /// an operator's re-sync request). A failure is recorded there, not here.
+    func refreshStatus() async {
+        _ = try? await steps.syncStatus()
     }
 
     /// Stops the running pipeline and drops a queued rerun (its deliveries are completed).
@@ -499,9 +507,13 @@ final class LiveSyncSteps: SyncSteps {
     var expectedScoringSeconds: Int? { sync.lastScoring?.expectedWithinSec }
 
     /// `GET /v1/me/sync`, kept for the screens (Today's pending and scored states). A gate
-    /// goes to onboarding; an operator's re-sync request to the next upload.
+    /// goes to onboarding; an operator's re-sync request to the next upload. Scheduled
+    /// (`ReadKey(.syncStatus)`): a pull's ask joins a poll in flight, and the other way round.
     func syncStatus() async throws -> SyncStatus {
-        let status = try await state.env.api.syncStatus()
+        let env = state.env
+        guard let status = try await env.reads.run(ReadKey(.syncStatus), { try await env.api.syncStatus() }) else {
+            throw ReadScheduler.NotSent()
+        }
         state.syncStatus = status
         if let gate = status.gate { apiStatus.observe([gate], enforced: false) }
         sync.receive(status)
@@ -512,14 +524,25 @@ final class LiveSyncSteps: SyncSteps {
         try await state.refreshDays(days)
     }
 
+    /// After scores landed: newer than now, or nothing. A failed read is recorded per resource, never thrown.
     func refreshTrends() async throws {
-        try await state.repository.refreshTrend(.readiness, .week, force: true)
+        let since = state.env.clock.now()
+        do {
+            try await state.repository.refreshTrend(.readiness, .week, mode: .changed(since: since))
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {}
         // Other series refetch when Insights shows them.
         state.repository.markTrendsStale()
     }
 
     func refreshInsights() async throws {
-        try await state.repository.refreshInsights(force: true)
+        let since = state.env.clock.now()
+        do {
+            try await state.repository.refreshInsights(mode: .changed(since: since))
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {}
     }
 
     func refreshStale() async {

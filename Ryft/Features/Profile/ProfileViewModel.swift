@@ -163,9 +163,9 @@ final class ProfileViewModel {
 
     var canSync: Bool { !sync.isSyncing && settings.isConfigured && auth.isSignedIn && !env.isDemo }
 
+    /// Like pull to refresh: the upload starts, today and the sync status load at once, the rest after.
     func syncNow() async {
-        await coordinator.run(.userInitiated)
-        await state.refresh(force: true)
+        await state.pullToRefresh(coordinator: coordinator)
     }
 
     /// Forget the anchors, upload 90 days again, rescore them, reload.
@@ -340,8 +340,7 @@ final class SyncDetailsModel {
     /// "Sync last 3 days again": the first score's window once more, then what's new.
     func resendRecent() async {
         sync.resendRecent()
-        await coordinator.run(.userInitiated)
-        await state.refresh(force: true)
+        await state.pullToRefresh(coordinator: coordinator)
         await loadQueue()
     }
 
@@ -352,6 +351,50 @@ final class SyncDetailsModel {
         try? await state.source.recompute(from: DayFormat.shift(now, days: -90), to: now)
         await state.refresh()
         await loadQueue()
+    }
+
+    /// One resource the app reads: when it last loaded, how its last fetches went (Loaded data).
+    struct ResourceRow: Identifiable, Equatable {
+        let resource: ReadResource
+        let name: String
+        let state: ResourceState
+        var id: String { resource.rawValue }
+
+        /// "14:05", "Tue 14:05"; "Not loaded yet" when never.
+        func fetchedText(now: Date) -> String {
+            state.fetchedAt.map { SyncLine.dataTime($0, now: now) } ?? String(localized: "Not loaded yet")
+        }
+
+        /// "503 · consent_required · 12 s ago · 3 failed in a row"; "No errors" while the last fetch succeeded.
+        func statusText(now: Date) -> String {
+            guard state.consecutiveFailures > 0, let error = state.lastError else { return String(localized: "No errors") }
+            var parts = [error.status.map(String.init) ?? String(localized: "No response")]
+            if let code = error.code { parts.append(code) }
+            parts.append(error.at.formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated)))
+            let n = state.consecutiveFailures
+            parts.append(n >= RefreshPolicy.failuresBeforeIssue ? String(localized: "\(n) failed in a row")
+                         : String(localized: "\(n) failed"))
+            return parts.joined(separator: " · ")
+        }
+
+        /// Warning colour from the threshold on; words always say it too.
+        var isWarning: Bool { state.consecutiveFailures >= RefreshPolicy.failuresBeforeIssue }
+
+        /// "Profile, loaded 13:58, last error 503, 3 failed in a row".
+        func spoken(now: Date) -> String {
+            var parts = [name, state.fetchedAt.map { String(localized: "loaded \(SyncLine.dataTime($0, now: now))") }
+                            ?? String(localized: "Not loaded yet")]
+            if state.consecutiveFailures > 0 { parts.append(statusText(now: now)) }
+            return parts.joined(separator: ", ")
+        }
+    }
+
+    /// Loaded data (ui.md §6): what the app reads, as the read pipeline recorded it.
+    var resources: [ResourceRow] {
+        let states = state.resourceStates
+        return ReadResource.allCases.compactMap { r in
+            r.displayName.map { ResourceRow(resource: r, name: $0, state: states[r] ?? ResourceState()) }
+        }
     }
 
     /// Everything above as text for support: no health data, only counts, dates and IDs.
@@ -374,9 +417,13 @@ final class SyncDetailsModel {
             let ignored = p.lastIgnored.map { "dup \($0.duplicate) out \($0.outsideWindow) unk \($0.unknownType)" } ?? "-"
             lines.append("\(row.id): \(p.sent) rec \(p.bytes) B days \(p.days.count) newest \(p.newest.map { $0.ISO8601Format() } ?? "-") backfilled \(p.backfilled) last \(p.lastAccepted) ignored \(ignored)")
         }
+        lines.append("resources (resource | fetched_at | last_error status code request_id at | consecutive_failures):")
+        let states = state.resourceStates
+        lines += ReadResource.allCases.map { (states[$0] ?? ResourceState()).diagnosticLine($0) }
         lines.append("requests:")
         for r in requests {
-            lines.append("\(r.date.ISO8601Format()) \(r.status) \(r.code ?? "-") \(r.method) \(r.path) \(r.requestID ?? "-")")
+            let duration = r.durationMs.map(String.init) ?? "-"
+            lines.append("\(r.date.ISO8601Format()) \(r.status) \(r.code ?? "-") \(r.method) \(r.path) \(r.requestID ?? "-") duration_ms=\(duration) transport=\(r.transport ?? "-")")
         }
         return lines.joined(separator: "\n")
     }

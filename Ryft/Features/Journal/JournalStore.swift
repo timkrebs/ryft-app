@@ -67,18 +67,36 @@ final class JournalStore {
 
     // MARK: reads
 
+    /// A journal read through the read pipeline (`ReadKey(.journal)`): coalesced, retried and
+    /// recorded with the other reads. `nil` inside means "not deployed" (a `404`, which isn't a
+    /// failure); `nil` outside means nothing was sent (offline).
+    private func read<T: Sendable>(_ id: String, _ fetch: @escaping @MainActor () async throws -> T) async throws -> T?? {
+        try await env.reads.run(ReadKey(.journal, id: id)) { () async throws -> T? in
+            do {
+                return try await fetch()
+            } catch where error.isEndpointMissing {
+                return nil
+            }
+        }
+    }
+
     /// The catalog (and with it, whether the journal is live).
     func load() async {
         guard env.isDemo || env.auth.isSignedIn else { return }
+        let api = env.api
         do {
-            let list = try await env.api.behaviors()
-            replace(list)
-            availability = .live
-            error = nil
-        } catch where error.isEndpointMissing {
-            availability = .notLive
+            switch try await read("behaviors", { try await api.behaviors() }) {
+            case .some(.some(let list)):
+                replace(list)
+                availability = .live
+                error = nil
+            case .some(.none):
+                availability = .notLive
+            case .none:
+                break // offline: the cache (and whether it was live) stays
+            }
         } catch {
-            // Offline or a failure: the cache (and whether it was live) stays.
+            // A failure: the cache (and whether it was live) stays.
         }
     }
 
@@ -89,24 +107,27 @@ final class JournalStore {
             days[day] = cached
         }
         guard isLive, isOnline else { return days[day] }
-        do {
-            let fresh = try await env.api.journal(day: day)
-            store(fresh)
-        } catch where error.isEndpointMissing {
-            availability = .notLive
-        } catch {}
+        let api = env.api
+        switch try? await read("day.\(day)", { try await api.journal(day: day) }) {
+        case .some(.some(let fresh)): store(fresh)
+        case .some(.none): availability = .notLive
+        case .none: break
+        }
         return days[day]
     }
 
     func loadImpacts() async {
         guard isLive, isOnline else { return }
-        do {
-            let fresh = try await env.api.behaviorImpact()
+        let api = env.api
+        switch try? await read("impact", { try await api.behaviorImpact() }) {
+        case .some(.some(let fresh)):
             impacts = fresh
             env.persistence.saveDocument(fresh, key: Self.impactKey, at: now)
-        } catch where error.isEndpointMissing {
+        case .some(.none):
             availability = .notLive
-        } catch {}
+        case .none:
+            break
+        }
     }
 
     // MARK: writes

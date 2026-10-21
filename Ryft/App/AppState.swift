@@ -2,8 +2,9 @@
 // SwiftData through the Repository (offline-first). Views and view models read
 // these properties, which never wait for the network; loads only revalidate.
 // SyncService writes HealthKit → platform; this reads platform → UI.
-// A failed call keeps the cached data with an inline message; the phone never
-// computes scores itself.
+// Each read succeeds or fails on its own (`ReadScheduler`): a failure keeps the cached
+// data, and only `RefreshPolicy` decides whether staleness or an error is shown. The
+// phone never computes scores itself.
 import Foundation
 import Observation
 
@@ -14,10 +15,6 @@ enum AppTab: String, CaseIterable, Hashable {
 @MainActor
 @Observable
 final class AppState {
-    var error: String?
-    /// Status and request ID of `error`, for the inline message's Details.
-    var errorDetails: String?
-    var isLoading = false
     var selectedTab: AppTab
     /// The platform's latest `GET /v1/me/sync`: what it has, what scoring is doing (pending
     /// days, today's state). Asked at launch and while a sync waits for scores.
@@ -100,66 +97,146 @@ final class AppState {
 
     // MARK: loading
 
-    /// Revalidates Today: the day, 90 days of scores, the user, the readiness week
-    /// and the insights, each only when stale. `force` (pull to refresh) and
-    /// `touched` (days a sync queued for rescoring) fetch regardless.
+    /// The reads behind Today's numbers; one of them in flight is "Updating…".
+    private static let loadingResources: Set<ReadResource> = [.today, .history, .me, .syncStatus, .trends, .insights]
+
+    /// A read of today, history, me, sync status, trends or insights is in flight.
+    var isLoading: Bool { env.reads.inFlight.contains { Self.loadingResources.contains($0.resource) } }
+
+    /// Pull to refresh: phases 2 and 3 of the last pull (tests await them).
+    @ObservationIgnored private(set) var pullPhases: Task<Void, Never>?
+
+    /// How long the pull's spinner may last, and how long phase 3 waits for the upload.
+    static let spinnerCap: Duration = .seconds(3)
+    static let uploadHeadStart: Duration = .seconds(2)
+
+    /// Pull to refresh, Try again, Sync now. In order instead of a fan-out:
+    /// 1. the upload starts (the coordinator's run; never awaited here);
+    /// 2. at once, at high priority: today and `GET /v1/me/sync`;
+    /// 3. when the upload ended or after 2 s, whichever is first: history, me, the readiness week
+    ///    and insights. The journal, config and Train revalidate on their own triggers.
+    /// Returns when phase 2 has settled or after 3 s; the status line carries the rest. Phases 2
+    /// and 3 belong to this object, so a cancelled `.refreshable` cancels neither. Offline, or
+    /// without a data source, nothing is sent.
+    func pullToRefresh(coordinator: SyncCoordinator) async {
+        guard hasDataSource, isDemo || env.connectivity.isOnline else { return }
+        let clock = env.clock
+        let (uploaded, upload) = AsyncStream<Void>.makeStream()
+        Task {
+            await coordinator.run(.userInitiated, afterUpload: {
+                upload.yield()
+                upload.finish()
+            })
+        }
+        let now = now
+        let phase2 = Task { [self] in
+            async let today: Void = refreshToday(now)
+            async let status: Void = coordinator.refreshStatus()
+            _ = await (today, status)
+        }
+        let phases = Task { [self] in
+            await Self.firstOf({ for await _ in uploaded { break } }, { try? await clock.sleep(for: Self.uploadHeadStart) })
+            await withTaskGroup(of: Void.self) { group in
+                let from = DayFormat.shift(now, days: -(Self.historyDays - 1))
+                group.addTask { try? await self.repository.refreshHistory(from: from, to: now, mode: .latest, userInitiated: true) }
+                group.addTask { try? await self.repository.refreshUser(mode: .latest, userInitiated: true) }
+                group.addTask { try? await self.repository.refreshTrend(.readiness, .week, mode: .latest, userInitiated: true) }
+                group.addTask { try? await self.repository.refreshInsights(mode: .latest, userInitiated: true) }
+            }
+            await phase2.value
+        }
+        pullPhases = phases
+        await Self.firstOf({ await phase2.value }, { try? await clock.sleep(for: Self.spinnerCap) })
+    }
+
+    private func refreshToday(_ now: Date) async {
+        _ = try? await repository.refreshDay(now, mode: .latest, userInitiated: true)
+    }
+
+    /// Whichever ends first; the other is cancelled.
+    private static func firstOf(_ a: @escaping @Sendable () async -> Void, _ b: @escaping @Sendable () async -> Void) async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await a() }
+            group.addTask { await b() }
+            await group.next()
+            group.cancelAll()
+        }
+    }
+
+    /// Revalidates Today: the day, 90 days of scores, the user, the readiness week and the
+    /// insights, each only when stale and each on its own (one failing leaves the others updated).
+    /// `force` fetches regardless; `touched` (days a sync queued for rescoring) asks for data newer
+    /// than now. Bootstrap, app active, the demo toggle, a rescore. Shows no error itself.
     func refresh(force: Bool = false, touched: [String] = []) async {
         guard hasDataSource else { return }
         // Offline: keep what's on screen (the cache); no request, no error.
         guard isDemo || env.connectivity.isOnline else { return }
-        isLoading = true
-        defer { isLoading = false }
         let now = now
-        let rescored = force || !touched.isEmpty
-        do {
-            async let day: DayDetail? = repository.refreshDay(now, force: rescored)
-            async let days: Void = repository.refreshHistory(from: DayFormat.shift(now, days: -(Self.historyDays - 1)),
-                                                             to: now, force: rescored)
-            async let me: Void = repository.refreshUser(force: force)
-            _ = try await (day, days, me)
-            for key in touched where key != DayFormat.string(from: now) {
-                if let date = DayFormat.date(from: key) { _ = try? await repository.refreshDay(date, force: true) }
+        let todayKey = DayFormat.string(from: now)
+        let days: ReadMode = !touched.isEmpty ? .changed(since: now) : force ? .latest : .ifStale
+        let other: ReadMode = force ? .latest : .ifStale
+        let from = DayFormat.shift(now, days: -(Self.historyDays - 1))
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { _ = try? await self.repository.refreshDay(now, mode: days) }
+            group.addTask { try? await self.repository.refreshHistory(from: from, to: now, mode: days) }
+            group.addTask { try? await self.repository.refreshUser(mode: other) }
+            group.addTask { try? await self.repository.refreshTrend(.readiness, .week, mode: days) }
+            group.addTask { try? await self.repository.refreshInsights(mode: days) }
+            for key in Set(touched) where key != todayKey {
+                guard let date = DayFormat.date(from: key) else { continue }
+                group.addTask { _ = try? await self.repository.refreshDay(date, mode: .changed(since: now)) }
             }
-            try? await repository.refreshTrend(.readiness, .week, force: rescored)
-            try? await repository.refreshInsights(force: rescored)
-            error = nil
-            errorDetails = nil
-        } catch where error.gate != nil {
-            // A gate isn't a failure to show: onboarding asks for it (`APIStatus` saw the code).
-        } catch {
-            self.error = error.localizedDescription
-            self.errorDetails = error.diagnosticDetails
         }
     }
 
-    /// After a sync (or a silent push): the touched days, today and the 90-day
-    /// scores, regardless of their TTL. Errors show like a refresh's.
+    /// After a sync (or a silent push): today, the touched days and the 90-day scores, newer than
+    /// now, each on its own. A failed read is recorded per resource and never thrown; only a
+    /// cancellation is (the coordinator then reports idle).
     func refreshDays(_ touched: [String]) async throws {
         guard hasDataSource else { return }
         let now = now
-        do {
-            _ = try await repository.refreshDay(now, force: true)
-            for key in Set(touched) where key != DayFormat.string(from: now) {
-                if let date = DayFormat.date(from: key) { _ = try await repository.refreshDay(date, force: true) }
+        let since = ReadMode.changed(since: now)
+        let todayKey = DayFormat.string(from: now)
+        let from = DayFormat.shift(now, days: -(Self.historyDays - 1))
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { _ = try? await self.repository.refreshDay(now, mode: since) }
+            for key in Set(touched) where key != todayKey {
+                guard let date = DayFormat.date(from: key) else { continue }
+                group.addTask { _ = try? await self.repository.refreshDay(date, mode: since) }
             }
-            try await repository.refreshHistory(from: DayFormat.shift(now, days: -(Self.historyDays - 1)), to: now,
-                                                force: true)
-            error = nil
-            errorDetails = nil
-        } catch where error.gate != nil {
-            throw error
-        } catch {
-            self.error = error.localizedDescription
-            self.errorDetails = error.diagnosticDetails
-            throw error
+            group.addTask { try? await self.repository.refreshHistory(from: from, to: now, mode: since) }
         }
+        try Task.checkCancellation()
     }
 
-    /// Forget what's shown (account changed, demo mode switched). Sign-out wipes
-    /// the account's store; demo data is cleared here.
+    // MARK: staleness and the error card
+
+    /// What the read pipeline knows per resource; today's `fetchedAt` is the current day's row's
+    /// (exact across midnight and relaunches).
+    var resourceStates: [ReadResource: ResourceState] {
+        var states = env.reads.states
+        states[.today, default: ResourceState()].fetchedAt = repository.detailFetchedAt(todayKey)
+        return states
+    }
+
+    private var readsOnline: Bool { isDemo || env.connectivity.isOnline }
+
+    /// The calm card on Today, or nil (`RefreshPolicy.issue`).
+    var refreshIssue: RefreshIssue? {
+        guard hasDataSource else { return nil }
+        return RefreshPolicy.issue(for: resourceStates, now: now, online: readsOnline)
+    }
+
+    /// "Showing data from 14:05" on the status line, or nil (`RefreshPolicy.staleSince`).
+    var staleSince: Date? {
+        guard hasDataSource else { return nil }
+        return RefreshPolicy.staleSince(for: resourceStates, now: now, online: readsOnline)
+    }
+
+    /// Forget what's shown (account changed, demo mode switched): reads in flight stop, their
+    /// record goes. Sign-out wipes the account's store; demo data is cleared here.
     func reset() {
-        error = nil
-        errorDetails = nil
+        env.reads.reset()
         if isDemo { repository.clear() } else { repository.invalidate() }
     }
 
@@ -251,6 +328,106 @@ final class AppState {
     // MARK: private
 
     private static let dismissedKey = "insights.dismissed"
+}
+
+// MARK: - refresh issues
+
+/// Why Today shows the calm error card (ui.md §3): one resource, what failed, since when.
+struct RefreshIssue: Equatable, Sendable {
+    /// ui.md §3.3 classes. busy: 429/5xx/408 after retries; unreachable: no response; unexpected: `other`.
+    enum Reason: Equatable, Sendable { case busy, unreachable, unexpected, signedOut, appTooOld }
+    let reason: Reason
+    let resource: ReadResource
+    /// "Showing data from 14:05"; nil: nothing cached.
+    let dataFrom: Date?
+    let failures: Int
+    let error: ResourceError
+
+    static func reason(for error: ResourceError) -> Reason {
+        switch error.kind {
+        case .signedOut: return .signedOut
+        case .appTooOld: return .appTooOld
+        case .transient: return error.status == nil ? .unreachable : .busy
+        case .gate, .cancelled, .other: return .unexpected
+        }
+    }
+
+    /// "Today", "History": what failed, as the Details sheet names it.
+    var resourceName: String { resource.displayName ?? resource.rawValue }
+
+    /// "503", or nil without a response.
+    var statusText: String? { error.status.map(String.init) }
+
+    /// The Details sheet's rows as plain text (Copy details): what failed, status, code, request ID,
+    /// time, data from, failed in a row. No health values.
+    @MainActor var copyText: String {
+        let none = "—"
+        var rows = [
+            String(localized: "What failed") + ": " + resourceName,
+            String(localized: "HTTP status") + ": " + (statusText ?? "\(none) (\(error.transport ?? String(localized: "No response")))"),
+            String(localized: "Code") + ": " + (error.code ?? none),
+            String(localized: "Request ID") + ": " + (error.requestID ?? String(localized: "Not available")),
+            String(localized: "Time") + ": " + error.at.ISO8601Format(),
+            String(localized: "Showing data from") + ": " + (dataFrom?.ISO8601Format() ?? none),
+            String(localized: "Failed in a row") + ": " + failures.formatted(),
+        ]
+        rows.append("RYFT \(AppInfo.version) · \(AppInfo.osVersion)")
+        return rows.joined(separator: "\n")
+    }
+}
+
+/// Whether a failed read shows at all (ADR 0001 §5): pure functions over the recorded states.
+/// Under the thresholds a failure changes nothing on screen; offline is never an error.
+enum RefreshPolicy {
+    static let failuresBeforeIssue = 3
+    /// What's on screen counts as stale after this long without a successful fetch.
+    static let staleAfter: [ReadResource: TimeInterval] = [.today: 2 * 3600, .history: 24 * 3600]
+
+    /// ui.md §2.1 line 7: today's data time, when today (or history) is older than its threshold and
+    /// its last fetch failed. nil when offline, fresh, nothing is cached, or the last fetch succeeded.
+    static func staleSince(for states: [ReadResource: ResourceState], now: Date, online: Bool) -> Date? {
+        guard online, let today = states[.today]?.fetchedAt else { return nil }
+        if isStale(.today, states, now: now, minimumFailures: 1) || isStale(.history, states, now: now, minimumFailures: 1) {
+            return today
+        }
+        return nil
+    }
+
+    /// ui.md §3.1, in order: offline → nil; signed out (or an outdated app) → that; gates → nil (the
+    /// "Action needed" line owns them); today, then history: 3 failures in a row and older than its
+    /// threshold, or (nothing cached at all) 1 failure. Other resources never show the card.
+    static func issue(for states: [ReadResource: ResourceState], now: Date, online: Bool) -> RefreshIssue? {
+        guard online else { return nil }
+        for resource in ReadResource.allCases {
+            guard let s = states[resource], let error = s.lastError, s.consecutiveFailures >= 1,
+                  error.kind == .signedOut || error.kind == .appTooOld else { continue }
+            return make(resource, s, error)
+        }
+        let nothingCached = states[.today]?.fetchedAt == nil && states[.history]?.fetchedAt == nil
+        for resource in [ReadResource.today, .history] {
+            guard let s = states[resource], let error = s.lastError, error.kind != .gate, error.kind != .cancelled
+            else { continue }
+            if isStale(resource, states, now: now, minimumFailures: failuresBeforeIssue)
+                || (nothingCached && s.consecutiveFailures >= 1) {
+                return make(resource, s, error)
+            }
+        }
+        return nil
+    }
+
+    /// `minimumFailures` in a row, and no data or data older than the resource's threshold.
+    private static func isStale(_ resource: ReadResource, _ states: [ReadResource: ResourceState], now: Date,
+                                minimumFailures: Int) -> Bool {
+        guard let s = states[resource], s.consecutiveFailures >= minimumFailures,
+              let threshold = staleAfter[resource] else { return false }
+        guard let fetchedAt = s.fetchedAt else { return true }
+        return now.timeIntervalSince(fetchedAt) > threshold
+    }
+
+    private static func make(_ resource: ReadResource, _ s: ResourceState, _ error: ResourceError) -> RefreshIssue {
+        RefreshIssue(reason: RefreshIssue.reason(for: error), resource: resource, dataFrom: s.fetchedAt,
+                     failures: s.consecutiveFailures, error: error)
+    }
 }
 
 // MARK: - previews

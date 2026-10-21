@@ -288,16 +288,17 @@ final class OnboardingCoordinator {
         var status: SyncStatus?
     }
 
-    /// The three reads at once. Failures leave a part unknown (the cache decides); the
-    /// first run gives up waiting after `checkTimeout`.
+    /// The three reads at once, through the read pipeline (joined with the launch's own reads of
+    /// the same resources). Failures leave a part unknown (the cache decides); the first run gives
+    /// up waiting after `checkTimeout`.
     private func fetchWithTimeout() async -> Answer {
-        let api = api, clock = env.clock
+        let api = api, clock = env.clock, reads = env.reads
         let tz = TimeZone.current.identifier
         return await withTaskGroup(of: Answer?.self) { group in
             group.addTask {
-                async let me = try? api.me()
-                async let config = try? api.config()
-                async let status = try? api.syncStatus()
+                async let me = try? reads.run(ReadKey(.me)) { try await api.me() }
+                async let config = try? reads.run(ReadKey(.config)) { try await api.config() }
+                async let status = try? reads.run(ReadKey(.syncStatus)) { try await api.syncStatus() }
                 var user = await me
                 // New users start in Europe/Berlin, which defines every day boundary.
                 if let u = user, u.tz != tz, let patched = try? await api.patchMe(UserPatch(tz: tz)) { user = patched }
