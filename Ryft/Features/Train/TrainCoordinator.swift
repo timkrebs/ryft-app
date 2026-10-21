@@ -179,12 +179,18 @@ final class TrainCoordinator {
 
     // MARK: ending
 
-    func finish(_ controller: SessionController, bodyweightKg: Double? = nil) async {
+    func finish(_ controller: SessionController, bodyweightKg: Double? = nil, export: WorkoutHealthExport? = nil) async {
+        // A second tap while the first one finishes changes nothing.
+        guard controller.phase != .finishing, controller.phase != .completed else { return }
         let s = controller.session
         let result = await controller.finish(bodyweightKg: bodyweightKg)
         active = nil
         // Shown over the session; Done closes both (`summaryDone`).
         summary = FinishSummary(sessionID: s.id, completed: result)
+        // To Apple Health, if you turned that on, once it is complete here.
+        if s.status == .completed, let end = s.endedAt {
+            await (export ?? .shared).save(sessionID: s.id, start: s.startedAt, end: end)
+        }
         await library.sessionCompleted()
     }
 
@@ -408,5 +414,116 @@ struct RyftShortcuts: AppShortcutsProvider {
         AppShortcut(intent: ResumeWorkoutIntent(),
                     phrases: ["Resume my \(.applicationName) workout"],
                     shortTitle: "Resume workout", systemImageName: "play.fill")
+    }
+}
+
+// MARK: - Apple Health (opt-in)
+
+/// "Save strength workouts to Apple Health": off until you say so. Asked once at the end of
+/// the first completed workout, and in Profile → Data. Turning it on asks iOS for write access
+/// to workouts only; RYFT then writes one `HKWorkout` per completed session and nothing else,
+/// not when the watch recorded the session itself, and never in demo mode.
+@MainActor
+@Observable
+final class WorkoutHealthExport {
+    static let shared = WorkoutHealthExport(health: HealthKitManager.shared, defaults: .standard)
+    static let keyPrefix = "health.saveWorkouts."
+    /// How far back a later watch workout still replaces RYFT's.
+    static let tidyWindow: TimeInterval = 3 * 24 * 3_600
+
+    enum Choice: String {
+        case on, off
+    }
+
+    private let health: HealthStore
+    private let defaults: UserDefaults
+    private let account: () -> String?
+    private let isDemo: () -> Bool
+    /// Bumped on every change and when the app comes back (iOS may have changed the access
+    /// meanwhile), so readers of `choice` and `canWrite` update.
+    private var revision = 0
+    /// Turning it on was refused by iOS (now, or earlier, so it showed no sheet).
+    private(set) var refused = false
+    @ObservationIgnored private var saving: Set<UUID> = []
+
+    init(health: HealthStore, defaults: UserDefaults, account: (() -> String?)? = nil, isDemo: (() -> Bool)? = nil) {
+        self.health = health
+        self.defaults = defaults
+        self.account = account ?? { AccountScope.current(defaults) }
+        self.isDemo = isDemo ?? { Settings.shared.demoMode }
+    }
+
+    private var key: String { Self.keyPrefix + (account() ?? "signed-out") }
+
+    /// `nil`: not asked yet. Per account.
+    var choice: Choice? {
+        _ = revision
+        return defaults.string(forKey: key).flatMap(Choice.init(rawValue:))
+    }
+
+    var isOn: Bool { choice == .on }
+    /// iOS allows it (Health → Sharing → Apps → RYFT → Workouts).
+    var canWrite: Bool {
+        _ = revision
+        return health.canWriteWorkouts
+    }
+    /// What the switch shows: on, and still allowed in iOS.
+    var isWriting: Bool { isOn && canWrite }
+    /// Where to allow it: refused when turned on, or the access was taken away since.
+    var needsAccess: Bool { refused || (isOn && !canWrite) }
+    /// The first summary asks (Apple Health on this device, nothing chosen yet).
+    var shouldAsk: Bool { choice == nil && health.isAvailable }
+
+    private func set(_ choice: Choice) {
+        defaults.set(choice.rawValue, forKey: key)
+        revision += 1
+    }
+
+    /// Asks iOS for write access to workouts; on only when granted. `false` otherwise.
+    @discardableResult
+    func turnOn() async -> Bool {
+        let granted = (try? await health.requestWorkoutWriteAccess()) ?? false
+        refused = !granted
+        set(granted ? .on : .off)
+        return granted
+    }
+
+    /// Off, and the first summary's "Not now" (not asked again; Profile still has the switch).
+    func turnOff() {
+        refused = false
+        set(.off)
+    }
+
+    /// After a completed session: written when on and still allowed in iOS, once per session.
+    func save(sessionID: UUID, start: Date, end: Date) async {
+        guard isOn, !isDemo(), health.canWriteWorkouts, end > start, !saving.contains(sessionID) else { return }
+        saving.insert(sessionID)
+        defer { saving.remove(sessionID) }
+        do {
+            let result = try await health.saveStrengthWorkout(sessionID: sessionID, start: start, end: end)
+            if result != .saved { TrainStore.log.info("Workout not written to Apple Health again: \(String(describing: result), privacy: .public)") }
+        } catch {
+            TrainStore.log.notice("Workout not saved to Apple Health: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// The app came back: the switch follows what iOS allows now, and a watch workout that
+    /// arrived after the session replaces RYFT's in Fitness.
+    func appBecameActive(now: Date) async {
+        revision += 1
+        guard isWriting, !isDemo() else { return }
+        do {
+            let removed = try await health.removeOwnWorkoutsRecordedElsewhere(since: now.addingTimeInterval(-Self.tidyWindow))
+            if removed > 0 { TrainStore.log.info("Removed \(removed) RYFT workouts the watch recorded too") }
+        } catch {
+            TrainStore.log.notice("Apple Health tidy failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// The sign-out wipe: every account's choice on this phone.
+    static func wipe(defaults: UserDefaults) {
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(keyPrefix) {
+            defaults.removeObject(forKey: key)
+        }
     }
 }

@@ -23,6 +23,17 @@ is the auth session, and `Set` is `SessionSet` as in the mirror.
    via `POST /v1/plans/{id}/enroll`. A second phone, or a reinstall, loses that.
    - **Proposal:** return the paused enrolment too, e.g. as `active` with
      `status: "paused"`, or a separate `paused: Enrollment?`.
+3. **Workouts RYFT writes to Apple Health (opt-in, 2026-10-21).** With "Save strength
+   workouts to Apple Health" on, the app writes one `HKWorkout` per completed session
+   (`traditional_strength_training`, the session's start and end, brand "RYFT",
+   `HKMetadataKeyExternalUUID` = the session id). Not when a strength workout from the
+   watch or another app covers at least half of the session, and it deletes its own when
+   one arrives later. The sync **skips** RYFT's own workouts (by source bundle), so the
+   platform keeps attaching the load as `API.md` → sessions describes.
+   - **Please confirm** that skipping is what you want. The alternative is to send them and
+     have the platform link a workout to its session by `session_id` (the external UUID)
+     instead of creating a `ryft-session` workout. Then a second phone would see it as the
+     session's too.
 
 ## Charts and gauges (open, 2026-10-19)
 
