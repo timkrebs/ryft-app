@@ -152,6 +152,31 @@ warnings. Deviations:
 Items 1–28: everything above from UI, security, code and performance, plus the glyph rule. The guide text (T5,
 `content/tracker-guides` c4e312c) is applied by the lead after the batch.
 
+### code-reviewer: one blocker; the 8 deviations accepted with notes
+- **Blocking: with no selection, the trackers are resolved once** (`ProfileViewModel.swift:1108`). "Check again" never finds
+  a tracker that synced after the first run. → Recompute on every run, and add a run → sync → run test.
+- **Should-fix:**
+  - The night window after midnight produces `nightMissing` at 00:30, also for the iPhone. → Previous night counts; no
+    night verdict for the iPhone; a table test at 00:30, 05:00, 08:00 and 23:30.
+  - The label is "{app} in the App Store" (shared key with T2).
+  - Apple devices claim a fault ("Open Watch…", silent plus the permission card, when the device model is missing).
+    → Silent copy without "Open X"; a neutral state without a model; the device test is recorded before the flag goes on.
+  - Edits outside the assigned regions (`FeedbackPayload`, `make`, `payload`) are resolved on the integration branch.
+- **Nits, to be done:**
+  - the "What's included" row only with a saved check;
+  - the silent announcement;
+  - `hasStages` on the newest night;
+  - no concurrent runs;
+  - `catalog:` required;
+  - plurals;
+  - tests for the `visibleTypes` fallback and the UI wait;
+  - the Copy diagnostics line;
+  - hygiene: kebab-case, doc time, the flag name in CHANGELOG, German previews.
+
+### T3 fix batch (lead → sync-engineer)
+Items 1–21: everything above from the code, security and UI reviews. Integration with T1 and T2 happens on a separate
+branch.
+
 ## T2 `feat: tracker setup and devices & sync` (`feat/tracker-setup`, a9e3d5f)
 
 The implementer (ios-developer) reports 781/781 unit tests, `DevicesUITests` 5/5, `make lint` green and zero warnings.
