@@ -72,6 +72,8 @@ struct TodayView: View {
                 .onAppear { LaunchSignpost.todayAppeared(cached: day.readiness != nil || model.lastUpdated != nil) }
                 // Last night from Apple Health and the newest record per source, after each sync.
                 .task(id: model.healthFactsKey) { await model.loadHealthFacts() }
+                // One status read at the slow threshold when nothing else asks then (per start, cancelled with it).
+                .task(id: model.slowScoringCheck) { await model.confirmSlowScoring() }
                 // The night was pending and its score landed: one subtle change, one haptic.
                 .onChange(of: day.hero.isPending) { was, now in
                     if was, !now { landed += 1 }

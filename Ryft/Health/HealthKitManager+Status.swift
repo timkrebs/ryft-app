@@ -793,7 +793,7 @@ extension TrackerCatalog {
     static let bundledJSON = #"""
     {
       "schema_version": 1,
-      "version": "2026-10-22.2",
+      "version": "2026-10-22.3",
       "checked": "2026-10-22",
       "status_values": [
         "yes",
@@ -941,9 +941,9 @@ extension TrackerCatalog {
           "capabilities": {
             "heart_rate": "yes",
             "hrv": "no",
-            "resting_hr": "no",
+            "resting_hr": "yes",
             "sleep": "yes",
-            "sleep_stages": "unverified",
+            "sleep_stages": "yes",
             "respiratory_rate": "no",
             "spo2": "no",
             "workouts": "yes",
@@ -955,8 +955,8 @@ extension TrackerCatalog {
               "de": "Garmin behält HRV in seiner eigenen App."
             },
             "resting_hr": {
-              "en": "Garmin doesn't send resting heart rate to Apple Health.",
-              "de": "Garmin sendet Ruhepuls nicht an Apple Health."
+              "en": "One value per day, written at midnight.",
+              "de": "Ein Wert pro Tag, um Mitternacht geschrieben."
             },
             "respiratory_rate": {
               "en": "Garmin doesn't send breathing rate to Apple Health.",
@@ -993,12 +993,12 @@ extension TrackerCatalog {
           },
           "limits": {
             "en": [
-              "Garmin Connect doesn't send HRV, resting heart rate, breathing rate or blood oxygen to Apple Health.",
+              "Garmin Connect doesn't send HRV, breathing rate or blood oxygen to Apple Health.",
               "Workout heart rate arrives as high and low values only, and GPS tracks aren't sent.",
               "Connect doesn't appear in Apple Health if only an Edge bike computer is registered to your Garmin account."
             ],
             "de": [
-              "Garmin Connect sendet HRV, Ruhepuls, Atemfrequenz oder Blutsauerstoff nicht an Apple Health.",
+              "Garmin Connect sendet HRV, Atemfrequenz oder Blutsauerstoff nicht an Apple Health.",
               "Trainings-Herzfrequenz kommt nur als höchster und niedrigster Wert an, GPS-Tracks werden nicht gesendet.",
               "Connect erscheint nicht in Apple Health, wenn nur ein Edge-Fahrradcomputer bei deinem Garmin-Konto registriert ist."
             ]

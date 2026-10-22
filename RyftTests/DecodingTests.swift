@@ -295,13 +295,14 @@ struct TrackerCatalogTests {
         let decoded = try TrackerCatalog.decode(Data(TrackerCatalog.bundledJSON.utf8), now: .now)
         #expect(decoded == TrackerCatalog.bundled)
         let c = TrackerCatalog.bundled
-        #expect(c.version == "2026-10-22.2")
+        #expect(c.version == "2026-10-22.3")
         #expect(c.trackers.map(\.id) == ["apple_watch", "garmin", "oura", "polar", "suunto", "coros", "withings", "amazfit",
                                          "ultrahuman", "fitbit", "samsung_galaxy_watch", "other", "iphone"])
         let garmin = try #require(c.tracker("garmin"))
         #expect(garmin.appName == "Garmin Connect" && garmin.form == .watch && garmin.integration == .vendorApp)
-        #expect(garmin.capabilities[.hrv] == .no && garmin.capabilities[.restingHR] == .no)
-        #expect(garmin.capabilities[.heartRate] == .yes && garmin.capabilities[.sleepStages] == .unverified)
+        // Resting HR and stages: seen from Garmin Connect on an iPhone 16 Pro, 2026-10-22 (its FAQ omits them).
+        #expect(garmin.capabilities[.hrv] == .no && garmin.capabilities[.restingHR] == .yes)
+        #expect(garmin.capabilities[.heartRate] == .yes && garmin.capabilities[.sleepStages] == .yes)
         #expect(garmin.capabilities.count == TrackerSignal.allCases.count)
         #expect(garmin.appStoreURL?.absoluteString == "https://apps.apple.com/app/id583446403")
         #expect(garmin.help?.host == "support.garmin.com")
@@ -753,12 +754,14 @@ struct TrackerCatalogTests {
         let clock = ContinuousClock()
         var catalog: TrackerCatalog?
         // The best of three: a busy simulator (the parallel Unit plan) shouldn't decide it.
-        var elapsed = Duration.seconds(1)
+        var elapsed = Duration.seconds(3_600)
         for _ in 0..<3 {
             elapsed = min(elapsed, try clock.measure { catalog = try TrackerCatalog.decode(data, now: CatalogFixture.now) })
         }
         #expect(catalog?.trackers.count == 40)
-        #expect(elapsed < .milliseconds(100), "\(elapsed)") // about 45 ms in a Debug build on the simulator
+        // About 45 ms locally, over a second on a busy CI runner. The bound guards against the quadratic check
+        // the review found (22–36 s for a third of this size), not against a slow machine.
+        #expect(elapsed < .seconds(2), "\(elapsed)")
     }
 
     // MARK: matching and names

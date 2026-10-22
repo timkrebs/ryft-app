@@ -535,6 +535,7 @@ struct TodayNightAndScoringTests {
         f.prior = [DailyScore(day: DayFormat.string(from: DayFormat.shift(now, days: -1)), readiness: 76, state: .balanced,
                               baselineDays: 30, calibrating: false, computedAt: now.addingTimeInterval(-86_400), scoringState: .scored)]
         f.status = status(.waitingForSleep, now: now)
+        f.statusReadAt = now // the platform's latest word, just read
         f.freshness = [connect(at(23, 24, daysAgo: 1))]
         change(&f)
         f.sourceApps = SourceApp.resolve(f.sourceRefs, in: .bundled)
@@ -665,13 +666,18 @@ struct TodayNightAndScoringTests {
 
     @Test func slowAfterThreeTimesTheEstimateWithAFloor() {
         func slow(_ seconds: TimeInterval, expected: Int?) -> Bool {
-            TodayStates.scoringSlow(since: at(10, 0), expected: expected, now: at(10, 0).addingTimeInterval(seconds))
+            let now = at(10, 0).addingTimeInterval(seconds)
+            return TodayStates.scoringSlow(since: at(10, 0), expected: expected, now: now, checkedAt: now)
         }
         #expect(!slow(60, expected: 5) && slow(61, expected: 5)) // the 60 s floor
         #expect(!slow(90, expected: 30) && slow(91, expected: 30)) // 3 × 30 s
         #expect(!slow(300, expected: 100) && slow(301, expected: 100))
         #expect(!slow(90, expected: nil) && slow(91, expected: nil)) // no estimate yet: API.md's 30 s
-        #expect(!TodayStates.scoringSlow(since: nil, expected: 20, now: at(12, 0)))
+        #expect(!TodayStates.scoringSlow(since: nil, expected: 20, now: at(12, 0), checkedAt: at(12, 0)))
+        // Only on the platform's word after the threshold: no read since, or one before it, isn't enough.
+        #expect(!TodayStates.scoringSlow(since: at(10, 0), expected: 20, now: at(12, 0), checkedAt: nil))
+        #expect(!TodayStates.scoringSlow(since: at(10, 0), expected: 20, now: at(12, 0), checkedAt: at(10, 0).addingTimeInterval(59)))
+        #expect(TodayStates.scoringSlow(since: at(10, 0), expected: 20, now: at(12, 0), checkedAt: at(10, 1)))
         #expect(SyncLine.scoringSlow.text(now: .now) == String(localized: "Taking longer than usual · Details"))
         #expect(SyncLine.scoringSlow.systemImage == "clock" && !SyncLine.scoringSlow.isActive)
     }
@@ -686,10 +692,17 @@ struct TodayNightAndScoringTests {
         #expect(TodayStates.line(f) == .scoring(night: true))
         f.scoringSince = f.now.addingTimeInterval(-61)
         #expect(TodayStates.line(f) == .scoringSlow)
+        // Until a read after the threshold lists the night, still "Scoring".
+        f.statusReadAt = f.now.addingTimeInterval(-30)
+        #expect(TodayStates.line(f) == .scoring(night: true))
+        f.statusReadAt = f.now
         // The coordinator gave up at 300 s and is idle; the platform still lists the day: slow, not "Up to date".
         f.phase = .idle
         f.scoringSince = f.now.addingTimeInterval(-400)
         #expect(TodayStates.line(f) == .scoringSlow)
+        // A later read that no longer lists it: not slow, whatever the clock says.
+        f.status = status(.scored, now: f.now)
+        #expect(!TodayStates.scoringSlow(f))
         // No start (cleared by the platform's word): the shipped line.
         f.scoringSince = nil
         #expect(TodayStates.line(f) == .scoring(night: true))
@@ -843,10 +856,11 @@ struct TodayNightAndScoringTests {
         let sync = SyncService(env: env)
         // Days pending that nobody here waits for (a relaunch, another device): timed from now, on this clock.
         sync.receive(status(.pending, now: clock.now()))
-        #expect(sync.scoringWaitStart == at(10, 0))
+        #expect(sync.scoringWaitStart == at(10, 0) && sync.statusReadAt == at(10, 0))
         clock.advance(by: .seconds(30))
         sync.receive(status(.pending, now: clock.now()))
         #expect(sync.scoringWaitStart == at(10, 0)) // the first sighting stays
+        #expect(sync.statusReadAt == at(10, 0).addingTimeInterval(30)) // every read is recorded
         // During a wait an empty answer can predate the upload: the wait's start stays.
         sync.advance(to: .reading)
         sync.advance(to: .awaitingScores)
@@ -859,6 +873,8 @@ struct TodayNightAndScoringTests {
         sync.advance(to: .done)
         sync.receive(status(.scored, now: clock.now()))
         #expect(sync.scoringWaitStart == nil)
+        sync.accountChanged()
+        #expect(sync.statusReadAt == nil)
     }
 
     @Test func theFactsTimeTheWaitAndTheGaugeStopsBreathing() {
@@ -875,9 +891,61 @@ struct TodayNightAndScoringTests {
         sync.advance(to: .awaitingScores)
         #expect(vm.facts.scoringSince == now)
         #expect(vm.content.pendingIsStatic == false && vm.syncLine.isScoring)
+        // Past the threshold, before the platform said anything since: still scoring, still breathing.
         clock.advance(by: .seconds(61))
+        #expect(!vm.content.pendingIsStatic && vm.syncLine == .scoring(night: true))
+        // The coordinator's poll still lists the night: static, "Still scoring your night", line 5b.
+        sync.receive(status(.pending, now: clock.now()))
         #expect(vm.content.pendingIsStatic && vm.content.pendingTitle == String(localized: "Still scoring your night"))
         #expect(vm.syncLine == .scoringSlow)
+    }
+
+    /// A start from a status read (the app opened after a background upload, no wait, no poll) and no silent push.
+    private func firstSight(scoredBeforeTheThreshold: Bool) async -> (TodayViewModel, SyncService, MockPlatformAPI, TestClock) {
+        let now = at(7, 0)
+        let api = MockPlatformAPI()
+        let (_, state, clock) = makeState(api: api, now: now)
+        let sync = SyncService(env: state.env)
+        let pipeline = coordinator(state, sync)
+        let vm = TodayViewModel(state: state, sync: sync, coordinator: pipeline, apiStatus: APIStatus())
+        let today = DayFormat.string(from: now)
+        api.scoringToday = TodayState(day: today, state: .pending, scoredAt: nil, modelVersion: "2026.10.1")
+        api.pendingDays = [today]
+        await pipeline.refreshStatus() // app active's read: today pending, timed from now
+        #expect(sync.scoringWaitStart == now && vm.facts.scoringSince == now)
+        if scoredBeforeTheThreshold {
+            clock.advance(by: .seconds(10)) // scored at 07:00:10; nobody tells this phone
+            api.scoringToday = TodayState(day: today, state: .scored, scoredAt: clock.now(), modelVersion: "2026.10.1")
+            api.pendingDays = []
+        }
+        // The one read at the threshold (60 s for API.md's 20 s estimate): asleep until then.
+        let check = Task { await vm.confirmSlowScoring() }
+        let deadline = Date().addingTimeInterval(5)
+        while clock.pendingSleeps == 0, Date() < deadline { await Task.yield() }
+        #expect(clock.pendingSleeps == 1)
+        #expect(vm.syncLine != .scoringSlow) // before it, never slow
+        clock.advance(by: .seconds(scoredBeforeTheThreshold ? 51 : 61))
+        await check.value
+        return (vm, sync, api, clock)
+    }
+
+    @Test func aFirstSightStartScoredMeanwhileIsClearedByTheOneReadAndNeverSlow() async {
+        let (vm, sync, api, clock) = await firstSight(scoredBeforeTheThreshold: true)
+        #expect(api.calls.filter { $0 == "syncStatus" }.count == 2) // app active's, and exactly one more
+        #expect(sync.scoringWaitStart == nil && vm.facts.scoringSince == nil)
+        clock.advance(by: .seconds(600))
+        #expect(vm.syncLine != .scoringSlow && !TodayStates.scoringSlow(vm.facts))
+        await vm.confirmSlowScoring() // nothing left to confirm: no further read
+        #expect(api.calls.filter { $0 == "syncStatus" }.count == 2)
+    }
+
+    @Test func aFirstSightStartStillPendingAfterTheOneReadIsSlow() async {
+        let (vm, _, api, _) = await firstSight(scoredBeforeTheThreshold: false)
+        #expect(api.calls.filter { $0 == "syncStatus" }.count == 2)
+        #expect(TodayStates.scoringSlow(vm.facts))
+        // Decided: running it again asks nothing more.
+        await vm.confirmSlowScoring()
+        #expect(api.calls.filter { $0 == "syncStatus" }.count == 2)
     }
 
     @Test func theViewModelNamesSourcesFromTheCatalog() async {
@@ -1353,6 +1421,8 @@ struct SyncDetailsTests {
         #expect(model.scoringText == String(localized: "Waiting since \(Fmt.time(start)) · usually \(20) s"))
         #expect(!model.scoringIsSlow)
         clock.advance(by: .seconds(61))
+        #expect(!model.scoringIsSlow) // not before a read after the threshold
+        sync.receive(state.syncStatus!)
         #expect(model.scoringIsSlow)
         #expect(model.diagnostics.contains("scoring since \(start.ISO8601Format()) · expected 20 s · slow true"))
 

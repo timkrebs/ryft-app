@@ -71,6 +71,9 @@ final class SyncService {
     /// (`SyncCoordinator.maximumScoringWait`) while the platform still lists pending days; cleared by its word
     /// that they're scored, and by a wait that ended early.
     private(set) var scoringWaitStart: Date?
+    /// When the latest GET /v1/me/sync answered, on this phone's clock (`receive`). "Taking longer than usual"
+    /// needs one after the threshold that still lists the days (`TodayStates.scoringSlow`).
+    private(set) var statusReadAt: Date?
     /// Uploads wait behind this gate (no consent to the current policy, no beta access)
     /// until it's passed. Not an error: something the user does (`OnboardingCoordinator`).
     private(set) var pausedFor: APIErrorCode?
@@ -110,7 +113,9 @@ final class SyncService {
                 scoringWaitStart = nil
             }
         case (.idle, .refreshing), (.done, .refreshing), (.failed, .refreshing):
-            // A refresh without an upload before it is a silent push's: the platform scored a day.
+            // A refresh that didn't read HealthKit first: a silent push's (the platform scored a day), or a run
+            // that sent nothing at all (behind a gate, demo mode). No wait runs for the start either way: it
+            // goes, and the next status read decides again (`receive`).
             scoringWaitStart = nil
         default:
             break
@@ -140,6 +145,7 @@ final class SyncService {
         pausedFor = nil
         waitingForUnlock = false
         scoringWaitStart = nil
+        statusReadAt = nil
     }
 
     /// The app went to the background: the page being uploaded finishes (its anchor
@@ -292,6 +298,7 @@ final class SyncService {
     /// wait): what the sync acts on.
     func receive(_ status: SyncStatus) {
         if let requested = status.resyncRequestedAt { fullResyncRequested(at: requested) }
+        statusReadAt = env.clock.now()
         if status.pendingDays.isEmpty {
             // Nothing pending: no wait is slow any more. Not mid-wait, where a read can predate the upload; the
             // wait ends on its own.
