@@ -372,3 +372,23 @@ PRs:
   → Move them into one `@concurrent` helper later.
 - **Process note:** the profiler once ran a broad `pkill -f xcodebuild/xctest`, which can kill other agents' runs. Briefs
   now say: only kill your own PIDs.
+
+## Combined branch `feat/sync-check` d6c29d4 (T1 + T2 + T3, Check sync wired)
+
+T3 merged a5a0249, adc270c, c00ec38, 490552a and 288636a. Only the first had conflicts. Report a problem has one signature
+(`…, trackers:, syncCheck:, context:`), and `Tracker.symbol` is shared. Unit 862/862, UISmoke 18/1 skipped, lint green.
+
+### code-reviewer: nothing blocking
+- Merges: a 3-way check found nothing lost or doubled, the strings compare lost no key, and no test was weakened.
+- **Should-fix:**
+  - `-RyftFlags` launch flags are saved once any other debug flag is toggled. → A separate unsaved dict.
+  - `-RyftScreen tracker-setup` staging on a real account becomes the account's choice when Done is tapped.
+    → Staged ids stay out of `live`; only the stored selection is changed.
+  - No tests or previews cover the wiring.
+- **Nits:**
+  - `sync_check` isn't gated on `devices.setup`;
+  - translator comments are missing;
+  - the Check sync destination is built eagerly.
+- → Fix batch to the T3 implementer.
+- **Device session:** until it's fixed, use only explicit `-RyftTrackers`, never `-RyftScreen tracker-setup`, on the
+  user's phone.
