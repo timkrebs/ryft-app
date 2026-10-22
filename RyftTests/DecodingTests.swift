@@ -295,13 +295,14 @@ struct TrackerCatalogTests {
         let decoded = try TrackerCatalog.decode(Data(TrackerCatalog.bundledJSON.utf8), now: .now)
         #expect(decoded == TrackerCatalog.bundled)
         let c = TrackerCatalog.bundled
-        #expect(c.version == "2026-10-22.2")
+        #expect(c.version == "2026-10-22.3")
         #expect(c.trackers.map(\.id) == ["apple_watch", "garmin", "oura", "polar", "suunto", "coros", "withings", "amazfit",
                                          "ultrahuman", "fitbit", "samsung_galaxy_watch", "other", "iphone"])
         let garmin = try #require(c.tracker("garmin"))
         #expect(garmin.appName == "Garmin Connect" && garmin.form == .watch && garmin.integration == .vendorApp)
-        #expect(garmin.capabilities[.hrv] == .no && garmin.capabilities[.restingHR] == .no)
-        #expect(garmin.capabilities[.heartRate] == .yes && garmin.capabilities[.sleepStages] == .unverified)
+        // Resting HR and stages: seen from Garmin Connect on an iPhone 16 Pro, 2026-10-22 (its FAQ omits them).
+        #expect(garmin.capabilities[.hrv] == .no && garmin.capabilities[.restingHR] == .yes)
+        #expect(garmin.capabilities[.heartRate] == .yes && garmin.capabilities[.sleepStages] == .yes)
         #expect(garmin.capabilities.count == TrackerSignal.allCases.count)
         #expect(garmin.appStoreURL?.absoluteString == "https://apps.apple.com/app/id583446403")
         #expect(garmin.help?.host == "support.garmin.com")
