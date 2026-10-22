@@ -17,14 +17,14 @@ Brief: `CLAUDE_FOLLOWUP_REFRESH_RESILIENCE.md` (TestFlight 1.0.0 `20261021.14112
   `calibrating: true, baseline_days: 0` reached the screen. That comes from the platform or from our
   read-model round trip, and T0 decides which.
 
-## Where it stands (2026-10-22, morning)
+## Where it stands (2026-10-22)
 
 | # | PR | Review | CI | State |
 | --- | --- | --- | --- | --- |
-| T3 | #26 `feat: report a problem with diagnostics` | approved (code, security, UI, l10n) | green | **ready to merge, 1st** |
-| T2 | #28 `fix: one consistent Today state` | approved (code, UI, l10n) | green | **ready, 2nd** (string catalog + `screenshots.sh` conflict with #26, resolutions ready) |
-| T1 | #27 `fix: refresh per resource with silent retries` | approved (code, security, perf, UI, tests) | green | **ready, 3rd** (`APIClient` + string catalog conflict with #26, resolutions ready) |
-| T5 | #31 `feat: send a refresh problem to RYFT` (draft) | approved (code, security ×2) | green on 60b55de's base; re-running | **4th**, after #27: merge `main` in, then ready |
+| T3 | #26 `feat: report a problem with diagnostics` | approved (code, security, UI, l10n) | green | **merged** (c34bb9a) |
+| T2 | #28 `fix: one consistent Today state` | approved (code, UI, l10n) | green before `main` moved | `main` merged in (082f927, tree = integration 064950f); CI re-running |
+| T1 | #27 `fix: refresh per resource with silent retries` | approved (code, security, perf, UI, tests) | green before `main` moved | `main` merged in (a962b1b: `APIClient` + `APIStatus` from integration 776bb7c, strings per key); CI re-running |
+| T5 | #31 `feat: send a refresh problem to RYFT` (draft) | approved (code, security ×2) | green on 31b025c (re-run) | after #28 and #27: merge `main` in, then ready |
 | CI | #30 `ci: UI smoke tests get 180 s before they count as hung` | lead | green | ready, any time |
 | T4 | #29 `docs: refresh resilience` (draft) | — | — | last |
 
