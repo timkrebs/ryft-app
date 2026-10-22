@@ -1321,11 +1321,14 @@ struct TrackerCheckView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.openURL) private var openURL
+    @Environment(\.locale) private var locale
 
     init(model: TrackerCheckModel, embedded: Bool = false) {
         _model = State(initialValue: model)
         self.embedded = embedded
     }
+
+    private var text: TrackerCheckText { TrackerCheckText(locale: locale) }
 
     var body: some View {
         Group {
@@ -1358,15 +1361,13 @@ struct TrackerCheckView: View {
         .onChange(of: model.phase) { _, phase in
             // One announcement when it's done; the rows stay silent while they resolve.
             guard phase == .done else { return }
-            AccessibilityNotification.Announcement(
-                TrackerCheckText.announcement(expected: model.expected, arriving: model.arriving, needsFix: model.needsFix)
-            ).post()
+            AccessibilityNotification.Announcement(text.announcement(model.checks)).post()
         }
     }
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Looks at the last 48 hours in Apple Health. Nothing is uploaded.")
+            Text("Looks at the last 48 hours in Apple Health. The check uploads nothing.")
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1382,8 +1383,8 @@ struct TrackerCheckView: View {
             case .idle, .running, .done:
                 ForEach(model.checks) { check in
                     if let tracker = model.trackers.first(where: { $0.id == check.trackerID }) {
-                        TrackerCheckCard(check: check, tracker: tracker, healthAccess: model.catalog.healthAccess.current,
-                                         now: model.checkedAt ?? model.now)
+                        TrackerCheckCard(check: check, tracker: tracker, healthAccess: model.catalog.healthAccess.value(for: locale.identifier),
+                                         now: model.checkedAt ?? model.now, text: text)
                     }
                 }
                 if model.showsPermissionCard { permissionCard }
@@ -1414,7 +1415,7 @@ struct TrackerCheckView: View {
     private func note(_ text: LocalizedStringKey, systemImage: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: systemImage)
-                .font(.system(size: 15, weight: .medium))
+                .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
                 .accessibilityHidden(true)
             Text(text)
@@ -1427,12 +1428,13 @@ struct TrackerCheckView: View {
         .accessibilityIdentifier("check.note")
     }
 
-    /// D2 K7, last: RYFT can't see a read refusal, so both possibilities and where to look; never "denied".
+    /// D2 K7, last: iOS tells RYFT nothing about read access, so both possibilities and where to look; never
+    /// "denied" (ui.md errata 5). The Health app opens at its start screen: the catalog's path goes with it.
     private var permissionCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "lock")
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 8) {
@@ -1444,14 +1446,14 @@ struct TrackerCheckView: View {
                             .accessibilityIdentifier("check.mayNotRead")
                     }
                     // swiftlint:disable:next line_length
-                    Text("For Health data, iOS only tells RYFT what it may read, not what it may not. So “nothing yet” can mean no data, or that RYFT isn't allowed to read it.")
+                    Text("iOS doesn't tell apps whether they may read Health data: RYFT only sees what it's allowed to read. So “nothing yet” can mean no data, or that RYFT isn't allowed to read it.")
                         .font(.ryft(.callout))
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    CheckSteps(steps: model.catalog.healthAccess.current)
+                    CheckSteps(steps: model.catalog.healthAccess.value(for: locale.identifier))
                 }
             }
-            PrimaryButton(title: "Open Health permissions", style: .secondary) { HealthLinks.open(with: openURL) }
+            PrimaryButton(title: "Open Health", style: .secondary) { HealthLinks.open(with: openURL) }
                 .accessibilityIdentifier("check.openHealth")
         }
         .checkPanel()
@@ -1460,21 +1462,30 @@ struct TrackerCheckView: View {
     }
 }
 
-/// One tracker in Check sync: header, summary, rows, and the fix under the last gap; silent, can't-read and Other
-/// say so instead of a list.
+/// One tracker in Check sync: header, summary, rows, and the fix under the last gap; silent, can't-read, Other and an
+/// Apple device RYFT can't tell apart say so instead of a list.
 private struct TrackerCheckCard: View {
     let check: TrackerCheck
     let tracker: Tracker
     /// The catalog's steps for RYFT's own read permission.
     let healthAccess: [String]
     let now: Date
+    let text: TrackerCheckText
 
     @State private var showsDetails = false
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.locale) private var locale
+    @ScaledMetric(relativeTo: .headline) private var headerGlyph: CGFloat = 17
+    @ScaledMetric(relativeTo: .headline) private var headerGlyphWidth: CGFloat = 24
+    @ScaledMetric(relativeTo: .callout) private var trayGlyph: CGFloat = 28
+    /// "That's normal." lines up with the row names (glyph column + spacing).
+    @ScaledMetric(relativeTo: .callout) private var rowIndent: CGFloat = 34
 
     private var app: String { check.app ?? tracker.name }
+    /// Only a vendor's app has a store page to send people to.
     private var storeURL: URL? { tracker.integration == .vendorApp ? tracker.appStoreURL : nil }
+    private var steps: [String] { tracker.setup.value(for: locale.identifier) }
 
     var body: some View {
         Card {
@@ -1486,6 +1497,12 @@ private struct TrackerCheckCard: View {
                         .font(.ryft(.callout))
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                case .unidentified:
+                    Text(verbatim: text.unidentified)
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("check.unidentified")
                 case .silent:
                     silent
                 case .unknownTracker:
@@ -1504,10 +1521,10 @@ private struct TrackerCheckCard: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Image(systemName: Self.symbol(tracker.form))
-                .font(.system(size: 17, weight: .regular))
+            Image(systemName: Self.symbol(tracker))
+                .font(.system(size: headerGlyph, weight: .regular))
                 .foregroundStyle(Theme.textSecondary)
-                .frame(width: 24)
+                .frame(width: headerGlyphWidth)
                 .accessibilityHidden(true)
             Text(verbatim: tracker.name)
                 .font(.ryft(.headline))
@@ -1519,20 +1536,30 @@ private struct TrackerCheckCard: View {
     /// Numbers first; then, without last night, where it is.
     @ViewBuilder private var summary: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(check.overall == .checking ? String(localized: "Checking Apple Health…")
-                : TrackerCheckText.summary(expected: check.expected, arriving: check.arriving, needsFix: check.needsFix))
-                .font(.ryft(.callout))
-                .monospacedDigit()
-                .foregroundStyle(Theme.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-                .contentTransition(.opacity)
-                .accessibilityIdentifier("check.summary")
+            Group {
+                if check.overall == .checking {
+                    Text("Checking Apple Health…")
+                } else {
+                    Text(verbatim: text.summary(expected: check.expected, arriving: check.arriving, needsFix: check.needsFix))
+                }
+            }
+            .font(.ryft(.callout))
+            .monospacedDigit()
+            .foregroundStyle(Theme.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+            .contentTransition(.opacity)
+            .accessibilityIdentifier("check.summary")
             if check.overall == .nightMissing {
-                Text(storeURL == nil ? String(localized: "Last night hasn't reached Apple Health yet.")
-                    : String(localized: "Last night hasn't reached Apple Health yet. Open \(app) to sync it."))
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Group {
+                    if storeURL == nil {
+                        Text("Last night hasn't reached Apple Health yet.")
+                    } else {
+                        Text("Last night hasn't reached Apple Health yet. Open \(app) to sync it.")
+                    }
+                }
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -1547,16 +1574,13 @@ private struct TrackerCheckCard: View {
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(shown) { row in
                 if row.signal != shown.first?.signal { hairline }
-                CheckRow(name: row.signal.checkName,
-                         result: TrackerCheckText.result(row.check, signal: row.signal, app: check.app, now: now),
-                         kind: Self.kind(row.check),
-                         spoken: TrackerCheckText.spoken(row.check, signal: row.signal, app: check.app, now: now))
+                checkRow(row)
                     .accessibilityIdentifier("check.row.\(row.signal.rawValue)")
                 if row.signal == firstExpected {
                     Text("That's normal.")
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textSecondary)
-                        .padding(.leading, 34)
+                        .padding(.leading, rowIndent)
                         .padding(.bottom, 8)
                 }
                 if row.signal == lastMissing {
@@ -1565,26 +1589,35 @@ private struct TrackerCheckCard: View {
             }
             if phone {
                 hairline
-                CheckRow(name: String(localized: "Other signals"), result: String(localized: "not available from an iPhone"),
+                CheckRow(name: String(localized: "Other signals", bundle: text.bundle, locale: locale),
+                         result: String(localized: "not available from an iPhone", bundle: text.bundle, locale: locale),
                          kind: .expected)
             }
         }
+    }
+
+    private func checkRow(_ row: TrackerCheck.Row) -> CheckRow {
+        CheckRow(name: text.name(row.signal),
+                 result: text.result(row.check, signal: row.signal, app: check.app, now: now),
+                 kind: CheckRow.Kind(row.check),
+                 spoken: text.spoken(row.check, signal: row.signal, app: check.app, now: now))
     }
 
     private var hairline: some View {
         Rectangle().fill(Theme.separator).frame(height: Theme.Metrics.hairline).accessibilityHidden(true)
     }
 
-    /// The vendor's permission first, then RYFT's when RYFT can't see the type at all (§4.5).
+    /// The vendor's permission first, then RYFT's when RYFT can't see the type at all (§4.5); the steps inline
+    /// (ui.md errata 4).
     private var fix: some View {
         let unknown = check.rows.contains { $0.check == .missing(visible: false) }
         return VStack(alignment: .leading, spacing: 10) {
-            Text(TrackerCheckText.fixLead(check.rows, app: app))
+            Text(verbatim: text.fixLead(check))
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
-            CheckSteps(steps: tracker.setup.current + (unknown ? healthAccess : []))
-            buttons(health: unknown)
+            CheckSteps(steps: steps + (unknown ? healthAccess : []))
+            buttons(health: unknown, outlined: true)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1593,33 +1626,40 @@ private struct TrackerCheckCard: View {
         .accessibilityIdentifier("check.fix")
     }
 
-    @ViewBuilder private func buttons(health: Bool) -> some View {
+    /// "{app} in the App Store" (it opens the store page, which says "Open" when the app is installed; ui.md
+    /// errata 2) and "Open Health". In the raised fix panel they're outlined, or they'd have no shape (errata 4).
+    @ViewBuilder private func buttons(health: Bool, outlined: Bool) -> some View {
         if let storeURL {
-            PrimaryButton(title: "Open \(app)", style: .secondary) { openURL(storeURL) }
+            PrimaryButton(title: "\(app) in the App Store", style: .secondary) { openURL(storeURL) }
+                .overlay { if outlined { Capsule().strokeBorder(Theme.textTertiary, lineWidth: Theme.Metrics.hairline) } }
                 .accessibilityIdentifier("check.openApp")
         }
         if health {
-            PrimaryButton(title: "Open Health permissions", style: .secondary) { HealthLinks.open(with: openURL) }
+            PrimaryButton(title: "Open Health", style: .secondary) { HealthLinks.open(with: openURL) }
+                .overlay { if outlined { Capsule().strokeBorder(Theme.textTertiary, lineWidth: Theme.Metrics.hairline) } }
         }
     }
 
-    /// D2 K5: what to do first, the usual cause, and the rows behind Show details.
+    /// D2 K5: what to do first, the usual cause for a vendor app, and the rows behind Show details. An Apple device
+    /// is worn, not opened.
     private var silent: some View {
         VStack(alignment: .leading, spacing: 12) {
             Image(systemName: "tray")
-                .font(.system(size: 28, weight: .regular))
+                .font(.system(size: trayGlyph, weight: .regular))
                 .foregroundStyle(Theme.textSecondary)
                 .accessibilityHidden(true)
-            Text(TrackerCheckText.silent(app: check.app))
+            Text(verbatim: text.silent(check))
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("check.silent")
-            buttons(health: false)
-            Text("If it still shows nothing after it has synced, the Apple Health permission is the usual cause.")
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            buttons(health: false, outlined: false)
+            if storeURL != nil {
+                Text("If it still shows nothing after it has synced, the Apple Health permission is the usual cause.")
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Button(showsDetails ? "Hide details" : "Show details") { showsDetails.toggle() }
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
@@ -1628,14 +1668,9 @@ private struct TrackerCheckCard: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("check.details")
             if showsDetails {
-                CheckSteps(steps: tracker.setup.current)
+                CheckSteps(steps: steps)
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(check.rows) { row in
-                        CheckRow(name: row.signal.checkName,
-                                 result: TrackerCheckText.result(row.check, signal: row.signal, app: check.app, now: now),
-                                 kind: Self.kind(row.check),
-                                 spoken: TrackerCheckText.spoken(row.check, signal: row.signal, app: check.app, now: now))
-                    }
+                    ForEach(check.rows) { checkRow($0) }
                 }
             }
         }
@@ -1644,7 +1679,7 @@ private struct TrackerCheckCard: View {
     /// D2 C4: only what apps the catalog doesn't know sent; nothing promised, nothing missing.
     @ViewBuilder private var unknown: some View {
         if check.rows.isEmpty {
-            Text(TrackerCheckText.silent(app: nil))
+            Text(verbatim: text.silent(check))
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1656,36 +1691,26 @@ private struct TrackerCheckCard: View {
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(check.rows) { row in
-                    CheckRow(name: row.signal.checkName,
-                             result: TrackerCheckText.result(row.check, signal: row.signal, app: nil, now: now),
-                             kind: Self.kind(row.check),
-                             spoken: TrackerCheckText.spoken(row.check, signal: row.signal, app: nil, now: now))
-                        .accessibilityIdentifier("check.row.\(row.signal.rawValue)")
+                    checkRow(row).accessibilityIdentifier("check.row.\(row.signal.rawValue)")
                 }
             }
         }
     }
 
-    static func kind(_ check: SignalCheck) -> CheckRow.Kind {
-        switch check {
-        case .waiting: return .waiting
-        case .checking: return .checking
-        case .arrived: return .ok
-        case .notLastNight: return .late
-        case .notShared: return .expected
-        case .notSeenYet, .elsewhere: return .neutral
-        case .missing: return .fix
+    /// By tracker id, never by form (ui.md errata 1): Apple's product glyphs only for Apple's own products, so a
+    /// remote catalog entry can never get one. The same mapping as T2's tiles.
+    static func symbol(_ tracker: Tracker) -> String {
+        switch tracker.id {
+        case "apple_watch": return "applewatch"
+        case "iphone": return "iphone"
+        default: break
         }
-    }
-
-    /// Neutral SF Symbols for the form, never a vendor's mark (D2 §0.7).
-    static func symbol(_ form: Tracker.Form) -> String {
-        switch form {
-        case .watch: return "applewatch"
+        guard tracker.integration != .unknown else { return "ellipsis.circle" }
+        switch tracker.form {
+        case .watch: return "watch.analog"
         case .ring: return "circle.circle"
-        case .band: return "watch.analog"
-        case .phone: return "iphone"
-        case .other: return "ellipsis.circle"
+        case .band: return "figure.run.circle"
+        case .phone, .other: return "ellipsis.circle"
         }
     }
 }
@@ -1693,6 +1718,7 @@ private struct TrackerCheckCard: View {
 /// Catalog steps, numbered: plain text only (design.md §2.5).
 private struct CheckSteps: View {
     let steps: [String]
+    @ScaledMetric(relativeTo: .caption) private var badge: CGFloat = 18
 
     var body: some View {
         if !steps.isEmpty {
@@ -1703,7 +1729,7 @@ private struct CheckSteps: View {
                             .font(.ryft(.caption))
                             .monospacedDigit()
                             .foregroundStyle(Theme.accent)
-                            .frame(width: 18, height: 18)
+                            .frame(width: badge, height: badge)
                             .background(Theme.accent.opacity(0.14), in: Circle())
                             .accessibilityHidden(true)
                         Text(verbatim: step)
@@ -1729,7 +1755,7 @@ private extension View {
     }
 }
 
-/// A check on mock data, run on appearance like the real one.
+/// A check on mock data, run on appearance like the real one. `de` shows the German words, not only German formats.
 @MainActor
 private func checkPreview(_ scenario: SyncCheckScenario, scheme: ColorScheme = .dark, de: Bool = false,
                           size: DynamicTypeSize = .large,
@@ -1739,7 +1765,7 @@ private func checkPreview(_ scenario: SyncCheckScenario, scheme: ColorScheme = .
     stage?(model)
     return NavigationStack { TrackerCheckView(model: model) }
         .previewEnvironment(scheme: scheme)
-        .environment(\.locale, Locale(identifier: de ? "de" : "en"))
+        .environment(\.locale, Locale(identifier: de ? "de_DE" : "en_US"))
         .environment(\.dynamicTypeSize, size)
 }
 
@@ -2043,8 +2069,11 @@ struct ReportProblemView: View {
             String(localized: "Loaded data, per area (Today, History, Profile …): when RYFT last loaded it, and its last error's status, code and request ID"),
             String(localized: "Sync state: phase, queue and backlog, and per data type the number of records and days and the date of the newest record"),
             String(localized: "Account gates and feature flags"),
-            String(localized: "Your last Check sync, if you ran one: its day, and per tracker and data type a result code"),
         ]
+        // Only while a recent check would go along.
+        if model.syncCheck != nil {
+            rows.append(String(localized: "Your last Check sync: its day, and per tracker and data type a result code"))
+        }
         if context { rows.append(String(localized: "From Details: what failed, its status, error code and request ID")) }
         return rows
     }

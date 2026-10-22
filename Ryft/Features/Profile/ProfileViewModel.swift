@@ -438,6 +438,7 @@ final class SyncDetailsModel {
         lines.append("resources (resource | fetched_at | last_error status code request_id at | consecutive_failures):")
         let states = state.resourceStates
         lines += ReadResource.allCases.map { (states[$0] ?? ResourceState()).diagnosticLine($0) }
+        if let check = TrackerCheckRecord.forReport(env) { lines.append("sync check: " + check.lines.joined(separator: " · ")) }
         lines.append("requests (cancelled since launch: \(cancelledRequests)):")
         for r in requests {
             let duration = r.durationMs.map(String.init) ?? "-"
@@ -677,7 +678,7 @@ enum SignalCheck: Equatable, Sendable {
     case waiting, checking
     /// From the tracker: a nightly signal since last night began, any other within 48 h.
     case arrived(Date)
-    /// A nightly signal whose newest record is from before last night began.
+    /// A nightly signal the tracker shares (`yes`) whose newest record is from before last night began.
     case notLastNight(lastSeen: Date)
     /// Expected: the catalog says the tracker doesn't share it (D2 K3).
     case notShared
@@ -709,10 +710,13 @@ enum SignalCheck: Equatable, Sendable {
 
 /// One tracker's check: a row per signal in `TrackerSignal` order, and what they add up to.
 struct TrackerCheck: Equatable, Sendable, Identifiable {
-    /// First match wins: checking › cantRead › unknownTracker › silent › needsFix › nightMissing › ok.
+    /// First match wins: checking › cantRead › unknownTracker › unidentified › silent › needsFix › nightMissing › ok.
     enum Overall: String, Equatable, Sendable {
         case checking, ok, nightMissing = "night_missing", needsFix = "needs_fix", silent
         case cantRead = "cant_read", unknownTracker = "unknown_tracker"
+        /// An Apple device: Apple Health has records from Apple devices RYFT can't tell apart (no device model), so
+        /// nothing is claimed (design.md §10).
+        case unidentified
     }
 
     struct Row: Equatable, Sendable, Identifiable {
@@ -722,7 +726,8 @@ struct TrackerCheck: Equatable, Sendable, Identifiable {
     }
 
     let trackerID: String
-    /// What the text calls it: the vendor's app ("Garmin Connect"), else the tracker's name; nil for Other.
+    /// What the text calls it: the vendor's app ("Garmin Connect"), an Apple device ("Apple Watch", "iPhone"), else
+    /// the tracker's name; nil for Other.
     let app: String?
     var overall: Overall
     var rows: [Row]
@@ -736,16 +741,28 @@ struct TrackerCheck: Equatable, Sendable, Identifiable {
 
     var id: String { trackerID }
     var needsFix: Int { rows.filter(\.check.isMissing).count }
+    /// Rows and counts that mean something (not silent, can't read, Other or unidentified).
+    var isCounted: Bool { [.ok, .needsFix, .nightMissing].contains(overall) }
 }
 
 /// The §4.4 table, pure: the probe's samples in, one tracker's check out.
 enum TrackerCheckRules {
     /// How far back the check looks.
     static let window: TimeInterval = 48 * 3_600
-    /// A night's signals: one older than when last night began (18:00 the evening before) didn't come last night.
+    /// A night's signals: one older than when last night began didn't come last night.
     static let nightly: Set<TrackerSignal> = [.hrv, .restingHR, .sleep, .sleepStages, .respiratoryRate, .spo2]
+    /// Before this hour the night is still being written: the one before is "last night".
+    static let wakeHour = 8
     /// What the probe asks HealthKit about (stages come with sleep).
     static var streams: [HealthStream] { TrackerSignal.allCases.compactMap(\.stream) }
+
+    /// When last night began: 18:00 the evening before (`RawNight.window`); from midnight until 08:00, the evening
+    /// before that, since tonight isn't over yet.
+    static func lastNightStart(before now: Date, calendar: Calendar = .current) -> Date {
+        let start = RawNight.window(before: now, calendar: calendar)
+        guard calendar.component(.hour, from: now) < wakeHour else { return start }
+        return calendar.date(byAdding: .day, value: -1, to: start) ?? start
+    }
 
     /// Before the probe answers: every row waiting (Other's and the can't-read trackers' rows come with the result).
     static func waiting(_ tracker: Tracker) -> TrackerCheck {
@@ -757,7 +774,7 @@ enum TrackerCheckRules {
     /// makes a gap here `elsewhere` instead of `missing`. Samples from RYFT itself never count.
     static func classify(_ tracker: Tracker, samples: [SourceSample], visible: Set<HealthStream>,
                          now: Date, calendar: Calendar = .current,
-                         catalog: TrackerCatalog = .bundled, alongside: [Tracker] = []) -> TrackerCheck {
+                         catalog: TrackerCatalog, alongside: [Tracker] = []) -> TrackerCheck {
         let catalog = including(tracker, in: catalog)
         let since = now.addingTimeInterval(-window)
         let recent = samples.filter { $0.newest >= since && !HealthProbe.isRYFT($0.source) }
@@ -770,8 +787,13 @@ enum TrackerCheckRules {
             break
         }
         let mine = recent.filter { catalog.match($0.source)?.id == tracker.id }
+        if mine.isEmpty, tracker.integration == .appleBuiltin, recent.contains(where: isAnonymousApple) {
+            return TrackerCheck(trackerID: tracker.id, app: name(tracker), overall: .unidentified,
+                                rows: TrackerSignal.allCases.map { TrackerCheck.Row(signal: $0, check: .notSeenYet) },
+                                expected: 0, arriving: 0)
+        }
+        let night = lastNightStart(before: now, calendar: calendar)
         let others = alongside.filter { $0.id != tracker.id }
-        let night = RawNight.window(before: now, calendar: calendar)
         let rows = TrackerSignal.allCases.map { signal in
             TrackerCheck.Row(signal: signal, check: check(signal, of: tracker, mine: mine, recent: recent, visible: visible,
                                                           night: night, catalog: catalog, others: others))
@@ -803,8 +825,20 @@ enum TrackerCheckRules {
         return [catalog.tracker(ids.contains("iphone") ? "iphone" : "other")].compactMap { $0 }
     }
 
+    /// The name in the text: the vendor's app; an Apple device by what it is (the catalog's `app_name` for them is
+    /// the companion app, "Watch" or "Health", which no sentence should ask to open); nil for Other.
     private static func name(_ tracker: Tracker) -> String? {
-        tracker.integration == .unknown ? nil : tracker.appName ?? tracker.name
+        switch tracker.integration {
+        case .vendorApp: return tracker.appName ?? tracker.name
+        case .appleBuiltin: return tracker.id == "iphone" ? "iPhone" : tracker.name
+        case .none: return tracker.name
+        case .unknown: return nil
+        }
+    }
+
+    /// A record from an Apple device that didn't say which (no device model): neither the watch nor the iPhone.
+    private static func isAnonymousApple(_ sample: SourceSample) -> Bool {
+        (sample.source.bundleID ?? "").lowercased().hasPrefix("com.apple.health.") && sample.source.deviceModel == nil
     }
 
     // swiftlint:disable:next function_parameter_count
@@ -822,7 +856,9 @@ enum TrackerCheckRules {
             newest = mine.filter { $0.stream == signal.stream }.map(\.newest).max()
         }
         if let newest {
-            return nightly.contains(signal) && newest < night ? .notLastNight(lastSeen: newest) : .arrived(newest)
+            // Only a night the tracker promises can be missing: never the iPhone's, never a partly shared signal.
+            let late = nightly.contains(signal) && newest < night && capability == .yes && tracker.id != "iphone"
+            return late ? .notLastNight(lastSeen: newest) : .arrived(newest)
         }
         switch capability {
         case .no:
@@ -862,104 +898,157 @@ enum TrackerCheckRules {
     }
 }
 
-extension TrackerSignal {
-    /// Check sync's row name.
-    var checkName: String {
-        switch self {
-        case .heartRate: return String(localized: "Heart rate")
-        case .hrv: return String(localized: "HRV")
-        case .restingHR: return String(localized: "Resting heart rate")
-        case .sleep: return String(localized: "Sleep")
-        case .sleepStages: return String(localized: "Sleep stages")
-        case .respiratoryRate: return String(localized: "Breathing rate")
-        case .spo2: return String(localized: "Blood oxygen")
-        case .workouts: return String(localized: "Workouts")
-        case .steps: return String(localized: "Steps")
+/// Check sync's words (ui.md §5.7, design.md §4.5): what RYFT can know, never "denied". In the screen's language:
+/// the app's own (`.main`), or a preview's `\.locale` (`String(localized:)` alone ignores that).
+struct TrackerCheckText {
+    let bundle: Bundle
+    let locale: Locale
+
+    init(locale: Locale = .autoupdatingCurrent) {
+        self.locale = locale
+        let language = locale.language.languageCode?.identifier
+        if let language, Bundle.main.preferredLocalizations.first?.hasPrefix(language) != true,
+           let path = Bundle.main.path(forResource: language, ofType: "lproj"), let bundle = Bundle(path: path) {
+            self.bundle = bundle
+        } else {
+            bundle = .main
+        }
+    }
+
+    private func s(_ value: String.LocalizationValue) -> String {
+        String(localized: value, bundle: bundle, locale: locale)
+    }
+
+    /// A row's name.
+    func name(_ signal: TrackerSignal) -> String {
+        switch signal {
+        case .heartRate: return s("Heart rate")
+        case .hrv: return s("HRV")
+        case .restingHR: return s("Resting heart rate")
+        case .sleep: return s("Sleep")
+        case .sleepStages: return s("Sleep stages")
+        case .respiratoryRate: return s("Breathing rate")
+        case .spo2: return s("Blood oxygen")
+        case .workouts: return s("Workouts")
+        case .steps: return s("Steps")
         }
     }
 
     /// Inside a sentence: "RYFT can read resting heart rate, but …".
-    var checkPhrase: String {
-        switch self {
-        case .heartRate: return String(localized: "heart rate")
-        case .hrv: return String(localized: "HRV")
-        case .restingHR: return String(localized: "resting heart rate")
-        case .sleep: return String(localized: "sleep")
-        case .sleepStages: return String(localized: "sleep stages")
-        case .respiratoryRate: return String(localized: "breathing rate")
-        case .spo2: return String(localized: "blood oxygen")
-        case .workouts: return String(localized: "workouts")
-        case .steps: return String(localized: "steps")
+    func phrase(_ signal: TrackerSignal) -> String {
+        switch signal {
+        case .heartRate: return s("heart rate")
+        case .hrv: return s("HRV")
+        case .restingHR: return s("resting heart rate")
+        case .sleep: return s("sleep")
+        case .sleepStages: return s("sleep stages")
+        case .respiratoryRate: return s("breathing rate")
+        case .spo2: return s("blood oxygen")
+        case .workouts: return s("workouts")
+        case .steps: return s("steps")
         }
     }
-}
 
-/// Check sync's words (ui.md §5.7, design.md §4.5): what RYFT can know, never "denied".
-enum TrackerCheckText {
-    /// The row's trailing result.
-    static func result(_ check: SignalCheck, signal: TrackerSignal, app: String?, now: Date,
-                       calendar: Calendar = .current) -> String {
+    /// The row's trailing result: real clock times, never "x min ago".
+    func result(_ check: SignalCheck, signal: TrackerSignal, app: String?, now: Date, calendar: Calendar = .current) -> String {
         switch check {
-        case .waiting: return String(localized: "waiting…")
-        case .checking: return String(localized: "checking…")
+        case .waiting: return s("waiting…")
+        case .checking: return s("checking…")
         case .arrived(let date):
-            if signal == .sleep || signal == .sleepStages, date >= RawNight.window(before: now, calendar: calendar) {
-                return String(localized: "last night")
+            if signal == .sleep || signal == .sleepStages,
+               date >= TrackerCheckRules.lastNightStart(before: now, calendar: calendar) {
+                return s("last night")
             }
-            return calendar.isDate(date, inSameDayAs: now) ? String(localized: "last \(Fmt.time(date))")
-                : SyncLine.dataTime(date, now: now, calendar: calendar)
-        case .notLastNight(let date): return SyncLine.dataTime(date, now: now, calendar: calendar)
-        case .notShared: return app.map { String(localized: "Not shared by \($0)") } ?? String(localized: "Not shared")
-        case .notSeenYet: return String(localized: "not seen yet")
-        case .elsewhere(let other): return String(localized: "from \(other) instead")
-        case .missing: return String(localized: "should arrive, nothing yet")
+            return calendar.isDate(date, inSameDayAs: now) ? s("last \(Fmt.time(date, locale: locale))") : time(date, now: now, calendar: calendar)
+        case .notLastNight(let date): return time(date, now: now, calendar: calendar)
+        case .notShared: return app.map { s("Not shared by \($0)") } ?? s("Not shared")
+        case .notSeenYet: return s("not seen yet")
+        case .elsewhere(let other): return s("from \(other) instead")
+        case .missing: return s("should arrive, nothing yet")
         }
+    }
+
+    /// `SyncLine.dataTime` in this language: "Yesterday 22:10", "Tue 22:10", then the date.
+    private func time(_ date: Date, now: Date, calendar: Calendar) -> String {
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+            return s("Yesterday \(Fmt.time(date, locale: locale))")
+        }
+        let style = now.timeIntervalSince(date) < 6 * 86_400
+            ? Date.FormatStyle(locale: locale).weekday(.abbreviated).hour().minute()
+            : Date.FormatStyle(locale: locale).day().month(.abbreviated).hour().minute()
+        return date.formatted(style)
     }
 
     /// VoiceOver's value for a row.
-    static func spoken(_ check: SignalCheck, signal: TrackerSignal, app: String?, now: Date) -> String {
+    func spoken(_ check: SignalCheck, signal: TrackerSignal, app: String?, now: Date) -> String {
         let result = result(check, signal: signal, app: app, now: now)
         switch check {
-        case .waiting: return String(localized: "Waiting")
-        case .checking: return String(localized: "Checking")
-        case .arrived: return String(localized: "Arriving, \(result)")
-        case .notLastNight: return String(localized: "Not since last night, last seen \(result)")
-        case .notShared: return String(localized: "\(result), expected")
-        case .notSeenYet: return String(localized: "Not seen yet")
+        case .waiting: return s("Waiting")
+        case .checking: return s("Checking")
+        case .arrived: return s("Arriving, \(result)")
+        case .notLastNight: return s("Not since last night, last seen \(result)")
+        case .notShared: return s("\(result), expected")
+        case .notSeenYet: return s("Not seen yet")
         case .elsewhere: return result
-        case .missing: return String(localized: "Should arrive, nothing yet. Fix available")
+        case .missing: return s("Should arrive, nothing yet. Fix available")
         }
     }
 
     /// "4 of 6 expected signals are arriving." and, with gaps, "2 need a fix."
-    static func summary(expected: Int, arriving: Int, needsFix: Int) -> String {
-        let count = String(localized: "\(arriving) of \(expected) expected signals are arriving.")
+    func summary(expected: Int, arriving: Int, needsFix: Int) -> String {
+        let count = s("\(arriving) of \(expected) expected signals are arriving.")
         guard needsFix > 0 else { return count }
-        return count + " " + String(localized: "\(needsFix) need a fix.")
+        return count + " " + s("\(needsFix) need a fix.")
     }
 
-    static func announcement(expected: Int, arriving: Int, needsFix: Int) -> String {
-        String(localized: "Check finished.") + " " + summary(expected: expected, arriving: arriving, needsFix: needsFix)
+    /// The one announcement when the check is done: the counts of the trackers that have them, then what a silent
+    /// tracker's card says.
+    func announcement(_ checks: [TrackerCheck]) -> String {
+        var parts = [s("Check finished.")]
+        let counted = checks.filter(\.isCounted)
+        if !counted.isEmpty {
+            parts.append(summary(expected: counted.reduce(0) { $0 + $1.expected },
+                                 arriving: counted.reduce(0) { $0 + $1.arriving },
+                                 needsFix: counted.reduce(0) { $0 + $1.needsFix }))
+        }
+        parts += checks.filter { $0.overall == .silent }.map(silent)
+        return parts.joined(separator: " ")
     }
 
     /// The fix's first sentence (§4.5): one signal with what RYFT can know about it, or several.
-    static func fixLead(_ rows: [TrackerCheck.Row], app: String) -> String {
-        let missing = rows.filter(\.check.isMissing)
+    func fixLead(_ check: TrackerCheck) -> String {
+        let app = check.app ?? check.trackerID
+        let missing = check.rows.filter(\.check.isMissing)
         guard missing.count == 1, let row = missing.first else {
-            return String(localized: "Several signals should arrive and don't. The cause is usually one permission in \(app).")
+            if check.trackerID == "apple_watch" || check.trackerID == "iphone" {
+                return s("Several signals should arrive from \(app) and don't.")
+            }
+            return s("Several signals should arrive and don't. The cause is usually one permission in \(app).")
         }
         if row.check == .missing(visible: true) {
-            return String(localized: "RYFT can read \(row.signal.checkPhrase), but none came from \(app) in the last 2 days.")
+            return s("RYFT can read \(phrase(row.signal)), but none came from \(app) in the last 2 days.")
         }
-        // swiftlint:disable:next line_length
-        return String(localized: "RYFT doesn't see any \(row.signal.checkPhrase) in Apple Health. Either RYFT isn't allowed to read it, or \(app) isn't writing it.")
+        return s("RYFT doesn't see any \(phrase(row.signal)) in Apple Health. Either RYFT isn't allowed to read it, or \(app) isn't writing it.")
     }
 
-    static func silent(app: String?) -> String {
-        guard let app else {
-            return String(localized: "No data from your tracker's app yet. Open it and let it sync, then tap Check again.")
+    /// K5: nothing from the tracker. An app to open; an Apple device to wear; Other without a name.
+    func silent(_ check: TrackerCheck) -> String {
+        switch check.trackerID {
+        case "iphone":
+            return s("Nothing from this iPhone in the last 2 days. Carry it with you for a while, then tap Check again.")
+        case "apple_watch":
+            return s("No data from your Apple Watch yet. Wear it and keep it near your iPhone so it syncs, then tap Check again.")
+        default:
+            guard let app = check.app else {
+                return s("No data from your tracker's app yet. Open it and let it sync, then tap Check again.")
+            }
+            return s("No data from \(app) yet. Open \(app) and let it sync, then tap Check again.")
         }
-        return String(localized: "No data from \(app) yet. Open \(app) and let it sync, then tap Check again.")
+    }
+
+    /// An Apple device RYFT can't tell apart from the others: neutral, nothing to fix.
+    var unidentified: String {
+        s("Apple Health has data from an Apple device, but RYFT can't tell which one. Nothing to fix here.")
     }
 }
 
@@ -976,6 +1065,8 @@ struct TrackerCheckRecord: Codable, Equatable, Sendable {
     }
 
     static let documentKey = "devices.check"
+    /// Diagnostics leave an older check out: it no longer says how the sync is.
+    static let reportAge: TimeInterval = 14 * 86_400
 
     let account: String
     let at: Date
@@ -1015,6 +1106,11 @@ struct TrackerCheckRecord: Codable, Equatable, Sendable {
               let record = env.persistence.document(Self.self, key: documentKey), record.account == account else { return nil }
         return record
     }
+
+    /// What diagnostics carry (Report a problem, Copy diagnostics): the last check, unless it's over 14 days old.
+    @MainActor static func forReport(_ env: AppEnvironment) -> TrackerCheckRecord? {
+        load(env).flatMap { env.clock.now().timeIntervalSince($0.at) <= reportAge ? $0 : nil }
+    }
 }
 
 /// Check sync (ui.md §5): the selected trackers, what HealthKit has from each in the last 48 h, and the fix for
@@ -1035,7 +1131,9 @@ final class TrackerCheckModel {
     }
 
     let catalog: TrackerCatalog
-    /// The selection, in its order; without one, the trackers seen in Apple Health once the check ran.
+    /// The selection, in its order (resolved once; it doesn't change under the screen).
+    let selection: [Tracker]
+    /// What the cards show: the selection; without one, the trackers seen in Apple Health by the latest run.
     private(set) var trackers: [Tracker]
     private(set) var phase: Phase = .idle
     private(set) var checks: [TrackerCheck]
@@ -1055,6 +1153,7 @@ final class TrackerCheckModel {
         self.env = env
         self.health = health
         self.catalog = catalog
+        selection = chosen
         trackers = chosen
         checks = chosen.map(TrackerCheckRules.waiting)
     }
@@ -1071,8 +1170,9 @@ final class TrackerCheckModel {
 
     var isRunning: Bool { phase == .running }
     var now: Date { env.clock.now() }
-    var expected: Int { checks.reduce(0) { $0 + $1.expected } }
-    var arriving: Int { checks.reduce(0) { $0 + $1.arriving } }
+    /// Totals over the trackers with counts.
+    var expected: Int { checks.filter(\.isCounted).reduce(0) { $0 + $1.expected } }
+    var arriving: Int { checks.filter(\.isCounted).reduce(0) { $0 + $1.arriving } }
     var needsFix: Int { checks.reduce(0) { $0 + $1.needsFix } }
     /// The strong hint (§4.5): not one type visible, not even the iPhone's steps, so RYFT *may* not be allowed to
     /// read at all. Never "is".
@@ -1091,31 +1191,33 @@ final class TrackerCheckModel {
     /// Reads HealthKit and classifies. `stagger` shows the rows top-down, 150 ms apart (off under Reduce Motion).
     func run(stagger: Bool = false) async {
         guard phase != .running else { return }
+        // Before the first await, so a second tap can't start another run.
         started = true
+        phase = .running
+        let account = env.auth.accountID
         guard health.isAvailable else { phase = .unavailable; return }
         guard await health.accessStatus() != .notAsked else { phase = .notAsked; return }
-        phase = .running
-        checks = trackers.map { tracker in
-            var check = TrackerCheckRules.waiting(tracker)
-            for i in check.rows.indices { check.rows[i].check = .checking }
-            return check
-        }
+        checks = Self.checking(trackers)
         let now = env.clock.now()
         do {
             let found = try await HealthProbe(health: health)
                 .run(TrackerCheckRules.streams, since: now.addingTimeInterval(-TrackerCheckRules.window))
             visible = found.visible
-            if trackers.isEmpty { trackers = TrackerCheckRules.seen(found.samples, catalog: catalog, now: now) }
+            if selection.isEmpty {
+                // Every run looks again: a tracker that synced since the last one is found now.
+                trackers = TrackerCheckRules.seen(found.samples, catalog: catalog, now: now)
+                checks = Self.checking(trackers)
+            }
             let results = trackers.map {
                 TrackerCheckRules.classify($0, samples: found.samples, visible: found.visible, now: now,
                                            catalog: catalog, alongside: trackers)
             }
-            if stagger, checks.count == results.count { await reveal(results) }
+            if stagger { await reveal(results) }
             checks = results
             checkedAt = now
             phase = .done
             results.forEach { HealthProbe.logDrift(tracker: $0.trackerID, signals: $0.drift) }
-            save(results, at: now)
+            save(results, at: now, account: account)
         } catch {
             checks = trackers.map(TrackerCheckRules.waiting)
             phase = ProtectedData.isLocked(error) ? .locked : .failed
@@ -1128,9 +1230,17 @@ final class TrackerCheckModel {
         await run()
     }
 
+    private static func checking(_ trackers: [Tracker]) -> [TrackerCheck] {
+        trackers.map { tracker in
+            var check = TrackerCheckRules.waiting(tracker)
+            for i in check.rows.indices { check.rows[i].check = .checking }
+            return check
+        }
+    }
+
     /// Each row's result 150 ms after its predecessor's, so the list reads top-down; a cancelled screen skips it.
     private func reveal(_ results: [TrackerCheck]) async {
-        for (i, result) in results.enumerated() {
+        for (i, result) in results.enumerated() where i < checks.count && checks[i].trackerID == result.trackerID {
             for row in result.rows {
                 guard let j = checks[i].rows.firstIndex(where: { $0.signal == row.signal }) else { continue }
                 guard (try? await env.clock.sleep(for: .milliseconds(150))) != nil else { return }
@@ -1139,8 +1249,9 @@ final class TrackerCheckModel {
         }
     }
 
-    private func save(_ results: [TrackerCheck], at date: Date) {
-        guard !env.isDemo, let account = env.auth.accountID else { return }
+    /// Only for the account the check began under: a sign-out or switch meanwhile keeps nothing.
+    private func save(_ results: [TrackerCheck], at date: Date, account: String?) {
+        guard !env.isDemo, let account, env.auth.accountID == account else { return }
         env.persistence.saveDocument(TrackerCheckRecord(account: account, at: date, checks: results),
                                      key: TrackerCheckRecord.documentKey, at: date)
     }
@@ -1572,8 +1683,12 @@ final class ReportProblemModel {
                              requests: apiStatus.requests, resources: includeDiagnostics ? resources() : [:],
                              sync: includeDiagnostics ? sync() : FeedbackSync(),
                              gates: apiStatus.gates, flags: flagValues, context: context, about: .current,
-                             syncCheck: includeDiagnostics ? TrackerCheckRecord.load(env)?.lines : nil)
+                             syncCheck: includeDiagnostics ? syncCheck : nil)
     }
+
+    /// The last Check sync as diagnostics carry it (ids and codes), when there is a recent one: "What's included"
+    /// lists it only then.
+    var syncCheck: [String]? { TrackerCheckRecord.forReport(env)?.lines }
 
     private var flagValues: [String: Bool] {
         Dictionary(uniqueKeysWithValues: FeatureFlag.allCases.map { ($0.rawValue, env.flags.isOn($0)) })

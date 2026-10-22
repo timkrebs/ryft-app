@@ -687,13 +687,16 @@ struct CheckRow: View {
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 20 pt glyphs in a 24 pt column at the default size, growing with the text.
+    @ScaledMetric(relativeTo: .callout) private var glyphSize: CGFloat = 17
+    @ScaledMetric(relativeTo: .callout) private var glyphWidth: CGFloat = 24
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: kind.symbol)
-                .font(.system(size: 17, weight: .regular))
+                .font(.system(size: glyphSize, weight: .regular))
                 .foregroundStyle(kind.color)
-                .frame(width: 24)
+                .frame(width: glyphWidth)
                 // The status line's pulse while checking; static under Reduce Motion ("checking…" says it).
                 .symbolEffect(.pulse, options: .repeating, isActive: kind == .checking && !reduceMotion)
             if typeSize.isAccessibilitySize {
@@ -732,6 +735,21 @@ struct CheckRow: View {
     }
 }
 
+extension CheckRow.Kind {
+    /// A check's row: arrived is the one accent, an expected gap neutral, only an unexpected one amber.
+    init(_ check: SignalCheck) {
+        switch check {
+        case .waiting: self = .waiting
+        case .checking: self = .checking
+        case .arrived: self = .ok
+        case .notLastNight: self = .late
+        case .notShared: self = .expected
+        case .notSeenYet, .elsewhere: self = .neutral
+        case .missing: self = .fix
+        }
+    }
+}
+
 #Preview("Check row · states", traits: .sizeThatFitsLayout) {
     SchemePair { CheckRowPreview() }
 }
@@ -741,21 +759,28 @@ struct CheckRow: View {
         .padding(20)
         .frame(width: 390)
         .background(Theme.background)
-        .environment(\.locale, Locale(identifier: "de"))
+        .environment(\.locale, Locale(identifier: "de_DE"))
         .environment(\.dynamicTypeSize, .accessibility3)
 }
 
+/// Every kind once, worded in the preview's locale (`TrackerCheckText`).
 private struct CheckRowPreview: View {
+    @Environment(\.locale) private var locale
+
     var body: some View {
+        let text = TrackerCheckText(locale: locale)
+        let now = Date.now
+        let rows: [(TrackerSignal, SignalCheck)] = [
+            (.heartRate, .arrived(now.addingTimeInterval(-1_200))), (.hrv, .notShared), (.sleep, .arrived(now)),
+            (.sleepStages, .notSeenYet), (.restingHR, .missing(visible: true)),
+            (.respiratoryRate, .notLastNight(lastSeen: now.addingTimeInterval(-34 * 3_600))),
+            (.workouts, .checking), (.steps, .waiting),
+        ]
         VStack(alignment: .leading, spacing: 0) {
-            CheckRow(name: "Heart rate", result: "last 07:42", kind: .ok)
-            CheckRow(name: "HRV", result: "Not shared by Garmin Connect", kind: .expected)
-            CheckRow(name: "Sleep", result: "last night", kind: .ok)
-            CheckRow(name: "Sleep stages", result: "not seen yet", kind: .neutral)
-            CheckRow(name: "Resting heart rate", result: "should arrive, nothing yet", kind: .fix)
-            CheckRow(name: "Breathing rate", result: "Yesterday 23:24", kind: .late)
-            CheckRow(name: "Workouts", result: "checking…", kind: .checking)
-            CheckRow(name: "Steps", result: "waiting…", kind: .waiting)
+            ForEach(rows, id: \.0) { signal, check in
+                CheckRow(name: text.name(signal), result: text.result(check, signal: signal, app: "Garmin Connect", now: now),
+                         kind: CheckRow.Kind(check))
+            }
         }
     }
 }

@@ -476,7 +476,7 @@ enum DebugScreen: String {
     /// Today's refresh Details sheet (503, 3 failures) with "Send to RYFT".
     case refreshDetailsSend = "refresh-details-send"
     /// Check sync, pushed; with `-RyftSyncCheck <scenario>` in demo mode (`SyncCheckScenario`).
-    case syncCheck
+    case syncCheck = "sync-check"
 
     static var requested: DebugScreen? {
         UserDefaults.standard.string(forKey: "RyftScreen").flatMap(DebugScreen.init(rawValue:))

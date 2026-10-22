@@ -462,7 +462,7 @@ extension SourceRef {
 
 extension MockHealthStore {
     /// R1's Garmin facts. Garmin Connect ("Connect", `com.garmin.connect.mobile`) writes heart rate (20 min ago),
-    /// sleep without stages (ending 06:48), steps (1 h ago) and a workout (yesterday 18:10), and no HRV, resting heart
+    /// sleep without stages (ending 06:48), steps (1 h ago) and a workout (yesterday, ending 19:02), and no HRV, resting heart
     /// rate, breathing rate or SpO₂. The iPhone writes steps (10 min ago) and an in-bed night: the iPhone isn't the
     /// night. `visible` is what those sources wrote.
     ///
