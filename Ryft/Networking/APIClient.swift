@@ -6,8 +6,9 @@
 //   503 → never sign out; wait `Retry-After`, retry (sync is idempotent).
 //   429 → wait `Retry-After`, retry once.
 //   413 → thrown; SyncService halves the page size.
-// A scheduled read (`singleAttempt`, set by `ReadScheduler`) makes one attempt: no 429/503
-// loop, `Retry-After` on the error, the fail-fast session (ADR 0001). A cancelled request
+// A scheduled read (`singleAttempt`, set by `ReadScheduler`) and a report (`postFeedback`) make
+// one attempt: no 429/503 loop, `Retry-After` on the error, the fail-fast session (ADR 0001).
+// A retry never outlives the account it started for (`APIStatus.epoch`). A cancelled request
 // throws `CancellationError`; a request without an answer is recorded with status 0.
 // Every failure keeps the platform's request ID (`X-Request-ID` / `request_id`).
 // Every request carries `X-RYFT-Device-ID`; `X-RYFT-Gate` on any response (a gate
@@ -290,7 +291,8 @@ final class APIClient: RyftDataSource {
 
     /// One attempt: no `429`/`503` loop (the error carries `Retry-After` instead), the fail-fast
     /// session, no `APIStatus.retryNotice`. Set by `ReadScheduler`, the one retry layer for reads
-    /// (ADR 0001), so a scheduled read never sees two. The `401` refresh-once stays: that's auth.
+    /// (ADR 0001), so a scheduled read never sees two; and by `postFeedback`, whose queue retries.
+    /// The `401` refresh-once stays: that's auth.
     @TaskLocal static var singleAttempt = false
 
     /// `tokens` defaults to `AuthService.shared`, resolved per request on the
@@ -474,6 +476,20 @@ final class APIClient: RyftDataSource {
         var bearer = try await tokens.accessToken()
         let single = Self.singleAttempt
         var refreshed = false, rateLimited = false, unavailable = 0
+        /// A retry's step (its wait, the 401 refresh, the final 401's sign-out): it stops like a cancellation when
+        /// the account changed since the request started, so A's body never goes out with B's token and A's late
+        /// 401 never signs B out; and any throw ends "RYFT is catching up".
+        func retryStep<T>(_ step: () async throws -> T) async throws -> T {
+            do {
+                guard await status.epoch == epoch else { throw CancellationError() }
+                let value = try await step()
+                guard await status.epoch == epoch else { throw CancellationError() }
+                return value
+            } catch {
+                if unavailable > 0 { await status.finishedWaiting() }
+                throw error
+            }
+        }
         while true {
             let started = Date()
             let data: Data, response: HTTPURLResponse?
@@ -514,22 +530,22 @@ final class APIClient: RyftDataSource {
             case 401 where !refreshed:
                 // The token may have been revoked or rotated: refresh once, retry once.
                 refreshed = true
-                bearer = try await tokens.refreshedAccessToken()
+                bearer = try await retryStep { try await tokens.refreshedAccessToken() }
                 continue
             case 401:
-                await tokens.rejectedAfterRefresh()
+                try await retryStep { await tokens.rejectedAfterRefresh() }
             case 429 where !rateLimited && !single:
                 rateLimited = true
                 let wait = min(retryAfter ?? 1, Self.maxRateLimitWait)
                 APIStatus.log.notice("429 on \(method, privacy: .public) \(redactedPath(path), privacy: .public); retrying in \(wait) s")
-                try await sleep(wait)
+                try await retryStep { try await sleep(wait) }
                 continue
             case 503 where unavailable < unavailableRetries && !single:
                 // Not a sign-in problem (API.md): keep the session, wait, retry.
                 unavailable += 1
                 let wait = min(retryAfter ?? 5, Self.maxUnavailableWait)
                 await status.waiting(seconds: wait)
-                try await sleep(wait)
+                try await retryStep { try await sleep(wait) }
                 continue
             default:
                 break

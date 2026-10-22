@@ -93,4 +93,29 @@ final class RefreshResilienceUITests: XCTestCase {
         XCTAssertTrue(requestID.waitForExistence(timeout: 5), "the sheet's request ID row")
         XCTAssertTrue(requestID.label.contains("fault-"), requestID.label)
     }
+
+    /// The Details sheet's "Send to RYFT" (Report a problem is wired on the root view) is reachable at the
+    /// opening detent and opens Report a problem pre-filled: a bug report about today, its status and request ID.
+    @MainActor
+    func testSendToRYFTOpensReportAProblemPrefilled() throws {
+        let app = launch(fault: "/v1/days/today=503,/v1/days=503")
+        let issueLine = app.buttons["today.syncLine.issue"]
+        XCTAssertTrue(issueLine.waitForExistence(timeout: 20), "the line points to the card")
+        issueLine.tap()
+        let details = app.buttons["refreshIssue.details"]
+        wait(for: "isHittable == true", on: details, timeout: 5, "the card scrolled into view")
+        details.tap()
+
+        let send = app.buttons["refreshDetails.send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 5), "Send to RYFT shows once Report a problem is wired")
+        XCTAssertTrue(send.isHittable, "reachable at the opening detent")
+        send.tap()
+
+        let chip = element(app, "report.context")
+        XCTAssertTrue(chip.waitForExistence(timeout: 5), "the context chip")
+        XCTAssertTrue(chip.label.hasPrefix("About: Today · 503"), chip.label)
+        XCTAssertTrue(chip.label.contains("fault-"), chip.label)
+        XCTAssertEqual(element(app, "report.message").value as? String, "Refreshing Today didn't work.")
+        XCTAssertTrue(element(app, "report.category.bug").isSelected, "a bug report")
+    }
 }

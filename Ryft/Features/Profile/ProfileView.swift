@@ -1584,18 +1584,18 @@ struct ReportProblemView: View {
         }
     }
 
-    /// "What's included": exactly what `FeedbackPayload` sends, in its order. When T1's data reaches it, add
-    /// "duration" to the requests row (`FeedbackPayload.duration`) and a per-resource row (`FeedbackPayload.diagnostics`).
+    /// "What's included": exactly what `FeedbackPayload` sends, in its order.
     private func included(about context: Bool) -> [String] {
         var rows = [
             String(localized: "App version and build"),
             String(localized: "Device model and iOS version"),
             String(localized: "Language and region"),
-            String(localized: "The last 20 requests: method, path without its query, status, error code, request ID, time"),
+            String(localized: "The last 20 requests: method, path without its query, status, error code, request ID, time, duration"),
+            String(localized: "Loaded data, per area (Today, History, Profile …): when RYFT last loaded it, and its last error's status, code and request ID"),
             String(localized: "Sync state: phase, queue and backlog, and per data type the number of records and days and the date of the newest record"),
             String(localized: "Account gates and feature flags"),
         ]
-        if context { rows.append(String(localized: "From Details: what failed, its status and request ID")) }
+        if context { rows.append(String(localized: "From Details: what failed, its status, error code and request ID")) }
         return rows
     }
 
@@ -1653,6 +1653,7 @@ private struct ReportContextChip: View {
                 .strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(text(requestID))
+            .accessibilityIdentifier("report.context")
     }
 
     private func text(_ id: String?) -> Text {

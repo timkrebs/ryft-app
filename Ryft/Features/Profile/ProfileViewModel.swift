@@ -28,8 +28,10 @@ final class ProfileViewModel {
         bodySettings = BodySettingsEditor(state: state)
         let details = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator, apiStatus: apiStatus)
         syncDetails = details
-        // Sync details' state through the report's allow-list (never its support text).
-        report = ReportProblemModel(env: state.env, apiStatus: apiStatus ?? .shared) {
+        // The read pipeline's record and Sync details' state through the report's allow-list (never its
+        // support text).
+        report = ReportProblemModel(env: state.env, apiStatus: apiStatus ?? .shared,
+                                    resources: { state.resourceStates }) {
             FeedbackSync(engine: sync.engineState, backlogBytes: sync.backlogBytes, running: details.isRunning,
                          queued: details.hasQueuedRun, streams: details.streams)
         }
@@ -747,14 +749,15 @@ enum FeedbackPayload {
     /// The last requests sent along (`APIStatus` keeps as many).
     static let maxRequests = 20
     /// Every key `diagnostics` may carry.
-    static let keys: Set<String> = ["requests", "sync", "gates", "flags", "locale", "report_context"]
+    static let keys: Set<String> = ["requests", "resources", "sync", "gates", "flags", "locale", "report_context"]
 
     /// Characters as the platform counts them (Unicode scalars: Go's runes).
     static func length(_ text: String) -> Int { text.unicodeScalars.count }
 
     // swiftlint:disable:next function_parameter_count
     static func make(message: String, category: FeedbackCategory, includeDiagnostics: Bool,
-                     requests: [APIStatus.RequestFailure], sync: FeedbackSync, gates: Set<APIErrorCode>,
+                     requests: [APIStatus.RequestFailure], resources: [ReadResource: ResourceState] = [:],
+                     sync: FeedbackSync, gates: Set<APIErrorCode>,
                      flags: [String: Bool], context: ReportContext?, about: FeedbackAbout) -> FeedbackPost {
         let text = clipped(message.trimmingCharacters(in: .whitespacesAndNewlines), to: maxMessage)
         // Off: nothing is attached but the message (ui.md §5.2).
@@ -764,39 +767,45 @@ enum FeedbackPayload {
                             build: clipped(about.build, to: maxField),
                             deviceModel: clipped(about.deviceModel, to: maxField),
                             osVersion: clipped(about.osVersion, to: maxField),
-                            requestIds: requestIDs(context: context, requests: requests),
-                            diagnostics: diagnostics(requests: requests, sync: sync, gates: gates, flags: flags,
-                                                     context: context, locale: about.locale))
+                            requestIds: requestIDs(context: context, requests: requests, resources: resources),
+                            diagnostics: diagnostics(requests: requests, resources: resources, sync: sync,
+                                                     gates: gates, flags: flags, context: context,
+                                                     locale: about.locale))
     }
 
-    /// The context's ID first, then the failed requests' IDs, newest first: each once, 1–64 bytes, at most 20.
-    static func requestIDs(context: ReportContext?, requests: [APIStatus.RequestFailure]) -> [String] {
+    /// The context's ID first, then the failed requests' IDs (newest first), then the resources' last errors'
+    /// (`ReadResource` order): each once, 1–64 bytes, at most 20.
+    static func requestIDs(context: ReportContext?, requests: [APIStatus.RequestFailure],
+                           resources: [ReadResource: ResourceState] = [:]) -> [String] {
         let failed = requests.filter { !(200..<300).contains($0.status) }.compactMap(\.requestID)
+        let lastErrors = ReadResource.allCases.compactMap { resources[$0]?.lastError?.requestID }
         var seen = Set<String>()
-        let ids = ([context?.requestID].compactMap { $0 } + failed)
+        let ids = ([context?.requestID].compactMap { $0 } + failed + lastErrors)
             .filter { !$0.isEmpty && $0.utf8.count <= maxField && seen.insert($0).inserted }
         return Array(ids.prefix(maxRequestIDs))
     }
 
-    /// One request: "GET /v1/sleep/plan 200 - 01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c 2026-10-21T18:12:03Z"
-    /// (method, path without its query, status, code, request ID, time; then " 412ms" once `duration` has one).
+    /// One request: "GET /v1/sleep/plan 200 - 01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c 2026-10-21T18:12:03Z 412ms"
+    /// (method, path through `redactedPath`, status, code, request ID, time, and the duration when measured).
     static func line(_ r: APIStatus.RequestFailure) -> String {
-        var line = "\(r.method) \(path(r.path)) \(r.status) \(r.code ?? "-") \(r.requestID ?? "-") \(r.date.ISO8601Format())"
+        var line = "\(r.method) \(redactedPath(r.path)) \(r.status) \(r.code ?? "-") \(r.requestID ?? "-") \(r.date.ISO8601Format())"
         if let ms = duration(of: r) { line += " \(ms)ms" }
         return line
     }
 
-    /// The request's duration, once `APIStatus.RequestFailure` records one (T1: return `r.durationMs`, and add
-    /// "duration" back to "What's included" in `ReportProblemView.included`).
-    static func duration(of request: APIStatus.RequestFailure) -> Int? { nil }
+    /// How long the round trip took, as `APIClient` measured it (nil: not measured).
+    static func duration(of request: APIStatus.RequestFailure) -> Int? { request.durationMs }
 
-    /// The path without its query or fragment (`?wake=06:30` is a wake time), and `{id}` for every UUID in it
-    /// (`/v1/devices/{id}/push` carries the install ID). Days stay: day precision is fine.
-    static func path(_ raw: String) -> String {
-        raw.prefix { $0 != "?" && $0 != "#" }
-            .split(separator: "/", omittingEmptySubsequences: false)
-            .map { UUID(uuidString: String($0)) == nil ? String($0) : "{id}" }
-            .joined(separator: "/")
+    /// What the app read, one line per resource (`ReadResource` order): "today 2026-10-21T14:05:12Z - - -",
+    /// "me 2026-10-21T13:58:02Z 503 - 01a14ffa-…" (resource, last loaded, then the last error's status, code and
+    /// request ID). From the read pipeline's record and nothing else: no counts, no retry times.
+    static func resourceLines(_ states: [ReadResource: ResourceState]) -> [String] {
+        ReadResource.allCases.map { resource in
+            let state = states[resource] ?? ResourceState()
+            let error = state.lastError
+            return [resource.rawValue, state.fetchedAt.map { $0.ISO8601Format() } ?? "-", error?.statusText ?? "-",
+                    error?.code ?? "-", error?.requestID ?? "-"].joined(separator: " ")
+        }
     }
 
     /// The sync, one line each:
@@ -811,13 +820,13 @@ enum FeedbackPayload {
             }
     }
 
-    /// The allow-list: `requests` (newest first), `sync`, `gates`, `flags`, `locale` and, from an error's Details,
-    /// `report_context`. Over 32 KiB the oldest requests go first, then the sync.
-    ///
-    /// T1's per-resource state joins here, as a `resources` key with one line per resource of
-    /// "resource fetchedAt status code requestID" and nothing else (then add it to `keys` and to "What's included").
-    static func diagnostics(requests: [APIStatus.RequestFailure], sync: FeedbackSync, gates: Set<APIErrorCode>,
-                            flags: [String: Bool], context: ReportContext?, locale: String) -> [String: String] {
+    // swiftlint:disable function_parameter_count
+    /// The allow-list: `requests` (newest first), `resources`, `sync`, `gates`, `flags`, `locale` and, from an
+    /// error's Details, `report_context`. Over 32 KiB the oldest requests go first, then resources and sync.
+    static func diagnostics(requests: [APIStatus.RequestFailure], resources: [ReadResource: ResourceState],
+                            sync: FeedbackSync, gates: Set<APIErrorCode>, flags: [String: Bool],
+                            context: ReportContext?, locale: String) -> [String: String] {
+        // swiftlint:enable function_parameter_count
         var base = [
             "gates": gates.isEmpty ? "-" : gates.map(\.rawValue).sorted().joined(separator: ","),
             "flags": flags.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value ? 1 : 0)" }.joined(separator: ","),
@@ -828,9 +837,11 @@ enum FeedbackPayload {
                 .joined(separator: " · ")
         }
         let syncText = syncLines(sync).joined(separator: "\n")
+        let resourcesText = resourceLines(resources).joined(separator: "\n")
         func assembled(_ lines: [String]) -> [String: String] {
             var d = base
             d["sync"] = syncText
+            d["resources"] = resourcesText
             if !lines.isEmpty { d["requests"] = lines.joined(separator: "\n") }
             return d
         }
@@ -968,6 +979,7 @@ final class ReportProblemModel {
     private let env: AppEnvironment
     private let apiStatus: APIStatus
     private let sync: @MainActor () -> FeedbackSync
+    private let resources: @MainActor () -> [ReadResource: ResourceState]
     private let queue: FeedbackQueueStore
 
     var message = ""
@@ -988,11 +1000,14 @@ final class ReportProblemModel {
     /// A preview or screenshot staged the screen: the next `prepare` leaves it.
     @ObservationIgnored private var staged = false
 
-    /// `sync` is Sync details' state, read when a report is written (only `FeedbackSync`'s fields go out).
+    /// `resources` is the read pipeline's record and `sync` Sync details' state, read when a report is written
+    /// (only `FeedbackPayload.resourceLines`' and `FeedbackSync`'s fields go out).
     init(env: AppEnvironment, apiStatus: APIStatus, queue: FeedbackQueueStore? = nil,
+         resources: @escaping @MainActor () -> [ReadResource: ResourceState] = { [:] },
          sync: @escaping @MainActor () -> FeedbackSync) {
         self.env = env
         self.apiStatus = apiStatus
+        self.resources = resources
         self.sync = sync
         self.queue = queue ?? PersistentFeedbackQueue(env: env)
         reloadWaiting()
@@ -1058,7 +1073,8 @@ final class ReportProblemModel {
     /// The request as it would go out now.
     func payload() -> FeedbackPost {
         FeedbackPayload.make(message: message, category: category, includeDiagnostics: includeDiagnostics,
-                             requests: apiStatus.requests, sync: includeDiagnostics ? sync() : FeedbackSync(),
+                             requests: apiStatus.requests, resources: includeDiagnostics ? resources() : [:],
+                             sync: includeDiagnostics ? sync() : FeedbackSync(),
                              gates: apiStatus.gates, flags: flagValues, context: context, about: .current)
     }
 
