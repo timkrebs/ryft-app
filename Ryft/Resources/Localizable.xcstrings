@@ -102,6 +102,17 @@
         }
       }
     },
+    "%@, %@, not today's score" : {
+      "comment" : "VoiceOver value of a dimmed Today tile: value, its day (e.g. Yesterday).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, %2$@, nicht der Wert von heute"
+          }
+        }
+      }
+    },
     "%@: %@" : {
       "localizations" : {
         "de" : {
@@ -258,6 +269,67 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld von %2$lld Tagen"
+          }
+        }
+      }
+    },
+    "%lld of %lld nights with heart-rate data. Readiness appears once the baselines are complete." : {
+      "comment" : "VoiceOver value of the baseline gauge when a long history lacks HRV and resting heart rate.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld of %#@nights@. Readiness appears once the baselines are complete."
+          },
+          "substitutions" : {
+            "nights" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg night with heart-rate data"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg nights with heart-rate data"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %#@nights@. Die Bereitschaft erscheint, sobald die Ausgangswerte vollständig sind."
+          },
+          "substitutions" : {
+            "nights" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Nacht mit Herzfrequenzdaten"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Nächten mit Herzfrequenzdaten"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -608,12 +680,84 @@
         }
       }
     },
+    "Baselines need heart-rate variability and resting heart rate from nights with your watch." : {
+      "comment" : "Note under the baseline gauge when a long history has no HRV or resting heart rate (row B).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgangswerte brauchen Herzfrequenzvariabilität und Ruhepuls aus Nächten mit deiner Uhr."
+          }
+        }
+      }
+    },
     "Baselines · %lld of %lld nights" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ausgangswerte · %1$lld von %2$lld Nächten"
+          }
+        }
+      }
+    },
+    "Baselines · %lld of %lld nights with heart-rate data" : {
+      "comment" : "Under the baseline gauge when a long history lacks HRV and resting heart rate: nights with both, of 7.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Baselines · %1$lld of %#@nights@"
+          },
+          "substitutions" : {
+            "nights" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg night with heart-rate data"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg nights with heart-rate data"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgangswerte · %1$lld von %#@nights@"
+          },
+          "substitutions" : {
+            "nights" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Nacht mit Herzfrequenzdaten"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Nächten mit Herzfrequenzdaten"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -1037,6 +1181,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "für %lld %%"
+          }
+        }
+      }
+    },
+    "From %@" : {
+      "comment" : "VoiceOver, after the readiness gauge in row D: the day the readiness is from, e.g. Tuesday, 20 October.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vom %@"
           }
         }
       }
@@ -1781,12 +1936,45 @@
         }
       }
     },
+    "Readiness from %@, until last night is scored." : {
+      "comment" : "Today's sentence in row C when the dimmed readiness is from before yesterday (a gap day). The argument is a short date, e.g. Tue 20 Oct.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bereitschaft vom %@, bis die letzte Nacht bewertet ist."
+          }
+        }
+      }
+    },
+    "Readiness from %@, while your baselines are recalculated." : {
+      "comment" : "Today's sentence in row D when the readiness shown is from an earlier day. The argument is a short date, e.g. Tue 20 Oct.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bereitschaft vom %@, bis deine Ausgangswerte neu berechnet sind."
+          }
+        }
+      }
+    },
     "Reading Apple Health" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Apple Health lesen"
+          }
+        }
+      }
+    },
+    "Recalculating your baselines" : {
+      "comment" : "Note under Today's gauge while the platform recalculates the baselines (row D).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgangswerte werden neu berechnet"
           }
         }
       }
@@ -2473,6 +2661,17 @@
         }
       }
     },
+    "Steady" : {
+      "comment" : "A change under 2 %, before \"vs 7 d\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stabil"
+          }
+        }
+      }
+    },
     "Step %lld of 3: %@" : {
       "localizations" : {
         "de" : {
@@ -2759,6 +2958,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Um deine Werte zu berechnen, verarbeitet RYFT Gesundheitsdaten aus Apple Health. Das heißt:"
+          }
+        }
+      }
+    },
+    "today.tile.calibrating" : {
+      "comment" : "Under each of Today's tiles while the baselines fill (still calibrating, not done).",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kalibriert noch"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "calibrating"
           }
         }
       }
@@ -3260,6 +3477,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Du bekommst"
+          }
+        }
+      }
+    },
+    "Your baselines are being recalculated." : {
+      "comment" : "Today's sentence in row D when today's readiness is shown.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Ausgangswerte werden neu berechnet."
+          }
+        }
+      }
+    },
+    "Your baselines are still forming." : {
+      "comment" : "Today's sentence while the baselines fill (row B).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Ausgangswerte entstehen noch."
           }
         }
       }

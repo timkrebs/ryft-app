@@ -75,9 +75,11 @@ enum Fmt {
         return v.formatted(.number.precision(.fractionLength(digits)))
     }
 
-    static func time(_ d: Date?) -> String {
+    /// "23:17" in German, "11:17 PM" in US English: the locale's short time. The default is the
+    /// user's own locale, with their 12/24-hour setting; a view passes its environment's.
+    static func time(_ d: Date?, locale: Locale = .autoupdatingCurrent) -> String {
         guard let d else { return placeholder }
-        return d.formatted(date: .omitted, time: .shortened)
+        return d.formatted(Date.FormatStyle(date: .omitted, time: .shortened, locale: locale))
     }
 
     /// "20 Oct 2026" (the locale's medium date).

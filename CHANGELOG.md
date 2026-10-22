@@ -71,3 +71,6 @@ Store "What's New".
   the app asks for what's missing and syncs once it's done.
 - Demo data (and a first launch that opened Strain or Sleep first) showed only today:
   the earlier days load again.
+- Today no longer shows calibration ("Baselines · 0 of 7") while your scores exist: the gauge,
+  tiles and widget tell one story, a night that isn't scored yet shows the last scored day dimmed
+  with its date, and a change that's under 2 % reads "Steady" instead of a dash.

@@ -85,13 +85,14 @@ final class Repository {
 
     // MARK: reads
 
-    private func memoized<T>(_ kind: Kind, _ key: String, _ make: () -> T) -> T {
+    /// `decoded: false` for a plain fetch (it isn't a JSON decode the counter is about).
+    private func memoized<T>(_ kind: Kind, _ key: String, decoded: Bool = true, _ make: () -> T) -> T {
         touch(kind)
         let key = "\(kind.rawValue).\(key)"
         // Look the key up first: a missing entry cast `as? T` with an Optional `T`
         // "succeeds" as `.some(nil)` and would hide the value.
         if let entry = memo[key], let hit = entry as? T { return hit }
-        decodes += 1
+        if decoded { decodes += 1 }
         let value = make()
         memo[key] = value
         return value
@@ -183,10 +184,10 @@ final class Repository {
         }
     }
 
-    /// When the day's detail was last fetched ("Updated 07:15").
+    /// When the day's detail was last fetched ("Updated 07:15"). Today reads it on every body
+    /// (`AppState.lastUpdated`): one SwiftData fetch per change of the days, not one per read.
     func detailFetchedAt(_ key: String) -> Date? {
-        touch(.days)
-        return dayRow(key)?.detailFetchedAt
+        memoized(.days, "fetchedAt.\(key)", decoded: false) { dayRow(key)?.detailFetchedAt }
     }
 
     /// When the newest past day's score in the store was fetched: the history's age, also for a
@@ -442,13 +443,20 @@ final class Repository {
     /// only then is the widget reloaded (a new score, a night pending, the next day).
     func publishWidget() {
         guard let file = widgetFile else { return }
-        let key = DayFormat.string(from: now)
-        let previous = history(from: DayFormat.shift(now, days: -7), to: DayFormat.shift(now, days: -1))
-            .last { $0.readiness != nil }
-        let state = todayStatus?.day == key ? todayStatus?.state : score(key)?.scoringState
-        let snapshot = ReadinessSnapshot.make(day: key, today: score(key), previous: previous, state: state, now: now,
-                                              bedtime: tonightBedtime)
+        let snapshot = ReadinessSnapshot.make(day: DayFormat.string(from: now), presentation: .decide(widgetFacts),
+                                              now: now, bedtime: tonightBedtime)
         if ReadinessSnapshot.publish(snapshot, to: file) { reloadWidget() }
+    }
+
+    /// The facts Today decides from (`TodayViewModel.facts.scores`), read from the store: today's
+    /// row, `GET /v1/me/sync`'s word when it's about today, and the same history window.
+    var widgetFacts: TodayScoreFacts {
+        let key = DayFormat.string(from: now)
+        let today = score(key)
+        return TodayScoreFacts(day: key, today: today,
+                               scoringState: todayStatus?.day == key ? todayStatus?.state : today?.scoringState,
+                               prior: history(from: DayFormat.shift(now, days: -(AppState.historyDays - 1)), to: now)
+                                   .filter { $0.day < key })
     }
 
     /// The cached scores become exactly `scores` (previews, tests); opened details stay.
@@ -620,24 +628,28 @@ struct ReadinessSnapshot: Codable, Equatable {
             .appendingPathComponent("readiness.json")
     }
 
-    /// Today's state as Today decides it (`TodayStates.hero`): a score; else a night pending
-    /// or awaited; else the baselines; `nil` with nothing to show at all.
-    static func make(day: String, today: DailyScore?, previous: DailyScore?, state: ScoringState?,
-                     now: Date, bedtime: Date? = nil) -> ReadinessSnapshot? {
-        var s = ReadinessSnapshot(day: day, kind: .waitingForSleep, readiness: nil,
-                                  previousReadiness: previous?.readiness, baselineNights: nil, updatedAt: now,
-                                  bedtime: bedtime.flatMap { $0 > now ? $0 : nil })
-        if let readiness = today?.readiness {
+    /// Today's gauge as `TodayPresentation.decide` picked it, in the widget's kinds (the JSON is
+    /// unchanged): today's readiness; a night pending or awaited, or another day's readiness,
+    /// dimmed; the baselines; `nil` with nothing scored at all. The latest readiness before today
+    /// goes along in every kind: tomorrow shows it dimmed until its night is scored (`asOf`).
+    static func make(day: String, presentation p: TodayPresentation, now: Date,
+                     bedtime: Date? = nil) -> ReadinessSnapshot? {
+        var s = ReadinessSnapshot(day: day, kind: .waitingForSleep, readiness: nil, previousReadiness: p.previousReadiness,
+                                  baselineNights: nil, updatedAt: now, bedtime: bedtime.flatMap { $0 > now ? $0 : nil })
+        switch p.gauge {
+        case .readiness(let readiness?) where !p.tiles.isEarlierDay:
             s.kind = .score
             s.readiness = readiness
-        } else if state == .pending {
-            s.kind = .pending
-        } else if state == .waitingForSleep {
-            s.kind = .waitingForSleep
-        } else if let today, today.calibrating {
+        case .readiness:
+            // Row D from an earlier day (the widget has no note; its readiness is the latest one), or
+            // no readiness: the last one, dimmed.
+            break
+        case .baselines(let nights):
             s.kind = .calibrating
-            s.baselineNights = today.baselineDays
-        } else if today == nil, previous == nil {
+            s.baselineNights = nights
+        case .pending(let night):
+            s.kind = night.waitingForSleep ? .waitingForSleep : .pending
+        case .firstImport:
             return nil
         }
         return s
