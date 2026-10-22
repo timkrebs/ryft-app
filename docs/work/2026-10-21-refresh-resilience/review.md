@@ -409,4 +409,11 @@ fail-fast past the cap; nits; card/line accessibility containers.
   - The 4-of-9 vs 0-of-19 split isn't reproduced locally. The residual risk is that GitHub's VMs differ from a starved 12-core
     Mac. If walkthroughs still exceed 60 s regularly on `main` after #27, give the Insights charts one combined accessibility
     element (it shrinks the tree) and raise the 5 s `waitForExistence` timeouts in `StoreSmokeUITests`.
+- **Merged:** #30 (1864e28). Then `main` went into #27 (2ff5f1c = integration 776bb7c + #30, strings in git's merge order),
+  whose CI was green (walkthrough within the limit), and #27 merged (d7996f5, auto-merge on the user's go).
+- **#31:** `main` merged in (7de4bdd). Every file #26/#28/#27 touch conflicted as add/add because of the squash merges.
+  - Resolution: #31's side for every file, after proving `main` adds nothing else (its string catalog equals 776bb7c's key for
+    key; the two keys missing on #31 are strings T5 reworded).
+  - The tree is exactly 31b025c + #30's lines. 64a968d puts the catalog back in `main`'s key order (diff 154 → 18 lines).
+  - Marked ready.
 
