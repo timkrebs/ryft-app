@@ -151,3 +151,33 @@ warnings. Deviations:
 ### T1 fix batch (lead → sync-engineer)
 Items 1–28: everything above from UI, security, code and performance, plus the glyph rule. The guide text (T5,
 `content/tracker-guides` c4e312c) is applied by the lead after the batch.
+
+## T2 `feat: tracker setup and devices & sync` (`feat/tracker-setup`, a9e3d5f)
+
+The implementer (ios-developer) reports 781/781 unit tests, `DevicesUITests` 5/5, `make lint` green and zero warnings.
+
+### security-privacy-reviewer: merge dark after #2; flag on only after #1 and #3–#7 and the rebase onto T1's fixes
+- **Blocking before merge, #2: Demo data writes `devices.setup: true` into the real account's flag cache.** The config
+  fetch in demo mode is saved under the signed-in account (`FeatureFlags.swift:79`, `PlatformAPI.swift:145`). After
+  Demo data is turned off, the dark feature is on for the real account. → Demo config only in memory or under
+  `cacheKey("demo")`; reload the account's cache when Demo data is toggled; test demo on → off → flag off.
+- **Blocking before the flag goes on, #1: no crash guard around decoding.** A copy that crashes the decoder would crash
+  every launch (cache path), or every app-active (download). → Before each decode, write a marker file with the body's
+  SHA-256 (`.atomic`); at `load()`, a leftover marker drops the cache and ETag, remembers the hash and records `crashed`;
+  `refresh` refuses remembered hashes. Add a test.
+- **Should-fix before the flag goes on:**
+  - **#3:** with the flag off, `current` returns `.bundled` and `load()` skips the cache.
+  - **#4:** rebase onto T1's validator fixes and delete `TrackerCatalogStore.isNewer` in favour of T1's.
+  - **#5:** cap the ETag (≤ 128 visible ASCII characters, no spaces). Clean `describe` output; key paths are T1 item 29.
+  - **#6:** key the iPhone glyph and behaviour on `id == iphone`; the catalog rule is T1 item 30.
+  - **#7:** privacy texts:
+    - add "tracker ids, with tracker setup on" to the `PrivacyInfo.xcprivacy` comment and `APP_STORE.md:37`;
+    - restate the age-rating answer at `APP_STORE.md:142` (vendor pages open in the in-app Safari);
+    - three lines on ryftapp.de/privacy (a user action).
+- **Separate ticket, #8:** the whole SwiftData store sits in the widget's App Group (`TrainStore.swift:22`, `.automatic`).
+  It predates T2. → Follow-up: `groupContainer: .none` with a one-time move. Recorded in STATUS.
+- **Nits, to be done:**
+  - cancel the stream on overflow;
+  - reset catalog state on account change;
+  - remove `onboarding.*.<uuid>` keys on account deletion.
+- **Moved to T1:** the ryftapp.de help-path prefix (item 31). The User-Agent stays as it is.
