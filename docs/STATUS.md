@@ -27,6 +27,34 @@ Root causes (debugger, tests on `debug/refresh-repro`, cherry-picked into the fi
 4. **"— vs 7 d" wasn't missing data.** It was a flat delta (< 2 %) drawn as a dash. → T2: "Steady vs 7 d".
 5. **The tester couldn't send diagnostics.** `POST /v1/feedback` had no caller. → T3, Profile → Report a problem.
 
+## Refresh resilience (`CLAUDE_FOLLOWUP_REFRESH_RESILIENCE.md`), stability, no new features
+
+Plan, design note, UI spec and review log: `docs/work/2026-10-21-refresh-resilience/`. ADR 0001: one retry layer for reads.
+
+| PR | What | Verified |
+| --- | --- | --- |
+| #26 `feat: report a problem with diagnostics` | Profile → About → Report a problem → `POST /v1/feedback`; allow-listed diagnostics (no health values, no query strings or IDs in paths, sample dates to the day); offline queue bound to the account; privacy manifest declares diagnostic data | simulator: 596 unit + review suites; CI green; screenshots en/de/dark/light |
+| #28 `fix: one consistent Today state` | `TodayPresentation.decide`: one decision for gauge, tiles, note, delta and widget; unknown ≠ calibrating; "Recalculating" and "needs heart-rate data" rows; dimmed, dated tiles while the night is scored; "Steady vs 7 d"; locale-aware times | simulator: 603 unit; CI green; screenshots rows A–E en/de/dark/light/AX3 |
+| #27 `fix: refresh per resource with silent retries` | per-resource reads with their own state; one retry layer (2× foreground, full jitter, `Retry-After`); cancellation is never a failure; ordered pull (today + sync status, then the rest after the upload or 2 s; ≤ 3 in flight, ≤ 5 starts a second; a global 429 hold); error only past a threshold, or when the user can act; stale line and calm card with Details; Loaded data in Sync details; path redaction; Train queue keeps cancelled ops and stops at sign-out | simulator: 652 unit + UISmoke (incl. `RefreshResilienceUITests`); CI see the PR |
+| #29 `docs: refresh resilience` | this section, Incidents, `API_REQUESTS.md` → Refresh resilience §1–4, TestFlight notes en/de | — |
+
+**Simulator only. On your iPhone, please, and tell me what you saw:**
+1. Pull to refresh on Today **5× while a sync runs** (Profile → Data → "Sync last 3 days again", then pull at once). Expected: no error card; the line goes "Syncing · …" → "Scoring your night" or "Updating…" → "Up to date · just now"; the spinner ends within about 3 s.
+2. **Airplane mode on**, pull to refresh: "Offline — will sync when back", no card. Airplane mode off: it catches up by itself.
+3. In the **evening, force-quit and reopen**; next **morning before the score lands**: Today shows the pending gauge with yesterday's readiness dimmed and dated and last night's raw sleep. Never "Baselines · 0 of 7".
+4. **Report a problem** with diagnostics: "Thanks, your report reached RYFT". On the platform the report has the six diagnostics keys and no health values. Then in airplane mode: "Saved… sent as soon as you're back online", and it goes out when you're back.
+5. **Instruments** (Release build; Time Profiler + Points of Interest + Hangs; subsystem `dev.timkrebs.ryft`, categories `reads` and `sync`). Pull to refresh 5× during a sync, 10 s apart. Record `pull-total` p50/max, `pull-gate`, `budget` max, the longest main-thread slice (target < 33 ms, look for `persist`/`saveDocument`/`WireCoding.decode`), and hangs. Cold launch 3× (App Launch): `launch` < 400 ms warm. One silent push in the background: push → last `fetch` < 25 s.
+
+**Follow-ups (not in this release):**
+- CI: UISmoke `-retry-tests-on-failure -test-iterations 2` and test-plan allowances of 180/300 s. Two #27 runs stalled in XCTest's crash-reporter sync on the CI VM; the re-run was green.
+- The 600 ms line hold isn't unit-testable (`@State` + `Task.sleep`); move it into a model on `AppClock`.
+- The widget has no kind for "scored, no readiness" (it says "Waiting for last night").
+- Writes and uploads don't honour the global 429 hold (they have their own budgets).
+- `lint-strings.py`: check `%#@token@` substitutions and English plurals.
+- The disclosure chevron renders white on iOS 26 (app-wide; ui-designer).
+- "App too old" card: ready, unshipped until the platform signals it (`API_REQUESTS.md` §3).
+- Convert `Ryft/` and `RyftTests/` to folders in Xcode (new types still go into existing files).
+
 ## Beta feedback 1: Bedtime & wake (§4)
 
 - **Sleep schedule** (`SleepSchedule`, per account on this phone until the platform keeps it):

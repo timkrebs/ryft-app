@@ -17,17 +17,16 @@ Brief: `CLAUDE_FOLLOWUP_REFRESH_RESILIENCE.md` (TestFlight 1.0.0 `20261021.14112
   `calibrating: true, baseline_days: 0` reached the screen. That comes from the platform or from our
   read-model round trip, and T0 decides which.
 
-## Where it stands (2026-10-22)
+## Where it stands (2026-10-22, morning)
 
 | # | PR | Review | CI | State |
 | --- | --- | --- | --- | --- |
-| T3 | #26 `feat: report a problem with diagnostics` | approved (code, security, UI, l10n; blockers fixed and re-verified) | green | **ready to merge** |
-| T2 | #28 `fix: one consistent Today state` | approved (code, UI, l10n; re-verified) | green | **ready to merge** |
-| T1 | #27 `fix: refresh per resource with silent retries` | 3 blockers → fix batch with the owner | red (Lint, UI smoke terminate) | in fixes |
-| T4 | docs (this branch) | — | — | after T1 |
-
-Merge order: #26, then #28 (merge main into it first if the string catalog conflicts), then #27 (it wires Send to RYFT
-and unifies path redaction on top of #26), then the docs PR.
+| T3 | #26 `feat: report a problem with diagnostics` | approved (code, security, UI, l10n) | green | **ready to merge, 1st** |
+| T2 | #28 `fix: one consistent Today state` | approved (code, UI, l10n) | green | **ready, 2nd** (string catalog + `screenshots.sh` conflict with #26, resolutions ready) |
+| T1 | #27 `fix: refresh per resource with silent retries` | approved (code, security, perf, UI, tests) | green | **ready, 3rd** (`APIClient` + string catalog conflict with #26, resolutions ready) |
+| T5 | `feat: send a refresh problem to RYFT` | — | — | in progress on the integration branch; PR after #27 |
+| CI | #30 `ci: UI smoke tests get 180 s before they count as hung` | lead | green | ready, any time |
+| T4 | #29 `docs: refresh resilience` (draft) | — | — | last |
 
 ## Tickets
 

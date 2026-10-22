@@ -205,3 +205,116 @@ ui-validator should-fix 1 (the `needsVitals` amendment above) and the `Fmt.time`
 Code review blockers 1–3, the CI UI-smoke terminate failure, should-fixes 4–7 (with security 1), security 2–5, ui-validator 1–4,
 and nits 8–11. The merge seams with #26 apply only if it's on main by then. The test-engineer follows with
 `RefreshResilienceUITests` (design §11) and the card, sheet and 600 ms tests.
+
+### T1 fixes (cd43ab2..f3403b3, pushed): Unit plan 632/632, zero warnings, SwiftLint clean, Release builds without the seam
+- Train: the upload runs in a task the service owns, so Finish or a new set cancels only the debounce; a cancelled PUT keeps its op.
+  A caller audit of cancellation handling covers Train, journal, push, sleep plan/bedtime, onboarding, `patchMe`, Profile and
+  notification settings.
+- Reads: per-caller continuations (a cancelled caller is released at once); the store happens inside the flight; signed out →
+  nothing is sent or recorded; the record is account-bound and reset on every account change; history's age comes from the store;
+  a global 429 hold (≤ 30 s); `redactedPath`; cancellations are counted, not listed; a decode failure keeps status and request ID;
+  Supabase refresh errors are transient.
+- UI 11a–g done ("Couldn't load today · Details" scrolls to the card; Details row; locale-aware time; Send to RYFT hidden until
+  wired; spacing; icon; 44 pt).
+- **CI "Failed to terminate": a flake, with evidence.** XCTest waited on pending crash logs (simulator system processes, PosterBoard)
+  in a NotificationsUITests tear-down; the spindump shows the app idle; the same wait happens on a #26 build; UISmoke passes
+  locally 3/3. Lead accepts, pending the code reviewer's read of the evidence.
+- Re-verification running: code-reviewer, security-privacy-reviewer, performance-profiler (static), and test-engineer
+  (`RefreshResilienceUITests`, card/sheet/hold tests).
+
+### performance-profiler (#27, static: no traces, the disk is full) — 5 should-fix
+1. Observation granularity: `AppState.isLoading`/`resourceStates` read the scheduler's whole `inFlight`/`states`, so every read (even
+   journal/config/Train) invalidates Today 3× (~10–15 body passes per pull) → `@ObservationIgnored` dictionaries, publish
+   derived values (`isLoadingToday`, `issue`, `staleSince`) only on change.
+2. SwiftData fetches in `body`: `resourceStates` runs `detailFetchedAt` plus a sorted `FetchDescriptor` per call, 3–6× per pass →
+   compute once per state change or revision.
+3. `persist()` encodes, fetches and saves on main for every final failure and every success > 60 s (~6 per pull, 10–30 ms bunched)
+   → coalesce to one save per 1–2 s, encode off main, drop the 60 s trigger where SwiftData rows own `fetchedAt`.
+4. Background: the global 429 hold (≤ 30 s) plus background retries of timeouts can push a silent push to ~80 s (iOS ~30 s) →
+   in the background cap the hold at the background `retryAfterCap` or skip; don't retry `timedOut` in the background; add a
+   ~20 s deadline around the silent-push refresh.
+5. Signposts: `pull` ends at the 3 s cap (true by construction) → add `pull-total` (until phases end), `pull-gate`, and a `store`
+   interval around `flight.store`.
+- nits: `reads.state` loads in the first frame (~1–3 ms; measure); the 600 ms hold is fine.
+- Network shape: a typical pull is ~1–3 s, faster than before (the old path waited for scoring, then fetched twice). Keep `me` in
+  phase 3, per the brief.
+- **Lead: 1–5 taken** for #27 (stability release, and the 25 s and 33 ms budgets are the point). The batch goes to the T1 owner after
+  the test-engineer is off the branch. The device Instruments recipe goes to STATUS → Needs you.
+
+### security-privacy-reviewer re-verification (#27) — should-fixes 1, 2 and nits 3, 5 resolved; nit 4 partly; 1 new
+- new should-fix: the Train replay task outlives sign-out. A PUT/complete keeps resending A's still-valid JWT through
+  429/503 retries (up to ~2.5 min, A's own data only). A late Finish sets A's summary and Health export over B's session, and
+  `perform(.complete)` writes to a wiped `LocalSession` → `TrainSyncService.accountChanged()` cancels `replay`/`debounceTask` and
+  clears state; check the account (generation) after each await in `drain`, `perform` and `TrainCoordinator.finish`. **Taken.**
+- low: on the last try, `await budget.holdBack` sits between the account guard and `failed()` → check the account and cancellation
+  again after it. **Taken.**
+- low: the hold is set after `budget.release()`, so one parked read can slip through → set the hold before release. **Taken.**
+- low: writes and uploads don't honour the global hold. **Follow-up** (`/v1/sync` and session PUTs have their own budgets per API.md).
+- At merge with #26 (lead): `LocalPasteboard.copy` for Copy diagnostics *and* the Details sheet's Copy details; one path-redaction
+  function; `forgetRequests()` zeroes `cancelledCount`. Copy diagnostics keeps second-precision times (it's support text the user
+  sees before pasting, and precise times diagnose sync), now local-only. **Lead decision.**
+
+### code-reviewer re-verification (#27 at f3403b3) — blockers 1–3 and should-fixes 4–7 resolved; nits 8–11 resolved; 3 new should-fix
+- new should-fix 1: the audit missed Strain and Sleep. Their `.task(id: lastUpdated)` loads now receive `CancellationError` on
+  restart and show "The operation couldn't be completed (CancellationError)" → `catch where error.isCancellation { return }`. **Taken.**
+- new should-fix 2: Finish can sit for ~5 min with nothing drawn (round 2 of the replay ignores connectivity; `waitsForConnectivity`
+  plus a 300 s resource timeout) → cap Finish's wait (≈10 s, then "will sync"), `while flushAgain && isOnline`, and show `isFinishing`.
+  **Taken.**
+- new should-fix 3: the global 429 hold ignores the foreground `retryAfterCap`; a pull or Try again waits up to 30 s under "Updating…"
+  → if the remaining hold is longer than the policy cap, fail at once with the 429 (existing card and `retryNotBefore`). **Taken**
+  (together with perf 4 for the background).
+- nits taken: an already-cancelled caller doesn't start a flight; a signed-out `.me` card's line wording; drop the dead `offersRetry`;
+  `refreshTrain` on foreground doesn't wait for the whole replay. At merge: `LocalPasteboard` for Copy details (lead).
+- Flake verdict accepted with a correction: the stall was `NotificationsUITests` waiting on pending crash logs (ReportCrash blocked
+  on CoreAnalytics); StoreSmoke's terminate failure was the previous test's app. The confirmation is UI smoke on f3403b3.
+
+### CI (#27 at f3403b3, run 39704400045) — red again, a different UI test
+- `TodayStatesUITests.testPendingNightShowsTheOutlineGaugeAndLastNightUnscored` exceeded its 1-minute allowance. Lint is green now.
+- That makes two runs with two different UI tests hanging, only on #27 (#26 and #28 pass UI smoke). **Lead: the flake verdict is
+  withdrawn pending evidence.** Hypothesis: T1's Today line (600 ms hold and cross-fade, the pulsing "Updating…") or a read that
+  never finishes in demo keeps the app from going idle for XCUITest. → The debugger works from the CI xcresult (no local build
+  while the test-engineer holds the branch).
+- **debugger (from the CI xcresults, no local build): runner infrastructure, ~85 % confidence; the app is cleared.**
+  - In both runs the test body passed (~12 s; `didFinishWithStatus:passed`) and the app was quiescent and idle in its run loop.
+  - XCTest's post-test "synchronizing with crash reporter" (timeout 300 s) then stalled. ReportCrash was stuck in
+    `OSAStabilityMonitorEvaluateStabilityForBundleID` → Trial (run 2) or CoreAnalytics XPC (run 1), so the 1-min allowance expired.
+  - Test durations are no slower than on passing PRs, and the app never crashed.
+  - Flake verdict reinstated, with the cause. The lead re-ran the failed job (attempt 2) to confirm.
+  - Follow-up (CI, not this PR): UISmoke `-retry-tests-on-failure -test-iterations 2`, and test-plan allowances 180/300 s.
+
+### test-engineer (#27): 2655123, c96596c (not pushed; ride with the final batch)
+- Unit: card reason per class, Details rows, Copy details, the line's wording per resource, the line tap scrolling to the card
+  (vs. Sync details), and a 503 → card model. UI (UISmoke): `RefreshResilienceUITests` (a) a 429 on `/v1/me` stays silent and the line ends up to
+  date; (b) nothing cached plus 503 → line → scroll to card → Details with a request ID. 3/3 local runs.
+- Product findings → T1 final batch: the container identifiers on the card and the line hide their buttons from the accessibility
+  tree (a VoiceOver reachability risk).
+- Not testable without a product change: the 600 ms hold (`@State` plus `Task.sleep`, not `AppClock`). Follow-up.
+
+### Lead: final T1 batch sent
+Perf 1–5; Train account change; guard after the hold; hold before release; Strain/Sleep cancellation; Finish wait cap; 429
+fail-fast past the cap; nits; card/line accessibility containers.
+- CI re-run of f3403b3 (run 39704400045 attempt 2): **green**, so the runner flake is confirmed.
+
+### T1 final batch (f3403b3..763f65e): 652 unit, UISmoke 6/6 local; code-reviewer final re-verification: **approve**
+- Items 1–13 are resolved. Perf 3 is partly resolved (no flush of the coalesced save on background or before a silent push's
+  completion handler). Today's invalidations per pull went from ~20 to ≤ 4 (tested).
+- Low should-fix A: the Train generation moves in `.onChange`, one runloop after `AuthService.apply` wipes the store, so a late
+  `/complete` could write into a deleted `LocalSession` (a SwiftData trap risk). → Bump it in the wipe path. **Taken.**
+- Low should-fix B: flush pending read-state saves before the silent push completes and on background. **Taken.**
+- Tests: `anAccountChangeStopsTheReplay` can't fail as written; `finishWaitsAtMostItsCap` should assert one `/complete`; the
+  silent-push deadline test needs `.timeLimit`. **Taken.** The three short real sleeps only bound absence checks; accepted.
+- CI on 763f65e (run 39709194784): UI smoke red again (StoreSmoke walkthrough exceeded 1 min); third hit on #27 only. Flake verdict reopened; the debugger is reading the xcresult (which process ReportCrash is reporting on; is any extension crashing on this branch).
+- **debugger, third hang: infra, ~80 %.** A starved CI VM ran the walkthrough ~3× slow; there was no crash-reporter stall this time;
+  ReportCrash was idle; no Ryft or extension crash; no extra log volume from #27. The T1 owner reports local walkthrough timings
+  to rule out added accessibility/main-thread cost.
+- **Lead: CI PR #30** `ci: UI smoke tests get 180 s before they count as hung`. UISmoke already retries on failure, but a
+  time-allowance kill fails the run even when the retry passes; the allowance goes from 60 s to 180 s. Separate from #27 so it can
+  be judged on its own.
+
+## Integration (lead): `feat/refresh-report-seams` = main + #26 + #28 + #27
+- Dry run: #28 onto #26 conflicts in xcstrings and `screenshots.sh` (union); #27 onto #26+#28 conflicts in xcstrings and
+  `APIClient.exchange` (T1's version plus #26's `epoch:`). All resolved; the epoch is also on T1's transport-failure `record`
+  plus a new `APIStatus.cancelled(epoch:)`; `forgetRequests()` zeroes `cancelledCount`. `lint-strings` clean.
+- T5 `feat: send a refresh problem to RYFT` (T3 owner): Send to RYFT wiring, `$singleAttempt` for `postFeedback`, one path
+  redaction, `LocalPasteboard` for both copy actions, per-resource `resources` and request durations in the report.
+- CI after the final T1 batch (96d0421): **green** (unit + UI smoke 23 min). #30 green.
