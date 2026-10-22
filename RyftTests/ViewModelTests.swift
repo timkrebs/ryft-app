@@ -72,6 +72,61 @@ struct TodayViewModelTests {
         #expect(api.count("day") == 3) // two silent retries first
     }
 
+    /// Criterion 8/9 from the failure itself: status, code, request ID and resource reach the card's issue,
+    /// and the line then reads "Couldn't load today · Details".
+    @Test func theCardCarriesTheFailuresStatusCodeAndRequestID() async {
+        let api = MockPlatformAPI()
+        api.failure = APIError.http(503, "request timed out", requestID: "rid-503", code: .consentRequired)
+        let (env, state, _) = makeState(api: api)
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+
+        await state.refresh()
+
+        guard case .refreshIssue(let issue) = vm.status else {
+            Issue.record("expected the card, got \(String(describing: vm.status))")
+            return
+        }
+        #expect(issue.resourceName == ReadResource.today.displayName)
+        #expect(issue.statusText == "503" && issue.error.requestID == "rid-503")
+        #expect(vm.syncLine.text(now: env.clock.now()) == String(localized: "Couldn't load today · Details"))
+    }
+
+    /// Criterion 8: the line's tap. With the card on screen it scrolls to the card (once per tap) and
+    /// opens nothing; otherwise it opens Sync details.
+    @Test func tappingTheIssueLineScrollsToTheCardInsteadOfOpeningDetails() async {
+        let api = MockPlatformAPI()
+        api.failure = APIError.http(500, "", requestID: "rid-500")
+        let (env, state, _) = makeState(api: api)
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        await state.refresh()
+        #expect(vm.syncLine == .issue(.today))
+        #expect(vm.scrollToIssue == 0)
+
+        vm.resolveLine()
+        #expect(vm.scrollToIssue == 1 && !vm.showsSyncDetails)
+        vm.resolveLine()
+        #expect(vm.scrollToIssue == 2 && !vm.showsSyncDetails)
+    }
+
+    @Test func tappingAnyOtherLineOpensSyncDetails() async {
+        let (env, state, _) = makeState()
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        await state.refresh()
+        #expect(vm.syncLine == .upToDate(state.lastUpdated, demo: false))
+
+        vm.resolveLine()
+
+        #expect(vm.showsSyncDetails && vm.scrollToIssue == 0)
+    }
+
+    @Test func tappingTheOfflineLineOpensSyncDetails() {
+        let (env, state, _) = makeState(online: false)
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        #expect(vm.syncLine == .offline)
+        vm.resolveLine()
+        #expect(vm.showsSyncDetails && vm.scrollToIssue == 0)
+    }
+
     /// With data on screen a failure changes nothing until it lasts: 3 in a row and older than 2 h.
     @Test func failureWithDataShowsNoCardUntilThreeFailuresAndTwoHours() async {
         let api = MockPlatformAPI()

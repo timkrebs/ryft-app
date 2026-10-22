@@ -1607,4 +1607,78 @@ struct RefreshDetailsSheetTests {
         #expect(RefreshDetailsSheet.time(at, locale: Locale(identifier: "de_DE")) == "14:07:12")
         #expect(RefreshDetailsSheet.time(at, locale: Locale(identifier: "en_US")).contains("PM"))
     }
+
+    private let failedAt = Date(timeIntervalSince1970: 1_792_400_000)
+
+    private func issue(_ resource: ReadResource = .today, kind: FailureKind = .transient, status: Int? = 503,
+                       code: String? = nil, requestID: String? = "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c",
+                       transport: String? = nil, failures: Int = 3, dataFrom: Date? = nil) -> RefreshIssue {
+        let error = ResourceError(kind: kind, status: status, code: code, requestID: requestID, transport: transport,
+                                  attempts: 3, at: failedAt)
+        return RefreshIssue(reason: RefreshIssue.reason(for: error), resource: resource, dataFrom: dataFrom,
+                            failures: failures, error: error)
+    }
+
+    /// Criterion 9: one plain sentence and symbol per class (ui.md §3.3), and they differ.
+    @Test(arguments: [
+        (RefreshIssue.Reason.busy, "RYFT is busy right now. Your data is safe; try again in a moment.",
+         "clock.arrow.circlepath"),
+        (.unreachable, "RYFT can't be reached right now. Your connection looks fine, so this isn't on your side.",
+         "wifi.exclamationmark"),
+        (.unexpected, "Part of your data couldn't be loaded. The details help us find out why.",
+         "exclamationmark.circle"),
+        (.signedOut, "You're signed out, so new data can't load.", "person.crop.circle.badge.exclamationmark"),
+        (.appTooOld, "This version of RYFT is too old to load new data. Update it to continue.", "arrow.down.app"),
+    ])
+    func theReasonSaysWhatHappenedPerClass(reason: RefreshIssue.Reason, english: String, symbol: String) {
+        #expect(reason.message == String(localized: String.LocalizationValue(english)))
+        #expect(reason.systemImage == symbol)
+    }
+
+    /// Criterion 9: the sheet's rows come from the issue: resource, status, code, request ID.
+    @Test func theRowsComeFromTheIssue() {
+        let sheet = issue(.history, status: 503, code: "consent_required")
+        #expect(sheet.resourceName == ReadResource.history.displayName)
+        #expect(sheet.statusText == "503")
+        #expect(sheet.error.code == "consent_required")
+        #expect(sheet.error.requestID == "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c") // exactly as received
+        #expect(issue(.today).resourceName == ReadResource.today.displayName)
+        // A resource without a display name still says what failed.
+        #expect(issue(.day).resourceName == ReadResource.day.rawValue)
+        // No response: no status (the sheet shows "—" and "No response").
+        #expect(issue(status: nil, transport: "timedOut").statusText == nil)
+    }
+
+    /// Copy details: every row, the ID unshortened, "—" for what's missing, no health values.
+    @Test func copyDetailsListsEveryRow() {
+        let dataFrom = failedAt.addingTimeInterval(-3 * 3600)
+        let text = issue(code: "consent_required", dataFrom: dataFrom).copyText
+        let lines = text.split(separator: "\n").map(String.init)
+        #expect(lines.contains(String(localized: "What failed") + ": " + (ReadResource.today.displayName ?? "")))
+        #expect(lines.contains(String(localized: "HTTP status") + ": 503"))
+        #expect(lines.contains(String(localized: "Code") + ": consent_required"))
+        #expect(lines.contains(String(localized: "Request ID") + ": 01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c"))
+        #expect(lines.contains(String(localized: "Time") + ": " + failedAt.ISO8601Format()))
+        #expect(lines.contains(String(localized: "Showing data from") + ": " + dataFrom.ISO8601Format()))
+        #expect(lines.contains(String(localized: "Failed in a row") + ": 3"))
+
+        let bare = issue(status: nil, requestID: nil, transport: "timedOut").copyText
+        #expect(bare.contains(String(localized: "Request ID") + ": " + String(localized: "Not available")))
+        #expect(bare.contains(String(localized: "HTTP status") + ": — (timedOut)"))
+        #expect(bare.contains(String(localized: "Code") + ": —"))
+        #expect(bare.contains(String(localized: "Showing data from") + ": —"))
+    }
+
+    /// The line's wording per resource ("Couldn't load today · Details") and the age in the card.
+    @Test func theLinePointsToTheCardByName() {
+        #expect(SyncLine.issue(.today).text(now: failedAt) == String(localized: "Couldn't load today · Details"))
+        #expect(SyncLine.issue(.history).text(now: failedAt) == String(localized: "Couldn't load your history · Details"))
+        #expect(SyncLine.issue(.me).text(now: failedAt) == String(localized: "Couldn't load your data · Details"))
+    }
+
+    /// The line's "Hold": 600 ms per step. The hold itself is `SyncStatusLineView` state (`Task.sleep` and
+    /// `Date.now`, not `AppClock`), so only its constant is unit-testable; the UI test covers the progression.
+    @Test func eachLineStepIsHeldSixHundredMilliseconds() {
+        #expect(SyncStatusLineView.minimumShown == 0.6)
+    }
 }
