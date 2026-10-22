@@ -176,6 +176,11 @@ Items 1–28: everything above from UI, security, code and performance, plus the
 ### T3 fix batch (lead → sync-engineer)
 Items 1–21: everything above from the code, security and UI reviews. Integration with T1 and T2 happens on a separate
 branch.
+- **Done (840b3d3, a6baeeb, f60e6e3, 7efbc5d): all 21, none declined.** Unit 762/762, `SyncCheckUITests` 4/4, lint green,
+  zero warnings.
+  - New neutral state `unidentified` for Apple records without a device model.
+  - Until 08:00 the previous night counts.
+  - The privacy texts are updated in the repo; ryftapp.de is the user's to update.
 
 ## T2 `feat: tracker setup and devices & sync` (`feat/tracker-setup`, a9e3d5f)
 
@@ -224,3 +229,49 @@ The implementer (ios-developer) reports 781/781 unit tests, `DevicesUITests` 5/5
   - recapture the German screenshots (the implementer's `*-de.png` are English).
 - **Nits, left as they are:** step 4 combines the iOS part (catalog content); no store caption; Apple sources keep
   HealthKit's device names; 12-hour time follows the region.
+
+### T1 fix batch: done (8893694, 528c3ab, fc7b379), 31 items
+Unit 769/769, `TodayStatesUITests` 4/4, lint green, zero warnings. Two items done differently, both accepted:
+- **14:** pending days with no local start are timed from when the app first sees them, on the phone's clock. Comparing the
+  server's `last_sync_at` with the phone's clock would break the clock rule. "Taking longer" can come up to about 75 s later
+  after a relaunch.
+- **20d:** no main-thread assertion, because previews, demo and tests decode on main legitimately. The live path warms the
+  catalog in `loadBundled()`.
+
+The guide text (T5) passes the hardened validator unchanged. The lead re-applied it onto fc7b379 (version 2026-10-22.2,
+region regenerated with the `#` escaping).
+
+### T2: code-reviewer (iPhone 17; unit 834/834; `DevicesUITests` 4/5)
+- **Blocking: `testThePickerTakesSeveralButJustMyIPhoneAlone` fails 3/3.** The iPhone tile sits under the pinned bar and
+  still reports as hittable. → Scroll until the tile is above the Continue button (or `-RyftScrollBottom`), then re-run
+  UISmoke.
+- **Should-fix:**
+  - Tile names break mid-word ("Ultrahuma/n"). → The check goes into a corner overlay, and/or `ViewThatFits` falls back to
+    one column. Re-check on iPhone 17e.
+  - With the flag on, `showsTrackerSetup` can decode the bundled catalog on main at launch. → Check `phase == .ready`
+    first; return `[]` without the catalog when nothing is chosen.
+  - **With the flag off, Today's Garmin setup step changed:** main's Garmin sentence and key are gone, and VoiceOver loses
+    the step number. → Keep main's text and key with the flag off; `total: 3`.
+  - Samsung's card says "Apple's guide" for samsung.com, and "Good to know" repeats the limit. → Label the guide by
+    integration; no "Set it up" heading for `none`; drop repeated limits.
+  - The iPhone glyph and behaviour are keyed on `form` (also security #6). → Key on the id.
+  - Merge friction: the parameter order in `FeedbackPayload.make` and `payload()` (T2 `trackers:` before `context:`, T3
+    `syncCheck:` last); `SetupCard`'s doc line beside T3's `CheckRow`. → Agreed order: `…, trackers:, syncCheck:, context:`.
+    T2 leaves the `SetupCard` doc line alone.
+  - The store tests depend on fixed dates. → Derive them from `TrackerCatalog.bundled.version` and the newest `checked`
+    date.
+  - The `MockData.trackerCatalog` fixture is a second copy of the content, shipping in Release. → After the rebase, use
+    `.bundled` and delete the text literal and `-RyftCatalog preview`.
+  - The diagnostics allow-list test is weaker. → Run it with the flag on and a selection, with a template for `trackers`;
+    the privacy texts gain `trackers` (with T3's).
+- **Nits, to be done:**
+  - wire the selection into Today's `facts` after the rebase (§9.3);
+  - localized names in the Devices row, and "Nicht festgelegt";
+  - the row glyph per errata 1;
+  - previews for `TrackerPickerSheet` and `TrackerDetailView`;
+  - `saveDocument` off main;
+  - `isDue` when the clock moved backwards;
+  - a forced reload doesn't join an unforced one.
+- **Accepted:** the catalog line in Copy diagnostics with the flag off. T1 uses the catalog regardless.
+- **The 9 deviations are accepted with those conditions.**
+
