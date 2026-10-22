@@ -148,6 +148,8 @@ def check(data, swift_text):
     for path, s in strings(data):
         if brand.search(folded(s)):
             errors.append(f"{path}: contains the denylisted brand")
+        if any(unicodedata.category(c) == "Co" for c in s):
+            errors.append(f"{path}: contains a private-use character (U+F8FF draws Apple's logo)")
 
     check_pair(errors, (data.get("health_access") or {}).get("steps"), "health_access.steps")
     trackers = data.get("trackers")
@@ -210,6 +212,9 @@ def self_test():
     errors, _ = check({"schema_version": 1, "trackers": [{"id": "other", "name": "W\u0301h" + "oop", "checked": "2026-10-22"}]},
                       "static let brandPattern = #\"" + hook_pattern() + "\"#")
     assert any("denylisted brand" in e for e in errors), "the folded brand passed"
+    errors, _ = check({"schema_version": 1, "trackers": [{"id": "other", "name": "Other \uf8ff", "checked": "2026-10-22"}]},
+                      "static let brandPattern = #\"" + hook_pattern() + "\"#")
+    assert any("private-use" in e for e in errors), "a private-use character passed"
     print("trackers.py self-test: ok")
 
 

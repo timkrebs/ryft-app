@@ -363,7 +363,7 @@ private struct CatalogValidator {
         "apple_watch": ["support.apple.com"], "iphone": ["support.apple.com"], "other": ["support.apple.com"],
     ]
     /// On a shared host, the vendor's own part of it.
-    static let helpPaths: [String: [String]] = ["fitbit": ["/googlehealth/", "/fitbit/"]]
+    static let helpPaths: [String: [String]] = ["fitbit": ["/googlehealth/answer/"]] // not /googlehealth/thread/: user posts
     static let anyHelpHost = "ryftapp.de"
     /// On RYFT's own host, content pages only: never the universal-link routes (`/auth/…`, `/invite/…`).
     static let anyHelpPaths = ["/setup/", "/help/"]
@@ -387,6 +387,19 @@ private struct CatalogValidator {
         "suunto": "1230327951", "coros": "1277625343", "withings": "542701020", "amazfit": "1127269366",
         "ultrahuman": "1491286709", "fitbit": "462638897", "iphone": "1242545199",
     ]
+    /// The integration per tracker id: content may repeat it, never change it (the Watch stays Apple's).
+    static let integrations: [String: Tracker.Integration] = [
+        "apple_watch": .appleBuiltin, "iphone": .appleBuiltin, "garmin": .vendorApp, "oura": .vendorApp, "polar": .vendorApp,
+        "suunto": .vendorApp, "coros": .vendorApp, "withings": .vendorApp, "amazfit": .vendorApp, "ultrahuman": .vendorApp,
+        "fitbit": .vendorApp, "samsung_galaxy_watch": .none, "other": .unknown,
+    ]
+    /// The bundle IDs this build knows per tracker id (lowercased): no other tracker may claim, cover or sit
+    /// under them, so Garmin's app can't move under another name. New IDs for the same tracker stay possible.
+    static let knownBundles: [String: [String]] = [
+        "garmin": ["com.garmin.connect.mobile"], "oura": ["com.ouraring.oura"], "polar": ["fi.polar.polarflow"],
+        "suunto": ["com.sports-tracker.suunto.iphone"], "coros": ["com.coros.coros"], "withings": ["com.withings.wiscaleng"],
+        "amazfit": ["com.huami.watch"], "ultrahuman": ["com.ultrahuman.ios"], "fitbit": ["com.fitbit.fitbitmobile"],
+    ]
     /// The only trackers that may claim Apple's bundle IDs and device models.
     static let appleTrackers: Set<String> = ["apple_watch", "iphone"]
     /// Each identity list (bundle IDs, prefixes, source names, device models).
@@ -395,9 +408,12 @@ private struct CatalogValidator {
     /// order: control, format (bidi overrides, zero-width), private-use, unassigned and separator characters;
     /// letters of another script than Latin (look-alikes); markup, links and addresses.
     static let refusedText = try? NSRegularExpression(
-        pattern: #"([\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}])|([^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}])|"#
-            + #"(<|>|\]\(|://|www\.|@|mailto:|tel:)"#,
+        pattern: #"([\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}\x{E000}-\x{F8FF}\x{F0000}-\x{FFFFD}\x{100000}-\x{10FFFD}])|"#
+            + #"([^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}])|(<|>|\]\(|://|www\.|@|mailto:|tel:)"#,
         options: [.caseInsensitive])
+    /// Combining marks one character may stack.
+    static let maxMarks = 3
+    static let marks: Set<Unicode.GeneralCategory> = [.nonspacingMark, .spacingMark, .enclosingMark]
     static let refusedTextRules = ["text.control", "text.script", "text.markup"]
 
     /// The rule `s` breaks, if any; a pattern that didn't compile refuses everything (fail closed).
@@ -493,6 +509,9 @@ private struct CatalogValidator {
         guard let integration = Tracker.Integration(rawValue: rawIntegration) else {
             throw .invalid(rule: "enum.integration", path: "\(path).integration")
         }
+        if let pinned = Self.integrations[id], pinned != integration {
+            throw .invalid(rule: "integration.pinned", path: "\(path).integration")
+        }
         let appName = try string(t, "app_name", path, required: false)
         if let appName { try text(appName, max: 40, "\(path).app_name") }
 
@@ -553,6 +572,11 @@ private struct CatalogValidator {
                 }
                 if key == "bundle_id_prefixes", bare.split(separator: ".").count < 3 {
                     throw .invalid(rule: "bundle.prefix", path: "\(at).\(key)[\(j)]")
+                }
+                // Another tracker's known app: not this one's, nor under or over it.
+                let others = Self.knownBundles.lazy.filter { $0.key != id }.flatMap(\.value)
+                if others.contains(where: { $0 == bare || SourceIdentity.covers(value, $0) || SourceIdentity.covers($0, bare) }) {
+                    throw .invalid(rule: "bundle.known", path: "\(at).\(key)[\(j)]")
                 }
                 values.append(value)
             }
@@ -696,9 +720,21 @@ private struct CatalogValidator {
         guard !s.trimmingCharacters(in: .whitespaces).isEmpty else { throw .invalid(rule: "text.empty", path: path()) }
         let scalars = s.unicodeScalars.count
         // ASCII: one character per scalar, nothing to compose. Else graphemes, and scalars after composing.
-        guard scalars == s.utf8.count ? scalars <= max
+        let ascii = scalars == s.utf8.count
+        guard ascii ? scalars <= max
                 : scalars <= 4 * max && s.count <= max && s.precomposedStringWithCanonicalMapping.unicodeScalars.count <= 2 * max
         else { throw .invalid(rule: "text.length", path: path()) }
+        if !ascii {
+            // One pass: private-use characters (U+F8FF draws Apple's logo; ICU's \p{Co} doesn't catch it), and
+            // no more than `maxMarks` combining marks in a row (stacks render as noise over the line).
+            var run = 0
+            for scalar in s.unicodeScalars {
+                let category = scalar.properties.generalCategory
+                if category == .privateUse { throw .invalid(rule: "text.control", path: path()) }
+                run = Self.marks.contains(category) ? run + 1 : 0
+                if run > Self.maxMarks { throw .invalid(rule: "text.marks", path: path()) }
+            }
+        }
         if let rule = Self.refusal(s) { throw .invalid(rule: rule, path: path()) }
     }
 
@@ -730,11 +766,23 @@ private struct CatalogValidator {
         guard let c = URLComponents(string: string), c.scheme?.lowercased() == "https",
               c.user == nil, c.password == nil, c.port == nil,
               let raw = c.percentEncodedHost, matches(raw, "[A-Za-z0-9.-]+"), let url = c.url else { return nil }
-        let host = raw.lowercased()
-        if host == anyHelpHost { return anyHelpPaths.contains { c.percentEncodedPath.hasPrefix($0) } ? url : nil }
+        let host = raw.lowercased(), path = c.percentEncodedPath
+        guard plainPath(path) else { return nil }
+        if host == anyHelpHost { return anyHelpPaths.contains { path.hasPrefix($0) } ? url : nil }
         guard helpHosts[trackerID]?.contains(host) == true else { return nil }
         guard let paths = helpPaths[trackerID] else { return url }
-        return paths.contains { c.percentEncodedPath.hasPrefix($0) } ? url : nil
+        return paths.contains { path.hasPrefix($0) } ? url : nil
+    }
+
+    /// A path a prefix can be checked on: no "." or ".." segment, raw or percent-encoded, and no encoded
+    /// slash or backslash, which a server might resolve past the prefix.
+    static func plainPath(_ path: String) -> Bool {
+        let lower = path.lowercased()
+        guard !lower.contains("\\"), !lower.contains("%2f"), !lower.contains("%5c") else { return false }
+        return !lower.split(separator: "/", omittingEmptySubsequences: false).contains { segment in
+            let decoded = String(segment).removingPercentEncoding ?? "."
+            return decoded == "." || decoded == ".."
+        }
     }
 }
 
