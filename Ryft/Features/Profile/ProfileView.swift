@@ -1167,12 +1167,28 @@ private struct LinkRow: View {
 struct PrimaryButton: View {
     enum Style { case primary, secondary, destructive }
 
-    let title: LocalizedStringKey
+    let title: Text
     var style: Style = .primary
     var busy = false
     let action: () async -> Void
 
     @Environment(\.isEnabled) private var isEnabled
+
+    init(title: LocalizedStringKey, style: Style = .primary, busy: Bool = false, action: @escaping () async -> Void) {
+        self.init(text: Text(title), style: style, busy: busy, action: action)
+    }
+
+    /// A title that holds outside text (a tracker's app name from the catalog): never parsed as a key or Markdown.
+    init(verbatim title: String, style: Style = .primary, busy: Bool = false, action: @escaping () async -> Void) {
+        self.init(text: Text(verbatim: title), style: style, busy: busy, action: action)
+    }
+
+    private init(text: Text, style: Style, busy: Bool, action: @escaping () async -> Void) {
+        title = text
+        self.style = style
+        self.busy = busy
+        self.action = action
+    }
 
     var body: some View {
         Button {
@@ -1182,7 +1198,7 @@ struct PrimaryButton: View {
                 if busy {
                     ProgressView().controlSize(.small).tint(foreground)
                 } else {
-                    Text(title)
+                    title
                         .font(.ryft(.callout))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)

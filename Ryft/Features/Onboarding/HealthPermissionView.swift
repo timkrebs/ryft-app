@@ -1230,7 +1230,7 @@ struct HealthAccessHint: View {
 
     /// Both places, as the sync check words it: the tracker's app writing, RYFT reading.
     @ViewBuilder private func trackerText(_ app: String) -> some View {
-        Text("RYFT needs \(app) writing to Apple Health, and Apple Health access. Profile → Devices & sync shows how to set up \(app).")
+        Text(verbatim: String(localized: "RYFT needs \(app) writing to Apple Health, and Apple Health access. Profile → Devices & sync shows how to set up \(app)."))
             .font(.ryft(.callout))
             .foregroundStyle(Theme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)

@@ -1852,7 +1852,8 @@ struct TrackerCatalogStoreTests {
     }
 
     @Test func theBundledCopyServesUntilADownloadIsBetter() async {
-        let (store, content, _, _) = catalogStore()
+        let (store, content, _, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} } // the store holds its environment weakly
         #expect(store.current == .bundled && store.origin == .bundled(bundled))
         await store.load()
         #expect(store.current == .bundled && content.requests.isEmpty)
@@ -1884,7 +1885,8 @@ struct TrackerCatalogStoreTests {
     }
 
     @Test func dueADayAfterAnAnswerAndAnHourAfterAFailure() async throws {
-        let (store, content, clock, _) = catalogStore()
+        let (store, content, clock, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} } // the store holds its environment weakly
         content.script([.failure(ContentError.http(404)), .success(.notModified), .success(.notModified)])
         await store.refreshIfDue()
         #expect(store.lastFailure == "http 404" && store.current == .bundled) // the URL isn't published yet: silent
@@ -1927,7 +1929,8 @@ struct TrackerCatalogStoreTests {
 
     /// The trust rules a download must pass (ADR 0002): an off-allowlist link is dropped, not followed.
     @Test func aLinkOffTheAllowlistIsDroppedAndTheTextKept() async throws {
-        let (store, content, _, _) = catalogStore()
+        let (store, content, _, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} } // the store holds its environment weakly
         let body = try catalogBody(version: "2026-10-30.1") { root in
             guard var trackers = root["trackers"] as? [[String: Any]] else { return }
             trackers[1]["help_url"] = "https://garmin.example.net/apple-health"
@@ -1960,16 +1963,19 @@ struct TrackerCatalogStoreTests {
     }
 
     @Test func oversizeIsRefused() async {
-        let (store, content, _, _) = catalogStore()
+        let (store, content, _, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} } // the store holds its environment weakly
         content.script([.success(.fetched(Data(repeating: 0x20, count: 300_000), etag: "big"))])
         await store.refreshIfDue()
         #expect(store.current == .bundled && store.lastFailure == "too large")
     }
 
     @Test func offlineBehindTheFlagOrInDemoNothingIsAsked() async {
-        let (offline, offlineContent, _, _) = catalogStore(online: false)
+        let (offline, offlineContent, _, offlineEnv) = catalogStore(online: false)
+        defer { withExtendedLifetime(offlineEnv) {} } // the store holds its environment weakly
         await offline.refreshIfDue()
-        let (dark, darkContent, _, _) = catalogStore(flag: false)
+        let (dark, darkContent, _, darkEnv) = catalogStore(flag: false)
+        defer { withExtendedLifetime(darkEnv) {} } // the store holds its environment weakly
         await dark.refreshIfDue()
         let demo = AppEnvironment.preview()
         await demo.catalogStore.refreshIfDue()
@@ -1980,7 +1986,8 @@ struct TrackerCatalogStoreTests {
     }
 
     @Test func oneRequestAtATime() async throws {
-        let (store, content, _, _) = catalogStore()
+        let (store, content, _, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} } // the store holds its environment weakly
         content.script([.success(.fetched(try catalogBody(version: "2026-10-30.1"), etag: "e")),
                         .success(.notModified)])
         async let a: Void = store.refreshIfDue()
@@ -2025,7 +2032,8 @@ struct TrackerCatalogStoreTests {
     }
 
     @Test func copyDiagnosticsSaysWhichCopyAndWhy() async throws {
-        let (store, content, _, _) = catalogStore()
+        let (store, content, _, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} } // the store holds its environment weakly
         #expect(store.diagnosticLine == "catalog bundled \(bundled) etag - checked - failure -")
         content.script([.failure(URLError(.notConnectedToInternet))])
         await store.refreshIfDue()

@@ -666,7 +666,7 @@ struct SetupCard: View {
                     .foregroundStyle(Theme.textPrimary)
                 VStack(alignment: .leading, spacing: 10) {
                     if let app {
-                        NumberedStep(number: 1, text: "Let \(app) write to Apple Health. Profile → Devices & sync shows how.")
+                        NumberedStep(number: 1, verbatim: String(localized: "Let \(app) write to Apple Health. Profile → Devices & sync shows how."))
                     } else {
                         NumberedStep(number: 1, text: "Let your watch or ring app write to Apple Health.")
                     }
@@ -839,10 +839,11 @@ struct TrackerSetupCard: View {
                     .padding(.top, 1)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("RYFT can't read \(tracker.name) data on iPhone today.")
+                    // Catalog text only ever as an argument, shown verbatim (ADR 0002).
+                    Text(verbatim: String(localized: "RYFT can't read \(tracker.name) data on iPhone today."))
                         .font(.ryft(.callout))
                         .foregroundStyle(Theme.textPrimary)
-                    Text("\(tracker.name) doesn't write to Apple Health, so nothing it records can reach RYFT. Your iPhone's own step count still does.")
+                    Text(verbatim: String(localized: "\(tracker.name) doesn't write to Apple Health, so nothing it records can reach RYFT. Your iPhone's own step count still does."))
                         .font(.ryft(.callout))
                         .foregroundStyle(Theme.textSecondary)
                 }
@@ -875,7 +876,7 @@ struct TrackerSetupCard: View {
         section("Set it up") {
             VStack(alignment: .leading, spacing: 10) {
                 if let app = tracker.appName, tracker.integration == .vendorApp, !steps.isEmpty {
-                    Text("In \(app)")
+                    Text(verbatim: String(localized: "In \(app)"))
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textSecondary)
                 }
@@ -954,8 +955,9 @@ struct TrackerSetupCard: View {
     @ViewBuilder private var buttons: some View {
         if tracker.integration == .vendorApp, let store = tracker.appStoreURL {
             VStack(alignment: .leading, spacing: 6) {
-                let title: LocalizedStringKey = seen ? "Open \(tracker.appTitle) in the App Store" : "Get \(tracker.appTitle)"
-                PrimaryButton(title: title, style: .secondary) {
+                let app = tracker.appTitle
+                PrimaryButton(verbatim: seen ? String(localized: "Open \(app) in the App Store") : String(localized: "Get \(app)"),
+                              style: .secondary) {
                     openURL(store)
                 }
                 .accessibilityHint(Text("Opens the App Store."))
