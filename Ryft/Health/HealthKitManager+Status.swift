@@ -739,12 +739,13 @@ private struct CatalogValidator {
 }
 
 // BEGIN GENERATED trackers.json (scripts/trackers.py --write from Content/trackers.json; do not edit)
+// swiftlint:disable line_length
 extension TrackerCatalog {
     /// Content/trackers.json at build time: the copy that always works (offline, first launch, demo).
     static let bundledJSON = #"""
     {
       "schema_version": 1,
-      "version": "2026-10-22.1",
+      "version": "2026-10-22.2",
       "checked": "2026-10-22",
       "status_values": [
         "yes",
@@ -754,8 +755,14 @@ extension TrackerCatalog {
       ],
       "health_access": {
         "steps": {
-          "en": [],
-          "de": []
+          "en": [
+            "Open Health → Summary → your picture → Apps → RYFT.",
+            "Tap Turn On All."
+          ],
+          "de": [
+            "Öffne Health → Zusammenfassung → dein Bild → Apps → RYFT.",
+            "Tippe auf „Alle aktivieren“."
+          ]
         },
         "checked": "2026-10-22"
       },
@@ -794,16 +801,34 @@ extension TrackerCatalog {
           },
           "capability_notes": {},
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "On iPhone, open Health → Summary → your picture → Devices → your Apple Watch → Privacy Settings, and turn on Fitness Tracking.",
+              "In Health → Browse → Sleep, set a sleep schedule and turn on Track Sleep with Apple Watch."
+            ],
+            "de": [
+              "Öffne auf deinem iPhone Health → Zusammenfassung → dein Bild → Geräte → deine Apple Watch → Datenschutzeinstellungen und aktiviere Fitnessdaten.",
+              "Öffne Health → Durchsuchen → Schlaf, lege einen Schlafplan fest und aktiviere „Schlaf mit Apple Watch aufzeichnen“."
+            ]
           },
           "habits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Wear your Apple Watch to bed. Sleep stages, breathing rate and overnight blood oxygen need it.",
+              "Charge it before bedtime. Turn on Charging Reminders in Watch → My Watch → Sleep."
+            ],
+            "de": [
+              "Trage deine Apple Watch nachts. Schlafphasen, Atemfrequenz und Blutsauerstoff über Nacht brauchen das.",
+              "Lade sie vor dem Schlafengehen auf. Aktiviere Laderinnerungen in Watch → Meine Watch → Schlaf."
+            ]
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Blood oxygen needs Apple Watch Series 6 or later or any Ultra. It isn't available on Apple Watch SE.",
+              "Breathing rate isn't available for users under 13."
+            ],
+            "de": [
+              "Blutsauerstoff braucht Apple Watch Series 6 oder später oder eine beliebige Ultra. Auf der Apple Watch SE ist es nicht verfügbar.",
+              "Atemfrequenz ist für Nutzer unter 13 Jahren nicht verfügbar."
+            ]
           },
           "help_url": "https://support.apple.com/guide/iphone/intro-to-health-data-iphbb8259c61/ios",
           "sources": [
@@ -876,18 +901,59 @@ extension TrackerCatalog {
             "workouts": "yes",
             "steps": "yes"
           },
-          "capability_notes": {},
+          "capability_notes": {
+            "hrv": {
+              "en": "Garmin keeps HRV in its own app.",
+              "de": "Garmin behält HRV in seiner eigenen App."
+            },
+            "resting_hr": {
+              "en": "Garmin doesn't send resting heart rate to Apple Health.",
+              "de": "Garmin sendet Ruhepuls nicht an Apple Health."
+            },
+            "respiratory_rate": {
+              "en": "Garmin doesn't send breathing rate to Apple Health.",
+              "de": "Garmin sendet Atemfrequenz nicht an Apple Health."
+            },
+            "spo2": {
+              "en": "Garmin doesn't send blood oxygen to Apple Health.",
+              "de": "Garmin sendet Blutsauerstoff nicht an Apple Health."
+            }
+          },
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Garmin Connect → More → Settings → Connect Apps.",
+              "Under Available Apps, tap Apple Health → Connect with Apple Health.",
+              "Turn on all data types, then tap Allow.",
+              "To check later: open Health → Summary → your picture → Apps → Connect → Turn On All."
+            ],
+            "de": [
+              "Öffne Garmin Connect → Mehr → Einstellungen → Connect Apps.",
+              "Tippe unter „Verfügbare Apps“ auf Apple Health → Mit Apple Health verbinden.",
+              "Aktiviere alle Datentypen und tippe dann auf „Zulassen“.",
+              "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → Connect → Alle aktivieren."
+            ]
           },
           "habits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Garmin Connect each morning and keep it on screen until it has synced. It sends data to Apple Health only while it's open in the foreground.",
+              "Sync your watch first. Garmin Connect passes data to Apple Health after each successful watch sync."
+            ],
+            "de": [
+              "Öffne Garmin Connect jeden Morgen und halte sie geöffnet, bis sie synchronisiert ist. Die App sendet Daten nur an Apple Health, während sie aktiv ist.",
+              "Synchronisiere deine Uhr zuerst. Garmin Connect überträgt Daten an Apple Health nach jeder erfolgreichen Watch-Synchronisierung."
+            ]
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Garmin Connect doesn't send HRV, resting heart rate, breathing rate or blood oxygen to Apple Health.",
+              "Workout heart rate arrives as high and low values only, and GPS tracks aren't sent.",
+              "Connect doesn't appear in Apple Health if only an Edge bike computer is registered to your Garmin account."
+            ],
+            "de": [
+              "Garmin Connect sendet HRV, Ruhepuls, Atemfrequenz oder Blutsauerstoff nicht an Apple Health.",
+              "Trainings-Herzfrequenz kommt nur als höchster und niedrigster Wert an, GPS-Tracks werden nicht gesendet.",
+              "Connect erscheint nicht in Apple Health, wenn nur ein Edge-Fahrradcomputer bei deinem Garmin-Konto registriert ist."
+            ]
           },
           "help_url": "https://support.garmin.com/en-US/?faq=lK5FPB9iPF5PXFkIpFlFPA",
           "sources": [
@@ -936,18 +1002,55 @@ extension TrackerCatalog {
             "workouts": "yes",
             "steps": "yes"
           },
-          "capability_notes": {},
+          "capability_notes": {
+            "hrv": {
+              "en": "Oura doesn't export HRV to Apple Health.",
+              "de": "Oura exportiert HRV nicht zu Apple Health."
+            },
+            "resting_hr": {
+              "en": "Oura doesn't export resting heart rate to Apple Health.",
+              "de": "Oura exportiert Ruhepuls nicht zu Apple Health."
+            },
+            "spo2": {
+              "en": "Oura doesn't send blood oxygen to Apple Health.",
+              "de": "Oura sendet Blutsauerstoff nicht an Apple Health."
+            }
+          },
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Oura → menu (top left) → Settings.",
+              "Under Data sharing, tap Apple Health.",
+              "Turn on Connect to Health and allow all data types.",
+              "To check later: open Health → Summary → your picture → Apps → Oura → Turn On All."
+            ],
+            "de": [
+              "Öffne Oura → Menü (oben links) → Einstellungen.",
+              "Tippe unter „Datenfreigabe“ auf Apple Health.",
+              "Aktiviere „Mit Health verbinden“ und erlaube alle Datentypen.",
+              "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → Oura → Alle aktivieren."
+            ]
           },
           "habits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Oura every morning. Your data reaches Apple Health only after Oura is opened.",
+              "Keep Background App Refresh on for Oura and Low Power Mode off."
+            ],
+            "de": [
+              "Öffne Oura jeden Morgen. Deine Daten erreichen Apple Health nur, nachdem du Oura öffnest.",
+              "Halte die Hintergrundaktualisierung für Oura aktiviert und den Energiesparmodus ausgeschaltet."
+            ]
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Oura doesn't send HRV, resting heart rate or blood oxygen to Apple Health.",
+              "Breathing rate arrives as one nightly average.",
+              "On Gen3 and later rings, Apple Health sync needs an active Oura membership."
+            ],
+            "de": [
+              "Oura sendet HRV, Ruhepuls oder Blutsauerstoff nicht an Apple Health.",
+              "Atemfrequenz kommt als durchschnittlicher Wert pro Nacht an.",
+              "Bei Gen3-Ringen und später braucht die Apple-Health-Synchronisierung eine aktive Oura-Mitgliedschaft."
+            ]
           },
           "help_url": "https://support.ouraring.com/hc/en-us/articles/360025438734-Apple-Health-Integration",
           "sources": [
@@ -1000,18 +1103,45 @@ extension TrackerCatalog {
             "workouts": "yes",
             "steps": "yes"
           },
-          "capability_notes": {},
+          "capability_notes": {
+            "heart_rate": {
+              "en": "Polar sends heart rate for workouts only.",
+              "de": "Polar sendet Herzfrequenz nur für Trainings."
+            }
+          },
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Polar Flow → More → General settings.",
+              "Turn on Apple Health.",
+              "Tap Turn All Categories On, then Allow.",
+              "To check later: open Health → Summary → your picture → Apps → Polar Flow → Turn On All."
+            ],
+            "de": [
+              "Öffne Polar Flow → Mehr → Allgemeine Einstellungen.",
+              "Aktiviere Apple Health.",
+              "Tippe auf „Alle Kategorien aktivieren“ und dann „Zulassen“.",
+              "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → Polar Flow → Alle aktivieren."
+            ]
           },
           "habits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Sync your watch with Polar Flow. New data then goes to Apple Health.",
+              "Data missing? In Polar Flow → More → General settings, tap Sync now. It resends the last two weeks."
+            ],
+            "de": [
+              "Synchronisiere deine Uhr mit Polar Flow. Neue Daten gehen dann zu Apple Health.",
+              "Daten fehlen? Öffne Polar Flow → Mehr → Allgemeine Einstellungen und tippe auf „Jetzt synchronisieren“. Das sendet die letzten zwei Wochen erneut."
+            ]
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Polar Flow sends heart rate for workouts only, with no all-day heart rate.",
+              "Polar Flow doesn't send HRV, resting heart rate, sleep stages, breathing rate or blood oxygen."
+            ],
+            "de": [
+              "Polar Flow sendet Herzfrequenz nur für Trainings, ohne tägliche Herzfrequenz.",
+              "Polar Flow sendet HRV, Ruhepuls, Schlafphasen, Atemfrequenz oder Blutsauerstoff nicht."
+            ]
           },
           "help_url": "https://support.polar.com/us-en/support/connecting_polar_flow_with_apple_health",
           "sources": [
@@ -1062,16 +1192,28 @@ extension TrackerCatalog {
           },
           "capability_notes": {},
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open the Suunto app and go to its settings to start sharing with Apple Health.",
+              "Allow all data types when iOS asks.",
+              "To check later: open Health → Summary → your picture → Apps → Suunto → Turn On All."
+            ],
+            "de": [
+              "Öffne die Suunto-App und gehe zu ihren Einstellungen, um mit Apple Health zu teilen.",
+              "Erlaube alle Datentypen, wenn iOS fragt.",
+              "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → Suunto → Alle aktivieren."
+            ]
           },
           "habits": {
             "en": [],
             "de": []
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Suunto doesn't publish what its app sends to Apple Health. Check sync shows what arrives."
+            ],
+            "de": [
+              "Suunto veröffentlicht nicht, was ihre App an Apple Health sendet. Die Sync-Prüfung zeigt, was ankommt."
+            ]
           },
           "help_url": null,
           "sources": [
@@ -1126,16 +1268,32 @@ extension TrackerCatalog {
           },
           "capability_notes": {},
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open COROS → Profile → Settings → 3rd Party Apps → Data Sync → Apple Health.",
+              "Select all data types to sync.",
+              "To check later: open Health → Summary → your picture → Apps → COROS and turn on all types."
+            ],
+            "de": [
+              "Öffne COROS → Profil → Einstellungen → Apps von Drittanbietern → Datensynchronisierung → Apple Health.",
+              "Wähle alle Datentypen zum Synchronisieren aus.",
+              "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → COROS und aktiviere alle Typen."
+            ]
           },
           "habits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Sync your watch with the COROS app on a stable internet connection. Workouts go to Apple Health when the watch syncs."
+            ],
+            "de": [
+              "Synchronisiere deine Uhr mit der COROS-App bei stabiler Internetverbindung. Trainings gehen zu Apple Health, wenn die Uhr synchronisiert."
+            ]
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "COROS doesn't send HRV, resting heart rate, breathing rate or blood oxygen to Apple Health."
+            ],
+            "de": [
+              "COROS sendet HRV, Ruhepuls, Atemfrequenz oder Blutsauerstoff nicht an Apple Health."
+            ]
           },
           "help_url": "https://support.coros.com/hc/en-us/articles/360041549551-Connecting-Apple-Health-with-COROS-App",
           "sources": [
@@ -1195,16 +1353,36 @@ extension TrackerCatalog {
           },
           "capability_notes": {},
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Withings → Profile → Settings (gear) → Export health data to Apple Health.",
+              "Tap Next twice, turn on all data types, then tap Allow and Done.",
+              "To check later: open Health → Summary → your picture → Apps → Withings → Turn On All."
+            ],
+            "de": [
+              "Öffne Withings → Profil → Einstellungen (Zahnrad) → Gesundheitsdaten zu Apple Health exportieren.",
+              "Tippe zweimal auf „Weiter“, aktiviere alle Datentypen, tippe dann auf „Zulassen“ und „Fertig“.",
+              "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → Withings → Alle aktivieren."
+            ]
           },
           "habits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Withings doesn't sync to Apple Health automatically. Open Withings, then the Health app, then pull down on the Withings Home tab to refresh.",
+              "Allow up to 15 minutes after a measurement."
+            ],
+            "de": [
+              "Withings synchronisiert nicht automatisch mit Apple Health. Öffne Withings, dann die Health-App, ziehe dann auf dem Withings-Home-Tab nach unten zum Aktualisieren.",
+              "Erlaube bis zu 15 Minuten nach einer Messung."
+            ]
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Accounts created on or after 13 October 2026 need a Withings+ subscription to send data to Apple Health.",
+              "Heart rate from the under-mattress sleep sensor doesn't reach Apple Health."
+            ],
+            "de": [
+              "Konten, die am oder nach dem 13. Oktober 2026 erstellt wurden, brauchen ein Withings+-Abonnement, um Daten an Apple Health zu senden.",
+              "Herzfrequenz vom Unter-Matratzen-Schlaf-Sensor erreicht Apple Health nicht."
+            ]
           },
           "help_url": "https://support.withings.com/hc/en-us/articles/46746224229777-Partner-Apps-Apple-Health-Exporting-Withings-data-into-Apple-Health",
           "sources": [
@@ -1265,18 +1443,35 @@ extension TrackerCatalog {
             "workouts": "yes",
             "steps": "unverified"
           },
-          "capability_notes": {},
+          "capability_notes": {
+            "hrv": {
+              "en": "Amazfit Balance 2 series only, since August 2026.",
+              "de": "Nur Amazfit Balance 2-Serie ab August 2026."
+            }
+          },
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Zepp and let your watch sync.",
+              "Allow Zepp in Health: open Health → Summary → your picture → Apps → Zepp → Turn On All."
+            ],
+            "de": [
+              "Öffne Zepp und lass deine Uhr synchronisieren.",
+              "Erlaube Zepp in Health: Öffne Health → Zusammenfassung → dein Bild → Apps → Zepp → Alle aktivieren."
+            ]
           },
           "habits": {
             "en": [],
             "de": []
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "HRV reaches Apple Health only from the Amazfit Balance 2 series.",
+              "Amazfit doesn't publish a full list of what Zepp sends to Apple Health. Check sync shows what arrives."
+            ],
+            "de": [
+              "HRV erreicht Apple Health nur von der Amazfit Balance 2-Serie.",
+              "Amazfit veröffentlicht keine vollständige Liste, was Zepp an Apple Health sendet. Die Sync-Prüfung zeigt, was ankommt."
+            ]
           },
           "help_url": "https://support.amazfit.com/en/amazfit_gts_2_mini/docs/N6cUdJxDRo6rbfxiLs1cJDBrnRd",
           "sources": [
@@ -1335,16 +1530,26 @@ extension TrackerCatalog {
           },
           "capability_notes": {},
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Health → Summary → your picture → Apps → Ultrahuman.",
+              "Tap Turn All Categories On."
+            ],
+            "de": [
+              "Öffne Health → Zusammenfassung → dein Bild → Apps → Ultrahuman.",
+              "Tippe auf „Alle Kategorien aktivieren“."
+            ]
           },
           "habits": {
             "en": [],
             "de": []
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Ultrahuman doesn't publish a list of what it sends to Apple Health. Check sync shows what arrives."
+            ],
+            "de": [
+              "Ultrahuman veröffentlicht keine Liste, was an Apple Health gesendet wird. Die Sync-Prüfung zeigt, was ankommt."
+            ]
           },
           "help_url": "https://www.ultrahuman.com/blog/how-to-access-your-hrv-data-on-apple-health/",
           "sources": [
@@ -1395,16 +1600,38 @@ extension TrackerCatalog {
           },
           "capability_notes": {},
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Sign in to Google Health with an adult Google Account.",
+              "Open Google Health → Connections (top left) → Apps and services.",
+              "Under Add connections, tap Apple Health → Get started → Agree.",
+              "Tap Turn All Categories On, then Allow, then Done."
+            ],
+            "de": [
+              "Melde dich in Google Health mit einem erwachsenen Google-Konto an.",
+              "Öffne Google Health → Verbindungen (oben links) → Apps und Services.",
+              "Tippe unter „Verbindungen hinzufügen“ auf Apple Health → Erste Schritte → Zustimmen.",
+              "Tippe auf „Alle Kategorien aktivieren“, dann „Zulassen“, dann „Fertig“."
+            ]
           },
           "habits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Keep Google Health up to date.",
+              "If Google Health shows 'New data types available', review and grant them."
+            ],
+            "de": [
+              "Halte Google Health auf dem neuesten Stand.",
+              "Wenn Google Health „Neue Datentypen verfügbar“ zeigt, überprüfe und erlaube sie."
+            ]
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Google Health doesn't send HRV to Apple Health.",
+              "Needs iOS 16.4 or later and an adult Google Account."
+            ],
+            "de": [
+              "Google Health sendet HRV nicht an Apple Health.",
+              "Braucht iOS 16.4 oder später und ein erwachsenes Google-Konto."
+            ]
           },
           "help_url": "https://support.google.com/googlehealth/answer/17037331?hl=en",
           "sources": [
@@ -1457,8 +1684,14 @@ extension TrackerCatalog {
             "de": []
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Galaxy Watch4, Watch5, Watch6, Watch7, Watch Ultra and Watch FE don't work with iPhone. Samsung says they rely on Google Play services.",
+              "RYFT can't read Galaxy Watch data on iPhone today."
+            ],
+            "de": [
+              "Galaxy Watch4, Watch5, Watch6, Watch7, Watch Ultra und Watch FE funktionieren nicht mit dem iPhone. Samsung sagt, dass sie Google Play Services benötigen.",
+              "RYFT kann Samsung Galaxy Watch-Daten auf dem iPhone derzeit nicht lesen."
+            ]
           },
           "help_url": "https://www.samsung.com/us/support/answer/ANS10004668/",
           "sources": [
@@ -1503,16 +1736,28 @@ extension TrackerCatalog {
           },
           "capability_notes": {},
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open your tracker's app and find Apple Health in its settings.",
+              "Allow all data types when iOS asks.",
+              "To check later: open Health → Summary → your picture → Apps → your tracker's app → Turn On All."
+            ],
+            "de": [
+              "Öffne die App deines Trackers und finde Apple Health in ihren Einstellungen.",
+              "Erlaube alle Datentypen, wenn iOS fragt.",
+              "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → App deines Trackers → Alle aktivieren."
+            ]
           },
           "habits": {
             "en": [],
             "de": []
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "What reaches RYFT depends on your tracker's app. Check sync shows what arrives."
+            ],
+            "de": [
+              "Was RYFT erreicht, hängt von deiner Tracker-App ab. Die Sync-Prüfung zeigt, was ankommt."
+            ]
           },
           "help_url": "https://support.apple.com/en-us/108779",
           "sources": [
@@ -1557,16 +1802,34 @@ extension TrackerCatalog {
           },
           "capability_notes": {},
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Settings → Privacy & Security → Motion & Fitness and turn on Fitness Tracking.",
+              "In Health → Browse → Sleep, set a sleep schedule."
+            ],
+            "de": [
+              "Öffne Einstellungen → Datenschutz & Sicherheit → Bewegung & Fitness und aktiviere Fitnessdaten.",
+              "Öffne Health → Durchsuchen → Schlaf und lege einen Schlafplan fest."
+            ]
           },
           "habits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Carry your iPhone during the day. It counts steps with its own sensors."
+            ],
+            "de": [
+              "Trage dein iPhone tagsüber bei dir. Es zählt Schritte mit seinen eigenen Sensoren."
+            ]
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Without a wearable, iPhone records no heart rate, HRV, resting heart rate, sleep stages, breathing rate or blood oxygen.",
+              "Sleep is an estimate of time in bed from your sleep schedule.",
+              "Heart rate arrives only during workouts with AirPods Pro 3."
+            ],
+            "de": [
+              "Ohne tragbares Gerät erfasst das iPhone keine Herzfrequenz, HRV, Ruhepuls, Schlafphasen, Atemfrequenz oder Blutsauerstoff.",
+              "Schlaf ist eine Schätzung der Bettzeit basierend auf deinem Schlafplan.",
+              "Herzfrequenz kommt nur während Trainings mit AirPods Pro 3 an."
+            ]
           },
           "help_url": "https://support.apple.com/guide/iphone/intro-to-health-data-iphbb8259c61/ios",
           "sources": [
@@ -1589,4 +1852,5 @@ extension TrackerCatalog {
     }
     """#
 }
+// swiftlint:enable line_length
 // END GENERATED trackers.json

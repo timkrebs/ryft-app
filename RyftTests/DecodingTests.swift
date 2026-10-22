@@ -295,7 +295,7 @@ struct TrackerCatalogTests {
         let decoded = try TrackerCatalog.decode(Data(TrackerCatalog.bundledJSON.utf8), now: .now)
         #expect(decoded == TrackerCatalog.bundled)
         let c = TrackerCatalog.bundled
-        #expect(c.version == "2026-10-22.1")
+        #expect(c.version == "2026-10-22.2")
         #expect(c.trackers.map(\.id) == ["apple_watch", "garmin", "oura", "polar", "suunto", "coros", "withings", "amazfit",
                                          "ultrahuman", "fitbit", "samsung_galaxy_watch", "other", "iphone"])
         let garmin = try #require(c.tracker("garmin"))
@@ -305,8 +305,15 @@ struct TrackerCatalogTests {
         #expect(garmin.capabilities.count == TrackerSignal.allCases.count)
         #expect(garmin.appStoreURL?.absoluteString == "https://apps.apple.com/app/id583446403")
         #expect(garmin.help?.host == "support.garmin.com")
-        // T1 carries identity and capabilities; the guide text comes with T5.
-        #expect(garmin.setup == Localized(en: [], de: []) && garmin.notes.isEmpty && c.healthAccess.en.isEmpty)
+        // The guide text, en + de, step for step.
+        #expect(!garmin.setup.en.isEmpty && garmin.setup.en.count == garmin.setup.de.count)
+        #expect(garmin.setup.en.first?.hasPrefix("Open Garmin Connect") == true)
+        #expect(garmin.notes[.hrv] != nil && garmin.notes[.restingHR] != nil)
+        #expect(!c.healthAccess.en.isEmpty && c.healthAccess.en.count == c.healthAccess.de.count)
+        for t in c.trackers {
+            #expect(t.setup.en.count == t.setup.de.count && t.habits.en.count == t.habits.de.count
+                    && t.limits.en.count == t.limits.de.count, "\(t.id)")
+        }
         #expect(c.tracker("samsung_galaxy_watch")?.capabilities.values.allSatisfy { $0 == .no } == true)
         #expect(c.tracker("oura")?.form == .ring && c.tracker("iphone")?.form == .phone)
         // R1 found no guide for Suunto; the App Store page isn't one.
