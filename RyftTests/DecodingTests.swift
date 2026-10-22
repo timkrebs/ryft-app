@@ -222,3 +222,304 @@ struct DecodingTests {
         #expect(score == d.score)
     }
 }
+
+// MARK: - tracker catalog (design.md §2.3–2.5, §4.3, §5)
+
+/// The catalog tests' fixture: a valid copy (Garmin, Apple Watch, iPhone, Other) as JSON, changed by `edit`.
+private enum CatalogFixture {
+    /// 2026-10-22 12:00 UTC: the copies are checked that day.
+    static let now = Date(timeIntervalSince1970: 1_792_670_400)
+
+    static var garmin: [String: Any] {
+        ["id": "garmin", "name": "Garmin", "form": "watch", "app_name": "Garmin Connect", "integration": "vendor_app",
+         "healthkit": ["bundle_ids": ["com.garmin.connect.mobile"], "bundle_id_prefixes": ["com.garmin.connect.mobile"],
+                       "source_names": ["Connect"], "device_models": [String](), "verified": ["bundle_ids": true]],
+         "app_store_id": "583446403",
+         "capabilities": ["heart_rate": "yes", "hrv": "no", "sleep_stages": "unverified"],
+         "capability_notes": ["hrv": ["en": "Garmin Connect doesn't share HRV.", "de": "Garmin Connect teilt keine HRV."]],
+         "setup_steps": ["en": ["Open Garmin Connect."], "de": ["Öffne Garmin Connect."]],
+         "help_url": "https://support.garmin.com/en-US/?faq=lK5FPB9iPF5PXFkIpFlFPA", "checked": "2026-10-22"]
+    }
+
+    static func apple(_ id: String, model: String) -> [String: Any] {
+        ["id": id, "name": id == "iphone" ? "Just my iPhone" : "Apple Watch", "form": id == "iphone" ? "phone" : "watch",
+         "integration": "apple_builtin",
+         "healthkit": ["bundle_id_prefixes": ["com.apple.health."], "device_models": [model]],
+         "help_url": "https://support.apple.com/en-us/108779", "checked": "2026-10-22"]
+    }
+
+    static var other: [String: Any] {
+        ["id": "other", "name": "Other", "form": "other", "app_name": NSNull(), "integration": "unknown", "checked": "2026-10-22"]
+    }
+
+    static func json(_ edit: (inout [String: Any]) -> Void = { _ in }, garmin change: (inout [String: Any]) -> Void = { _ in }) -> Data {
+        var g = garmin
+        change(&g)
+        var doc: [String: Any] = [
+            "schema_version": 1, "version": "2026-10-22.1", "checked": "2026-10-22",
+            "health_access": ["steps": ["en": ["Open Health → Summary → your picture → Apps → RYFT."],
+                                        "de": ["Öffne Health → Übersicht → dein Bild → Apps → RYFT."]],
+                              "checked": "2026-10-22"],
+            "trackers": [g, apple("apple_watch", model: "Watch"), apple("iphone", model: "iPhone"), other],
+        ]
+        edit(&doc)
+        return (try? JSONSerialization.data(withJSONObject: doc)) ?? Data()
+    }
+
+    static func decode(_ edit: (inout [String: Any]) -> Void = { _ in },
+                       garmin change: (inout [String: Any]) -> Void = { _ in }) throws(CatalogError) -> TrackerCatalog {
+        try TrackerCatalog.decode(json(edit, garmin: change), now: now)
+    }
+
+    /// The rule and path a copy is refused for; nil when it's accepted.
+    static func refusal(_ edit: (inout [String: Any]) -> Void = { _ in },
+                        garmin change: (inout [String: Any]) -> Void = { _ in }) -> CatalogError? {
+        do {
+            _ = try decode(edit, garmin: change)
+            return nil
+        } catch {
+            return error
+        }
+    }
+}
+
+private func ref(_ name: String, _ bundleID: String?, _ model: String? = nil) -> SourceRef {
+    SourceRef(name: name, bundleID: bundleID, deviceModel: model)
+}
+
+/// trackers.json: the bundled copy, every validation rule, matching and names (design.md §2.3, §4.3, §5).
+@Suite("Tracker catalog")
+struct TrackerCatalogTests {
+    @Test func theBundledCopyPassesEveryRule() throws {
+        // Against today's clock too, not only the bundled path's (which skips the dates).
+        let decoded = try TrackerCatalog.decode(Data(TrackerCatalog.bundledJSON.utf8), now: .now)
+        #expect(decoded == TrackerCatalog.bundled)
+        let c = TrackerCatalog.bundled
+        #expect(c.version == "2026-10-22.1")
+        #expect(c.trackers.map(\.id) == ["apple_watch", "garmin", "oura", "polar", "suunto", "coros", "withings", "amazfit",
+                                         "ultrahuman", "fitbit", "samsung_galaxy_watch", "other", "iphone"])
+        let garmin = try #require(c.tracker("garmin"))
+        #expect(garmin.appName == "Garmin Connect" && garmin.form == .watch && garmin.integration == .vendorApp)
+        #expect(garmin.capabilities[.hrv] == .no && garmin.capabilities[.restingHR] == .no)
+        #expect(garmin.capabilities[.heartRate] == .yes && garmin.capabilities[.sleepStages] == .unverified)
+        #expect(garmin.capabilities.count == TrackerSignal.allCases.count)
+        #expect(garmin.appStoreURL?.absoluteString == "https://apps.apple.com/app/id583446403")
+        #expect(garmin.help?.host == "support.garmin.com")
+        // T1 carries identity and capabilities; the guide text comes with T5.
+        #expect(garmin.setup == Localized(en: [], de: []) && garmin.notes.isEmpty && c.healthAccess.en.isEmpty)
+        #expect(c.tracker("samsung_galaxy_watch")?.capabilities.values.allSatisfy { $0 == .no } == true)
+        #expect(c.tracker("oura")?.form == .ring && c.tracker("iphone")?.form == .phone)
+        // R1 found no guide for Suunto; the App Store page isn't one.
+        #expect(c.tracker("suunto")?.help == nil)
+        #expect(c.tracker("other")?.help?.host == "support.apple.com")
+    }
+
+    @Test func aValidCopyDecodes() throws {
+        let c = try CatalogFixture.decode()
+        #expect(c.trackers.count == 4)
+        let garmin = try #require(c.tracker("garmin"))
+        #expect(garmin.notes[.hrv] == Localized(en: "Garmin Connect doesn't share HRV.", de: "Garmin Connect teilt keine HRV."))
+        #expect(garmin.setup.de == ["Öffne Garmin Connect."])
+        // A signal the copy leaves out is unverified; for integration none, no.
+        #expect(garmin.capabilities[.spo2] == .unverified)
+        #expect(c.tracker("other")?.capabilities[.steps] == .unverified)
+        #expect(c.healthAccess.en.count == 1)
+        #expect(c.tracker("other")?.identity == SourceIdentity.none)
+    }
+
+    @Test func unknownKeysAndTheContentsStoreURLAreIgnored() throws {
+        let c = try CatalogFixture.decode({
+            $0["status_values"] = ["yes", "no"]
+            $0["future_field"] = ["anything": [1, 2, 3]]
+        }, garmin: {
+            $0["app_store_url"] = "https://apps.apple.com/us/app/garmin-connect/id583446403"
+            $0["sources"] = [["url": "https://support.garmin.com", "covers": "everything"]]
+            $0["capabilities"] = ["heart_rate": "yes", "vo2max": "yes", "blood_pressure": "maybe"]
+        })
+        let garmin = try #require(c.tracker("garmin"))
+        // Storefront-neutral, from the digits: content never supplies a navigable store URL.
+        #expect(garmin.appStoreURL?.absoluteString == "https://apps.apple.com/app/id583446403")
+        #expect(garmin.capabilities[.heartRate] == .yes)
+    }
+
+    @Test func eachRuleRefusesTheWholeCopyNamingItsPath() {
+        typealias Edit = (inout [String: Any]) -> Void
+        func trackers(_ doc: inout [String: Any], _ change: (inout [[String: Any]]) -> Void) {
+            var list = doc["trackers"] as? [[String: Any]] ?? []
+            change(&list)
+            doc["trackers"] = list
+        }
+        func invalid(_ rule: String, _ path: String) -> CatalogError { .invalid(rule: rule, path: path) }
+        let brand = ["wh", "00", "p"].joined()
+
+        // 1: size, JSON, schema.
+        #expect(throws: CatalogError.tooLarge) { try TrackerCatalog.decode(Data(repeating: 0x20, count: 262_145), now: .now) }
+        #expect(throws: CatalogError.notJSON) { try TrackerCatalog.decode(Data("{".utf8), now: .now) }
+        #expect(throws: CatalogError.notJSON) { try TrackerCatalog.decode(Data("[1]".utf8), now: .now) }
+        #expect(throws: CatalogError.notJSON) { try TrackerCatalog.decode(Data([0x7B, 0xFF, 0x7D]), now: .now) }
+        #expect(CatalogFixture.refusal({ $0["schema_version"] = 2 }) == .schema(2))
+        #expect(CatalogFixture.refusal({ $0["schema_version"] = nil }) == .schema(0))
+        #expect(CatalogFixture.refusal({ $0["schema_version"] = "1" }) == .schema(0))
+        // 2: version and dates, never after tomorrow.
+        #expect(CatalogFixture.refusal({ $0["version"] = "2026-10-22" }) == invalid("version", "version"))
+        #expect(CatalogFixture.refusal({ $0["version"] = "2027-01-01.1" }) == invalid("version", "version"))
+        #expect(CatalogFixture.refusal(garmin: { $0["checked"] = "2026-02-30" }) == invalid("date", "trackers[0].checked"))
+        #expect(CatalogFixture.refusal(garmin: { $0["checked"] = "2026-10-25" }) == invalid("date", "trackers[0].checked"))
+        #expect(CatalogFixture.refusal(garmin: { $0["checked"] = "2026-10-23" }) == nil) // tomorrow somewhere already
+        // 3: the list and its ids.
+        #expect(CatalogFixture.refusal({ trackers(&$0) { $0 = Array($0.prefix(1)) } }) == invalid("trackers.count", "trackers"))
+        #expect(CatalogFixture.refusal(garmin: { $0["id"] = "Garmin" }) == invalid("id.format", "trackers[0].id"))
+        #expect(CatalogFixture.refusal({ trackers(&$0) { $0[3]["id"] = "garmin" } }) == invalid("id.duplicate", "trackers[3].id"))
+        #expect(CatalogFixture.refusal({ trackers(&$0) { $0.remove(at: 2) } }) == invalid("id.required", "trackers"))
+        // 4: closed enums; an unknown signal key is ignored (above).
+        #expect(CatalogFixture.refusal(garmin: { $0["form"] = "wristband" }) == invalid("enum.form", "trackers[0].form"))
+        #expect(CatalogFixture.refusal(garmin: { $0["integration"] = "cloud" }) == invalid("enum.integration", "trackers[0].integration"))
+        #expect(CatalogFixture.refusal(garmin: { $0["capabilities"] = ["hrv": "maybe"] })
+                == invalid("enum.capability", "trackers[0].capabilities.hrv"))
+        #expect(CatalogFixture.refusal(garmin: { $0["name"] = 5 }) == invalid("type", "trackers[0].name"))
+        #expect(CatalogFixture.refusal(garmin: { $0["name"] = nil }) == invalid("missing", "trackers[0].name"))
+        // 5: plain text of bounded size, en and de complete.
+        let cases: [(Edit, CatalogError)] = [
+            ({ $0["name"] = String(repeating: "G", count: 41) }, invalid("text.length", "trackers[0].name")),
+            ({ $0["setup_steps"] = ["en": ["Tap <b>Sync</b>."], "de": ["x"]] }, invalid("text.markup", "trackers[0].setup_steps.en[0]")),
+            ({ $0["setup_steps"] = ["en": ["Tap [here](x)."], "de": ["x"]] }, invalid("text.markup", "trackers[0].setup_steps.en[0]")),
+            ({ $0["setup_steps"] = ["en": ["x"], "de": ["Siehe https://example.com"]] }, invalid("text.markup", "trackers[0].setup_steps.de[0]")),
+            ({ $0["habits"] = ["en": ["Visit WWW.example.com"], "de": ["x"]] }, invalid("text.markup", "trackers[0].habits.en[0]")),
+            ({ $0["limits"] = ["en": ["Open \u{202E}tcennoC"], "de": ["x"]] }, invalid("text.control", "trackers[0].limits.en[0]")),
+            ({ $0["limits"] = ["en": ["Zero\u{200B}width"], "de": ["x"]] }, invalid("text.control", "trackers[0].limits.en[0]")),
+            ({ $0["limits"] = ["en": ["Two\nlines"], "de": ["x"]] }, invalid("text.control", "trackers[0].limits.en[0]")),
+            ({ $0["app_name"] = "Not " + brand.uppercased() }, invalid("text.brand", "trackers[0].app_name")),
+            ({ $0["habits"] = ["en": [["W", "h", "o", "o", "p"].joined(separator: ".")], "de": ["x"]] },
+             invalid("text.brand", "trackers[0].habits.en[0]")),
+            ({ $0["setup_steps"] = ["en": [" "], "de": ["x"]] }, invalid("text.empty", "trackers[0].setup_steps.en[0]")),
+            ({ $0["setup_steps"] = ["en": ["a", "b"], "de": ["a"]] }, invalid("text.pair", "trackers[0].setup_steps")),
+            ({ $0["setup_steps"] = ["en": ["a"]] }, invalid("text.pair", "trackers[0].setup_steps")),
+            ({ $0["setup_steps"] = ["en": Array(repeating: "a", count: 13), "de": Array(repeating: "a", count: 13)] },
+             invalid("text.count", "trackers[0].setup_steps")),
+            ({ $0["habits"] = ["en": Array(repeating: "a", count: 9), "de": Array(repeating: "a", count: 9)] },
+             invalid("text.count", "trackers[0].habits")),
+            ({ $0["setup_steps"] = ["en": [String(repeating: "a", count: 241)], "de": ["x"]] },
+             invalid("text.length", "trackers[0].setup_steps.en[0]")),
+            ({ $0["capability_notes"] = ["hrv": ["en": "No HRV."]] }, invalid("text.pair", "trackers[0].capability_notes.hrv")),
+            // 6: identity.
+            ({ $0["healthkit"] = ["bundle_ids": ["com garmin"]] }, invalid("bundle.format", "trackers[0].healthkit.bundle_ids[0]")),
+            ({ $0["healthkit"] = ["bundle_ids": [String(repeating: "a", count: 156)]] },
+             invalid("bundle.format", "trackers[0].healthkit.bundle_ids[0]")),
+            ({ $0["healthkit"] = ["bundle_id_prefixes": ["com.apple.health."]] },
+             invalid("bundle.apple", "trackers[0].healthkit.bundle_id_prefixes[0]")),
+            ({ $0["healthkit"] = ["bundle_ids": ["COM.APPLE.Bridge"]] }, invalid("bundle.apple", "trackers[0].healthkit.bundle_ids[0]")),
+            ({ $0["healthkit"] = ["bundle_ids": ["com.garmin.connect.mobile"], "device_models": ["Watch7,1"]] },
+             invalid("device.format", "trackers[0].healthkit.device_models[0]")),
+            ({ $0["healthkit"] = ["source_names": ["<Connect>"]] }, invalid("text.markup", "trackers[0].healthkit.source_names[0]")),
+            // 7: store id digits only.
+            ({ $0["app_store_id"] = "id583446403" }, invalid("store.format", "trackers[0].app_store_id")),
+            // 8: integration none and unknown carry no identity; none shares nothing.
+            ({ $0["integration"] = "none"; $0["healthkit"] = [String: Any](); $0["capabilities"] = ["steps": "yes"] },
+             invalid("integration.none", "trackers[0].capabilities.steps")),
+            ({ $0["integration"] = "none"; $0["capabilities"] = [String: Any]() }, invalid("integration.identity", "trackers[0].healthkit")),
+            ({ $0["integration"] = "unknown" }, invalid("integration.identity", "trackers[0].healthkit")),
+        ]
+        for (i, (edit, error)) in cases.enumerated() {
+            #expect(CatalogFixture.refusal(garmin: edit) == error, "case \(i)")
+        }
+    }
+
+    @Test func oneBundleIDBelongsToOneTracker() {
+        func add(_ doc: inout [String: Any], healthkit: [String: Any]) {
+            var list = doc["trackers"] as? [[String: Any]] ?? []
+            list.append(["id": "oura", "name": "Oura", "form": "ring", "integration": "vendor_app", "healthkit": healthkit,
+                         "checked": "2026-10-22"])
+            doc["trackers"] = list
+        }
+        // The same ID, an ID under Garmin's prefix, an overlapping prefix: each refused at the later tracker.
+        #expect(CatalogFixture.refusal({ add(&$0, healthkit: ["bundle_ids": ["com.garmin.connect.mobile"]]) })
+                == .invalid(rule: "bundle.duplicate", path: "trackers[4].healthkit.bundle_ids[0]"))
+        #expect(CatalogFixture.refusal({ add(&$0, healthkit: ["bundle_ids": ["com.garmin.connect.mobile.watchkitapp"]]) })
+                == .invalid(rule: "bundle.duplicate", path: "trackers[4].healthkit.bundle_ids[0]"))
+        #expect(CatalogFixture.refusal({ add(&$0, healthkit: ["bundle_id_prefixes": ["com.garmin"]]) })
+                == .invalid(rule: "bundle.duplicate", path: "trackers[4].healthkit.bundle_id_prefixes[0]"))
+        // A neighbour that only starts with the same letters is another app.
+        #expect(CatalogFixture.refusal({ add(&$0, healthkit: ["bundle_ids": ["com.garmin.connect.mobile2"]]) }) == nil)
+        // Apple Watch and iPhone share their prefix: their devices tell them apart.
+        #expect(CatalogFixture.refusal() == nil)
+    }
+
+    @Test func helpLinksStayOnTheTrackersOwnHosts() throws {
+        func help(_ url: String, id: String = "garmin") throws -> URL? {
+            try CatalogFixture.decode(garmin: { $0["help_url"] = url; $0["id"] = id; if id != "garmin" { $0["healthkit"] = nil } })
+                .tracker(id)?.help
+        }
+        #expect(try help("https://support.garmin.com/en-US/")?.host == "support.garmin.com")
+        #expect(try help("https://garmin.com/")?.host == "garmin.com")
+        #expect(try help("https://ryftapp.de/setup/garmin")?.host == "ryftapp.de")
+        // Dropped, the rest of the copy kept: another host, a look-alike, http, a port, user info.
+        #expect(try help("https://evil.example/garmin") == nil)
+        #expect(try help("https://support.garmin.com.evil.example/") == nil)
+        #expect(try help("https://notgarmin.com/") == nil)
+        #expect(try help("http://support.garmin.com/") == nil)
+        #expect(try help("https://support.garmin.com:8443/") == nil)
+        #expect(try help("https://me@support.garmin.com/") == nil)
+        #expect(try help("javascript:alert(1)") == nil)
+        // Another tracker's host isn't Garmin's; a new id has only RYFT's until a release lists it.
+        #expect(try help("https://support.ouraring.com/") == nil)
+        #expect(try help("https://support.garmin.com/", id: "newtracker") == nil)
+        #expect(try help("https://ryftapp.de/setup", id: "newtracker")?.host == "ryftapp.de")
+    }
+
+    // MARK: matching and names
+
+    @Test func sourcesMatchByBundleIDAtADotBoundary() {
+        let c = TrackerCatalog.bundled
+        #expect(c.match(ref("Connect", "com.garmin.connect.mobile"))?.id == "garmin")
+        #expect(c.match(ref("Connect", "com.garmin.connect.mobile.watchkitapp"))?.id == "garmin")
+        #expect(c.match(ref("Connect", "COM.Garmin.Connect.Mobile"))?.id == "garmin")
+        #expect(c.match(ref("Connect", "com.garmin.connect.mobile2")) == nil)
+        #expect(c.match(ref("Google Health", "com.fitbit.FitbitMobile"))?.id == "fitbit")
+        #expect(c.match(ref("Oura", "com.ouraring.oura"))?.id == "oura")
+    }
+
+    @Test func appleDevicesAreToldApartByTheirModel() {
+        let c = TrackerCatalog.bundled
+        #expect(c.match(ref("Tim's Apple Watch", "com.apple.health.4B1C2D3E", "Watch"))?.id == "apple_watch")
+        #expect(c.match(ref("Tim's iPhone", "com.apple.health.3F0A9B8C", "iPhone"))?.id == "iphone")
+        // Without a device model (a platform `User.sources` row), neither: HealthKit's name stays.
+        #expect(c.match(ref("Tim's Apple Watch", "com.apple.health.4B1C2D3E")) == nil)
+        #expect(c.match(ref("Tim's iPad", "com.apple.health.77AA", "iPad")) == nil)
+    }
+
+    @Test func namesMatchOnlyWithoutABundleID() {
+        let c = TrackerCatalog.bundled
+        #expect(c.match(ref("Connect", nil))?.id == "garmin")
+        #expect(c.match(ref("  connect ", nil))?.id == "garmin")
+        #expect(c.match(ref("Health Mate", nil))?.id == "withings")
+        #expect(c.match(ref("ÖURA", nil))?.id == "oura") // case and diacritics aside
+        // A bundle ID always wins: a renamed source named "Connect" from another app isn't Garmin.
+        #expect(c.match(ref("Connect", "com.example.connect")) == nil)
+        #expect(c.match(ref("", nil)) == nil)
+    }
+
+    @Test func displayNamesAreTheAppsOrTheDevicesOwn() {
+        let c = TrackerCatalog.bundled
+        #expect(c.displayName(ref("Connect", "com.garmin.connect.mobile")) == "Garmin Connect")
+        #expect(c.displayName(ref("Connect", nil)) == "Garmin Connect")
+        #expect(c.displayName(ref("Fitbit", "com.fitbit.FitbitMobile")) == "Google Health")
+        #expect(c.displayName(ref("Tim's Apple Watch", "com.apple.health.4B1C", "Watch")) == "Tim's Apple Watch")
+        // Unknown sources keep HealthKit's name.
+        #expect(c.displayName(ref("Sleep Diary", "com.example.sleep")) == "Sleep Diary")
+        #expect(c.displayName(ref("Connect", "com.garmin.connect.mobile2")) == "Connect")
+    }
+
+    @Test func localizedTextFollowsTheAppsLanguage() {
+        let text = Localized(en: "Open Garmin Connect.", de: "Öffne Garmin Connect.")
+        #expect(text.value(for: "de") == text.de && text.value(for: "de-DE") == text.de && text.value(for: "DE_at") == text.de)
+        #expect(text.value(for: "en") == text.en && text.value(for: "fr") == text.en && text.value(for: nil) == text.en)
+        #expect(text.current == text.value(for: Bundle.main.preferredLocalizations.first))
+    }
+
+    @Test func signalsMapToTheirStreams() {
+        #expect(TrackerSignal.hrv.stream == .quantity(.hrvSDNN))
+        #expect(TrackerSignal.restingHR.stream == .quantity(.restingHR))
+        #expect(TrackerSignal.sleepStages.stream == nil)
+        #expect(TrackerSignal.allCases.count == 9)
+    }
+}

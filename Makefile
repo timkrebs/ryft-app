@@ -1,4 +1,4 @@
-.PHONY: config build test icon fonts screenshots lint check-entitlements strings style format archive
+.PHONY: config build test icon fonts screenshots lint check-entitlements strings style format archive trackers
 
 # Ryft.xcodeproj is the source of truth (CLAUDE.md): change targets, capabilities
 # and packages in Xcode itself.
@@ -33,10 +33,16 @@ screenshots:
 strings: build
 	python3 scripts/sync-strings.py --derived-data $(DERIVED)
 
-# String catalogs complete in English and German, nothing stale.
+# String catalogs complete in English and German, nothing stale; the bundled tracker catalog current.
 lint: check-entitlements
 	python3 scripts/lint-strings.py
 	python3 scripts/check-shared-types.py
+	python3 scripts/trackers.py --check
+
+# The tracker catalog's bundled copy: Content/trackers.json into its generated region at the end of
+# Ryft/Health/HealthKitManager+Status.swift (ADR 0002). Run after editing the JSON.
+trackers:
+	python3 scripts/trackers.py --write
 
 # Every key in Ryft.entitlements has a capability; no empty arrays (CLAUDE.md → signing).
 check-entitlements:
