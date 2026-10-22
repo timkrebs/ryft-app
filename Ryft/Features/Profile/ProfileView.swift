@@ -1437,8 +1437,11 @@ struct TrackerCheckView: View {
         }
     }
 
+    /// Teal when it's the screen's one action; secondary inside onboarding's setup step, whose Done is.
     private var checkAgain: some View {
-        PrimaryButton(title: model.isRunning ? "Checking…" : "Check again") { await model.run(stagger: !reduceMotion) }
+        PrimaryButton(title: model.isRunning ? "Checking…" : "Check again", style: embedded ? .secondary : .primary) {
+            await model.run(stagger: !reduceMotion)
+        }
             .disabled(model.isRunning || model.phase == .unavailable)
             .accessibilityLabel(model.isRunning ? Text("Checking") : Text("Check again"))
             .accessibilityIdentifier("check.run")
