@@ -122,6 +122,8 @@ struct RyftApp: App {
                     if old != nil { state.reset() }
                     // That account's gates, steps and sync state are its own.
                     screens.onboarding.switchAccount(new)
+                    // Its last requests and a report's draft too: nothing of A's goes out as B.
+                    screens.profile.accountChanged(from: old)
                     // The previous account's reminders and alarms go; this one's come back.
                     Task { await screens.bedtime.accountChanged() }
                     sync.accountChanged()
@@ -167,6 +169,8 @@ struct RyftApp: App {
                     guard online else { return }
                     Task { await coordinator.run(.reconnect) }
                     Task { await refreshTrain() }
+                    // Reports saved offline (Profile → Report a problem).
+                    Task(priority: .utility) { await screens.profile.report.flush() }
                 }
                 // Runs at launch (restored session) and again after each sign-in.
                 .task(id: BootstrapKey(account: auth.accountID, healthIntroDone: settings.healthIntroDone,
@@ -213,6 +217,11 @@ struct RyftApp: App {
                 Task(priority: .utility) {
                     await LaunchSignpost.afterFirstFrame()
                     await screens.bedtime.refresh()
+                }
+                // Reports still waiting (saved offline, or the platform was busy).
+                Task(priority: .utility) {
+                    await LaunchSignpost.afterFirstFrame()
+                    await screens.profile.report.flush()
                 }
                 // Saving workouts follows what Health allows now; a watch workout that arrived
                 // after a session replaces RYFT's in Fitness.
@@ -441,6 +450,12 @@ enum DebugScreen: String {
     case invite, consent, aboutYou, aboutYouSaved, accountHint, signInMethods, syncDetails, baselineSleepNeed, sleepNeed
     /// Bedtime & wake's editor, and Tonight with the default schedule.
     case bedtime, tonight
+    /// Profile → About → Report a problem: the form, from Details, and its results.
+    case reportProblem = "report-problem", reportProblemDetails = "report-problem-details"
+    case reportProblemSent = "report-problem-sent", reportProblemQueued = "report-problem-queued"
+    case reportProblemRateLimited = "report-problem-rate-limited"
+    /// "What's included" open, scrolled to it.
+    case reportProblemIncluded = "report-problem-included"
 
     static var requested: DebugScreen? {
         UserDefaults.standard.string(forKey: "RyftScreen").flatMap(DebugScreen.init(rawValue:))
@@ -466,6 +481,9 @@ enum DebugScreen: String {
             DebugBodySettings(screen: self)
         case .bedtime, .tonight:
             DebugBedtime(screen: self)
+        case .reportProblem, .reportProblemDetails, .reportProblemSent, .reportProblemQueued,
+             .reportProblemRateLimited, .reportProblemIncluded:
+            DebugReportProblem(screen: self)
         }
     }
 
@@ -501,6 +519,35 @@ private struct DebugBodySettings: View {
             SleepNeedSheet(need: MockData.todayDetail.sleep?.need, total: "8h 58m", editor: screens.bodySettings)
         } else {
             NavigationStack { BaselineSleepNeedForm(editor: screens.bodySettings, showsClose: true) }
+        }
+    }
+}
+
+/// Report a problem in one state: staged before the screen appears, so it isn't reset.
+private struct DebugReportProblem: View {
+    let screen: DebugScreen
+    @Environment(ScreenModels.self) private var screens
+    @State private var ready = false
+
+    var body: some View {
+        NavigationStack {
+            if ready {
+                ReportProblemView(model: screens.profile.report,
+                                  context: screen == .reportProblemDetails ? .preview : nil,
+                                  showsIncluded: screen == .reportProblemIncluded)
+                    .defaultScrollAnchor(screen == .reportProblemIncluded ? .bottom : .top)
+            }
+        }
+        .task {
+            let model = screens.profile.report
+            let message = "Pulling to refresh on Today showed an error, then the numbers came back."
+            switch screen {
+            case .reportProblemSent: model.stage(result: .sent)
+            case .reportProblemQueued: model.stage(result: .queued, waiting: 1)
+            case .reportProblemRateLimited: model.stage(message: message, result: .rateLimited)
+            default: break
+            }
+            ready = true
         }
     }
 }

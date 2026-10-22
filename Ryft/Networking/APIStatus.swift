@@ -77,4 +77,29 @@ final class APIStatus {
         gates = []
         inviteBlocked = false
     }
+
+    /// Another account (or signed out): the last requests were the previous one's, and Report a problem sends them.
+    /// A response to a request started before arrives in an older `epoch` and is dropped.
+    func forgetRequests() {
+        epoch += 1
+        requests = []
+        failures = []
+    }
+
+    /// Bumped by `forgetRequests()`. `APIClient` notes it when a request starts.
+    private(set) var epoch = 0
+
+    /// `served`, `record` and `observe` for a request that started in `epoch`: nothing when the account changed
+    /// since (a late 503 retry, a 429 wait or a slow timeout of the previous account's).
+    func served(_ request: RequestFailure, epoch: Int) {
+        if epoch == self.epoch { served(request) }
+    }
+
+    func record(_ failure: RequestFailure, epoch: Int) {
+        if epoch == self.epoch { record(failure) }
+    }
+
+    func observe(_ codes: Set<APIErrorCode>, enforced: Bool, epoch: Int) {
+        if epoch == self.epoch { observe(codes, enforced: enforced) }
+    }
 }
