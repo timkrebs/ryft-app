@@ -181,3 +181,21 @@ The implementer (ios-developer) reports 781/781 unit tests, `DevicesUITests` 5/5
   - reset catalog state on account change;
   - remove `onboarding.*.<uuid>` keys on account deletion.
 - **Moved to T1:** the ryftapp.de help-path prefix (item 31). The User-Agent stays as it is.
+
+### ui-validator (iPhone 18 Pro Max, 28 screenshots, `DevicesUITests` 5/5): no blockers
+- **Should-fix: German "Ruheherzfrequenz" vs the app's "Ruhepuls".** → `Resting heart rate` and `resting heart rate` (de) →
+  Ruhepuls; the guide text too.
+- **Should-fix: glyphs (errata 1).** The Devices & sync row and the picker header use `watch.analog`. → Use
+  `antenna.radiowaves.left.and.right`. The iPhone glyph is chosen by id (security #6).
+- **Should-fix: `NumberedStep`'s 18 pt badge clips at AX3.** → `@ScaledMetric`; tile glyphs scale too.
+- **Should-fix: the bundled catalog has no guide text.** → T5's content goes into T1 before T2 rebases; the flag stays off
+  until it's in.
+- **Should-fix: two "Show me again later" buttons with different meanings.** → The one in the card becomes "Set up
+  {tracker} later".
+- **Nits, to be done:**
+  - about 6 pt of padding on capability rows that carry a detail line;
+  - a no-break space before "✓" in the features line;
+  - Profile → Data's "Open Health permissions" → "Open Health" with the path, per errata 3;
+  - recapture the German screenshots (the implementer's `*-de.png` are English).
+- **Nits, left as they are:** step 4 combines the iOS part (catalog content); no store caption; Apple sources keep
+  HealthKit's device names; 12-hour time follows the region.
