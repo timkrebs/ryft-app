@@ -65,13 +65,68 @@ struct TrackerCatalog: Equatable, Sendable {
 
     /// Parses and validates a copy (§2.3, §2.5): any structural error rejects the whole document, unknown
     /// keys are ignored, a help link off the allowlist is dropped. Pure and nonisolated: callers run it off
-    /// the main actor. `now` bounds the dates ("not after tomorrow").
+    /// the main actor. `now` bounds the dates ("not after tomorrow"). Hostile input costs little: the size
+    /// and the nesting are checked on the bytes before anything is parsed.
     static func decode(_ data: Data, now: Date) throws(CatalogError) -> TrackerCatalog {
         guard data.count <= maxBytes else { throw .tooLarge }
+        guard nesting(data) <= maxDepth else { throw .invalid(rule: "depth", path: "") }
         guard String(data: data, encoding: .utf8) != nil,
-              let json = try? JSONDecoder().decode(CatalogJSON.self, from: data),
-              case .object(let root) = json else { throw .notJSON }
+              let parsed = try? JSONSerialization.jsonObject(with: data),
+              let json = CatalogJSON(parsed), case .object(let root) = json else { throw .notJSON }
+        try CatalogValidator.checkBrand(json)
         return try CatalogValidator(now: now).catalog(root)
+    }
+
+    /// The denylisted brand's pattern (the hook's), and the app's check for it on folded text: for tests.
+    static var brandPattern: String { CatalogValidator.brandPattern }
+    static func containsBrand(_ s: String) -> Bool { CatalogValidator.hasBrand(s) }
+
+    /// trackers.json needs 5 levels; deeper is refused unparsed (the parser recurses).
+    static let maxDepth = 8
+
+    /// The deepest nesting of objects and arrays, counted on the bytes outside strings; it stops counting
+    /// once past `maxDepth`.
+    static func nesting(_ data: Data) -> Int {
+        data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) -> Int in
+            var depth = 0, deepest = 0, inString = false, escaped = false
+            for byte in bytes {
+                if inString {
+                    if escaped {
+                        escaped = false
+                    } else if byte == 0x5C {
+                        escaped = true
+                    } else if byte == 0x22 {
+                        inString = false
+                    }
+                    continue
+                }
+                switch byte {
+                case 0x22: inString = true
+                case 0x5B, 0x7B:
+                    depth += 1
+                    deepest = max(deepest, depth)
+                    if deepest > maxDepth { return deepest }
+                case 0x5D, 0x7D: depth -= 1
+                default: break
+                }
+            }
+            return deepest
+        }
+    }
+
+    /// `YYYY-MM-DD.N` as (date, N), for "the newest version wins" (T2): by date, then N as a number, so
+    /// ".10" comes after ".9". `nil` for anything else.
+    static func versionOrder(_ version: String) -> (date: String, n: Int)? {
+        guard CatalogValidator.matches(version, CatalogValidator.versionPattern),
+              let dot = version.firstIndex(of: "."), let n = Int(version[version.index(after: dot)...]) else { return nil }
+        return (String(version[..<dot]), n)
+    }
+
+    /// `version` is newer than `other`; an unreadable version is never newer, and anything readable beats one.
+    static func isNewer(_ version: String, than other: String) -> Bool {
+        guard let a = versionOrder(version) else { return false }
+        guard let b = versionOrder(other) else { return true }
+        return a > b
     }
 
     /// The generated literal, decoded once on first use. Its dates aren't held against the clock (a phone
@@ -101,7 +156,7 @@ struct Tracker: Equatable, Sendable, Identifiable {
     let appName: String?
     let integration: Integration
     let identity: SourceIdentity
-    /// Digits only: the store link is built from it, never taken from content.
+    /// The build's App Store id for this tracker id (`CatalogValidator.storeIDs`): content can't change it.
     let appStoreID: String?
     /// Every signal: a key the copy left out is `.unverified` (`.no` for integration `none`).
     let capabilities: [TrackerSignal: Capability]
@@ -109,7 +164,7 @@ struct Tracker: Equatable, Sendable, Identifiable {
     let setup: Localized<[String]>
     let habits: Localized<[String]>
     let limits: Localized<[String]>
-    /// The vendor's guide; dropped when its host isn't on the compiled allowlist (§2.5).
+    /// The vendor's guide; dropped unless its host is exactly one the build lists for this tracker (§2.5).
     let help: URL?
     /// YYYY-MM-DD, when the facts were last checked against the vendor.
     let checked: String
@@ -216,52 +271,171 @@ extension AppEnvironment {
 }
 
 /// JSON as it came, its types kept (a bool is no number), so every rule can name the exact path.
-private enum CatalogJSON: Decodable {
+private enum CatalogJSON {
     case object([String: CatalogJSON]), array([CatalogJSON]), string(String), number(Double), bool(Bool), null
 
-    init(from decoder: Decoder) throws {
-        let c = try decoder.singleValueContainer()
-        if c.decodeNil() {
-            self = .null
-        } else if let b = try? c.decode(Bool.self) {
-            self = .bool(b)
-        } else if let n = try? c.decode(Double.self) {
-            self = .number(n)
-        } else if let s = try? c.decode(String.self) {
-            self = .string(s)
-        } else if let a = try? c.decode([CatalogJSON].self) {
-            self = .array(a)
-        } else {
-            self = .object(try c.decode([String: CatalogJSON].self))
+    /// From `JSONSerialization`'s objects (the nesting is bounded before parsing, `TrackerCatalog.nesting`).
+    init?(_ value: Any) {
+        switch value {
+        case let s as String: self = .string(s)
+        case let n as NSNumber:
+            self = CFGetTypeID(n) == CFBooleanGetTypeID() ? .bool(n.boolValue) : .number(n.doubleValue)
+        case let items as [Any]:
+            var array: [CatalogJSON] = []
+            array.reserveCapacity(items.count)
+            for item in items {
+                guard let json = CatalogJSON(item) else { return nil }
+                array.append(json)
+            }
+            self = .array(array)
+        case let fields as [String: Any]:
+            var object: [String: CatalogJSON] = [:]
+            for (key, item) in fields {
+                guard let json = CatalogJSON(item) else { return nil }
+                object[key] = json
+            }
+            self = .object(object)
+        case is NSNull: self = .null
+        default: return nil
+        }
+    }
+
+    /// Every string, keys included; with its path only when asked (`path(where:)`, on a hit).
+    func strings(into result: inout [String]) {
+        switch self {
+        case .string(let s):
+            result.append(s)
+        case .array(let items):
+            for item in items { item.strings(into: &result) }
+        case .object(let fields):
+            for (key, value) in fields {
+                result.append(key)
+                value.strings(into: &result)
+            }
+        case .number, .bool, .null:
+            break
+        }
+    }
+
+    /// The path of the first string (or key) that `test` accepts.
+    func path(at path: String = "", where test: (String) -> Bool) -> String? {
+        switch self {
+        case .string(let s):
+            return test(s) ? path : nil
+        case .array(let items):
+            for (i, item) in items.enumerated() {
+                if let hit = item.path(at: "\(path)[\(i)]", where: test) { return hit }
+            }
+            return nil
+        case .object(let fields):
+            for (key, value) in fields {
+                let at = path.isEmpty ? key : "\(path).\(key)"
+                if test(key) { return at }
+                if let hit = value.path(at: at, where: test) { return hit }
+            }
+            return nil
+        case .number, .bool, .null:
+            return nil
         }
     }
 }
 
 /// The rules of design.md §2.3 and the trust rules of §2.5, each failure named `rule` at `path`
-/// ("text.markup" at "trackers[3].setup_steps.de[2]").
+/// ("text.markup" at "trackers[3].setup_steps.de[2]"). Written for a hostile remote copy: every list is
+/// capped, the brand check sees every string, and nothing a copy says can claim an Apple device, a store
+/// page or a link host the build doesn't list.
 private struct CatalogValidator {
     let now: Date
 
     /// The denylisted brand, as `.claude/hooks/pre-edit-guard.sh` has it (`scripts/trackers.py --check`
-    /// keeps the two equal).
+    /// keeps the two equal). Matched on folded text (`folded`).
     static let brandPattern = #"wh[o0]{2}p|w[-. ]h[-. ]o[-. ]o[-. ]p"#
-    /// Help links: these hosts and their subdomains per tracker id, and RYFT's own for any. Compiled on
-    /// purpose: a new vendor domain needs a release.
-    static let helpHosts: [String: [String]] = [
-        "garmin": ["garmin.com"], "oura": ["ouraring.com"], "polar": ["polar.com"], "suunto": ["suunto.com"],
-        "coros": ["coros.com"], "withings": ["withings.com"], "amazfit": ["amazfit.com", "zepp.com"],
-        "ultrahuman": ["ultrahuman.com"], "fitbit": ["google.com"], "samsung_galaxy_watch": ["samsung.com"],
-        "apple_watch": ["apple.com"], "iphone": ["apple.com"], "other": ["apple.com"],
+    static let versionPattern = #"[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]{1,3}"#
+    /// Help links: exactly these hosts per tracker id, and RYFT's own for any. Compiled on purpose: a new
+    /// vendor page host needs a release.
+    static let helpHosts: [String: Set<String>] = [
+        "garmin": ["support.garmin.com"], "oura": ["support.ouraring.com"], "polar": ["support.polar.com"],
+        "coros": ["support.coros.com"], "withings": ["support.withings.com"], "amazfit": ["support.amazfit.com"],
+        "ultrahuman": ["www.ultrahuman.com"], "fitbit": ["support.google.com"], "samsung_galaxy_watch": ["www.samsung.com"],
+        "apple_watch": ["support.apple.com"], "iphone": ["support.apple.com"], "other": ["support.apple.com"],
     ]
+    /// On a shared host, the vendor's own part of it.
+    static let helpPaths: [String: [String]] = ["fitbit": ["/googlehealth/", "/fitbit/"]]
     static let anyHelpHost = "ryftapp.de"
+    /// App Store ids per tracker id: content can't point a store button anywhere else.
+    static let storeIDs: [String: String] = [
+        "apple_watch": "1069511734", "garmin": "583446403", "oura": "1043837948", "polar": "717172678",
+        "suunto": "1230327951", "coros": "1277625343", "withings": "542701020", "amazfit": "1127269366",
+        "ultrahuman": "1491286709", "fitbit": "462638897", "iphone": "1242545199",
+    ]
+    /// The only trackers that may claim Apple's bundle IDs and device models.
     static let appleTrackers: Set<String> = ["apple_watch", "iphone"]
+    /// Each identity list (bundle IDs, prefixes, source names, device models).
+    static let maxIdentities = 8
+    /// The text rules in one regular expression, compiled once, one native scan per string. Its groups, in
+    /// order: control, format (bidi overrides, zero-width), private-use, unassigned and separator characters;
+    /// letters of another script than Latin (look-alikes); markup, links and addresses.
+    static let refusedText = try? NSRegularExpression(
+        pattern: #"([\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}])|([^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}])|"#
+            + #"(<|>|\]\(|://|www\.|@|mailto:|tel:)"#,
+        options: [.caseInsensitive])
+    static let refusedTextRules = ["text.control", "text.script", "text.markup"]
+
+    /// The rule `s` breaks, if any; a pattern that didn't compile refuses everything (fail closed).
+    static func refusal(_ s: String) -> String? {
+        guard let regex = refusedText else { return "text.control" }
+        guard let match = regex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) else { return nil }
+        return (1...3).first { match.range(at: $0).location != NSNotFound }.map { refusedTextRules[$0 - 1] } ?? "text.control"
+    }
+
+    /// Compatibility forms, case, diacritics and width folded away: "ＷＨ…", "w\u{301}h…" read as plain letters.
+    static func folded(_ s: String) -> String {
+        s.precomposedStringWithCompatibilityMapping
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+    }
+
+    /// The brand in any string of the copy, keys included (ids, bundle IDs, URLs, keys the app ignores):
+    /// one search over all of it, folded (a line break can't be part of the pattern); the path only on a hit.
+    static func checkBrand(_ json: CatalogJSON) throws(CatalogError) {
+        var strings: [String] = []
+        json.strings(into: &strings)
+        guard hasBrand(strings.joined(separator: "\n")) else { return }
+        throw .invalid(rule: "text.brand", path: json.path(where: hasBrand) ?? "")
+    }
+
+    /// `brandPattern` on folded text, as a scan of its bytes: the same two forms ("wh", two of "o0", "p"; or
+    /// its letters each followed by one of "-. "), without a regular expression's cost on 256 KiB
+    /// (`DecodingTests` holds the two to the same answers).
+    static func hasBrand(_ s: String) -> Bool {
+        var text = folded(s)
+        return text.withUTF8 { (b: UnsafeBufferPointer<UInt8>) -> Bool in
+            let n = b.count
+            func any(_ i: Int, _ set: (UInt8, UInt8, UInt8)) -> Bool {
+                i < n && (b[i] == set.0 || b[i] == set.1 || b[i] == set.2)
+            }
+            let o0: (UInt8, UInt8, UInt8) = (0x6F, 0x30, 0x6F), sep: (UInt8, UInt8, UInt8) = (0x2D, 0x2E, 0x20)
+            let h: (UInt8, UInt8, UInt8) = (0x68, 0x68, 0x68), o: (UInt8, UInt8, UInt8) = (0x6F, 0x6F, 0x6F)
+            let p: (UInt8, UInt8, UInt8) = (0x70, 0x70, 0x70)
+            var i = 0
+            while i < n {
+                if b[i] == 0x77 {
+                    if any(i + 1, h), any(i + 2, o0), any(i + 3, o0), any(i + 4, p) { return true }
+                    if any(i + 1, sep), any(i + 2, h), any(i + 3, sep), any(i + 4, o), any(i + 5, sep), any(i + 6, o),
+                       any(i + 7, sep), any(i + 8, p) { return true }
+                }
+                i += 1
+            }
+            return false
+        }
+    }
 
     func catalog(_ root: [String: CatalogJSON]) throws(CatalogError) -> TrackerCatalog {
         guard case .number(let schema)? = root["schema_version"] else { throw .schema(0) }
         guard schema == 1 else { throw .schema(Int(exactly: schema) ?? 0) }
         let version = try string(root, "version", "", required: true) ?? ""
-        guard Self.matches(version, #"[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]{1,3}"#), isDate(String(version.prefix(10)))
-        else { throw .invalid(rule: "version", path: "version") }
+        guard Self.matches(version, Self.versionPattern), isDate(String(version.prefix(10))) else {
+            throw .invalid(rule: "version", path: "version")
+        }
         if let checked = try string(root, "checked", "", required: false) { try date(checked, "checked") }
 
         var healthAccess = Localized<[String]>(en: [], de: [])
@@ -275,17 +449,14 @@ private struct CatalogValidator {
         guard case .array(let items)? = root["trackers"] else { throw .invalid(rule: "missing", path: "trackers") }
         guard (2...40).contains(items.count) else { throw .invalid(rule: "trackers.count", path: "trackers") }
         var trackers: [Tracker] = []
+        var ids: Set<String> = []
         for (i, item) in items.enumerated() {
             guard case .object(let t) = item else { throw .invalid(rule: "type", path: "trackers[\(i)]") }
             let tracker = try self.tracker(t, "trackers[\(i)]")
-            guard !trackers.contains(where: { $0.id == tracker.id }) else {
-                throw .invalid(rule: "id.duplicate", path: "trackers[\(i)].id")
-            }
+            guard ids.insert(tracker.id).inserted else { throw .invalid(rule: "id.duplicate", path: "trackers[\(i)].id") }
             trackers.append(tracker)
         }
-        guard trackers.contains(where: { $0.id == "iphone" }), trackers.contains(where: { $0.id == "other" }) else {
-            throw .invalid(rule: "id.required", path: "trackers")
-        }
+        guard ids.contains("iphone"), ids.contains("other") else { throw .invalid(rule: "id.required", path: "trackers") }
         try Self.checkOwnership(trackers)
         return TrackerCatalog(version: version, trackers: trackers, healthAccess: healthAccess)
     }
@@ -310,9 +481,10 @@ private struct CatalogValidator {
             throw .invalid(rule: "integration.identity", path: "\(path).healthkit")
         }
 
-        let storeID = try string(t, "app_store_id", path, required: false)
-        if let storeID, !Self.matches(storeID, "[0-9]{1,12}") {
-            throw .invalid(rule: "store.format", path: "\(path).app_store_id")
+        // The store page is the build's: content may repeat the pinned id, never change or add one.
+        if let storeID = try string(t, "app_store_id", path, required: false) {
+            guard Self.matches(storeID, "[0-9]{1,12}") else { throw .invalid(rule: "store.format", path: "\(path).app_store_id") }
+            guard storeID == Self.storeIDs[id] else { throw .invalid(rule: "store.pinned", path: "\(path).app_store_id") }
         }
         let help = try string(t, "help_url", path, required: false).flatMap { Self.helpURL($0, trackerID: id) }
         let checked = try string(t, "checked", path, required: true) ?? ""
@@ -335,31 +507,45 @@ private struct CatalogValidator {
         let habits = try list(t, "habits", path, max: 8)
         let limits = try list(t, "limits", path, max: 8)
         return Tracker(id: id, name: name, form: form, appName: appName, integration: integration, identity: identity,
-                       appStoreID: storeID, capabilities: capabilities, notes: notes, setup: setup, habits: habits,
+                       appStoreID: Self.storeIDs[id], capabilities: capabilities, notes: notes, setup: setup, habits: habits,
                        limits: limits, help: help, checked: checked)
     }
 
+    /// Bundle IDs and prefixes lowercased once here. Outside Apple's own trackers nothing may name or cover
+    /// Apple's IDs, a prefix needs three labels, and device models (how Apple's trackers tell each other
+    /// apart) are Apple's only.
     private func identity(_ t: [String: CatalogJSON], id: String, _ path: String) throws(CatalogError) -> SourceIdentity {
         guard let hk = try object(t, "healthkit", path) else { return .none }
         let at = "\(path).healthkit"
-        let ids = try strings(hk, "bundle_ids", at), prefixes = try strings(hk, "bundle_id_prefixes", at)
-        for (key, values) in [("bundle_ids", ids), ("bundle_id_prefixes", prefixes)] {
-            for (j, value) in values.enumerated() {
-                guard value.count <= 155, Self.matches(value, #"[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.?"#) else {
+        let apple = Self.appleTrackers.contains(id)
+        var lists: [String: [String]] = [:]
+        for key in ["bundle_ids", "bundle_id_prefixes"] {
+            var values: [String] = []
+            for (j, raw) in try strings(hk, key, at).enumerated() {
+                guard raw.utf8.count <= 155, Self.matches(raw, #"[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.?"#) else {
                     throw .invalid(rule: "bundle.format", path: "\(at).\(key)[\(j)]")
                 }
-                guard !value.lowercased().hasPrefix("com.apple.") || Self.appleTrackers.contains(id) else {
+                let value = raw.lowercased()
+                let bare = Self.bare(value)
+                if !apple, bare == "com" || bare.hasPrefix("com.apple") || SourceIdentity.covers(value, "com.apple.x") {
                     throw .invalid(rule: "bundle.apple", path: "\(at).\(key)[\(j)]")
                 }
+                if key == "bundle_id_prefixes", bare.split(separator: ".").count < 3 {
+                    throw .invalid(rule: "bundle.prefix", path: "\(at).\(key)[\(j)]")
+                }
+                values.append(value)
             }
+            lists[key] = values
         }
         let names = try strings(hk, "source_names", at)
         for (j, name) in names.enumerated() { try text(name, max: 40, "\(at).source_names[\(j)]") }
         let models = try strings(hk, "device_models", at)
+        if !models.isEmpty, !apple { throw .invalid(rule: "device.apple", path: "\(at).device_models") }
         for (j, model) in models.enumerated() where !Self.matches(model, "[A-Za-z]{2,16}") {
             throw .invalid(rule: "device.format", path: "\(at).device_models[\(j)]")
         }
-        return SourceIdentity(bundleIDs: ids, bundlePrefixes: prefixes, sourceNames: names, deviceModels: models)
+        return SourceIdentity(bundleIDs: lists["bundle_ids"] ?? [], bundlePrefixes: lists["bundle_id_prefixes"] ?? [],
+                              sourceNames: names, deviceModels: models)
     }
 
     private func capabilities(_ t: [String: CatalogJSON], integration: Tracker.Integration,
@@ -380,30 +566,46 @@ private struct CatalogValidator {
     }
 
     /// One bundle ID belongs to one tracker: no ID twice, no ID under another tracker's prefix, and
-    /// prefixes overlap only between trackers told apart by device (Apple Watch and iPhone).
+    /// prefixes overlap only between the trackers told apart by device (Apple Watch and iPhone). Lookups by
+    /// each ID's dot-boundary ancestors in a table of prefixes: linear in the copy's size.
     private static func checkOwnership(_ trackers: [Tracker]) throws(CatalogError) {
-        for (i, a) in trackers.enumerated() {
-            for (k, b) in trackers.enumerated() where k != i {
-                let path = "trackers[\(k)].healthkit"
-                for (j, id) in b.identity.bundleIDs.enumerated()
-                where a.identity.bundleIDs.contains(where: { $0.lowercased() == id.lowercased() })
-                    || a.identity.bundlePrefixes.contains(where: { covers($0, id) }) {
+        var prefixOwners: [String: Set<Int>] = [:]
+        for (k, t) in trackers.enumerated() {
+            for prefix in t.identity.bundlePrefixes { prefixOwners[bare(prefix), default: []].insert(k) }
+        }
+        var idOwners: [String: Int] = [:]
+        for (k, t) in trackers.enumerated() {
+            let path = "trackers[\(k)].healthkit"
+            func others(_ key: String) -> Set<Int> {
+                (prefixOwners[key] ?? []).filter { $0 != k && !(byDevice(trackers[$0]) && byDevice(t)) }
+            }
+            for (j, id) in t.identity.bundleIDs.enumerated() {
+                let owner = idOwners[id, default: k]
+                idOwners[id] = owner
+                if owner != k || ancestors(id).contains(where: { !others($0).isEmpty }) {
                     throw .invalid(rule: "bundle.duplicate", path: "\(path).bundle_ids[\(j)]")
                 }
-                let byDevice = !a.identity.deviceModels.isEmpty && !b.identity.deviceModels.isEmpty
-                for (j, prefix) in b.identity.bundlePrefixes.enumerated() where !byDevice
-                    && a.identity.bundlePrefixes.contains(where: { covers($0, prefix) || covers(prefix, $0) }) {
-                    throw .invalid(rule: "bundle.duplicate", path: "\(path).bundle_id_prefixes[\(j)]")
-                }
+            }
+            for (j, prefix) in t.identity.bundlePrefixes.enumerated() where ancestors(bare(prefix)).contains(where: { !others($0).isEmpty }) {
+                throw .invalid(rule: "bundle.duplicate", path: "\(path).bundle_id_prefixes[\(j)]")
             }
         }
     }
 
-    /// Prefix overlap for content checks: also "com.a." against "com.a" (one may lack the trailing dot).
-    private static func covers(_ prefix: String, _ id: String) -> Bool {
-        let p = prefix.lowercased(), i = id.lowercased()
-        let bare = p.hasSuffix(".") ? String(p.dropLast()) : p
-        return i == bare || i.hasPrefix(bare + ".")
+    private static func byDevice(_ t: Tracker) -> Bool { !t.identity.deviceModels.isEmpty }
+
+    /// Without a trailing dot: "com.apple.health." and "com.apple.health" claim the same IDs here.
+    private static func bare(_ value: String) -> String { value.hasSuffix(".") ? String(value.dropLast()) : value }
+
+    /// "a.b.c", "a.b", "a": every prefix that covers the ID at a dot boundary.
+    private static func ancestors(_ id: String) -> [String] {
+        var result = [id]
+        var current = Substring(id)
+        while let dot = current.lastIndex(of: ".") {
+            current = current[..<dot]
+            result.append(String(current))
+        }
+        return result
     }
 
     // MARK: fields
@@ -429,11 +631,14 @@ private struct CatalogValidator {
         }
     }
 
-    private func strings(_ o: [String: CatalogJSON], _ key: String, _ path: String) throws(CatalogError) -> [String] {
+    /// An identity list: strings only, at most `maxIdentities`.
+    private func strings(_ o: [String: CatalogJSON], _ key: String, _ path: String,
+                         max: Int = maxIdentities) throws(CatalogError) -> [String] {
         let at = "\(path).\(key)"
         switch o[key] {
         case nil, .null?: return []
         case .array(let items)?:
+            guard items.count <= max else { throw .invalid(rule: "identity.count", path: at) }
             var values: [String] = []
             for (j, item) in items.enumerated() {
                 guard case .string(let s) = item else { throw .invalid(rule: "type", path: "\(at)[\(j)]") }
@@ -451,29 +656,29 @@ private struct CatalogValidator {
         let at = path.isEmpty ? key : "\(path).\(key)"
         guard let pair = try object(o, key, path) else { return Localized(en: [], de: []) }
         guard pair["en"] != nil, pair["de"] != nil else { throw .invalid(rule: "text.pair", path: at) }
-        let en = try strings(pair, "en", at), de = try strings(pair, "de", at)
+        // Counted before the cap so an oversized list says so; the cap itself bounds the work.
+        for language in ["en", "de"] {
+            if case .array(let items)? = pair[language], items.count > max { throw .invalid(rule: "text.count", path: at) }
+        }
+        let en = try strings(pair, "en", at, max: max), de = try strings(pair, "de", at, max: max)
         guard en.count == de.count else { throw .invalid(rule: "text.pair", path: at) }
-        guard en.count <= max else { throw .invalid(rule: "text.count", path: at) }
         for (j, s) in en.enumerated() { try text(s, max: 240, "\(at).en[\(j)]") }
         for (j, s) in de.enumerated() { try text(s, max: 240, "\(at).de[\(j)]") }
         return Localized(en: en, de: de)
     }
 
-    /// Plain text only (§2.5): shown with `Text(verbatim:)`, so no markup, no links, no control or format
-    /// characters (bidi overrides, zero-width), never the denylisted brand.
-    private func text(_ s: String, max: Int, _ path: String) throws(CatalogError) {
-        guard !s.trimmingCharacters(in: .whitespaces).isEmpty else { throw .invalid(rule: "text.empty", path: path) }
-        guard s.count <= max else { throw .invalid(rule: "text.length", path: path) }
-        guard !s.unicodeScalars.contains(where: { [.control, .format].contains($0.properties.generalCategory) }) else {
-            throw .invalid(rule: "text.control", path: path)
-        }
-        let lower = s.lowercased()
-        guard !["<", ">", "](", "://", "www."].contains(where: { lower.contains($0) }) else {
-            throw .invalid(rule: "text.markup", path: path)
-        }
-        guard s.range(of: Self.brandPattern, options: [.regularExpression, .caseInsensitive]) == nil else {
-            throw .invalid(rule: "text.brand", path: path)
-        }
+    /// Plain text only (§2.5): shown with `Text(verbatim:)`, so no markup, no links or addresses, no
+    /// control, format, private-use, unassigned or separator characters, Latin letters only (with common
+    /// punctuation and combining marks), and no stacks of combining marks: at most twice `max` scalars.
+    /// (The brand check runs over every string before this, `checkBrand`.)
+    private func text(_ s: String, max: Int, _ path: @autoclosure () -> String) throws(CatalogError) {
+        guard !s.trimmingCharacters(in: .whitespaces).isEmpty else { throw .invalid(rule: "text.empty", path: path()) }
+        let scalars = s.unicodeScalars.count
+        // ASCII: one character per scalar, nothing to compose. Else graphemes, and scalars after composing.
+        guard scalars == s.utf8.count ? scalars <= max
+                : scalars <= 4 * max && s.count <= max && s.precomposedStringWithCanonicalMapping.unicodeScalars.count <= 2 * max
+        else { throw .invalid(rule: "text.length", path: path()) }
+        if let rule = Self.refusal(s) { throw .invalid(rule: rule, path: path()) }
     }
 
     /// YYYY-MM-DD, a real day, not after tomorrow anywhere on Earth.
@@ -498,13 +703,17 @@ private struct CatalogValidator {
         s.range(of: #"\A(?:"# + pattern + #")\z"#, options: .regularExpression) != nil
     }
 
-    /// `https`, no user, no port, a host on the tracker's allowlist (or RYFT's); else nil.
+    /// `https`, no user, no port, a plain-ASCII host that is exactly one of the tracker's (on a shared host,
+    /// under the vendor's path) or RYFT's; else nil.
     static func helpURL(_ string: String, trackerID: String) -> URL? {
         guard let c = URLComponents(string: string), c.scheme?.lowercased() == "https",
               c.user == nil, c.password == nil, c.port == nil,
-              let host = c.host?.lowercased(), !host.isEmpty, let url = c.url else { return nil }
-        let allowed = (helpHosts[trackerID] ?? []) + [anyHelpHost]
-        return allowed.contains { host == $0 || host.hasSuffix("." + $0) } ? url : nil
+              let raw = c.percentEncodedHost, matches(raw, "[A-Za-z0-9.-]+"), let url = c.url else { return nil }
+        let host = raw.lowercased()
+        if host == anyHelpHost { return url }
+        guard helpHosts[trackerID]?.contains(host) == true else { return nil }
+        guard let paths = helpPaths[trackerID] else { return url }
+        return paths.contains { c.percentEncodedPath.hasPrefix($0) } ? url : nil
     }
 }
 
