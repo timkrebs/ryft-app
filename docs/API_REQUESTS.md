@@ -144,6 +144,37 @@ behind `sleep.planner`.
    - **Proposal:** `GET /v1/sleep/plan?wake=HH:MM&day=YYYY-MM-DD` (the wake's day), and
      optionally `tz=` (IANA) to plan in the phone's time zone.
 
+## Refresh resilience (open, 2026-10-21)
+
+From TestFlight feedback on 1.0.0 (`20261021.141128`). The account has about 90 days of history. Today showed
+"Baselines · 0 of 7 nights" beside a scored day (recovery 75, readiness 80, strain 0.9). The app now decides
+Today from its own history (`TodayPresentation`, `docs/work/2026-10-21-refresh-resilience/design.md` §7), but the
+platform's row is the root of it (`STATUS.md` → Incidents).
+
+1. **`calibrating: true, baseline_days: 0` on a scored day for an account with history.** Reporter: user
+   `<short id>` (to fill in from `scripts/user.sh`). Today, 2026-10-21: `calibrating: true`, `baseline_days: 0`,
+   `recovery: 75`, `readiness: 80`, with ~90 days of history. `compute.go` takes
+   `baseline_days = min(N_lnHRV, N_rhr)` over the 30 scored days before, and migration 0006 defaulted the column to
+   0 "until rescored". Either today was scored before the days before it (backfill order, or the account
+   merge/rescore), or the account has no HRV/RHR nights at all.
+   - **Ask:** check the reporter's rows (`calibrating`, `baseline_days`, `computed_at`, `hrv_ms`, `rhr`,
+     `hrv_baseline_ms`, `rhr_baseline` from 2026-07-24 to 2026-10-21). If the earlier rows have their baselines, rescore
+     oldest-first after a merge or backfill, so no day is scored before the 30 days it depends on. Rescore every row
+     still at the 0006 default.
+2. **Why a day is calibrating.** Today the app can't tell "history is short" from "no HRV or resting HR at
+   night" (phone-only, or a watch that doesn't write HRV to Apple Health). The second never ends by waiting.
+   - **Proposal:** `DailyScore.calibrating_reason: "short_history" | "no_hrv" | "no_rhr" | null`, and optionally
+     `baseline_hrv_days` / `baseline_rhr_days` (the two N's whose minimum is `baseline_days`). Until then the app
+     infers it from the history it has (nights with `hrv_ms` and `rhr`).
+3. **"This app is too old."** There's no signal for it, so the app can't tell a user to update.
+   - **Proposal:** `426` with `code: "app_update_required"` on any `/v1/*` route for builds below a minimum, and/or
+     `GET /v1/config` → `min_build` (the build number as a string, compared numerically). The app has the card
+     ready and reserved (`FailureKind.appTooOld`).
+4. **An idempotency key for `POST /v1/feedback`.** The app queues a report offline and resends it after a timeout or a
+   lost connection. If the platform had already stored it, the user's report arrives twice and uses up 2 of the 10 a day.
+   - **Proposal:** accept an optional `Idempotency-Key` header (or `client_id` in the body; the app sends the queued
+     report's UUID) and answer `204` without storing again when it has seen the key in the last 24 h.
+
 ## Resolved by API.md (2026-10-19)
 
 - `PlanSummary` and `SessionSummary` are their own shapes. They are mirrored.

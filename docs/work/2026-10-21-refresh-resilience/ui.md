@@ -1,5 +1,11 @@
 # Refresh resilience: UI spec (D2)
 
+> **Errata 2 (lead, after review):** row B for a long history without HRV/RHR shows today's readiness + the
+> `needsVitals` note (fallback "n of 7 nights with heart-rate data"); the German tile caption is "kalibriert noch";
+> the delta shows only in row A; while the error card is shown, the status line reads "Couldn't load today · Details" and
+> scrolls to it; the Report a problem disclosure lists exactly the allow-listed diagnostics (no install ID). "App too old"
+> stays unshipped.
+
 > **Errata (lead, after D1 `design.md`):** the decision is `TodayPresentation.decide` (`TodayState` is the API mirror of
 > `SyncStatus.today`); `design.md` §7's table is authoritative. Row D needs a *scored* today that says `calibrating`
 > (never an unknown/unscored one, which is row C), and requires `vitals ≥ 7`. Preview 7 uses a scored row without

@@ -942,3 +942,19 @@ failed fetch), and the flat delta ("Steady"). This note follows it.
    - `TodayState.decide` → `TodayPresentation.decide`;
    - row D can't come from an unknown or unscored today;
    - preview 7 needs a scored row without a readiness.
+
+## Errata after review (lead, 2026-10-22): what shipped differs from §7 here
+- **Row B with `needsVitals`** (`prior.count ≥ 7 && vitals < 7`): the gauge shows today's readiness if there is one, with
+  `Note.needsVitals`, and the tiles have no "calibrating" caption. Without a readiness, the baselines gauge counts `vitals`
+  (nights with HRV and RHR), captioned "n of 7 nights with heart-rate data". Row B with "n of 7 nights" is only for
+  `prior.count < 7`.
+- **Row E** doesn't apply while the platform says `pending`/`waitingForSleep` (that's row C, `pendingNoPrevious`).
+- **Row C** counts as waiting-for-sleep when `scoringState` is nil (nothing claims "Scoring your night" without the platform's
+  word). Its sentence names the date when the dimmed day isn't yesterday.
+- **The delta** shows only in row A with a readiness (`TodayPresentation.showsDelta`).
+- **The widget** reads the same 90-day history as Today and writes `previousReadiness` in every kind.
+- **Reads (§3–§5):** `ReadScheduler.run` waits through cancellation-aware continuations and stores results in the flight. Nothing
+  is recorded without an account, and the scheduler resets on every account change. History's `fetchedAt` comes from the store.
+  After any 429 the `RequestBudget` holds back all starts. Request paths are redacted (`redactedPath`) wherever they're shown or
+  logged. (These are in the T1 fix batch; check #27 for the final shape.)
+- **Report a problem (§8):** the diagnostics are an allow-list (`FeedbackPayload.keys`), not the Copy diagnostics text; see #26.

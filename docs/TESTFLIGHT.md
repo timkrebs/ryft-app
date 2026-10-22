@@ -107,7 +107,25 @@ so no question appears.
 >
 > RYFT is not a medical device; the app says so on Insights and in Profile → About.
 
-## 5. Every new build
+## 5. Feedback: Report a problem
+
+Testers can send diagnostics directly from the app without leaving to email or a bug tracker.
+
+**Where testers find it:**
+- **Profile → About → Report a problem:** the primary entry point
+- **Error card → Details → Send to RYFT:** for reporting issues on screen
+
+**What it includes (with "Include diagnostics" on by default):**
+- App version and build
+- Device model and iOS version
+- Language and region
+- The last 20 requests: method, path (without query parameters), status code, error code, request ID, and duration
+- Sync state: phase, queue and backlog; per data type, the number of records, number of days, and the date of the newest record
+- Account gates and feature flags
+
+**Privacy:** Health values are never included. Reports queue while offline and send automatically on reconnect.
+
+## 6. Every new build
 
 1. Raise the build number. `make archive` does it, so does CI. Keep the version at
    `1.0.0` during the beta.

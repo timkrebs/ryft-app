@@ -1,5 +1,32 @@
 # Status — 2026-10-21
 
+## Incidents
+
+### 2026-10-21 — "Couldn't refresh" and "Baselines 0 of 7" beside a scored day (TestFlight 1.0.0 `20261021.141128`)
+
+The report: on iPhone17,1 with iOS 27.0.1, Wi-Fi, at 18:12, pull to refresh on Today showed "Couldn't refresh just now — showing your
+last loaded data." The gauge said "Baselines · 0 of 7 nights" while the tiles showed recovery 75 %, sleep 7 h 10 m and strain 0.9,
+and Trends showed readiness 80 with "— vs 7 d". The build is from `main` at `1eb5192` (14:11 UTC), so it already had the status
+line, Sync details and Copy diagnostics (#14).
+
+Root causes (debugger, tests on `debug/refresh-repro`, cherry-picked into the fixes):
+1. **Refresh was all-or-nothing.** `AppState.refresh` awaited `(day, history, me)`, so the first failure skipped trends
+   and insights and replaced everything with the generic card, even when the rest was current. `refreshDays` after
+   every sync did the same. → T1, per-resource reads.
+2. **The likeliest failure was a transport-class error, probably a cancellation.** The card had no Details, which only
+   appear for HTTP errors, so it wasn't a `429`/`503`/`404`. `APIClient` reported `URLError.cancelled` as a transport
+   failure, and a cancelled `Task.sleep` surfaced as an error. Transport failures weren't logged in Sync details.
+   Device evidence is still pending (Copy diagnostics). → T1: cancellation is never a failure, transport failures are
+   logged, and transient failures retry silently and only show past a threshold.
+3. **"0 of 7": platform data plus app presentation.** The day was scored (recovery 75) but carried `calibrating: true,
+   baseline_days: 0`. That's the platform's row. Our cache and decoding were ruled out by tests. The platform calibrates
+   while either baseline (HRV or resting HR) has fewer than 7 nights among the 30 scored days before. So either today
+   was scored before its earlier days, or the account has no HRV/RHR at night. The app showed that row's calibration
+   ahead of its own score, and the widget disagreed. → T2, one decision for gauge, tiles and widget;
+   `API_REQUESTS.md` → Refresh resilience §1–2.
+4. **"— vs 7 d" wasn't missing data.** It was a flat delta (< 2 %) drawn as a dash. → T2: "Steady vs 7 d".
+5. **The tester couldn't send diagnostics.** `POST /v1/feedback` had no caller. → T3, Profile → Report a problem.
+
 ## Beta feedback 1: Bedtime & wake (§4)
 
 - **Sleep schedule** (`SleepSchedule`, per account on this phone until the platform keeps it):

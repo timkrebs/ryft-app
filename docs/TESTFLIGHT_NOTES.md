@@ -26,6 +26,15 @@ What's new, and what to try:
    or in Profile → Data.
 5. **Notifications** say what's going on: still being rolled out, waiting for your OK, or
    off in iOS Settings.
+6. **Refresh is resilient.** Pull to refresh—also while a sync is running or in airplane
+   mode. A brief outage no longer shows an error. If data is stale, the line says
+   "Showing data from 14:05 · Try again" so you know to retry.
+7. **Today shows one state.** No "Baselines · 0 of 7 nights" next to your scores. A
+   night that isn't scored yet shows the last scored day, dimmed and dated.
+8. **New: Report a problem.** Profile → About → Report a problem: send a message with
+   optional diagnostics (app version, build, device, iOS, your last 20 requests, sync
+   state, gates and flags, but no health data). Or error card → Details → Send to RYFT.
+   Reports queue offline and send on reconnect.
 
 **de**
 
@@ -47,8 +56,19 @@ Was neu ist und was du ausprobieren kannst:
    gefragt, oder in Profil → Daten.
 5. **Mitteilungen** sagen, was los ist: noch in der Einführung, warten auf dein OK, oder in
    den iOS-Einstellungen aus.
+6. **Aktualisieren ist zuverlässig.** Zum Aktualisieren ziehen – auch während der Sync
+   läuft oder du im Flugzeugmodus bist. Ein kurzer Ausfall zeigt keinen Fehler. Wenn
+   Daten länger veraltet sind, sagt die Zeile »Zeigt Daten von 14:05 · Erneut versuchen«.
+7. **Heute zeigt einen Zustand.** Kein »Ausgangswerte · 0 von 7 Nächten« mehr neben
+   deinen Werten. Eine Nacht, die noch nicht bewertet ist, zeigt den zuletzt bewerteten
+   Tag, abgeblendet und mit Datum.
+8. **Neu: Problem melden.** Profil → Über RYFT → Problem melden: schreib uns eine
+   Nachricht, auf Wunsch mit Diagnose (App-Version, Build, Gerät, iOS, deine letzten 20
+   Anfragen, Sync-Status, Gates und Flags – keine Gesundheitswerte). Oder Fehlerkarte →
+   Details → An RYFT senden. Ohne Verbindung wartet die Meldung und wird gesendet, sobald
+   du wieder online bist.
 
-### Replies to the two comments (2026-10-21)
+### Replies to the three comments (2026-10-21)
 
 Send through TestFlight's feedback reply or by email. Testers wrote in English.
 
@@ -61,6 +81,14 @@ Send through TestFlight's feedback reply or by email. Testers wrote in English.
 > They're switching on for the beta this week. You don't need a new build: open RYFT twice
 > once they're on and allow notifications when asked. The next build also makes that
 > screen clearer while they're still on their way.
+>
+> **"I got this message when refreshing the screen. Seems like the app is out of sync when
+> trying to synchronize my data."**
+> Thanks for the report. One part of the refresh was failing, so the whole screen showed
+> an error instead of what was already there. Today also showed a calibration state next
+> to a score. We've fixed both: each part now loads on its own, and Today shows the right state.
+> For the next issue, Profile → About → Report a problem sends us everything we need to
+> diagnose in one go.
 
 German, if a tester writes in German:
 
@@ -71,6 +99,15 @@ German, if a tester writes in German:
 > **Mitteilungen:** Sie werden diese Woche für die Beta eingeschaltet. Ein neuer Build ist
 > dafür nicht nötig: RYFT danach zweimal öffnen und Mitteilungen erlauben, wenn gefragt. Der
 > nächste Build zeigt auf dem Bildschirm auch klarer, wo sie gerade stehen.
+>
+> **"Ich bekam diese Nachricht beim Aktualisieren des Bildschirms. Es scheint, als wäre die
+> App nicht synchron, wenn Daten synchronisiert werden."**
+> Danke für deine Meldung. Ein Teil der Aktualisierung ist fehlgeschlagen, deshalb hat der
+> ganze Bildschirm einen Fehler gezeigt statt der vorhandenen Daten. Und Heute hat einen
+> Kalibrierungszustand neben einem Wert gezeigt. Wir haben beides behoben: Jetzt lädt
+> jeder Teil für sich, und Heute zeigt den richtigen Zustand. Für das nächste Mal:
+> Profil → Über RYFT → Problem melden schickt uns auf einmal alles, was wir zur
+> Analyse brauchen.
 
 ## 1.0.0 (build 1) — first beta
 
