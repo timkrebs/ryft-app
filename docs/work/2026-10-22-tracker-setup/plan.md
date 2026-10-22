@@ -100,9 +100,10 @@ Strings for every ticket: localization-editor (en + de, brand guard green). Revi
     in the foreground, and Apple Health backfills at most 2 weeks.
   - Oura: no HRV, no resting HR. Fitbit now writes natively ("Google Health"). Samsung writes nothing.
   - The bundle IDs are verified. Apple Watch matches by device, not by bundle ID.
-- **Consequence:** the platform's planned fix (baseline from resting-HR nights) doesn't help Garmin users unless the platform
-  derives resting HR from overnight HR. Filed as `API_REQUESTS.md` → Tracker setup §1, for the user to relay to the platform
-  session **before** it runs its brief. The app builds every "based on …" sentence from `recovery_inputs`, never from a
+- **Consequence (corrected after the device check below):** ~~the platform's planned fix (baseline from resting-HR nights) doesn't help Garmin users unless the platform
+  derives resting HR from overnight HR~~. On a real iPhone, Garmin Connect *does* write daily resting HR (00:00) and sleep
+  stages, so the platform brief's own change suffices. `API_REQUESTS.md` §1 is corrected; deriving resting HR is a
+  lower-priority fallback for trackers without it. The app builds every "based on …" sentence from `recovery_inputs`, never from a
   fixed list.
 
 ## Decisions

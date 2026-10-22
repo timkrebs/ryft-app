@@ -1,5 +1,11 @@
 # Tracker research: what reaches Apple Health (R1)
 
+> **Correction from a device check (2026-10-22, lead).** On the user's iPhone 16 Pro (iOS 27.0.1, Garmin Connect),
+> Apple Health holds **daily resting-heart-rate samples from Garmin Connect, stamped 00:00**, and **sleep with stages**.
+> Garmin's FAQ omits both. The catalog now says `resting_hr: yes`, `sleep_stages: yes` for Garmin (catalog
+> 2026-10-22.3). HRV, breathing rate and SpO₂ were absent, as the FAQ says. Oura's resting HR is still only from
+> Oura's docs.
+
 Checked: **2026-10-22**. Scope: ticket R1 of `CLAUDE_FOLLOWUP_TRACKER_SETUP.md` (§2 setup cards, §3 sync check).
 Data file: `trackers.draft.json` (same folder). Vendor names are used only as data sources.
 

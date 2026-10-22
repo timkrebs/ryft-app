@@ -392,3 +392,26 @@ T3 merged a5a0249, adc270c, c00ec38, 490552a and 288636a. Only the first had con
 - → Fix batch to the T3 implementer.
 - **Device session:** until it's fixed, use only explicit `-RyftTrackers`, never `-RyftScreen tracker-setup`, on the
   user's phone.
+
+## Device session: the user's iPhone 16 Pro (iOS 27.0.1), Debug build of 6da946f, 2026-10-22 evening
+Launched via `devicectl` with `-RyftFlags devices.setup` and an explicit `-RyftTrackers`, so nothing was stored to the
+account. Screenshots stay local, not in the repo.
+- **Seen in Apple Health:** "Garmin Connect" (from HealthKit's "Connect": friendly names work) with active energy, heart
+  rate, sleep, steps and workouts; Tim's iPhone (energy, steps); a "Bluetooth Device" (heart rate).
+- **Check sync, Garmin:** "5 of 5 expected signals are arriving".
+  - Arriving: heart rate ✓, **resting heart rate ✓ (00:00)**, sleep ✓, **sleep stages ✓**, steps ✓.
+  - Not shared ("That's normal"): HRV, breathing rate, SpO₂. Workouts: not seen yet, as none were recorded.
+  - **The research and catalog were wrong on resting HR and stages.** Corrected:
+    - catalog 2026-10-22.3 (#33, 7f2b50c);
+    - `API_REQUESTS.md` §1 (the platform brief suffices; derived RHR is a fallback);
+    - `trackers-research.md`.
+    - T2's features line and T3's Garmin mock follow.
+- **Check sync, Just my iPhone:** steps ✓ (07:31 PM) via `HKDevice.model` "iPhone": **device matching verified on
+  hardware**. "1 of 1 expected signal is arriving", in the singular.
+- **Not covered:** Apple Watch matching (the user has none), and the morning night hint.
+- **Process:** two screenshots caught a FaceTime call (one picture-in-picture). Both were deleted at once. New rule:
+  start only when the user says the phone is free; screenshot only right after a successful RYFT launch.
+- **Flaky `PullToRefreshTests.thePullReturnsAfterThreeSecondsAtMost`** (debugger): a race in the test fake (it slept
+  before the status read instead of keeping it in flight), not product code, and #33 doesn't make it worse. → Its own
+  `test:` PR from main.
+
