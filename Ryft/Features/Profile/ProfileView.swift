@@ -1566,7 +1566,7 @@ private struct TrackerCheckCard: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Image(systemName: Self.symbol(tracker))
+            Image(systemName: tracker.symbol)
                 .font(.system(size: headerGlyph, weight: .regular))
                 .foregroundStyle(Theme.textSecondary)
                 .frame(width: headerGlyphWidth)
@@ -1739,23 +1739,6 @@ private struct TrackerCheckCard: View {
                     checkRow(row).accessibilityIdentifier("check.row.\(row.signal.rawValue)")
                 }
             }
-        }
-    }
-
-    /// By tracker id, never by form (ui.md errata 1): Apple's product glyphs only for Apple's own products, so a
-    /// remote catalog entry can never get one. The same mapping as T2's tiles.
-    static func symbol(_ tracker: Tracker) -> String {
-        switch tracker.id {
-        case "apple_watch": return "applewatch"
-        case "iphone": return "iphone"
-        default: break
-        }
-        guard tracker.integration != .unknown else { return "ellipsis.circle" }
-        switch tracker.form {
-        case .watch: return "watch.analog"
-        case .ring: return "circle.circle"
-        case .band: return "figure.run.circle"
-        case .phone, .other: return "ellipsis.circle"
         }
     }
 }
@@ -2314,6 +2297,7 @@ private struct DevicesRowLabel: View {
 struct DevicesAndSyncView: View {
     let model: DevicesViewModel
     @Environment(ScreenModels.self) private var screens
+    @Environment(\.appEnvironment) private var env
     @Environment(\.openURL) private var openURL
     @State private var editing = false
 
@@ -2334,6 +2318,8 @@ struct DevicesAndSyncView: View {
         .navigationTitle(Text("Devices & sync"))
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.appeared() }
+        // Back from Check sync: "Last checked" and the rows' results.
+        .onAppear { model.reloadCheck() }
         .sheet(isPresented: $editing) { TrackerPickerSheet(model: model) }
     }
 
@@ -2384,10 +2370,33 @@ struct DevicesAndSyncView: View {
 
     // MARK: check sync
 
-    /// T3 wires Check sync here (design.md §4.7, ui.md §4.2 item 2): a section with the screen's one Teal
-    /// button, pushing the check, and "Last checked …" under it.
+    /// Check sync (design.md §4.7, ui.md §4.2 item 2): a section with the screen's one Teal button, pushing the
+    /// check on the selection, and "Last checked …" under it. Nothing to check before a choice.
     @ViewBuilder private var checkSync: some View {
-        EmptyView()
+        if !model.trackers.isEmpty {
+            ProfileSection(title: "Check sync") {
+                Text("See whether your trackers' data arrives in Apple Health.")
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                NavigationLink {
+                    TrackerCheckView(model: .make(env: env, trackers: model.selection.trackers))
+                } label: {
+                    Text("Check sync")
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.onAccent)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Theme.accent, in: Capsule())
+                }
+                .buttonStyle(PressableButtonStyle())
+                .accessibilityIdentifier("devices.checkSync")
+                Text(model.lastCheckedText)
+                    .font(.ryft(.caption))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textTertiary)
+                    .accessibilityIdentifier("devices.lastChecked")
+            }
+        }
     }
 
     // MARK: seen in Apple Health

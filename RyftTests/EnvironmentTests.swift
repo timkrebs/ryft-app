@@ -1293,6 +1293,25 @@ struct SyncCheckTests {
         }
     }
 
+    /// Devices & sync's rows and "Last checked" show the last check, per tracker, once there is one.
+    @Test func devicesAndSyncShowsTheLastCheck() async throws {
+        let env = AppEnvironment.test(clock: TestClock(now: now), flags: [.devicesSetup: true])
+        let devices = DevicesViewModel(state: AppState(env: env), selection: TrackerSelectionStore(env: env))
+        devices.save(["garmin", "oura"])
+        devices.reloadCheck()
+        let garmin = try #require(catalog.tracker("garmin")), oura = try #require(catalog.tracker("oura"))
+        #expect(devices.status(of: garmin) == String(localized: "Not checked yet"))
+        #expect(devices.lastCheckedText == String(localized: "Not checked yet"))
+        await TrackerCheckModel(env: env, health: MockHealthStore.garminLike(now: now, sleepOff: true),
+                                trackers: devices.selection.trackers).run()
+        devices.reloadCheck()
+        #expect(devices.status(of: garmin) == String(localized: "Needs a fix"))
+        #expect(devices.status(of: oura) == String(localized: "Nothing in the last 2 days"))
+        #expect(devices.lastCheckedText == String(localized: "Last checked \(SyncLine.dataTime(now, now: now))"))
+        devices.selection.markLater("oura")
+        #expect(devices.status(of: oura) == String(localized: "Set up later"))
+    }
+
     @Test func ryftsOwnWorkoutsNeverCount() async throws {
         let own = SourceRef(name: "RYFT", bundleID: Bundle.main.bundleIdentifier, deviceModel: nil)
         let store = MockHealthStore()

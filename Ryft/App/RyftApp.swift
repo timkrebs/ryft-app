@@ -665,9 +665,10 @@ private struct DebugDevices: View {
 /// Check sync as Devices & sync pushes it; the scenario picks the trackers in demo mode.
 private struct DebugSyncCheck: View {
     @Environment(\.appEnvironment) private var env
+    @Environment(ScreenModels.self) private var screens
 
     var body: some View {
-        NavigationStack { TrackerCheckView(model: .make(env: env, trackers: ["apple_watch"])) }
+        NavigationStack { TrackerCheckView(model: .make(env: env, trackers: screens.devices.trackers)) }
     }
 }
 

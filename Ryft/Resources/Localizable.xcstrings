@@ -1168,6 +1168,16 @@
         }
       }
     },
+    "Can't be read on iPhone" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf dem iPhone nicht lesbar"
+          }
+        }
+      }
+    },
     "Can't be read on iPhone today" : {
       "comment" : "Collapsed setup card of a tracker that writes nothing to Apple Health.",
       "localizations" : {
@@ -1195,6 +1205,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eine Änderung bewertet vergangene Tage nicht von selbst neu."
+          }
+        }
+      }
+    },
+    "Checked" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geprüft"
           }
         }
       }
@@ -1474,6 +1494,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Anzahlen, Daten und Anfrage-IDs für den Support; keine Gesundheitsdaten"
+          }
+        }
+      }
+    },
+    "Data arrives" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daten kommen an"
           }
         }
       }
@@ -2169,6 +2199,16 @@
         }
       }
     },
+    "Last checked %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zuletzt geprüft: %@"
+          }
+        }
+      }
+    },
     "Last data from %@: %@" : {
       "comment" : "Under the night hint: the source's name and the time of its newest record (e.g. 'Wed 23:24').",
       "localizations" : {
@@ -2237,6 +2277,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Die letzte Nacht ist noch nicht bei RYFT angekommen."
+          }
+        }
+      }
+    },
+    "Last night missing" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letzte Nacht fehlt"
           }
         }
       }
@@ -2338,6 +2388,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Maximale Herzfrequenz"
+          }
+        }
+      }
+    },
+    "Needs a fix" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Braucht eine Korrektur"
           }
         }
       }
@@ -2656,6 +2716,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Von diesem iPhone kam in den letzten 2 Tagen nichts. Trag es eine Weile bei dir, dann tippe auf „Erneut prüfen“."
+          }
+        }
+      }
+    },
+    "Nothing in the last 2 days" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In den letzten 2 Tagen nichts"
           }
         }
       }
@@ -3597,6 +3667,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Deine Nacht wird bewertet …"
+          }
+        }
+      }
+    },
+    "See whether your trackers' data arrives in Apple Health." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sieh nach, ob die Daten deiner Tracker in Apple Health ankommen."
           }
         }
       }

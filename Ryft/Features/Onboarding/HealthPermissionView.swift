@@ -968,6 +968,9 @@ struct TrackerSetupStepView: View {
     let model: OnboardingCoordinator
     /// The open card in a list of several.
     @State private var open: String?
+    /// Check sync was tapped: its result opens below the cards.
+    @State private var checking = false
+    @Environment(\.appEnvironment) private var env
 
     var body: some View {
         let trackers = model.setupTrackers
@@ -991,8 +994,16 @@ struct TrackerSetupStepView: View {
                     }
                 }
             }
-            // T3 wires the inline Check sync here (design.md §8, ui.md §3.5): its button under the cards, the
-            // result opening below them.
+            // The inline Check sync (design.md §8, ui.md §3.5): its button under the cards, the result opening
+            // below them, with its own Check again.
+            if checking {
+                TrackerCheckView(model: .make(env: env, trackers: model.devices.trackers), embedded: true)
+                    .padding(.top, 12)
+            } else {
+                PrimaryButton(title: "Check sync", style: .secondary) { checking = true }
+                    .padding(.top, 12)
+                    .accessibilityIdentifier("trackerSetup.checkSync")
+            }
         }
         .safeAreaInset(edge: .bottom) {
             PinnedBar {

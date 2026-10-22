@@ -1136,9 +1136,13 @@ struct TrackerCheckRecord: Codable, Equatable, Sendable {
         }
     }
 
-    /// The signed-in account's last check; nothing in demo mode or for another account.
+    /// Demo data's last check: in memory, never in the account's store.
+    @MainActor static var demo: TrackerCheckRecord?
+
+    /// The signed-in account's last check (demo data's own in demo mode); nothing for another account.
     @MainActor static func load(_ env: AppEnvironment) -> TrackerCheckRecord? {
-        guard !env.isDemo, let account = env.auth.accountID,
+        if env.isDemo { return demo }
+        guard let account = env.auth.accountID,
               let record = env.persistence.document(Self.self, key: documentKey), record.account == account else { return nil }
         return record
     }
@@ -1287,7 +1291,11 @@ final class TrackerCheckModel {
 
     /// Only for the account the check began under: a sign-out or switch meanwhile keeps nothing.
     private func save(_ results: [TrackerCheck], at date: Date, account: String?) {
-        guard !env.isDemo, let account, env.auth.accountID == account else { return }
+        if env.isDemo {
+            TrackerCheckRecord.demo = TrackerCheckRecord(account: "demo", at: date, checks: results)
+            return
+        }
+        guard let account, env.auth.accountID == account else { return }
         env.persistence.saveDocument(TrackerCheckRecord(account: account, at: date, checks: results),
                                      key: TrackerCheckRecord.documentKey, at: date)
     }
@@ -1968,6 +1976,8 @@ final class TrackerSelectionStore {
         self.env = env
         var ids = Self.demoTrackers
         #if DEBUG
+        // `-RyftSyncCheck <scenario>`: the trackers the scenario's check reads.
+        if let scenario = SyncCheckScenario.requested { ids = scenario.trackers }
         if let picked = UserDefaults.standard.string(forKey: "RyftTrackers") {
             ids = picked.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         }
@@ -2117,9 +2127,30 @@ final class DevicesViewModel {
         return names.count > 2 ? "\(shown) · +\(names.count - 2)" : shown
     }
 
-    /// Under each tracker's name. "Not checked yet" until Check sync (T3) has a result to show.
+    /// The last Check sync (`TrackerCheckRecord`), reloaded when the screen shows again.
+    private(set) var lastCheck: TrackerCheckRecord?
+
+    func reloadCheck() { lastCheck = TrackerCheckRecord.load(env) }
+
+    /// Under each tracker's name: put off, else the last check's verdict for it, else "Not checked yet".
     func status(of tracker: Tracker) -> String {
-        selection.isLater(tracker.id) ? String(localized: "Set up later") : String(localized: "Not checked yet")
+        if selection.isLater(tracker.id) { return String(localized: "Set up later") }
+        let code = lastCheck?.entries.first { $0.tracker == tracker.id && $0.signal == "overall" }?.code
+        switch code.flatMap(TrackerCheck.Overall.init(rawValue:)) {
+        case .ok?: return String(localized: "Data arrives")
+        case .needsFix?: return String(localized: "Needs a fix")
+        case .nightMissing?: return String(localized: "Last night missing")
+        case .silent?: return String(localized: "Nothing in the last 2 days")
+        case .cantRead?: return String(localized: "Can't be read on iPhone")
+        case .unknownTracker?, .unidentified?: return String(localized: "Checked")
+        case .checking?, nil: return String(localized: "Not checked yet")
+        }
+    }
+
+    /// Under Check sync: "Last checked Yesterday 22:10", or "Not checked yet".
+    var lastCheckedText: String {
+        guard let at = lastCheck?.at else { return String(localized: "Not checked yet") }
+        return String(localized: "Last checked \(SyncLine.dataTime(at, now: env.clock.now()))")
     }
 
     /// The picker sheet's Done.
