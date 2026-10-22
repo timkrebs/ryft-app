@@ -24,9 +24,9 @@ Brief: `CLAUDE_FOLLOWUP_REFRESH_RESILIENCE.md` (TestFlight 1.0.0 `20261021.14112
 | T3 | #26 `feat: report a problem with diagnostics` | approved (code, security, UI, l10n) | green | **merged** (c34bb9a) |
 | T2 | #28 `fix: one consistent Today state` | approved (code, UI, l10n) | green | **merged** (9745392) |
 | T1 | #27 `fix: refresh per resource with silent retries` | approved (code, security, perf, UI, tests) | green (UI smoke timeouts before were the runner) | **merged** (d7996f5) |
-| T5 | #31 `feat: send a refresh problem to RYFT` | approved (code, security ×2) | green on 31b025c; CI on 64a968d running | `main` merged in (7de4bdd = 31b025c + #30); **ready**, next to merge |
+| T5 | #31 `feat: send a refresh problem to RYFT` | approved (code, security ×2) | green | **merged** (2b21cf6) |
 | CI | #30 `ci: UI tests get 180 s before they count as hung` (UISmoke + nightly Full) | lead | green | **merged** (1864e28) |
-| T4 | #29 `docs: refresh resilience` (draft) | — | docs only | `main` merged in; last, after #31 |
+| T4 | #29 `docs: refresh resilience` | lead | docs only | ready; merges last |
 
 ## Tickets
 

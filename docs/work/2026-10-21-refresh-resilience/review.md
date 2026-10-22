@@ -416,4 +416,5 @@ fail-fast past the cap; nits; card/line accessibility containers.
     key; the two keys missing on #31 are strings T5 reworded).
   - The tree is exactly 31b025c + #30's lines. 64a968d puts the catalog back in `main`'s key order (diff 154 → 18 lines).
   - Marked ready.
-
+- #31 green on 64a968d and merged (2b21cf6, auto-merge on the user's go). `main` now holds the whole release; #29 (these docs)
+  merges last.
