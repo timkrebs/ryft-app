@@ -376,7 +376,8 @@ struct TrackerCatalogTests {
         // 3: the list and its ids.
         #expect(CatalogFixture.refusal({ trackers(&$0) { $0 = Array($0.prefix(1)) } }) == invalid("trackers.count", "trackers"))
         #expect(CatalogFixture.refusal(garmin: { $0["id"] = "Garmin" }) == invalid("id.format", "trackers[0].id"))
-        #expect(CatalogFixture.refusal({ trackers(&$0) { $0[3]["id"] = "garmin"; $0[3]["integration"] = "vendor_app" } }) == invalid("id.duplicate", "trackers[3].id"))
+        #expect(CatalogFixture.refusal({ trackers(&$0) { $0[3]["id"] = "garmin"; $0[3]["integration"] = "vendor_app" } })
+                == invalid("id.duplicate", "trackers[3].id"))
         #expect(CatalogFixture.refusal({ trackers(&$0) { $0.remove(at: 2) } }) == invalid("id.required", "trackers"))
         // 4: closed enums; an unknown signal key is ignored (above).
         #expect(CatalogFixture.refusal(garmin: { $0["form"] = "wristband" }) == invalid("enum.form", "trackers[0].form"))
