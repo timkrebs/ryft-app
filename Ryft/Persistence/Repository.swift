@@ -1032,7 +1032,13 @@ final class ReadScheduler {
                 guard let self else { throw CancellationError() }
                 let value = try await self.attempts(key, account: account, fetch)
                 // `attempts` checked the account and cancellation; no await since.
-                flight.store?(value)
+                if let store = flight.store {
+                    let signposts = Signposts.reads
+                    let interval = signposts.beginInterval("store", id: signposts.makeSignpostID(),
+                                                           "\(key.resource.rawValue, privacy: .public)")
+                    store(value)
+                    signposts.endInterval("store", interval)
+                }
                 result = .success(value)
             } catch {
                 result = .failure(error)

@@ -176,7 +176,12 @@ final class AppState {
             settle.finish()
         }
         let phases = Task { [self] in
+            // Instruments: the whole pull (the spinner's `pull` ends at 3 s at most), and phase 3's gate.
+            let total = signposts.beginInterval("pull-total", id: signposts.makeSignpostID())
+            defer { signposts.endInterval("pull-total", total) }
+            let gate = signposts.beginInterval("pull-gate", id: signposts.makeSignpostID())
             await Self.firstOf({ for await _ in uploaded { break } }, { try? await clock.sleep(for: Self.uploadHeadStart) })
+            signposts.endInterval("pull-gate", gate)
             // Reset (sign-out, another account, demo switched) meanwhile: the rest isn't this pull's.
             guard !Task.isCancelled, hasDataSource, isDemo || env.auth.accountID == account else {
                 await phase2.value
