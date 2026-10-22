@@ -38,7 +38,7 @@ final class TodayStatesUITests: XCTestCase {
     }
 
     /// 09:12, Garmin Connect quiet since 23:24 (HealthKit's "Connect"): the night hint names the app, offers
-    /// its App Store page, and nothing says it's scoring.
+    /// its App Store page, says it once (no gauge line under it), and nothing says it's scoring.
     @MainActor
     func testNightNotInAppleHealthNamesTheAppAndNeverSaysScoring() throws {
         let app = launch("nightGap")
@@ -47,13 +47,16 @@ final class TodayStatesUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Your night hasn't reached Apple Health yet. Open Garmin Connect to sync it."].exists)
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Last data from Garmin Connect: '"))
                         .firstMatch.exists, "the data's age")
-        XCTAssertTrue(app.buttons["today.nightHint.action"].exists, "Open Garmin Connect")
-        XCTAssertEqual(app.buttons["today.nightHint.action"].label, "Open Garmin Connect")
+        let store = app.buttons["today.nightHint.action"]
+        XCTAssertTrue(store.exists, "the App Store button")
+        XCTAssertEqual(store.label, "Garmin Connect in the App Store")
         XCTAssertFalse(app.staticTexts["Scoring your latest data"].exists)
         XCTAssertFalse(app.staticTexts["Scoring your night"].exists)
         XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'Connect app'")).firstMatch.exists,
                        "never HealthKit's bare name")
         XCTAssertFalse(app.descendants(matching: .any)["today.watchHint"].exists, "one hint, never both")
+        XCTAssertFalse(app.staticTexts["Last night hasn't reached RYFT yet."].exists, "the header says what the number is")
+        XCTAssertTrue(app.staticTexts["Yesterday's readiness, until last night is scored."].exists)
     }
 
     /// Ten minutes against an estimate of 20 s: "Taking longer than usual · Details", the gauge static, and the
@@ -65,7 +68,7 @@ final class TodayStatesUITests: XCTestCase {
         XCTAssertTrue(line.waitForExistence(timeout: 15), "the status line")
         XCTAssertTrue(app.staticTexts["Taking longer than usual · Details"].waitForExistence(timeout: 5), "line 5b")
         let gauge = app.descendants(matching: .any)["today.pendingGauge"]
-        XCTAssertTrue((gauge.value as? String ?? "").contains("Taking longer than usual"), "the gauge says so too")
+        XCTAssertTrue((gauge.value as? String ?? "").contains("Still scoring your night"), "the gauge, in its own words")
         XCTAssertFalse(app.staticTexts["Scoring your night"].exists)
         line.tap()
         XCTAssertTrue(app.navigationBars["Sync details"].waitForExistence(timeout: 5), "Details: Sync details")

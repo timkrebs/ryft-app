@@ -42,15 +42,15 @@ struct InlineMessage: View {
     var onDetails: (() -> Void)? = nil
     /// Prefix of the buttons' identifiers: "<prefix>.retry", "<prefix>.details", "<prefix>.action".
     var identifier = "inlineMessage"
-    /// A plain action, not a retry ("Open Garmin Connect"): a secondary capsule where the buttons sit.
-    var action: (title: LocalizedStringKey, perform: () -> Void)?
+    /// A plain action, not a retry ("Garmin Connect in the App Store"): a secondary capsule where the buttons
+    /// sit. Its title is already localized (`String(localized:)`) and shown verbatim.
+    var action: (title: String, perform: () -> Void)?
 
     @State private var retrying = false
     @State private var showDetails = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var hasTextButtons: Bool { retry != nil || details != nil || onDetails != nil }
-    private var hasButtons: Bool { hasTextButtons || action != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -66,10 +66,11 @@ struct InlineMessage: View {
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                     if let caption {
+                        // Secondary ink: tertiary was under 4.5:1 on the card in light mode.
                         Text(caption)
                             .font(.ryft(.caption))
                             .monospacedDigit()
-                            .foregroundStyle(Theme.textTertiary)
+                            .foregroundStyle(Theme.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -97,9 +98,9 @@ struct InlineMessage: View {
     }
 
     /// The plain action: `PrimaryButton`'s secondary look, wrapping instead of shrinking at large sizes.
-    private func actionButton(_ action: (title: LocalizedStringKey, perform: () -> Void)) -> some View {
+    private func actionButton(_ action: (title: String, perform: () -> Void)) -> some View {
         Button(action: action.perform) {
-            Text(action.title)
+            Text(verbatim: action.title)
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textPrimary)
                 .multilineTextAlignment(.center)
@@ -795,7 +796,7 @@ private struct SetupStep: View {
 #Preview("Inline message · action", traits: .sizeThatFitsLayout) {
     SchemePair {
         InlineMessage(message: "Your night hasn't reached Apple Health yet. Open Garmin Connect to sync it.", systemImage: "moon.zzz",
-                      caption: "Last data from Garmin Connect: Wed 23:24", action: ("Open Garmin Connect", {}))
+                      caption: "Last data from Garmin Connect: Wed 23:24", action: ("Garmin Connect in the App Store", {}))
     }
 }
 

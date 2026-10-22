@@ -339,9 +339,14 @@ final class SyncDetailsModel {
         state.syncStatus?.expectedWithinSec ?? sync.lastScoring?.expectedWithinSec ?? SyncCoordinator.defaultExpectedScoring
     }
 
-    /// "Waiting since 10:21 · usually 20 s"; "Nothing waiting" when no upload of this app is being scored.
+    /// "Waiting since 10:21 · usually 20 s"; the platform's pending days when this app isn't timing them;
+    /// "Nothing waiting" when nothing is.
     var scoringText: String {
-        guard let since = scoringSince else { return String(localized: "Nothing waiting") }
+        guard let since = scoringSince else {
+            let pending = state.syncStatus?.pendingDays ?? []
+            return pending.isEmpty ? String(localized: "Nothing waiting")
+                : String(localized: "Pending: \(pending.joined(separator: ", "))")
+        }
         return String(localized: "Waiting since \(Fmt.time(since)) · usually \(expectedScoringSec) s")
     }
 

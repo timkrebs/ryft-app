@@ -160,11 +160,21 @@ final class TodayViewModel {
         f.freshness = freshness
         f.scoringSince = sync.scoringSince(pendingDays: state.syncStatus?.pendingDays ?? [])
         if let scenario = state.todayScenario { f = scenario.apply(to: f) }
-        // Names for the sources on screen (§5); nothing to name before HealthKit answered (the first frame).
+        // Names for the sources on screen (§5), resolved once per set of sources and catalog version; nothing
+        // to name before HealthKit answered (the first frame).
         let refs = f.sourceRefs
-        if !refs.isEmpty { f.sourceApps = SourceApp.resolve(refs, in: env.trackerCatalog) }
+        if !refs.isEmpty {
+            let catalog = env.trackerCatalog
+            if sourceApps.refs != refs || sourceApps.version != catalog.version {
+                sourceApps = (refs, catalog.version, SourceApp.resolve(refs, in: catalog))
+            }
+            f.sourceApps = sourceApps.apps
+        }
         return f
     }
+
+    /// The last names resolved (`facts`), and for which sources and catalog.
+    @ObservationIgnored private var sourceApps: (refs: Set<SourceRef>, version: String, apps: [SourceRef: SourceApp]) = ([], "", [:])
 
     var hero: TodayHero { TodayStates.hero(facts) }
     /// Gauge, tiles and note, decided once from the same facts (`TodayPresentation.decide`).
@@ -290,9 +300,12 @@ struct TodayContent {
         let p = presentation
         switch p.gauge {
         case .pending(let night):
-            if night.waitingForSleep { return String(localized: "Last night hasn't reached RYFT yet.") }
-            // The gauge and the line say it's scoring; this says what the dimmed number is, and from which day.
-            guard night.previousReadiness != nil else { return String(localized: "Your night is being scored.") }
+            // The gauge and the line say what's happening to the night (the hint card where it is); this says
+            // what the dimmed number is, and from which day.
+            guard night.previousReadiness != nil else {
+                return night.waitingForSleep ? String(localized: "Last night hasn't reached RYFT yet.")
+                    : String(localized: "Your night is being scored.")
+            }
             if let day = night.previousDay,
                !Calendar.current.isDate(day, inSameDayAs: DayFormat.shift(facts.now, days: -1)) {
                 // A gap day before last night (a night without the watch): its date, as the gauge and tiles have it.
@@ -384,18 +397,19 @@ struct TodayContent {
         rawNight.map { facts.sourceApps[$0.ref]?.name ?? $0.source }
     }
 
-    /// The pending gauge's title: "Taking longer than usual" once scoring is slow (ui.md §6.4).
+    /// The pending gauge's title: "Still scoring your night" once scoring is slow (the line says "Taking
+    /// longer than usual"; ui.md §6.4, review).
     var pendingTitle: String {
         guard case .pending(let night) = hero else { return "" }
-        if pendingIsStatic { return String(localized: "Taking longer than usual") }
+        if pendingIsStatic { return String(localized: "Still scoring your night") }
         return night.title
     }
 
-    /// The pending gauge's line: reassurance once scoring is slow, else the shipped one. While the night
-    /// hasn't reached Apple Health the hint card under the gauge names the app (ui.md §6.1: the gauge stays
-    /// row C's; saying it twice read as a repeat).
+    /// The pending gauge's line: reassurance once scoring is slow, else the shipped one; none while the
+    /// night hint is on screen, which says where the night is (one statement, not three).
     var pendingDetail: String {
         guard case .pending(let night) = hero else { return "" }
+        if night.waitingForSleep, TodayStates.nightGap(facts) != nil { return "" }
         if pendingIsStatic { return String(localized: "Your data is safe. RYFT will keep trying.") }
         return night.detail
     }
@@ -628,12 +642,13 @@ struct WatchSyncHint: Equatable {
     /// An app that syncs to Apple Health only while it runs (open it); else an Apple device.
     let isApp: Bool
     var kind: Kind = .quiet
-    /// The app's App Store page ("Open Garmin Connect"): the store shows Open when it's installed.
+    /// The app's App Store page ("Garmin Connect in the App Store"), which shows Open when it's installed.
     var storeURL: URL?
 
     var isNight: Bool { if case .night = kind { return true } else { return false } }
 
-    func text(now: Date, calendar: Calendar = .current) -> String {
+    /// The sentence, its time in the screen's locale ("23:24" in German, the user's 12/24-hour setting in the app).
+    func text(now: Date, locale: Locale = .autoupdatingCurrent, calendar: Calendar = .current) -> String {
         if case .night(let gap) = kind {
             switch gap.kind {
             case .app:
@@ -644,8 +659,7 @@ struct WatchSyncHint: Equatable {
                 return String(localized: "Your night hasn't reached Apple Health yet.")
             }
         }
-        let time = calendar.isDate(since, inSameDayAs: now) ? Fmt.time(since)
-            : since.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+        let time = calendar.isDate(since, inSameDayAs: now) ? Fmt.time(since, locale: locale) : Self.dayAndTime(since, locale: locale)
         if isApp {
             return String(localized: "Nothing new from \(source) since \(time). Open the \(source) app to sync it to Apple Health.")
         }
@@ -653,15 +667,28 @@ struct WatchSyncHint: Equatable {
     }
 
     /// The night's data age, a real time with its day: "Last data from Garmin Connect: Wed 23:24".
-    var caption: String? {
+    func caption(locale: Locale = .autoupdatingCurrent) -> String? {
         guard isNight else { return nil }
-        return String(localized: "Last data from \(source): \(since.formatted(.dateTime.weekday(.abbreviated).hour().minute()))")
+        return String(localized: "Last data from \(source): \(Self.dayAndTime(since, locale: locale))")
     }
 
-    /// "Open Garmin Connect" (its App Store page): only an app's, and only with a store page.
+    /// "Wed 23:24", in `locale`.
+    static func dayAndTime(_ date: Date, locale: Locale) -> String {
+        date.formatted(Date.FormatStyle(locale: locale).weekday(.abbreviated).hour().minute())
+    }
+
+    /// The App Store page button: only an app's, and only with a store page.
     var opensApp: Bool { isApp && storeURL != nil }
 
-    var systemImage: String { isNight ? "moon.zzz" : "applewatch.radiowaves.left.and.right" }
+    /// "Garmin Connect in the App Store": true whether or not the app is installed (the page shows Open).
+    var storeTitle: String { String(localized: "\(source) in the App Store") }
+
+    /// The night's moon; for a quiet source a generic one, the watch glyph only for an Apple device (Apple's
+    /// product glyphs are for Apple's products).
+    var systemImage: String {
+        if isNight { return "moon.zzz" }
+        return isApp ? "antenna.radiowaves.left.and.right" : "applewatch.radiowaves.left.and.right"
+    }
 }
 
 extension WatchSyncHint {
@@ -786,8 +813,9 @@ enum TodayStates {
         case .uploading(_, let records): return .uploading(records: records)
         case nil: break
         }
+        // "Scoring your night" only for a night the platform has; a gauge waiting for it isn't being scored.
         let night: Bool
-        if case .pending = hero(f) { night = true } else { night = false }
+        if case .pending(let p) = hero(f), !p.waitingForSleep { night = true } else { night = false }
         // "Scoring" is about data RYFT uploaded: never beside a night that hasn't reached Apple Health.
         let gap = nightGap(f)
         if f.phase == .awaitingScores, gap == nil { return scoringSlow(f) ? .scoringSlow : .scoring(night: night) }
@@ -806,8 +834,9 @@ enum TodayStates {
     /// source's display name.
     static func watchHint(_ f: TodaySyncFacts, calendar: Calendar = .current) -> WatchSyncHint? {
         if let gap = nightGap(f, calendar: calendar) { return WatchSyncHint(night: gap) }
-        guard f.syncs, !f.waitingForUnlock, !isImporting(f),
-              let newest = f.freshness.max(by: { $0.newest < $1.newest }) else { return nil }
+        // Offline a stale-source hint is noise; the iPhone is never "your watch" (its in-bed sleep is listed too).
+        guard f.syncs, f.online, !f.waitingForUnlock, !isImporting(f),
+              let newest = f.freshness.filter({ !$0.isPhone }).max(by: { $0.newest < $1.newest }) else { return nil }
         let morning = (5..<12).contains(calendar.component(.hour, from: f.now))
         let quiet: TimeInterval = (morning ? 6 : 12) * 3_600
         guard f.now.timeIntervalSince(newest.newest) > quiet else { return nil }
@@ -837,7 +866,10 @@ enum TodayStates {
         guard case .pending(let night) = hero(f), night.waitingForSleep else { return nil }
         guard let newest = f.freshness.filter({ !$0.isPhone }).max(by: { $0.newest < $1.newest }),
               newest.newest <= cutoff else { return nil }
-        if let sleep = f.status?.latest["sleep"], sleep > cutoff { return nil }
+        // The platform's newest sleep, unless it's this iPhone's in-bed record (the platform takes the newest of
+        // every source): within a minute of the phone's own newest record, or older than it.
+        if let sleep = f.status?.latest["sleep"], sleep > cutoff,
+           !f.freshness.contains(where: { $0.isPhone && $0.newest >= sleep.addingTimeInterval(-60) }) { return nil }
         let app = f.sourceApps[newest.ref] ?? SourceApp(name: newest.source, kind: .unknown, appStoreURL: nil)
         return NightGap(name: app.name, kind: app.kind, storeURL: app.appStoreURL, newest: newest.newest)
     }

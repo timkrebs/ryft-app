@@ -65,9 +65,11 @@ final class SyncService {
     /// What the last upload's responses said about scoring: the days queued, how long it
     /// has recently taken (`SyncResponse.scoring`).
     private(set) var lastScoring: SyncScoring?
-    /// When the pipeline began waiting for scores (`awaitingScores`). Kept after a wait the coordinator
-    /// gave up on (`SyncCoordinator.maximumScoringWait`) while the platform still lists pending days;
-    /// cleared by the platform's word that they're scored (design.md §6.1, `scoringSince`).
+    /// When scoring began, on this phone's clock (design.md §6.1, `scoringSince`): the pipeline entering
+    /// `awaitingScores`, or the first GET /v1/me/sync listing pending days nobody here waits for (after a
+    /// relaunch, another device's upload). Kept after a wait the coordinator gave up on
+    /// (`SyncCoordinator.maximumScoringWait`) while the platform still lists pending days; cleared by its word
+    /// that they're scored, and by a wait that ended early.
     private(set) var scoringWaitStart: Date?
     /// Uploads wait behind this gate (no consent to the current policy, no beta access)
     /// until it's passed. Not an error: something the user does (`OnboardingCoordinator`).
@@ -98,15 +100,17 @@ final class SyncService {
         switch (from, to) {
         case (_, .awaitingScores):
             scoringWaitStart = env.clock.now()
-        case (.awaitingScores, .refreshing):
-            // Before the cut-off the wait ended on the platform's word (a silent push, or GET /v1/me/sync
-            // no longer listing the days). At the cut-off it gave up: the start stays for "Taking longer".
+        case (.awaitingScores, _):
+            // The wait ended. Only at the cut-off did the coordinator give up on days still pending: that start
+            // stays for "Taking longer than usual". Earlier it ended on the platform's word (a silent push, or a
+            // GET /v1/me/sync without the days), or was cancelled (background, sign-out) or failed: the start
+            // goes, and the next status read decides again (`receive`).
             if let start = scoringWaitStart,
                env.clock.now().timeIntervalSince(start) < SyncCoordinator.maximumScoringWait.timeInterval {
                 scoringWaitStart = nil
             }
         case (.idle, .refreshing), (.done, .refreshing), (.failed, .refreshing):
-            // A silent push's refresh: the platform scored a day.
+            // A refresh without an upload before it is a silent push's: the platform scored a day.
             scoringWaitStart = nil
         default:
             break
@@ -288,8 +292,15 @@ final class SyncService {
     /// wait): what the sync acts on.
     func receive(_ status: SyncStatus) {
         if let requested = status.resyncRequestedAt { fullResyncRequested(at: requested) }
-        // Nothing pending on the platform: no wait is slow any more.
-        if status.pendingDays.isEmpty { scoringWaitStart = nil }
+        if status.pendingDays.isEmpty {
+            // Nothing pending: no wait is slow any more. Not mid-wait, where a read can predate the upload; the
+            // wait ends on its own.
+            if phase != .awaitingScores { scoringWaitStart = nil }
+        } else if scoringWaitStart == nil {
+            // Pending days this app isn't timing (a relaunch, another device): from now, on this phone's clock.
+            // The platform's `last_sync_at` isn't compared with it: the two clocks needn't agree.
+            scoringWaitStart = env.clock.now()
+        }
     }
 
     /// `resync_requested_at`: the operator found data missing. A request this account

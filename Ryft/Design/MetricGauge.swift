@@ -323,9 +323,12 @@ struct PendingGauge: View {
                 Text(title)
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textPrimary)
-                Text(detail)
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
+                // None while a card under the gauge says it (the night hint).
+                if !detail.isEmpty {
+                    Text(detail)
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textSecondary)
+                }
             }
             .multilineTextAlignment(.center)
         }

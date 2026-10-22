@@ -121,8 +121,9 @@ struct TodayView: View {
             }
             .accessibilityElement(children: .combine)
             if model.hasDataSource {
-                // While scoring, the line is asked again every 15 s: "Taking longer than usual" comes with time alone.
-                TimelineView(.periodic(from: .now, by: model.syncLine.isScoring ? 15 : 3_600)) { _ in
+                // While anything is being scored, the line is asked again every 15 s: "Taking longer than usual"
+                // comes with time alone. One read of the line per tick.
+                TimelineView(.periodic(from: .now, by: day.facts.scoringSince != nil ? 15 : 3_600)) { _ in
                     SyncStatusLineView(line: model.syncLine, action: { model.resolveLine() }, retry: { await model.refresh() })
                 }
             }
@@ -145,8 +146,9 @@ struct TodayView: View {
                 .accessibilityIdentifier("today.importCard")
             case .pending(let night):
                 // While scoring, asked again every 15 s, like the line: slow scoring stops the breathing.
-                TimelineView(.periodic(from: .now, by: night.waitingForSleep ? 3_600 : 15)) { _ in
-                    let now = night.waitingForSleep ? day : model.content
+                let ticking = day.facts.scoringSince != nil
+                TimelineView(.periodic(from: .now, by: ticking ? 15 : 3_600)) { _ in
+                    let now = ticking ? model.content : day
                     PendingGauge(previous: night.previousReadiness, previousDay: night.previousDay,
                                  title: now.pendingTitle, detail: now.pendingDetail, breathes: !now.pendingIsStatic)
                 }
@@ -405,19 +407,24 @@ struct RawNightCard: View {
     private var bedtime: String { Fmt.time(night.bedtime, locale: locale) }
     private var wake: String { Fmt.time(night.wake, locale: locale) }
     private var source: String { sourceName ?? night.source }
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         Card {
             VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline) {
+                // Side by side; stacked at accessibility sizes, where the two squeeze each other.
+                let header = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+                    : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
+                header {
                     Text("Last night")
                         .font(.ryft(.headline))
                         .foregroundStyle(Theme.textPrimary)
-                    Spacer()
+                    if !typeSize.isAccessibilitySize { Spacer() }
                     Text("From Apple Health · not scored yet")
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textTertiary)
-                        .multilineTextAlignment(.trailing)
+                        .multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(Fmt.duration(minutes: night.asleepMin))
@@ -442,28 +449,30 @@ struct RawNightCard: View {
 }
 
 /// "Nothing new from Garmin Connect since 23:40", or in the morning "Your night hasn't reached Apple Health
-/// yet. Open Garmin Connect to sync it." with the data's age and the app's App Store page (ui.md §6.2). A
-/// quiet hint: no dismissal; it goes when the night arrives.
+/// yet. Open Garmin Connect to sync it." with the data's age and "Garmin Connect in the App Store" (ui.md §6.2,
+/// errata 2). A quiet hint: no dismissal; it goes when the night arrives. Times in the screen's locale.
 struct WatchSyncHintCard: View {
     let hint: WatchSyncHint
-    /// "Open Garmin Connect"; dropped while the error card offers its own action (one action on screen).
+    /// The App Store button; dropped while the error card offers its own action (one action on screen).
     var showsAction = true
 
     @Environment(\.openURL) private var openURL
+    @Environment(\.locale) private var locale
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            InlineMessage(message: hint.text(now: context.date), systemImage: hint.systemImage, caption: hint.caption,
-                          identifier: hint.isNight ? "today.nightHint" : "today.watchHint", action: action)
+            InlineMessage(message: hint.text(now: context.date, locale: locale), systemImage: hint.systemImage,
+                          caption: hint.caption(locale: locale), identifier: hint.isNight ? "today.nightHint" : "today.watchHint",
+                          action: action)
         }
         // A container: VoiceOver (and UI tests) reach the sentence, its age and "Open …" one by one.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(hint.isNight ? "today.nightHint" : "today.watchHint")
     }
 
-    private var action: (title: LocalizedStringKey, perform: () -> Void)? {
+    private var action: (title: String, perform: () -> Void)? {
         guard showsAction, hint.opensApp, let url = hint.storeURL else { return nil }
-        return ("Open \(hint.source)", { openURL(url) })
+        return (hint.storeTitle, { openURL(url) })
     }
 }
 
