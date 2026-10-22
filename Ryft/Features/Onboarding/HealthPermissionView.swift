@@ -429,6 +429,8 @@ final class OnboardingCoordinator {
         do {
             try await body()
             return true
+        } catch where error.isCancellation {
+            return false
         } catch {
             errorMessage = message(error) ?? error.localizedDescription
             errorDetails = error.diagnosticDetails

@@ -143,6 +143,9 @@ final class PushRegistrar {
             // Once per accepted registration: on TestFlight (no Developer section) this
             // is how to confirm the build registered with production APNs.
             Self.log.notice("push registration env=\(record.env.rawValue, privacy: .public) locale=\(record.locale, privacy: .public)")
+        } catch where error.isCancellation {
+            // Not sent: the record isn't saved, so the next trigger sends it.
+            return
         } catch {
             lastError = error.localizedDescription
             lastResult = "POST failed · \(error.diagnosticDetails ?? error.localizedDescription)"

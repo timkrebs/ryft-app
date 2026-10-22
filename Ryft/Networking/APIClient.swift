@@ -89,6 +89,10 @@ enum APIError: LocalizedError {
 extension Error {
     var isEndpointMissing: Bool { (self as? APIError)?.isNotFound ?? false }
 
+    /// The caller's task was cancelled (`CancellationError`, or `URLError.cancelled` from a raw
+    /// session): nothing failed, so nothing is shown, dropped or counted.
+    var isCancellation: Bool { FailureKind.of(self) == .cancelled }
+
     /// The gate behind a refused call (`403 invite_required` / `consent_required`), if any.
     var gate: APIErrorCode? { (self as? APIError)?.gate }
 

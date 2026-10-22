@@ -148,6 +148,8 @@ final class JournalSheetModel {
             try await store.save(day: day, entries: put.entries)
             saved = true
             rebuild()
+        } catch where error.isCancellation {
+            return
         } catch {
             self.error = Self.message(for: error, rows: groups.flatMap(\.rows))
         }

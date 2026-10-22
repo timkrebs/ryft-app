@@ -79,7 +79,7 @@ final class TrainLibrary {
         do {
             if let fresh = try await read("plans/today", { try await src.planToday() }) { setToday(fresh) }
         } catch { failure = failure ?? error }
-        if let failure, !(failure is CancellationError) {
+        if let failure, !failure.isCancellation {
             self.error = failure.localizedDescription
             self.errorDetails = failure.diagnosticDetails
         } else if failure == nil {
@@ -133,6 +133,8 @@ final class TrainLibrary {
             let p = try await remote.plan(id: id)
             store.cache(plans: [p])
             return p
+        } catch where error.isCancellation {
+            return nil
         } catch {
             self.error = error.localizedDescription
             self.errorDetails = error.diagnosticDetails
@@ -213,6 +215,8 @@ final class TrainLibrary {
             store.cache(exercises: [saved])
             exercises = store.exercises()
             return saved
+        } catch where error.isCancellation {
+            return e
         } catch {
             self.error = error.localizedDescription
             return e
@@ -226,6 +230,8 @@ final class TrainLibrary {
             store.cache(plans: [saved])
             await reloadCatalog()
             return true
+        } catch where error.isCancellation {
+            return false
         } catch {
             self.error = error.localizedDescription
             self.errorDetails = error.diagnosticDetails
@@ -240,6 +246,8 @@ final class TrainLibrary {
             store.removePlan(id: p.id)
             await reloadCatalog()
             return true
+        } catch where error.isCancellation {
+            return false
         } catch {
             self.error = error.localizedDescription
             return false
@@ -285,6 +293,8 @@ final class TrainLibrary {
             try await action(remote)
             await reloadCatalog()
             return true
+        } catch where error.isCancellation {
+            return false
         } catch {
             self.error = error.localizedDescription
             self.errorDetails = error.diagnosticDetails

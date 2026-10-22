@@ -207,6 +207,8 @@ final class ProfileViewModel {
         do {
             let archive = try await DataExport.archive(source: state.source, train: env.api)
             exported = ExportedFile(url: try DataExport.write(archive))
+        } catch where error.isCancellation {
+            return
         } catch {
             exportError = String(localized: "The export couldn't be created: \(error.localizedDescription)")
         }
@@ -238,6 +240,8 @@ final class ProfileViewModel {
             let user = try await env.liveAPI.me()
             connection = .ok(String(localized: "Connected as \(user.name.isEmpty ? user.id.uuidString : user.name)"))
             await syncNow()
+        } catch where error.isCancellation {
+            return
         } catch {
             connection = .failed(error.localizedDescription)
         }
@@ -616,6 +620,8 @@ final class BodySettingsEditor {
             await state.refresh(force: true)
             rescoreStatus = String(localized: "The last 90 days are rescored with your settings.")
             savedChange = false
+        } catch where error.isCancellation {
+            return
         } catch {
             rescoreStatus = error.localizedDescription
             rescoreDetails = error.diagnosticDetails
@@ -638,6 +644,8 @@ final class BodySettingsEditor {
         } catch let e as APIError where e.isFieldError {
             error = refused
             errorDetails = e.diagnosticDetails
+        } catch where error.isCancellation {
+            return false
         } catch {
             self.error = error.localizedDescription
             errorDetails = error.diagnosticDetails
