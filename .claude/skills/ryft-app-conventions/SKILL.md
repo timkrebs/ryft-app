@@ -16,7 +16,9 @@ and you report the drift.
   `Design/` theme, components, `ChartStyle` · `StateMachines/` · `Preview/` mock data ·
   `Resources/` fonts, `Localizable.xcstrings`.
 - Tests: `RyftTests/` (Swift Testing + XCTest), `RyftUITests/`. Test plans `Unit`, `UISmoke`, `Full`.
-- `Ryft/`, `RyftTests/`, `RyftUITests/` are synchronized folders: new files need no pbxproj edit.
+- `RyftWidgets/` and `RyftUITests/` are synchronized folders (new files need no pbxproj edit). `Ryft/` and
+  `RyftTests/` are still **classic groups**: a new `.swift` file there is not compiled, so put new types into an
+  existing file until the user converts them (Xcode → the group → Convert to Folder).
 - Docs: `docs/STATUS.md`, `docs/ARCHITECTURE.md`, `docs/API_REQUESTS.md`, `docs/CHART_STYLE.md`,
   `docs/CI.md`, `docs/RELEASING.md`, `docs/APP_STORE.md`, `CHANGELOG.md`.
 

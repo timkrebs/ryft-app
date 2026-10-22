@@ -1,0 +1,4 @@
+- [Today-state review checks](review_checks_today_state.md) — day words vs latest scored day, per-accessor facts cost, widget asOf fields, edited debugger tests
+- [Outbox/queue review checks](review-checks-outbox-queues.md) — stale flush snapshots, late responses refilling resets, epoch bumped after the wipe, echo stubs
+- [Shared transport/coalescing checks](review-checks-shared-transport.md) — error-shape audits, cancellable waits, joined replays, global holds, debounced-save flush, flakes
+- [Merge/wiring review checks](review-checks-merges-and-wiring.md) — prove merges lost nothing (line survival, xcstrings dicts); re-read values once hidden UI is wired

@@ -1,5 +1,69 @@
 # Status — 2026-10-21
 
+## Incidents
+
+### 2026-10-21 — "Couldn't refresh" and "Baselines 0 of 7" beside a scored day (TestFlight 1.0.0 `20261021.141128`)
+
+The report: on iPhone17,1 with iOS 27.0.1, Wi-Fi, at 18:12, pull to refresh on Today showed "Couldn't refresh just now — showing your
+last loaded data." The gauge said "Baselines · 0 of 7 nights" while the tiles showed recovery 75 %, sleep 7 h 10 m and strain 0.9,
+and Trends showed readiness 80 with "— vs 7 d". The build is from `main` at `1eb5192` (14:11 UTC), so it already had the status
+line, Sync details and Copy diagnostics (#14).
+
+Root causes (debugger, tests on `debug/refresh-repro`, cherry-picked into the fixes):
+1. **Refresh was all-or-nothing.** `AppState.refresh` awaited `(day, history, me)`, so the first failure skipped trends
+   and insights and replaced everything with the generic card, even when the rest was current. `refreshDays` after
+   every sync did the same. → T1, per-resource reads.
+2. **The likeliest failure was a transport-class error, probably a cancellation.** The card had no Details, which only
+   appear for HTTP errors, so it wasn't a `429`/`503`/`404`. `APIClient` reported `URLError.cancelled` as a transport
+   failure, and a cancelled `Task.sleep` surfaced as an error. Transport failures weren't logged in Sync details.
+   Device evidence is still pending (Copy diagnostics). → T1: cancellation is never a failure, transport failures are
+   logged, and transient failures retry silently and only show past a threshold.
+3. **"0 of 7": platform data plus app presentation.** The day was scored (recovery 75) but carried `calibrating: true,
+   baseline_days: 0`. That's the platform's row. Our cache and decoding were ruled out by tests. The platform calibrates
+   while either baseline (HRV or resting HR) has fewer than 7 nights among the 30 scored days before. So either today
+   was scored before its earlier days, or the account has no HRV/RHR at night. The app showed that row's calibration
+   ahead of its own score, and the widget disagreed. → T2, one decision for gauge, tiles and widget;
+   `API_REQUESTS.md` → Refresh resilience §1–2.
+4. **"— vs 7 d" wasn't missing data.** It was a flat delta (< 2 %) drawn as a dash. → T2: "Steady vs 7 d".
+5. **The tester couldn't send diagnostics.** `POST /v1/feedback` had no caller. → T3, Profile → Report a problem.
+
+## Refresh resilience (`CLAUDE_FOLLOWUP_REFRESH_RESILIENCE.md`), stability, no new features
+
+Plan, design note, UI spec and review log: `docs/work/2026-10-21-refresh-resilience/`. ADR 0001: one retry layer for reads.
+
+| PR | What | Verified |
+| --- | --- | --- |
+| #26 `feat: report a problem with diagnostics` | Profile → About → Report a problem → `POST /v1/feedback`; allow-listed diagnostics (no health values, no query strings or IDs in paths, sample dates to the day); offline queue bound to the account; privacy manifest declares diagnostic data | **merged** c34bb9a · simulator: 596 unit + review suites; CI green; screenshots en/de/dark/light |
+| #28 `fix: one consistent Today state` | `TodayPresentation.decide`: one decision for gauge, tiles, note, delta and widget; unknown ≠ calibrating; "Recalculating" and "needs heart-rate data" rows; dimmed, dated tiles while the night is scored; "Steady vs 7 d"; locale-aware times | **merged** 9745392 · simulator: 603 unit; CI green; screenshots rows A–E en/de/dark/light/AX3 |
+| #27 `fix: refresh per resource with silent retries` | per-resource reads with their own state; one retry layer (2× foreground, full jitter, `Retry-After`); cancellation is never a failure; ordered pull (today + sync status, then the rest after the upload or 2 s; ≤ 3 in flight, ≤ 5 starts a second; a global 429 hold); error only past a threshold, or when the user can act; stale line and calm card with Details; Loaded data in Sync details; path redaction; Train queue keeps cancelled ops and stops at sign-out | **merged** d7996f5 · simulator: 652 unit + UISmoke (incl. `RefreshResilienceUITests`); CI green with #30's allowance (earlier UI smoke timeouts were the runner; see review log) |
+| #31 `feat: send a refresh problem to RYFT` | Today's error card → Details → **Send to RYFT** opens Report a problem pre-filled; per-area load state and request durations in the report; one path redaction; a retry never outlives its account (epoch-guarded `exchange`); the "catching up" notice can't stick | **merged** 2b21cf6 · simulator: 719 unit + `RefreshResilienceUITests`; CI green |
+| #29 `docs: refresh resilience` | this section, Incidents, `API_REQUESTS.md` → Refresh resilience §1–4, TestFlight notes en/de | — |
+| #30 `ci: UI tests get 180 s before they count as hung` | UISmoke and nightly Full test plans: 60 s → 180 s per test (a timed-out test isn't retried) | **merged** 1864e28 · CI green |
+
+**Simulator only. On your iPhone, please, and tell me what you saw:**
+1. Pull to refresh on Today **5× while a sync runs** (Profile → Data → "Sync last 3 days again", then pull at once). Expected: no error card; the line goes "Syncing · …" → "Scoring your night" or "Updating…" → "Up to date · just now"; the spinner ends within about 3 s.
+2. **Airplane mode on**, pull to refresh: "Offline — will sync when back", no card. Airplane mode off: it catches up by itself.
+3. In the **evening, force-quit and reopen**; next **morning before the score lands**: Today shows the pending gauge with yesterday's readiness dimmed and dated and last night's raw sleep. Never "Baselines · 0 of 7".
+4. **Report a problem** with diagnostics: "Thanks, your report reached RYFT". On the platform the report has the six diagnostics keys and no health values. Then in airplane mode: "Saved… sent as soon as you're back online", and it goes out when you're back.
+5. **Instruments** (Release build; Time Profiler + Points of Interest + Hangs; subsystem `dev.timkrebs.ryft`, categories `reads` and `sync`). Pull to refresh 5× during a sync, 10 s apart. Record `pull-total` p50/max, `pull-gate`, `budget` max, the longest main-thread slice (target < 33 ms, look for `persist`/`saveDocument`/`WireCoding.decode`), and hangs. Cold launch 3× (App Launch): `launch` < 400 ms warm. One silent push in the background: push → last `fetch` < 25 s.
+
+**Follow-ups (not in this release):**
+- The 600 ms line hold isn't unit-testable (`@State` + `Task.sleep`); move it into a model on `AppClock`.
+- The widget has no kind for "scored, no readiness" (it says "Waiting for last night").
+- Writes and uploads don't honour the global 429 hold (they have their own budgets).
+- `lint-strings.py`: check `%#@token@` substitutions and English plurals.
+- The disclosure chevron renders white on iOS 26 (app-wide; ui-designer).
+- "App too old" card: ready, unshipped until the platform signals it (`API_REQUESTS.md` §3).
+- CI UI tests: the 60 s allowance is too tight on GitHub's runners. The nightly Full run on `main` timed out
+  (`TrainSessionUITests`), and passing walkthroughs range from 30 to 55 s with or without #27. A timed-out test isn't retried
+  (xcodebuild moves on). #30 raises UISmoke and Full to 180 s. Branches with #27 still hit it more often (3 of 8 against 0 of
+  19), always with runner symptoms. performance-profiler found no app cause: a build without #27 is just as slow when starved
+  (up to 60.7 s); idle CPU and accessibility trees are equal. If timeouts continue on `main` after #30, shrink the Insights
+  accessibility tree (468 elements; one element per chart) and raise the walkthrough's 5 s `waitForExistence` timeouts.
+- `AuthService.token()` signs out on a session-ending refresh error without checking whose session it is (a slow refresh of
+  account A across a switch to B); move `forgetRequests()` into `AuthService.apply` to close a one-render gap.
+- Convert `Ryft/` and `RyftTests/` to folders in Xcode (new types still go into existing files).
+
 ## Beta feedback 1: Bedtime & wake (§4)
 
 - **Sleep schedule** (`SleepSchedule`, per account on this phone until the platform keeps it):
