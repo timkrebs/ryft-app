@@ -160,7 +160,7 @@ struct RyftApp: App {
                 }
                 .task {
                     appDelegate.handlers = PushHandlers(registrar: screens.push, router: screens.router,
-                                                        coordinator: coordinator)
+                                                        coordinator: coordinator, reads: state.env.reads)
                 }
                 // Back online: upload what HealthKit collected meanwhile, then reload.
                 .onChange(of: connectivity.isOnline) { _, online in
@@ -221,6 +221,9 @@ struct RyftApp: App {
                     await WorkoutHealthExport.shared.appBecameActive(now: .now)
                 }
             } else if phase == .background {
+                // What failed in the last 1.5 s is still waiting for its coalesced save: write it
+                // before iOS may suspend (or kill) the app.
+                state.env.reads.savePendingNow()
                 // Not a cancel: the page in flight finishes (in a background task), and what's
                 // left of an import goes to the backfill task.
                 _ = BackgroundWork.finishInBackground(coordinator: coordinator, app: UIApplication.shared,

@@ -1200,9 +1200,22 @@ final class ReadScheduler {
         pendingSave?.cancel()
         pendingSave = nil
         guard let env, !env.isDemo, let account = env.auth.accountID else { return }
-        let saved = Saved(account: account, states: Dictionary(uniqueKeysWithValues: states.map { ($0.key.rawValue, $0.value) }))
-        guard let data = await Self.encode(saved), env.auth.accountID == account else { return }
+        guard let data = await Self.encode(saved(account)), env.auth.accountID == account else { return }
         env.persistence.saveDocumentData(data, key: Self.documentKey, at: clock.now())
+    }
+
+    /// A save is waiting and the app may be suspended next (going to the background, the end of a
+    /// silent push): it's written at once, on the main actor, with no await before it's done.
+    func savePendingNow() {
+        guard pendingSave != nil else { return }
+        pendingSave?.cancel()
+        pendingSave = nil
+        guard let env, !env.isDemo, let account = env.auth.accountID else { return }
+        env.persistence.saveDocument(saved(account), key: Self.documentKey, at: clock.now())
+    }
+
+    private func saved(_ account: String) -> Saved {
+        Saved(account: account, states: Dictionary(uniqueKeysWithValues: states.map { ($0.key.rawValue, $0.value) }))
     }
 
     @concurrent
