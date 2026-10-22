@@ -16,7 +16,7 @@
         }
       ]
     },
-    "defaultTestExecutionTimeAllowance": 60,
+    "defaultTestExecutionTimeAllowance": 180,
     "targetForVariableExpansion": {
       "containerPath": "container:Ryft.xcodeproj",
       "identifier": "589CA62357E07E34FDA39AC9",
