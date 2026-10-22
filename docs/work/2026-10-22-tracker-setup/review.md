@@ -339,3 +339,11 @@ PRs:
   that has the wanted type and logs the choice. It merges before #33 and #34.
 - **Follow-up (STATUS):** how RYFT behaves on an iPhone Duo (side tab strip, UI-test queries) is a product question for
   later.
+
+### T2: code re-verification at a5a0249 (Unit 884/884, `DevicesUITests` 5/5, iPhone 17 and iPhone SE 3)
+- **Fixed:** 14 of 15, including the picker at 375 pt (two columns at default size, one column at XXL and above, no broken
+  words in en or de).
+- **0c, partly fixed (blocker):** with a selection, `worn` drops unmatched sources unless "Other" is chosen. That breaks
+  T1's "an Apple source without a device model is a candidate" (the hint disappears, or shows wrongly). → Item 26: drop
+  only sources matched to an unchosen tracker; keep unmatched ones. Add 2 tests.
+- **Expected, not bugs:** an unchosen-but-matched source doesn't cancel the hint; "Just my iPhone" shows no hint.
