@@ -648,3 +648,30 @@ Mock data: add Garmin-like scenarios to `MockHealthStore` (sources without HRV) 
 6. **Amber `warning` on `surface`:** the glyph is non-text (3:1); confirm both schemes against the asset values in review.
 7. **Morning rule** (when T1 appears) and the 48 h window are the architect's; the copy above assumes T1 only appears when the tracker's newest sleep/HR is older than the last wake window.
 8. **Apple Watch capability detail** ("Sleep stages need watchOS 9 or later") is unverified for iOS 27-era models; verify or drop.
+
+## Errata (lead, 2026-10-22, after the T1 and T3 reviews)
+
+These override the sections above.
+1. **Glyphs** (§0.7, §2.2, §3, §4, §5): Apple glyphs are chosen by **tracker id**, never by form.
+   - `apple_watch` → `applewatch`; `iphone` → `iphone`.
+   - Every other watch → `watch.analog`; ring → `circle.circle`; band → a distinct neutral glyph (T2 proposes one);
+     Other → `ellipsis.circle`.
+   - A remote catalog entry can never get an Apple glyph. SF Symbols restricts Apple-product glyphs to the Apple products
+     themselves.
+   - Generic "devices" places (the Devices & sync row, the card headers at lines 153 and 242) use
+     `antenna.radiowaves.left.and.right`, never `applewatch`.
+2. **The store button** (§3.6, the copy table): RYFT declares no URL schemes, so row 1 of the §3.6 table (a verified
+   `open_url`) never applies.
+   - The button always reads **"{app} in the App Store" / "{app} im App Store"** and opens the App Store page, which shows
+     "Open" when the app is installed.
+   - Sentences such as "Open {app} to sync it." stay as written.
+3. **Health** (§4, §5): the button "Open Health permissions" becomes **"Open Health" / "Health öffnen"**, because
+   `x-apple-health://` opens the Health app's start screen. The path text from the catalog's `health_access.steps` always
+   sits next to it.
+4. **Fix panel** (§5.2): the setup steps show **inline** in the fix panel, from the catalog, with no "Show setup steps"
+   button. In a raised panel, the secondary button gets a visible shape (outlined, or on `surface`).
+5. **Permission card wording** (§5.5):
+   - en: "iOS doesn't tell apps whether they may read Health data: RYFT only sees what it's allowed to read. So “nothing
+     yet” can mean no data, or that RYFT isn't allowed to read it."
+   - de: "iOS sagt Apps nicht, ob sie Health-Daten lesen dürfen: RYFT sieht nur, was es lesen darf. „Noch nichts“ kann
+     also heißen: keine Daten, oder RYFT darf sie nicht lesen."
