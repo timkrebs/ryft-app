@@ -560,6 +560,7 @@ private struct RequestIDRow: View {
             }
             .accessibilityElement(children: .combine)
             .accessibilityAction(named: Text("Copy request ID"), copy)
+            .accessibilityIdentifier("refreshDetails.requestID")
         } else {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Request ID")

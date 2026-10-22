@@ -88,6 +88,7 @@ struct TodayViewModelTests {
         }
         #expect(issue.resourceName == ReadResource.today.displayName)
         #expect(issue.statusText == "503" && issue.error.requestID == "rid-503")
+        #expect(issue.error.code == "consent_required")
         #expect(vm.syncLine.text(now: env.clock.now()) == String(localized: "Couldn't load today · Details"))
     }
 
