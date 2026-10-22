@@ -231,11 +231,12 @@ struct RyftApp: App {
         }
     }
 
-    /// Queued sessions go up first; then the library, plans and today's plan.
+    /// Queued sessions go up first (waited for 3 s at most: a slow upload goes on); then the
+    /// library, plans and today's plan.
     private func refreshTrain() async {
         guard settings.demoMode || auth.isSignedIn else { return }
         trainCoordinator.refreshActive()
-        await trainSync.flush()
+        await trainSync.flush(upTo: .seconds(3))
         await trainLibrary.refresh()
     }
 
