@@ -30,12 +30,15 @@ final class SyncCheckUITests: XCTestCase {
     }
 
     @MainActor
-    func testGarminShowsHRVAndRestingHeartRateAsNotShared() throws {
+    func testGarminShowsHRVAsNotSharedAndRestingHeartRateArriving() throws {
         let app = launch("garmin")
         // Steps is the last row to resolve: then every row has its result.
         XCTAssertTrue(value(of: row(app, "steps"), "BEGINSWITH 'Arriving'"), "the check finished")
         XCTAssertEqual(row(app, "hrv").value as? String, "Not shared by Garmin Connect, expected")
-        XCTAssertEqual(row(app, "resting_hr").value as? String, "Not shared by Garmin Connect, expected")
+        XCTAssertEqual(row(app, "respiratory_rate").value as? String, "Not shared by Garmin Connect, expected")
+        // As a device check saw it: one resting heart rate a day, and sleep with stages.
+        XCTAssertTrue((row(app, "resting_hr").value as? String ?? "").hasPrefix("Arriving"), "resting heart rate arrives")
+        XCTAssertTrue((row(app, "sleep_stages").value as? String ?? "").hasPrefix("Arriving"), "stages arrive")
         XCTAssertTrue((row(app, "heart_rate").value as? String ?? "").hasPrefix("Arriving"), "heart rate arrives")
         XCTAssertTrue((row(app, "sleep").value as? String ?? "").hasPrefix("Arriving"), "sleep arrives")
         XCTAssertTrue(app.staticTexts["That's normal."].exists)
@@ -58,7 +61,7 @@ final class SyncCheckUITests: XCTestCase {
         XCTAssertTrue(value(of: row(app, "sleep"), "== 'Should arrive, nothing yet. Fix available'"))
         XCTAssertTrue(value(of: row(app, "steps"), "BEGINSWITH 'Arriving'"), "the check finished")
         XCTAssertTrue(app.staticTexts["RYFT can read sleep, but none came from Garmin Connect in the last 2 days."].exists)
-        XCTAssertTrue(app.staticTexts["3 of 4 expected signals are arriving. 1 needs a fix."].waitForExistence(timeout: 5),
+        XCTAssertTrue(app.staticTexts["4 of 5 expected signals are arriving. 1 needs a fix."].waitForExistence(timeout: 5),
                       "the summary")
         XCTAssertFalse(app.descendants(matching: .any)["check.mayNotRead"].exists, "RYFT sees sleep elsewhere")
     }

@@ -897,36 +897,50 @@ struct SyncCheckTests {
         Dictionary(uniqueKeysWithValues: check.rows.map { ($0.signal, $0.check) })
     }
 
-    private static let notGarmin: [TrackerSignal] = [.hrv, .restingHR, .respiratoryRate, .spo2]
+    /// What a device check saw Garmin Connect write (catalog 2026-10-22.3): no HRV, breathing rate or SpO₂.
+    private static let notGarmin: [TrackerSignal] = [.hrv, .respiratoryRate, .spo2]
 
     // MARK: the table
 
-    @Test func garminSendsWhatR1SaysAndHRVIsAnExpectedGap() throws {
+    @Test func garminSendsWhatTheDeviceCheckSawAndHRVIsAnExpectedGap() throws {
         let check = try classify("garmin", .garminLike(now: now))
         let r = rows(check)
         #expect(check.rows.map(\.signal) == TrackerSignal.allCases)
         #expect(r[.heartRate] == .arrived(now.addingTimeInterval(-1_200)))
-        #expect(r[.sleep] == .arrived(at(6, 48)))
+        // One resting heart rate a day, stamped 00:00: last night's.
+        #expect(r[.restingHR] == .arrived(at(0, 0)))
+        #expect(r[.sleep] == .arrived(at(6, 48)) && r[.sleepStages] == .arrived(at(6, 48)))
         #expect(r[.steps] == .arrived(now.addingTimeInterval(-3_600)))
         #expect(r[.workouts] == .arrived(at(19, 2, daysAgo: 1)))
         for signal in Self.notGarmin { #expect(r[signal] == .notShared, "\(signal)") }
-        // Stages are unverified for Garmin: a night without them isn't a fault.
-        #expect(r[.sleepStages] == .notSeenYet)
         #expect(check.overall == .ok && check.app == "Garmin Connect")
-        #expect(check.expected == 4 && check.arriving == 4 && check.needsFix == 0 && check.drift.isEmpty)
+        #expect(check.expected == 6 && check.arriving == 6 && check.needsFix == 0 && check.drift.isEmpty)
         #expect(text.result(.notShared, signal: .hrv, app: check.app, now: now)
             == String(localized: "Not shared by \("Garmin Connect")"))
-        #expect(text.summary(expected: 4, arriving: 4, needsFix: 0)
-            == String(localized: "\(4) of \(4) expected signals are arriving."))
+        #expect(text.summary(expected: 6, arriving: 6, needsFix: 0)
+            == String(localized: "\(6) of \(6) expected signals are arriving."))
+    }
+
+    /// Resting heart rate: an expected gap from a tracker that writes none (Oura, per its docs), an unexpected one
+    /// from Garmin Connect, which does.
+    @Test func restingHeartRateIsExpectedOnlyWhereTheTrackerSharesIt() throws {
+        let ring = try classify("oura", .ouraLike(now: now))
+        #expect(rows(ring)[.restingHR] == .notShared && rows(ring)[.hrv] == .notShared && rows(ring)[.spo2] == .notShared)
+        #expect(rows(ring)[.respiratoryRate] == .arrived(at(6, 40)) && rows(ring)[.sleepStages] == .arrived(at(6, 40)))
+        #expect(ring.overall == .ok && ring.expected == 6 && ring.arriving == 6)
+        let garmin = try classify("garmin", .garminLike(now: now, restingHR: false))
+        #expect(rows(garmin)[.restingHR] == .missing(visible: false) && garmin.overall == .needsFix)
     }
 
     @Test func aNightThatHasNotReachedAppleHealthIsNotLastNight() throws {
         let check = try classify("garmin", .garminLike(now: now, nightSynced: false))
         let r = rows(check)
         #expect(r[.sleep] == .notLastNight(lastSeen: at(6, 48, daysAgo: 1)))
+        #expect(r[.sleepStages] == .notLastNight(lastSeen: at(6, 48, daysAgo: 1)))
+        #expect(r[.restingHR] == .notLastNight(lastSeen: at(0, 0, daysAgo: 1)))
         // Continuous signals from last evening still arrived.
         #expect(r[.heartRate] == .arrived(at(23, 24, daysAgo: 1)))
-        #expect(check.overall == .nightMissing && check.expected == 4 && check.arriving == 3 && check.needsFix == 0)
+        #expect(check.overall == .nightMissing && check.expected == 6 && check.arriving == 3 && check.needsFix == 0)
     }
 
     @Test func nothingFromTheTrackerIn48HoursIsSilent() throws {
@@ -943,7 +957,7 @@ struct SyncCheckTests {
         var check = try classify("garmin", store)
         #expect(rows(check)[.sleep] == .missing(visible: true))
         #expect(rows(check)[.sleepStages] == .notSeenYet) // nothing to judge without a night
-        #expect(check.overall == .needsFix && check.needsFix == 1 && check.expected == 4 && check.arriving == 3)
+        #expect(check.overall == .needsFix && check.needsFix == 1 && check.expected == 5 && check.arriving == 4)
         #expect(text.fixLead(check)
             == String(localized: "RYFT can read \("sleep"), but none came from \("Garmin Connect") in the last 2 days."))
         // Nobody's sleep visible: RYFT can't tell "not allowed to read" from "not written", so it says both.
@@ -971,7 +985,7 @@ struct SyncCheckTests {
         store.samples.append(SourceSample(stream: .quantity(.hrvSDNN), source: .mockGarmin, newest: at(3, 0)))
         let check = try classify("garmin", store)
         #expect(rows(check)[.hrv] == .arrived(at(3, 0)) && check.drift == [.hrv])
-        #expect(check.expected == 5 && check.arriving == 5)
+        #expect(check.expected == 7 && check.arriving == 7)
     }
 
     @Test func aSignalFromAnotherSelectedTrackerIsNoGap() throws {
@@ -1088,7 +1102,8 @@ struct SyncCheckTests {
         let at = Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: clock) ?? clock
         let wake = self.at(6, 48), evening = self.at(23, 20)
         let store = MockHealthStore()
-        store.samples = [SourceSample(stream: .sleep, source: .mockGarmin, newest: wake, hasStages: false),
+        store.samples = [SourceSample(stream: .sleep, source: .mockGarmin, newest: wake, hasStages: true),
+                         SourceSample(stream: .quantity(.restingHR), source: .mockGarmin, newest: self.at(0, 0)),
                          SourceSample(stream: .quantity(.heartRate), source: .mockGarmin, newest: evening),
                          SourceSample(stream: .quantity(.steps), source: .mockGarmin, newest: evening),
                          SourceSample(stream: .sleep, source: .mockPhone, newest: self.at(6, 30), hasStages: false),
@@ -1104,6 +1119,7 @@ struct SyncCheckTests {
         }
         let garmin = try check("garmin")
         #expect(rows(garmin)[.sleep] == (missed ? .notLastNight(lastSeen: wake) : .arrived(wake)), "\(at)")
+        #expect(rows(garmin)[.restingHR] == (missed ? .notLastNight(lastSeen: self.at(0, 0)) : .arrived(self.at(0, 0))), "\(at)")
         #expect(garmin.overall == (missed ? .nightMissing : .ok), "\(at)")
         #expect((text.result(.arrived(wake), signal: .sleep, app: nil, now: at) == String(localized: "last night")) == !missed)
         // The iPhone's in-bed night and the watch's partly shared SpO₂ never make a night missing.
@@ -1180,7 +1196,7 @@ struct SyncCheckTests {
         let record = try #require(TrackerCheckRecord.load(env))
         #expect(record.lines == [
             "checked \(DayFormat.string(from: now))",
-            "garmin needs_fix heart_rate=arrived hrv=not_shared resting_hr=not_shared sleep=missing_visible "
+            "garmin needs_fix heart_rate=arrived hrv=not_shared resting_hr=arrived sleep=missing_visible "
                 + "sleep_stages=not_seen respiratory_rate=not_shared spo2=not_shared workouts=arrived steps=arrived",
         ])
         // Another account's check isn't this one's.
@@ -1197,7 +1213,7 @@ struct SyncCheckTests {
         // Something visible: no strong hint, and all as expected needs no permission card.
         let (fine, _) = self.model(.garminLike(now: now))
         await fine.run()
-        #expect(!fine.mayNotRead && !fine.showsPermissionCard && fine.arriving == 4 && fine.expected == 4)
+        #expect(!fine.mayNotRead && !fine.showsPermissionCard && fine.arriving == 6 && fine.expected == 6)
     }
 
     @Test func aLockedPhoneWaitsForTheUnlock() async {

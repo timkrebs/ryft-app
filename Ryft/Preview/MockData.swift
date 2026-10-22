@@ -465,6 +465,7 @@ struct MockDataSource: RyftDataSource {
 extension SourceRef {
     /// Garmin Connect as HealthKit names it.
     static let mockGarmin = SourceRef(name: "Connect", bundleID: "com.garmin.connect.mobile", deviceModel: nil)
+    static let mockOura = SourceRef(name: "Oura", bundleID: "com.ouraring.oura", deviceModel: nil)
     static let mockPhone = SourceRef(name: "Tim's iPhone", bundleID: "com.apple.health.3F0A8C2E-5B1D-4E7A-9C6F-2D8B1A4E7F30",
                                      deviceModel: "iPhone")
     static let mockWatch = SourceRef(name: "Tim's Apple Watch", bundleID: "com.apple.health.81E4B0C2-7D3A-4F19-B6E5-0C9A2F7D41B8",
@@ -472,16 +473,18 @@ extension SourceRef {
 }
 
 extension MockHealthStore {
-    /// R1's Garmin facts. Garmin Connect ("Connect", `com.garmin.connect.mobile`) writes heart rate (20 min ago),
-    /// sleep without stages (ending 06:48), steps (1 h ago) and a workout (yesterday, ending 19:02), and no HRV, resting heart
-    /// rate, breathing rate or SpO₂. The iPhone writes steps (10 min ago) and an in-bed night: the iPhone isn't the
-    /// night. `visible` is what those sources wrote.
+    /// Garmin Connect ("Connect", `com.garmin.connect.mobile`) as a device check saw it (2026-10-22, catalog
+    /// 2026-10-22.3): heart rate (20 min ago), resting heart rate (one sample a day, stamped 00:00), sleep with stages
+    /// (ending 06:48), steps (1 h ago) and a workout (yesterday, ending 19:02); no HRV, breathing rate or SpO₂. The
+    /// iPhone writes steps (10 min ago) and an in-bed night: the iPhone isn't the night. `visible` is what those
+    /// sources wrote.
     ///
-    /// `nightSynced: false`: Connect wasn't opened this morning, Garmin's newest is yesterday 23:24. `silent`: nothing
-    /// from Garmin in 48 h. `sleepOff`: no sleep from Garmin, though the iPhone's makes sleep visible (an unexpected
-    /// gap RYFT can read).
+    /// `nightSynced: false`: Connect wasn't opened this morning, Garmin's newest is yesterday 23:24 (and yesterday's
+    /// resting heart rate). `silent`: nothing from Garmin in 48 h. `sleepOff`: no sleep from Garmin, though the
+    /// iPhone's makes sleep visible (an unexpected gap RYFT can read). `restingHR: false`: none at all, as from a
+    /// tracker that writes none.
     static func garminLike(now: Date = .now, nightSynced: Bool = true, silent: Bool = false, sleepOff: Bool = false,
-                           calendar: Calendar = .current) -> MockHealthStore {
+                           restingHR: Bool = true, calendar: Calendar = .current) -> MockHealthStore {
         let at = MockTimes(now: now, calendar: calendar)
         var samples = [SourceSample(stream: .quantity(.steps), source: .mockPhone, newest: now.addingTimeInterval(-600)),
                        SourceSample(stream: .sleep, source: .mockPhone, newest: at.morning(6, 30), hasStages: false)]
@@ -494,15 +497,37 @@ extension MockHealthStore {
                              newest: nightSynced ? now.addingTimeInterval(-3_600) : evening.addingTimeInterval(-840)),
                 SourceSample(stream: .workouts, source: .mockGarmin, newest: at.yesterday(19, 2)),
             ]
+            if restingHR {
+                samples.append(SourceSample(stream: .quantity(.restingHR), source: .mockGarmin,
+                                            newest: at.midnight(daysAgo: nightSynced ? 0 : 1)))
+            }
             if !sleepOff {
                 let wake = at.morning(6, 48)
                 samples.append(SourceSample(stream: .sleep, source: .mockGarmin,
-                                            newest: nightSynced ? wake : wake.addingTimeInterval(-86_400), hasStages: false))
+                                            newest: nightSynced ? wake : wake.addingTimeInterval(-86_400), hasStages: true))
             }
         }
         let store = MockHealthStore()
         store.samples = samples
-        store.visible = [.quantity(.heartRate), .sleep, .quantity(.steps), .workouts]
+        var visible: Set<HealthStream> = [.quantity(.heartRate), .sleep, .quantity(.steps), .workouts]
+        if restingHR { visible.insert(.quantity(.restingHR)) }
+        store.visible = visible
+        return store
+    }
+
+    /// Oura as its docs say: heart rate, sleep with stages, breathing rate, steps and a workout; no HRV, resting heart
+    /// rate or SpO₂ (the expected gaps a ring has).
+    static func ouraLike(now: Date = .now, calendar: Calendar = .current) -> MockHealthStore {
+        let at = MockTimes(now: now, calendar: calendar)
+        let store = MockHealthStore()
+        store.samples = [
+            SourceSample(stream: .quantity(.heartRate), source: .mockOura, newest: now.addingTimeInterval(-1_800)),
+            SourceSample(stream: .sleep, source: .mockOura, newest: at.morning(6, 40), hasStages: true),
+            SourceSample(stream: .quantity(.respiratoryRate), source: .mockOura, newest: at.morning(6, 40)),
+            SourceSample(stream: .quantity(.steps), source: .mockOura, newest: now.addingTimeInterval(-2_400)),
+            SourceSample(stream: .workouts, source: .mockOura, newest: at.yesterday(19, 2)),
+        ]
+        store.visible = [.quantity(.heartRate), .sleep, .quantity(.respiratoryRate), .quantity(.steps), .workouts]
         return store
     }
 
@@ -533,6 +558,12 @@ private struct MockTimes {
     func morning(_ hour: Int, _ minute: Int) -> Date {
         let today = calendar.date(bySettingHour: hour, minute: minute, second: 0, of: now) ?? now
         return min(today, now.addingTimeInterval(-300))
+    }
+
+    /// Midnight that began today, or `daysAgo` days before.
+    func midnight(daysAgo: Int) -> Date {
+        let today = calendar.startOfDay(for: now)
+        return calendar.date(byAdding: .day, value: -daysAgo, to: today) ?? today
     }
 
     func yesterday(_ hour: Int, _ minute: Int) -> Date {
