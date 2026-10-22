@@ -463,6 +463,11 @@ struct TrackerCatalogTests {
         #expect(try help("https://support.garmin.com/en-US/")?.host == "support.garmin.com")
         #expect(try help("https://SUPPORT.garmin.com/")?.host != nil)
         #expect(try help("https://ryftapp.de/setup/garmin")?.host == "ryftapp.de")
+        #expect(try help("https://ryftapp.de/help/sync")?.host == "ryftapp.de")
+        // On RYFT's host, content pages only: never the universal-link routes, nor the root.
+        #expect(try help("https://ryftapp.de/auth/callback?code=x") == nil)
+        #expect(try help("https://ryftapp.de/invite/ABC123") == nil)
+        #expect(try help("https://ryftapp.de/") == nil)
         // Exact hosts only: no other subdomain, no bare domain, no subdomain of RYFT's.
         #expect(try help("https://garmin.com/") == nil)
         #expect(try help("https://connect.garmin.com/") == nil)
@@ -479,7 +484,7 @@ struct TrackerCatalogTests {
         // Another tracker's host isn't Garmin's; a new id has only RYFT's until a release lists it.
         #expect(try help("https://support.ouraring.com/") == nil)
         #expect(try help("https://support.garmin.com/", id: "newtracker") == nil)
-        #expect(try help("https://ryftapp.de/setup", id: "newtracker")?.host == "ryftapp.de")
+        #expect(try help("https://ryftapp.de/setup/newtracker", id: "newtracker")?.host == "ryftapp.de")
     }
 
     // MARK: a hostile remote copy (security review)
@@ -530,6 +535,27 @@ struct TrackerCatalogTests {
         })
         #expect(hijack == .invalid(rule: "bundle.apple", path: "trackers[0].healthkit.bundle_id_prefixes[0]"))
         #expect(TrackerCatalog.bundled.displayName(ref("Tim's Apple Watch", "com.apple.health.4B1C", "Watch")) == "Tim's Apple Watch")
+    }
+
+    @Test func onlyTheIPhoneIsAPhone() {
+        #expect(CatalogFixture.refusal(garmin: { $0["form"] = "phone" }) == .invalid(rule: "form.phone", path: "trackers[0].form"))
+        #expect(CatalogFixture.refusal() == nil) // the iPhone itself is
+    }
+
+    @Test func errorPathsNeverEchoTheDocumentsKeys() {
+        // A key carrying the brand, a line break, a fake diagnostics line and 2 000 characters.
+        let key = ["wh", "00", "p"].joined() + "\nrequests: 200 GET /v1/me rid-1 " + String(repeating: "k", count: 2_000)
+        let refusal = CatalogFixture.refusal({ $0["extra"] = [key: "x"] })
+        guard case .invalid(let rule, let path)? = refusal else { Issue.record("expected a refusal, got \(String(describing: refusal))"); return }
+        #expect(rule == "text.brand" && path == "?.?") // keys the schema doesn't know are never echoed
+        // Known keys and indices are: a value under them names its place.
+        #expect(CatalogFixture.refusal({ $0["<odd key>\u{202E}"] = [["wh", "00", "p"].joined()] }) == .invalid(rule: "text.brand", path: "?[0]"))
+        #expect(CatalogFixture.refusal(garmin: { $0["sources"] = [["covers": ["wh", "00", "p"].joined()]] })
+                == .invalid(rule: "text.brand", path: "trackers[0].sources[0].covers"))
+        let long = CatalogFixture.refusal({ doc in
+            doc["trackers"] = (doc["trackers"] as? [[String: Any]] ?? []) + [["sources": [[["verified": [["wh", "00", "p"].joined()]]]]]]
+        })
+        if case .invalid(_, let path)? = long { #expect(path.count <= 80) }
     }
 
     @Test func storePagesArePinnedPerTracker() throws {
@@ -595,7 +621,7 @@ struct TrackerCatalogTests {
                 == .invalid(rule: "text.brand", path: "trackers[0].healthkit.bundle_ids[0]"))
         #expect(CatalogFixture.refusal(garmin: { $0["help_url"] = "https://support.garmin.com/\(plain)" })
                 == .invalid(rule: "text.brand", path: "trackers[0].help_url"))
-        #expect(CatalogFixture.refusal({ $0["notes"] = ["x": accented] }) == .invalid(rule: "text.brand", path: "notes.x"))
+        #expect(CatalogFixture.refusal({ $0["notes"] = ["x": accented] }) == .invalid(rule: "text.brand", path: "?.?")) // keys unknown to the schema
     }
 
     @Test func theBrandScanAgreesWithTheHooksPattern() {

@@ -317,11 +317,13 @@ private enum CatalogJSON {
         }
     }
 
-    /// The path of the first string (or key) that `test` accepts.
+    /// The path of the first string (or key) that `test` accepts. Paths reach `lastFailure` and Copy
+    /// diagnostics, so a key appears only when the schema knows it, any other as "?", and the path at most
+    /// 80 characters (`CatalogValidator.safePath`).
     func path(at path: String = "", where test: (String) -> Bool) -> String? {
         switch self {
         case .string(let s):
-            return test(s) ? path : nil
+            return test(s) ? CatalogValidator.safePath(path) : nil
         case .array(let items):
             for (i, item) in items.enumerated() {
                 if let hit = item.path(at: "\(path)[\(i)]", where: test) { return hit }
@@ -329,8 +331,9 @@ private enum CatalogJSON {
             return nil
         case .object(let fields):
             for (key, value) in fields {
-                let at = path.isEmpty ? key : "\(path).\(key)"
-                if test(key) { return at }
+                let name = CatalogValidator.safeKey(key)
+                let at = path.isEmpty ? name : "\(path).\(name)"
+                if test(key) { return CatalogValidator.safePath(at) }
                 if let hit = value.path(at: at, where: test) { return hit }
             }
             return nil
@@ -362,6 +365,22 @@ private struct CatalogValidator {
     /// On a shared host, the vendor's own part of it.
     static let helpPaths: [String: [String]] = ["fitbit": ["/googlehealth/", "/fitbit/"]]
     static let anyHelpHost = "ryftapp.de"
+    /// On RYFT's own host, content pages only: never the universal-link routes (`/auth/…`, `/invite/…`).
+    static let anyHelpPaths = ["/setup/", "/help/"]
+
+    /// The keys schema v1 knows: the only ones a path may name.
+    static let knownKeys: Set<String> = Set([
+        "schema_version", "version", "checked", "status_values", "health_access", "steps", "en", "de", "trackers", "id", "name",
+        "form", "app_name", "integration", "healthkit", "bundle_ids", "bundle_id_prefixes", "source_names", "device_models",
+        "verified", "app_store_id", "app_store_url", "capabilities", "capability_notes", "setup_steps", "habits", "limits",
+        "help_url", "sources", "url", "covers",
+    ] + TrackerSignal.allCases.map(\.rawValue))
+
+    /// A document key as a path may show it: a key of the schema, else "?" (never the document's own text).
+    static func safeKey(_ key: String) -> String { knownKeys.contains(key) ? key : "?" }
+
+    /// At most 80 characters of a path.
+    static func safePath(_ path: String) -> String { path.count <= 80 ? path : String(path.prefix(79)) + "…" }
     /// App Store ids per tracker id: content can't point a store button anywhere else.
     static let storeIDs: [String: String] = [
         "apple_watch": "1069511734", "garmin": "583446403", "oura": "1043837948", "polar": "717172678",
@@ -468,6 +487,8 @@ private struct CatalogValidator {
         try text(name, max: 40, "\(path).name")
         let rawForm = try string(t, "form", path, required: true) ?? ""
         guard let form = Tracker.Form(rawValue: rawForm) else { throw .invalid(rule: "enum.form", path: "\(path).form") }
+        // The phone's glyph and behaviour are the iPhone's only.
+        guard form != .phone || id == "iphone" else { throw .invalid(rule: "form.phone", path: "\(path).form") }
         let rawIntegration = try string(t, "integration", path, required: true) ?? ""
         guard let integration = Tracker.Integration(rawValue: rawIntegration) else {
             throw .invalid(rule: "enum.integration", path: "\(path).integration")
@@ -710,7 +731,7 @@ private struct CatalogValidator {
               c.user == nil, c.password == nil, c.port == nil,
               let raw = c.percentEncodedHost, matches(raw, "[A-Za-z0-9.-]+"), let url = c.url else { return nil }
         let host = raw.lowercased()
-        if host == anyHelpHost { return url }
+        if host == anyHelpHost { return anyHelpPaths.contains { c.percentEncodedPath.hasPrefix($0) } ? url : nil }
         guard helpHosts[trackerID]?.contains(host) == true else { return nil }
         guard let paths = helpPaths[trackerID] else { return url }
         return paths.contains { c.percentEncodedPath.hasPrefix($0) } ? url : nil
