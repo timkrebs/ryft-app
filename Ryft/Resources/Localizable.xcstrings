@@ -123,6 +123,16 @@
         }
       }
     },
+    "%lld / 4000" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld / 4000"
+          }
+        }
+      }
+    },
     "%lld failed" : {
       "localizations" : {
         "de" : {
@@ -199,16 +209,6 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "%lld / 4000" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld / 4000"
           }
         }
       }
@@ -892,6 +892,26 @@
         }
       }
     },
+    "Copy message" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nachricht kopieren"
+          }
+        }
+      }
+    },
+    "Couldn't save your report. Copy it and try again later." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Meldung konnte nicht gespeichert werden. Kopiere sie und versuch es später erneut."
+          }
+        }
+      }
+    },
     "Copy request ID" : {
       "localizations" : {
         "de" : {
@@ -931,26 +951,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dein Verlauf konnte nicht geladen werden · Details"
-          }
-        }
-      }
-    },
-    "Copy message" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nachricht kopieren"
-          }
-        }
-      }
-    },
-    "Couldn't save your report. Copy it and try again later." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deine Meldung konnte nicht gespeichert werden. Kopiere sie und versuch es später erneut."
           }
         }
       }
@@ -1566,16 +1566,6 @@
         }
       }
     },
-    "No errors" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keine Fehler"
-          }
-        }
-      }
-    },
     "Message" : {
       "localizations" : {
         "de" : {
@@ -1592,6 +1582,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Meine Werte wirken falsch"
+          }
+        }
+      }
+    },
+    "No errors" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Fehler"
           }
         }
       }
@@ -2029,26 +2029,6 @@
         }
       }
     },
-    "Remote settings" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Konfiguration"
-          }
-        }
-      }
-    },
-    "Request ID" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Anfrage-ID"
-          }
-        }
-      }
-    },
     "Report a problem" : {
       "localizations" : {
         "de" : {
@@ -2065,6 +2045,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pro Tag sind 10 Meldungen möglich."
+          }
+        }
+      }
+    },
+    "Remote settings" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konfiguration"
+          }
+        }
+      }
+    },
+    "Request ID" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anfrage-ID"
           }
         }
       }
@@ -2400,26 +2400,6 @@
         }
       }
     },
-    "Send to RYFT" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "An RYFT senden"
-          }
-        }
-      }
-    },
-    "Sends this and the last 20 requests. No health values." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sendet dies und die letzten 20 Anfragen. Keine Gesundheitswerte."
-          }
-        }
-      }
-    },
     "Send" : {
       "localizations" : {
         "de" : {
@@ -2446,6 +2426,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Im Demo-Modus gesendet: Bei RYFT ist nichts angekommen."
+          }
+        }
+      }
+    },
+    "Send to RYFT" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An RYFT senden"
+          }
+        }
+      }
+    },
+    "Sends this and the last 20 requests. No health values." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sendet dies und die letzten 20 Anfragen. Keine Gesundheitswerte."
           }
         }
       }
@@ -2752,22 +2752,22 @@
         }
       }
     },
-    "Sync status" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sync-Status"
-          }
-        }
-      }
-    },
     "Sync state: phase, queue and backlog, and per data type the number of records and days and the date of the newest record" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sync-Status: Phase, Warteschlange und Rückstand, und pro Datentyp die Anzahl der Einträge und Tage und das Datum des neuesten Eintrags"
+          }
+        }
+      }
+    },
+    "Sync status" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync-Status"
           }
         }
       }
@@ -3290,16 +3290,6 @@
         }
       }
     },
-    "What failed" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Betroffen"
-          }
-        }
-      }
-    },
     "What happened? What did you expect?" : {
       "localizations" : {
         "de" : {
@@ -3316,6 +3306,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Was enthalten ist"
+          }
+        }
+      }
+    },
+    "What failed" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Betroffen"
           }
         }
       }
@@ -3430,6 +3430,26 @@
         }
       }
     },
+    "You're signed out, so this report can't be sent. Your message is kept." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du bist abgemeldet, deshalb kann diese Meldung nicht gesendet werden. Deine Nachricht bleibt erhalten."
+          }
+        }
+      }
+    },
+    "You've reached today's limit of 10 reports. Your message is kept; try again tomorrow." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du hast das Tageslimit von 10 Meldungen erreicht. Deine Nachricht bleibt erhalten, versuch es morgen noch einmal."
+          }
+        }
+      }
+    },
     "You're signed out · Details" : {
       "comment" : "Today's status line while the signed-out card is shown (last on Today); tapping scrolls to the card.",
       "localizations" : {
@@ -3447,26 +3467,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Du bist abgemeldet, deshalb können keine neuen Daten geladen werden."
-          }
-        }
-      }
-    },
-    "You're signed out, so this report can't be sent. Your message is kept." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Du bist abgemeldet, deshalb kann diese Meldung nicht gesendet werden. Deine Nachricht bleibt erhalten."
-          }
-        }
-      }
-    },
-    "You've reached today's limit of 10 reports. Your message is kept; try again tomorrow." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Du hast das Tageslimit von 10 Meldungen erreicht. Deine Nachricht bleibt erhalten, versuch es morgen noch einmal."
           }
         }
       }
