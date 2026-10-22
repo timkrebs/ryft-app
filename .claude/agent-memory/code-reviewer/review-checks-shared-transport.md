@@ -39,3 +39,6 @@ Debounced persistence (T1 perf 3, 2026-10-22): when a save is coalesced behind a
 `persistDelay` 1.5 s), check for a flush on `scenePhase == .background` and before a silent push's
 `completionHandler` — otherwise background-recorded state (429 `retryNotBefore`, failure counts) waits for the next
 wake and is lost if the suspended app is jettisoned. Sign-out dropping it is fine when the doc is wiped anyway.
+
+Known red test (2026-10-22): `PullToRefreshTests.thePullReturnsAfterThreeSecondsAtMost` (`state.isLoading`, SyncCoordinatorTests
+:1268) fails on `d9fc265` too (2/3 locally, 10/10 on a T1 branch run): pre-existing, not a branch regression — check main first.

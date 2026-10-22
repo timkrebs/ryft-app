@@ -3,6 +3,24 @@
 Newest first. Paste the entry into App Store Connect → TestFlight → the build → What to
 Test (English and German).
 
+## Next build — tracker setup (en + de)
+
+**What's new (live in this build):**
+- en: Today names your tracker's app ("Garmin Connect", not "Connect"). In the morning, if your night hasn't reached Apple
+  Health yet, Today says so and offers Garmin Connect's App Store page, instead of "Scoring your latest data". If scoring takes
+  long, the status line says "Taking longer than usual".
+- de: Heute nennt die App deines Trackers („Garmin Connect“ statt „Connect“). Ist deine Nacht morgens noch nicht in Apple Health
+  angekommen, sagt Heute das und bietet „Garmin Connect im App Store“ an, statt „Scoring your latest data“. Dauert die Bewertung
+  lange, steht in der Statuszeile „Dauert länger als üblich“.
+
+**When tracker setup is switched on (`devices.setup`):**
+- en: Tell RYFT what you wear. It shows what reaches RYFT from your tracker and how to set up the sync. Profile → Data →
+  Devices & sync → Check sync shows whether each signal arrives. With a Garmin: HRV isn't shared with Apple Health, so
+  Readiness waits for it; Recovery uses resting heart rate and sleep.
+- de: Sag RYFT, was du trägst. RYFT zeigt dir, was von deinem Tracker ankommt und wie du die Synchronisierung einrichtest.
+  Profil → Daten → Geräte & Sync → Sync prüfen zeigt, ob jedes Signal ankommt. Mit einer Garmin: HRV wird nicht mit Apple
+  Health geteilt, darum wartet die Bereitschaft darauf; die Erholung nutzt Ruhepuls und Schlaf.
+
 ## Next build — beta feedback 1
 
 Set the build number when it's uploaded. Notifications reach testers through the
