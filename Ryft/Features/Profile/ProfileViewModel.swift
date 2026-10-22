@@ -767,17 +767,20 @@ enum FeedbackPayload {
                             build: clipped(about.build, to: maxField),
                             deviceModel: clipped(about.deviceModel, to: maxField),
                             osVersion: clipped(about.osVersion, to: maxField),
-                            requestIds: requestIDs(context: context, requests: requests),
+                            requestIds: requestIDs(context: context, requests: requests, resources: resources),
                             diagnostics: diagnostics(requests: requests, resources: resources, sync: sync,
                                                      gates: gates, flags: flags, context: context,
                                                      locale: about.locale))
     }
 
-    /// The context's ID first, then the failed requests' IDs, newest first: each once, 1–64 bytes, at most 20.
-    static func requestIDs(context: ReportContext?, requests: [APIStatus.RequestFailure]) -> [String] {
+    /// The context's ID first, then the failed requests' IDs (newest first), then the resources' last errors'
+    /// (`ReadResource` order): each once, 1–64 bytes, at most 20.
+    static func requestIDs(context: ReportContext?, requests: [APIStatus.RequestFailure],
+                           resources: [ReadResource: ResourceState] = [:]) -> [String] {
         let failed = requests.filter { !(200..<300).contains($0.status) }.compactMap(\.requestID)
+        let lastErrors = ReadResource.allCases.compactMap { resources[$0]?.lastError?.requestID }
         var seen = Set<String>()
-        let ids = ([context?.requestID].compactMap { $0 } + failed)
+        let ids = ([context?.requestID].compactMap { $0 } + failed + lastErrors)
             .filter { !$0.isEmpty && $0.utf8.count <= maxField && seen.insert($0).inserted }
         return Array(ids.prefix(maxRequestIDs))
     }

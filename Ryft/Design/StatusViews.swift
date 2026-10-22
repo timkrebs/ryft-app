@@ -408,6 +408,12 @@ struct RefreshIssueCard: View {
     }
 }
 
+extension RefreshIssue {
+    /// The status Report a problem names: "503", or "No response". Never a transport's raw name ("timedOut"):
+    /// that goes out in the report's `resources` lines.
+    var reportStatus: String { statusText ?? String(localized: "No response") }
+}
+
 /// The error card's Details (ui.md §3.4): what failed, status, code, request ID, time, data age,
 /// failures in a row; "Send to RYFT" (when Report a problem is wired) and "Copy details".
 struct RefreshDetailsSheet: View {
@@ -460,8 +466,7 @@ struct RefreshDetailsSheet: View {
         VStack(spacing: 10) {
             if let reportProblem {
                 NavigationLink {
-                    reportProblem(issue.resourceName, issue.statusText ?? issue.error.statusText, issue.error.code,
-                                  issue.error.requestID)
+                    reportProblem(issue.resourceName, issue.reportStatus, issue.error.code, issue.error.requestID)
                 } label: {
                     Text("Send to RYFT")
                         .font(.ryft(.callout))

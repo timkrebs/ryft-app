@@ -1591,11 +1591,11 @@ struct ReportProblemView: View {
             String(localized: "Device model and iOS version"),
             String(localized: "Language and region"),
             String(localized: "The last 20 requests: method, path without its query, status, error code, request ID, time, duration"),
-            String(localized: "Per data source: when it was last loaded, and its last error's status, code and request ID"),
+            String(localized: "Loaded data, per area (Today, History, Profile …): when RYFT last loaded it, and its last error's status, code and request ID"),
             String(localized: "Sync state: phase, queue and backlog, and per data type the number of records and days and the date of the newest record"),
             String(localized: "Account gates and feature flags"),
         ]
-        if context { rows.append(String(localized: "From Details: what failed, its status and request ID")) }
+        if context { rows.append(String(localized: "From Details: what failed, its status, error code and request ID")) }
         return rows
     }
 

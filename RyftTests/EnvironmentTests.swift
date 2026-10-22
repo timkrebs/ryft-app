@@ -937,6 +937,14 @@ struct ReportProblemTests {
         #expect(post.deviceModel == "iPhone17,1" && post.osVersion == "iOS 27.0.1")
         // The context's first, then the failed ones, newest first; a served request has no place there.
         #expect(post.requestIds == ["ctx-1", "fail-1", "fail-2"])
+        // Then the resources' last errors' IDs, each once.
+        let error = { (id: String) in
+            ResourceError(kind: .transient, status: 503, code: nil, requestID: id, transport: nil, attempts: 3, at: .now)
+        }
+        let withResources = FeedbackPayload.requestIDs(context: context, requests: requests,
+                                                       resources: [.me: ResourceState(lastError: error("res-1")),
+                                                                   .today: ResourceState(lastError: error("fail-1"))])
+        #expect(withResources == ["ctx-1", "fail-1", "fail-2", "res-1"])
         let d = try #require(post.diagnostics)
         #expect(Set(d.keys) == FeedbackPayload.keys)
         #expect(d["sync"] == Self.syncText)
@@ -1014,6 +1022,7 @@ struct ReportProblemTests {
         let kept = try #require(d["requests"]).components(separatedBy: "\n")
         #expect(kept.count > 10 && kept.count < 20)
         #expect(kept == Array(all.prefix(kept.count))) // the newest stay, the oldest went
+        #expect(d["resources"]?.components(separatedBy: "\n").count == ReadResource.allCases.count) // stays
     }
 
     @Test func aRequestTooBigForTheCapLeavesTheRest() throws {
@@ -1021,6 +1030,37 @@ struct ReportProblemTests {
         let d = try #require(make(requests: [huge]).diagnostics)
         #expect(FeedbackPayload.size(d) <= FeedbackPayload.maxDiagnosticsBytes)
         #expect(d["requests"] == nil && d["sync"] == Self.syncText && d["flags"] != nil)
+        #expect(d["resources"] != nil)
+    }
+
+    /// Without a single request still over 32 KiB: `resources` goes together with `sync`; the rest stays.
+    @Test func aSyncTooBigForTheCapGoesWithTheResources() throws {
+        let streams = (0..<2_000).map { FeedbackSync.Stream(id: "stream\($0)", records: 1, days: 1, newest: nil) }
+        let d = try #require(FeedbackPayload.make(message: "Hi", category: .bug, includeDiagnostics: true,
+                                                  requests: [request(0)], resources: [.today: ResourceState(fetchedAt: .now)],
+                                                  sync: FeedbackSync(streams: streams), gates: [], flags: ["sync.gzip": true],
+                                                  context: nil, about: about).diagnostics)
+        #expect(FeedbackPayload.size(d) <= FeedbackPayload.maxDiagnosticsBytes)
+        #expect(d["sync"] == nil && d["resources"] == nil && d["requests"] == nil)
+        #expect(d["flags"] == "sync.gzip=1" && d["locale"] == "de_DE" && d["gates"] == "-")
+    }
+
+    /// Send to RYFT names a missing response "No response", never the transport's raw name (that goes out in
+    /// `resources`): the chip and `report_context` stay readable.
+    @Test func anUnreachableIssueIsReportedAsNoResponse() throws {
+        let timeout = ResourceError(kind: .transient, status: nil, code: nil, requestID: nil, transport: "timedOut",
+                                    attempts: 3, at: .now)
+        let unreachable = RefreshIssue(reason: .unreachable, resource: .today, dataFrom: nil, failures: 1, error: timeout)
+        #expect(unreachable.reportStatus == String(localized: "No response"))
+        let busy = RefreshIssue(reason: .busy, resource: .today, dataFrom: nil, failures: 3,
+                                error: ResourceError(kind: .transient, status: 503, code: nil, requestID: "r-1",
+                                                     transport: nil, attempts: 3, at: .now))
+        #expect(busy.reportStatus == "503")
+        let context = ReportContext(resource: unreachable.resourceName, status: unreachable.reportStatus,
+                                    requestID: unreachable.error.requestID, code: unreachable.error.code)
+        let d = try #require(make(context: context).diagnostics)
+        #expect(d["report_context"] == "\(unreachable.resourceName) · \(String(localized: "No response")) · -")
+        #expect(d["report_context"]?.contains("timedOut") == false)
     }
 
     @Test func aQueuedReportGoesOutAsItWasWritten() throws {

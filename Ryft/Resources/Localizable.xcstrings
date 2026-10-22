@@ -1206,12 +1206,12 @@
         }
       }
     },
-    "From Details: what failed, its status and request ID" : {
+    "From Details: what failed, its status, error code and request ID" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aus den Details: was fehlgeschlagen ist, mit Status und Anfrage-ID"
+            "value" : "Aus den Details: was fehlgeschlagen ist, mit Status, Fehlercode und Anfrage-ID"
           }
         }
       }
@@ -1522,6 +1522,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geladene Daten"
+          }
+        }
+      }
+    },
+    "Loaded data, per area (Today, History, Profile …): when RYFT last loaded it, and its last error's status, code and request ID" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geladene Daten, je Bereich (Heute, Verlauf, Profil …): wann RYFT sie zuletzt geladen hat, und Status, Code und Anfrage-ID des letzten Fehlers"
           }
         }
       }
@@ -1842,16 +1852,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bestform"
-          }
-        }
-      }
-    },
-    "Per data source: when it was last loaded, and its last error's status, code and request ID" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pro Datenquelle: wann sie zuletzt geladen wurde und Status, Fehlercode und Anfrage-ID ihres letzten Fehlers"
           }
         }
       }
