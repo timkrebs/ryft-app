@@ -30,6 +30,8 @@ final class AppEnvironment {
     /// ryftapp.de's static files (the tracker catalog): no auth, outside the read pipeline (ADR 0002).
     /// Only the live graph reaches the web; every other graph answers like a phone without a connection.
     let content: ContentSource
+    /// Small files of the content above (the catalog's crash marker); a fresh directory for each test graph.
+    let contentDirectory: URL
 
     var connectivity: Connectivity { connectivityMonitor }
     /// The read pipeline (ADR 0001): every scheduled read of the platform shares its coalescing,
@@ -50,9 +52,10 @@ final class AppEnvironment {
     init(settings: Settings, health: HealthStore, liveAPI: PlatformAPI, demoAPI: PlatformAPI, auth: AuthService,
          persistence: Persistence, clock: AppClock, notifier: Notifier, flags: FeatureFlagProvider,
          connectivity: ConnectivityMonitor, defaults: UserDefaults = .standard, demoOverride: Bool? = nil,
-         content: ContentSource = MockContentSource()) {
+         content: ContentSource = MockContentSource(), contentDirectory: URL? = nil) {
         self.demoOverride = demoOverride
         self.content = content
+        self.contentDirectory = contentDirectory ?? Self.temporaryContentDirectory()
         self.defaults = defaults
         self.settings = settings
         self.health = health
@@ -70,7 +73,13 @@ final class AppEnvironment {
     static let live = AppEnvironment(
         settings: .shared, health: HealthKitManager.shared, liveAPI: APIClient.shared, demoAPI: MockPlatformAPI(),
         auth: .shared, persistence: TrainStore.shared, clock: SystemClock(), notifier: SystemNotifier(),
-        flags: FlagStore.shared, connectivity: .shared, content: WebContentSource())
+        flags: FlagStore.shared, connectivity: .shared, content: WebContentSource(),
+        contentDirectory: URL.applicationSupportDirectory.appendingPathComponent("Content", isDirectory: true))
+
+    /// Previews and tests: a directory of their own that nothing else reads.
+    private static func temporaryContentDirectory() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("ryft-content-\(UUID().uuidString)", isDirectory: true)
+    }
 
     /// Previews: signed in, mock data, nothing leaves the process.
     static func preview(online: Bool = true, auth: AuthService? = nil,

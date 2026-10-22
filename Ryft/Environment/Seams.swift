@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SwiftData
 import UIKit
@@ -210,20 +211,26 @@ final class WebContentSource: ContentSource {
     @concurrent
     private static func load(_ request: URLRequest, session: URLSession, maxBytes: Int) async throws -> ContentFetch {
         let (bytes, response) = try await session.bytes(for: request, delegate: SameHostRedirects.shared)
-        guard let http = response as? HTTPURLResponse else { throw ContentError.notHTTP }
+        // Whatever isn't read stops arriving: a refused status, a body past the limit.
+        func stop(_ error: ContentError) -> ContentError {
+            bytes.task.cancel()
+            return error
+        }
+        guard let http = response as? HTTPURLResponse else { throw stop(.notHTTP) }
         switch http.statusCode {
         case 304:
+            bytes.task.cancel()
             return .notModified
         case 200:
-            if http.expectedContentLength > Int64(maxBytes) { throw ContentError.tooLarge }
+            if http.expectedContentLength > Int64(maxBytes) { throw stop(.tooLarge) }
             var data = Data()
             for try await byte in bytes {
                 data.append(byte)
-                if data.count > maxBytes { throw ContentError.tooLarge }
+                if data.count > maxBytes { throw stop(.tooLarge) }
             }
             return .fetched(data, etag: http.value(forHTTPHeaderField: "ETag"))
         default:
-            throw ContentError.http(http.statusCode)
+            throw stop(.http(http.statusCode))
         }
     }
 
@@ -277,11 +284,14 @@ final class MockContentSource: ContentSource, @unchecked Sendable {
 /// The tracker catalog every screen reads (`env.trackerCatalog`): the bundled copy, or the newest valid copy
 /// of `https://ryftapp.de/trackers.json` (design.md §2.6, ADR 0002).
 ///
+/// - **Behind `devices.setup`:** with the flag off the bundled copy serves and nothing else is read or asked.
 /// - **One attempt when due:** 24 h after the last 200 or 304, 1 h after a failure; on app active after the
-///   first frame and when a tracker screen opens. Never in demo mode, offline, or behind `devices.setup`.
-///   No retry loop: the next due time is the retry.
+///   first frame and when a tracker screen opens. Never in demo mode or offline. No retry loop: the next due
+///   time is the retry.
 /// - **Untrusted:** a download is used only when `TrackerCatalog.decode` accepts it (off the main actor) and
 ///   it isn't older than what's shown. A refusal keeps the current copy, records why, and stores no ETag.
+/// - **Crash-guarded:** a marker with the body's SHA-256 exists while a copy is decoded. Left over at launch,
+///   the last run died decoding: the cache goes, and that body is refused unread from then on.
 /// - **Cached** as `CachedDocument` "content.trackers" (body, ETag, when it was checked), re-validated at
 ///   launch; sign-out wipes it and the bundled copy serves until the next check.
 @MainActor
@@ -301,6 +311,8 @@ final class TrackerCatalogStore {
         var checkedAt: Date?
         var failedAt: Date?
         var failure: String?
+        /// SHA-256 of bodies the decoder died on, newest last (at most `maxRefused`): never decoded again.
+        var refused: [String]?
     }
 
     static let ttl: TimeInterval = 86_400
@@ -308,53 +320,82 @@ final class TrackerCatalogStore {
     static let path = "trackers.json"
     static let maxBytes = TrackerCatalog.maxBytes
     static let documentKey = "content.trackers"
+    /// While a copy is decoded: `contentDirectory/trackers.decoding`, holding the body's SHA-256.
+    static let markerName = "trackers.decoding"
+    static let maxRefused = 8
+    /// An ETag longer than this, or with anything but visible ASCII, isn't kept.
+    nonisolated static let maxETag = 128
 
     /// Weak: the environment owns its store.
     @ObservationIgnored private weak var env: AppEnvironment?
     /// A valid download newer than the bundled copy (or the cache's, at launch).
     private var remote: TrackerCatalog?
-    /// "invalid text.markup at trackers[3].setup_steps.de[2]", "http 404"; nil after a good answer.
+    /// "invalid text.markup at trackers[3].setup_steps.de[2]", "http 404", "crashed"; nil after a good answer.
     private(set) var lastFailure: String?
     private(set) var checkedAt: Date?
     @ObservationIgnored private var etag: String?
     @ObservationIgnored private var body: Data?
     @ObservationIgnored private var failedAt: Date?
+    @ObservationIgnored private var refused: [String] = []
     @ObservationIgnored private var loading: Task<Void, Never>?
-    @ObservationIgnored private var inFlight: Task<Void, Never>?
+    @ObservationIgnored private var inFlight: (task: Task<Void, Never>, force: Bool)?
 
     init(env: AppEnvironment) {
         self.env = env
     }
 
-    /// Before `load()` (and in a preview that never calls it) the bundled copy.
-    var current: TrackerCatalog { remote ?? .bundled }
+    private var isOn: Bool { env?.flags.isOn(.devicesSetup) ?? false }
+
+    /// The bundled copy, unless `devices.setup` is on and a newer valid download arrived.
+    var current: TrackerCatalog { isOn ? remote ?? .bundled : .bundled }
 
     var origin: Origin {
-        guard let remote else { return .bundled(TrackerCatalog.bundled.version) }
+        guard isOn, let remote else { return .bundled(TrackerCatalog.bundled.version) }
         return .remote(remote.version, etag: etag, checkedAt: checkedAt ?? .distantPast)
     }
 
-    /// The bundled copy decoded off the main actor, then the cached download, re-validated (the rules may have
-    /// tightened since): the newer of the two is shown. Once; later calls wait for the first.
+    /// The bundled copy decoded off the main actor; with the flag on, then the cached download, re-validated
+    /// (the rules may have tightened since): the newer of the two is shown. The cache once; later calls wait
+    /// for the first, and a call while the flag is off leaves it for the next.
     func load() async {
+        _ = await TrackerCatalog.loadBundled()
+        guard isOn else { return }
         if loading == nil { loading = Task { await self.loadCache() } }
         await loading?.value
     }
 
     /// Asks ryftapp.de when due (`force`: whenever; Debug → Feature flags → Reload tracker catalog). One request
-    /// at a time: a second call waits for the first.
+    /// at a time: a call waits for the one running, and a forced one then makes its own attempt.
     func refreshIfDue(force: Bool = false) async {
-        if let inFlight { return await inFlight.value }
+        if let running = inFlight {
+            await running.task.value
+            guard force, !running.force else { return }
+            // Another attempt started meanwhile (not the one just awaited, which may not have cleared itself yet).
+            if let again = inFlight, again.task != running.task { return await again.task.value }
+        }
         let task = Task { await self.refresh(force: force) }
-        inFlight = task
+        inFlight = (task, force)
         await task.value
-        inFlight = nil
+        if inFlight?.task == task { inFlight = nil }
     }
 
+    /// A clock that went back makes an answer or failure "in the future": then it no longer holds anything back.
     func isDue(at now: Date) -> Bool {
-        if let failedAt, now.timeIntervalSince(failedAt) < Self.retryAfterFailure { return false }
-        if let checkedAt, now.timeIntervalSince(checkedAt) < Self.ttl { return false }
+        if let failedAt, now >= failedAt, now.timeIntervalSince(failedAt) < Self.retryAfterFailure { return false }
+        if let checkedAt, now >= checkedAt, now.timeIntervalSince(checkedAt) < Self.ttl { return false }
         return true
+    }
+
+    /// Signed out or another account: the cache went with the store, so nothing of it stays in memory. Bodies
+    /// that crashed the decoder stay refused.
+    func accountChanged() {
+        remote = nil
+        etag = nil
+        body = nil
+        checkedAt = nil
+        failedAt = nil
+        lastFailure = nil
+        loading = nil
     }
 
     /// Copy diagnostics: "catalog remote 2026-10-22.1 etag W/"5f2" checked 2026-10-22T08:12:03Z failure -".
@@ -367,80 +408,111 @@ final class TrackerCatalogStore {
         return "catalog \(kind) etag \(etag ?? "-") checked \(checkedAt.map { $0.ISO8601Format() } ?? "-") failure \(lastFailure ?? "-")"
     }
 
-    /// Previews and screenshot runs (`-RyftCatalog preview`, Debug): show this copy.
-    func stage(_ catalog: TrackerCatalog) {
-        remote = catalog
-    }
-
     // MARK: private
 
+    private var marker: URL? { env?.contentDirectory.appendingPathComponent(Self.markerName) }
+
     private func loadCache() async {
-        let bundled = await TrackerCatalog.loadBundled()
-        guard let env, let cached = env.persistence.document(Cached.self, key: Self.documentKey) else { return }
-        etag = cached.etag
-        body = cached.body
-        checkedAt = cached.checkedAt
-        failedAt = cached.failedAt
-        lastFailure = cached.failure
-        guard let body = cached.body else { return }
-        switch await Self.validate(body, now: env.clock.now()) {
+        guard let env else { return }
+        let cached = env.persistence.document(Cached.self, key: Self.documentKey)
+        etag = cached?.etag
+        body = cached?.body
+        checkedAt = cached?.checkedAt
+        failedAt = cached?.failedAt
+        lastFailure = cached?.failure
+        refused = cached?.refused ?? []
+        // The last run died decoding a copy: the cache goes unread, and that body is never decoded again.
+        if let marker, let hash = Self.leftover(marker) {
+            refuse(hash)
+            body = nil
+            etag = nil
+            checkedAt = nil
+            failedAt = env.clock.now()
+            lastFailure = "crashed"
+            await save()
+            return
+        }
+        guard let body else { return }
+        switch await decode(body) {
         case .success(let catalog):
-            if Self.isNewer(catalog.version, than: bundled.version) { remote = catalog }
+            if TrackerCatalog.isNewer(catalog.version, than: TrackerCatalog.bundled.version) { remote = catalog }
         case .failure(let error):
-            // Refused now: dropped with its ETag, so the next check downloads afresh.
+            // Refused now: dropped with its ETag and its check, so the next check downloads afresh.
             self.body = nil
             etag = nil
+            checkedAt = nil
             lastFailure = "cache \(Self.describe(error))"
-            save()
+            await save()
         }
     }
 
     private func refresh(force: Bool) async {
         await load()
         guard let env, !env.isDemo, env.connectivity.isOnline else { return }
-        guard force || (env.flags.isOn(.devicesSetup) && isDue(at: env.clock.now())) else { return }
+        guard force || (isOn && isDue(at: env.clock.now())) else { return }
         do {
             switch try await env.content.fetch(Self.path, ifNoneMatch: etag, maxBytes: Self.maxBytes) {
             case .notModified:
-                answered(at: env.clock.now(), note: nil)
+                await answered(note: nil)
             case .fetched(let data, let newTag):
-                switch await Self.validate(data, now: env.clock.now()) {
-                case .success(let catalog) where !Self.isNewer(current.version, than: catalog.version):
+                guard !refused.contains(Self.hash(data)) else { return await failed("crashed") }
+                let shown = remote ?? .bundled
+                switch await decode(data) {
+                case .success(let catalog) where !TrackerCatalog.isNewer(shown.version, than: catalog.version):
                     remote = catalog
                     body = data
-                    etag = newTag
-                    answered(at: env.clock.now(), note: nil)
+                    etag = Self.storable(newTag)
+                    await answered(note: nil)
                 case .success(let catalog):
-                    // Valid but older than what's shown: never a rollback, and no ETag for it.
-                    answered(at: env.clock.now(), note: "older \(catalog.version)")
+                    // Valid but older than what's shown: never a rollback, and no ETag for it. (The version passed
+                    // the validator's pattern.)
+                    await answered(note: "older \(catalog.version)")
                 case .failure(let error):
-                    failed(Self.describe(error), at: env.clock.now())
+                    await failed(Self.describe(error))
                 }
             }
         } catch {
-            failed(Self.describe(error), at: env.clock.now())
+            await failed(Self.describe(error))
         }
     }
 
-    private func answered(at now: Date, note: String?) {
-        checkedAt = now
+    /// Validation off the main actor, inside the crash marker.
+    private func decode(_ data: Data) async -> Result<TrackerCatalog, CatalogError> {
+        let now = env?.clock.now() ?? .now
+        guard let marker else { return await Self.validate(data, now: now) }
+        Self.mark(marker, hash: Self.hash(data))
+        defer { try? FileManager.default.removeItem(at: marker) }
+        return await Self.validate(data, now: now)
+    }
+
+    private func refuse(_ hash: String) {
+        refused = Array((refused.filter { $0 != hash } + [hash]).suffix(Self.maxRefused))
+    }
+
+    private func answered(note: String?) async {
+        checkedAt = env?.clock.now()
         failedAt = nil
         lastFailure = note
-        save()
+        await save()
     }
 
-    private func failed(_ reason: String, at now: Date) {
-        failedAt = now
+    private func failed(_ reason: String) async {
+        failedAt = env?.clock.now()
         lastFailure = reason
-        save()
+        await save()
     }
 
-    private func save() {
+    /// Encoded off the main actor (the body is up to 256 KiB), then stored.
+    private func save() async {
         guard let env else { return }
         let cached = Cached(body: body, etag: body == nil ? nil : etag, checkedAt: checkedAt, failedAt: failedAt,
-                            failure: lastFailure)
-        env.persistence.saveDocument(cached, key: Self.documentKey, at: env.clock.now())
+                            failure: lastFailure, refused: refused.isEmpty ? nil : refused)
+        guard let data = await Self.encode(cached) else { return }
+        env.persistence.saveDocumentData(data, key: Self.documentKey, at: env.clock.now())
     }
+
+    @concurrent
+    private static func encode(_ cached: Cached) async -> Data? { WireCoding.encode(cached) }
 
     /// Validation off the main actor (up to 256 KiB of JSON and every rule).
     @concurrent
@@ -452,17 +524,33 @@ final class TrackerCatalogStore {
         }
     }
 
-    /// "2026-10-22.10" is newer than "2026-10-22.9": the day first, then the number after it.
-    nonisolated static func isNewer(_ a: String, than b: String) -> Bool {
-        func parts(_ v: String) -> (day: String, n: Int) {
-            let p = v.split(separator: ".", maxSplits: 1)
-            return (String(p.first ?? ""), p.count > 1 ? Int(p[1]) ?? 0 : 0)
-        }
-        let x = parts(a), y = parts(b)
-        return x.day != y.day ? x.day > y.day : x.n > y.n
+    nonisolated static func hash(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// For `lastFailure` and diagnostics: never the body, never a URL.
+    /// The marker before a decode, written atomically (never `UserDefaults`, which may not reach the disk
+    /// before a crash).
+    nonisolated static func mark(_ url: URL, hash: String) {
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? Data(hash.utf8).write(to: url, options: .atomic)
+    }
+
+    /// A marker the last run left (its hash), removed.
+    nonisolated static func leftover(_ url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        try? FileManager.default.removeItem(at: url)
+        return String(data: data, encoding: .utf8).map(clean)
+    }
+
+    /// An ETag worth sending back: at most 128 visible ASCII characters, no spaces.
+    nonisolated static func storable(_ etag: String?) -> String? {
+        guard let etag, !etag.isEmpty, etag.count <= maxETag,
+              etag.unicodeScalars.allSatisfy({ (0x21...0x7E).contains($0.value) }) else { return nil }
+        return etag
+    }
+
+    /// For `lastFailure` and diagnostics: never the body, never a URL; anything from outside cut down to
+    /// letters, digits and `_.[]`, at most 80 characters.
     nonisolated static func describe(_ error: any Error) -> String {
         switch error {
         case let e as CatalogError:
@@ -470,7 +558,7 @@ final class TrackerCatalogStore {
             case .tooLarge: return "too large"
             case .notJSON: return "not json"
             case .schema(let n): return "schema \(n)"
-            case .invalid(let rule, let path): return "invalid \(rule) at \(path)"
+            case .invalid(let rule, let path): return "invalid \(clean(rule)) at \(clean(path))"
             }
         case let e as ContentError:
             switch e {
@@ -483,5 +571,12 @@ final class TrackerCatalogStore {
         default:
             return "error"
         }
+    }
+
+    nonisolated static func clean(_ text: String) -> String {
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.[]")
+        var kept = String.UnicodeScalarView()
+        kept.append(contentsOf: text.unicodeScalars.filter { allowed.contains($0) }.prefix(80))
+        return String(kept)
     }
 }
