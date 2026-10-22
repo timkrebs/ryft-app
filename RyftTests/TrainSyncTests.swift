@@ -10,6 +10,17 @@ final class TrainStubURLProtocol: URLProtocol {
         case status(Int, Data)
         /// 200 with the request body (the platform answering a PUT with the document).
         case echo
+        /// `URLError.cancelled`, as a cancelled request ends (`APIClient` makes it a `CancellationError`).
+        case cancelled
+        /// Like `echo`, once `release()` is called: a PUT still in flight meanwhile.
+        case hold
+    }
+
+    /// Lets a `hold` reply answer.
+    private static let gate = DispatchSemaphore(value: 0)
+
+    static func release() {
+        gate.signal()
     }
 
     private static let lock = NSLock()
@@ -22,6 +33,7 @@ final class TrainStubURLProtocol: URLProtocol {
 
     static func reset() {
         lock.withLock { replies = []; seen = [] }
+        while gate.wait(timeout: .now()) == .success {}
     }
 
     static var requests: [(method: String, path: String, body: Data)] { lock.withLock { seen } }
@@ -43,6 +55,12 @@ final class TrainStubURLProtocol: URLProtocol {
         case .status(let code, let data):
             respond(code, data)
         case .echo:
+            respond(200, body)
+        case .cancelled:
+            client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
+        case .hold:
+            // Blocks this loader's thread only (the suite is serialized); a missing release ends it.
+            _ = Self.gate.wait(timeout: .now() + 10)
             respond(200, body)
         }
     }
@@ -153,6 +171,47 @@ struct TrainSyncTests {
         let complete = try APIClient.jsonDecoder.decode(SessionComplete.self, from: TrainStubURLProtocol.requests[2].body)
         let sentEnd = try #require(complete.endedAt)
         #expect(abs(sentEnd.timeIntervalSince(finishedAt)) < 1)
+    }
+
+    /// Code review blocker 1: a PUT that comes back cancelled is never a refusal. It and `complete`
+    /// stay queued, and replay in order later (they used to be dequeued and lost).
+    @Test func aCancelledPutKeepsTheQueue() async throws {
+        let a = session("A")
+        check(a.orderedExercises[0].orderedSets[0], reps: 5, kg: 100)
+        TrainStubURLProtocol.script([.cancelled])
+        let done = await service.finish(a)
+        #expect(done == nil)
+        #expect(service.pendingCount == 2)                      // the PUT and `complete`
+        #expect(a.pendingCompletion)
+
+        TrainStubURLProtocol.reset()
+        TrainStubURLProtocol.script([.echo, .status(200, try Fixture.data("train_session_completed"))])
+        await service.flush()
+        let sent = TrainStubURLProtocol.requests.map { "\($0.method) \($0.path)" }
+        #expect(sent == ["PUT \(path(a.id))", "POST \(path(a.id, "/complete"))"])
+        #expect(service.pendingCount == 0 && !a.pendingCompletion)
+    }
+
+    /// Finish while the debounced PUT is in flight: Finish cancels the 2 s wait, never the PUT, and
+    /// waits for the replay; the last state goes up and the workout completes.
+    @Test func finishDuringAPutInFlightLosesNothing() async throws {
+        let a = session("A")
+        check(a.orderedExercises[0].orderedSets[0], reps: 5, kg: 100)
+        TrainStubURLProtocol.script([.hold, .echo, .status(200, try Fixture.data("train_session_completed"))])
+        service.sessionChanged(a)
+        #expect(await eventually { TrainStubURLProtocol.requests.count == 1 })   // the debounced PUT, held
+        check(a.orderedExercises[0].orderedSets[1], reps: 5, kg: 100)
+        let finishing = Task { await service.finish(a) }
+        #expect(await eventually { a.pendingCompletion })      // Finish ran: the wait is cancelled
+        TrainStubURLProtocol.release()
+
+        let done = await finishing.value
+        #expect(done != nil)
+        let sent = TrainStubURLProtocol.requests.map { "\($0.method) \($0.path)" }
+        #expect(sent == ["PUT \(path(a.id))", "PUT \(path(a.id))", "POST \(path(a.id, "/complete"))"])
+        #expect(service.pendingCount == 0 && !a.pendingCompletion)
+        let last = try APIClient.jsonDecoder.decode(TrainSession.self, from: TrainStubURLProtocol.requests[1].body)
+        #expect(last.exercises[0].sets.compactMap(\.reps) == [5, 5])
     }
 
     @Test func changesAreDebouncedIntoOnePut() async throws {

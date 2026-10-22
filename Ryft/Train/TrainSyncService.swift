@@ -26,6 +26,9 @@ final class TrainSyncService {
     private let remoteProvider: () -> TrainDataSource
     private let debounce: Duration
     private var debounceTask: Task<Void, Never>?
+    /// The replay in flight. It belongs to this service, not to whoever asked: a new set or Finish
+    /// cancels the 2 s wait, never a request in flight.
+    private var replay: Task<Void, Never>?
     /// The op being sent right now; a change meanwhile queues a fresh `put`.
     private var inFlightSeq: Int?
     private var flushAgain = false
@@ -111,19 +114,29 @@ final class TrainSyncService {
 
     // MARK: replay
 
-    /// Sends queued ops in order until the queue is empty or the network fails.
+    /// Sends queued ops in order until the queue is empty or the network fails. A replay already
+    /// running goes round once more for this caller, who waits for it (Finish gets its answer).
     func flush() async {
         guard !monitorsNetwork || connectivity.isOnline else { return }
-        guard !isFlushing else {
+        if let replay {
             flushAgain = true
+            await replay.value
             return
         }
+        // Its own task: cancelling the caller (the debounce, Finish's view) can't cancel a PUT.
+        let task = Task { [weak self] in
+            guard let self else { return }
+            repeat {
+                flushAgain = false
+                await drain()
+            } while flushAgain
+            // Same main-actor step as the last check: nobody can join a replay that's over.
+            replay = nil
+            isFlushing = false
+        }
+        replay = task
         isFlushing = true
-        defer { isFlushing = false }
-        repeat {
-            flushAgain = false
-            await drain()
-        } while flushAgain
+        await task.value
     }
 
     private func drain() async {
@@ -135,6 +148,10 @@ final class TrainSyncService {
                 store.dequeue(op)
                 lastError = nil
                 isOnline = true
+            } catch is CancellationError {
+                // A cancelled request is never a refusal: the op stays queued for the next replay.
+                refreshCount()
+                return
             } catch let error as APIError where Self.isRetryable(error) {
                 // Offline, signed out or the platform is busy: keep the queue as is.
                 if case .transport = error { isOnline = false }
