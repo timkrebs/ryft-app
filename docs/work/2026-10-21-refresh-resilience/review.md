@@ -318,3 +318,44 @@ fail-fast past the cap; nits; card/line accessibility containers.
 - T5 `feat: send a refresh problem to RYFT` (T3 owner): Send to RYFT wiring, `$singleAttempt` for `postFeedback`, one path
   redaction, `LocalPasteboard` for both copy actions, per-resource `resources` and request durations in the report.
 - CI after the final T1 batch (96d0421): **green** (unit + UI smoke 23 min). #30 green.
+
+## T5 — `feat/refresh-report-seams` (draft PR #31)
+
+### security-privacy-reviewer — no blockers; should-fixes taken
+- The disclosure rows must name the error code (`report_context`) and say "Loaded data, per area (Today, History, Profile …)"
+  instead of "per data source" (which reads like Apple Health or Garmin). en + de.
+- `PrivacyInfo.xcprivacy` comment and `APP_STORE_METADATA.md`: add the per-area last-load time with status, code and request
+  ID, and request durations. **Lead decision:** request durations count as **Other Diagnostic Data** (network-diagnostic timings
+  for support), not Performance Data (Apple's examples are launch time, hang rate and energy). The reasoning goes into the
+  metadata doc; no new App Privacy type.
+- **The epoch doesn't stop a retry.** A request of account A waiting out a 503/429 across sign-out plus sign-in as B could, on a
+  401, refresh to B's token and resend A's body as B. → `guard await status.epoch == epoch else { throw CancellationError() }`
+  after each retry sleep and before the token refresh in `exchange`. **Taken in T5** (it touches the merged `exchange` anyway).
+- CHANGELOG: a line for Send to RYFT from Details.
+- Sound: the `resources` lines have exactly 5 fields; `fetchedAt` is the app's load time (disclosed); durations are not a
+  side channel; diagnostics off sends neither; the prefill and chip are fine; `LocalPasteboard`; redaction is unchanged.
+
+### code-reviewer (#31) — merges lost nothing; approve after should-fix 1
+- should-fix 1: Send to RYFT passes raw transport tokens ("timedOut", "signedOut") as status into the chip and `report_context` →
+  `issue.statusText ?? "No response"`; test. **Taken.**
+- nits taken: "per data source" wording (same as security); resource error IDs in `request_ids` (dedup, ≤ 20); size-cap tests for
+  the new trimming order; `singleAttempt` doc comments; CHANGELOG lines.
+- Pre-existing, taken here (same function): a cancelled 503 wait never calls `finishedWaiting()`, so "RYFT is catching up…"
+  sticks; `forgetRequests()` clears it too.
+- Merge resolutions verified line by line across the 14 multi-branch files; xcstrings keep every tip's value; `screenshots.sh`
+  is a correct union.
+
+### T5 fixes (ea6f2bc..60b55de, pushed): affected suites 96/96, `RefreshResilienceUITests` 3/3, lint clean
+- `exchange`: every retry step (429/503 wait, 401 refresh, final 401) runs through `retryStep` with epoch checks before and after,
+  so A's body is never resent with B's token, and a late final 401 of A can't sign B out. `finishedWaiting()` runs on every throw;
+  `forgetRequests()` clears the notice.
+- "No response" instead of raw transport names; resource error IDs in `request_ids`; cap-order tests; disclosure wording
+  en/de; privacy-manifest comment and `APP_STORE_METADATA.md` (durations count as Other Diagnostic Data, with the reasoning);
+  CHANGELOG lines. Screenshots of the disclosure re-captured.
+- Auth-critical, so the security-privacy-reviewer re-verifies `20883f0`. CI on 60b55de is running.
+- **security re-verification of 20883f0: resolved.** No path resends A's request with B's token; same-account 401 semantics are
+  unchanged; a first sign-in is unaffected; `finishedWaiting()` runs on every exit. Durations as Other Diagnostic Data confirmed.
+- Follow-ups (low, `AuthService`, pre-existing): `token()` signs out on a session-ending refresh error without checking whose
+  session it is (a slow refresh of A across a switch to B); move `forgetRequests()` into `AuthService.apply` to close the one-render
+  gap. Plus a test for 401 refresh across `forgetRequests`.
+- Lead fix: `LateReplyURLProtocol.reset(_:)`, so a retried test starts from zero (ReportProblemTests green locally).

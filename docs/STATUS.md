@@ -36,6 +36,7 @@ Plan, design note, UI spec and review log: `docs/work/2026-10-21-refresh-resilie
 | #26 `feat: report a problem with diagnostics` | Profile → About → Report a problem → `POST /v1/feedback`; allow-listed diagnostics (no health values, no query strings or IDs in paths, sample dates to the day); offline queue bound to the account; privacy manifest declares diagnostic data | simulator: 596 unit + review suites; CI green; screenshots en/de/dark/light |
 | #28 `fix: one consistent Today state` | `TodayPresentation.decide`: one decision for gauge, tiles, note, delta and widget; unknown ≠ calibrating; "Recalculating" and "needs heart-rate data" rows; dimmed, dated tiles while the night is scored; "Steady vs 7 d"; locale-aware times | simulator: 603 unit; CI green; screenshots rows A–E en/de/dark/light/AX3 |
 | #27 `fix: refresh per resource with silent retries` | per-resource reads with their own state; one retry layer (2× foreground, full jitter, `Retry-After`); cancellation is never a failure; ordered pull (today + sync status, then the rest after the upload or 2 s; ≤ 3 in flight, ≤ 5 starts a second; a global 429 hold); error only past a threshold, or when the user can act; stale line and calm card with Details; Loaded data in Sync details; path redaction; Train queue keeps cancelled ops and stops at sign-out | simulator: 652 unit + UISmoke (incl. `RefreshResilienceUITests`); CI see the PR |
+| #31 `feat: send a refresh problem to RYFT` | Today's error card → Details → **Send to RYFT** opens Report a problem pre-filled; per-area load state and request durations in the report; one path redaction; a retry never outlives its account (epoch-guarded `exchange`); the "catching up" notice can't stick | simulator: 719 unit + `RefreshResilienceUITests`; CI on main + #26 + #28 + #27 green |
 | #29 `docs: refresh resilience` | this section, Incidents, `API_REQUESTS.md` → Refresh resilience §1–4, TestFlight notes en/de | — |
 
 **Simulator only. On your iPhone, please, and tell me what you saw:**
@@ -53,6 +54,8 @@ Plan, design note, UI spec and review log: `docs/work/2026-10-21-refresh-resilie
 - `lint-strings.py`: check `%#@token@` substitutions and English plurals.
 - The disclosure chevron renders white on iOS 26 (app-wide; ui-designer).
 - "App too old" card: ready, unshipped until the platform signals it (`API_REQUESTS.md` §3).
+- `AuthService.token()` signs out on a session-ending refresh error without checking whose session it is (a slow refresh of
+  account A across a switch to B); move `forgetRequests()` into `AuthService.apply` to close a one-render gap.
 - Convert `Ryft/` and `RyftTests/` to folders in Xcode (new types still go into existing files).
 
 ## Beta feedback 1: Bedtime & wake (§4)

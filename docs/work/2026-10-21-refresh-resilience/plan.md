@@ -24,7 +24,7 @@ Brief: `CLAUDE_FOLLOWUP_REFRESH_RESILIENCE.md` (TestFlight 1.0.0 `20261021.14112
 | T3 | #26 `feat: report a problem with diagnostics` | approved (code, security, UI, l10n) | green | **ready to merge, 1st** |
 | T2 | #28 `fix: one consistent Today state` | approved (code, UI, l10n) | green | **ready, 2nd** (string catalog + `screenshots.sh` conflict with #26, resolutions ready) |
 | T1 | #27 `fix: refresh per resource with silent retries` | approved (code, security, perf, UI, tests) | green | **ready, 3rd** (`APIClient` + string catalog conflict with #26, resolutions ready) |
-| T5 | `feat: send a refresh problem to RYFT` | — | — | in progress on the integration branch; PR after #27 |
+| T5 | #31 `feat: send a refresh problem to RYFT` (draft) | approved (code, security ×2) | green on 60b55de's base; re-running | **4th**, after #27: merge `main` in, then ready |
 | CI | #30 `ci: UI smoke tests get 180 s before they count as hung` | lead | green | ready, any time |
 | T4 | #29 `docs: refresh resilience` (draft) | — | — | last |
 
