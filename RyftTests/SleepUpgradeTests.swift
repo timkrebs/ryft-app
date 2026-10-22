@@ -199,7 +199,7 @@ struct SleepBaselineTests {
         #expect(e.error == String(localized: "RYFT takes a baseline between 4 and 12 hours."))
         #expect(e.errorDetails?.contains("rid-422") == true)
         #expect(e.sleepBase == MockData.user.sleepBaseMin && !e.savedChange)
-        #expect(state.error == nil) // not Today's message: the sheet's
+        #expect(state.refreshIssue == nil) // not Today's card: the sheet's
     }
 
     @Test func valuesStayInTheRangeThePlatformTakes() async {
@@ -249,7 +249,7 @@ struct SleepBaselineTests {
         #expect(!(await e.setSleepBase(500)))
         #expect(e.error == APIError.http(500, "").localizedDescription)
         #expect(e.errorDetails?.contains("rid-500") == true)
-        #expect(state.error == nil)
+        #expect(state.refreshIssue == nil)
     }
 
     @Test func aRefusedGoingBackSaysSoInWords() async {
@@ -747,11 +747,13 @@ struct BedtimeAndWakeTests {
 
     @Test func theWidgetShowsTonightsBedtimeOnlyAheadOfIt() {
         let now = Date.now
-        let ahead = ReadinessSnapshot.make(day: "2026-10-21", today: nil, previous: DailyScore(day: "2026-10-20", readiness: 70),
-                                           state: nil, now: now, bedtime: now.addingTimeInterval(3_600))
+        let waiting = TodayPresentation.decide(TodayScoreFacts(day: "2026-10-21", today: nil, scoringState: nil,
+                                                               prior: [DailyScore(day: "2026-10-20", readiness: 70)]))
+        let ahead = ReadinessSnapshot.make(day: "2026-10-21", presentation: waiting, now: now,
+                                           bedtime: now.addingTimeInterval(3_600))
         #expect(ahead?.bedtime != nil)
-        let passed = ReadinessSnapshot.make(day: "2026-10-21", today: nil, previous: DailyScore(day: "2026-10-20", readiness: 70),
-                                            state: nil, now: now, bedtime: now.addingTimeInterval(-60))
+        let passed = ReadinessSnapshot.make(day: "2026-10-21", presentation: waiting, now: now,
+                                            bedtime: now.addingTimeInterval(-60))
         #expect(passed?.bedtime == nil)
     }
 }

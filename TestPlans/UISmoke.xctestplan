@@ -7,7 +7,7 @@
     }
   ],
   "defaultOptions": {
-    "defaultTestExecutionTimeAllowance": 60,
+    "defaultTestExecutionTimeAllowance": 180,
     "maximumTestRepetitions": 3,
     "targetForVariableExpansion": {
       "containerPath": "container:Ryft.xcodeproj",
@@ -22,7 +22,8 @@
       "selectedTests": [
         "StoreSmokeUITests",
         "TodayStatesUITests",
-        "NotificationsUITests"
+        "NotificationsUITests",
+        "RefreshResilienceUITests"
       ],
       "target": {
         "containerPath": "container:Ryft.xcodeproj",

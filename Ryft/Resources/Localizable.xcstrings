@@ -102,12 +102,113 @@
         }
       }
     },
+    "%@, %@, not today's score" : {
+      "comment" : "VoiceOver value of a dimmed Today tile: value, its day (e.g. Yesterday).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, %2$@, nicht der Wert von heute"
+          }
+        }
+      }
+    },
     "%@: %@" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@: %2$@"
+          }
+        }
+      }
+    },
+    "%lld / 4000" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld / 4000"
+          }
+        }
+      }
+    },
+    "%lld failed" : {
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Fehlversuch"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Fehlversuche"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld failed"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld failed"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld failed in a row" : {
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Fehlversuch in Folge"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Fehlversuche in Folge"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld failed in a row"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld failed in a row"
+                }
+              }
+            }
           }
         }
       }
@@ -172,12 +273,113 @@
         }
       }
     },
+    "%lld of %lld nights with heart-rate data. Readiness appears once the baselines are complete." : {
+      "comment" : "VoiceOver value of the baseline gauge when a long history lacks HRV and resting heart rate.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld of %#@nights@. Readiness appears once the baselines are complete."
+          },
+          "substitutions" : {
+            "nights" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg night with heart-rate data"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg nights with heart-rate data"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %#@nights@. Die Bereitschaft erscheint, sobald die Ausgangswerte vollständig sind."
+          },
+          "substitutions" : {
+            "nights" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Nacht mit Herzfrequenzdaten"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Nächten mit Herzfrequenzdaten"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld of %lld nights. Readiness appears once the baselines are complete." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld von %2$lld Nächten. Die Bereitschaft erscheint, sobald die Ausgangswerte vollständig sind."
+          }
+        }
+      }
+    },
+    "%lld waiting to send" : {
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld wartet auf Versand"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld warten auf Versand"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld waiting to send"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld waiting to send"
+                }
+              }
+            }
           }
         }
       }
@@ -198,6 +400,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eine Mitteilung zu deiner Aufwachzeit. Sie klingelt auf dieser iOS-Version nicht wie ein Wecker."
+          }
+        }
+      }
+    },
+    "A proxy answered before RYFT did." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Proxy hat geantwortet, bevor RYFT es konnte."
           }
         }
       }
@@ -228,6 +440,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Über dich"
+          }
+        }
+      }
+    },
+    "About: %@ · %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Betrifft: %1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "About: %@ · %@ · request %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Betrifft: %1$@ · %2$@ · Anfrage %3$@"
+          }
+        }
+      }
+    },
+    "Account gates and feature flags" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konto-Freigaben und Feature-Flags"
           }
         }
       }
@@ -358,12 +600,42 @@
         }
       }
     },
+    "Allow it in Health → Sharing → Apps → RYFT → Workouts." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erlaube es in Health → Teilen → Apps → RYFT → Workouts."
+          }
+        }
+      }
+    },
     "Always yours" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Immer deine Daten"
+          }
+        }
+      }
+    },
+    "An idea" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Idee"
+          }
+        }
+      }
+    },
+    "App version and build" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App-Version und Build"
           }
         }
       }
@@ -408,12 +680,84 @@
         }
       }
     },
+    "Baselines need heart-rate variability and resting heart rate from nights with your watch." : {
+      "comment" : "Note under the baseline gauge when a long history has no HRV or resting heart rate (row B).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgangswerte brauchen Herzfrequenzvariabilität und Ruhepuls aus Nächten mit deiner Uhr."
+          }
+        }
+      }
+    },
     "Baselines · %lld of %lld nights" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ausgangswerte · %1$lld von %2$lld Nächten"
+          }
+        }
+      }
+    },
+    "Baselines · %lld of %lld nights with heart-rate data" : {
+      "comment" : "Under the baseline gauge when a long history lacks HRV and resting heart rate: nights with both, of 7.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Baselines · %1$lld of %#@nights@"
+          },
+          "substitutions" : {
+            "nights" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg night with heart-rate data"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg nights with heart-rate data"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgangswerte · %1$lld von %#@nights@"
+          },
+          "substitutions" : {
+            "nights" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Nacht mit Herzfrequenzdaten"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Nächten mit Herzfrequenzdaten"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -498,6 +842,16 @@
         }
       }
     },
+    "Code" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code"
+          }
+        }
+      }
+    },
     "Continue with this one" : {
       "localizations" : {
         "de" : {
@@ -518,12 +872,85 @@
         }
       }
     },
+    "Copy details" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Details kopieren"
+          }
+        }
+      }
+    },
     "Copy diagnostics" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Diagnose kopieren"
+          }
+        }
+      }
+    },
+    "Copy message" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nachricht kopieren"
+          }
+        }
+      }
+    },
+    "Couldn't save your report. Copy it and try again later." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Meldung konnte nicht gespeichert werden. Kopiere sie und versuch es später erneut."
+          }
+        }
+      }
+    },
+    "Copy request ID" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anfrage-ID kopieren"
+          }
+        }
+      }
+    },
+    "Couldn't load today · Details" : {
+      "comment" : "Today's status line while the error card about today is shown (last on Today); tapping scrolls to the card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heute konnte nicht geladen werden · Details"
+          }
+        }
+      }
+    },
+    "Couldn't load your data · Details" : {
+      "comment" : "Today's status line while the error card is shown for another part of the data; tapping scrolls to the card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Daten konnten nicht geladen werden · Details"
+          }
+        }
+      }
+    },
+    "Couldn't load your history · Details" : {
+      "comment" : "Today's status line while the error card about the score history is shown; tapping scrolls to the card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Verlauf konnte nicht geladen werden · Details"
           }
         }
       }
@@ -588,6 +1015,26 @@
         }
       }
     },
+    "Device model and iOS version" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gerätemodell und iOS-Version"
+          }
+        }
+      }
+    },
+    "Diagnostics" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diagnose"
+          }
+        }
+      }
+    },
     "Each night's sleep need starts from this baseline, plus top-ups for strain and sleep debt, minus naps." : {
       "localizations" : {
         "de" : {
@@ -604,6 +1051,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Der Schlafbedarf jeder Nacht beginnt bei diesem Grundbedarf, plus Zuschläge für Belastung und Schlafdefizit, minus Nickerchen. RYFT passt ihn anhand deiner Nächte an, außer du legst ihn selbst fest."
+          }
+        }
+      }
+    },
+    "Each workout you log appears in Fitness and Health. Only the workout: no heart rate." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jedes Training, das du erfasst, erscheint in Fitness und Health. Nur das Workout, keine Herzfrequenz."
           }
         }
       }
@@ -698,6 +1155,16 @@
         }
       }
     },
+    "Failed in a row" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fehlversuche in Folge"
+          }
+        }
+      }
+    },
     "First score: the last 3 days" : {
       "localizations" : {
         "de" : {
@@ -718,12 +1185,33 @@
         }
       }
     },
+    "From %@" : {
+      "comment" : "VoiceOver, after the readiness gauge in row D: the day the readiness is from, e.g. Tuesday, 20 October.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vom %@"
+          }
+        }
+      }
+    },
     "From Apple Health · not scored yet" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aus Apple Health · noch nicht bewertet"
+          }
+        }
+      }
+    },
+    "From Details: what failed, its status and request ID" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus den Details: was fehlgeschlagen ist, mit Status und Anfrage-ID"
           }
         }
       }
@@ -788,6 +1276,16 @@
         }
       }
     },
+    "Heart rate from %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Herzfrequenz von %@"
+          }
+        }
+      }
+    },
     "Heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts." : {
       "localizations" : {
         "de" : {
@@ -804,6 +1302,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Hier ist dein Workout."
+          }
+        }
+      }
+    },
+    "HTTP status" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HTTP-Status"
           }
         }
       }
@@ -908,6 +1416,16 @@
         }
       }
     },
+    "Include diagnostics" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diagnose anhängen"
+          }
+        }
+      }
+    },
     "Invite code" : {
       "localizations" : {
         "de" : {
@@ -924,6 +1442,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sie wird bewertet, sobald Apple Health sie hat."
+          }
+        }
+      }
+    },
+    "Language and region" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sprache und Region"
           }
         }
       }
@@ -978,6 +1506,26 @@
         }
       }
     },
+    "loaded %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "geladen %@"
+          }
+        }
+      }
+    },
+    "Loaded data" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geladene Daten"
+          }
+        }
+      }
+    },
     "Maximum heart rate" : {
       "localizations" : {
         "de" : {
@@ -988,12 +1536,72 @@
         }
       }
     },
+    "No health values: no scores, no sleep, heart or workout data, and no times of day from Apple Health." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Gesundheitswerte: keine Scores, keine Schlaf-, Herz- oder Trainingsdaten und keine Uhrzeiten aus Apple Health."
+          }
+        }
+      }
+    },
+    "No heart rate yet. With a strength workout on your watch too, it arrives once the watch syncs." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch keine Herzfrequenz. Mit einem Krafttraining auch auf deiner Uhr kommt sie, sobald die Uhr synchronisiert."
+          }
+        }
+      }
+    },
+    "Message" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nachricht"
+          }
+        }
+      }
+    },
+    "My numbers look wrong" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Meine Werte wirken falsch"
+          }
+        }
+      }
+    },
+    "No errors" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Fehler"
+          }
+        }
+      }
+    },
     "No requests since launch." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Seit dem Start keine Anfragen."
+          }
+        }
+      }
+    },
+    "No response" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Antwort"
           }
         }
       }
@@ -1028,6 +1636,16 @@
         }
       }
     },
+    "Not loaded yet" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch nicht geladen"
+          }
+        }
+      }
+    },
     "Not scored yet" : {
       "localizations" : {
         "de" : {
@@ -1054,6 +1672,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nicht angegeben"
+          }
+        }
+      }
+    },
+    "Nothing is attached except your message." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Außer deiner Nachricht wird nichts angehängt."
           }
         }
       }
@@ -1158,6 +1786,16 @@
         }
       }
     },
+    "Opens sync details" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet die Sync-Details"
+          }
+        }
+      }
+    },
     "Opens the editor" : {
       "localizations" : {
         "de" : {
@@ -1184,6 +1822,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Öffnet, was nötig ist"
+          }
+        }
+      }
+    },
+    "Part of your data couldn't be loaded. The details help us find out why." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Teil deiner Daten konnte nicht geladen werden. Die Details helfen uns, die Ursache zu finden."
           }
         }
       }
@@ -1224,6 +1872,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geplant %1$@–%2$@ · tatsächlich %3$@–%4$@"
+          }
+        }
+      }
+    },
+    "Please don't type health values you'd rather keep private." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bitte gib keine Gesundheitswerte ein, die du lieber für dich behalten möchtest."
           }
         }
       }
@@ -1278,12 +1936,55 @@
         }
       }
     },
+    "Readiness from %@, until last night is scored." : {
+      "comment" : "Today's sentence in row C when the dimmed readiness is from before yesterday (a gap day). The argument is a short date, e.g. Tue 20 Oct.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bereitschaft vom %@, bis die letzte Nacht bewertet ist."
+          }
+        }
+      }
+    },
+    "Readiness from %@, while your baselines are recalculated." : {
+      "comment" : "Today's sentence in row D when the readiness shown is from an earlier day. The argument is a short date, e.g. Tue 20 Oct.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bereitschaft vom %@, bis deine Ausgangswerte neu berechnet sind."
+          }
+        }
+      }
+    },
     "Reading Apple Health" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Apple Health lesen"
+          }
+        }
+      }
+    },
+    "Recalculating your baselines" : {
+      "comment" : "Note under Today's gauge while the platform recalculates the baselines (row D).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgangswerte werden neu berechnet"
+          }
+        }
+      }
+    },
+    "Refreshing %@ didn't work." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Laden von %@ hat nicht geklappt."
           }
         }
       }
@@ -1314,6 +2015,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Erinnerung"
+          }
+        }
+      }
+    },
+    "Report a problem" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Problem melden"
+          }
+        }
+      }
+    },
+    "Reports are limited to 10 a day." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pro Tag sind 10 Meldungen möglich."
+          }
+        }
+      }
+    },
+    "Remote settings" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konfiguration"
+          }
+        }
+      }
+    },
+    "Request ID" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anfrage-ID"
           }
         }
       }
@@ -1438,6 +2179,16 @@
         }
       }
     },
+    "RYFT can't be reached right now. Your connection looks fine, so this isn't on your side." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT ist gerade nicht erreichbar. Deine Verbindung scheint in Ordnung zu sein, es liegt also nicht an dir."
+          }
+        }
+      }
+    },
     "RYFT couldn't take that change. Try again later." : {
       "localizations" : {
         "de" : {
@@ -1448,12 +2199,32 @@
         }
       }
     },
+    "RYFT couldn't take this report. Copy your message and try again later." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT konnte diese Meldung nicht annehmen. Kopiere deine Nachricht und versuch es später erneut."
+          }
+        }
+      }
+    },
     "RYFT doesn't sync or score your health data until you agree." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT synchronisiert und bewertet deine Gesundheitsdaten erst nach deiner Zustimmung."
+          }
+        }
+      }
+    },
+    "RYFT is busy right now. Your data is safe; try again in a moment." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT ist gerade ausgelastet. Deine Daten sind sicher, versuch es gleich noch einmal."
           }
         }
       }
@@ -1484,6 +2255,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT braucht deine Einwilligung, bevor es deine Gesundheitsdaten synchronisieren kann."
+          }
+        }
+      }
+    },
+    "RYFT sent an answer this version of the app can't read." : {
+      "comment" : "Error when the platform's answer can't be decoded (status 200 and request ID are kept in Details).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT hat eine Antwort geschickt, die diese App-Version nicht lesen kann."
           }
         }
       }
@@ -1528,12 +2310,42 @@
         }
       }
     },
+    "Saved. It will be sent as soon as you're back online. You can close the app." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Meldung ist gespeichert und wird gesendet, sobald du wieder online bist. Du kannst die App schließen."
+          }
+        }
+      }
+    },
     "Saved. Past days keep their scores until you rescore them." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gesichert. Vergangene Tage behalten ihre Werte, bis du sie neu bewertest."
+          }
+        }
+      }
+    },
+    "Save strength workouts to Apple Health" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Krafttrainings in Apple Health sichern"
+          }
+        }
+      }
+    },
+    "Save workouts to Apple Health?" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workouts in Apple Health sichern?"
           }
         }
       }
@@ -1578,6 +2390,56 @@
         }
       }
     },
+    "Send" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Senden"
+          }
+        }
+      }
+    },
+    "Sending…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird gesendet …"
+          }
+        }
+      }
+    },
+    "Sent in demo mode: nothing reached RYFT." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Im Demo-Modus gesendet: Bei RYFT ist nichts angekommen."
+          }
+        }
+      }
+    },
+    "Send to RYFT" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An RYFT senden"
+          }
+        }
+      }
+    },
+    "Sends this and the last 20 requests. No health values." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sendet dies und die letzten 20 Anfragen. Keine Gesundheitswerte."
+          }
+        }
+      }
+    },
     "Set by you" : {
       "localizations" : {
         "de" : {
@@ -1618,6 +2480,26 @@
         }
       }
     },
+    "Showing data from" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt Daten von"
+          }
+        }
+      }
+    },
+    "Showing data from %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt Daten von %@"
+          }
+        }
+      }
+    },
     "Shows how your sleep need adds up, and your baseline to change" : {
       "localizations" : {
         "de" : {
@@ -1628,12 +2510,33 @@
         }
       }
     },
+    "Shows what couldn't load" : {
+      "comment" : "VoiceOver hint of Today's status line while it points to the error card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt, was nicht geladen werden konnte"
+          }
+        }
+      }
+    },
     "Shows your baseline sleep need to change" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zeigt deinen Schlaf-Grundbedarf zum Ändern"
+          }
+        }
+      }
+    },
+    "Sign in" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anmelden"
           }
         }
       }
@@ -1688,6 +2591,26 @@
         }
       }
     },
+    "Something else" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Etwas anderes"
+          }
+        }
+      }
+    },
+    "Something's broken" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Etwas funktioniert nicht"
+          }
+        }
+      }
+    },
     "Start or resume workout" : {
       "localizations" : {
         "de" : {
@@ -1734,6 +2657,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zustand"
+          }
+        }
+      }
+    },
+    "Steady" : {
+      "comment" : "A change under 2 %, before \"vs 7 d\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stabil"
           }
         }
       }
@@ -1808,6 +2742,26 @@
         }
       }
     },
+    "Sync state: phase, queue and backlog, and per data type the number of records and days and the date of the newest record" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync-Status: Phase, Warteschlange und Rückstand, und pro Datentyp die Anzahl der Einträge und Tage und das Datum des neuesten Eintrags"
+          }
+        }
+      }
+    },
+    "Sync status" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync-Status"
+          }
+        }
+      }
+    },
     "Syncing · %@" : {
       "localizations" : {
         "de" : {
@@ -1834,6 +2788,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sag RYFT, wann du aufwachen willst. RYFT sagt dir, wann du ins Bett solltest – mit dem, was die heutige Belastung und dein Schlafdefizit dazugeben."
+          }
+        }
+      }
+    },
+    "Thanks, your report reached RYFT." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Danke, deine Meldung ist bei RYFT angekommen."
+          }
+        }
+      }
+    },
+    "The last 20 requests: method, path without its query, status, error code, request ID, time" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die letzten 20 Anfragen: Methode, Pfad ohne Parameter, Status, Fehlercode, Anfrage-ID, Zeitpunkt"
           }
         }
       }
@@ -1958,6 +2932,16 @@
         }
       }
     },
+    "This version of RYFT is too old to load new data. Update it to continue." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Version von RYFT ist zu alt, um neue Daten zu laden. Aktualisiere sie, um fortzufahren."
+          }
+        }
+      }
+    },
     "Time to get up" : {
       "localizations" : {
         "de" : {
@@ -1974,6 +2958,24 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Um deine Werte zu berechnen, verarbeitet RYFT Gesundheitsdaten aus Apple Health. Das heißt:"
+          }
+        }
+      }
+    },
+    "today.tile.calibrating" : {
+      "comment" : "Under each of Today's tiles while the baselines fill (still calibrating, not done).",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kalibriert noch"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "calibrating"
           }
         }
       }
@@ -2018,12 +3020,32 @@
         }
       }
     },
+    "Tries to load your data again" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Versucht erneut, deine Daten zu laden"
+          }
+        }
+      }
+    },
     "Try another wake time" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Andere Aufwachzeit ausprobieren"
+          }
+        }
+      }
+    },
+    "Trying again…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neuer Versuch …"
           }
         }
       }
@@ -2258,6 +3280,36 @@
         }
       }
     },
+    "What happened? What did you expect?" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was ist passiert? Was hast du erwartet?"
+          }
+        }
+      }
+    },
+    "What's included" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was enthalten ist"
+          }
+        }
+      }
+    },
+    "What failed" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Betroffen"
+          }
+        }
+      }
+    },
     "Where it is stored" : {
       "localizations" : {
         "de" : {
@@ -2328,6 +3380,16 @@
         }
       }
     },
+    "Yesterday %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gestern %@"
+          }
+        }
+      }
+    },
     "Yesterday's readiness, until last night is scored." : {
       "localizations" : {
         "de" : {
@@ -2358,6 +3420,47 @@
         }
       }
     },
+    "You're signed out, so this report can't be sent. Your message is kept." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du bist abgemeldet, deshalb kann diese Meldung nicht gesendet werden. Deine Nachricht bleibt erhalten."
+          }
+        }
+      }
+    },
+    "You've reached today's limit of 10 reports. Your message is kept; try again tomorrow." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du hast das Tageslimit von 10 Meldungen erreicht. Deine Nachricht bleibt erhalten, versuch es morgen noch einmal."
+          }
+        }
+      }
+    },
+    "You're signed out · Details" : {
+      "comment" : "Today's status line while the signed-out card is shown (last on Today); tapping scrolls to the card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du bist abgemeldet · Details"
+          }
+        }
+      }
+    },
+    "You're signed out, so new data can't load." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du bist abgemeldet, deshalb können keine neuen Daten geladen werden."
+          }
+        }
+      }
+    },
     "Your baseline is yours to set. The top-ups follow yesterday's strain and your sleep debt; a nap lowers the next night's need." : {
       "localizations" : {
         "de" : {
@@ -2374,6 +3477,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Du bekommst"
+          }
+        }
+      }
+    },
+    "Your baselines are being recalculated." : {
+      "comment" : "Today's sentence in row D when today's readiness is shown.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Ausgangswerte werden neu berechnet."
+          }
+        }
+      }
+    },
+    "Your baselines are still forming." : {
+      "comment" : "Today's sentence while the baselines fill (row B).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Ausgangswerte entstehen noch."
           }
         }
       }
@@ -2444,6 +3569,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Deine Aufwachzeit aus „Schlafenszeit & Aufwachen“."
+          }
+        }
+      }
+    },
+    "Your strength workouts then appear in Fitness and Health. RYFT writes only the workout, no heart rate. You can change this in Profile." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Krafttrainings erscheinen dann in Fitness und Health. RYFT schreibt nur das Workout, keine Herzfrequenz. Du kannst das im Profil ändern."
           }
         }
       }
@@ -4757,18 +5892,6 @@
         }
       }
     },
-    "Couldn't refresh just now — showing your last loaded data." : {
-      "comment" : "Message displayed when an error occurs while refreshing data, showing the last loaded data instead.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "Aktualisieren gerade nicht möglich – es werden deine zuletzt geladenen Daten angezeigt."
-          }
-        }
-      }
-    },
     "Couldn't save: %@" : {
       "comment" : "A description of an error that might occur when saving notification preferences. The argument is the error description.",
       "isCommentAutoGenerated" : true,
@@ -6006,14 +7129,12 @@
         }
       }
     },
-    "Heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts. RYFT never writes to Apple Health." : {
-      "comment" : "A description of the data that RYFT collects from Apple Health.",
-      "isCommentAutoGenerated" : true,
+    "Heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts. RYFT writes nothing to Apple Health unless you turn on saving strength workouts." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Herzfrequenz, HRV, Ruhepuls, Atemfrequenz, Blutsauerstoff, VO₂max, Schritte, aktive Energie, Schlaf und Workouts. RYFT schreibt nie in Apple Health."
+            "value" : "Herzfrequenz, HRV, Ruhepuls, Atemfrequenz, Blutsauerstoff, VO₂max, Schritte, aktive Energie, Schlaf und Workouts. RYFT schreibt nichts in Apple Health, außer du schaltest das Sichern von Krafttrainings ein."
           }
         }
       }

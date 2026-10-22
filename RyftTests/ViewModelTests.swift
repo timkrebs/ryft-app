@@ -54,33 +54,108 @@ struct TodayViewModelTests {
         #expect(vm.greeting == String(localized: "Good evening,"))
     }
 
-    @Test func failureWithoutDataShowsTheError() async {
+    /// Nothing cached at all: the card shows after one failed pass (a blank Today is the alternative).
+    @Test func failureWithoutDataShowsTheCardAfterOnePass() async {
         let api = MockPlatformAPI()
-        api.failure = APIError.http(500, "")
+        api.failure = APIError.http(500, "", requestID: "rid-500")
         let (env, state, _) = makeState(api: api)
         let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
 
         await state.refresh()
 
-        #expect(vm.status == .error(message: APIError.http(500, "").localizedDescription, details: "HTTP 500"))
+        guard case .refreshIssue(let issue) = vm.status else {
+            Issue.record("expected the card, got \(String(describing: vm.status))")
+            return
+        }
+        #expect(issue.reason == .busy && issue.resource == .today && issue.failures == 1 && issue.dataFrom == nil)
+        #expect(issue.error.status == 500 && issue.error.requestID == "rid-500" && issue.error.attempts == 3)
+        #expect(api.count("day") == 3) // two silent retries first
     }
 
-    @Test func failureWithDataSaysItsTheLastLoaded() async {
+    /// Criterion 8/9 from the failure itself: status, code, request ID and resource reach the card's issue,
+    /// and the line then reads "Couldn't load today · Details".
+    @Test func theCardCarriesTheFailuresStatusCodeAndRequestID() async {
         let api = MockPlatformAPI()
-        let (env, state, clock) = makeState(api: api)
+        api.failure = APIError.http(503, "request timed out", requestID: "rid-503", code: .consentRequired)
+        let (env, state, _) = makeState(api: api)
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+
+        await state.refresh()
+
+        guard case .refreshIssue(let issue) = vm.status else {
+            Issue.record("expected the card, got \(String(describing: vm.status))")
+            return
+        }
+        #expect(issue.resourceName == ReadResource.today.displayName)
+        #expect(issue.statusText == "503" && issue.error.requestID == "rid-503")
+        #expect(issue.error.code == "consent_required")
+        #expect(vm.syncLine.text(now: env.clock.now()) == String(localized: "Couldn't load today · Details"))
+    }
+
+    /// Criterion 8: the line's tap. With the card on screen it scrolls to the card (once per tap) and
+    /// opens nothing; otherwise it opens Sync details.
+    @Test func tappingTheIssueLineScrollsToTheCardInsteadOfOpeningDetails() async {
+        let api = MockPlatformAPI()
+        api.failure = APIError.http(500, "", requestID: "rid-500")
+        let (env, state, _) = makeState(api: api)
         let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
         await state.refresh()
+        #expect(vm.syncLine == .issue(.today))
+        #expect(vm.scrollToIssue == 0)
+
+        vm.resolveLine()
+        #expect(vm.scrollToIssue == 1 && !vm.showsSyncDetails)
+        vm.resolveLine()
+        #expect(vm.scrollToIssue == 2 && !vm.showsSyncDetails)
+    }
+
+    @Test func tappingAnyOtherLineOpensSyncDetails() async {
+        let (env, state, _) = makeState()
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        await state.refresh()
+        #expect(vm.syncLine == .upToDate(state.lastUpdated, demo: false))
+
+        vm.resolveLine()
+
+        #expect(vm.showsSyncDetails && vm.scrollToIssue == 0)
+    }
+
+    @Test func tappingTheOfflineLineOpensSyncDetails() {
+        let (env, state, _) = makeState(online: false)
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        #expect(vm.syncLine == .offline)
+        vm.resolveLine()
+        #expect(vm.showsSyncDetails && vm.scrollToIssue == 0)
+    }
+
+    /// With data on screen a failure changes nothing until it lasts: 3 in a row and older than 2 h.
+    @Test func failureWithDataShowsNoCardUntilThreeFailuresAndTwoHours() async {
+        let api = MockPlatformAPI()
+        // Morning, so 2 h later is still the same day (a new day has no data of its own yet).
+        let morning = Calendar.current.date(bySettingHour: 8, minute: 0, second: 0, of: .now)!
+        let (env, state, clock) = makeState(api: api, now: morning)
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        await state.refresh()
+        let loaded = state.lastUpdated
+        #expect(loaded != nil)
         api.failure = APIError.http(503, "")
         clock.advance(by: .seconds(6 * 60)) // today's 5 minutes are over: it asks again
 
-        await state.refresh()
+        for _ in 0..<3 { await state.refresh() }
 
-        guard case .error(let message, _) = vm.status else {
-            Issue.record("expected an error status, got \(String(describing: vm.status))")
+        #expect(state.resourceStates[.today]?.consecutiveFailures == 3)
+        #expect(vm.status == nil)                                  // under 2 h: nothing changes on screen
+        #expect(vm.syncLine == .upToDate(loaded, demo: false))
+        #expect(vm.readiness != nil)                               // still on screen
+
+        clock.advance(by: .seconds(2 * 3600))
+        guard case .refreshIssue(let issue) = vm.status else {
+            Issue.record("expected the card past 2 h, got \(String(describing: vm.status))")
             return
         }
-        #expect(message == String(localized: "Couldn't refresh just now — showing your last loaded data."))
-        #expect(vm.readiness != nil) // still on screen
+        #expect(issue.resource == .today && issue.dataFrom == loaded && issue.failures == 3)
+        // One "Try again" on screen, the card's; the line points to the card (last on Today).
+        #expect(vm.syncLine == .issue(.today))
     }
 
     @Test func offlineShowsThePillAndRequestsNothing() async {
@@ -95,13 +170,15 @@ struct TodayViewModelTests {
         #expect(vm.status == nil)
     }
 
-    @Test func calibratingSaysHowManyNightsToGo() {
+    @Test func calibratingSaysTheBaselinesAreForming() {
         let (env, state, _) = makeState()
         var detail = MockData.todayDetail
         detail.score = MockData.calibratingScore
         state.today = detail
         let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
-        #expect(vm.sentence == ReadinessCopy.sentence(score: MockData.calibratingScore))
+        // The gauge counts the nights ("Baselines · 3 of 7 nights"); the sentence says what they're for (ui.md §1.5).
+        #expect(vm.hero == .calibrating(nights: MockData.calibratingScore.baselineDays))
+        #expect(vm.sentence == String(localized: "Your baselines are still forming."))
         #expect(vm.readiness == nil)
     }
 
@@ -153,9 +230,10 @@ struct TodayStatesTests {
 
     private func score(readiness: Int?, calibrating: Bool = false, baselineDays: Int = 30,
                        state: ScoringState? = .scored, day: String? = nil) -> DailyScore {
+        // A scored row has a `computed_at`, also a calibrating one without a readiness; the rest is unscored.
         DailyScore(day: day ?? todayKey, readiness: readiness, state: readiness == nil ? .calibrating : .balanced,
-                   baselineDays: baselineDays, calibrating: calibrating, computedAt: readiness == nil ? nil : morning,
-                   scoringState: state)
+                   baselineDays: baselineDays, calibrating: calibrating,
+                   computedAt: readiness != nil || calibrating ? morning : nil, scoringState: state)
     }
 
     private func status(_ state: ScoringState, day: String? = nil, expected: Int = 20) -> SyncStatus {
@@ -233,7 +311,7 @@ struct TodayStatesTests {
         let yesterday = score(readiness: 78, day: DayFormat.string(from: DayFormat.shift(morning, days: -1)))
         let f = facts {
             $0.status = status(.pending, expected: 20)
-            $0.previous = yesterday
+            $0.prior = [yesterday]
         }
         #expect(TodayStates.hero(f) == .pending(PendingNight(waitingForSleep: false, expectedWithinSec: 20,
                                                               previousReadiness: 78,
@@ -384,7 +462,9 @@ struct TodayStatesTests {
         let vm = model(state)
         #expect(vm.hero.isPending)
         #expect(vm.rawNight?.source == "Garmin Connect")
-        #expect(vm.readiness == nil && vm.sleepText == Fmt.placeholder) // nothing pretends to be today's
+        // Nothing pretends to be today's: the gauge is an outline, the tiles are yesterday's, dimmed and dated.
+        #expect(vm.readiness == nil && vm.tilesDimmed && vm.tileCaption == String(localized: "Yesterday"))
+        #expect(vm.sleepText == Fmt.duration(minutes: 430) && vm.recoveryCaption == String(localized: "Yesterday"))
         #expect(vm.sentence == String(localized: "Yesterday's readiness, until last night is scored."))
         state.todayScenario = .importing
         #expect(vm.hero.isImporting && vm.showsImportPushPrompt)
@@ -406,6 +486,374 @@ struct TodayStatesTests {
         await vm.loadHealthFacts()
         #expect(vm.lastNightRaw == health.night)
         #expect(vm.freshness.map(\.source) == ["Garmin Connect"]) // older than two weeks: not the watch in use
+    }
+}
+
+// MARK: - Today: one decision for gauge, tiles and note (T2)
+
+/// `TodayPresentation.decide` as design.md §7's table, row by row (ui.md's letter in brackets),
+/// then through the view model and the demo scenarios.
+@Suite("Today: one decision for gauge, tiles and note")
+@MainActor
+struct TodayPresentationTests {
+    private let now = Calendar.current.date(bySettingHour: 7, minute: 30, second: 0,
+                                            of: Date(timeIntervalSince1970: 1_792_600_000))!
+    private var key: String { DayFormat.string(from: now) }
+    private func dayKey(_ offset: Int) -> String { DayFormat.string(from: DayFormat.shift(now, days: offset)) }
+    private var yesterday: Date { DayFormat.date(from: dayKey(-1))! }
+    private let lastNight = RawNight(asleepMin: 437, bedtime: .now.addingTimeInterval(-30_000), wake: .now.addingTimeInterval(-3_000),
+                                     source: "Garmin Connect")
+
+    /// `n` scored days before today, oldest first; yesterday 76 · 75 % · 7h 10m · 0.9.
+    private func history(_ n: Int = 30, vitals: Bool = true) -> [DailyScore] {
+        (1...n).reversed().map { offset in
+            DailyScore(day: dayKey(-offset), readiness: offset == 1 ? 76 : 70, recovery: offset == 1 ? 75 : 60,
+                       strain: offset == 1 ? 0.9 : 8, sleepActualMin: offset == 1 ? 430 : 420,
+                       hrvMs: vitals ? 55 : nil, rhr: vitals ? 50 : nil, baselineDays: 30,
+                       computedAt: DayFormat.shift(now, days: -offset))
+        }
+    }
+
+    /// The reported screenshot's row: readiness 80, recovery 75, strain 0.9, `calibrating: true`, `baseline_days: 0`.
+    private var screenshot: DailyScore {
+        DailyScore(day: key, readiness: 80, state: .balanced, recovery: 75, strain: 0.9, sleepActualMin: 437,
+                   baselineDays: 0, calibrating: true, computedAt: now, scoringState: .scored)
+    }
+
+    /// Scored (a `computed_at`), calibrating, no readiness: ui.md preview 7.
+    private var scoredWithoutReadiness: DailyScore {
+        DailyScore(day: key, state: .calibrating, baselineDays: 0, calibrating: true, computedAt: now, scoringState: .scored)
+    }
+
+    /// API.md → `GET /v1/days/{day}`: a day not scored yet, exactly as the platform sends it.
+    private func placeholder() throws -> DailyScore {
+        let json = #"{"day":"\#(key)","state":"calibrating","baseline_days":0,"calibrating":false,"#
+            + #""computed_at":"0001-01-01T00:00:00Z","scoring_state":"pending"}"#
+        return try APIClient.jsonDecoder.decode(DailyScore.self, from: Data(json.utf8))
+    }
+
+    private func decide(_ today: DailyScore?, _ prior: [DailyScore], _ state: ScoringState?) -> TodayPresentation {
+        .decide(TodayScoreFacts(day: key, today: today, scoringState: state, prior: prior, expectedWithinSec: 20,
+                                lastNight: lastNight))
+    }
+
+    // MARK: the table
+
+    @Test func standingSaysWhatARowIs() throws {
+        #expect(try placeholder().standing == .unscored)
+        #expect(DailyScore.empty(day: key).standing == .unscored)
+        #expect(scoredWithoutReadiness.standing == .calibrating(baselineDays: 0))
+        #expect(screenshot.standing == .calibrating(baselineDays: 0))
+        #expect(history(1)[0].standing == .scored)
+        #expect(DailyScore(day: key, readiness: 70).standing == .scored) // a cache from before computed_at
+    }
+
+    @Test func row1E_nothingScoredEver() throws {
+        for p in [decide(nil, [], nil), decide(.empty(day: key), [], nil), decide(try placeholder(), [], .stale),
+                  decide(try placeholder(), [], .scored)] {
+            #expect(p.row == .firstImport && p.gauge == .firstImport)
+            #expect(p.tiles.source == nil && p.note == nil && p.rawNight == nil && !p.showsDelta)
+        }
+        // The platform scoring the first night is C, with nothing to dim (ui.md preview 5).
+        let first = decide(nil, [], .pending)
+        #expect(first.row == .pending && first.tiles.source == nil)
+        #expect(first.gauge == .pending(PendingNight(waitingForSleep: false, expectedWithinSec: 20)))
+    }
+
+    /// The definition of done: an unscored today with a scored history is pending, never "0 of 7".
+    @Test func row2C_anUnscoredTodayWithScoredHistoryIsPending() throws {
+        let prior = history()
+        for today in [try placeholder(), DailyScore.empty(day: key), nil] {
+            let p = decide(today, prior, .pending)
+            #expect(p.row == .pending)
+            #expect(p.gauge == .pending(PendingNight(waitingForSleep: false, expectedWithinSec: 20, previousReadiness: 76,
+                                                     previousDay: yesterday)))
+            #expect(p.tiles == TodayPresentation.Tiles(source: prior.last, isEarlierDay: true))
+            #expect(p.note == nil && p.rawNight == lastNight && !p.showsDelta)
+        }
+        // Even an unscored row that claims calibrating is not the baselines: it isn't scored.
+        var claims = try placeholder()
+        claims.calibrating = true
+        #expect(decide(claims, prior, .scored).row == .pending)
+        #expect(decide(claims, [], .scored).row == .firstImport)
+    }
+
+    @Test func row2C_withoutTheNightNothingClaimsItIsScored() throws {
+        for state in [ScoringState.waitingForSleep, .stale, nil] {
+            let p = decide(try placeholder(), history(), state)
+            guard case .pending(let night) = p.gauge else { Issue.record("expected pending for \(String(describing: state))"); continue }
+            #expect(night.waitingForSleep && night.expectedWithinSec == nil && night.previousReadiness == 76)
+            #expect(p.rawNight == nil) // no night arrived: no Apple Health card
+            #expect(p.tiles.isEarlierDay && p.tiles.source?.readiness == 76)
+        }
+    }
+
+    @Test func row2C_aScoredDayWithoutReadinessWhileScoring() {
+        let p = decide(scoredWithoutReadiness, history(), .pending)
+        #expect(p.row == .pending && p.tiles.source?.day == dayKey(-1))
+        // A score that landed is never pending again.
+        #expect(decide(screenshot, history(), .pending).row == .recalculating)
+    }
+
+    /// The screenshot: the platform says calibrating with 0 baseline days, the history has 30 nights with HRV and RHR.
+    @Test func row3D_theScreenshotShowsTheScoreAndRecalculating() {
+        let p = decide(screenshot, history(), .scored)
+        #expect(p.row == .recalculating)
+        #expect(p.gauge == .readiness(80))
+        #expect(p.tiles == TodayPresentation.Tiles(source: screenshot)) // the gauge's day: today, not dimmed
+        #expect(p.note == .recalculating)
+        #expect(!p.showsDelta)
+        #expect(p.gauge != .baselines(nights: 0))
+    }
+
+    @Test func row3D_fromTheLatestScoredDay() {
+        let prior = history()
+        let p = decide(scoredWithoutReadiness, prior, .scored)
+        #expect(p.row == .recalculating && p.gauge == .readiness(76) && p.note == .recalculating)
+        #expect(p.tiles == TodayPresentation.Tiles(source: prior.last, isEarlierDay: true))
+    }
+
+    @Test func row3D_needsSevenNightsWithVitals() {
+        var prior = history(30, vitals: false)
+        for i in prior.indices.suffix(6) { prior[i].hrvMs = 55; prior[i].rhr = 50 }
+        #expect(decide(screenshot, prior, .scored).row == .calibrating) // 6 nights with both
+        prior[prior.count - 7].hrvMs = 55
+        prior[prior.count - 7].rhr = 50
+        #expect(decide(screenshot, prior, .scored).row == .recalculating) // 7
+        // Older than the 30 scored days before: they don't count.
+        let old = history(40, vitals: false).enumerated().map { i, d in
+            var d = d
+            if i < 10 { d.hrvMs = 55; d.rhr = 50 }
+            return d
+        }
+        #expect(decide(screenshot, old, .scored).row == .calibrating)
+    }
+
+    /// A phone-only account (no HRV): legitimately calibrating. Not "0 / 7" beside a scored day's tiles
+    /// (lead decision 2, amended): the platform's readiness with the reason under it, today's tiles as they are.
+    @Test func row4B_aLongHistoryWithoutHRVShowsTheReadinessAndWhy() {
+        let p = decide(screenshot, history(30, vitals: false), .scored)
+        #expect(p.row == .calibrating && p.gauge == .readiness(80))
+        #expect(p.tiles == TodayPresentation.Tiles(source: screenshot)) // no "calibrating" caption: the note says it
+        #expect(p.note == .needsVitals && !p.showsDelta)
+        #expect(p.gauge != .baselines(nights: 0))
+        #expect(decide(screenshot, history(7, vitals: false), .scored).note == .needsVitals)
+        // A short history is row B as before: today's baseline days, "calibrating" under the tiles.
+        let short = decide(screenshot, history(6, vitals: false), .scored)
+        #expect(short.gauge == .baselines(nights: 0) && short.note == nil && short.tiles.calibrating)
+    }
+
+    /// Without a readiness from the platform: the baselines, counting the nights that count (with HRV and RHR).
+    @Test func row4B_aLongHistoryWithoutHRVOrReadinessCountsHeartRateNights() {
+        var prior = history(30, vitals: false)
+        for i in prior.indices.suffix(3) { prior[i].hrvMs = 55; prior[i].rhr = 50 }
+        let p = decide(scoredWithoutReadiness, prior, .scored)
+        #expect(p.row == .calibrating && p.gauge == .baselines(nights: 3)) // not today's baseline_days (0)
+        #expect(p.tiles == TodayPresentation.Tiles(source: scoredWithoutReadiness))
+        #expect(p.note == .needsVitals && !p.showsDelta)
+        #expect(p.previousReadiness == 76)
+    }
+
+    @Test func row4B_aShortHistoryCountsTodaysBaselineDays() {
+        var today = scoredWithoutReadiness
+        today.baselineDays = 4
+        let p = decide(today, history(4), .scored)
+        #expect(p.row == .calibrating && p.gauge == .baselines(nights: 4) && p.note == nil)
+        #expect(p.tiles.source == today && p.tiles.calibrating && !p.tiles.isEarlierDay)
+    }
+
+    @Test func row5A_scored() {
+        let today = DailyScore(day: key, readiness: 84, recovery: 82, strain: 12.4, baselineDays: 30, computedAt: now,
+                               scoringState: .scored)
+        let p = decide(today, history(), .scored)
+        #expect(p.row == .scored && p.gauge == .readiness(84) && p.tiles == TodayPresentation.Tiles(source: today))
+        #expect(p.note == nil && p.showsDelta)
+    }
+
+    /// The "vs 7 d" delta only beside today's settled readiness (row A with a number): never next to an empty
+    /// gauge, a night being scored, the baselines, the import, or a calibrating or borrowed number (review T2).
+    @Test func theDeltaOnlyStandsBesideTodaysReadiness() throws {
+        let a = DailyScore(day: key, readiness: 84, recovery: 82, strain: 12.4, baselineDays: 30, computedAt: now,
+                           scoringState: .scored)
+        #expect(decide(a, history(), .scored).showsDelta)                                       // A
+        // A scored day the platform gave no readiness (not calibrating, not scoring): "—", no change beside it.
+        let empty = DailyScore(day: key, recovery: 60, strain: 3, baselineDays: 30, computedAt: now, scoringState: .scored)
+        let e = decide(empty, history(), .scored)
+        #expect(e.row == .scored && e.gauge == .readiness(nil) && !e.showsDelta)
+        let vitals = history(30, vitals: false)
+        #expect(!decide(screenshot, history(4), .scored).showsDelta)                            // B, short
+        #expect(!decide(screenshot, vitals, .scored).showsDelta)                                // B with a readiness
+        #expect(!decide(scoredWithoutReadiness, vitals, .scored).showsDelta)                    // B, heart-rate nights
+        #expect(!decide(try placeholder(), history(), .pending).showsDelta)                     // C
+        #expect(!decide(nil, history(), .waitingForSleep).showsDelta)                           // C, waiting
+        #expect(!decide(screenshot, history(), .scored).showsDelta)                             // D
+        #expect(!decide(scoredWithoutReadiness, history(), .scored).showsDelta)                 // D from yesterday
+        #expect(!decide(nil, [], nil).showsDelta)                                               // E
+        // Through the view model: a 7-day trend is cached, the gauge is empty, and no change is shown.
+        let vm = model(today: empty, history: history(), status: .scored)
+        #expect(vm.readiness == nil && !vm.readinessWeek.isEmpty && vm.readinessDelta == nil)
+        #expect(model(today: a, history: history(), status: .scored).readinessDelta != nil)
+        #expect(model(today: nil, history: [], status: nil, backfillDone: true).readinessDelta == nil)
+    }
+
+    /// Every row carries the latest readiness before today (the widget writes it; tomorrow shows it dimmed).
+    @Test func everyRowCarriesTheLatestReadiness() throws {
+        #expect(decide(screenshot, history(), .scored).previousReadiness == 76)                   // D
+        #expect(decide(scoredWithoutReadiness, history(), .scored).previousReadiness == 76)       // D from yesterday
+        #expect(decide(screenshot, history(30, vitals: false), .scored).previousReadiness == 76)  // B
+        #expect(decide(try placeholder(), history(), .pending).previousReadiness == 76)           // C
+        #expect(decide(nil, [], nil).previousReadiness == nil)                                    // E
+    }
+
+    @Test func priorIgnoresUnscoredRowsAndTodayItself() throws {
+        var prior = history(3)
+        prior.append(DailyScore.empty(day: dayKey(-1))) // an unscored copy of yesterday
+        prior.append(screenshot) // today's own row in the list
+        let p = decide(try placeholder(), prior, .pending)
+        guard case .pending(let night) = p.gauge else { Issue.record("expected pending"); return }
+        #expect(night.previousReadiness == 76 && night.previousDay == yesterday)
+    }
+
+    // MARK: through the view model
+
+    private func model(today: DailyScore?, history: [DailyScore], status: ScoringState?,
+                       backfillDone: Bool = false) -> TodayViewModel {
+        let env = AppEnvironment.test(clock: TestClock(now: now))
+        if backfillDone, let account = env.auth.accountID {
+            var engine = SyncEngineState()
+            engine.backfillDone = true
+            engine.save(account: account, defaults: env.defaults)
+        }
+        let state = AppState(env: env)
+        state.history = history
+        if let today { state.today = DayDetail(score: today, sleep: nil, workouts: []) }
+        state.readinessWeek = TrendSeries(metric: "readiness", range: "7d",
+                                          points: (0..<7).map { TrendPoint(day: dayKey(-6 + $0), value: Double(70 + 2 * $0)) },
+                                          avg: 76, min: 70, max: 82, baseline: nil)
+        if let status {
+            state.syncStatus = SyncStatus(gate: nil, lastSyncAt: now, lastSyncDevice: nil, latest: [:],
+                                          today: TodayState(day: key, state: status, scoredAt: nil, modelVersion: "x"),
+                                          pendingDays: [], expectedWithinSec: 20, resyncRequestedAt: nil)
+        }
+        let sync = SyncService(env: env)
+        return TodayViewModel(state: state, sync: sync,
+                              coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock),
+                              apiStatus: APIStatus())
+    }
+
+    @Test func theSentenceTilesAndNoteFollowTheRow() throws {
+        let yesterdayTitle = String(localized: "Yesterday")
+        // A: the band word, the delta.
+        let a = model(today: DailyScore(day: key, readiness: 84, recovery: 82, strain: 12.4, baselineDays: 30,
+                                        computedAt: now, scoringState: .scored), history: history(), status: .scored)
+        #expect(a.hero == .score && a.readiness == 84 && a.readinessDelta != nil)
+        #expect(a.recoveryCaption == a.recoveryBand && a.recoveryBand != nil && a.tileCaption == nil && !a.tilesDimmed)
+        #expect(a.gaugeNote == nil && a.gaugeSpokenNote == nil && a.showsTiles)
+        // B, a short history: "calibrating" under all three, no band word, no delta.
+        let b = model(today: screenshot, history: history(4), status: .scored)
+        #expect(b.hero == .calibrating(nights: 0) && b.readinessDelta == nil)
+        #expect(b.sentence == String(localized: "Your baselines are still forming."))
+        #expect(b.tileCaption == String(localized: "today.tile.calibrating", defaultValue: "calibrating"))
+        #expect(b.recoveryCaption == b.tileCaption && b.recoveryBand == nil && !b.tilesDimmed)
+        #expect(b.recoveryText == Fmt.percent(75) && b.strainText == Fmt.strain(0.9))
+        #expect(b.gaugeNote == nil && b.gaugeSpokenNote == nil)
+        // B, a long history without HRV: the platform's 80, no delta, today's tiles without "calibrating", the
+        // reason under the gauge and read with it.
+        let bv = model(today: screenshot, history: history(30, vitals: false), status: .scored)
+        #expect(bv.hero == .score && bv.readiness == 80 && bv.readinessDelta == nil)
+        #expect(bv.sentence == String(localized: "Your baselines are still forming."))
+        #expect(bv.tileCaption == nil && !bv.tilesDimmed && bv.recoveryCaption == bv.recoveryBand && bv.recoveryBand != nil)
+        #expect(bv.recoveryText == Fmt.percent(75) && bv.strainText == Fmt.strain(0.9))
+        #expect(bv.gaugeNote == .needsVitals && bv.gaugeSpokenNote == TodayPresentation.Note.needsVitals.text)
+        // ... and without a readiness: the baselines counting heart-rate nights, the note read on its own.
+        let bb = model(today: scoredWithoutReadiness, history: history(30, vitals: false), status: .scored)
+        #expect(bb.hero == .calibrating(nights: 0) && bb.gaugeNote == .needsVitals && bb.gaugeSpokenNote == nil)
+        #expect(bb.tileCaption == nil && bb.sentence == String(localized: "Your baselines are still forming."))
+        // C: yesterday's tiles, dimmed and dated; the raw night stays out until Apple Health has one.
+        let c = model(today: try placeholder(), history: history(), status: .pending)
+        #expect(c.hero.isPending && c.readiness == nil && c.readinessDelta == nil)
+        #expect(c.tilesDimmed && c.tileCaption == yesterdayTitle && c.recoveryCaption == yesterdayTitle)
+        #expect(c.sleepText == Fmt.duration(minutes: 430) && c.recoveryText == Fmt.percent(75) && c.strainText == Fmt.strain(0.9))
+        #expect(c.sentence == String(localized: "Yesterday's readiness, until last night is scored."))
+        #expect(c.gaugeNote == nil)
+        // D, today: the score without a delta, the note, today's tiles.
+        let d = model(today: screenshot, history: history(), status: .scored)
+        #expect(d.hero == .score && d.readiness == 80 && d.readinessDelta == nil)
+        #expect(d.recoveryText == Fmt.percent(75) && !d.tilesDimmed && d.recoveryBand != nil)
+        #expect(d.sentence == String(localized: "Your baselines are being recalculated."))
+        #expect(d.gaugeNote == .recalculating && d.gaugeSpokenNote == TodayPresentation.Note.recalculating.text)
+        // D, from yesterday: the day is in the sentence, the tiles and what VoiceOver hears.
+        let dy = model(today: scoredWithoutReadiness, history: history(), status: .scored)
+        #expect(dy.hero == .score && dy.readiness == 76 && dy.tilesDimmed && dy.tileCaption == yesterdayTitle)
+        let date = yesterday.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+        #expect(dy.sentence == String(localized: "Readiness from \(date), while your baselines are recalculated."))
+        #expect(dy.gaugeSpokenNote?.hasPrefix(TodayPresentation.Note.recalculating.text + ". ") == true)
+        // E: no tiles, no note; during the import the card stands in ...
+        let e = model(today: nil, history: [], status: nil)
+        #expect(e.hero.isImporting && e.presentation.row == .firstImport && !e.showsTiles && e.gaugeNote == nil)
+        // ... and with the backfill done and still nothing scored, the row alone hides them.
+        let done = model(today: nil, history: [], status: nil, backfillDone: true)
+        #expect(!done.hero.isImporting && done.presentation.row == .firstImport)
+        #expect(!done.showsTiles && done.gaugeNote == nil && done.readiness == nil)
+        #expect(done.sentence == String(localized: "Your scores appear after the first synced night."))
+    }
+
+    /// The dimmed number's day, in the sentence as on the gauge and tiles: a night without the watch
+    /// left a gap, so the latest readiness is from two days ago, not yesterday's (review T2).
+    @Test func rowC_afterAGapDayTheSentenceSaysWhichDay() throws {
+        let gap = Array(history().dropLast()) // no yesterday: the latest scored day is two days ago, readiness 70
+        let c = model(today: try placeholder(), history: gap, status: .pending)
+        let twoDaysAgo = try #require(DayFormat.date(from: dayKey(-2)))
+        guard case .pending(let night) = c.hero else { Issue.record("expected pending"); return }
+        #expect(night.previousReadiness == 70 && night.previousDay == twoDaysAgo)
+        let date = twoDaysAgo.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+        #expect(c.sentence == String(localized: "Readiness from \(date), until last night is scored."))
+        #expect(c.tileCaption == Fmt.dayTitle(twoDaysAgo, today: now) && c.tileCaption != String(localized: "Yesterday"))
+        // Yesterday scored: the sentence says so.
+        let y = model(today: try placeholder(), history: history(), status: .pending)
+        #expect(y.sentence == String(localized: "Yesterday's readiness, until last night is scored."))
+    }
+
+    /// `TodayView` reads one `TodayContent` per body: it says what the accessors say.
+    @Test func theContentIsWhatTheAccessorsSay() throws {
+        for vm in [model(today: screenshot, history: history(), status: .scored),
+                   model(today: try placeholder(), history: history(), status: .pending),
+                   model(today: screenshot, history: history(30, vitals: false), status: .scored)] {
+            let c = vm.content
+            #expect(c.hero == vm.hero && c.presentation == vm.presentation && c.sentence == vm.sentence)
+            #expect(c.readiness == vm.readiness && c.readinessDelta == vm.readinessDelta && c.gaugeNote == vm.gaugeNote)
+            #expect(c.sleepText == vm.sleepText && c.recoveryCaption == vm.recoveryCaption && c.tilesDimmed == vm.tilesDimmed)
+            #expect(c.rawNight == vm.rawNight && c.showsTiles == vm.showsTiles)
+        }
+    }
+
+    @Test func everyRowHasADemoScenario() {
+        func vm(_ scenario: TodayScenario) -> TodayViewModel {
+            let state = AppState.preview(scenario: scenario)
+            let sync = SyncService(env: state.env)
+            return TodayViewModel(state: state, sync: sync,
+                                  coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: state.env.clock),
+                                  apiStatus: APIStatus())
+        }
+        #expect(vm(.importing).hero.isImporting)
+        #expect(vm(.calibrating).presentation.row == .calibrating && vm(.calibrating).gaugeNote == nil)
+        let vitals = vm(.needsVitals)
+        #expect(vitals.presentation.row == .calibrating && vitals.gaugeNote == .needsVitals)
+        #expect(vitals.readiness == 80 && vitals.tileCaption == nil && vitals.recoveryText == Fmt.percent(75))
+        let baselines = vm(.needsVitalsBaselines)
+        #expect(baselines.hero == .calibrating(nights: 2) && baselines.gaugeNote == .needsVitals)
+        let pending = vm(.pending)
+        #expect(pending.presentation.row == .pending && pending.rawNight != nil && pending.tilesDimmed)
+        let waiting = vm(.waitingForSleep)
+        guard case .pending(let night) = waiting.hero else { Issue.record("expected pending"); return }
+        #expect(night.waitingForSleep && waiting.rawNight == nil && waiting.tilesDimmed)
+        let nothing = vm(.pendingNoPrevious)
+        #expect(nothing.hero.isPending && nothing.sleepText == Fmt.placeholder && !nothing.tilesDimmed)
+        let d = vm(.recalculating)
+        #expect(d.presentation.row == .recalculating && d.readiness == 80 && !d.tilesDimmed && d.recoveryText == Fmt.percent(75))
+        let dy = vm(.recalculatingYesterday)
+        #expect(dy.presentation.row == .recalculating && dy.readiness == 76 && dy.tilesDimmed)
+        #expect(vm(.watch).presentation.row == .scored)
     }
 }
 
@@ -1361,5 +1809,190 @@ struct OnboardingEdgeTests {
         #expect(auth.signInMethods.map(\.provider) == ["email"])
         await auth.signOut()
         #expect(auth.signInMethods.isEmpty && !auth.hasAppleSignIn)
+    }
+}
+
+// MARK: - T0 refresh resilience: root-cause tests, now asserting the fix (T1)
+//
+// T0 wrote these against the all-or-nothing refresh, wrapped in `withKnownIssue`. T1 (per-resource reads through
+// `ReadScheduler`, `RefreshPolicy` for the card) made them pass; they now assert the fixed behaviour.
+
+#if DEBUG
+@Suite("T0: refresh per resource")
+@MainActor
+struct RefreshAllOrNothingTests {
+    private func model(_ api: MockPlatformAPI) -> (TodayViewModel, AppState, TestClock) {
+        let (env, state, clock) = makeState(api: api)
+        let sync = SyncService(env: env)
+        let vm = TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        return (vm, state, clock)
+    }
+
+    /// Item 1: `/v1/me` or `/v1/days` failing no longer turns a refresh whose other calls worked into a card.
+    @Test(arguments: [("me", FaultInjection.Fault.timeout), ("days", .unavailable), ("me", .tooManyRequests)])
+    func oneFailingReadShowsNoCard(route: String, fault: FaultInjection.Fault) async {
+        let api = MockPlatformAPI()
+        let (vm, state, clock) = model(api)
+        await state.refresh()                  // everything cached and current
+        api.faults[route] = .init(fault)
+
+        await vm.refresh()                     // pull to refresh: returns after today and the sync status
+        await finishPull(state, clock)         // me and history come in phase 3
+
+        #expect(api.count(route) >= 2)         // it did fail, and was retried
+        #expect(state.lastUpdated != nil)      // the day itself loaded fine
+        #expect(vm.status == nil, "got \(String(describing: vm.status))")
+    }
+
+    /// Phase 3 to its end, moving the test clock through retries and the rate-limit hold-back.
+    private func finishPull(_ state: AppState, _ clock: TestClock) async {
+        guard let phases = state.pullPhases else { return }
+        let done = PullDone()
+        let waiter = Task {
+            await phases.value
+            done.value = true
+        }
+        for _ in 0..<120 where !done.value {
+            clock.advance(by: .seconds(1))
+            try? await Task.sleep(for: .milliseconds(2))
+        }
+        await waiter.value
+    }
+
+    /// A failing `/v1/days/{day}` with a cached copy is swallowed by the repository (and counted).
+    @Test func aFailingDayWithACachedCopyIsSwallowed() async {
+        let api = MockPlatformAPI()
+        let (vm, state, clock) = model(api)
+        await state.refresh()
+        api.faults["day"] = .init(.timeout)
+        await vm.refresh()
+        await finishPull(state, clock)
+        #expect(vm.status == nil)
+    }
+
+    /// Trends and insights are independent of `/v1/me`: a failed `/v1/me` costs nothing else.
+    @Test func aFailedMeLeavesTheRestOfTheRefresh() async {
+        let api = MockPlatformAPI()
+        let (_, state, _) = model(api)
+        await state.refresh()
+        let trends = api.count("trends"), insights = api.count("insights")
+        api.faults["me"] = .init(.timeout)
+
+        await state.refresh(force: true)
+
+        #expect(api.count("trends") == trends + 1 && api.count("insights") == insights + 1)
+        #expect(state.resourceStates[.me]?.consecutiveFailures == 1)
+        #expect(state.resourceStates[.me]?.lastError?.transport == "timedOut")
+        #expect(state.resourceStates[.trends]?.consecutiveFailures == 0)
+    }
+
+    /// Item 1, second path: `refreshDays` (after a sync, a silent push) records a failed read per resource and
+    /// neither throws it nor owns the card.
+    @Test func aFailedHistoryAfterASyncShowsNoCard() async throws {
+        let api = MockPlatformAPI()
+        let (vm, state, _) = model(api)
+        await state.refresh()
+        api.faults["days"] = .init(.timeout)
+
+        try await state.refreshDays([])
+
+        #expect(vm.status == nil, "got \(String(describing: vm.status))")
+        #expect(state.resourceStates[.history]?.consecutiveFailures == 1)
+    }
+
+    /// Item 2, cancellation: a cancelled request (`URLError.cancelled` in `.transport`, the mock's `cancel`
+    /// fault) is no failure: no card, no count, no `lastError`.
+    @Test(arguments: [FaultInjection.Fault.cancel])
+    func aCancelledRefreshIsNotAFailure(fault: FaultInjection.Fault) async {
+        let api = MockPlatformAPI()
+        let (vm, state, _) = model(api)
+        await state.refresh()
+        api.faults["days"] = .init(fault)
+        api.faults["me"] = .init(fault)
+
+        await state.refresh(force: true)
+
+        #expect(vm.status == nil)
+        for resource in [ReadResource.history, .me] {
+            #expect(state.resourceStates[resource]?.lastError == nil)
+            #expect(state.resourceStates[resource]?.consecutiveFailures == 0)
+        }
+        #expect(api.count("me") == 2) // never retried
+    }
+
+    /// The other cancellation shape: Swift's `CancellationError`.
+    @Test func aSwiftCancellationErrorIsNotAFailureEither() async {
+        let api = MockPlatformAPI()
+        let (vm, state, _) = model(api)
+        await state.refresh()
+        api.failure = CancellationError()
+
+        await state.refresh(force: true)
+
+        #expect(vm.status == nil)
+        #expect(state.resourceStates.values.allSatisfy { $0.lastError == nil && $0.consecutiveFailures == 0 })
+    }
+
+    /// And after a sync, `refreshDays` records nothing for a cancellation.
+    @Test func refreshDaysRecordsNoCancellation() async {
+        let api = MockPlatformAPI()
+        let (_, state, _) = model(api)
+        await state.refresh()
+        api.failure = CancellationError()
+
+        try? await state.refreshDays([])
+
+        #expect(state.resourceStates.values.allSatisfy { $0.lastError == nil && $0.consecutiveFailures == 0 })
+    }
+
+    /// Item 5: every card has Details: the resource, the status (or "no response" and the transport), the
+    /// request ID when there was one. A cancellation never makes a card.
+    @Test func everyCardHasDetails() async {
+        for fault in [FaultInjection.Fault.unavailable, .timeout, .cancel] {
+            let api = MockPlatformAPI()
+            let (vm, state, _) = model(api)
+            api.faults["day"] = .init(fault)       // nothing cached: one failed pass shows the card
+            api.faults["days"] = .init(fault)
+            await vm.refresh()
+            await state.pullPhases?.value
+            guard fault != .cancel else {
+                #expect(vm.status == nil, "\(fault): \(String(describing: vm.status))")
+                continue
+            }
+            guard case .refreshIssue(let issue) = vm.status else { Issue.record("no card for \(fault)"); continue }
+            #expect(issue.resource == .today && issue.failures >= 1)
+            if fault == .unavailable {
+                #expect(issue.reason == .busy && issue.error.status == 503 && issue.error.requestID == "fault-day")
+            } else {
+                #expect(issue.reason == .unreachable && issue.error.status == nil && issue.error.transport == "timedOut")
+            }
+            #expect(issue.copyText.contains(String(localized: "Today")))
+        }
+    }
+}
+#endif
+
+/// Set once the awaited work has ended (main actor).
+@MainActor
+private final class PullDone {
+    var value = false
+}
+
+@Suite("Day loads and cancellation")
+@MainActor
+struct DayLoadCancellationTests {
+    /// Code review should-fix 1: Strain's and Sleep's `.task(id:)` loads restart (are cancelled) when the
+    /// day or the data changes; that shows no "The operation couldn't be completed".
+    @Test func aCancelledDayLoadShowsNoError() async {
+        let api = MockPlatformAPI()
+        api.faults["day"] = .init(.cancel)
+        let (_, state, _) = makeState(api: api)
+        let strain = StrainViewModel(state: state, store: TrainStore(inMemory: true))
+        await strain.load()
+        #expect(strain.error == nil)
+        let sleep = SleepViewModel(state: state)
+        await sleep.load()
+        #expect(sleep.error == nil)
+        #expect(api.count("day") >= 1)                          // it was asked, and came back cancelled
     }
 }

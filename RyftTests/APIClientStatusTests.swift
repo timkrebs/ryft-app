@@ -429,3 +429,228 @@ extension APIClientStatusTests {
         #expect(!APIClient.isOpenBehindInviteGate("POST", "/v1/sync"))
     }
 }
+
+/// Never answers, so a test can cancel the task that waits for it.
+final class HangingURLProtocol: URLProtocol {
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {}
+    override func stopLoading() {}
+}
+
+@Suite("T0: APIClient cancellation")
+struct APIClientCancellationTests {
+    /// What `.refreshable` does to the task awaiting a request: `URLSession` throws `URLError.cancelled`, and
+    /// `APIClient.perform` rethrows it as `CancellationError`, so nothing downstream mistakes it for a failure.
+    @Test func aCancelledTaskThrowsCancellationError() async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [HangingURLProtocol.self]
+        let client = APIClient(session: URLSession(configuration: config), tokens: FakeTokens(), sleep: { _ in },
+                               baseURL: URL(string: "https://api.test")!, status: await APIStatus())
+        let task = Task { () -> Error? in
+            do {
+                _ = try await client.data("GET", path: "/v1/me", body: Optional<Int>.none)
+                return nil
+            } catch { return error }
+        }
+        try? await Task.sleep(for: .milliseconds(200))
+        task.cancel()
+        let error = await task.value
+
+        #expect(error is CancellationError, "got \(String(describing: error))")
+        #expect(FailureKind.of(error ?? APIError.notConfigured) == .cancelled)
+    }
+}
+
+/// One retry layer for reads (ADR 0001): a scheduled read makes one attempt.
+extension APIClientStatusTests {
+    @Test func aScheduledReadMakesOneAttemptAndKeepsRetryAfter() async {
+        StubURLProtocol.script([.init(status: 429, headers: ["Retry-After": "7"], body: Data("slow down".utf8)),
+                                .init(status: 200)])
+        let c = client()
+        do {
+            _ = try await APIClient.$singleAttempt.withValue(true) { try await get(c) }
+            Issue.record("expected a 429")
+        } catch {
+            #expect((error as? APIError)?.status == 429 && (error as? APIError)?.retryAfter == 7)
+            #expect(FailureKind.of(error) == .transient)
+        }
+        #expect(StubURLProtocol.requests.count == 1 && sleeps.waits.isEmpty)
+    }
+
+    @Test func aScheduledReadDoesNotWaitOutA503() async {
+        let status = await APIStatus()
+        StubURLProtocol.script([.init(status: 503, headers: ["Retry-After": "2"],
+                                      body: Self.errorBody("request timed out", requestID: "rid-503"))])
+        let c = gatedClient(status)
+        do {
+            _ = try await APIClient.$singleAttempt.withValue(true) {
+                try await c.data("GET", path: "/v1/me", body: Optional<Int>.none, base: base)
+            }
+            Issue.record("expected a 503")
+        } catch {
+            #expect((error as? APIError)?.requestID == "rid-503" && (error as? APIError)?.retryAfter == 2)
+        }
+        #expect(StubURLProtocol.requests.count == 1 && sleeps.waits.isEmpty)
+        #expect(await status.retryNotice == nil)
+        #expect(await status.requests.first?.durationMs != nil)
+    }
+}
+
+/// Fails every request as a timeout would.
+final class TimingOutURLProtocol: URLProtocol {
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.timedOut)) }
+    override func stopLoading() {}
+}
+
+@Suite("APIClient transport failures")
+struct APIClientTransportTests {
+    /// Criterion 12: a request without an answer is recorded, with its duration and the URLError's name.
+    @Test func aRequestWithoutAnAnswerIsRecorded() async {
+        let status = await APIStatus()
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [TimingOutURLProtocol.self]
+        let client = APIClient(session: URLSession(configuration: config), tokens: FakeTokens(), sleep: { _ in },
+                               baseURL: URL(string: "https://api.test")!, status: status)
+        do {
+            _ = try await client.data("GET", path: "/v1/days?from=a&to=b", body: Optional<Int>.none)
+            Issue.record("expected a timeout")
+        } catch {
+            #expect(FailureKind.of(error) == .transient)
+        }
+        let request = await status.requests.first
+        #expect(request?.status == 0 && request?.transport == "timedOut" && request?.durationMs != nil)
+        #expect(request?.path == "/v1/days?from=a&to=b")
+        #expect(await status.failures.count == 1)
+    }
+}
+
+@Suite("Read retry policy")
+struct RetryPolicyTests {
+    private let top: (ClosedRange<Double>) -> Double = { $0.upperBound }
+    private let bottom: (ClosedRange<Double>) -> Double = { $0.lowerBound }
+
+    @Test func classification() {
+        let rows: [(Error, FailureKind)] = [
+            (CancellationError(), .cancelled),
+            (APIError.transport(URLError(.cancelled)), .cancelled),
+            (URLError(.cancelled), .cancelled),
+            (APIError.transport(URLError(.timedOut)), .transient),
+            (APIError.transport(URLError(.notConnectedToInternet)), .transient),
+            (URLError(.networkConnectionLost), .transient),
+            (APIError.http(408, ""), .transient),
+            (APIError.http(429, ""), .transient),
+            (APIError.http(500, ""), .transient),
+            (APIError.http(503, ""), .transient),
+            (APIError.http(501, ""), .other),
+            (APIError.http(401, ""), .signedOut),
+            (APIError.signedOut, .signedOut),
+            (APIError.http(403, "", code: .inviteRequired), .gate),
+            (APIError.http(403, "", code: .consentRequired), .gate),
+            (APIError.http(403, ""), .other),
+            (APIError.http(404, ""), .other),
+            (APIError.http(422, ""), .other),
+            (APIError.notConfigured, .other),
+            (DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "")), .other),
+        ]
+        for (error, kind) in rows { #expect(FailureKind.of(error) == kind, "\(error)") }
+        #expect(FailureKind.signedOut.isActionable && FailureKind.gate.isActionable && !FailureKind.transient.isActionable)
+    }
+
+    @Test func backoffIsFullJitterWithinItsBounds() {
+        let p = RetryPolicy.foreground
+        let error = APIError.http(503, "")
+        #expect(p.delay(before: 1, after: error, random: top) == .seconds(1))
+        #expect(p.delay(before: 2, after: error, random: top) == .seconds(2))
+        #expect(p.delay(before: 1, after: error, random: bottom) == .zero)
+        #expect(p.delay(before: 3, after: error, random: top) == nil)   // two retries at most
+        #expect(RetryPolicy.background.delay(before: 2, after: error, random: top) == nil)
+    }
+
+    @Test func retryAfterIsHonouredUpToTheCap() {
+        let p = RetryPolicy.foreground
+        #expect(p.delay(before: 1, after: APIError.http(429, "", retryAfter: 3), random: bottom) == .seconds(3))
+        #expect(p.delay(before: 1, after: APIError.http(429, ""), random: bottom) == .seconds(1))   // 429 without: 1 s
+        #expect(p.delay(before: 2, after: APIError.http(503, "", retryAfter: 1), random: top) == .seconds(2))
+        #expect(p.delay(before: 1, after: APIError.http(503, "", retryAfter: 7), random: bottom) == nil)
+        #expect(RetryPolicy.background.delay(before: 1, after: APIError.http(503, "", retryAfter: 3), random: bottom) == nil)
+    }
+
+    @Test func onlyTransientFailuresRetry() {
+        let p = RetryPolicy.foreground
+        for error: Error in [APIError.http(404, ""), APIError.http(401, ""), CancellationError(),
+                             APIError.http(403, "", code: .consentRequired)] {
+            #expect(p.delay(before: 1, after: error, random: top) == nil, "\(error)")
+        }
+    }
+}
+
+/// Ends every request as a cancelled task's does.
+final class CancellingURLProtocol: URLProtocol {
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.cancelled)) }
+    override func stopLoading() {}
+}
+
+/// Answers 200 with a request ID and a body no model decodes from.
+final class UnreadableAnswerURLProtocol: URLProtocol {
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+                                       headerFields: ["X-Request-ID": "rid-200"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(#"{"unexpected":true}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+@Suite("APIClient: cancellation, unreadable answers, redaction")
+struct APIClientReviewFixTests {
+    private func client(_ protocolClass: URLProtocol.Type, _ status: APIStatus) -> APIClient {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [protocolClass]
+        return APIClient(session: URLSession(configuration: config), tokens: FakeTokens(), sleep: { _ in },
+                         baseURL: URL(string: "https://api.test")!, status: status)
+    }
+
+    /// Nit 10: a cancelled request isn't a warning and takes none of the report's 20 slots.
+    @Test func aCancelledRequestTakesNoSlot() async {
+        let status = await APIStatus()
+        await #expect(throws: CancellationError.self) {
+            _ = try await client(CancellingURLProtocol.self, status).data("GET", path: "/v1/me", body: Optional<Int>.none)
+        }
+        #expect(await status.requests.isEmpty)
+        #expect(await status.failures.isEmpty)
+        #expect(await status.cancelledCount == 1)
+    }
+
+    /// Nit 9: a 200 this build can't decode keeps its status and request ID (not retried: `.other`).
+    @Test func anUnreadableAnswerKeepsItsStatusAndRequestID() async {
+        let status = await APIStatus()
+        do {
+            _ = try await client(UnreadableAnswerURLProtocol.self, status).me()
+            Issue.record("expected a decoding failure")
+        } catch {
+            let api = error as? APIError
+            #expect(api?.status == 200 && api?.requestID == "rid-200")
+            #expect(FailureKind.of(error) == .other)
+            let recorded = ResourceError(error, kind: FailureKind.of(error), attempts: 1, at: .now)
+            #expect(recorded.status == 200 && recorded.requestID == "rid-200")
+        }
+    }
+
+    /// Security should-fix 2: no query, no IDs; day segments stay.
+    @Test func pathsAreRedacted() {
+        #expect(redactedPath("/v1/sleep/plan?wake=06:30") == "/v1/sleep/plan")
+        #expect(redactedPath("/v1/devices/3F2504E0-4F89-41D3-9A0C-0305E82C3301/push") == "/v1/devices/{id}/push")
+        #expect(redactedPath("/v1/sessions/3f2504e0-4f89-41d3-9a0c-0305e82c3301/complete") == "/v1/sessions/{id}/complete")
+        #expect(redactedPath("/v1/days/2026-10-21") == "/v1/days/2026-10-21")
+        #expect(redactedPath("/v1/days?from=2026-07-24&to=2026-10-21") == "/v1/days")
+        #expect(redactedPath("/v1/me#x") == "/v1/me")
+    }
+}

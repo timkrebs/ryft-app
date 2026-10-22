@@ -288,16 +288,20 @@ final class OnboardingCoordinator {
         var status: SyncStatus?
     }
 
-    /// The three reads at once. Failures leave a part unknown (the cache decides); the
-    /// first run gives up waiting after `checkTimeout`.
+    /// The three reads at once, through the read pipeline (joined with the launch's own reads of
+    /// the same resources). Failures leave a part unknown (the cache decides); the first run gives
+    /// up waiting after `checkTimeout`.
     private func fetchWithTimeout() async -> Answer {
-        let api = api, clock = env.clock
+        let api = api, clock = env.clock, reads = env.reads, state = state
         let tz = TimeZone.current.identifier
         return await withTaskGroup(of: Answer?.self) { group in
             group.addTask {
-                async let me = try? api.me()
-                async let config = try? api.config()
-                async let status = try? api.syncStatus()
+                // The user is stored inside the read, so it lands even when the timeout wins.
+                async let me = try? reads.run(ReadKey(.me), store: { (user: User) in state.user = user }) {
+                    try await api.me()
+                }
+                async let config = try? reads.run(ReadKey(.config)) { try await api.config() }
+                async let status = try? reads.run(ReadKey(.syncStatus)) { try await api.syncStatus() }
                 var user = await me
                 // New users start in Europe/Berlin, which defines every day boundary.
                 if let u = user, u.tz != tz, let patched = try? await api.patchMe(UserPatch(tz: tz)) { user = patched }
@@ -428,6 +432,8 @@ final class OnboardingCoordinator {
         do {
             try await body()
             return true
+        } catch where error.isCancellation {
+            return false
         } catch {
             errorMessage = message(error) ?? error.localizedDescription
             errorDetails = error.diagnosticDetails
@@ -875,7 +881,7 @@ private struct HealthPermissionScreen: View {
                     .fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: 14) {
                     point("waveform.path.ecg", "What RYFT reads",
-                          "Heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts. RYFT never writes to Apple Health.")
+                          "Heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts. RYFT writes nothing to Apple Health unless you turn on saving strength workouts.")
                     point("server.rack", "Where it goes",
                           "To your RYFT account, where the scores are calculated. Never used for advertising, never sold.")
                     point("hand.raised", "You decide",
@@ -958,6 +964,26 @@ struct HealthAccessHint: View {
     }
 }
 
+/// Saving workouts was refused (iOS asks only once) or the access was taken away since.
+struct HealthWriteAccessHint: View {
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Allow it in Health → Sharing → Apps → RYFT → Workouts.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.warning)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            Button("Open Health") { HealthLinks.open(with: openURL) }
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.accent)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("health.writeAccessHint")
+    }
+}
+
 enum HealthLinks {
     /// The Health app (its Apps list holds RYFT's permissions); Settings if Health is missing.
     @MainActor
@@ -984,4 +1010,8 @@ enum HealthLinks {
 
 #Preview("Health hint", traits: .sizeThatFitsLayout) {
     SchemePair { HealthAccessHint() }
+}
+
+#Preview("Health write access hint", traits: .sizeThatFitsLayout) {
+    SchemePair { Card { HealthWriteAccessHint() }.padding() }
 }

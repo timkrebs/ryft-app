@@ -12,9 +12,11 @@ import UIKit
 import os
 
 /// Intervals for Instruments (os_signpost; "Points of Interest" shows them): a sync's
-/// stages (read, map, encode, upload, score-wait, refresh) and the launch.
+/// stages (read, map, encode, upload, score-wait, refresh), the platform reads (a try's budget
+/// wait and fetch; a pull's spinner and its phases) and the launch.
 enum Signposts {
     static let sync = OSSignposter(subsystem: "dev.timkrebs.ryft", category: "sync")
+    static let reads = OSSignposter(subsystem: "dev.timkrebs.ryft", category: "reads")
     static let launch = OSSignposter(subsystem: "dev.timkrebs.ryft", category: "launch")
 }
 
@@ -683,7 +685,7 @@ actor SyncEngine {
             if let nextStream { await report(.reading(nextStream)) }
             // One page ahead, never more: it reads (and maps) while this one uploads.
             async let ahead = Self.read(health, mode, nextStream, after: next?.after, limit: nextLimit)
-            guard try await upload(page.delta, stream: stream, context: context, report: report) else {
+            guard try await upload(Self.withoutOwnWorkouts(page.delta), stream: stream, context: context, report: report) else {
                 // 413: drop what was read ahead and read this page again, smaller.
                 _ = try? await ahead
                 page = try await Self.read(health, mode, stream, after: cursor.after, limit: limit(for: stream)) ?? page
@@ -712,6 +714,19 @@ actor SyncEngine {
             cursor = next
             page = read
         }
+    }
+
+    /// The app's bundle: workouts RYFT wrote to Apple Health carry it as their source.
+    static let ownBundleID = Bundle.main.bundleIdentifier
+
+    /// Strength workouts RYFT itself wrote to Apple Health stay on the phone: the platform
+    /// already attaches the session's load to a matching workout (or makes one), so sending ours
+    /// would only list it twice. Their anchor still moves on.
+    static func withoutOwnWorkouts(_ delta: HealthDelta, own: String? = ownBundleID) -> HealthDelta {
+        guard let own, delta.workouts.contains(where: { $0.sourceBundleId == own }) else { return delta }
+        var d = delta
+        d.workouts.removeAll { $0.sourceBundleId == own }
+        return d
     }
 
     /// A page of `stream` (`nil`: nothing to read). Nonisolated: when read ahead it runs on

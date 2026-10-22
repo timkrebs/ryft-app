@@ -71,6 +71,8 @@ struct JournalSettingsView: View {
         do {
             try await work()
             error = nil
+        } catch where error.isCancellation {
+            return
         } catch {
             self.error = error.localizedDescription
         }
@@ -138,6 +140,8 @@ struct AddBehaviorSheet: View {
                             do {
                                 try await store.create(name: name, nameDe: nameDe, kind: kind, category: category)
                                 dismiss()
+                            } catch where error.isCancellation {
+                                return
                             } catch {
                                 self.error = error.localizedDescription
                             }

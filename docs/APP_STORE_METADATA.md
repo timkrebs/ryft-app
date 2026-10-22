@@ -70,7 +70,7 @@ JOURNAL AND INSIGHTS
 Answer a few questions each morning – caffeine, alcohol, late meals, sauna and more – and after enough days RYFT shows how each one changes your recovery the next morning, with an honest confidence range. Insights flag what stands out in your trends.
 
 YOUR DATA STAYS YOURS
-- Works with Apple Health: RYFT reads heart rate, HRV, resting heart rate, respiratory rate, blood oxygen, VO2 max, sleep, workouts, steps and active energy. It never writes to Apple Health.
+- Works with Apple Health: RYFT reads heart rate, HRV, resting heart rate, respiratory rate, blood oxygen, VO2 max, sleep, workouts, steps and active energy. If you turn it on, it saves your strength workouts to Apple Health; it writes nothing else.
 - Stored on servers in the EU, never sold, no ads, no tracking.
 - Export everything or delete your account in the app at any time.
 
@@ -107,7 +107,7 @@ TAGEBUCH UND EINBLICKE
 Beantworte morgens ein paar Fragen – Koffein, Alkohol, spätes Essen, Sauna und mehr – und nach genügend Tagen zeigt RYFT, wie jedes davon deine Erholung am nächsten Morgen verändert, mit einem ehrlichen Unsicherheitsbereich. Einblicke zeigen, was in deinen Verläufen auffällt.
 
 DEINE DATEN BLEIBEN DEINE
-- Funktioniert mit Apple Health: RYFT liest Herzfrequenz, HRV, Ruhepuls, Atemfrequenz, Blutsauerstoff, VO2max, Schlaf, Trainings, Schritte und aktive Energie. RYFT schreibt nichts in Apple Health.
+- Funktioniert mit Apple Health: RYFT liest Herzfrequenz, HRV, Ruhepuls, Atemfrequenz, Blutsauerstoff, VO2max, Schlaf, Trainings, Schritte und aktive Energie. Wenn du es einschaltest, speichert RYFT deine Krafttrainings in Apple Health; sonst schreibt RYFT nichts.
 - Gespeichert auf Servern in der EU, nie verkauft, keine Werbung, kein Tracking.
 - Exportiere alles oder lösche dein Konto jederzeit in der App.
 
@@ -157,8 +157,9 @@ Must match `PrivacyInfo.xcprivacy` and the code (security-privacy-reviewer check
 | Contact Info → Email Address, Name | Yes | Yes | No | App Functionality |
 | Identifiers → User ID | Yes | Yes | No | App Functionality |
 | Identifiers → Device ID (install ID sent with sync) | Yes | Yes | No | App Functionality |
-| User Content → Other (journal answers, workout logs, feedback text) | Yes | Yes | No | App Functionality; Customer Support (feedback) |
-| Diagnostics → Crash / Other diagnostic data | Only if the user attaches diagnostics to feedback | Yes | No | App Functionality |
+| User Content → Other (workout notes, journal answers, workout logs, feedback text) | Yes | Yes | No | App Functionality |
+| Diagnostics → Other Diagnostic Data (Report a problem → "Include diagnostics": app version, device, iOS, locale, the last 20 requests without query strings, sync phase and counts with day-precision dates, gates, flags) | Yes, when the user sends a report with diagnostics on (the default) | Yes | No | App Functionality |
+| Diagnostics → Crash Data | No | — | — | — |
 
 "Data Used to Track You": **none**. If any row changes, update the label and the privacy policy together.
 
@@ -171,7 +172,7 @@ Must match `PrivacyInfo.xcprivacy` and the code (security-privacy-reviewer check
 | Notes (≤ 4000 bytes) | below |
 
 ```
-RYFT is a wellness app that reads heart rate, HRV, sleep and workouts from Apple Health and shows daily Readiness, Recovery, Strain and Sleep scores computed on our EU servers. It never writes to Apple Health.
+RYFT is a wellness app that reads heart rate, HRV, sleep and workouts from Apple Health and shows daily Readiness, Recovery, Strain and Sleep scores computed on our EU servers. It writes to Apple Health only if the user turns on "Save strength workouts to Apple Health" (Profile → Data, or the question after the first logged workout): one workout per logged strength session, no other data.
 
 Demo account: the credentials above sign in with email and password. The account already holds 60 days of sample data, so every screen has content without a watch or Health data on the review device. Sign in with Apple also works; a new Apple account starts with an empty calibration state.
 

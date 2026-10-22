@@ -30,12 +30,17 @@ Store "What's New".
   and a Control Center / Lock Screen control. A workout in progress is resumed, never doubled.
 - The workout on the Lock Screen and in the Dynamic Island for the whole session: elapsed time
   and the next set (e.g. "Bench press · set 3 of 4 · 5 × 80 kg"), the rest countdown between.
-
-### Added
+- Save your strength workouts to Apple Health, if you want: asked once after your first
+  logged workout, and in Profile → Data. RYFT writes only the workout, nothing else, and
+  not when your watch recorded the session too. The workout summary says where its heart
+  rate came from.
 - Bedtime & wake: set when you want to wake up (weekdays and weekend, or each day) and how much
   of your sleep need you aim for. RYFT tells you when to be in bed tonight (Today from 17:00,
   Sleep → Bedtime, the widget), reminds you to wind down, and can wake you with a real alarm
   (iOS 26). The next morning, Sleep shows how close the night came to the plan.
+- Profile → Report a problem: write to RYFT from the app, optionally with diagnostics (app version,
+  device, the last requests and the sync status, never health values). Saved and sent later when
+  you're offline.
 
 ### Changed
 - Your baseline sleep need and maximum heart rate can be changed where you see them: in
@@ -56,6 +61,9 @@ Store "What's New".
   "Sync last 3 days again" and "Copy diagnostics" for support.
 
 ### Fixed
+- Refreshing no longer shows an error when one part of your data is briefly unavailable: each
+  part loads on its own, short outages are retried quietly, and Today says how old its data is
+  ("Showing data from 14:05") only when it stays out of date.
 - Profile → Notifications no longer shows switches that look on while notifications are
   still being rolled out to your account: it says what you'll get, and when iOS has them
   turned off it says so with a way to Settings.
@@ -63,3 +71,6 @@ Store "What's New".
   the app asks for what's missing and syncs once it's done.
 - Demo data (and a first launch that opened Strain or Sleep first) showed only today:
   the earlier days load again.
+- Today no longer shows calibration ("Baselines · 0 of 7") while your scores exist: the gauge,
+  tiles and widget tell one story, a night that isn't scored yet shows the last scored day dimmed
+  with its date, and a change that's under 2 % reads "Steady" instead of a dash.

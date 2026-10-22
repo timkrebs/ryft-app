@@ -29,6 +29,10 @@ final class AppEnvironment {
     let connectivityMonitor: ConnectivityMonitor
 
     var connectivity: Connectivity { connectivityMonitor }
+    /// The read pipeline (ADR 0001): every scheduled read of the platform shares its coalescing,
+    /// retries, budget and per-resource record, whoever asks (Repository, journal, flags, Train,
+    /// onboarding).
+    lazy var reads = ReadScheduler(env: self)
     /// Fixed for previews (on) and tests (off); live follows the Demo data switch.
     private let demoOverride: Bool?
 
@@ -82,11 +86,17 @@ final class AppEnvironment {
                      auth: AuthService? = nil, flags: [FeatureFlag: Bool] = [:],
                      online: Bool = true) -> AppEnvironment {
         api.now = { clock.now() }
-        return AppEnvironment(
+        let env = AppEnvironment(
             settings: .shared, health: health, liveAPI: api, demoAPI: api, auth: auth ?? .preview(),
             persistence: TrainStore(inMemory: true), clock: clock, notifier: notifier ?? MockNotifier(),
             flags: StaticFlags(flags), connectivity: .preview(online: online),
             defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard, demoOverride: false)
+        // Time moves only when a test advances it: retries wait no jitter, and the starts-per-second
+        // window doesn't hold back reads issued at one instant. Suites about retry timing and the
+        // budget set their own (`reads.random`, `reads.budget`).
+        env.reads.random = { $0.lowerBound }
+        env.reads.budget = RequestBudget(clock: clock, maxStarts: .max)
+        return env
     }
 }
 

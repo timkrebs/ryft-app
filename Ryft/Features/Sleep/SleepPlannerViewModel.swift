@@ -112,6 +112,8 @@ final class SleepPlannerViewModel {
             error = nil
             state.env.persistence.saveDocument(Cached(plan: fresh, wake: hhmm, fetchedAt: state.env.clock.now()),
                                                key: Self.cacheKey, at: state.env.clock.now())
+        } catch where error.isCancellation {
+            return
         } catch {
             // 422 only for a malformed time, which the picker can't make.
             assert((error as? APIError)?.status != 422, "sleep/plan rejected wake \(hhmm)")
@@ -432,7 +434,7 @@ final class BedtimePlanner {
                 error = nil
                 env.persistence.saveDocument(Cached(plan: aligned, fetchedAt: now), key: Self.cacheKey, at: now)
             } catch {
-                guard gen == generation else { return }
+                guard gen == generation, !error.isCancellation else { return }
                 if plan == nil { self.error = error.localizedDescription } else { markCached() }
             }
         } else if plan == nil {

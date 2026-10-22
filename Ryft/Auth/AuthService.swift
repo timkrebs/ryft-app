@@ -657,6 +657,8 @@ final class AuthService {
         Settings.shared.clearPerUserState()
         // Cached read models, logged sessions, the offline library and queued uploads are per account.
         TrainStore.shared.wipe()
+        // Its replay stops now, not when the app's account-change handler runs a runloop later.
+        TrainSyncService.shared.accountChanged()
         TrainLibrary.shared.wipe()
         RestActivityController.shared.end()
         // The lock screen must not keep showing this account's readiness.
@@ -664,6 +666,8 @@ final class AuthService {
         // Bedtime & wake's schedules and planned nights (its reminders and alarms go with the
         // account change: `BedtimePlanner.accountChanged`).
         BedtimePlanner.wipe(defaults: .standard)
+        // Whether to save workouts to Apple Health is the account's choice.
+        WorkoutHealthExport.wipe(defaults: .standard)
     }
 }
 
@@ -772,6 +776,12 @@ extension AuthService: AccessTokenProvider {
             throw APIError.signedOut
         }
     }
+}
+
+/// A refresh failure that keeps the session (`endsSession` false) is transient for the read
+/// pipeline: retried and counted like a `503`, never "something went wrong".
+extension AuthError: TransientClassifiable {
+    var isTransientFailure: Bool { !endsSession }
 }
 
 extension AuthError {

@@ -88,7 +88,9 @@ so no question appears.
 ### Review Notes (en)
 
 > RYFT is a wellness app. It reads heart rate, HRV, resting heart rate, sleep,
-> workouts, steps and energy from Apple Health. It never writes to Apple Health. It sends
+> workouts, steps and energy from Apple Health. It writes to Apple Health only if the user
+> turns on "Save strength workouts to Apple Health": one workout per logged strength
+> session, nothing else. It sends
 > the data to the RYFT platform (EU), which calculates recovery, strain and sleep scores.
 > Full scores need a watch or ring that writes heart rate and sleep to Apple Health. With
 > an iPhone alone, the app shows steps and explains what is missing.
