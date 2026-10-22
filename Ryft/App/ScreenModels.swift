@@ -26,13 +26,17 @@ final class ScreenModels {
     let featureFlags: FeatureFlags?
     /// Invite, consent and "about you" before the first sync; the gates mid-session.
     let onboarding: OnboardingCoordinator
+    /// What the user wears (`devices.setup`): onboarding, Today, Profile → Devices & sync.
+    let devices: TrackerSelectionStore
     private let state: AppState
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, store: TrainStore, library: TrainLibrary,
          apiStatus: APIStatus? = nil) {
         self.coordinator = coordinator
         self.state = state
-        onboarding = OnboardingCoordinator(state: state, apiStatus: apiStatus ?? .shared) {
+        let devices = TrackerSelectionStore(env: state.env)
+        self.devices = devices
+        onboarding = OnboardingCoordinator(state: state, apiStatus: apiStatus ?? .shared, devices: devices) {
             await coordinator.run(.userInitiated)
         }
         // Nothing syncs before consent, nor behind an enforced invite gate.
@@ -42,7 +46,7 @@ final class ScreenModels {
         push = PushRegistrar(env: state.env)
         journal = JournalStore(env: state.env)
         today = TodayViewModel(state: state, sync: sync, coordinator: coordinator, push: push,
-                               onboarding: onboarding)
+                               onboarding: onboarding, devices: devices)
         sleep = SleepViewModel(state: state)
         strain = StrainViewModel(state: state, store: store)
         insights = InsightsViewModel(state: state, journal: journal)
@@ -58,7 +62,8 @@ final class ScreenModels {
                 return config
             }
         }
-        profile = ProfileViewModel(state: state, sync: sync, coordinator: coordinator, onboarding: onboarding)
+        profile = ProfileViewModel(state: state, sync: sync, coordinator: coordinator, onboarding: onboarding,
+                                   devices: devices)
         trainToday = TrainTodayViewModel(library: library, store: store, clock: state.env.clock)
         // Train's reads share the pipeline's budget and per-resource record.
         library.reads = state.env.reads

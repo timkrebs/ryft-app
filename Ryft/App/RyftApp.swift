@@ -122,6 +122,8 @@ struct RyftApp: App {
                     state.accountChanged(from: old)
                     // That account's gates, steps and sync state are its own.
                     screens.onboarding.switchAccount(new)
+                    // What it wears too (the previous account's choice was wiped with the store).
+                    screens.devices.accountChanged()
                     // Its last requests and a report's draft too: nothing of A's goes out as B.
                     screens.profile.accountChanged(from: old)
                     // The previous account's reminders and alarms go; this one's come back.
@@ -158,6 +160,8 @@ struct RyftApp: App {
                 // passed; below the work the user waits for.
                 .task(priority: .utility) {
                     await LaunchSignpost.afterFirstFrame()
+                    // The tracker catalog: decoded off the main actor, its cached download re-validated.
+                    await env.catalogStore.load()
                     await screens.featureFlags?.run()
                 }
                 .task {
@@ -208,6 +212,8 @@ struct RyftApp: App {
                 Task(priority: .utility) {
                     await LaunchSignpost.afterFirstFrame()
                     await screens.featureFlags?.refresh()
+                    // ryftapp.de's tracker catalog once a day (behind `devices.setup`, never in demo mode).
+                    await env.catalogStore.refreshIfDue()
                 }
                 Task(priority: .utility) {
                     await LaunchSignpost.afterFirstFrame()
@@ -387,6 +393,10 @@ struct RootView: View {
                         .onAppear(perform: LaunchSignpost.screenAppeared)
                 case .signedIn where needsHealthIntro:
                     HealthPermissionView().transition(.opacity).onAppear(perform: LaunchSignpost.screenAppeared)
+                // After Apple Health, once: the chosen trackers' setup (`devices.setup`). The first sync runs.
+                case .signedIn where onboarding.showsTrackerSetup:
+                    TrackerSetupStepView(model: onboarding).transition(.opacity)
+                        .onAppear(perform: LaunchSignpost.screenAppeared)
                 case .signedIn: tabs.transition(.opacity).onAppear(perform: LaunchSignpost.screenAppeared)
                 }
             }
@@ -394,6 +404,7 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.3), value: settings.demoMode ? .signedIn : auth.state)
         .animation(.easeInOut(duration: 0.3), value: needsHealthIntro)
         .animation(.easeInOut(duration: 0.3), value: onboarding.flowStep)
+        .animation(.easeInOut(duration: 0.3), value: onboarding.showsTrackerSetup)
         // "This is a new RYFT account": once, before the steps.
         .sheet(item: Binding(get: { onboarding.accountHint }, set: { if $0 == nil { onboarding.keepThisAccount() } })) { hint in
             AccountHintSheet(hint: hint, keep: { onboarding.keepThisAccount() },
@@ -475,6 +486,9 @@ enum DebugScreen: String {
     case reportProblemIncluded = "report-problem-included"
     /// Today's refresh Details sheet (503, 3 failures) with "Send to RYFT".
     case refreshDetailsSend = "refresh-details-send"
+    /// "What do you wear?", the setup screen after Apple Health, Profile → Devices & sync, and one tracker's card
+    /// (`-RyftTrackers garmin,oura` picks, `-RyftTracker fitbit` the card, `-RyftCatalog preview` adds guide text).
+    case wear, trackerSetup = "tracker-setup", devices, trackerCard = "tracker-card"
 
     static var requested: DebugScreen? {
         UserDefaults.standard.string(forKey: "RyftScreen").flatMap(DebugScreen.init(rawValue:))
@@ -505,6 +519,8 @@ enum DebugScreen: String {
             DebugReportProblem(screen: self)
         case .refreshDetailsSend:
             DebugRefreshDetails()
+        case .wear, .trackerSetup, .devices, .trackerCard:
+            DebugDevices(screen: self)
         }
     }
 
@@ -590,6 +606,49 @@ private struct DebugReportProblem: View {
             }
             ready = true
         }
+    }
+}
+
+/// The tracker setup's screens on demo data (`devices.setup` on), staged before they appear.
+private struct DebugDevices: View {
+    let screen: DebugScreen
+    @Environment(\.appEnvironment) private var env
+    @Environment(ScreenModels.self) private var screens
+    @State private var ready = false
+
+    var body: some View {
+        ZStack {
+            // Something to hang the staging task on before the screen exists.
+            Theme.background.ignoresSafeArea()
+            if ready {
+                switch screen {
+                case .wear: TrackerPickerView(model: screens.onboarding)
+                case .trackerSetup: TrackerSetupStepView(model: screens.onboarding)
+                case .trackerCard:
+                    NavigationStack {
+                        TrackerDetailView(tracker: tracker, model: screens.profile.devices) {}
+                    }
+                default: NavigationStack { DevicesAndSyncView(model: screens.profile.devices) }
+                }
+            }
+        }
+        .task {
+            if UserDefaults.standard.string(forKey: "RyftCatalog") == "preview" {
+                env.catalogStore.stage(MockData.trackerCatalog)
+            }
+            // The demo choice is an Apple Watch, which needs no setup: the setup screen shows two that do.
+            if screen == .trackerSetup, UserDefaults.standard.string(forKey: "RyftTrackers") == nil {
+                screens.devices.stage(["garmin", "oura"])
+            }
+            ready = true
+        }
+    }
+
+    /// `-RyftTracker <id>`, else the first chosen.
+    private var tracker: Tracker {
+        let catalog = env.trackerCatalog
+        let id = UserDefaults.standard.string(forKey: "RyftTracker") ?? screens.devices.trackers.first ?? "garmin"
+        return catalog.tracker(id) ?? MockData.tracker("garmin")
     }
 }
 

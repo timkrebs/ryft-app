@@ -35,15 +35,19 @@ final class TodayViewModel {
     private(set) var freshness: [SourceFreshness] = []
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, push: PushRegistrar? = nil,
-         onboarding: OnboardingCoordinator? = nil, apiStatus: APIStatus? = nil) {
+         onboarding: OnboardingCoordinator? = nil, devices: TrackerSelectionStore? = nil, apiStatus: APIStatus? = nil) {
         coachMarks = CoachMarks(defaults: state.env.defaults)
         self.state = state
         self.sync = sync
         self.coordinator = coordinator
         self.push = push
         self.onboarding = onboarding
+        self.devices = devices
         self.apiStatus = apiStatus ?? .shared
     }
+
+    /// What the user wears (`devices.setup`): the night hint looks only at those trackers' sources.
+    private let devices: TrackerSelectionStore?
 
     private var env: AppEnvironment { state.env }
     /// Today's row, any standing (a demo scenario's in demo mode).
@@ -229,7 +233,7 @@ final class TodayViewModel {
         case .invite:
             return .actionNeeded(.invite, message: String(localized: "Action needed: enter your invite code to use RYFT."),
                                  action: String(localized: "Enter code"))
-        case .consent, .aboutYou:
+        case .consent, .aboutYou, .wear:
             return .actionNeeded(.consent,
                                  message: String(localized: "Action needed: agree to the privacy policy. Nothing syncs until you do."),
                                  action: String(localized: "Review"))

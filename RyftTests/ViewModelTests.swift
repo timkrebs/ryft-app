@@ -1445,6 +1445,22 @@ struct OnboardingDecisionTests {
     func missing(facts: Facts, expected: [OnboardingCoordinator.Step]) {
         #expect(OnboardingCoordinator.missing(facts) == expected)
     }
+
+    /// `devices.setup`: "What do you wear?" after About you, until answered or skipped once; the flag off, as before.
+    static let wearCases: [(Facts, [OnboardingCoordinator.Step])] = [
+        (Facts(userKnown: true, betaAccess: false, policyVersion: "v2", devicesSetup: true), [.consent, .aboutYou, .wear]),
+        (Facts(userKnown: true, consentVersion: "v2", policyVersion: "v2", aboutYouDone: true, devicesSetup: true), [.wear]),
+        (Facts(userKnown: true, consentVersion: "v2", policyVersion: "v2", aboutYouDone: true, wearAsked: true,
+               devicesSetup: true), []),
+        (Facts(userKnown: true, consentVersion: "v2", policyVersion: "v2", aboutYouDone: true, devicesSetup: false), []),
+        // Nothing known (offline, nothing cached): nothing to ask.
+        (Facts(devicesSetup: true), []),
+    ]
+
+    @Test(arguments: wearCases)
+    func wear(facts: Facts, expected: [OnboardingCoordinator.Step]) {
+        #expect(OnboardingCoordinator.missing(facts) == expected)
+    }
 }
 
 @Suite("Onboarding coordinator")
@@ -1633,6 +1649,84 @@ struct OnboardingCoordinatorTests {
         #expect(model.syncGate == .consentRequired)
         #expect(model.sheetStep == nil) // asked again only from Profile or Today
         #expect(model.pendingGate == .consent)
+    }
+
+    // MARK: what do you wear (devices.setup)
+
+    /// The flag on for this graph's flags.
+    private func wearing(_ api: MockPlatformAPI = MockPlatformAPI(), flag: Bool = true)
+        -> (OnboardingCoordinator, AppState) {
+        let (model, state, _) = onboarding(api)
+        (state.env.flags as? StaticFlags)?.overrides[.devicesSetup] = flag
+        return (model, state)
+    }
+
+    @Test func whatDoYouWearComesAfterAboutYouAndBeforeAppleHealth() async {
+        let (model, state) = wearing()
+        await model.check()
+        #expect(model.flowStep == .aboutYou)
+        model.finishAboutYou()
+        #expect(model.flowStep == .wear && !OnboardingCoordinator.Step.wear.isGate && model.canDefer(.wear))
+        #expect(model.syncGate == nil) // not a gate: the sync doesn't wait for it
+
+        model.answerWear(["oura", "garmin"])
+
+        #expect(model.flowStep == nil) // RootView goes on to Apple Health
+        #expect(model.devices.trackers == ["garmin", "oura"])
+        // Answered for this account on this phone: not asked again after a relaunch.
+        model.switchAccount(state.env.auth.accountID)
+        #expect(model.wearAsked && model.missing.isEmpty)
+    }
+
+    @Test func skipSavesNothingAndDoesntAskAgain() async {
+        let (model, _) = wearing()
+        await model.check()
+        model.finishAboutYou()
+        model.later(.wear)
+        #expect(model.flowStep == nil && model.devices.selection == nil && model.wearAsked)
+        #expect(!model.showsTrackerSetup)
+    }
+
+    @Test func withTheFlagOffOnboardingIsAsBefore() async {
+        let (model, _) = wearing(flag: false)
+        await model.check()
+        model.finishAboutYou()
+        #expect(model.flowStep == nil && !model.missing.contains(.wear))
+        model.devices.set(["garmin"])
+        #expect(!model.showsTrackerSetup)
+    }
+
+    @Test func theSetupScreenFollowsAppleHealthForTrackersThatNeedIt() async {
+        let (model, _) = wearing()
+        await model.check()
+        model.answerWear(["apple_watch"])
+        #expect(!model.showsTrackerSetup) // the Apple Watch alone: nothing to set up elsewhere
+        model.answerWear(["iphone"])
+        #expect(!model.showsTrackerSetup)
+
+        model.answerWear(["apple_watch", "garmin", "oura"])
+        #expect(model.showsTrackerSetup && model.setupTrackers.map(\.id) == ["garmin", "oura"])
+        model.devices.markLater("oura") // a card's "Show me again later"
+        model.finishTrackerSetup(later: false)
+
+        #expect(!model.showsTrackerSetup)
+        #expect(model.devices.selection?.setUp == ["garmin"] && model.devices.selection?.later == ["oura"])
+    }
+
+    @Test func showMeAgainLaterPutsEveryGuideOff() async {
+        let (model, _) = wearing()
+        await model.check()
+        model.answerWear(["garmin", "fitbit"])
+        model.finishTrackerSetup(later: true)
+        #expect(!model.showsTrackerSetup && model.devices.selection?.later == ["garmin", "fitbit"])
+    }
+
+    @Test func theSetupScreenBelongsToTheFirstRun() async {
+        let (model, _) = wearing()
+        await model.check()
+        model.answerWear(["garmin"])
+        model.reachedTabs()
+        #expect(!model.showsTrackerSetup) // later it's Profile → Devices & sync
     }
 
     @Test func demoModeHasNoGates() async {
