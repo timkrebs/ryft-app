@@ -133,3 +133,21 @@ warnings. Deviations:
 - **OK as is:** the check is kept per account and wiped on sign-out; `sync_check` carries day + ids + codes only;
   logging; the honest wording otherwise; the URLs; HealthKit types and purpose strings unchanged; nothing runs in the
   background.
+
+### T1: performance-profiler, verdict ship (Release, simulator, demo)
+| Metric | d9fc265 | T1 |
+| --- | --- | --- |
+| Cold launch to the first Today frame (12 runs, median) | 473 ms | 450 ms |
+| `.app` size | 62,556 KB | 63,276 KB (+720 KB, the catalog literal) |
+| Idle CPU on Today over 10 s | 0.00–0.15 s | 0.00–0.01 s |
+| Catalog decode (Debug, upper bound) | — | 6–7 ms warm, 11 ms first, off the main actor on the live path |
+| `SourceApp.resolve` per `facts` access (Debug) | — | 5 µs (2 refs) to 55 µs (5 refs) |
+
+- Optional item taken: cache the resolved `SourceApp` per refs, and assert or warm the decode off-main.
+- Not measurable in the simulator: the real HealthKit queries. → iPhone check.
+- **T3's performance check is skipped on the simulator** (HealthKit is unavailable there). The check runs only on a tap, in
+  the foreground, off-main. → The `check`, `check-newest` and `check-visible` signposts go on the iPhone checklist.
+
+### T1 fix batch (lead → sync-engineer)
+Items 1–28: everything above from UI, security, code and performance, plus the glyph rule. The guide text (T5,
+`content/tracker-guides` c4e312c) is applied by the lead after the batch.
