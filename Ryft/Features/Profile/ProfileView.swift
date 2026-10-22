@@ -597,6 +597,7 @@ struct SyncDetailsView: View {
     private var engine: some View {
         ProfileSection(title: "Engine") {
             StatRow(title: "State", value: model.phaseText)
+            StatRow(title: "Scoring", value: model.scoringText, detail: model.scoringIsSlow ? String(localized: "Taking longer than usual") : nil)
             StatRow(title: "Queue", value: model.queueText)
             StatRow(title: "Backlog", value: model.backlogText)
             StatRow(title: "Uploaded", value: model.uploadedText)

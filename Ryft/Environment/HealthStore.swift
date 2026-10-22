@@ -42,7 +42,21 @@ struct RawNight: Equatable, Sendable {
     let asleepMin: Int
     let bedtime: Date
     let wake: Date
+    /// As HealthKit names the source ("Connect"); Today shows its display name (`TodayContent.rawNightSource`).
     let source: String
+    /// Its first segment's `sourceBundleId`, for the display name.
+    let bundleID: String?
+
+    init(asleepMin: Int, bedtime: Date, wake: Date, source: String, bundleID: String? = nil) {
+        self.asleepMin = asleepMin
+        self.bedtime = bedtime
+        self.wake = wake
+        self.source = source
+        self.bundleID = bundleID
+    }
+
+    /// The source as the tracker catalog matches it (a night carries no device model).
+    var ref: SourceRef { SourceRef(name: source, bundleID: bundleID, deviceModel: nil) }
 
     /// The source that recorded the most sleep: its asleep stages summed, from its first
     /// segment (in bed included) to its last. `nil` without any sleep.
@@ -52,7 +66,8 @@ struct RawNight: Equatable, Sendable {
             let minutes = list.filter { asleep.contains($0.stage) }
                 .reduce(0.0) { $0 + $1.end.timeIntervalSince($1.start) } / 60
             guard minutes >= 1, let bed = list.map(\.start).min(), let wake = list.map(\.end).max() else { return nil }
-            return RawNight(asleepMin: Int(minutes.rounded()), bedtime: bed, wake: wake, source: source)
+            return RawNight(asleepMin: Int(minutes.rounded()), bedtime: bed, wake: wake, source: source,
+                            bundleID: list.min { $0.start < $1.start }?.sourceBundleId)
         }
         return nights.max { ($0.asleepMin, $0.source) < ($1.asleepMin, $1.source) }
     }
@@ -66,14 +81,49 @@ struct RawNight: Equatable, Sendable {
 
 /// The newest record one source wrote to Apple Health, for "your watch hasn't synced".
 struct SourceFreshness: Equatable, Sendable {
-    /// As HealthKit names it ("Garmin Connect", "Tim's Apple Watch").
+    /// As HealthKit names it ("Connect", "Tim's Apple Watch"); Today shows the display name.
     let source: String
     /// `com.apple.health.…` for an Apple device; the writing app's otherwise.
     let bundleID: String?
     let newest: Date
+    /// The newest sample's device ("Watch", "iPhone"; `SourceRef.deviceModel(model:productType:)`).
+    let deviceModel: String?
+
+    init(source: String, bundleID: String?, newest: Date, deviceModel: String? = nil) {
+        self.source = source
+        self.bundleID = bundleID
+        self.newest = newest
+        self.deviceModel = deviceModel
+    }
+
+    var ref: SourceRef { SourceRef(name: source, bundleID: bundleID, deviceModel: deviceModel) }
 
     /// An app that syncs to Apple Health only while it runs, unlike Apple's own devices.
     var isApp: Bool { !(bundleID ?? "").hasPrefix("com.apple.health") }
+
+    /// This iPhone itself (its sleep schedule writes in-bed time): never the night's evidence.
+    var isPhone: Bool {
+        (bundleID ?? "").lowercased().hasPrefix("com.apple.health.") && deviceModel?.lowercased() == "iphone"
+    }
+
+    /// One entry per source from heart rate's and sleep's: the newer record, and a device model from
+    /// either (the iPhone writes no heart rate, an app may write sleep only).
+    static func newestPerSource(_ lists: [[SourceFreshness]]) -> [SourceFreshness] {
+        var newest: [String: SourceFreshness] = [:]
+        var order: [String] = []
+        for entry in lists.joined() {
+            let key = entry.bundleID ?? "name:" + entry.source
+            guard let current = newest[key] else {
+                newest[key] = entry
+                order.append(key)
+                continue
+            }
+            let later = entry.newest > current.newest ? entry : current
+            newest[key] = SourceFreshness(source: later.source, bundleID: later.bundleID, newest: later.newest,
+                                          deviceModel: later.deviceModel ?? current.deviceModel ?? entry.deviceModel)
+        }
+        return order.compactMap { newest[$0] }
+    }
 }
 
 /// One page of new records, with the opaque anchor that marks its end. The caller
@@ -132,8 +182,8 @@ protocol HealthStore: AnyObject {
     /// Last night's sleep as Apple Health has it (`RawNight.from`), since 18:00 the evening
     /// before `now`; `nil` without any.
     func lastNight(before now: Date) async throws -> RawNight?
-    /// The newest heart-rate record per source since `since` (sleep when no source wrote
-    /// heart rate): iPhones write no heart rate, so these are the watches and their apps.
+    /// The newest heart-rate or sleep record per source since `since`, whichever is newer, with its
+    /// device: the watches, their apps, and the iPhone's in-bed sleep (`SourceFreshness.isPhone`).
     func newestRecords(since: Date) async throws -> [SourceFreshness]
     /// Asks to write workouts (and nothing else) to Apple Health; `true` when allowed.
     func requestWorkoutWriteAccess() async throws -> Bool
@@ -222,13 +272,18 @@ extension HealthKitManager: HealthStore {
                                             sortDescriptors: [SortDescriptor(\.startDate)])
         let samples = try await query.result(for: store)
         return RawNight.from(samples.compactMap { s in
-            Self.sleepStage(s.value).map { SleepSegment(start: s.startDate, end: s.endDate, stage: $0, source: Self.sourceName(s)) }
+            Self.sleepStage(s.value).map {
+                SleepSegment(start: s.startDate, end: s.endDate, stage: $0, source: Self.sourceName(s), sourceBundleId: Self.sourceBundleID(s))
+            }
         })
     }
 
+    /// Heart rate and sleep per source, the newer of the two: an app that wrote last night's sleep but
+    /// no heart rate since (or the other way round) still counts.
     func newestRecords(since: Date) async throws -> [SourceFreshness] {
         let heartRate = try await newestRecords(of: HKQuantityType(.heartRate), since: since)
-        return heartRate.isEmpty ? try await newestRecords(of: sleepType, since: since) : heartRate
+        let sleep = try await newestRecords(of: sleepType, since: since)
+        return SourceFreshness.newestPerSource([heartRate, sleep])
     }
 
     /// One query for the type's sources, then the newest record of each (a handful).
@@ -249,7 +304,9 @@ extension HealthKitManager: HealthStore {
                 })
             }
             if let latest {
-                newest.append(SourceFreshness(source: source.name, bundleID: source.bundleIdentifier, newest: latest.endDate))
+                let model = SourceRef.deviceModel(model: latest.device?.model, productType: latest.sourceRevision.productType)
+                newest.append(SourceFreshness(source: source.name, bundleID: source.bundleIdentifier, newest: latest.endDate,
+                                              deviceModel: model))
             }
         }
         return newest

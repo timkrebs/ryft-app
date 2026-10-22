@@ -65,13 +65,68 @@ struct TrackerCatalog: Equatable, Sendable {
 
     /// Parses and validates a copy (§2.3, §2.5): any structural error rejects the whole document, unknown
     /// keys are ignored, a help link off the allowlist is dropped. Pure and nonisolated: callers run it off
-    /// the main actor. `now` bounds the dates ("not after tomorrow").
+    /// the main actor. `now` bounds the dates ("not after tomorrow"). Hostile input costs little: the size
+    /// and the nesting are checked on the bytes before anything is parsed.
     static func decode(_ data: Data, now: Date) throws(CatalogError) -> TrackerCatalog {
         guard data.count <= maxBytes else { throw .tooLarge }
+        guard nesting(data) <= maxDepth else { throw .invalid(rule: "depth", path: "") }
         guard String(data: data, encoding: .utf8) != nil,
-              let json = try? JSONDecoder().decode(CatalogJSON.self, from: data),
-              case .object(let root) = json else { throw .notJSON }
+              let parsed = try? JSONSerialization.jsonObject(with: data),
+              let json = CatalogJSON(parsed), case .object(let root) = json else { throw .notJSON }
+        try CatalogValidator.checkBrand(json)
         return try CatalogValidator(now: now).catalog(root)
+    }
+
+    /// The denylisted brand's pattern (the hook's), and the app's check for it on folded text: for tests.
+    static var brandPattern: String { CatalogValidator.brandPattern }
+    static func containsBrand(_ s: String) -> Bool { CatalogValidator.hasBrand(s) }
+
+    /// trackers.json needs 5 levels; deeper is refused unparsed (the parser recurses).
+    static let maxDepth = 8
+
+    /// The deepest nesting of objects and arrays, counted on the bytes outside strings; it stops counting
+    /// once past `maxDepth`.
+    static func nesting(_ data: Data) -> Int {
+        data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) -> Int in
+            var depth = 0, deepest = 0, inString = false, escaped = false
+            for byte in bytes {
+                if inString {
+                    if escaped {
+                        escaped = false
+                    } else if byte == 0x5C {
+                        escaped = true
+                    } else if byte == 0x22 {
+                        inString = false
+                    }
+                    continue
+                }
+                switch byte {
+                case 0x22: inString = true
+                case 0x5B, 0x7B:
+                    depth += 1
+                    deepest = max(deepest, depth)
+                    if deepest > maxDepth { return deepest }
+                case 0x5D, 0x7D: depth -= 1
+                default: break
+                }
+            }
+            return deepest
+        }
+    }
+
+    /// `YYYY-MM-DD.N` as (date, N), for "the newest version wins" (T2): by date, then N as a number, so
+    /// ".10" comes after ".9". `nil` for anything else.
+    static func versionOrder(_ version: String) -> (date: String, n: Int)? {
+        guard CatalogValidator.matches(version, CatalogValidator.versionPattern),
+              let dot = version.firstIndex(of: "."), let n = Int(version[version.index(after: dot)...]) else { return nil }
+        return (String(version[..<dot]), n)
+    }
+
+    /// `version` is newer than `other`; an unreadable version is never newer, and anything readable beats one.
+    static func isNewer(_ version: String, than other: String) -> Bool {
+        guard let a = versionOrder(version) else { return false }
+        guard let b = versionOrder(other) else { return true }
+        return a > b
     }
 
     /// The generated literal, decoded once on first use. Its dates aren't held against the clock (a phone
@@ -101,7 +156,7 @@ struct Tracker: Equatable, Sendable, Identifiable {
     let appName: String?
     let integration: Integration
     let identity: SourceIdentity
-    /// Digits only: the store link is built from it, never taken from content.
+    /// The build's App Store id for this tracker id (`CatalogValidator.storeIDs`): content can't change it.
     let appStoreID: String?
     /// Every signal: a key the copy left out is `.unverified` (`.no` for integration `none`).
     let capabilities: [TrackerSignal: Capability]
@@ -109,7 +164,7 @@ struct Tracker: Equatable, Sendable, Identifiable {
     let setup: Localized<[String]>
     let habits: Localized<[String]>
     let limits: Localized<[String]>
-    /// The vendor's guide; dropped when its host isn't on the compiled allowlist (§2.5).
+    /// The vendor's guide; dropped unless its host is exactly one the build lists for this tracker (§2.5).
     let help: URL?
     /// YYYY-MM-DD, when the facts were last checked against the vendor.
     let checked: String
@@ -216,52 +271,190 @@ extension AppEnvironment {
 }
 
 /// JSON as it came, its types kept (a bool is no number), so every rule can name the exact path.
-private enum CatalogJSON: Decodable {
+private enum CatalogJSON {
     case object([String: CatalogJSON]), array([CatalogJSON]), string(String), number(Double), bool(Bool), null
 
-    init(from decoder: Decoder) throws {
-        let c = try decoder.singleValueContainer()
-        if c.decodeNil() {
-            self = .null
-        } else if let b = try? c.decode(Bool.self) {
-            self = .bool(b)
-        } else if let n = try? c.decode(Double.self) {
-            self = .number(n)
-        } else if let s = try? c.decode(String.self) {
-            self = .string(s)
-        } else if let a = try? c.decode([CatalogJSON].self) {
-            self = .array(a)
-        } else {
-            self = .object(try c.decode([String: CatalogJSON].self))
+    /// From `JSONSerialization`'s objects (the nesting is bounded before parsing, `TrackerCatalog.nesting`).
+    init?(_ value: Any) {
+        switch value {
+        case let s as String: self = .string(s)
+        case let n as NSNumber:
+            self = CFGetTypeID(n) == CFBooleanGetTypeID() ? .bool(n.boolValue) : .number(n.doubleValue)
+        case let items as [Any]:
+            var array: [CatalogJSON] = []
+            array.reserveCapacity(items.count)
+            for item in items {
+                guard let json = CatalogJSON(item) else { return nil }
+                array.append(json)
+            }
+            self = .array(array)
+        case let fields as [String: Any]:
+            var object: [String: CatalogJSON] = [:]
+            for (key, item) in fields {
+                guard let json = CatalogJSON(item) else { return nil }
+                object[key] = json
+            }
+            self = .object(object)
+        case is NSNull: self = .null
+        default: return nil
+        }
+    }
+
+    /// Every string, keys included; with its path only when asked (`path(where:)`, on a hit).
+    func strings(into result: inout [String]) {
+        switch self {
+        case .string(let s):
+            result.append(s)
+        case .array(let items):
+            for item in items { item.strings(into: &result) }
+        case .object(let fields):
+            for (key, value) in fields {
+                result.append(key)
+                value.strings(into: &result)
+            }
+        case .number, .bool, .null:
+            break
+        }
+    }
+
+    /// The path of the first string (or key) that `test` accepts. Paths reach `lastFailure` and Copy
+    /// diagnostics, so a key appears only when the schema knows it, any other as "?", and the path at most
+    /// 80 characters (`CatalogValidator.safePath`).
+    func path(at path: String = "", where test: (String) -> Bool) -> String? {
+        switch self {
+        case .string(let s):
+            return test(s) ? CatalogValidator.safePath(path) : nil
+        case .array(let items):
+            for (i, item) in items.enumerated() {
+                if let hit = item.path(at: "\(path)[\(i)]", where: test) { return hit }
+            }
+            return nil
+        case .object(let fields):
+            for (key, value) in fields {
+                let name = CatalogValidator.safeKey(key)
+                let at = path.isEmpty ? name : "\(path).\(name)"
+                if test(key) { return CatalogValidator.safePath(at) }
+                if let hit = value.path(at: at, where: test) { return hit }
+            }
+            return nil
+        case .number, .bool, .null:
+            return nil
         }
     }
 }
 
 /// The rules of design.md §2.3 and the trust rules of §2.5, each failure named `rule` at `path`
-/// ("text.markup" at "trackers[3].setup_steps.de[2]").
+/// ("text.markup" at "trackers[3].setup_steps.de[2]"). Written for a hostile remote copy: every list is
+/// capped, the brand check sees every string, and nothing a copy says can claim an Apple device, a store
+/// page or a link host the build doesn't list.
 private struct CatalogValidator {
     let now: Date
 
     /// The denylisted brand, as `.claude/hooks/pre-edit-guard.sh` has it (`scripts/trackers.py --check`
-    /// keeps the two equal).
+    /// keeps the two equal). Matched on folded text (`folded`).
     static let brandPattern = #"wh[o0]{2}p|w[-. ]h[-. ]o[-. ]o[-. ]p"#
-    /// Help links: these hosts and their subdomains per tracker id, and RYFT's own for any. Compiled on
-    /// purpose: a new vendor domain needs a release.
-    static let helpHosts: [String: [String]] = [
-        "garmin": ["garmin.com"], "oura": ["ouraring.com"], "polar": ["polar.com"], "suunto": ["suunto.com"],
-        "coros": ["coros.com"], "withings": ["withings.com"], "amazfit": ["amazfit.com", "zepp.com"],
-        "ultrahuman": ["ultrahuman.com"], "fitbit": ["google.com"], "samsung_galaxy_watch": ["samsung.com"],
-        "apple_watch": ["apple.com"], "iphone": ["apple.com"], "other": ["apple.com"],
+    static let versionPattern = #"[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]{1,3}"#
+    /// Help links: exactly these hosts per tracker id, and RYFT's own for any. Compiled on purpose: a new
+    /// vendor page host needs a release.
+    static let helpHosts: [String: Set<String>] = [
+        "garmin": ["support.garmin.com"], "oura": ["support.ouraring.com"], "polar": ["support.polar.com"],
+        "coros": ["support.coros.com"], "withings": ["support.withings.com"], "amazfit": ["support.amazfit.com"],
+        "ultrahuman": ["www.ultrahuman.com"], "fitbit": ["support.google.com"], "samsung_galaxy_watch": ["www.samsung.com"],
+        "apple_watch": ["support.apple.com"], "iphone": ["support.apple.com"], "other": ["support.apple.com"],
     ]
+    /// On a shared host, the vendor's own part of it.
+    static let helpPaths: [String: [String]] = ["fitbit": ["/googlehealth/", "/fitbit/"]]
     static let anyHelpHost = "ryftapp.de"
+    /// On RYFT's own host, content pages only: never the universal-link routes (`/auth/…`, `/invite/…`).
+    static let anyHelpPaths = ["/setup/", "/help/"]
+
+    /// The keys schema v1 knows: the only ones a path may name.
+    static let knownKeys: Set<String> = Set([
+        "schema_version", "version", "checked", "status_values", "health_access", "steps", "en", "de", "trackers", "id", "name",
+        "form", "app_name", "integration", "healthkit", "bundle_ids", "bundle_id_prefixes", "source_names", "device_models",
+        "verified", "app_store_id", "app_store_url", "capabilities", "capability_notes", "setup_steps", "habits", "limits",
+        "help_url", "sources", "url", "covers",
+    ] + TrackerSignal.allCases.map(\.rawValue))
+
+    /// A document key as a path may show it: a key of the schema, else "?" (never the document's own text).
+    static func safeKey(_ key: String) -> String { knownKeys.contains(key) ? key : "?" }
+
+    /// At most 80 characters of a path.
+    static func safePath(_ path: String) -> String { path.count <= 80 ? path : String(path.prefix(79)) + "…" }
+    /// App Store ids per tracker id: content can't point a store button anywhere else.
+    static let storeIDs: [String: String] = [
+        "apple_watch": "1069511734", "garmin": "583446403", "oura": "1043837948", "polar": "717172678",
+        "suunto": "1230327951", "coros": "1277625343", "withings": "542701020", "amazfit": "1127269366",
+        "ultrahuman": "1491286709", "fitbit": "462638897", "iphone": "1242545199",
+    ]
+    /// The only trackers that may claim Apple's bundle IDs and device models.
     static let appleTrackers: Set<String> = ["apple_watch", "iphone"]
+    /// Each identity list (bundle IDs, prefixes, source names, device models).
+    static let maxIdentities = 8
+    /// The text rules in one regular expression, compiled once, one native scan per string. Its groups, in
+    /// order: control, format (bidi overrides, zero-width), private-use, unassigned and separator characters;
+    /// letters of another script than Latin (look-alikes); markup, links and addresses.
+    static let refusedText = try? NSRegularExpression(
+        pattern: #"([\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}])|([^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}])|"#
+            + #"(<|>|\]\(|://|www\.|@|mailto:|tel:)"#,
+        options: [.caseInsensitive])
+    static let refusedTextRules = ["text.control", "text.script", "text.markup"]
+
+    /// The rule `s` breaks, if any; a pattern that didn't compile refuses everything (fail closed).
+    static func refusal(_ s: String) -> String? {
+        guard let regex = refusedText else { return "text.control" }
+        guard let match = regex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) else { return nil }
+        return (1...3).first { match.range(at: $0).location != NSNotFound }.map { refusedTextRules[$0 - 1] } ?? "text.control"
+    }
+
+    /// Compatibility forms, case, diacritics and width folded away: "ＷＨ…", "w\u{301}h…" read as plain letters.
+    static func folded(_ s: String) -> String {
+        s.precomposedStringWithCompatibilityMapping
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+    }
+
+    /// The brand in any string of the copy, keys included (ids, bundle IDs, URLs, keys the app ignores):
+    /// one search over all of it, folded (a line break can't be part of the pattern); the path only on a hit.
+    static func checkBrand(_ json: CatalogJSON) throws(CatalogError) {
+        var strings: [String] = []
+        json.strings(into: &strings)
+        guard hasBrand(strings.joined(separator: "\n")) else { return }
+        throw .invalid(rule: "text.brand", path: json.path(where: hasBrand) ?? "")
+    }
+
+    /// `brandPattern` on folded text, as a scan of its bytes: the same two forms ("wh", two of "o0", "p"; or
+    /// its letters each followed by one of "-. "), without a regular expression's cost on 256 KiB
+    /// (`DecodingTests` holds the two to the same answers).
+    static func hasBrand(_ s: String) -> Bool {
+        var text = folded(s)
+        return text.withUTF8 { (b: UnsafeBufferPointer<UInt8>) -> Bool in
+            let n = b.count
+            func any(_ i: Int, _ set: (UInt8, UInt8, UInt8)) -> Bool {
+                i < n && (b[i] == set.0 || b[i] == set.1 || b[i] == set.2)
+            }
+            let o0: (UInt8, UInt8, UInt8) = (0x6F, 0x30, 0x6F), sep: (UInt8, UInt8, UInt8) = (0x2D, 0x2E, 0x20)
+            let h: (UInt8, UInt8, UInt8) = (0x68, 0x68, 0x68), o: (UInt8, UInt8, UInt8) = (0x6F, 0x6F, 0x6F)
+            let p: (UInt8, UInt8, UInt8) = (0x70, 0x70, 0x70)
+            var i = 0
+            while i < n {
+                if b[i] == 0x77 {
+                    if any(i + 1, h), any(i + 2, o0), any(i + 3, o0), any(i + 4, p) { return true }
+                    if any(i + 1, sep), any(i + 2, h), any(i + 3, sep), any(i + 4, o), any(i + 5, sep), any(i + 6, o),
+                       any(i + 7, sep), any(i + 8, p) { return true }
+                }
+                i += 1
+            }
+            return false
+        }
+    }
 
     func catalog(_ root: [String: CatalogJSON]) throws(CatalogError) -> TrackerCatalog {
         guard case .number(let schema)? = root["schema_version"] else { throw .schema(0) }
         guard schema == 1 else { throw .schema(Int(exactly: schema) ?? 0) }
         let version = try string(root, "version", "", required: true) ?? ""
-        guard Self.matches(version, #"[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]{1,3}"#), isDate(String(version.prefix(10)))
-        else { throw .invalid(rule: "version", path: "version") }
+        guard Self.matches(version, Self.versionPattern), isDate(String(version.prefix(10))) else {
+            throw .invalid(rule: "version", path: "version")
+        }
         if let checked = try string(root, "checked", "", required: false) { try date(checked, "checked") }
 
         var healthAccess = Localized<[String]>(en: [], de: [])
@@ -275,17 +468,14 @@ private struct CatalogValidator {
         guard case .array(let items)? = root["trackers"] else { throw .invalid(rule: "missing", path: "trackers") }
         guard (2...40).contains(items.count) else { throw .invalid(rule: "trackers.count", path: "trackers") }
         var trackers: [Tracker] = []
+        var ids: Set<String> = []
         for (i, item) in items.enumerated() {
             guard case .object(let t) = item else { throw .invalid(rule: "type", path: "trackers[\(i)]") }
             let tracker = try self.tracker(t, "trackers[\(i)]")
-            guard !trackers.contains(where: { $0.id == tracker.id }) else {
-                throw .invalid(rule: "id.duplicate", path: "trackers[\(i)].id")
-            }
+            guard ids.insert(tracker.id).inserted else { throw .invalid(rule: "id.duplicate", path: "trackers[\(i)].id") }
             trackers.append(tracker)
         }
-        guard trackers.contains(where: { $0.id == "iphone" }), trackers.contains(where: { $0.id == "other" }) else {
-            throw .invalid(rule: "id.required", path: "trackers")
-        }
+        guard ids.contains("iphone"), ids.contains("other") else { throw .invalid(rule: "id.required", path: "trackers") }
         try Self.checkOwnership(trackers)
         return TrackerCatalog(version: version, trackers: trackers, healthAccess: healthAccess)
     }
@@ -297,6 +487,8 @@ private struct CatalogValidator {
         try text(name, max: 40, "\(path).name")
         let rawForm = try string(t, "form", path, required: true) ?? ""
         guard let form = Tracker.Form(rawValue: rawForm) else { throw .invalid(rule: "enum.form", path: "\(path).form") }
+        // The phone's glyph and behaviour are the iPhone's only.
+        guard form != .phone || id == "iphone" else { throw .invalid(rule: "form.phone", path: "\(path).form") }
         let rawIntegration = try string(t, "integration", path, required: true) ?? ""
         guard let integration = Tracker.Integration(rawValue: rawIntegration) else {
             throw .invalid(rule: "enum.integration", path: "\(path).integration")
@@ -310,9 +502,10 @@ private struct CatalogValidator {
             throw .invalid(rule: "integration.identity", path: "\(path).healthkit")
         }
 
-        let storeID = try string(t, "app_store_id", path, required: false)
-        if let storeID, !Self.matches(storeID, "[0-9]{1,12}") {
-            throw .invalid(rule: "store.format", path: "\(path).app_store_id")
+        // The store page is the build's: content may repeat the pinned id, never change or add one.
+        if let storeID = try string(t, "app_store_id", path, required: false) {
+            guard Self.matches(storeID, "[0-9]{1,12}") else { throw .invalid(rule: "store.format", path: "\(path).app_store_id") }
+            guard storeID == Self.storeIDs[id] else { throw .invalid(rule: "store.pinned", path: "\(path).app_store_id") }
         }
         let help = try string(t, "help_url", path, required: false).flatMap { Self.helpURL($0, trackerID: id) }
         let checked = try string(t, "checked", path, required: true) ?? ""
@@ -335,31 +528,45 @@ private struct CatalogValidator {
         let habits = try list(t, "habits", path, max: 8)
         let limits = try list(t, "limits", path, max: 8)
         return Tracker(id: id, name: name, form: form, appName: appName, integration: integration, identity: identity,
-                       appStoreID: storeID, capabilities: capabilities, notes: notes, setup: setup, habits: habits,
+                       appStoreID: Self.storeIDs[id], capabilities: capabilities, notes: notes, setup: setup, habits: habits,
                        limits: limits, help: help, checked: checked)
     }
 
+    /// Bundle IDs and prefixes lowercased once here. Outside Apple's own trackers nothing may name or cover
+    /// Apple's IDs, a prefix needs three labels, and device models (how Apple's trackers tell each other
+    /// apart) are Apple's only.
     private func identity(_ t: [String: CatalogJSON], id: String, _ path: String) throws(CatalogError) -> SourceIdentity {
         guard let hk = try object(t, "healthkit", path) else { return .none }
         let at = "\(path).healthkit"
-        let ids = try strings(hk, "bundle_ids", at), prefixes = try strings(hk, "bundle_id_prefixes", at)
-        for (key, values) in [("bundle_ids", ids), ("bundle_id_prefixes", prefixes)] {
-            for (j, value) in values.enumerated() {
-                guard value.count <= 155, Self.matches(value, #"[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.?"#) else {
+        let apple = Self.appleTrackers.contains(id)
+        var lists: [String: [String]] = [:]
+        for key in ["bundle_ids", "bundle_id_prefixes"] {
+            var values: [String] = []
+            for (j, raw) in try strings(hk, key, at).enumerated() {
+                guard raw.utf8.count <= 155, Self.matches(raw, #"[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.?"#) else {
                     throw .invalid(rule: "bundle.format", path: "\(at).\(key)[\(j)]")
                 }
-                guard !value.lowercased().hasPrefix("com.apple.") || Self.appleTrackers.contains(id) else {
+                let value = raw.lowercased()
+                let bare = Self.bare(value)
+                if !apple, bare == "com" || bare.hasPrefix("com.apple") || SourceIdentity.covers(value, "com.apple.x") {
                     throw .invalid(rule: "bundle.apple", path: "\(at).\(key)[\(j)]")
                 }
+                if key == "bundle_id_prefixes", bare.split(separator: ".").count < 3 {
+                    throw .invalid(rule: "bundle.prefix", path: "\(at).\(key)[\(j)]")
+                }
+                values.append(value)
             }
+            lists[key] = values
         }
         let names = try strings(hk, "source_names", at)
         for (j, name) in names.enumerated() { try text(name, max: 40, "\(at).source_names[\(j)]") }
         let models = try strings(hk, "device_models", at)
+        if !models.isEmpty, !apple { throw .invalid(rule: "device.apple", path: "\(at).device_models") }
         for (j, model) in models.enumerated() where !Self.matches(model, "[A-Za-z]{2,16}") {
             throw .invalid(rule: "device.format", path: "\(at).device_models[\(j)]")
         }
-        return SourceIdentity(bundleIDs: ids, bundlePrefixes: prefixes, sourceNames: names, deviceModels: models)
+        return SourceIdentity(bundleIDs: lists["bundle_ids"] ?? [], bundlePrefixes: lists["bundle_id_prefixes"] ?? [],
+                              sourceNames: names, deviceModels: models)
     }
 
     private func capabilities(_ t: [String: CatalogJSON], integration: Tracker.Integration,
@@ -380,30 +587,46 @@ private struct CatalogValidator {
     }
 
     /// One bundle ID belongs to one tracker: no ID twice, no ID under another tracker's prefix, and
-    /// prefixes overlap only between trackers told apart by device (Apple Watch and iPhone).
+    /// prefixes overlap only between the trackers told apart by device (Apple Watch and iPhone). Lookups by
+    /// each ID's dot-boundary ancestors in a table of prefixes: linear in the copy's size.
     private static func checkOwnership(_ trackers: [Tracker]) throws(CatalogError) {
-        for (i, a) in trackers.enumerated() {
-            for (k, b) in trackers.enumerated() where k != i {
-                let path = "trackers[\(k)].healthkit"
-                for (j, id) in b.identity.bundleIDs.enumerated()
-                where a.identity.bundleIDs.contains(where: { $0.lowercased() == id.lowercased() })
-                    || a.identity.bundlePrefixes.contains(where: { covers($0, id) }) {
+        var prefixOwners: [String: Set<Int>] = [:]
+        for (k, t) in trackers.enumerated() {
+            for prefix in t.identity.bundlePrefixes { prefixOwners[bare(prefix), default: []].insert(k) }
+        }
+        var idOwners: [String: Int] = [:]
+        for (k, t) in trackers.enumerated() {
+            let path = "trackers[\(k)].healthkit"
+            func others(_ key: String) -> Set<Int> {
+                (prefixOwners[key] ?? []).filter { $0 != k && !(byDevice(trackers[$0]) && byDevice(t)) }
+            }
+            for (j, id) in t.identity.bundleIDs.enumerated() {
+                let owner = idOwners[id, default: k]
+                idOwners[id] = owner
+                if owner != k || ancestors(id).contains(where: { !others($0).isEmpty }) {
                     throw .invalid(rule: "bundle.duplicate", path: "\(path).bundle_ids[\(j)]")
                 }
-                let byDevice = !a.identity.deviceModels.isEmpty && !b.identity.deviceModels.isEmpty
-                for (j, prefix) in b.identity.bundlePrefixes.enumerated() where !byDevice
-                    && a.identity.bundlePrefixes.contains(where: { covers($0, prefix) || covers(prefix, $0) }) {
-                    throw .invalid(rule: "bundle.duplicate", path: "\(path).bundle_id_prefixes[\(j)]")
-                }
+            }
+            for (j, prefix) in t.identity.bundlePrefixes.enumerated() where ancestors(bare(prefix)).contains(where: { !others($0).isEmpty }) {
+                throw .invalid(rule: "bundle.duplicate", path: "\(path).bundle_id_prefixes[\(j)]")
             }
         }
     }
 
-    /// Prefix overlap for content checks: also "com.a." against "com.a" (one may lack the trailing dot).
-    private static func covers(_ prefix: String, _ id: String) -> Bool {
-        let p = prefix.lowercased(), i = id.lowercased()
-        let bare = p.hasSuffix(".") ? String(p.dropLast()) : p
-        return i == bare || i.hasPrefix(bare + ".")
+    private static func byDevice(_ t: Tracker) -> Bool { !t.identity.deviceModels.isEmpty }
+
+    /// Without a trailing dot: "com.apple.health." and "com.apple.health" claim the same IDs here.
+    private static func bare(_ value: String) -> String { value.hasSuffix(".") ? String(value.dropLast()) : value }
+
+    /// "a.b.c", "a.b", "a": every prefix that covers the ID at a dot boundary.
+    private static func ancestors(_ id: String) -> [String] {
+        var result = [id]
+        var current = Substring(id)
+        while let dot = current.lastIndex(of: ".") {
+            current = current[..<dot]
+            result.append(String(current))
+        }
+        return result
     }
 
     // MARK: fields
@@ -429,11 +652,14 @@ private struct CatalogValidator {
         }
     }
 
-    private func strings(_ o: [String: CatalogJSON], _ key: String, _ path: String) throws(CatalogError) -> [String] {
+    /// An identity list: strings only, at most `maxIdentities`.
+    private func strings(_ o: [String: CatalogJSON], _ key: String, _ path: String,
+                         max: Int = maxIdentities) throws(CatalogError) -> [String] {
         let at = "\(path).\(key)"
         switch o[key] {
         case nil, .null?: return []
         case .array(let items)?:
+            guard items.count <= max else { throw .invalid(rule: "identity.count", path: at) }
             var values: [String] = []
             for (j, item) in items.enumerated() {
                 guard case .string(let s) = item else { throw .invalid(rule: "type", path: "\(at)[\(j)]") }
@@ -451,29 +677,29 @@ private struct CatalogValidator {
         let at = path.isEmpty ? key : "\(path).\(key)"
         guard let pair = try object(o, key, path) else { return Localized(en: [], de: []) }
         guard pair["en"] != nil, pair["de"] != nil else { throw .invalid(rule: "text.pair", path: at) }
-        let en = try strings(pair, "en", at), de = try strings(pair, "de", at)
+        // Counted before the cap so an oversized list says so; the cap itself bounds the work.
+        for language in ["en", "de"] {
+            if case .array(let items)? = pair[language], items.count > max { throw .invalid(rule: "text.count", path: at) }
+        }
+        let en = try strings(pair, "en", at, max: max), de = try strings(pair, "de", at, max: max)
         guard en.count == de.count else { throw .invalid(rule: "text.pair", path: at) }
-        guard en.count <= max else { throw .invalid(rule: "text.count", path: at) }
         for (j, s) in en.enumerated() { try text(s, max: 240, "\(at).en[\(j)]") }
         for (j, s) in de.enumerated() { try text(s, max: 240, "\(at).de[\(j)]") }
         return Localized(en: en, de: de)
     }
 
-    /// Plain text only (§2.5): shown with `Text(verbatim:)`, so no markup, no links, no control or format
-    /// characters (bidi overrides, zero-width), never the denylisted brand.
-    private func text(_ s: String, max: Int, _ path: String) throws(CatalogError) {
-        guard !s.trimmingCharacters(in: .whitespaces).isEmpty else { throw .invalid(rule: "text.empty", path: path) }
-        guard s.count <= max else { throw .invalid(rule: "text.length", path: path) }
-        guard !s.unicodeScalars.contains(where: { [.control, .format].contains($0.properties.generalCategory) }) else {
-            throw .invalid(rule: "text.control", path: path)
-        }
-        let lower = s.lowercased()
-        guard !["<", ">", "](", "://", "www."].contains(where: { lower.contains($0) }) else {
-            throw .invalid(rule: "text.markup", path: path)
-        }
-        guard s.range(of: Self.brandPattern, options: [.regularExpression, .caseInsensitive]) == nil else {
-            throw .invalid(rule: "text.brand", path: path)
-        }
+    /// Plain text only (§2.5): shown with `Text(verbatim:)`, so no markup, no links or addresses, no
+    /// control, format, private-use, unassigned or separator characters, Latin letters only (with common
+    /// punctuation and combining marks), and no stacks of combining marks: at most twice `max` scalars.
+    /// (The brand check runs over every string before this, `checkBrand`.)
+    private func text(_ s: String, max: Int, _ path: @autoclosure () -> String) throws(CatalogError) {
+        guard !s.trimmingCharacters(in: .whitespaces).isEmpty else { throw .invalid(rule: "text.empty", path: path()) }
+        let scalars = s.unicodeScalars.count
+        // ASCII: one character per scalar, nothing to compose. Else graphemes, and scalars after composing.
+        guard scalars == s.utf8.count ? scalars <= max
+                : scalars <= 4 * max && s.count <= max && s.precomposedStringWithCanonicalMapping.unicodeScalars.count <= 2 * max
+        else { throw .invalid(rule: "text.length", path: path()) }
+        if let rule = Self.refusal(s) { throw .invalid(rule: rule, path: path()) }
     }
 
     /// YYYY-MM-DD, a real day, not after tomorrow anywhere on Earth.
@@ -498,23 +724,28 @@ private struct CatalogValidator {
         s.range(of: #"\A(?:"# + pattern + #")\z"#, options: .regularExpression) != nil
     }
 
-    /// `https`, no user, no port, a host on the tracker's allowlist (or RYFT's); else nil.
+    /// `https`, no user, no port, a plain-ASCII host that is exactly one of the tracker's (on a shared host,
+    /// under the vendor's path) or RYFT's; else nil.
     static func helpURL(_ string: String, trackerID: String) -> URL? {
         guard let c = URLComponents(string: string), c.scheme?.lowercased() == "https",
               c.user == nil, c.password == nil, c.port == nil,
-              let host = c.host?.lowercased(), !host.isEmpty, let url = c.url else { return nil }
-        let allowed = (helpHosts[trackerID] ?? []) + [anyHelpHost]
-        return allowed.contains { host == $0 || host.hasSuffix("." + $0) } ? url : nil
+              let raw = c.percentEncodedHost, matches(raw, "[A-Za-z0-9.-]+"), let url = c.url else { return nil }
+        let host = raw.lowercased()
+        if host == anyHelpHost { return anyHelpPaths.contains { c.percentEncodedPath.hasPrefix($0) } ? url : nil }
+        guard helpHosts[trackerID]?.contains(host) == true else { return nil }
+        guard let paths = helpPaths[trackerID] else { return url }
+        return paths.contains { c.percentEncodedPath.hasPrefix($0) } ? url : nil
     }
 }
 
 // BEGIN GENERATED trackers.json (scripts/trackers.py --write from Content/trackers.json; do not edit)
+// swiftlint:disable line_length
 extension TrackerCatalog {
     /// Content/trackers.json at build time: the copy that always works (offline, first launch, demo).
     static let bundledJSON = #"""
     {
       "schema_version": 1,
-      "version": "2026-10-22.1",
+      "version": "2026-10-22.2",
       "checked": "2026-10-22",
       "status_values": [
         "yes",
@@ -524,8 +755,14 @@ extension TrackerCatalog {
       ],
       "health_access": {
         "steps": {
-          "en": [],
-          "de": []
+          "en": [
+            "Open Health → Summary → your picture → Apps → RYFT.",
+            "Tap Turn On All."
+          ],
+          "de": [
+            "Öffne Health → Zusammenfassung → dein Bild → Apps → RYFT.",
+            "Tippe auf „Alle aktivieren“."
+          ]
         },
         "checked": "2026-10-22"
       },
@@ -564,16 +801,34 @@ extension TrackerCatalog {
           },
           "capability_notes": {},
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "On iPhone, open Health → Summary → your picture → Devices → your Apple Watch → Privacy Settings, and turn on Fitness Tracking.",
+              "In Health → Browse → Sleep, set a sleep schedule and turn on Track Sleep with Apple Watch."
+            ],
+            "de": [
+              "Öffne auf deinem iPhone Health → Zusammenfassung → dein Bild → Geräte → deine Apple Watch → Datenschutzeinstellungen und aktiviere Fitnessdaten.",
+              "Öffne Health → Durchsuchen → Schlaf, lege einen Schlafplan fest und aktiviere „Schlaf mit Apple Watch aufzeichnen“."
+            ]
           },
           "habits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Wear your Apple Watch to bed. Sleep stages, breathing rate and overnight blood oxygen need it.",
+              "Charge it before bedtime. Turn on Charging Reminders in Watch → My Watch → Sleep."
+            ],
+            "de": [
+              "Trage deine Apple Watch nachts. Schlafphasen, Atemfrequenz und Blutsauerstoff über Nacht brauchen das.",
+              "Lade sie vor dem Schlafengehen auf. Aktiviere Laderinnerungen in Watch → Meine Watch → Schlaf."
+            ]
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Blood oxygen needs Apple Watch Series 6 or later or any Ultra. It isn't available on Apple Watch SE.",
+              "Breathing rate isn't available for users under 13."
+            ],
+            "de": [
+              "Blutsauerstoff braucht Apple Watch Series 6 oder später oder eine beliebige Ultra. Auf der Apple Watch SE ist es nicht verfügbar.",
+              "Atemfrequenz ist für Nutzer unter 13 Jahren nicht verfügbar."
+            ]
           },
           "help_url": "https://support.apple.com/guide/iphone/intro-to-health-data-iphbb8259c61/ios",
           "sources": [
@@ -646,18 +901,59 @@ extension TrackerCatalog {
             "workouts": "yes",
             "steps": "yes"
           },
-          "capability_notes": {},
+          "capability_notes": {
+            "hrv": {
+              "en": "Garmin keeps HRV in its own app.",
+              "de": "Garmin behält HRV in seiner eigenen App."
+            },
+            "resting_hr": {
+              "en": "Garmin doesn't send resting heart rate to Apple Health.",
+              "de": "Garmin sendet Ruhepuls nicht an Apple Health."
+            },
+            "respiratory_rate": {
+              "en": "Garmin doesn't send breathing rate to Apple Health.",
+              "de": "Garmin sendet Atemfrequenz nicht an Apple Health."
+            },
+            "spo2": {
+              "en": "Garmin doesn't send blood oxygen to Apple Health.",
+              "de": "Garmin sendet Blutsauerstoff nicht an Apple Health."
+            }
+          },
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Garmin Connect → More → Settings → Connect Apps.",
+              "Under Available Apps, tap Apple Health → Connect with Apple Health.",
+              "Turn on all data types, then tap Allow.",
+              "To check later: open Health → Summary → your picture → Apps → Connect → Turn On All."
+            ],
+            "de": [
+              "Öffne Garmin Connect → Mehr → Einstellungen → Connect Apps.",
+              "Tippe unter „Verfügbare Apps“ auf Apple Health → Mit Apple Health verbinden.",
+              "Aktiviere alle Datentypen und tippe dann auf „Zulassen“.",
+              "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → Connect → Alle aktivieren."
+            ]
           },
           "habits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Garmin Connect each morning and keep it on screen until it has synced. It sends data to Apple Health only while it's open in the foreground.",
+              "Sync your watch first. Garmin Connect passes data to Apple Health after each successful watch sync."
+            ],
+            "de": [
+              "Öffne Garmin Connect jeden Morgen und halte sie geöffnet, bis sie synchronisiert ist. Die App sendet Daten nur an Apple Health, während sie aktiv ist.",
+              "Synchronisiere deine Uhr zuerst. Garmin Connect überträgt Daten an Apple Health nach jeder erfolgreichen Watch-Synchronisierung."
+            ]
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Garmin Connect doesn't send HRV, resting heart rate, breathing rate or blood oxygen to Apple Health.",
+              "Workout heart rate arrives as high and low values only, and GPS tracks aren't sent.",
+              "Connect doesn't appear in Apple Health if only an Edge bike computer is registered to your Garmin account."
+            ],
+            "de": [
+              "Garmin Connect sendet HRV, Ruhepuls, Atemfrequenz oder Blutsauerstoff nicht an Apple Health.",
+              "Trainings-Herzfrequenz kommt nur als höchster und niedrigster Wert an, GPS-Tracks werden nicht gesendet.",
+              "Connect erscheint nicht in Apple Health, wenn nur ein Edge-Fahrradcomputer bei deinem Garmin-Konto registriert ist."
+            ]
           },
           "help_url": "https://support.garmin.com/en-US/?faq=lK5FPB9iPF5PXFkIpFlFPA",
           "sources": [
@@ -706,18 +1002,55 @@ extension TrackerCatalog {
             "workouts": "yes",
             "steps": "yes"
           },
-          "capability_notes": {},
+          "capability_notes": {
+            "hrv": {
+              "en": "Oura doesn't export HRV to Apple Health.",
+              "de": "Oura exportiert HRV nicht zu Apple Health."
+            },
+            "resting_hr": {
+              "en": "Oura doesn't export resting heart rate to Apple Health.",
+              "de": "Oura exportiert Ruhepuls nicht zu Apple Health."
+            },
+            "spo2": {
+              "en": "Oura doesn't send blood oxygen to Apple Health.",
+              "de": "Oura sendet Blutsauerstoff nicht an Apple Health."
+            }
+          },
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Oura → menu (top left) → Settings.",
+              "Under Data sharing, tap Apple Health.",
+              "Turn on Connect to Health and allow all data types.",
+              "To check later: open Health → Summary → your picture → Apps → Oura → Turn On All."
+            ],
+            "de": [
+              "Öffne Oura → Menü (oben links) → Einstellungen.",
+              "Tippe unter „Datenfreigabe“ auf Apple Health.",
+              "Aktiviere „Mit Health verbinden“ und erlaube alle Datentypen.",
+              "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → Oura → Alle aktivieren."
+            ]
           },
           "habits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Oura every morning. Your data reaches Apple Health only after Oura is opened.",
+              "Keep Background App Refresh on for Oura and Low Power Mode off."
+            ],
+            "de": [
+              "Öffne Oura jeden Morgen. Deine Daten erreichen Apple Health nur, nachdem du Oura öffnest.",
+              "Halte die Hintergrundaktualisierung für Oura aktiviert und den Energiesparmodus ausgeschaltet."
+            ]
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Oura doesn't send HRV, resting heart rate or blood oxygen to Apple Health.",
+              "Breathing rate arrives as one nightly average.",
+              "On Gen3 and later rings, Apple Health sync needs an active Oura membership."
+            ],
+            "de": [
+              "Oura sendet HRV, Ruhepuls oder Blutsauerstoff nicht an Apple Health.",
+              "Atemfrequenz kommt als durchschnittlicher Wert pro Nacht an.",
+              "Bei Gen3-Ringen und später braucht die Apple-Health-Synchronisierung eine aktive Oura-Mitgliedschaft."
+            ]
           },
           "help_url": "https://support.ouraring.com/hc/en-us/articles/360025438734-Apple-Health-Integration",
           "sources": [
@@ -770,18 +1103,45 @@ extension TrackerCatalog {
             "workouts": "yes",
             "steps": "yes"
           },
-          "capability_notes": {},
+          "capability_notes": {
+            "heart_rate": {
+              "en": "Polar sends heart rate for workouts only.",
+              "de": "Polar sendet Herzfrequenz nur für Trainings."
+            }
+          },
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Polar Flow → More → General settings.",
+              "Turn on Apple Health.",
+              "Tap Turn All Categories On, then Allow.",
+              "To check later: open Health → Summary → your picture → Apps → Polar Flow → Turn On All."
+            ],
+            "de": [
+              "Öffne Polar Flow → Mehr → Allgemeine Einstellungen.",
+              "Aktiviere Apple Health.",
+              "Tippe auf „Alle Kategorien aktivieren“ und dann „Zulassen“.",
+              "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → Polar Flow → Alle aktivieren."
+            ]
           },
           "habits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Sync your watch with Polar Flow. New data then goes to Apple Health.",
+              "Data missing? In Polar Flow → More → General settings, tap Sync now. It resends the last two weeks."
+            ],
+            "de": [
+              "Synchronisiere deine Uhr mit Polar Flow. Neue Daten gehen dann zu Apple Health.",
+              "Daten fehlen? Öffne Polar Flow → Mehr → Allgemeine Einstellungen und tippe auf „Jetzt synchronisieren“. Das sendet die letzten zwei Wochen erneut."
+            ]
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Polar Flow sends heart rate for workouts only, with no all-day heart rate.",
+              "Polar Flow doesn't send HRV, resting heart rate, sleep stages, breathing rate or blood oxygen."
+            ],
+            "de": [
+              "Polar Flow sendet Herzfrequenz nur für Trainings, ohne tägliche Herzfrequenz.",
+              "Polar Flow sendet HRV, Ruhepuls, Schlafphasen, Atemfrequenz oder Blutsauerstoff nicht."
+            ]
           },
           "help_url": "https://support.polar.com/us-en/support/connecting_polar_flow_with_apple_health",
           "sources": [
@@ -832,16 +1192,28 @@ extension TrackerCatalog {
           },
           "capability_notes": {},
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open the Suunto app and go to its settings to start sharing with Apple Health.",
+              "Allow all data types when iOS asks.",
+              "To check later: open Health → Summary → your picture → Apps → Suunto → Turn On All."
+            ],
+            "de": [
+              "Öffne die Suunto-App und gehe zu ihren Einstellungen, um mit Apple Health zu teilen.",
+              "Erlaube alle Datentypen, wenn iOS fragt.",
+              "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → Suunto → Alle aktivieren."
+            ]
           },
           "habits": {
             "en": [],
             "de": []
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Suunto doesn't publish what its app sends to Apple Health. Check sync shows what arrives."
+            ],
+            "de": [
+              "Suunto veröffentlicht nicht, was ihre App an Apple Health sendet. Die Sync-Prüfung zeigt, was ankommt."
+            ]
           },
           "help_url": null,
           "sources": [
@@ -896,16 +1268,32 @@ extension TrackerCatalog {
           },
           "capability_notes": {},
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open COROS → Profile → Settings → 3rd Party Apps → Data Sync → Apple Health.",
+              "Select all data types to sync.",
+              "To check later: open Health → Summary → your picture → Apps → COROS and turn on all types."
+            ],
+            "de": [
+              "Öffne COROS → Profil → Einstellungen → Apps von Drittanbietern → Datensynchronisierung → Apple Health.",
+              "Wähle alle Datentypen zum Synchronisieren aus.",
+              "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → COROS und aktiviere alle Typen."
+            ]
           },
           "habits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Sync your watch with the COROS app on a stable internet connection. Workouts go to Apple Health when the watch syncs."
+            ],
+            "de": [
+              "Synchronisiere deine Uhr mit der COROS-App bei stabiler Internetverbindung. Trainings gehen zu Apple Health, wenn die Uhr synchronisiert."
+            ]
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "COROS doesn't send HRV, resting heart rate, breathing rate or blood oxygen to Apple Health."
+            ],
+            "de": [
+              "COROS sendet HRV, Ruhepuls, Atemfrequenz oder Blutsauerstoff nicht an Apple Health."
+            ]
           },
           "help_url": "https://support.coros.com/hc/en-us/articles/360041549551-Connecting-Apple-Health-with-COROS-App",
           "sources": [
@@ -965,16 +1353,36 @@ extension TrackerCatalog {
           },
           "capability_notes": {},
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Withings → Profile → Settings (gear) → Export health data to Apple Health.",
+              "Tap Next twice, turn on all data types, then tap Allow and Done.",
+              "To check later: open Health → Summary → your picture → Apps → Withings → Turn On All."
+            ],
+            "de": [
+              "Öffne Withings → Profil → Einstellungen (Zahnrad) → Gesundheitsdaten zu Apple Health exportieren.",
+              "Tippe zweimal auf „Weiter“, aktiviere alle Datentypen, tippe dann auf „Zulassen“ und „Fertig“.",
+              "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → Withings → Alle aktivieren."
+            ]
           },
           "habits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Withings doesn't sync to Apple Health automatically. Open Withings, then the Health app, then pull down on the Withings Home tab to refresh.",
+              "Allow up to 15 minutes after a measurement."
+            ],
+            "de": [
+              "Withings synchronisiert nicht automatisch mit Apple Health. Öffne Withings, dann die Health-App, ziehe dann auf dem Withings-Home-Tab nach unten zum Aktualisieren.",
+              "Erlaube bis zu 15 Minuten nach einer Messung."
+            ]
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Accounts created on or after 13 October 2026 need a Withings+ subscription to send data to Apple Health.",
+              "Heart rate from the under-mattress sleep sensor doesn't reach Apple Health."
+            ],
+            "de": [
+              "Konten, die am oder nach dem 13. Oktober 2026 erstellt wurden, brauchen ein Withings+-Abonnement, um Daten an Apple Health zu senden.",
+              "Herzfrequenz vom Unter-Matratzen-Schlaf-Sensor erreicht Apple Health nicht."
+            ]
           },
           "help_url": "https://support.withings.com/hc/en-us/articles/46746224229777-Partner-Apps-Apple-Health-Exporting-Withings-data-into-Apple-Health",
           "sources": [
@@ -1035,18 +1443,35 @@ extension TrackerCatalog {
             "workouts": "yes",
             "steps": "unverified"
           },
-          "capability_notes": {},
+          "capability_notes": {
+            "hrv": {
+              "en": "Amazfit Balance 2 series only, since August 2026.",
+              "de": "Nur Amazfit Balance 2-Serie ab August 2026."
+            }
+          },
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Zepp and let your watch sync.",
+              "Allow Zepp in Health: open Health → Summary → your picture → Apps → Zepp → Turn On All."
+            ],
+            "de": [
+              "Öffne Zepp und lass deine Uhr synchronisieren.",
+              "Erlaube Zepp in Health: Öffne Health → Zusammenfassung → dein Bild → Apps → Zepp → Alle aktivieren."
+            ]
           },
           "habits": {
             "en": [],
             "de": []
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "HRV reaches Apple Health only from the Amazfit Balance 2 series.",
+              "Amazfit doesn't publish a full list of what Zepp sends to Apple Health. Check sync shows what arrives."
+            ],
+            "de": [
+              "HRV erreicht Apple Health nur von der Amazfit Balance 2-Serie.",
+              "Amazfit veröffentlicht keine vollständige Liste, was Zepp an Apple Health sendet. Die Sync-Prüfung zeigt, was ankommt."
+            ]
           },
           "help_url": "https://support.amazfit.com/en/amazfit_gts_2_mini/docs/N6cUdJxDRo6rbfxiLs1cJDBrnRd",
           "sources": [
@@ -1105,16 +1530,26 @@ extension TrackerCatalog {
           },
           "capability_notes": {},
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Health → Summary → your picture → Apps → Ultrahuman.",
+              "Tap Turn All Categories On."
+            ],
+            "de": [
+              "Öffne Health → Zusammenfassung → dein Bild → Apps → Ultrahuman.",
+              "Tippe auf „Alle Kategorien aktivieren“."
+            ]
           },
           "habits": {
             "en": [],
             "de": []
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Ultrahuman doesn't publish a list of what it sends to Apple Health. Check sync shows what arrives."
+            ],
+            "de": [
+              "Ultrahuman veröffentlicht keine Liste, was an Apple Health gesendet wird. Die Sync-Prüfung zeigt, was ankommt."
+            ]
           },
           "help_url": "https://www.ultrahuman.com/blog/how-to-access-your-hrv-data-on-apple-health/",
           "sources": [
@@ -1165,16 +1600,38 @@ extension TrackerCatalog {
           },
           "capability_notes": {},
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Sign in to Google Health with an adult Google Account.",
+              "Open Google Health → Connections (top left) → Apps and services.",
+              "Under Add connections, tap Apple Health → Get started → Agree.",
+              "Tap Turn All Categories On, then Allow, then Done."
+            ],
+            "de": [
+              "Melde dich in Google Health mit einem erwachsenen Google-Konto an.",
+              "Öffne Google Health → Verbindungen (oben links) → Apps und Services.",
+              "Tippe unter „Verbindungen hinzufügen“ auf Apple Health → Erste Schritte → Zustimmen.",
+              "Tippe auf „Alle Kategorien aktivieren“, dann „Zulassen“, dann „Fertig“."
+            ]
           },
           "habits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Keep Google Health up to date.",
+              "If Google Health shows 'New data types available', review and grant them."
+            ],
+            "de": [
+              "Halte Google Health auf dem neuesten Stand.",
+              "Wenn Google Health „Neue Datentypen verfügbar“ zeigt, überprüfe und erlaube sie."
+            ]
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Google Health doesn't send HRV to Apple Health.",
+              "Needs iOS 16.4 or later and an adult Google Account."
+            ],
+            "de": [
+              "Google Health sendet HRV nicht an Apple Health.",
+              "Braucht iOS 16.4 oder später und ein erwachsenes Google-Konto."
+            ]
           },
           "help_url": "https://support.google.com/googlehealth/answer/17037331?hl=en",
           "sources": [
@@ -1227,8 +1684,14 @@ extension TrackerCatalog {
             "de": []
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Galaxy Watch4, Watch5, Watch6, Watch7, Watch Ultra and Watch FE don't work with iPhone. Samsung says they rely on Google Play services.",
+              "RYFT can't read Galaxy Watch data on iPhone today."
+            ],
+            "de": [
+              "Galaxy Watch4, Watch5, Watch6, Watch7, Watch Ultra und Watch FE funktionieren nicht mit dem iPhone. Samsung sagt, dass sie Google Play Services benötigen.",
+              "RYFT kann Samsung Galaxy Watch-Daten auf dem iPhone derzeit nicht lesen."
+            ]
           },
           "help_url": "https://www.samsung.com/us/support/answer/ANS10004668/",
           "sources": [
@@ -1273,16 +1736,28 @@ extension TrackerCatalog {
           },
           "capability_notes": {},
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open your tracker's app and find Apple Health in its settings.",
+              "Allow all data types when iOS asks.",
+              "To check later: open Health → Summary → your picture → Apps → your tracker's app → Turn On All."
+            ],
+            "de": [
+              "Öffne die App deines Trackers und finde Apple Health in ihren Einstellungen.",
+              "Erlaube alle Datentypen, wenn iOS fragt.",
+              "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → App deines Trackers → Alle aktivieren."
+            ]
           },
           "habits": {
             "en": [],
             "de": []
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "What reaches RYFT depends on your tracker's app. Check sync shows what arrives."
+            ],
+            "de": [
+              "Was RYFT erreicht, hängt von deiner Tracker-App ab. Die Sync-Prüfung zeigt, was ankommt."
+            ]
           },
           "help_url": "https://support.apple.com/en-us/108779",
           "sources": [
@@ -1327,16 +1802,34 @@ extension TrackerCatalog {
           },
           "capability_notes": {},
           "setup_steps": {
-            "en": [],
-            "de": []
+            "en": [
+              "Open Settings → Privacy & Security → Motion & Fitness and turn on Fitness Tracking.",
+              "In Health → Browse → Sleep, set a sleep schedule."
+            ],
+            "de": [
+              "Öffne Einstellungen → Datenschutz & Sicherheit → Bewegung & Fitness und aktiviere Fitnessdaten.",
+              "Öffne Health → Durchsuchen → Schlaf und lege einen Schlafplan fest."
+            ]
           },
           "habits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Carry your iPhone during the day. It counts steps with its own sensors."
+            ],
+            "de": [
+              "Trage dein iPhone tagsüber bei dir. Es zählt Schritte mit seinen eigenen Sensoren."
+            ]
           },
           "limits": {
-            "en": [],
-            "de": []
+            "en": [
+              "Without a wearable, iPhone records no heart rate, HRV, resting heart rate, sleep stages, breathing rate or blood oxygen.",
+              "Sleep is an estimate of time in bed from your sleep schedule.",
+              "Heart rate arrives only during workouts with AirPods Pro 3."
+            ],
+            "de": [
+              "Ohne tragbares Gerät erfasst das iPhone keine Herzfrequenz, HRV, Ruhepuls, Schlafphasen, Atemfrequenz oder Blutsauerstoff.",
+              "Schlaf ist eine Schätzung der Bettzeit basierend auf deinem Schlafplan.",
+              "Herzfrequenz kommt nur während Trainings mit AirPods Pro 3 an."
+            ]
           },
           "help_url": "https://support.apple.com/guide/iphone/intro-to-health-data-iphbb8259c61/ios",
           "sources": [
@@ -1359,4 +1852,5 @@ extension TrackerCatalog {
     }
     """#
 }
+// swiftlint:enable line_length
 // END GENERATED trackers.json

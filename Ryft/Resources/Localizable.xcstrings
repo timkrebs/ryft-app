@@ -59,7 +59,7 @@
       }
     },
     "%@ in the App Store" : {
-      "comment" : "Setup card button: the app's App Store page (it says Open there when installed). The argument is the app, e.g. Garmin Connect.",
+      "comment" : "Button on Today's hint and on a setup card: the tracker app's App Store page (it shows Open when installed). The argument is the app, e.g. Garmin Connect.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -1830,6 +1830,17 @@
         }
       }
     },
+    "Last data from %@: %@" : {
+      "comment" : "Under the night hint: the source's name and the time of its newest record (e.g. 'Wed 23:24').",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letzte Daten von %1$@: %2$@"
+          }
+        }
+      }
+    },
     "Last data %@" : {
       "comment" : "Seen in Apple Health: when a source last sent data, e.g. Yesterday 22:10.",
       "localizations" : {
@@ -2231,6 +2242,17 @@
         }
       }
     },
+    "Nothing waiting" : {
+      "comment" : "Sync details → Engine → Scoring: no upload is waiting to be scored.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nichts ausstehend"
+          }
+        }
+      }
+    },
     "Off" : {
       "localizations" : {
         "de" : {
@@ -2413,6 +2435,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bestform"
+          }
+        }
+      }
+    },
+    "Pending: %@" : {
+      "comment" : "Sync details → Engine → Scoring: the days the platform still lists as pending (yyyy-MM-dd, comma-separated).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausstehend: %@"
           }
         }
       }
@@ -3505,6 +3538,17 @@
         }
       }
     },
+    "Still scoring your night" : {
+      "comment" : "Pending gauge title when scoring takes longer than usual (the status line says 'Taking longer than usual').",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Nacht wird noch bewertet"
+          }
+        }
+      }
+    },
     "Stop" : {
       "localizations" : {
         "de" : {
@@ -3581,6 +3625,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Synchronisiert · %@"
+          }
+        }
+      }
+    },
+    "Taking longer than usual" : {
+      "comment" : "Pending gauge title (and VoiceOver announcement) when scoring takes longer than usual.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dauert länger als üblich"
+          }
+        }
+      }
+    },
+    "Taking longer than usual · Details" : {
+      "comment" : "Today's status line when scoring takes over 3× the usual time; tapping opens Sync details.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dauert länger als üblich · Details"
           }
         }
       }
@@ -4056,6 +4122,17 @@
         }
       }
     },
+    "Waiting since %@ · usually %lld s" : {
+      "comment" : "Sync details → Engine → Scoring: when scoring began and the platform's usual time in seconds.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wartet seit %1$@ · meist %2$lld s"
+          }
+        }
+      }
+    },
     "Wake %@ · need %@" : {
       "localizations" : {
         "de" : {
@@ -4435,6 +4512,17 @@
         }
       }
     },
+    "Your data is safe. RYFT will keep trying." : {
+      "comment" : "Pending gauge line when scoring takes longer than usual.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Daten sind sicher. RYFT versucht es weiter."
+          }
+        }
+      }
+    },
     "Your health data, your consent" : {
       "localizations" : {
         "de" : {
@@ -4451,6 +4539,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dein Verlauf ist unterwegs."
+          }
+        }
+      }
+    },
+    "Your night hasn't reached Apple Health yet." : {
+      "comment" : "Today's morning hint when the quiet source isn't a known tracker.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Nacht ist noch nicht in Apple Health angekommen."
+          }
+        }
+      }
+    },
+    "Your night hasn't reached Apple Health yet. Keep your Apple Watch near your iPhone so it syncs." : {
+      "comment" : "Today's morning hint when the quiet source is an Apple Watch. German: a soft hyphen in “synchronisieren” keeps the full stop off a line of its own at accessibility sizes.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Nacht ist noch nicht in Apple Health angekommen. Halte deine Apple Watch in der Nähe deines iPhones, damit sie synchroni­siert."
+          }
+        }
+      }
+    },
+    "Your night hasn't reached Apple Health yet. Open %@ to sync it." : {
+      "comment" : "Today's morning hint: the tracker's app (e.g. Garmin Connect) hasn't sent last night to Apple Health yet. German: a soft hyphen in “synchronisieren” keeps the full stop off a line of its own at accessibility sizes.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Nacht ist noch nicht in Apple Health angekommen. Öffne %@, um sie zu synchroni­sieren."
           }
         }
       }

@@ -827,6 +827,46 @@ struct RawHealthTests {
         #expect(SourceFreshness(source: "Garmin Connect", bundleID: "com.garmin.connect.mobile", newest: t).isApp)
         #expect(!SourceFreshness(source: "Apple Watch", bundleID: "com.apple.health.4B1C", newest: t).isApp)
     }
+
+    @Test func eachSourceCountsItsNewerOfHeartRateAndSleep() {
+        let garminHR = SourceFreshness(source: "Connect", bundleID: "com.garmin.connect.mobile", newest: t)
+        let garminSleep = SourceFreshness(source: "Connect", bundleID: "com.garmin.connect.mobile", newest: t.addingTimeInterval(3_600))
+        let watchHR = SourceFreshness(source: "Tim's Apple Watch", bundleID: "com.apple.health.4B1C", newest: t.addingTimeInterval(600),
+                                      deviceModel: "Watch")
+        let watchSleep = SourceFreshness(source: "Tim's Apple Watch", bundleID: "com.apple.health.4B1C", newest: t)
+        // The iPhone writes no heart rate, only its sleep schedule's in-bed time.
+        let phoneSleep = SourceFreshness(source: "Tim's iPhone", bundleID: "com.apple.health.3F0A", newest: t.addingTimeInterval(7_200),
+                                         deviceModel: "iPhone")
+        let merged = SourceFreshness.newestPerSource([[garminHR, watchHR], [garminSleep, watchSleep, phoneSleep]])
+        #expect(merged.map(\.source) == ["Connect", "Tim's Apple Watch", "Tim's iPhone"])
+        #expect(merged[0].newest == garminSleep.newest) // sleep is newer: an app that only wrote the night counts
+        #expect(merged[1].newest == watchHR.newest && merged[1].deviceModel == "Watch") // the model from either
+        #expect(merged[2].isPhone && !merged[1].isPhone && !merged[0].isPhone)
+        // Sources without a bundle ID stay apart by name.
+        let a = SourceFreshness(source: "A", bundleID: nil, newest: t), b = SourceFreshness(source: "B", bundleID: nil, newest: t)
+        #expect(SourceFreshness.newestPerSource([[a], [b]]).count == 2)
+    }
+
+    @Test func theDeviceModelComesFromTheDeviceOrTheProductType() {
+        #expect(SourceRef.deviceModel(model: "Watch", productType: "Watch7,1") == "Watch")
+        #expect(SourceRef.deviceModel(model: nil, productType: "Watch7,1") == "Watch")
+        #expect(SourceRef.deviceModel(model: "", productType: "iPhone17,1") == "iPhone")
+        #expect(SourceRef.deviceModel(model: nil, productType: nil) == nil)
+        #expect(SourceRef.deviceModel(model: nil, productType: "7,1") == nil)
+        #expect(SourceFreshness(source: "x", bundleID: "com.apple.health.1", newest: t, deviceModel: "iPhone").ref
+                == SourceRef(name: "x", bundleID: "com.apple.health.1", deviceModel: "iPhone"))
+    }
+
+    @Test func lastNightKeepsItsSourcesBundleID() throws {
+        func segment(_ from: Double, _ to: Double, _ source: String, _ bundle: String?) -> SleepSegment {
+            SleepSegment(start: t.addingTimeInterval(from * 60), end: t.addingTimeInterval(to * 60), stage: .core, source: source,
+                         sourceBundleId: bundle)
+        }
+        let night = try #require(RawNight.from([segment(0, 400, "Connect", "com.garmin.connect.mobile"),
+                                                segment(10, 100, "Tim's iPhone", "com.apple.health.3F0A")]))
+        #expect(night.source == "Connect" && night.bundleID == "com.garmin.connect.mobile")
+        #expect(night.ref == SourceRef(name: "Connect", bundleID: "com.garmin.connect.mobile", deviceModel: nil))
+    }
 }
 
 // MARK: - Report a problem
