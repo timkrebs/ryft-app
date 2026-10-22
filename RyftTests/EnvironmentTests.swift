@@ -857,6 +857,8 @@ private final class LateReplyURLProtocol: URLProtocol {
     nonisolated(unsafe) private static var counts: [String: Int] = [:]
     /// Requests that reached the network for `path`.
     static func attempts(_ path: String) -> Int { lock.withLock { counts[path] ?? 0 } }
+    /// A test that's retried in the same process starts from zero again.
+    static func reset(_ path: String) { lock.withLock { counts[path] = nil } }
 
     override func startLoading() {
         let path = request.url?.path ?? ""
@@ -1357,6 +1359,7 @@ struct ReportProblemTests {
     /// A request of the previous account's waiting out a 503 across an account change never goes out again:
     /// no second attempt (A's body with B's token), and no "RYFT is catching up" left on screen.
     @Test(.timeLimit(.minutes(1))) func aRetryNeverOutlivesItsAccount() async {
+        LateReplyURLProtocol.reset("/v1/busy-account")
         let clock = TestClock()
         let status = APIStatus()
         let config = URLSessionConfiguration.ephemeral
@@ -1387,6 +1390,7 @@ struct ReportProblemTests {
 
     /// A 503 wait that ends in a throw (its task cancelled) takes "RYFT is catching up" with it.
     @Test(.timeLimit(.minutes(1))) func aCancelledWaitClearsTheNotice() async {
+        LateReplyURLProtocol.reset("/v1/busy-cancelled")
         let status = APIStatus()
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [LateReplyURLProtocol.self]
