@@ -62,6 +62,9 @@ Store "What's New".
   "Sync last 3 days again" and "Copy diagnostics" for support.
 
 ### Fixed
+- Today names your tracker's app as you know it ("Garmin Connect", not Apple Health's "Connect"). In
+  the morning it says when your night hasn't reached Apple Health yet, with the app to open, instead
+  of "Scoring your latest data"; scoring that takes longer than usual says so, with Details.
 - Refreshing no longer shows an error when one part of your data is briefly unavailable: each
   part loads on its own, short outages are retried quietly, and Today says how old its data is
   ("Showing data from 14:05") only when it stays out of date.
