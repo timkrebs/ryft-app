@@ -21,8 +21,10 @@ final class RefreshResilienceUITests: XCTestCase {
         app.descendants(matching: .any)[id]
     }
 
-    /// The status line is one button; its label is the line's text.
-    private func line(_ app: XCUIApplication) -> XCUIElement { app.buttons["today.syncLine"] }
+    /// The status line's button (inside the `today.syncLine` container); its label is the line's text.
+    private func line(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'today.syncLine.'")).firstMatch
+    }
 
     private func pullToRefresh(_ app: XCUIApplication) {
         let scroll = app.scrollViews.firstMatch
@@ -71,20 +73,19 @@ final class RefreshResilienceUITests: XCTestCase {
         let app = launch(fault: "/v1/days/today=503,/v1/days=503")
         let card = element(app, "today.refreshIssue")
 
-        // The line's own identifier wins over the `.issue` case's inner one, so it is found by its text.
-        let issueLine = line(app)
-        wait(for: "label BEGINSWITH \"Couldn't load today\"", on: issueLine, timeout: 20, "the line points to the card")
+        // The line and the card are containers: their buttons keep their own identifiers.
+        let issueLine = app.buttons["today.syncLine.issue"]
+        XCTAssertTrue(issueLine.waitForExistence(timeout: 20), "the line points to the card")
+        wait(for: "label BEGINSWITH \"Couldn't load today\"", on: issueLine, timeout: 5, "the line's words")
 
         XCTAssertTrue(issueLine.label.contains("Details"), issueLine.label)
 
         // The card is last on Today: below the fold until the line is tapped.
         issueLine.tap()
         XCTAssertTrue(card.waitForExistence(timeout: 5), "the card")
-        // The card's identifier replaces its children's (`refreshIssue.details` is not exposed), so its
-        // buttons are "today.refreshIssue" in order: Try again, Details.
-        let cardButtons = app.buttons.matching(identifier: "today.refreshIssue")
-        XCTAssertEqual(cardButtons.count, 2, "Try again and Details")
-        let details = cardButtons.element(boundBy: 1)
+        // Try again and Details are separate buttons (what VoiceOver reaches too).
+        XCTAssertTrue(app.buttons["refreshIssue.retry"].exists, "Try again")
+        let details = app.buttons["refreshIssue.details"]
         wait(for: "isHittable == true", on: details, timeout: 5, "the card scrolled into view")
 
         details.tap()

@@ -2833,6 +2833,17 @@
         }
       }
     },
+    "You're signed out · Details" : {
+      "comment" : "Today's status line while the signed-out card is shown (last on Today); tapping scrolls to the card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du bist abgemeldet · Details"
+          }
+        }
+      }
+    },
     "You're signed out, so new data can't load." : {
       "localizations" : {
         "de" : {

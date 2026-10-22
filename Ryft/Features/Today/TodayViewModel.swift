@@ -158,7 +158,11 @@ final class TodayViewModel {
     var hero: TodayHero { TodayStates.hero(facts) }
     /// The import's slim row under the header, once a day is scored and the backfill goes on.
     var importRow: ImportProgress? { TodayStates.importRow(facts) }
-    var syncLine: SyncLine { TodayStates.line(facts, staleSince: state.staleSince, card: refreshIssueResource) }
+    var syncLine: SyncLine {
+        var signedOut = false
+        if case .refreshIssue(let issue) = status { signedOut = issue.reason == .signedOut }
+        return TodayStates.line(facts, staleSince: state.staleSince, card: refreshIssueResource, signedOut: signedOut)
+    }
     var watchHint: WatchSyncHint? { TodayStates.watchHint(facts) }
     /// Last night from Apple Health beside the pending gauge (raw totals, not a score).
     var rawNight: RawNight? {
@@ -355,12 +359,11 @@ enum SyncLine: Equatable {
     case scoring(night: Bool)
     case updating
     /// Idle, and what's on screen is older than its threshold after a refresh that didn't succeed
-    /// (`RefreshPolicy.staleSince`): "Showing data from 14:05 · Try again". `offersRetry` is false
-    /// while the error card (which has its own Try again) is on screen.
-    case stale(since: Date, offersRetry: Bool)
+    /// (`RefreshPolicy.staleSince`): "Showing data from 14:05 · Try again".
+    case stale(since: Date)
     /// The error card is on screen, last on Today: "Couldn't load today · Details" points to it
-    /// (tapping scrolls there).
-    case issue(ReadResource)
+    /// (tapping scrolls there); "You're signed out · Details" when that's the card's reason.
+    case issue(ReadResource, signedOut: Bool = false)
     /// The upload failed; the message under the cards says why.
     case paused
     case upToDate(Date?, demo: Bool)
@@ -400,9 +403,10 @@ enum SyncLine: Equatable {
         case .scoring(night: true): return String(localized: "Scoring your night")
         case .scoring(night: false): return String(localized: "Scoring your latest data")
         case .updating: return String(localized: "Updating…")
-        case .stale(let since, _): return String(localized: "Showing data from \(Self.dataTime(since, now: now))")
-        case .issue(.today): return String(localized: "Couldn't load today · Details")
-        case .issue(.history): return String(localized: "Couldn't load your history · Details")
+        case .stale(let since): return String(localized: "Showing data from \(Self.dataTime(since, now: now))")
+        case .issue(_, signedOut: true): return String(localized: "You're signed out · Details")
+        case .issue(.today, _): return String(localized: "Couldn't load today · Details")
+        case .issue(.history, _): return String(localized: "Couldn't load your history · Details")
         case .issue: return String(localized: "Couldn't load your data · Details")
         case .paused: return String(localized: "Health sync paused")
         case .upToDate(let date, let demo):
@@ -510,7 +514,8 @@ enum TodayStates {
     /// What the line says, most urgent first: the user's to do, then why nothing moves,
     /// then what moves, then how fresh it is. `staleSince` (`RefreshPolicy`) only shows when
     /// idle; while the error card is on screen (`card`), the line points to it instead.
-    static func line(_ f: TodaySyncFacts, staleSince: Date? = nil, card: ReadResource? = nil) -> SyncLine {
+    static func line(_ f: TodaySyncFacts, staleSince: Date? = nil, card: ReadResource? = nil,
+                     signedOut: Bool = false) -> SyncLine {
         if let gate = f.gate { return .actionNeeded(gate) }
         if !f.online { return .offline }
         if f.waitingForUnlock { return .waitingForUnlock }
@@ -523,8 +528,8 @@ enum TodayStates {
         if case .pending = hero(f) { night = true } else { night = false }
         if f.phase == .awaitingScores { return .scoring(night: night) }
         if f.phase == .refreshing || f.isLoading { return .updating }
-        if let card { return .issue(card) }
-        if let since = staleSince { return .stale(since: since, offersRetry: true) }
+        if let card { return .issue(card, signedOut: signedOut) }
+        if let since = staleSince { return .stale(since: since) }
         if f.syncFailed { return .paused }
         if case .pending(let p) = hero(f), !p.waitingForSleep { return .scoring(night: true) }
         return .upToDate(f.lastUpdated, demo: f.isDemo)

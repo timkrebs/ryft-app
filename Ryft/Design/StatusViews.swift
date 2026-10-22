@@ -40,6 +40,8 @@ struct InlineMessage: View {
     var isRetrying = false
     /// "Details" opens something (a sheet) instead of the inline toggle.
     var onDetails: (() -> Void)? = nil
+    /// Prefix of the buttons' identifiers: "<prefix>.retry", "<prefix>.details".
+    var identifier = "inlineMessage"
 
     @State private var retrying = false
     @State private var showDetails = false
@@ -116,6 +118,7 @@ struct InlineMessage: View {
                 .contentShape(Rectangle())
                 .buttonStyle(.plain)
                 .disabled(retrying || isRetrying)
+                .accessibilityIdentifier("\(identifier).retry")
             }
             if let onDetails {
                 Button("Details", action: onDetails)
@@ -125,7 +128,7 @@ struct InlineMessage: View {
                     .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil, alignment: .leading)
                     .contentShape(Rectangle())
                     .buttonStyle(.plain)
-                    .accessibilityIdentifier("refreshIssue.details")
+                    .accessibilityIdentifier("\(identifier).details")
             } else if details != nil {
                 Button(showDetails ? "Hide details" : "Details") { showDetails.toggle() }
                     .font(.ryft(.callout))
@@ -197,6 +200,8 @@ struct SyncStatusLineView: View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
             content(now: context.date)
         }
+        // A container: VoiceOver (and UI tests) reach the line and its "Try again" as separate buttons.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("today.syncLine")
         .onChange(of: line) { old, new in announce(old, new) }
         .task(id: line) { await show(line) }
@@ -233,12 +238,13 @@ struct SyncStatusLineView: View {
             } else {
                 label(now: now).foregroundStyle(Theme.accent)
             }
-        case .stale(_, let offersRetry):
+        case .stale:
             let layout = typeSize.isAccessibilitySize
                 ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 6))
             layout {
                 tappable(now: now, hint: "Opens sync details")
-                if offersRetry, let retry {
+                    .accessibilityIdentifier("today.syncLine.line")
+                if let retry {
                     if !typeSize.isAccessibilitySize {
                         Text(verbatim: "·").font(.ryft(.caption)).foregroundStyle(Theme.textTertiary)
                             .accessibilityHidden(true)
@@ -267,6 +273,7 @@ struct SyncStatusLineView: View {
                 .accessibilityIdentifier("today.syncLine.issue")
         default:
             tappable(now: now, hint: "Opens sync details")
+                .accessibilityIdentifier("today.syncLine.line")
         }
     }
 
@@ -379,8 +386,10 @@ struct RefreshIssueCard: View {
         InlineMessage(message: issue.reason.message, systemImage: issue.reason.systemImage,
                       retryTitle: issue.reason == .signedOut ? "Sign in" : "Try again",
                       retry: action, caption: age, retryingTitle: "Trying again…", isRetrying: isRetrying,
-                      onDetails: { showsDetails = true })
+                      onDetails: { showsDetails = true }, identifier: "refreshIssue")
             .sheet(isPresented: $showsDetails) { RefreshDetailsSheet(issue: issue) }
+            // A container: Try again (or Sign in) and Details stay separate buttons for VoiceOver.
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("today.refreshIssue")
     }
 
@@ -711,7 +720,7 @@ private struct SetupStep: View {
         VStack(spacing: 12) {
             SyncStatusLineView(line: .uploading(records: 12_400))
             SyncStatusLineView(line: .actionNeeded(.invite)) {}
-            SyncStatusLineView(line: .stale(since: PreviewIssue.at(14, 5), offersRetry: true), action: {}, retry: {})
+            SyncStatusLineView(line: .stale(since: PreviewIssue.at(14, 5)), action: {}, retry: {})
         }
     }
     .environment(\.locale, Locale(identifier: "de"))
@@ -720,10 +729,11 @@ private struct SetupStep: View {
 #Preview("Sync status line · stale", traits: .sizeThatFitsLayout) {
     SchemePair {
         VStack(spacing: 12) {
-            SyncStatusLineView(line: .stale(since: PreviewIssue.at(14, 5), offersRetry: true), action: {}, retry: {})
-            SyncStatusLineView(line: .stale(since: PreviewIssue.at(22, 10, daysAgo: 1), offersRetry: true),
+            SyncStatusLineView(line: .stale(since: PreviewIssue.at(14, 5)), action: {}, retry: {})
+            SyncStatusLineView(line: .stale(since: PreviewIssue.at(22, 10, daysAgo: 1)),
                                action: {}, retry: {})
-            SyncStatusLineView(line: .stale(since: PreviewIssue.at(14, 5), offersRetry: false), action: {}, retry: {})
+            SyncStatusLineView(line: .issue(.today), action: {})
+            SyncStatusLineView(line: .issue(.me, signedOut: true), action: {})
             SyncStatusLineView(line: .reading(.sleep), action: {})
         }
     }
@@ -732,7 +742,7 @@ private struct SetupStep: View {
 #Preview("Sync status line · stale · AX3", traits: .sizeThatFitsLayout) {
     SchemePair {
         VStack(spacing: 12) {
-            SyncStatusLineView(line: .stale(since: PreviewIssue.at(14, 5), offersRetry: true), action: {}, retry: {})
+            SyncStatusLineView(line: .stale(since: PreviewIssue.at(14, 5)), action: {}, retry: {})
             // The longest up-to-date line (demo prefix) wraps instead of truncating.
             SyncStatusLineView(line: .upToDate(.now, demo: true), action: {})
         }
