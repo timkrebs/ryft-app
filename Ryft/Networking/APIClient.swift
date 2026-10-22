@@ -163,24 +163,35 @@ struct RetryPolicy: Equatable, Sendable {
     var base: Duration
     var maxBackoff: Duration
     var retryAfterCap: Duration
+    /// Whether a request that timed out is tried again: not in the background, where the system's
+    /// time is short (a timeout already took most of it).
+    var retriesTimeouts = true
 
     /// Someone watching: two retries, waits of 0–1 s and 0–2 s, `Retry-After` up to 5 s.
     static let foreground = RetryPolicy(maxRetries: 2, base: .seconds(1), maxBackoff: .seconds(4),
                                         retryAfterCap: .seconds(5))
-    /// The system woke the app: one retry, `Retry-After` up to 2 s.
+    /// The system woke the app: one retry (not after a timeout), `Retry-After` up to 2 s.
     static let background = RetryPolicy(maxRetries: 1, base: .seconds(1), maxBackoff: .seconds(2),
-                                        retryAfterCap: .seconds(2))
+                                        retryAfterCap: .seconds(2), retriesTimeouts: false)
 
     /// Wait before retry `attempt` (1-based), or nil: don't retry (not transient, out of retries,
     /// or a `Retry-After` beyond the cap).
     func delay(before attempt: Int, after error: Error, random: (ClosedRange<Double>) -> Double) -> Duration? {
         guard attempt >= 1, attempt <= maxRetries, FailureKind.of(error) == .transient else { return nil }
+        if !retriesTimeouts, Self.isTimeout(error) { return nil }
         let ceiling = min(maxBackoff, base * (1 << min(attempt - 1, 16)))
         let jitter = Duration.seconds(random(0...ceiling.timeInterval))
         guard let seconds = Self.retryAfter(error) else { return jitter }
         let retryAfter = Duration.seconds(seconds)
         guard retryAfter <= retryAfterCap else { return nil }
         return max(retryAfter, jitter)
+    }
+
+    /// No answer in time (`URLError.timedOut`, also wrapped in `APIError.transport`).
+    static func isTimeout(_ error: Error) -> Bool {
+        if let url = error as? URLError { return url.code == .timedOut }
+        if case .transport(let inner)? = error as? APIError { return (inner as? URLError)?.code == .timedOut }
+        return false
     }
 
     /// The error's `Retry-After`; a `429` without one counts as 1 s.

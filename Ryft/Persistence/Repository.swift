@@ -949,6 +949,8 @@ final class ReadScheduler {
     func run<T: Sendable>(_ key: ReadKey, mode: ReadMode = .latest, userInitiated: Bool = false,
                           store: (@MainActor (T) -> Void)? = nil,
                           _ fetch: @escaping @MainActor () async throws -> T) async throws -> T? {
+        // Cancelled already (a screen that went away, a deadline that passed): no flight for it.
+        try Task.checkCancellation()
         guard let outcome = enter(key, mode: mode, userInitiated: userInitiated, store: Self.erase(store), fetch) else {
             return nil
         }
@@ -1091,7 +1093,15 @@ final class ReadScheduler {
             let queued = signposts.beginInterval("budget", id: signposts.makeSignpostID(),
                                                  "\(key.resource.rawValue, privacy: .public)")
             do {
-                try await budget.acquire(key.resource.priority)
+                try await budget.acquire(key.resource.priority, maxHold: policy.retryAfterCap)
+            } catch let held as RequestBudget.HeldBack {
+                signposts.endInterval("budget", queued)
+                guard env?.auth.accountID == account, !Task.isCancelled else { throw CancellationError() }
+                // The rate limit holds every start back longer than this read may wait: it fails as the
+                // 429 behind the hold would (the busy card, `retryNotBefore` for automatic reads).
+                let error = APIError.http(429, "", retryAfter: held.seconds)
+                failed(key.resource, error, kind: .transient, attempts: attempt + 1, cap: policy.retryAfterCap)
+                throw error
             } catch {
                 signposts.endInterval("budget", queued)
                 throw error
@@ -1106,7 +1116,13 @@ final class ReadScheduler {
                 outcome = .failure(error)
             }
             signposts.endInterval("fetch", request)
-            await budget.release()
+            // The rate limits are per user and per IP, not per resource: a 429 holds every start back,
+            // set together with this slot's release so a parked read can't slip through.
+            var holdBack: Int?
+            if case .failure(let error) = outcome, (error as? APIError)?.status == 429 {
+                holdBack = RetryPolicy.retryAfter(error) ?? 1
+            }
+            await budget.release(holdBack: holdBack)
             // Signed out or another account meanwhile: the answer isn't theirs, and neither is its outcome.
             // Stopped by `cancelAll()` (a reset): nothing is recorded or stored.
             guard env?.auth.accountID == account, !Task.isCancelled else { throw CancellationError() }
@@ -1117,8 +1133,6 @@ final class ReadScheduler {
             case .failure(let error):
                 let kind = FailureKind.of(error)
                 if kind == .cancelled || Task.isCancelled { throw CancellationError() }
-                // The rate limits are per user and per IP, not per resource: every read waits.
-                if (error as? APIError)?.status == 429 { await budget.holdBack(seconds: RetryPolicy.retryAfter(error) ?? 1) }
                 attempt += 1
                 if let wait = policy.delay(before: attempt, after: error, random: random) {
                     // The slot is free while waiting; the retry takes a new one.

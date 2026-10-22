@@ -138,9 +138,16 @@ actor RequestBudget {
     /// Requests waiting for a slot (tests).
     var waiting: Int { queue.count }
 
+    /// The rate-limit hold has `seconds` left, longer than the read may wait (`maxHold`).
+    struct HeldBack: Error, Equatable {
+        let seconds: Int
+    }
+
     /// Returns once this read may start; throws `CancellationError` if its task is cancelled while
-    /// waiting (it leaves the queue). Every successful `acquire` needs one `release`.
-    func acquire(_ priority: Priority) async throws {
+    /// waiting (it leaves the queue), or `HeldBack` when the rate-limit hold has longer left than
+    /// `maxHold` (the read fails at once instead of waiting under "Updating…"). Every successful
+    /// `acquire` needs one `release`.
+    func acquire(_ priority: Priority, maxHold: Duration? = nil) async throws {
         let ticket = Ticket(id: UUID(), priority: priority, order: nextOrder)
         nextOrder += 1
         let at = queue.firstIndex { $0.priority > priority } ?? queue.endIndex
@@ -159,6 +166,7 @@ actor RequestBudget {
             let now = clock.now()
             if let notBefore, now < notBefore {
                 let wait = notBefore.timeIntervalSince(now)
+                if let maxHold, wait > maxHold.timeInterval { throw HeldBack(seconds: Int(wait.rounded(.up))) }
                 try await clock.sleep(for: .milliseconds(max(1, Int((wait * 1000).rounded(.up)))))
                 continue
             }
@@ -175,7 +183,10 @@ actor RequestBudget {
         }
     }
 
-    func release() {
+    /// A try ended: its slot goes back. After a `429` (`holdBack` seconds) every new start is held
+    /// back first, in the same step, so no read parked behind this one slips through.
+    func release(holdBack seconds: Int? = nil) {
+        if let seconds { holdBack(seconds: seconds) }
         inFlight = max(0, inFlight - 1)
         wakeAll()
     }
