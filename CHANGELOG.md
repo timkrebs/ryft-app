@@ -42,6 +42,9 @@ Store "What's New".
   device, the last requests, per-area load times and request durations, and the sync status, never
   health values). Saved and sent later when you're offline.
 - From Today's error card, Details → Send to RYFT opens Report a problem with what failed.
+- Check sync shows whether your tracker's data arrives in Apple Health, signal by signal over the last 48
+  hours: what arrived and when, what your tracker doesn't share (that's normal), and the fix for what should
+  arrive and doesn't. It reads Apple Health on your iPhone and uploads nothing. Behind the `devices.setup` flag.
 
 ### Changed
 - Your baseline sleep need and maximum heart rate can be changed where you see them: in

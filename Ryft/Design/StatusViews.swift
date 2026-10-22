@@ -641,6 +641,125 @@ struct DayMarker: View {
     }
 }
 
+/// One signal in Check sync (ui.md §5.2): glyph, name and result, every state with its own symbol and words,
+/// never colour alone. Not tappable. At accessibility sizes the result goes under the name.
+struct CheckRow: View {
+    enum Kind: Equatable {
+        case waiting, checking
+        /// Arrived: the one accent.
+        case ok
+        /// Not shared by the tracker: a neutral fact, never red or amber.
+        case expected
+        /// Not seen yet, or from another tracker: nothing promised.
+        case neutral
+        /// A nightly signal last seen before last night.
+        case late
+        /// Should arrive and doesn't: amber, with the fix under it.
+        case fix
+
+        var symbol: String {
+            switch self {
+            case .waiting: return "circle"
+            case .checking: return "circle.dotted"
+            case .ok: return "checkmark.circle.fill"
+            case .expected: return "minus.circle"
+            case .neutral: return "circle.dashed"
+            case .late: return "clock"
+            case .fix: return "exclamationmark.circle"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .ok: return Theme.accent
+            case .fix: return Theme.warning
+            case .checking, .late: return Theme.textSecondary
+            case .waiting, .expected, .neutral: return Theme.textTertiary
+            }
+        }
+    }
+
+    let name: String
+    let result: String
+    let kind: Kind
+    /// VoiceOver's value ("Arriving, last 07:42"); the result when nil.
+    var spoken: String?
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: kind.symbol)
+                .font(.system(size: 17, weight: .regular))
+                .foregroundStyle(kind.color)
+                .frame(width: 24)
+                // The status line's pulse while checking; static under Reduce Motion ("checking…" says it).
+                .symbolEffect(.pulse, options: .repeating, isActive: kind == .checking && !reduceMotion)
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 2) {
+                    nameText
+                    resultText
+                }
+            } else {
+                nameText
+                Spacer(minLength: 8)
+                resultText.multilineTextAlignment(.trailing)
+            }
+        }
+        .frame(minHeight: 44)
+        .animation(Theme.Motion.respecting(reduceMotion), value: kind)
+        .animation(Theme.Motion.respecting(reduceMotion), value: result)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: name))
+        .accessibilityValue(Text(verbatim: spoken ?? result))
+    }
+
+    private var nameText: some View {
+        Text(verbatim: name)
+            .font(.ryft(.callout))
+            .foregroundStyle(Theme.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var resultText: some View {
+        Text(verbatim: result)
+            .font(.ryft(.callout))
+            .monospacedDigit()
+            .foregroundStyle(Theme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .contentTransition(.opacity)
+    }
+}
+
+#Preview("Check row · states", traits: .sizeThatFitsLayout) {
+    SchemePair { CheckRowPreview() }
+}
+
+#Preview("Check row · de · AX3", traits: .sizeThatFitsLayout) {
+    CheckRowPreview()
+        .padding(20)
+        .frame(width: 390)
+        .background(Theme.background)
+        .environment(\.locale, Locale(identifier: "de"))
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+private struct CheckRowPreview: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            CheckRow(name: "Heart rate", result: "last 07:42", kind: .ok)
+            CheckRow(name: "HRV", result: "Not shared by Garmin Connect", kind: .expected)
+            CheckRow(name: "Sleep", result: "last night", kind: .ok)
+            CheckRow(name: "Sleep stages", result: "not seen yet", kind: .neutral)
+            CheckRow(name: "Resting heart rate", result: "should arrive, nothing yet", kind: .fix)
+            CheckRow(name: "Breathing rate", result: "Yesterday 23:24", kind: .late)
+            CheckRow(name: "Workouts", result: "checking…", kind: .checking)
+            CheckRow(name: "Steps", result: "waiting…", kind: .waiting)
+        }
+    }
+}
+
 /// Setup card for the unconfigured state.
 struct SetupCard: View {
     var action: () -> Void

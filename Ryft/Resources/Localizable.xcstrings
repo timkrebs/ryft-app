@@ -113,6 +113,16 @@
         }
       }
     },
+    "%@, expected" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, erwartet"
+          }
+        }
+      }
+    },
     "%@: %@" : {
       "localizations" : {
         "de" : {
@@ -223,6 +233,46 @@
         }
       }
     },
+    "%lld need a fix." : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld needs a fix."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld need a fix."
+                }
+              }
+            }
+          }
+        },
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld braucht eine Korrektur."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld brauchen eine Korrektur."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld nights" : {
       "localizations" : {
         "de" : {
@@ -269,6 +319,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld von %2$lld Tagen"
+          }
+        }
+      }
+    },
+    "%lld of %lld expected signals are arriving." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %2$lld erwarteten Signalen kommen an."
           }
         }
       }
@@ -640,6 +700,36 @@
         }
       }
     },
+    "Apple Health couldn't be read this time. Tap Check again." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Health konnte diesmal nicht gelesen werden. Tippe auf „Erneut prüfen“."
+          }
+        }
+      }
+    },
+    "Apple Health isn't available on this device." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Health ist auf diesem Gerät nicht verfügbar."
+          }
+        }
+      }
+    },
+    "Arriving, %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kommt an, %@"
+          }
+        }
+      }
+    },
     "asleep" : {
       "localizations" : {
         "de" : {
@@ -802,6 +892,26 @@
         }
       }
     },
+    "Breathing rate" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atemfrequenz"
+          }
+        }
+      }
+    },
+    "breathing rate" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atemfrequenz"
+          }
+        }
+      }
+    },
     "Change baseline" : {
       "localizations" : {
         "de" : {
@@ -818,6 +928,76 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eine Änderung bewertet vergangene Tage nicht von selbst neu."
+          }
+        }
+      }
+    },
+    "Check again" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erneut prüfen"
+          }
+        }
+      }
+    },
+    "Check finished." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prüfung beendet."
+          }
+        }
+      }
+    },
+    "Check sync" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync prüfen"
+          }
+        }
+      }
+    },
+    "Checking" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prüft"
+          }
+        }
+      }
+    },
+    "Checking Apple Health…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Health wird geprüft …"
+          }
+        }
+      }
+    },
+    "Checking…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prüft …"
+          }
+        }
+      }
+    },
+    "checking…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "prüft …"
           }
         }
       }
@@ -1135,6 +1315,16 @@
         }
       }
     },
+    "Even your iPhone's steps aren't arriving, so RYFT may not be allowed to read Health." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht einmal die Schritte deines iPhones kommen an. RYFT darf Health womöglich nicht lesen."
+          }
+        }
+      }
+    },
     "Export my data first" : {
       "localizations" : {
         "de" : {
@@ -1185,6 +1375,16 @@
         }
       }
     },
+    "For Health data, iOS only tells RYFT what it may read, not what it may not. So “nothing yet” can mean no data, or that RYFT isn't allowed to read it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bei Health-Daten sagt iOS RYFT nur, was gelesen werden darf, nicht was nicht. „Noch nichts“ kann also heißen: keine Daten, oder RYFT darf sie nicht lesen."
+          }
+        }
+      }
+    },
     "From %@" : {
       "comment" : "VoiceOver, after the readiness gauge in row D: the day the readiness is from, e.g. Tuesday, 20 October.",
       "localizations" : {
@@ -1196,12 +1396,32 @@
         }
       }
     },
+    "from %@ instead" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "stattdessen von %@"
+          }
+        }
+      }
+    },
     "From Apple Health · not scored yet" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aus Apple Health · noch nicht bewertet"
+          }
+        }
+      }
+    },
+    "From apps RYFT doesn't know yet:" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Von Apps, die RYFT noch nicht kennt:"
           }
         }
       }
@@ -1336,6 +1556,16 @@
         }
       }
     },
+    "If it still shows nothing after it has synced, the Apple Health permission is the usual cause." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt sich auch nach dem Sync nichts, liegt es meist an der Apple-Health-Berechtigung."
+          }
+        }
+      }
+    },
     "Import not finished" : {
       "localizations" : {
         "de" : {
@@ -1456,6 +1686,46 @@
         }
       }
     },
+    "last %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "zuletzt %@"
+          }
+        }
+      }
+    },
+    "last night" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "letzte Nacht"
+          }
+        }
+      }
+    },
+    "Last night hasn't reached Apple Health yet." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die letzte Nacht ist noch nicht in Apple Health angekommen."
+          }
+        }
+      }
+    },
+    "Last night hasn't reached Apple Health yet. Open %@ to sync it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die letzte Nacht ist noch nicht in Apple Health angekommen. Öffne %@, um sie zu synchronisieren."
+          }
+        }
+      }
+    },
     "Last night hasn't reached RYFT yet." : {
       "localizations" : {
         "de" : {
@@ -1536,12 +1806,42 @@
         }
       }
     },
+    "Looks at the last 48 hours in Apple Health. Nothing is uploaded." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sieht sich die letzten 48 Stunden in Apple Health an. Es wird nichts hochgeladen."
+          }
+        }
+      }
+    },
     "Maximum heart rate" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Maximale Herzfrequenz"
+          }
+        }
+      }
+    },
+    "No data from %@ yet. Open %@ and let it sync, then tap Check again." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch keine Daten von %1$@. Öffne %2$@ und lass es synchronisieren, dann tippe auf „Erneut prüfen“."
+          }
+        }
+      }
+    },
+    "No data from your tracker's app yet. Open it and let it sync, then tap Check again." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch keine Daten von der App deines Trackers. Öffne sie und lass sie synchronisieren, dann tippe auf „Erneut prüfen“."
           }
         }
       }
@@ -1636,6 +1936,16 @@
         }
       }
     },
+    "not available from an iPhone" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "vom iPhone nicht verfügbar"
+          }
+        }
+      }
+    },
     "Not given" : {
       "localizations" : {
         "de" : {
@@ -1676,12 +1986,62 @@
         }
       }
     },
+    "Not seen yet" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch nicht gesehen"
+          }
+        }
+      }
+    },
+    "not seen yet" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "noch nicht gesehen"
+          }
+        }
+      }
+    },
     "Not set" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nicht angegeben"
+          }
+        }
+      }
+    },
+    "Not shared" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird nicht geteilt"
+          }
+        }
+      }
+    },
+    "Not shared by %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird von %@ nicht geteilt"
+          }
+        }
+      }
+    },
+    "Not since last night, last seen %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seit letzter Nacht nichts, zuletzt %@"
           }
         }
       }
@@ -1796,6 +2156,16 @@
         }
       }
     },
+    "Open %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ öffnen"
+          }
+        }
+      }
+    },
     "Opens sync details" : {
       "localizations" : {
         "de" : {
@@ -1832,6 +2202,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Öffnet, was nötig ist"
+          }
+        }
+      }
+    },
+    "Other signals" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weitere Signale"
           }
         }
       }
@@ -2129,6 +2509,16 @@
         }
       }
     },
+    "Resting heart rate" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ruhepuls"
+          }
+        }
+      }
+    },
     "Resume workout" : {
       "localizations" : {
         "de" : {
@@ -2189,12 +2579,32 @@
         }
       }
     },
+    "RYFT can read %@, but none came from %@ in the last 2 days." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT kann %1$@ lesen, aber von %2$@ kam in den letzten 2 Tagen nichts."
+          }
+        }
+      }
+    },
     "RYFT can't be reached right now. Your connection looks fine, so this isn't on your side." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT ist gerade nicht erreichbar. Deine Verbindung scheint in Ordnung zu sein, es liegt also nicht an dir."
+          }
+        }
+      }
+    },
+    "RYFT can't read %@ data on iPhone today." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT kann Daten von %@ auf dem iPhone derzeit nicht lesen."
           }
         }
       }
@@ -2219,12 +2629,32 @@
         }
       }
     },
+    "RYFT doesn't see any %@ in Apple Health. Either RYFT isn't allowed to read it, or %@ isn't writing it." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT findet in Apple Health keine Daten für %1$@. Entweder darf RYFT sie nicht lesen, oder %2$@ schreibt sie nicht."
+          }
+        }
+      }
+    },
     "RYFT doesn't sync or score your health data until you agree." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT synchronisiert und bewertet deine Gesundheitsdaten erst nach deiner Zustimmung."
+          }
+        }
+      }
+    },
+    "RYFT hasn't asked for Health access yet." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT hat noch nicht um Zugriff auf Health gebeten."
           }
         }
       }
@@ -2490,6 +2920,46 @@
         }
       }
     },
+    "Several signals should arrive and don't. The cause is usually one permission in %@." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mehrere Signale sollten ankommen, tun es aber nicht. Meist liegt es an einer Berechtigung in %@."
+          }
+        }
+      }
+    },
+    "should arrive, nothing yet" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "sollte ankommen, bisher nichts"
+          }
+        }
+      }
+    },
+    "Should arrive, nothing yet. Fix available" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sollte ankommen, bisher nichts. Lösung verfügbar"
+          }
+        }
+      }
+    },
+    "Show details" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Details zeigen"
+          }
+        }
+      }
+    },
     "Showing data from" : {
       "localizations" : {
         "de" : {
@@ -2577,6 +3047,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schlaf"
+          }
+        }
+      }
+    },
+    "sleep stages" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlafphasen"
           }
         }
       }
@@ -2808,6 +3288,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Danke, deine Meldung ist bei RYFT angekommen."
+          }
+        }
+      }
+    },
+    "That's normal." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das ist normal."
           }
         }
       }
@@ -3070,6 +3560,16 @@
         }
       }
     },
+    "Unlock your iPhone to check: Apple Health can't be read while it's locked." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entsperre dein iPhone zum Prüfen: Solange es gesperrt ist, lässt sich Apple Health nicht lesen."
+          }
+        }
+      }
+    },
     "Up to date" : {
       "localizations" : {
         "de" : {
@@ -3200,6 +3700,16 @@
         }
       }
     },
+    "Waiting" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wartet"
+          }
+        }
+      }
+    },
     "Waiting for last night's sleep" : {
       "localizations" : {
         "de" : {
@@ -3216,6 +3726,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wartet, bis du dein iPhone entsperrst"
+          }
+        }
+      }
+    },
+    "waiting…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "wartet …"
           }
         }
       }
@@ -3549,6 +4069,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dein Verlauf ist unterwegs."
+          }
+        }
+      }
+    },
+    "Your last Check sync, if you ran one: its day, and per tracker and data type a result code" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein letztes „Sync prüfen“, falls du es genutzt hast: sein Tag und je Tracker und Datentyp ein Ergebniscode"
           }
         }
       }

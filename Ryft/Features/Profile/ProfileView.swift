@@ -1310,6 +1310,455 @@ private enum SyncDetailsPreview {
     ProfileView().previewEnvironment(scheme: .light)
 }
 
+// MARK: - check sync
+
+/// Check sync (ui.md §5): per selected tracker, what reached Apple Health in the last 48 hours, the expected gaps
+/// as plain facts, and the fix for an unexpected one. Pushed from Devices & sync, or inline in onboarding's setup
+/// step (`embedded`: no scroll view of its own, Check again under the cards). Runs on appearance.
+struct TrackerCheckView: View {
+    @State private var model: TrackerCheckModel
+    private let embedded: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.openURL) private var openURL
+
+    init(model: TrackerCheckModel, embedded: Bool = false) {
+        _model = State(initialValue: model)
+        self.embedded = embedded
+    }
+
+    var body: some View {
+        Group {
+            if embedded {
+                VStack(alignment: .leading, spacing: 16) {
+                    content
+                    checkAgain
+                }
+            } else {
+                ScrollView {
+                    content
+                        .padding(.horizontal, Theme.Metrics.screenPadding)
+                        .padding(.vertical, 16)
+                }
+                .scrollIndicators(.hidden)
+                // Pinned, so it's reachable at every text size.
+                .safeAreaInset(edge: .bottom) {
+                    checkAgain
+                        .padding(.horizontal, Theme.Metrics.screenPadding)
+                        .padding(.top, 10)
+                        .padding(.bottom, 8)
+                        .background(Theme.background)
+                }
+                .background(Theme.background.ignoresSafeArea())
+                .navigationTitle(Text("Check sync"))
+                .navigationBarTitleDisplayMode(.inline)
+            }
+        }
+        .task { await model.start(stagger: !reduceMotion) }
+        .onChange(of: model.phase) { _, phase in
+            // One announcement when it's done; the rows stay silent while they resolve.
+            guard phase == .done else { return }
+            AccessibilityNotification.Announcement(
+                TrackerCheckText.announcement(expected: model.expected, arriving: model.arriving, needsFix: model.needsFix)
+            ).post()
+        }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Looks at the last 48 hours in Apple Health. Nothing is uploaded.")
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            switch model.phase {
+            case .notAsked:
+                notAsked
+            case .unavailable:
+                note("Apple Health isn't available on this device.", systemImage: "heart.slash")
+            case .locked:
+                note("Unlock your iPhone to check: Apple Health can't be read while it's locked.", systemImage: "lock")
+            case .failed:
+                note("Apple Health couldn't be read this time. Tap Check again.", systemImage: "exclamationmark.triangle")
+            case .idle, .running, .done:
+                ForEach(model.checks) { check in
+                    if let tracker = model.trackers.first(where: { $0.id == check.trackerID }) {
+                        TrackerCheckCard(check: check, tracker: tracker, healthAccess: model.catalog.healthAccess.current,
+                                         now: model.checkedAt ?? model.now)
+                    }
+                }
+                if model.showsPermissionCard { permissionCard }
+            }
+        }
+    }
+
+    private var checkAgain: some View {
+        PrimaryButton(title: model.isRunning ? "Checking…" : "Check again") { await model.run(stagger: !reduceMotion) }
+            .disabled(model.isRunning || model.phase == .unavailable)
+            .accessibilityLabel(model.isRunning ? Text("Checking") : Text("Check again"))
+            .accessibilityIdentifier("check.run")
+    }
+
+    /// D2 K9: not an error, one action.
+    private var notAsked: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("RYFT hasn't asked for Health access yet.")
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            PrimaryButton(title: "Allow access", style: .secondary) { await model.requestAccess() }
+                .accessibilityIdentifier("check.allow")
+        }
+        .checkPanel()
+    }
+
+    private func note(_ text: LocalizedStringKey, systemImage: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Theme.textSecondary)
+                .accessibilityHidden(true)
+            Text(text)
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .checkPanel()
+        .accessibilityIdentifier("check.note")
+    }
+
+    /// D2 K7, last: RYFT can't see a read refusal, so both possibilities and where to look; never "denied".
+    private var permissionCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "lock")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.textSecondary)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 8) {
+                    if model.mayNotRead {
+                        Text("Even your iPhone's steps aren't arriving, so RYFT may not be allowed to read Health.")
+                            .font(.ryft(.callout))
+                            .foregroundStyle(Theme.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("check.mayNotRead")
+                    }
+                    // swiftlint:disable:next line_length
+                    Text("For Health data, iOS only tells RYFT what it may read, not what it may not. So “nothing yet” can mean no data, or that RYFT isn't allowed to read it.")
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    CheckSteps(steps: model.catalog.healthAccess.current)
+                }
+            }
+            PrimaryButton(title: "Open Health permissions", style: .secondary) { HealthLinks.open(with: openURL) }
+                .accessibilityIdentifier("check.openHealth")
+        }
+        .checkPanel()
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("check.permission")
+    }
+}
+
+/// One tracker in Check sync: header, summary, rows, and the fix under the last gap; silent, can't-read and Other
+/// say so instead of a list.
+private struct TrackerCheckCard: View {
+    let check: TrackerCheck
+    let tracker: Tracker
+    /// The catalog's steps for RYFT's own read permission.
+    let healthAccess: [String]
+    let now: Date
+
+    @State private var showsDetails = false
+    @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var app: String { check.app ?? tracker.name }
+    private var storeURL: URL? { tracker.integration == .vendorApp ? tracker.appStoreURL : nil }
+
+    var body: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 12) {
+                header
+                switch check.overall {
+                case .cantRead:
+                    Text("RYFT can't read \(tracker.name) data on iPhone today.")
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                case .silent:
+                    silent
+                case .unknownTracker:
+                    unknown
+                case .checking, .ok, .nightMissing, .needsFix:
+                    summary
+                    rows
+                }
+            }
+            .animation(Theme.Motion.respecting(reduceMotion), value: check.overall)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(verbatim: check.app ?? tracker.name))
+        .accessibilityIdentifier("check.card.\(tracker.id)")
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            Image(systemName: Self.symbol(tracker.form))
+                .font(.system(size: 17, weight: .regular))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: 24)
+                .accessibilityHidden(true)
+            Text(verbatim: tracker.name)
+                .font(.ryft(.headline))
+                .foregroundStyle(Theme.textPrimary)
+                .accessibilityAddTraits(.isHeader)
+        }
+    }
+
+    /// Numbers first; then, without last night, where it is.
+    @ViewBuilder private var summary: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(check.overall == .checking ? String(localized: "Checking Apple Health…")
+                : TrackerCheckText.summary(expected: check.expected, arriving: check.arriving, needsFix: check.needsFix))
+                .font(.ryft(.callout))
+                .monospacedDigit()
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .contentTransition(.opacity)
+                .accessibilityIdentifier("check.summary")
+            if check.overall == .nightMissing {
+                Text(storeURL == nil ? String(localized: "Last night hasn't reached Apple Health yet.")
+                    : String(localized: "Last night hasn't reached Apple Health yet. Open \(app) to sync it."))
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// The rows; "That's normal." once, under the first expected gap; the fix once, under the last unexpected one.
+    /// Just my iPhone folds what an iPhone can't record into one quiet row (D2 C3).
+    private var rows: some View {
+        let phone = tracker.id == "iphone" && check.overall != .checking
+        let shown = phone ? check.rows.filter { $0.check.isArrived || $0.check.isMissing || $0.signal == .steps } : check.rows
+        let firstExpected = shown.first { $0.check == .notShared }?.signal
+        let lastMissing = shown.last(where: \.check.isMissing)?.signal
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(shown) { row in
+                if row.signal != shown.first?.signal { hairline }
+                CheckRow(name: row.signal.checkName,
+                         result: TrackerCheckText.result(row.check, signal: row.signal, app: check.app, now: now),
+                         kind: Self.kind(row.check),
+                         spoken: TrackerCheckText.spoken(row.check, signal: row.signal, app: check.app, now: now))
+                    .accessibilityIdentifier("check.row.\(row.signal.rawValue)")
+                if row.signal == firstExpected {
+                    Text("That's normal.")
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textSecondary)
+                        .padding(.leading, 34)
+                        .padding(.bottom, 8)
+                }
+                if row.signal == lastMissing {
+                    fix.padding(.bottom, 8)
+                }
+            }
+            if phone {
+                hairline
+                CheckRow(name: String(localized: "Other signals"), result: String(localized: "not available from an iPhone"),
+                         kind: .expected)
+            }
+        }
+    }
+
+    private var hairline: some View {
+        Rectangle().fill(Theme.separator).frame(height: Theme.Metrics.hairline).accessibilityHidden(true)
+    }
+
+    /// The vendor's permission first, then RYFT's when RYFT can't see the type at all (§4.5).
+    private var fix: some View {
+        let unknown = check.rows.contains { $0.check == .missing(visible: false) }
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(TrackerCheckText.fixLead(check.rows, app: app))
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            CheckSteps(steps: tracker.setup.current + (unknown ? healthAccess : []))
+            buttons(health: unknown)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("check.fix")
+    }
+
+    @ViewBuilder private func buttons(health: Bool) -> some View {
+        if let storeURL {
+            PrimaryButton(title: "Open \(app)", style: .secondary) { openURL(storeURL) }
+                .accessibilityIdentifier("check.openApp")
+        }
+        if health {
+            PrimaryButton(title: "Open Health permissions", style: .secondary) { HealthLinks.open(with: openURL) }
+        }
+    }
+
+    /// D2 K5: what to do first, the usual cause, and the rows behind Show details.
+    private var silent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Image(systemName: "tray")
+                .font(.system(size: 28, weight: .regular))
+                .foregroundStyle(Theme.textSecondary)
+                .accessibilityHidden(true)
+            Text(TrackerCheckText.silent(app: check.app))
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("check.silent")
+            buttons(health: false)
+            Text("If it still shows nothing after it has synced, the Apple Health permission is the usual cause.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(showsDetails ? "Hide details" : "Show details") { showsDetails.toggle() }
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("check.details")
+            if showsDetails {
+                CheckSteps(steps: tracker.setup.current)
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(check.rows) { row in
+                        CheckRow(name: row.signal.checkName,
+                                 result: TrackerCheckText.result(row.check, signal: row.signal, app: check.app, now: now),
+                                 kind: Self.kind(row.check),
+                                 spoken: TrackerCheckText.spoken(row.check, signal: row.signal, app: check.app, now: now))
+                    }
+                }
+            }
+        }
+    }
+
+    /// D2 C4: only what apps the catalog doesn't know sent; nothing promised, nothing missing.
+    @ViewBuilder private var unknown: some View {
+        if check.rows.isEmpty {
+            Text(TrackerCheckText.silent(app: nil))
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("check.silent")
+        } else {
+            Text("From apps RYFT doesn't know yet:")
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(check.rows) { row in
+                    CheckRow(name: row.signal.checkName,
+                             result: TrackerCheckText.result(row.check, signal: row.signal, app: nil, now: now),
+                             kind: Self.kind(row.check),
+                             spoken: TrackerCheckText.spoken(row.check, signal: row.signal, app: nil, now: now))
+                        .accessibilityIdentifier("check.row.\(row.signal.rawValue)")
+                }
+            }
+        }
+    }
+
+    static func kind(_ check: SignalCheck) -> CheckRow.Kind {
+        switch check {
+        case .waiting: return .waiting
+        case .checking: return .checking
+        case .arrived: return .ok
+        case .notLastNight: return .late
+        case .notShared: return .expected
+        case .notSeenYet, .elsewhere: return .neutral
+        case .missing: return .fix
+        }
+    }
+
+    /// Neutral SF Symbols for the form, never a vendor's mark (D2 §0.7).
+    static func symbol(_ form: Tracker.Form) -> String {
+        switch form {
+        case .watch: return "applewatch"
+        case .ring: return "circle.circle"
+        case .band: return "watch.analog"
+        case .phone: return "iphone"
+        case .other: return "ellipsis.circle"
+        }
+    }
+}
+
+/// Catalog steps, numbered: plain text only (design.md §2.5).
+private struct CheckSteps: View {
+    let steps: [String]
+
+    var body: some View {
+        if !steps.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text(verbatim: "\(index + 1)")
+                            .font(.ryft(.caption))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.accent)
+                            .frame(width: 18, height: 18)
+                            .background(Theme.accent.opacity(0.14), in: Circle())
+                            .accessibilityHidden(true)
+                        Text(verbatim: step)
+                            .font(.ryft(.callout))
+                            .foregroundStyle(Theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
+    }
+}
+
+private extension View {
+    /// Check sync's own panels (not a tracker): the inline-message surface.
+    func checkPanel() -> some View {
+        padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
+                .strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
+    }
+}
+
+/// A check on mock data, run on appearance like the real one.
+@MainActor
+private func checkPreview(_ scenario: SyncCheckScenario, scheme: ColorScheme = .dark, de: Bool = false,
+                          size: DynamicTypeSize = .large,
+                          stage: ((TrackerCheckModel) -> Void)? = nil) -> some View {
+    let env = AppEnvironment.preview()
+    let model = TrackerCheckModel(env: env, health: scenario.store(now: .now), trackers: scenario.trackers)
+    stage?(model)
+    return NavigationStack { TrackerCheckView(model: model) }
+        .previewEnvironment(scheme: scheme)
+        .environment(\.locale, Locale(identifier: de ? "de" : "en"))
+        .environment(\.dynamicTypeSize, size)
+}
+
+#Preview("Check sync · Garmin · dark") { checkPreview(.garmin) }
+#Preview("Check sync · Garmin · light") { checkPreview(.garmin, scheme: .light) }
+#Preview("Check sync · Garmin · light · de") { checkPreview(.garmin, scheme: .light, de: true) }
+#Preview("Check sync · Garmin · AX3") { checkPreview(.garmin, size: .accessibility3) }
+#Preview("Check sync · sleep should arrive · dark") { checkPreview(.garminSleepOff) }
+#Preview("Check sync · sleep should arrive · light") { checkPreview(.garminSleepOff, scheme: .light) }
+#Preview("Check sync · night missing · dark") { checkPreview(.garminNightMissing) }
+#Preview("Check sync · silent · dark") { checkPreview(.garminSilent) }
+#Preview("Check sync · silent · light · de") { checkPreview(.garminSilent, scheme: .light, de: true) }
+#Preview("Check sync · nothing readable · dark") { checkPreview(.nothingReadable) }
+#Preview("Check sync · Apple Watch · light") { checkPreview(.appleWatch, scheme: .light) }
+#Preview("Check sync · running · dark") { checkPreview(.garmin) { $0.stage(.running) } }
+#Preview("Check sync · running · light") { checkPreview(.garmin, scheme: .light) { $0.stage(.running) } }
+#Preview("Check sync · not asked · dark") { checkPreview(.garmin) { $0.stage(.notAsked) } }
+#Preview("Check sync · locked · light") { checkPreview(.garmin, scheme: .light) { $0.stage(.locked) } }
+
 // MARK: - report a problem
 
 /// Profile → About's first row: "Report a problem", and what's still waiting to send.

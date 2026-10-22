@@ -475,6 +475,8 @@ enum DebugScreen: String {
     case reportProblemIncluded = "report-problem-included"
     /// Today's refresh Details sheet (503, 3 failures) with "Send to RYFT".
     case refreshDetailsSend = "refresh-details-send"
+    /// Check sync, pushed; with `-RyftSyncCheck <scenario>` in demo mode (`SyncCheckScenario`).
+    case syncCheck
 
     static var requested: DebugScreen? {
         UserDefaults.standard.string(forKey: "RyftScreen").flatMap(DebugScreen.init(rawValue:))
@@ -505,6 +507,8 @@ enum DebugScreen: String {
             DebugReportProblem(screen: self)
         case .refreshDetailsSend:
             DebugRefreshDetails()
+        case .syncCheck:
+            DebugSyncCheck()
         }
     }
 
@@ -590,6 +594,15 @@ private struct DebugReportProblem: View {
             }
             ready = true
         }
+    }
+}
+
+/// Check sync as Devices & sync pushes it; the scenario picks the trackers in demo mode.
+private struct DebugSyncCheck: View {
+    @Environment(\.appEnvironment) private var env
+
+    var body: some View {
+        NavigationStack { TrackerCheckView(model: .make(env: env, trackers: ["apple_watch"])) }
     }
 }
 
