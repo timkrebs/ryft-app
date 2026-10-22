@@ -28,8 +28,8 @@ struct TodayView: View {
                         hero(day)
                             .coachMarkTarget(.gauges)
                             .id(CoachMarkTarget.gauges)
-                        if let night = day.rawNight { RawNightCard(night: night) }
-                        if let hint = day.watchHint { WatchSyncHintCard(hint: hint) }
+                        if let night = day.rawNight { RawNightCard(night: night, sourceName: day.rawNightSource) }
+                        if let hint = day.watchHint { WatchSyncHintCard(hint: hint, showsAction: !model.showsRefreshIssue) }
                         if day.showsTiles {
                             tiles(day)
                                 .coachMarkTarget(.physiology)
@@ -121,7 +121,10 @@ struct TodayView: View {
             }
             .accessibilityElement(children: .combine)
             if model.hasDataSource {
-                SyncStatusLineView(line: model.syncLine, action: { model.resolveLine() }, retry: { await model.refresh() })
+                // While scoring, the line is asked again every 15 s: "Taking longer than usual" comes with time alone.
+                TimelineView(.periodic(from: .now, by: model.syncLine.isScoring ? 15 : 3_600)) { _ in
+                    SyncStatusLineView(line: model.syncLine, action: { model.resolveLine() }, retry: { await model.refresh() })
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -141,10 +144,14 @@ struct TodayView: View {
                 }
                 .accessibilityIdentifier("today.importCard")
             case .pending(let night):
-                PendingGauge(previous: night.previousReadiness, previousDay: night.previousDay,
-                             title: night.title, detail: night.detail)
-                    .padding(.vertical, 4)
-                    .accessibilityIdentifier("today.pendingGauge")
+                // While scoring, asked again every 15 s, like the line: slow scoring stops the breathing.
+                TimelineView(.periodic(from: .now, by: night.waitingForSleep ? 3_600 : 15)) { _ in
+                    let now = night.waitingForSleep ? day : model.content
+                    PendingGauge(previous: night.previousReadiness, previousDay: night.previousDay,
+                                 title: now.pendingTitle, detail: now.pendingDetail, breathes: !now.pendingIsStatic)
+                }
+                .padding(.vertical, 4)
+                .accessibilityIdentifier("today.pendingGauge")
             case .calibrating(let nights):
                 VStack(spacing: 8) {
                     // Over a long history without HRV the nights counted are the ones with heart-rate data.
@@ -391,10 +398,13 @@ struct ImportRow: View {
 /// not scored (the phone computes no scores).
 struct RawNightCard: View {
     let night: RawNight
+    /// The source's display name ("Garmin Connect"); HealthKit's without one.
+    var sourceName: String?
     /// The times in the screen's locale: "23:17" in German, the user's 12/24-hour setting in the app.
     @Environment(\.locale) private var locale
     private var bedtime: String { Fmt.time(night.bedtime, locale: locale) }
     private var wake: String { Fmt.time(night.wake, locale: locale) }
+    private var source: String { sourceName ?? night.source }
 
     var body: some View {
         Card {
@@ -418,7 +428,7 @@ struct RawNightCard: View {
                         .font(.ryft(.callout))
                         .foregroundStyle(Theme.textSecondary)
                 }
-                Text(verbatim: "\(bedtime) – \(wake) · \(night.source)")
+                Text(verbatim: "\(bedtime) – \(wake) · \(source)")
                     .font(.ryft(.caption))
                     .monospacedDigit()
                     .foregroundStyle(Theme.textSecondary)
@@ -426,20 +436,44 @@ struct RawNightCard: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Last night, from Apple Health, not scored yet"))
-        .accessibilityValue(Text("\(Fmt.duration(minutes: night.asleepMin)) asleep, \(bedtime) to \(wake), \(night.source)"))
+        .accessibilityValue(Text("\(Fmt.duration(minutes: night.asleepMin)) asleep, \(bedtime) to \(wake), \(source)"))
         .accessibilityIdentifier("today.rawNight")
     }
 }
 
-/// "Nothing new from Garmin Connect since 23:40": a quiet hint, the source's own name.
+/// "Nothing new from Garmin Connect since 23:40", or in the morning "Your night hasn't reached Apple Health
+/// yet. Open Garmin Connect to sync it." with the data's age and the app's App Store page (ui.md §6.2). A
+/// quiet hint: no dismissal; it goes when the night arrives.
 struct WatchSyncHintCard: View {
     let hint: WatchSyncHint
+    /// "Open Garmin Connect"; dropped while the error card offers its own action (one action on screen).
+    var showsAction = true
+
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            InlineMessage(message: hint.text(now: context.date), systemImage: "applewatch.radiowaves.left.and.right")
+            InlineMessage(message: hint.text(now: context.date), systemImage: hint.systemImage, caption: hint.caption,
+                          identifier: hint.isNight ? "today.nightHint" : "today.watchHint", action: action)
         }
-        .accessibilityIdentifier("today.watchHint")
+        // A container: VoiceOver (and UI tests) reach the sentence, its age and "Open …" one by one.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(hint.isNight ? "today.nightHint" : "today.watchHint")
+    }
+
+    private var action: (title: LocalizedStringKey, perform: () -> Void)? {
+        guard showsAction, hint.opensApp, let url = hint.storeURL else { return nil }
+        return ("Open \(hint.source)", { openURL(url) })
+    }
+}
+
+extension SyncLine {
+    /// Scoring, slow or not: the line can change with time alone.
+    var isScoring: Bool {
+        switch self {
+        case .scoring, .scoringSlow: return true
+        default: return false
+        }
     }
 }
 
@@ -633,4 +667,71 @@ struct OfflinePill: View {
                                                   isApp: true))
         }
     }
+}
+
+// MARK: the night that hasn't reached Apple Health, and slow scoring (ui.md §6, previews 12–14)
+
+/// Mock hints: Garmin Connect quiet since last night 23:24, the Apple Watch, an unknown source.
+private enum PreviewHint {
+    static let lastNight = Calendar.current.date(bySettingHour: 23, minute: 24, second: 0,
+                                                 of: .now.addingTimeInterval(-86_400)) ?? .now
+    static func night(_ kind: SourceApp.Kind, name: String) -> WatchSyncHint {
+        WatchSyncHint(night: NightGap(name: name, kind: kind,
+                                      storeURL: kind == .app ? URL(string: "https://apps.apple.com/app/id583446403") : nil,
+                                      newest: lastNight))
+    }
+    static let quiet = WatchSyncHint(source: "Garmin Connect", since: lastNight, isApp: true,
+                                     storeURL: URL(string: "https://apps.apple.com/app/id583446403"))
+}
+
+#Preview("Night hint · app, watch, unknown, quiet", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        VStack(spacing: 16) {
+            WatchSyncHintCard(hint: PreviewHint.night(.app, name: "Garmin Connect"))
+            WatchSyncHintCard(hint: PreviewHint.night(.appleDevice, name: "Tim's Apple Watch"))
+            WatchSyncHintCard(hint: PreviewHint.night(.unknown, name: "Sleep Diary"))
+            WatchSyncHintCard(hint: PreviewHint.quiet)
+            // The error card shows: one action on screen, so no "Open".
+            WatchSyncHintCard(hint: PreviewHint.night(.app, name: "Garmin Connect"), showsAction: false)
+        }
+    }
+}
+
+#Preview("Night hint · de · AX3", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        WatchSyncHintCard(hint: PreviewHint.night(.app, name: "Garmin Connect"))
+    }
+    .environment(\.locale, Locale(identifier: "de"))
+    .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Today · night hasn't arrived") {
+    TodayView().previewEnvironment(.preview(scenario: .nightGap))
+}
+
+#Preview("Today · night hasn't arrived · light") {
+    TodayView().previewEnvironment(.preview(scenario: .nightGap), scheme: .light)
+}
+
+#Preview("Today · night hasn't arrived · light · de") {
+    TodayView().previewEnvironment(.preview(scenario: .nightGap), scheme: .light)
+        .environment(\.locale, Locale(identifier: "de"))
+}
+
+#Preview("Today · night hasn't arrived · AX3") {
+    TodayView().previewEnvironment(.preview(scenario: .nightGap))
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Today · taking longer") {
+    TodayView().previewEnvironment(.preview(scenario: .scoringSlow))
+}
+
+#Preview("Today · taking longer · light") {
+    TodayView().previewEnvironment(.preview(scenario: .scoringSlow), scheme: .light)
+}
+
+#Preview("Today · taking longer · de") {
+    TodayView().previewEnvironment(.preview(scenario: .scoringSlow))
+        .environment(\.locale, Locale(identifier: "de"))
 }
