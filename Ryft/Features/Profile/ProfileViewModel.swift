@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import UIKit
+import UniformTypeIdentifiers
 
 /// Account, body settings, data and sync, export. The view keeps only which
 /// dialog or sheet is open.
@@ -14,6 +15,8 @@ final class ProfileViewModel {
     private let onboarding: OnboardingCoordinator?
     /// Data → Sync details.
     let syncDetails: SyncDetailsModel
+    /// About → Report a problem, and "Send to RYFT" from an error's Details.
+    let report: ReportProblemModel
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, onboarding: OnboardingCoordinator? = nil,
          apiStatus: APIStatus? = nil) {
@@ -23,7 +26,13 @@ final class ProfileViewModel {
         self.onboarding = onboarding
         self.apiStatus = apiStatus ?? .shared
         bodySettings = BodySettingsEditor(state: state)
-        syncDetails = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator, apiStatus: apiStatus)
+        let details = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator, apiStatus: apiStatus)
+        syncDetails = details
+        // Sync details' state through the report's allow-list (never its support text).
+        report = ReportProblemModel(env: state.env, apiStatus: apiStatus ?? .shared) {
+            FeedbackSync(engine: sync.engineState, backlogBytes: sync.backlogBytes, running: details.isRunning,
+                         queued: details.hasQueuedRun, streams: details.streams)
+        }
     }
 
     private var env: AppEnvironment { state.env }
@@ -382,7 +391,8 @@ final class SyncDetailsModel {
     }
 
     func copyDiagnostics() {
-        UIPasteboard.general.string = diagnostics
+        // Health times to the second: on this iPhone only, and not for long.
+        LocalPasteboard.copy(diagnostics)
         copied = true
     }
 }
@@ -596,5 +606,596 @@ final class BodySettingsEditor {
             errorDetails = error.diagnosticDetails
         }
         return false
+    }
+}
+
+// MARK: - report a problem
+
+/// What a report is about when it comes from an error's Details (ui.md §5.3: the chip and the prefill).
+struct ReportContext: Equatable, Sendable {
+    /// The resource's name as Details shows it ("Today").
+    let resource: String
+    /// "503", or "No response" for a transport failure or timeout.
+    let status: String
+    /// Exactly as the platform sent it; it goes into `request_ids`.
+    let requestID: String?
+    /// The error body's `code` (`consent_required`), if any.
+    var code: String?
+
+    /// "403 consent_required".
+    var statusText: String { [status, code ?? ""].filter { !$0.isEmpty }.joined(separator: " ") }
+}
+
+/// The install a report comes from: the top-level fields of `POST /v1/feedback`, and the locale.
+struct FeedbackAbout: Equatable, Sendable {
+    var appVersion: String
+    var build: String
+    var deviceModel: String
+    var osVersion: String
+    /// "de_DE": which strings the reporter saw.
+    var locale: String
+
+    @MainActor static var current: FeedbackAbout {
+        FeedbackAbout(appVersion: AppInfo.marketingVersion, build: AppInfo.build, deviceModel: AppInfo.deviceModel,
+                      osVersion: AppInfo.osVersion, locale: Locale.current.identifier)
+    }
+}
+
+/// The sync as a report carries it: the phase, the queue and the backlog, and per data type how many records went
+/// up on how many days, with the newest record's **day** only (a time of day from Apple Health can be a wake time).
+struct FeedbackSync: Equatable, Sendable {
+    struct Stream: Equatable, Sendable {
+        /// `HealthStream.anchorID` ("sleep", "heartRate").
+        let id: String
+        let records: Int
+        let days: Int
+        /// Only its day is sent.
+        let newest: Date?
+    }
+
+    var phase = SyncEngineState.Phase.idle.rawValue
+    var recentDone = false
+    var backfillDone = false
+    var running = false
+    var queued = false
+    var backlogBytes = 0
+    var streams: [Stream] = []
+}
+
+extension FeedbackSync {
+    /// The engine's state and Sync details' rows, in the order the engine drains them.
+    init(engine: SyncEngineState, backlogBytes: Int?, running: Bool, queued: Bool,
+         streams: [SyncDetailsModel.StreamRow]) {
+        self.init(phase: engine.phase.rawValue, recentDone: engine.recentDone, backfillDone: engine.backfillDone,
+                  running: running, queued: queued, backlogBytes: backlogBytes ?? 0,
+                  streams: streams.map { row in
+                      Stream(id: row.id, records: row.progress?.sent ?? 0, days: row.progress?.days.count ?? 0,
+                             newest: row.progress?.newest)
+                  })
+    }
+}
+
+/// `POST /v1/feedback` within API.md's limits: message 1–4000 characters, the four strings up to 64, at most
+/// 20 request IDs of up to 64, diagnostics up to 32 KiB of JSON.
+///
+/// The diagnostics go through an allow-list: the keys in `keys`, each value built from one line template of
+/// counts, statuses, codes, IDs, days and request times. Never a health value, never a time of day from Apple
+/// Health, never a query string, never free text (Sync details' support text isn't sent).
+enum FeedbackPayload {
+    static let maxMessage = 4000
+    static let maxField = 64
+    static let maxRequestIDs = 20
+    static let maxDiagnosticsBytes = 32 * 1024
+    /// The last requests sent along (`APIStatus` keeps as many).
+    static let maxRequests = 20
+    /// Every key `diagnostics` may carry.
+    static let keys: Set<String> = ["requests", "sync", "gates", "flags", "locale", "report_context"]
+
+    /// Characters as the platform counts them (Unicode scalars: Go's runes).
+    static func length(_ text: String) -> Int { text.unicodeScalars.count }
+
+    // swiftlint:disable:next function_parameter_count
+    static func make(message: String, category: FeedbackCategory, includeDiagnostics: Bool,
+                     requests: [APIStatus.RequestFailure], sync: FeedbackSync, gates: Set<APIErrorCode>,
+                     flags: [String: Bool], context: ReportContext?, about: FeedbackAbout) -> FeedbackPost {
+        let text = clipped(message.trimmingCharacters(in: .whitespacesAndNewlines), to: maxMessage)
+        // Off: nothing is attached but the message (ui.md §5.2).
+        guard includeDiagnostics else { return FeedbackPost(message: text, category: category) }
+        return FeedbackPost(message: text, category: category,
+                            appVersion: clipped(about.appVersion, to: maxField),
+                            build: clipped(about.build, to: maxField),
+                            deviceModel: clipped(about.deviceModel, to: maxField),
+                            osVersion: clipped(about.osVersion, to: maxField),
+                            requestIds: requestIDs(context: context, requests: requests),
+                            diagnostics: diagnostics(requests: requests, sync: sync, gates: gates, flags: flags,
+                                                     context: context, locale: about.locale))
+    }
+
+    /// The context's ID first, then the failed requests' IDs, newest first: each once, 1–64 bytes, at most 20.
+    static func requestIDs(context: ReportContext?, requests: [APIStatus.RequestFailure]) -> [String] {
+        let failed = requests.filter { !(200..<300).contains($0.status) }.compactMap(\.requestID)
+        var seen = Set<String>()
+        let ids = ([context?.requestID].compactMap { $0 } + failed)
+            .filter { !$0.isEmpty && $0.utf8.count <= maxField && seen.insert($0).inserted }
+        return Array(ids.prefix(maxRequestIDs))
+    }
+
+    /// One request: "GET /v1/sleep/plan 200 - 01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c 2026-10-21T18:12:03Z"
+    /// (method, path without its query, status, code, request ID, time; then " 412ms" once `duration` has one).
+    static func line(_ r: APIStatus.RequestFailure) -> String {
+        var line = "\(r.method) \(path(r.path)) \(r.status) \(r.code ?? "-") \(r.requestID ?? "-") \(r.date.ISO8601Format())"
+        if let ms = duration(of: r) { line += " \(ms)ms" }
+        return line
+    }
+
+    /// The request's duration, once `APIStatus.RequestFailure` records one (T1: return `r.durationMs`, and add
+    /// "duration" back to "What's included" in `ReportProblemView.included`).
+    static func duration(of request: APIStatus.RequestFailure) -> Int? { nil }
+
+    /// The path without its query or fragment (`?wake=06:30` is a wake time), and `{id}` for every UUID in it
+    /// (`/v1/devices/{id}/push` carries the install ID). Days stay: day precision is fine.
+    static func path(_ raw: String) -> String {
+        raw.prefix { $0 != "?" && $0 != "#" }
+            .split(separator: "/", omittingEmptySubsequences: false)
+            .map { UUID(uuidString: String($0)) == nil ? String($0) : "{id}" }
+            .joined(separator: "/")
+    }
+
+    /// The sync, one line each:
+    /// "phase incremental · recent true · backfill true"
+    /// "queue running false · queued false · backlog 0 B"
+    /// "stream sleep · 412 rec · 31 days · newest 2026-10-21" (or "newest -")
+    static func syncLines(_ sync: FeedbackSync) -> [String] {
+        ["phase \(sync.phase) · recent \(sync.recentDone) · backfill \(sync.backfillDone)",
+         "queue running \(sync.running) · queued \(sync.queued) · backlog \(sync.backlogBytes) B"]
+            + sync.streams.map { s in
+                "stream \(s.id) · \(s.records) rec · \(s.days) days · newest \(s.newest.map(DayFormat.string) ?? "-")"
+            }
+    }
+
+    /// The allow-list: `requests` (newest first), `sync`, `gates`, `flags`, `locale` and, from an error's Details,
+    /// `report_context`. Over 32 KiB the oldest requests go first, then the sync.
+    ///
+    /// T1's per-resource state joins here, as a `resources` key with one line per resource of
+    /// "resource fetchedAt status code requestID" and nothing else (then add it to `keys` and to "What's included").
+    static func diagnostics(requests: [APIStatus.RequestFailure], sync: FeedbackSync, gates: Set<APIErrorCode>,
+                            flags: [String: Bool], context: ReportContext?, locale: String) -> [String: String] {
+        var base = [
+            "gates": gates.isEmpty ? "-" : gates.map(\.rawValue).sorted().joined(separator: ","),
+            "flags": flags.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value ? 1 : 0)" }.joined(separator: ","),
+            "locale": locale,
+        ]
+        if let context {
+            base["report_context"] = [context.resource, context.statusText, context.requestID ?? "-"]
+                .joined(separator: " · ")
+        }
+        let syncText = syncLines(sync).joined(separator: "\n")
+        func assembled(_ lines: [String]) -> [String: String] {
+            var d = base
+            d["sync"] = syncText
+            if !lines.isEmpty { d["requests"] = lines.joined(separator: "\n") }
+            return d
+        }
+        var lines = requests.prefix(maxRequests).map(line)
+        while size(assembled(lines)) > maxDiagnosticsBytes, !lines.isEmpty { lines.removeLast() }
+        let whole = assembled(lines)
+        if size(whole) <= maxDiagnosticsBytes { return whole }
+        return size(base) <= maxDiagnosticsBytes ? base : [:]
+    }
+
+    /// The bytes the platform measures: the object as the shared encoder writes it.
+    static func size(_ diagnostics: [String: String]) -> Int {
+        (try? APIClient.jsonEncoder.encode(diagnostics).count) ?? .max
+    }
+
+    static func clipped(_ text: String, to limit: Int) -> String {
+        guard length(text) > limit else { return text }
+        var view = String.UnicodeScalarView()
+        view.append(contentsOf: text.unicodeScalars.prefix(limit))
+        return String(view)
+    }
+}
+
+/// A report waiting for a connection: the `FeedbackPost` as it will go out (the mirror stays `Encodable`), and the
+/// account it belongs to. The diagnostics are pairs, so the cache's snake-case coder can't rename their keys.
+struct QueuedFeedback: Codable, Equatable, Identifiable {
+    struct Entry: Codable, Equatable {
+        let key: String
+        let value: String
+    }
+
+    let id: UUID
+    /// `AuthService.accountID` when it was written ("demo" in demo mode): it never goes out as anyone else.
+    let account: String
+    let queuedAt: Date
+    let message: String
+    let category: FeedbackCategory?
+    let appVersion: String?
+    let build: String?
+    let deviceModel: String?
+    let osVersion: String?
+    let requestIds: [String]
+    let diagnostics: [Entry]?
+
+    init(_ post: FeedbackPost, account: String, id: UUID = UUID(), queuedAt: Date) {
+        self.id = id
+        self.account = account
+        self.queuedAt = queuedAt
+        message = post.message
+        category = post.category
+        appVersion = post.appVersion
+        build = post.build
+        deviceModel = post.deviceModel
+        osVersion = post.osVersion
+        requestIds = post.requestIds
+        diagnostics = post.diagnostics.map { pairs in
+            pairs.sorted { $0.key < $1.key }.map { Entry(key: $0.key, value: $0.value) }
+        }
+    }
+
+    var post: FeedbackPost {
+        FeedbackPost(message: message, category: category, appVersion: appVersion, build: build,
+                     deviceModel: deviceModel, osVersion: osVersion, requestIds: requestIds,
+                     diagnostics: diagnostics.map { entries in
+                         Dictionary(entries.map { ($0.key, $0.value) }) { _, last in last }
+                     })
+    }
+}
+
+/// Where reports wait for a connection. Tests replace it to make saving fail.
+@MainActor
+protocol FeedbackQueueStore: AnyObject {
+    func load() -> [QueuedFeedback]
+    /// `false`: the list didn't reach the disk.
+    @discardableResult func save(_ items: [QueuedFeedback]) -> Bool
+}
+
+/// `CachedDocument` "feedback.queue", wiped with the account's other documents on sign-out. Demo data's
+/// reports wait under their own key, so they never reach the account's platform.
+@MainActor
+final class PersistentFeedbackQueue: FeedbackQueueStore {
+    static let key = "feedback.queue"
+    static let demoKey = "feedback.queue.demo"
+
+    private let env: AppEnvironment
+
+    init(env: AppEnvironment) {
+        self.env = env
+    }
+
+    private var key: String { env.isDemo ? Self.demoKey : Self.key }
+
+    func load() -> [QueuedFeedback] {
+        env.persistence.document([QueuedFeedback].self, key: key) ?? []
+    }
+
+    @discardableResult
+    func save(_ items: [QueuedFeedback]) -> Bool {
+        let store = env.persistence
+        if items.isEmpty {
+            store.removeDocument(key: key)
+        } else {
+            store.saveDocument(items, key: key, at: env.clock.now())
+        }
+        // The store logs a failed save and keeps the change pending: then it isn't on disk.
+        return load().map(\.id) == items.map(\.id) && !store.context.hasChanges
+    }
+}
+
+/// Profile → About → Report a problem, and "Send to RYFT" from an error's Details (ui.md §5).
+///
+/// A report is saved before it's posted, so closing the app or losing the connection doesn't lose it.
+/// `204` → sent; no connection, a timeout or `5xx` → queued and sent on reconnect (`flush`); `429` (10 a day)
+/// → rate limited, the message kept, nothing queued; `400`/`413`/`422` → rejected, dropped. A report belongs to
+/// the account it was written in: signed out nothing is queued, and a queued report goes out only as that account.
+@MainActor
+@Observable
+final class ReportProblemModel {
+    /// `sent` and `queued` replace the form; the others show on it, with the message kept.
+    enum Result: Equatable { case sent, queued, rateLimited, rejected, saveFailed, signedOut }
+
+    /// How a post went.
+    enum Delivery {
+        case delivered
+        case rateLimited(Error)
+        case rejected(Error)
+        case later
+    }
+
+    /// The character count shows above this (ui.md §5.2).
+    static let countFrom = 3500
+    /// Reports kept for later at most (the platform takes 10 a day).
+    static let maxQueued = 20
+
+    private let env: AppEnvironment
+    private let apiStatus: APIStatus
+    private let sync: @MainActor () -> FeedbackSync
+    private let queue: FeedbackQueueStore
+
+    var message = ""
+    var category: FeedbackCategory = .other
+    var includeDiagnostics = true
+    private(set) var context: ReportContext?
+    private(set) var result: Result?
+    /// The refusal's status and request ID, for Details.
+    private(set) var resultDetails: String?
+    private(set) var sending = false
+    /// Reports saved for later: "1 waiting to send".
+    private(set) var waiting = 0
+    /// Being posted (by `send` or `flush`): never twice at once.
+    @ObservationIgnored private var inFlight: Set<UUID> = []
+    @ObservationIgnored private var flushing = false
+    /// Bumped on an account change: a post that returns afterwards doesn't touch the new account's screen.
+    @ObservationIgnored private var generation = 0
+    /// A preview or screenshot staged the screen: the next `prepare` leaves it.
+    @ObservationIgnored private var staged = false
+
+    /// `sync` is Sync details' state, read when a report is written (only `FeedbackSync`'s fields go out).
+    init(env: AppEnvironment, apiStatus: APIStatus, queue: FeedbackQueueStore? = nil,
+         sync: @escaping @MainActor () -> FeedbackSync) {
+        self.env = env
+        self.apiStatus = apiStatus
+        self.sync = sync
+        self.queue = queue ?? PersistentFeedbackQueue(env: env)
+        reloadWaiting()
+    }
+
+    /// Whose reports these are: the signed-in account, "demo" with demo data, `nil` signed out.
+    private var account: String? { env.isDemo ? "demo" : env.auth.accountID }
+    /// Demo data: a report goes to the in-memory platform, and the sent state says so.
+    var isDemo: Bool { stagedDemo ?? env.isDemo }
+    /// Previews and screenshots run on demo data but show the live wording unless they ask.
+    @ObservationIgnored private var stagedDemo: Bool?
+
+    // MARK: form
+
+    var length: Int { FeedbackPayload.length(message) }
+    var showsCount: Bool { length > Self.countFrom }
+    var isTooLong: Bool { length > FeedbackPayload.maxMessage }
+
+    var canSend: Bool {
+        !sending && !isTooLong && result != .rateLimited
+            && !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func prefill(_ context: ReportContext) -> String {
+        String(localized: "Refreshing \(context.resource) didn't work.")
+    }
+
+    /// The screen appears: from Details (`context`) a bug report about it, pre-filled; from Profile the draft
+    /// as it was. A report that was sent or queued starts a fresh one.
+    func prepare(_ context: ReportContext?) {
+        if staged {
+            staged = false
+            return
+        }
+        result = nil
+        resultDetails = nil
+        let oldPrefill = self.context.map(Self.prefill)
+        let hadContext = self.context != nil
+        self.context = context
+        if let context {
+            category = .bug
+            if message.isEmpty || message == oldPrefill { message = Self.prefill(context) }
+        } else if hadContext {
+            category = .other
+            if message == oldPrefill { message = "" }
+        }
+        reloadWaiting()
+    }
+
+    /// Signed out or another account: the draft was the previous account's.
+    func accountChanged() {
+        generation += 1
+        staged = false
+        message = ""
+        category = .other
+        includeDiagnostics = true
+        context = nil
+        result = nil
+        resultDetails = nil
+        reloadWaiting()
+    }
+
+    /// The request as it would go out now.
+    func payload() -> FeedbackPost {
+        FeedbackPayload.make(message: message, category: category, includeDiagnostics: includeDiagnostics,
+                             requests: apiStatus.requests, sync: includeDiagnostics ? sync() : FeedbackSync(),
+                             gates: apiStatus.gates, flags: flagValues, context: context, about: .current)
+    }
+
+    private var flagValues: [String: Bool] {
+        Dictionary(uniqueKeysWithValues: FeatureFlag.allCases.map { ($0.rawValue, env.flags.isOn($0)) })
+    }
+
+    func copyMessage() {
+        LocalPasteboard.copy(message)
+    }
+
+    // MARK: sending
+
+    func send() async {
+        guard canSend else { return }
+        result = nil
+        resultDetails = nil
+        // Signed out there's no account to send it as, nor to keep it for.
+        guard let account else {
+            result = .signedOut
+            return
+        }
+        sending = true
+        defer { sending = false }
+        let generation = generation
+        let item = QueuedFeedback(payload(), account: account, queuedAt: env.clock.now())
+        // Saved first: a report the app is closed on, or that meets no connection, isn't lost.
+        let saved = queue.save(Array((queue.load() + [item]).suffix(Self.maxQueued)))
+        reloadWaiting()
+        guard env.connectivity.isOnline else {
+            keepForLater(item, saved: saved)
+            return
+        }
+        inFlight.insert(item.id)
+        let delivery = await deliver(item)
+        inFlight.remove(item.id)
+        guard generation == self.generation else {
+            // The account changed meanwhile: what's left of it isn't the new account's.
+            dequeue(item)
+            return
+        }
+        switch delivery {
+        case .delivered:
+            dequeue(item)
+            finish(.sent)
+        case .rateLimited(let error):
+            dequeue(item)
+            result = .rateLimited
+            resultDetails = error.diagnosticDetails
+        case .rejected(let error):
+            dequeue(item)
+            result = .rejected
+            resultDetails = error.diagnosticDetails
+        case .later:
+            keepForLater(item, saved: saved)
+        }
+    }
+
+    /// Back online, or the app became active: what's queued for this account goes out, oldest first; another
+    /// account's reports are dropped. The queue is read again before every post, so a report `send` is posting
+    /// or has settled is never posted again. It stops at a report that can't go yet (no connection, `5xx`) or at
+    /// the daily cap; the rest waits for the next time.
+    func flush() async {
+        guard !flushing else { return }
+        flushing = true
+        defer {
+            flushing = false
+            reloadWaiting()
+        }
+        var tried: Set<UUID> = []
+        while env.connectivity.isOnline, let account {
+            let items = queue.load()
+            if items.contains(where: { $0.account != account }) {
+                queue.save(items.filter { $0.account == account })
+            }
+            let next = items
+                .filter { $0.account == account && !inFlight.contains($0.id) && !tried.contains($0.id) }
+                .min { $0.queuedAt < $1.queuedAt }
+            guard let item = next else { return }
+            tried.insert(item.id)
+            inFlight.insert(item.id)
+            let delivery = await deliver(item)
+            inFlight.remove(item.id)
+            switch delivery {
+            case .delivered, .rejected: dequeue(item)
+            case .rateLimited, .later: return
+            }
+        }
+    }
+
+    /// `429` is the daily cap. `400`, `413` and `422` refuse the report itself: dropped. No connection, a
+    /// timeout, `5xx`, an ended session or a route that isn't live yet: later.
+    nonisolated static func classify(_ error: Error) -> Delivery {
+        switch (error as? APIError)?.status {
+        case 429?: return .rateLimited(error)
+        case 400?, 413?, 422?: return .rejected(error)
+        default: return .later
+        }
+    }
+
+    private func deliver(_ item: QueuedFeedback) async -> Delivery {
+        do {
+            try await env.api.postFeedback(item.post)
+            return .delivered
+        } catch {
+            return Self.classify(error)
+        }
+    }
+
+    /// Queued, or, when it couldn't be saved, not kept at all (it mustn't go out after "Couldn't save").
+    private func keepForLater(_ item: QueuedFeedback, saved: Bool) {
+        if saved {
+            finish(.queued)
+        } else {
+            dequeue(item)
+            result = .saveFailed
+        }
+    }
+
+    /// Sent or queued: the next report starts fresh.
+    private func finish(_ outcome: Result) {
+        result = outcome
+        message = ""
+        category = .other
+        includeDiagnostics = true
+    }
+
+    private func dequeue(_ item: QueuedFeedback) {
+        queue.save(queue.load().filter { $0.id != item.id })
+        reloadWaiting()
+    }
+
+    /// The queue may have changed underneath (sign-out wipes it).
+    func reloadWaiting() {
+        waiting = queue.load().count
+    }
+
+    // MARK: previews and screenshots
+
+    /// One state of the screen, without a platform.
+    func stage(message: String = "", category: FeedbackCategory = .other, includeDiagnostics: Bool = true,
+               context: ReportContext? = nil, result: Result? = nil, sending: Bool = false, waiting: Int = 0,
+               demo: Bool = false) {
+        staged = true
+        stagedDemo = demo
+        self.message = message
+        self.category = category
+        self.includeDiagnostics = includeDiagnostics
+        self.context = context
+        self.result = result
+        resultDetails = result == .rateLimited ? "HTTP 429 · Request ID 01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c" : nil
+        self.sending = sending
+        self.waiting = waiting
+    }
+}
+
+extension ProfileViewModel {
+    /// Signed out or another account (`previous`: the account before): its last requests (and the responses still
+    /// on their way) and a report's draft were that account's, and must never go out as this one. A first sign-in
+    /// leaves no account behind, so its first requests (Apple authorization, the gate check) stay.
+    func accountChanged(from previous: String?) {
+        if previous != nil { apiStatus.forgetRequests() }
+        report.accountChanged()
+    }
+}
+
+/// Copies text for this iPhone only (not Handoff's universal clipboard), gone after ten minutes: Copy message
+/// and Copy diagnostics.
+enum LocalPasteboard {
+    static let lifetime: TimeInterval = 10 * 60
+
+    @MainActor static func copy(_ text: String) {
+        UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: text]],
+                                      options: [.localOnly: true, .expirationDate: Date.now.addingTimeInterval(lifetime)])
+    }
+}
+
+extension AppInfo {
+    /// "1.0.0".
+    static var marketingVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    }
+
+    /// "20261021.081500".
+    static var build: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+    }
+
+    /// The hardware model, "iPhone17,1" (in the simulator, the model it simulates).
+    static var deviceModel: String {
+        if let simulated = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] { return simulated }
+        var info = utsname()
+        uname(&info)
+        return withUnsafeBytes(of: info.machine) { raw in
+            String(bytes: raw.prefix { $0 != 0 }, encoding: .utf8) ?? "unknown"
+        }
     }
 }
