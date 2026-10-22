@@ -1,0 +1,1 @@
+- [Refresh card diagnosis](refresh-card-diagnosis.md) — Details-less card means transport/cancel error; fault seam location

@@ -1,0 +1,1 @@
+- [Parallel worktrees](parallel-worktrees.md) — scratchpad worktrees from origin/main, copy xcconfigs+fonts, one simulator each

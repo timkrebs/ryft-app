@@ -1,0 +1,3 @@
+- [Test waits on actors](feedback_test_waits_on_actors.md) — poll actor state, never a fixed real sleep; parallel Unit plan breaks it
+- [Classic groups](project_classic_groups.md) — Ryft/ and RyftTests/ were classic groups (2026-10-21): new files aren't compiled
+- [Dev machine disk](project_dev_machine_disk.md) — shared disk near full; reuse DerivedData, no diagnostics, delete xcresults
