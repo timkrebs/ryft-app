@@ -97,7 +97,12 @@ final class ProfileViewModel {
     var accountErrorDetails: String? { auth.errorDetails }
 
     func logOut() async { await auth.signOut() }
-    func deleteAccount() async { await auth.deleteAccount() }
+    func deleteAccount() async {
+        let account = auth.accountID
+        await auth.deleteAccount()
+        // Deleted: this phone forgets the account's tracker steps too (what it wore went with the store).
+        if let account, auth.accountID != account { onboarding?.forgetTrackerSteps(of: account) }
+    }
 
     // MARK: body
 
@@ -205,6 +210,8 @@ final class ProfileViewModel {
 
     func setDemoMode(_ on: Bool) async {
         settings.demoMode = on
+        // Demo data's flags are its own: off again, the account's cached flags, never demo's.
+        (env.flags as? FlagStore)?.setDemo(on)
         state.reset()
         await state.refresh()
     }
@@ -1365,8 +1372,27 @@ final class TrackerSelectionStore {
         return live
     }
 
-    /// The catalog's trackers that were picked, in picker order (a remote copy may have dropped one).
-    var trackers: [String] { Self.normalized(selection?.trackers ?? [], catalog: env.trackerCatalog) }
+    /// The catalog's trackers that were picked, in picker order (a remote copy may have dropped one). Nothing
+    /// chosen: nothing read (the catalog may not be decoded yet at launch).
+    var trackers: [String] {
+        guard let picked = selection?.trackers, !picked.isEmpty else { return [] }
+        return Self.normalized(picked, catalog: env.trackerCatalog)
+    }
+
+    /// The sources Today's night hint may name (design.md §6.2, §9.3): with `devices.setup` on and a choice made,
+    /// the iPhone's own records and the chosen trackers' sources ("Other": any source no tracker claims);
+    /// otherwise all of them.
+    func worn(_ freshness: [SourceFreshness]) -> [SourceFreshness] {
+        guard env.flags.isOn(.devicesSetup) else { return freshness }
+        let chosen = Set(trackers)
+        guard !chosen.isEmpty else { return freshness }
+        let catalog = env.trackerCatalog
+        return freshness.filter { source in
+            if source.isPhone { return true }
+            guard let tracker = catalog.match(source.ref) else { return chosen.contains("other") }
+            return chosen.contains(tracker.id)
+        }
+    }
 
     /// Saves what was picked: known ids only, de-duplicated, in picker order; "Just my iPhone" alone. Guides of
     /// trackers no longer worn are forgotten.
@@ -1471,8 +1497,11 @@ final class DevicesViewModel {
 
     /// Profile → Data's row: "Garmin · Oura", "Garmin · Oura · +1", or "Not set".
     var summary: String {
-        let names = trackers.map(\.name)
-        guard !names.isEmpty else { return String(localized: "Not set") }
+        let names = trackers.map(\.title)
+        guard !names.isEmpty else {
+            return String(localized: "devices.summary.none", defaultValue: "Not set",
+                          comment: "Profile → Data → Devices & sync row when no tracker is chosen.")
+        }
         let shown = names.prefix(2).joined(separator: " · ")
         return names.count > 2 ? "\(shown) · +\(names.count - 2)" : shown
     }
@@ -1595,7 +1624,7 @@ enum RyftFeatures {
         case .none:
             return line(ok: [String(localized: "Steps")],
                         rest: [String(localized: "Sleep, Strain, Recovery and Readiness stay empty without data from your tracker")])
-        case .appleBuiltin where tracker.form == .phone:
+        case .appleBuiltin where tracker.isJustIPhone:
             return line(ok: [String(localized: "Steps")],
                         rest: [String(localized: "Sleep, Strain, Recovery and Readiness stay empty: they need heart rate and sleep from a watch or ring.")])
         case .appleBuiltin, .vendorApp:
@@ -1663,7 +1692,8 @@ enum RyftFeatures {
     }
 
     private static func line(ok: [String], rest: [String]) -> Line {
-        Line(text: (ok.map { String(localized: "\($0) ✓") } + rest).joined(separator: " · "),
+        // A no-break space keeps "✓" with its feature.
+        Line(text: (ok.map { String(localized: "\($0)\u{00A0}✓") } + rest).joined(separator: " · "),
              spoken: (ok.map { String(localized: "\($0), yes") } + rest).joined(separator: ". "))
     }
 
@@ -1730,17 +1760,23 @@ extension TrackerSignal {
 
 extension Tracker {
     /// The tracker's glyph, the one mapping every tracker view uses (tiles, cards, rows, the sync check): the
-    /// form factor only, never a logo, and an Apple silhouette only for the Apple Watch itself.
+    /// form factor only, never a logo, and Apple's silhouettes only for the Apple Watch and the iPhone themselves.
     var symbol: String {
-        if id == "apple_watch" { return "applewatch" }
+        switch id {
+        case "apple_watch": return "applewatch"
+        case TrackerSelectionStore.iPhone: return "iphone"
+        default: break
+        }
         switch form {
         case .watch: return "watch.analog"
         case .band: return "figure.run.circle"
         case .ring: return "circle.circle"
-        case .phone: return "iphone"
-        case .other: return "ellipsis.circle"
+        case .phone, .other: return "ellipsis.circle"
         }
     }
+
+    /// "Just my iPhone": decided by its id, never by what a copy says its form is.
+    var isJustIPhone: Bool { id == TrackerSelectionStore.iPhone }
 
     /// The app named in sentences: "Garmin Connect", or the tracker's own name.
     var appTitle: String { appName ?? name }

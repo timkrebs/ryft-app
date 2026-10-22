@@ -122,8 +122,10 @@ struct RyftApp: App {
                     state.accountChanged(from: old)
                     // That account's gates, steps and sync state are its own.
                     screens.onboarding.switchAccount(new)
-                    // What it wears too (the previous account's choice was wiped with the store).
+                    // What it wears too (the previous account's choice was wiped with the store), and the
+                    // catalog's copy, which went with it.
                     screens.devices.accountChanged()
+                    env.catalogStore.accountChanged()
                     // Its last requests and a report's draft too: nothing of A's goes out as B.
                     screens.profile.accountChanged(from: old)
                     // The previous account's reminders and alarms go; this one's come back.
@@ -136,6 +138,11 @@ struct RyftApp: App {
                     // A link that arrived signed out; this account's push registration.
                     screens.router.openPending()
                     Task { await screens.push.refresh() }
+                }
+                // Demo data on or off: its flags, or the account's, asked for again now.
+                .onChange(of: settings.demoMode) { _, on in
+                    (env.flags as? FlagStore)?.setDemo(on)
+                    Task { await screens.featureFlags?.refresh(force: true) }
                 }
                 // A restore that ended signed out: a start asked for during it doesn't wait for a sign-in.
                 .onChange(of: auth.state) { _, now in
@@ -487,8 +494,7 @@ enum DebugScreen: String {
     /// Today's refresh Details sheet (503, 3 failures) with "Send to RYFT".
     case refreshDetailsSend = "refresh-details-send"
     /// "What do you wear?", the setup screen after Apple Health, Profile → Devices & sync, and one tracker's card
-    /// (`-RyftTrackers garmin,oura` picks, `-RyftTracker fitbit` the card, `-RyftCatalog preview` adds guide text,
-    /// `-RyftScrollBottom YES` starts at the end).
+    /// (`-RyftTrackers garmin,oura` picks, `-RyftTracker fitbit` the card, `-RyftScrollBottom YES` starts at the end).
     case wear, trackerSetup = "tracker-setup", devices, trackerCard = "tracker-card"
 
     static var requested: DebugScreen? {
@@ -636,9 +642,6 @@ private struct DebugDevices: View {
         // `-RyftScrollBottom YES`: the end of a long card (its store button) for a capture.
         .defaultScrollAnchor(UserDefaults.standard.bool(forKey: "RyftScrollBottom") ? .bottom : .top)
         .task {
-            if UserDefaults.standard.string(forKey: "RyftCatalog") == "preview" {
-                env.catalogStore.stage(MockData.trackerCatalog)
-            }
             // The demo choice is an Apple Watch, which needs no setup: the setup screen shows two that do.
             if screen == .trackerSetup, UserDefaults.standard.string(forKey: "RyftTrackers") == nil {
                 screens.devices.stage(["garmin", "oura"])

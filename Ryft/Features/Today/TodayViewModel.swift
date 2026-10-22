@@ -161,7 +161,7 @@ final class TodayViewModel {
         f.lastUpdated = state.lastUpdated
         f.expectedScoringSec = sync.lastScoring?.expectedWithinSec
         f.lastNight = lastNightRaw
-        f.freshness = freshness
+        f.freshness = devices?.worn(freshness) ?? freshness
         f.scoringSince = sync.scoringSince(pendingDays: state.syncStatus?.pendingDays ?? [])
         if let scenario = state.todayScenario { f = scenario.apply(to: f) }
         // Names for the sources on screen (§5), resolved once per set of sources and catalog version; nothing

@@ -23,6 +23,13 @@ final class DevicesUITests: XCTestCase {
         app.descendants(matching: .any)[id]
     }
 
+    /// Scrolls until `tile` sits above the pinned bar (`bar` is its top button): a tile under the bar still
+    /// reports itself hittable, and a tap there lands on the bar.
+    private func reveal(_ tile: XCUIElement, above bar: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<6 where tile.frame.maxY >= bar.frame.minY { app.swipeUp() }
+        XCTAssertLessThan(tile.frame.maxY, bar.frame.minY, "\(tile.identifier) clear of the pinned bar")
+    }
+
     /// Several trackers at once; "Just my iPhone" clears them, any other tile clears it; Continue needs a choice.
     @MainActor
     func testThePickerTakesSeveralButJustMyIPhoneAlone() throws {
@@ -39,12 +46,14 @@ final class DevicesUITests: XCTestCase {
         XCTAssertTrue(next.isEnabled)
 
         let iPhone = app.buttons["wear.tile.iphone"]
-        if !iPhone.isHittable { app.swipeUp() }
+        reveal(iPhone, above: next, in: app)
         iPhone.tap()
         XCTAssertTrue(iPhone.isSelected)
         XCTAssertFalse(garmin.isSelected || app.buttons["wear.tile.oura"].isSelected, "Just my iPhone clears the others")
 
-        if !garmin.isHittable { app.swipeDown() }
+        // Back to the top, where Garmin's tile is clear of everything.
+        app.swipeDown()
+        app.swipeDown()
         garmin.tap()
         XCTAssertTrue(garmin.isSelected && !iPhone.isSelected, "another tile clears Just my iPhone")
     }

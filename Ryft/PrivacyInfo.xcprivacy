@@ -107,7 +107,8 @@
 		     build, device model, iOS version, locale, the last 20 requests (no query strings, with their
 		     durations), per area (Today, History, Profile …) when it was last loaded with its last error's
 		     status, code and request ID, the sync's phase and counts with day-precision dates, gates and
-		     flags. No health values. Request durations are network diagnostics for support (this type),
+		     flags, and with tracker setup on the tracker ids chosen (RYFT's catalog ids, never a device's
+		     name). No health values. Request durations are network diagnostics for support (this type),
 		     not Performance Data. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>

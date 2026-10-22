@@ -815,8 +815,14 @@ extension OnboardingCoordinator {
 
     /// After Apple Health access, once per account (design.md §8): the cards of the trackers to set up.
     var showsTrackerSetup: Bool {
-        env.flags.isOn(.devicesSetup) && isFirstRun && !trackerSetupDone && !env.isDemo && env.auth.isSignedIn
-            && !setupTrackers.isEmpty
+        phase == .ready && env.flags.isOn(.devicesSetup) && isFirstRun && !trackerSetupDone && !env.isDemo
+            && env.auth.isSignedIn && !setupTrackers.isEmpty
+    }
+
+    /// A deleted account's answers to "What do you wear?" and the setup screen leave this phone too.
+    func forgetTrackerSteps(of account: String) {
+        defaults.removeObject(forKey: Self.key("wearAsked", account))
+        defaults.removeObject(forKey: Self.key("trackerSetupDone", account))
     }
 
     /// Done (the guides count as set up, but those put off) or "Show me again later" (all of them, for
@@ -853,35 +859,57 @@ private struct PinnedBar<Content: View>: View {
     }
 }
 
-/// The tiles of "What do you wear?" (ui.md §2.2): two columns, "Other" and "Just my iPhone" full width and last;
-/// one column at accessibility sizes. Several may be picked; "Just my iPhone" only on its own.
+/// The tiles of "What do you wear?" (ui.md §2.2): two columns, "Other" and "Just my iPhone" full width and last.
+/// One column at accessibility sizes, and whenever a name's longest word wouldn't fit a tile on this screen at
+/// this text size (a word is never broken). Several may be picked; "Just my iPhone" only on its own.
 struct TrackerPickerGrid: View {
     let catalog: TrackerCatalog
     @Binding var picked: [String]
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var width: CGFloat = 0
 
     /// Full-width rows at the end.
     private static let wide = ["other", TrackerSelectionStore.iPhone]
+    static let gap: CGFloat = 10
 
     private var regular: [Tracker] { catalog.trackers.filter { !Self.wide.contains($0.id) } }
     private var wide: [Tracker] { Self.wide.compactMap(catalog.tracker) }
 
     var body: some View {
-        VStack(spacing: 10) {
-            if typeSize.isAccessibilitySize {
-                ForEach(regular) { tile($0) }
-            } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+        VStack(spacing: Self.gap) {
+            if Self.fitsTwoColumns(regular.map(\.title), width: width, size: typeSize) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Self.gap), count: 2), spacing: Self.gap) {
                     ForEach(regular) { tile($0) }
                 }
+            } else {
+                ForEach(regular) { tile($0) }
             }
             ForEach(wide) { tile($0) }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text("What do you wear?"))
         .accessibilityHint(Text("Choose all that apply"))
+    }
+
+    /// Two columns while every word of every name fits a tile's room at `size` (not at accessibility sizes).
+    /// Before the width is known, as at the default size.
+    static func fitsTwoColumns(_ names: [String], width: CGFloat, size: DynamicTypeSize) -> Bool {
+        guard !size.isAccessibilitySize else { return false }
+        guard width > 0 else { return true }
+        let room = (width - gap) / 2 - SelectableTile.chrome(size)
+        return widestWord(names, size: size) <= room - 1
+    }
+
+    /// The widest single word among `names` in the tiles' font (Satoshi callout, scaled like `.ryft(.callout)`).
+    static func widestWord(_ names: [String], size: DynamicTypeSize) -> CGFloat {
+        let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(size))
+        let base = UIFont(name: RyftFonts.postScriptName(for: .regular), size: 14) ?? .systemFont(ofSize: 14)
+        let font = UIFontMetrics(forTextStyle: .callout).scaledFont(for: base, compatibleWith: traits)
+        let words = names.flatMap { $0.split(whereSeparator: \.isWhitespace) }
+        return words.map { (String($0) as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
     }
 
     private func tile(_ tracker: Tracker) -> some View {
@@ -911,7 +939,7 @@ struct TrackerPickerView: View {
     }
 
     var body: some View {
-        OnboardingScreen(symbol: "watch.analog",
+        OnboardingScreen(symbol: "antenna.radiowaves.left.and.right",
                          title: "What do you wear?",
                          text: "Pick your watch, band or ring. RYFT then shows how to get its data into Apple Health.") {
             TrackerPickerGrid(catalog: env.trackerCatalog, picked: $picked)
@@ -1022,12 +1050,11 @@ struct OnboardingStepPreview: View {
     OnboardingStepPreview(step: .aboutYou).previewEnvironment(scheme: .light)
 }
 
-/// "What do you wear?" or the setup screen after Apple Health, on the preview catalog (guide text included).
+/// "What do you wear?" or the setup screen after Apple Health, on the bundled catalog.
 @MainActor
 private func trackerStepPreview(setup: Bool = false, picked: [String] = [], scheme: ColorScheme = .dark,
                                 de: Bool = false, size: DynamicTypeSize = .large) -> some View {
     let state = AppState.preview()
-    state.env.catalogStore.stage(MockData.trackerCatalog)
     let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
     model.devices.stage(picked)
     return Group {

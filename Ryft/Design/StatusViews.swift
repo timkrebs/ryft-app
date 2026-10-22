@@ -667,15 +667,15 @@ struct DayMarker: View {
     }
 }
 
-/// Setup card for the unconfigured state. Names the chosen tracker's app when there is one (`devices.setup`),
-/// otherwise no vendor.
+/// Setup card for the unconfigured state.
 struct SetupCard: View {
     var action: () -> Void
 
     @Environment(\.appEnvironment) private var env
     @Environment(ScreenModels.self) private var screens: ScreenModels?
 
-    /// The first chosen tracker with an app of its own ("Garmin Connect").
+    /// With `devices.setup` on, step 1 names the first chosen tracker with an app of its own ("Garmin Connect"),
+    /// or no vendor; off, it reads as it always did.
     private var app: String? {
         guard env.flags.isOn(.devicesSetup), let devices = screens?.devices else { return nil }
         return devices.trackers.compactMap(env.trackerCatalog.tracker).first { $0.integration == .vendorApp }?.appTitle
@@ -691,13 +691,17 @@ struct SetupCard: View {
                     .font(.ryft(.title))
                     .foregroundStyle(Theme.textPrimary)
                 VStack(alignment: .leading, spacing: 10) {
-                    if let app {
-                        NumberedStep(number: 1, verbatim: String(localized: "Let \(app) write to Apple Health. Profile → Devices & sync shows how."))
+                    if !env.flags.isOn(.devicesSetup) {
+                        NumberedStep(number: 1, text: "Let Garmin Connect write to Apple Health (Garmin Connect → More → Settings → Apple Health).",
+                                     total: 3)
+                    } else if let app {
+                        NumberedStep(number: 1, verbatim: String(localized: "Let \(app) write to Apple Health. Profile → Devices & sync shows how."),
+                                     total: 3)
                     } else {
-                        NumberedStep(number: 1, text: "Let your watch or ring app write to Apple Health.")
+                        NumberedStep(number: 1, text: "Let your watch or ring app write to Apple Health.", total: 3)
                     }
-                    NumberedStep(number: 2, text: "Allow RYFT to read Health data when asked.")
-                    NumberedStep(number: 3, text: "Check your RYFT server URL in Profile.")
+                    NumberedStep(number: 2, text: "Allow RYFT to read Health data when asked.", total: 3)
+                    NumberedStep(number: 3, text: "Check your RYFT server URL in Profile.", total: 3)
                 }
                 Button(action: action) {
                     Text("Open Profile")
@@ -740,7 +744,11 @@ struct TrackerSetupCard: View {
     private var features: RyftFeatures.Line? { RyftFeatures.line(for: tracker) }
     private var steps: [String] { tracker.setup.value(in: locale) }
     private var habits: [String] { tracker.habits.value(in: locale) }
-    private var limits: [String] { tracker.limits.value(in: locale) }
+    /// A tracker that writes nothing already says so in the app's own words: its lines about RYFT go.
+    private var limits: [String] {
+        let all = tracker.limits.value(in: locale)
+        return tracker.integration == .none ? all.filter { !$0.contains("RYFT") } : all
+    }
 
     var body: some View {
         Card {
@@ -827,10 +835,15 @@ struct TrackerSetupCard: View {
         case .unknown: otherTracker
         case .appleBuiltin, .vendorApp: capabilities
         }
-        if !steps.isEmpty || tracker.help != nil { setUp }
+        if tracker.integration == .none {
+            // Nothing to set up: only the vendor's own page.
+            if let help = tracker.help { guideRow(help) }
+        } else if !steps.isEmpty || tracker.help != nil {
+            setUp
+        }
         if !habits.isEmpty { bullets("Keep it flowing", habits) }
         if !limits.isEmpty { bullets("Good to know", limits) }
-        if tracker.form == .phone {
+        if tracker.isJustIPhone {
             Text("You can add a tracker any time. RYFT will show how to connect it.")
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
@@ -920,7 +933,7 @@ struct TrackerSetupCard: View {
                 guide = GuidePage(url: url)
             } label: {
                 HStack {
-                    (tracker.integration == .vendorApp ? Text("Vendor guide") : Text("Apple's guide"))
+                    guideTitle
                         .font(.ryft(.callout))
                         .foregroundStyle(Theme.textPrimary)
                     Spacer()
@@ -943,6 +956,15 @@ struct TrackerSetupCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityHidden(true)
             }
+        }
+    }
+
+    /// The page's maker: the vendor's (a tracker app, or one that writes nothing), Apple's for its own devices.
+    private var guideTitle: Text {
+        switch tracker.integration {
+        case .vendorApp, .none: return Text("Vendor guide")
+        case .appleBuiltin: return Text("Apple's guide")
+        case .unknown: return Text("Guide")
         }
     }
 
@@ -990,7 +1012,8 @@ struct TrackerSetupCard: View {
                 .accessibilityIdentifier("tracker.add")
         }
         if let later {
-            Button("Show me again later", action: later)
+            // Not the screen's "Show me again later": this one puts off this tracker only.
+            Button(action: later) { Text(verbatim: String(localized: "Set up \(tracker.cardTitle) later")) }
                 .font(.ryft(.body))
                 .foregroundStyle(Theme.textSecondary)
                 .frame(maxWidth: .infinity, minHeight: 44)
@@ -1003,7 +1026,7 @@ struct TrackerSetupCard: View {
     private func state(of signal: TrackerSignal) -> CapabilityState {
         let state = CapabilityState(tracker.capabilities[signal] ?? .unverified)
         // The iPhone alone doesn't "keep" anything from RYFT: those signals aren't there at all.
-        return tracker.form == .phone && state == .no ? .notAvailable : state
+        return tracker.isJustIPhone && state == .no ? .notAvailable : state
     }
 
     /// The catalog's reason, or for Sleep whether its stages arrive.
@@ -1049,7 +1072,7 @@ extension Tracker {
     var cardTitle: String { integration == .unknown ? String(localized: "Other tracker") : title }
 }
 
-/// Setup cards on the preview catalog (guide text included), one canvas per variant.
+/// Setup cards on the bundled catalog, one canvas per variant.
 private struct TrackerCardsPreview: View {
     let ids: [String]
     var checked: String?
@@ -1064,8 +1087,8 @@ private struct TrackerCardsPreview: View {
                 TrackerSetupCard(tracker: tracker,
                                  expanded: collapsible ? Binding(get: { (open ?? ids.first) == id },
                                                                  set: { open = $0 ? id : nil }) : nil,
-                                 later: tracker.form == .phone ? nil : {},
-                                 addTracker: tracker.form == .phone ? {} : nil)
+                                 later: tracker.isJustIPhone ? nil : {},
+                                 addTracker: tracker.isJustIPhone ? {} : nil)
             }
         }
         .environment(\.appEnvironment, .preview())
@@ -1127,6 +1150,8 @@ struct NumberedStep: View {
     let text: Text
     /// VoiceOver says "Step 1 of 4" when the run's length is known.
     var total: Int?
+    /// The number's circle grows with the text (18 pt at the default size).
+    @ScaledMetric(relativeTo: .caption) private var badge: CGFloat = 18
 
     init(number: Int, text: LocalizedStringKey, total: Int? = nil) {
         self.number = number
@@ -1146,7 +1171,7 @@ struct NumberedStep: View {
                 .font(.ryft(.caption))
                 .monospacedDigit()
                 .foregroundStyle(Theme.accent)
-                .frame(width: 18, height: 18)
+                .frame(width: badge, height: badge)
                 .background(Theme.accent.opacity(0.14), in: Circle())
             text
                 .font(.ryft(.callout))

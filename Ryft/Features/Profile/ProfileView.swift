@@ -369,10 +369,22 @@ struct ProfileView: View {
                 if model.canAskForHealth {
                     PrimaryButton(title: "Allow access", style: .secondary) { await model.requestHealthAccess() }
                 }
-                PrimaryButton(title: "Open Health permissions", style: .secondary) { HealthLinks.open(with: openURL) }
+                if model.devices.isEnabled {
+                    PrimaryButton(title: "Open Health", style: .secondary) { HealthLinks.open(with: openURL) }
+                } else {
+                    PrimaryButton(title: "Open Health permissions", style: .secondary) { HealthLinks.open(with: openURL) }
+                }
             }
-            // Devices & sync has each tracker's own steps.
-            if !model.devices.isEnabled {
+            // With `devices.setup` the path to RYFT's permission comes from the catalog, and Devices & sync has each
+            // tracker's own steps.
+            if model.devices.isEnabled {
+                if !model.devices.healthAccessSteps.isEmpty {
+                    Text(verbatim: model.devices.healthAccessSteps.joined(separator: " "))
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
                 Text("Garmin Connect must write to Apple Health (Garmin Connect → More → Settings → Apple Health), and RYFT must be allowed to read it (Health → Sharing → Apps → RYFT).")
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textTertiary)
@@ -1808,7 +1820,7 @@ private struct DevicesRowLabel: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: "watch.analog")
+            Image(systemName: "antenna.radiowaves.left.and.right")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Theme.textSecondary)
                 .accessibilityHidden(true)
@@ -2045,7 +2057,7 @@ struct TrackerDetailView: View {
         ScrollView {
             TrackerSetupCard(tracker: tracker,
                              later: TrackerSelectionStore.needsSetup(tracker) ? { model.selection.markLater(tracker.id) } : nil,
-                             addTracker: tracker.form == .phone ? {
+                             addTracker: tracker.isJustIPhone ? {
                                  dismiss()
                                  addTracker()
                              } : nil)
@@ -2106,13 +2118,12 @@ struct TrackerPickerSheet: View {
     }
 }
 
-/// Devices & sync on mock data: the preview catalog (guide text included), a choice, and `User.sources`
+/// Devices & sync on mock data: the bundled catalog, a choice, and `User.sources`
 /// with a source RYFT doesn't know.
 @MainActor
 private func devicesPreview(_ picked: [String], scheme: ColorScheme = .dark, de: Bool = false,
                             size: DynamicTypeSize = .large, later: [String] = []) -> some View {
     let state = AppState.preview(flags: [.devicesSetup: true])
-    state.env.catalogStore.stage(MockData.trackerCatalog)
     if var user = state.user {
         let now = Date.now
         user.sources = [
@@ -2142,6 +2153,27 @@ private func devicesPreview(_ picked: [String], scheme: ColorScheme = .dark, de:
 #Preview("Devices & sync · none chosen · dark") { devicesPreview([]) }
 #Preview("Devices & sync · none chosen · light") { devicesPreview([], scheme: .light) }
 #Preview("Devices & sync · AX3") { devicesPreview(["garmin"], size: .accessibility3) }
+
+/// A tracker's card or the picker sheet from Devices & sync, on mock data.
+@MainActor
+private func devicesScreenPreview(_ scheme: ColorScheme, sheet: Bool = false) -> some View {
+    let state = AppState.preview(flags: [.devicesSetup: true])
+    let model = DevicesViewModel(state: state, selection: TrackerSelectionStore(env: state.env))
+    model.selection.stage(["garmin", "oura"])
+    return Group {
+        if sheet {
+            TrackerPickerSheet(model: model)
+        } else {
+            NavigationStack { TrackerDetailView(tracker: MockData.tracker("garmin"), model: model) {} }
+        }
+    }
+    .previewEnvironment(state, scheme: scheme)
+}
+
+#Preview("Tracker detail · dark") { devicesScreenPreview(.dark) }
+#Preview("Tracker detail · light") { devicesScreenPreview(.light) }
+#Preview("Tracker picker sheet · dark") { devicesScreenPreview(.dark, sheet: true) }
+#Preview("Tracker picker sheet · light") { devicesScreenPreview(.light, sheet: true) }
 
 #Preview("Profile · Data row · dark") {
     ProfileView().previewEnvironment(AppState.preview(flags: [.devicesSetup: true]))

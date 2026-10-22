@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Rounded Slate surface used for every grouped block.
 struct Card<Content: View>: View {
@@ -87,28 +88,42 @@ struct SelectableTile: View {
     let action: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The glyph, its column and the mark grow with the name.
+    @ScaledMetric(relativeTo: .callout) private var glyph: CGFloat = Self.baseGlyph
+    @ScaledMetric(relativeTo: .callout) private var glyphColumn: CGFloat = Self.baseColumn
+    @ScaledMetric(relativeTo: .callout) private var mark: CGFloat = Self.baseMark
+
+    private static let baseGlyph: CGFloat = 20, baseColumn: CGFloat = 22, baseMark: CGFloat = 20
+    private static let padding: CGFloat = 12, spacing: CGFloat = 8
+
+    /// Everything in a tile but its name at a text size: the room a name has is the tile's width minus this.
+    static func chrome(_ size: DynamicTypeSize) -> CGFloat {
+        let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(size))
+        let scaled = { UIFontMetrics(forTextStyle: .callout).scaledValue(for: $0, compatibleWith: traits) }
+        return 2 * padding + 2 * spacing + scaled(baseColumn) + scaled(baseMark)
+    }
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: Self.spacing) {
                 Image(systemName: symbol)
-                    .font(.system(size: 20, weight: .regular))
+                    .font(.system(size: glyph, weight: .regular))
                     .foregroundStyle(isSelected ? Theme.accent : Theme.textSecondary)
-                    .frame(width: 22)
+                    .frame(width: glyphColumn)
                     .accessibilityHidden(true)
                 Text(verbatim: title)
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textPrimary)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 20, weight: .regular))
+                    .font(.system(size: mark, weight: .regular))
                     .foregroundStyle(isSelected ? Theme.accent : Theme.textTertiary)
                     .accessibilityHidden(true)
             }
             .padding(.vertical, 12)
-            .padding(.horizontal, 14)
+            .padding(.horizontal, Self.padding)
             .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
             .background(isSelected ? Theme.surfaceRaised : Theme.surface,
                         in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
@@ -211,6 +226,8 @@ struct CapabilityRow: View {
                 }
             }
         }
+        // A reason under the name gets room above and below it.
+        .padding(.vertical, detail == nil ? 0 : 6)
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: spokenTitle ?? title))
