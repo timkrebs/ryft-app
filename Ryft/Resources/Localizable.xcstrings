@@ -59,7 +59,7 @@
       }
     },
     "%@ in the App Store" : {
-      "comment" : "Button on Today's hint and on a setup card: the tracker app's App Store page (it shows Open when installed). The argument is the app, e.g. Garmin Connect.",
+      "comment" : "Button on Today's hint, on a setup card and in Check sync: the tracker app's App Store page (it shows Open when installed). The argument is the app, e.g. Garmin Connect.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -1147,7 +1147,7 @@
       }
     },
     "Breathing rate" : {
-      "comment" : "A signal on a setup card.",
+      "comment" : "A signal on a setup card and a row name in Check sync.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -1158,7 +1158,7 @@
       }
     },
     "breathing rate" : {
-      "comment" : "A signal inside a sentence (\"Recovery from resting heart rate, sleep and breathing rate\").",
+      "comment" : "A signal inside a sentence, on a setup card (\"Recovery from resting heart rate, sleep and breathing rate\") and in Check sync (\"RYFT can read breathing rate, but …\").",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -1176,7 +1176,8 @@
             "value" : "Auf dem iPhone nicht lesbar"
           }
         }
-      }
+      },
+      "comment" : "Profile → Data → Devices & sync: a tracker row's status under its name, from the last Check sync: a tracker that writes nothing to Apple Health."
     },
     "Can't be read on iPhone today" : {
       "comment" : "Collapsed setup card of a tracker that writes nothing to Apple Health.",
@@ -1217,7 +1218,8 @@
             "value" : "Geprüft"
           }
         }
-      }
+      },
+      "comment" : "Profile → Data → Devices & sync: a tracker row's status under its name, from the last Check sync: checked, with nothing to count (Other, or an Apple device RYFT can't tell apart)."
     },
     "Checked %@" : {
       "comment" : "Under a setup card's guide link: when its steps were checked, e.g. 22 Oct 2026.",
@@ -1506,7 +1508,8 @@
             "value" : "Daten kommen an"
           }
         }
-      }
+      },
+      "comment" : "Profile → Data → Devices & sync: a tracker row's status under its name, from the last Check sync: every signal it should send arrived."
     },
     "Data in both accounts? Support can merge them: ryftapp.de/support" : {
       "localizations" : {
@@ -2207,7 +2210,8 @@
             "value" : "Zuletzt geprüft: %@"
           }
         }
-      }
+      },
+      "comment" : "Devices & sync, under the Check sync button: when the last check ran. The argument is a time (\"14:05\", \"Yesterday 22:10\")."
     },
     "Last data from %@: %@" : {
       "comment" : "Under the night hint: the source's name and the time of its newest record (e.g. 'Wed 23:24').",
@@ -2289,7 +2293,8 @@
             "value" : "Letzte Nacht fehlt"
           }
         }
-      }
+      },
+      "comment" : "Profile → Data → Devices & sync: a tracker row's status under its name, from the last Check sync: last night's data hasn't reached Apple Health yet."
     },
     "Last night, from Apple Health, not scored yet" : {
       "localizations" : {
@@ -2400,7 +2405,8 @@
             "value" : "Braucht eine Korrektur"
           }
         }
-      }
+      },
+      "comment" : "Profile → Data → Devices & sync: a tracker row's status under its name, from the last Check sync: a signal it should send didn't arrive (the check shows the fix)."
     },
     "No data from other apps yet." : {
       "comment" : "Seen in Apple Health without sources.",
@@ -2680,7 +2686,7 @@
       }
     },
     "Not shared" : {
-      "comment" : "A signal's state on a setup card: the tracker doesn't share it (expected, not an error).",
+      "comment" : "A signal's state on a setup card, and a Check sync row's result: the tracker doesn't share it (expected, not an error).",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -2728,7 +2734,8 @@
             "value" : "In den letzten 2 Tagen nichts"
           }
         }
-      }
+      },
+      "comment" : "Profile → Data → Devices & sync: a tracker row's status under its name, from the last Check sync: no data at all from it in the last 48 hours."
     },
     "Nothing is attached except your message." : {
       "localizations" : {
@@ -3305,7 +3312,7 @@
       }
     },
     "Resting heart rate" : {
-      "comment" : "A signal on a setup card.",
+      "comment" : "A signal on a setup card and a row name in Check sync.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -3396,7 +3403,7 @@
       }
     },
     "RYFT can't read %@ data on iPhone today." : {
-      "comment" : "Setup card of a tracker that writes nothing to Apple Health. The argument is its name.",
+      "comment" : "A tracker that writes nothing to Apple Health, on its setup card and in Check sync. The argument is its name.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -3679,7 +3686,8 @@
             "value" : "Sieh nach, ob die Daten deiner Tracker in Apple Health ankommen."
           }
         }
-      }
+      },
+      "comment" : "Devices & sync: the Check sync section's text, above its button."
     },
     "Seen in Apple Health" : {
       "comment" : "Section in Devices & sync: sources that sent data.",
@@ -3990,7 +3998,7 @@
       }
     },
     "sleep stages" : {
-      "comment" : "A signal inside a sentence.",
+      "comment" : "A signal inside a sentence, on a setup card and in Check sync (\"RYFT can read sleep stages, but …\").",
       "localizations" : {
         "de" : {
           "stringUnit" : {

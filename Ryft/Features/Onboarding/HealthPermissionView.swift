@@ -968,9 +968,16 @@ struct TrackerSetupStepView: View {
     let model: OnboardingCoordinator
     /// The open card in a list of several.
     @State private var open: String?
-    /// Check sync was tapped: its result opens below the cards (open from the start for a `-RyftSyncCheck` run).
-    @State private var checking = SyncCheckScenario.requested != nil
+    /// Check sync was tapped: its model, made once on the tap; the result opens below the cards.
+    @State private var check: TrackerCheckModel?
+    /// Open from the start (previews, and a `-RyftSyncCheck` run's screenshots).
+    private let checkOpen: Bool
     @Environment(\.appEnvironment) private var env
+
+    init(model: OnboardingCoordinator, checkOpen: Bool = SyncCheckScenario.requested != nil) {
+        self.model = model
+        self.checkOpen = checkOpen
+    }
 
     var body: some View {
         let trackers = model.setupTrackers
@@ -996,11 +1003,11 @@ struct TrackerSetupStepView: View {
             }
             // The inline Check sync (design.md §8, ui.md §3.5): its button under the cards, the result opening
             // below them, with its own Check again.
-            if checking {
-                TrackerCheckView(model: .make(env: env, trackers: model.devices.trackers), embedded: true)
+            if let check {
+                TrackerCheckView(model: check, embedded: true)
                     .padding(.top, 12)
             } else {
-                PrimaryButton(title: "Check sync", style: .secondary) { checking = true }
+                PrimaryButton(title: "Check sync", style: .secondary) { openCheck() }
                     .padding(.top, 12)
                     .accessibilityIdentifier("trackerSetup.checkSync")
             }
@@ -1013,6 +1020,13 @@ struct TrackerSetupStepView: View {
                     .accessibilityIdentifier("trackerSetup.later")
             }
         }
+        .onAppear { if checkOpen { openCheck() } }
+    }
+
+    /// The check on the chosen trackers, made once.
+    private func openCheck() {
+        guard check == nil else { return }
+        check = .make(env: env, trackers: model.devices.trackers)
     }
 }
 
@@ -1064,13 +1078,13 @@ struct OnboardingStepPreview: View {
 /// "What do you wear?" or the setup screen after Apple Health, on the bundled catalog.
 @MainActor
 private func trackerStepPreview(setup: Bool = false, picked: [String] = [], scheme: ColorScheme = .dark,
-                                de: Bool = false, size: DynamicTypeSize = .large) -> some View {
+                                de: Bool = false, size: DynamicTypeSize = .large, checkOpen: Bool = false) -> some View {
     let state = AppState.preview()
     let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
     model.devices.stage(picked)
     return Group {
         if setup {
-            TrackerSetupStepView(model: model)
+            TrackerSetupStepView(model: model, checkOpen: checkOpen)
         } else {
             TrackerPickerView(model: model, picked: picked)
         }
@@ -1096,6 +1110,10 @@ private func trackerStepPreview(setup: Bool = false, picked: [String] = [], sche
     trackerStepPreview(setup: true, picked: ["garmin", "oura"], scheme: .light)
 }
 #Preview("Tracker setup · AX3") { trackerStepPreview(setup: true, picked: ["fitbit"], size: .accessibility3) }
+#Preview("Tracker setup · check open · dark") { trackerStepPreview(setup: true, picked: ["garmin"], checkOpen: true) }
+#Preview("Tracker setup · check open · light · de") {
+    trackerStepPreview(setup: true, picked: ["garmin"], scheme: .light, de: true, checkOpen: true)
+}
 
 // MARK: - Apple Health
 

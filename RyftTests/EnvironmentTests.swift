@@ -1281,7 +1281,7 @@ struct SyncCheckTests {
     }
 
     @Test func diagnosticsLeaveOutACheckOlderThan14Days() throws {
-        let env = AppEnvironment.test(clock: TestClock(now: now))
+        let env = AppEnvironment.test(clock: TestClock(now: now), flags: [.devicesSetup: true])
         let account = try #require(env.auth.accountID)
         let check = try classify("garmin", .garminLike(now: now))
         for (daysAgo, reported) in [(13.0, true), (15.0, false)] {
@@ -1291,6 +1291,11 @@ struct SyncCheckTests {
             #expect(TrackerCheckRecord.load(env) != nil)
             #expect((TrackerCheckRecord.forReport(env) != nil) == reported, "\(daysAgo) days")
         }
+        // It names tracker ids: with `devices.setup` off, like `trackers`, it stays home.
+        let off = AppEnvironment.test(clock: TestClock(now: now))
+        off.persistence.saveDocument(TrackerCheckRecord(account: account, at: now, checks: [check]),
+                                     key: TrackerCheckRecord.documentKey, at: now)
+        #expect(TrackerCheckRecord.load(off) != nil && TrackerCheckRecord.forReport(off) == nil)
     }
 
     /// Devices & sync's rows and "Last checked" show the last check, per tracker, once there is one.
@@ -1489,7 +1494,10 @@ struct ReportProblemTests {
     /// Check sync's result goes as tracker ids and codes, with the check's day: never a source's name, a bundle ID
     /// or a time of day (design.md §10).
     @Test func theLastCheckGoesAsTrackerIdsAndCodesOnly() async throws {
-        let (model, env) = model()
+        // With `devices.setup` on, like `trackers` (forReport's test has it off).
+        let env = AppEnvironment.test(flags: [.devicesSetup: true])
+        let model = ReportProblemModel(env: env, apiStatus: APIStatus()) { Self.sync }
+        model.message = "Today said calibrating after a full week."
         #expect(model.payload().diagnostics?["sync_check"] == nil && model.syncCheck == nil) // no check: no key, no row
         let store = MockHealthStore.garminLike(now: env.clock.now(), sleepOff: true)
         await TrackerCheckModel(env: env, health: store, trackers: ["garmin", "iphone"]).run()

@@ -2303,6 +2303,8 @@ struct DevicesAndSyncView: View {
     @Environment(\.appEnvironment) private var env
     @Environment(\.openURL) private var openURL
     @State private var editing = false
+    /// The pushed Check sync's model: made on the tap, once, not on every redraw.
+    @State private var check: TrackerCheckModel?
 
     var body: some View {
         ScrollView {
@@ -2323,6 +2325,9 @@ struct DevicesAndSyncView: View {
         .task { await model.appeared() }
         // Back from Check sync: "Last checked" and the rows' results.
         .onAppear { model.reloadCheck() }
+        .navigationDestination(isPresented: Binding(get: { check != nil }, set: { if !$0 { check = nil } })) {
+            if let check { TrackerCheckView(model: check) }
+        }
         .sheet(isPresented: $editing) { TrackerPickerSheet(model: model) }
     }
 
@@ -2382,8 +2387,8 @@ struct DevicesAndSyncView: View {
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                NavigationLink {
-                    TrackerCheckView(model: .make(env: env, trackers: model.selection.trackers))
+                Button {
+                    check = .make(env: env, trackers: model.selection.trackers)
                 } label: {
                     Text("Check sync")
                         .font(.ryft(.callout))
@@ -2613,8 +2618,10 @@ struct TrackerPickerSheet: View {
 /// with a source RYFT doesn't know.
 @MainActor
 private func devicesPreview(_ picked: [String], scheme: ColorScheme = .dark, de: Bool = false,
-                            size: DynamicTypeSize = .large, later: [String] = []) -> some View {
+                            size: DynamicTypeSize = .large, later: [String] = [], checked: Bool = false) -> some View {
     let state = AppState.preview(flags: [.devicesSetup: true])
+    // A check ten minutes ago (demo data keeps it in memory): the rows' results and "Last checked".
+    TrackerCheckRecord.demo = checked ? previewCheckRecord(picked) : nil
     if var user = state.user {
         let now = Date.now
         user.sources = [
@@ -2639,11 +2646,27 @@ private func devicesPreview(_ picked: [String], scheme: ColorScheme = .dark, de:
 }
 
 #Preview("Devices & sync · two trackers · dark") { devicesPreview(["garmin", "oura"], later: ["oura"]) }
+#Preview("Devices & sync · checked · dark") { devicesPreview(["garmin", "oura"], checked: true) }
+#Preview("Devices & sync · checked · light · de") { devicesPreview(["garmin", "oura"], scheme: .light, de: true, checked: true) }
 #Preview("Devices & sync · two trackers · light") { devicesPreview(["garmin", "oura"], scheme: .light, later: ["oura"]) }
 #Preview("Devices & sync · two trackers · de") { devicesPreview(["garmin", "oura"], de: true) }
 #Preview("Devices & sync · none chosen · dark") { devicesPreview([]) }
 #Preview("Devices & sync · none chosen · light") { devicesPreview([], scheme: .light) }
 #Preview("Devices & sync · AX3") { devicesPreview(["garmin"], size: .accessibility3) }
+
+/// The Garmin-like store's check for these trackers, ten minutes ago.
+@MainActor
+private func previewCheckRecord(_ ids: [String]) -> TrackerCheckRecord {
+    let now = Date.now
+    let store = MockHealthStore.garminLike(now: now, sleepOff: true)
+    let catalog = TrackerCatalog.bundled
+    let trackers = ids.compactMap(catalog.tracker)
+    let checks = trackers.map {
+        TrackerCheckRules.classify($0, samples: store.samples, visible: store.visible, now: now, catalog: catalog,
+                                   alongside: trackers)
+    }
+    return TrackerCheckRecord(account: "demo", at: now.addingTimeInterval(-600), checks: checks)
+}
 
 /// A tracker's card or the picker sheet from Devices & sync, on mock data.
 @MainActor

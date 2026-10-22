@@ -8,9 +8,13 @@ final class SyncCheckUITests: XCTestCase {
     }
 
     private func launch(_ scenario: String) -> XCUIApplication {
+        launch(["-RyftScreen", "sync-check", "-RyftSyncCheck", scenario])
+    }
+
+    private func launch(_ arguments: [String]) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
-        app.launchArguments = ["-demoMode", "YES", "-RyftScreen", "sync-check", "-RyftSyncCheck", scenario,
-                               "-appearance", "dark", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments = ["-demoMode", "YES"] + arguments
+            + ["-appearance", "dark", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
         return app
     }
@@ -57,6 +61,33 @@ final class SyncCheckUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["3 of 4 expected signals are arriving. 1 needs a fix."].waitForExistence(timeout: 5),
                       "the summary")
         XCTAssertFalse(app.descendants(matching: .any)["check.mayNotRead"].exists, "RYFT sees sleep elsewhere")
+    }
+
+    /// Devices & sync → Check sync → back: the row says what the check found, and "Last checked" when.
+    @MainActor
+    func testDevicesAndSyncShowsTheCheckOnReturn() throws {
+        let app = launch(["-RyftScreen", "devices", "-RyftSyncCheck", "garminSleepOff"])
+        let garmin = app.buttons["devices.row.garmin"]
+        XCTAssertTrue(garmin.waitForExistence(timeout: 15))
+        XCTAssertEqual(garmin.value as? String, "Not checked yet")
+        app.buttons["devices.checkSync"].tap()
+        XCTAssertTrue(value(of: row(app, "steps"), "BEGINSWITH 'Arriving'"), "the check finished")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(value(of: garmin, "== 'Needs a fix'"), "the row shows the result")
+        let checked = app.staticTexts["devices.lastChecked"]
+        XCTAssertTrue(checked.waitForExistence(timeout: 5) && checked.label.hasPrefix("Last checked"))
+    }
+
+    /// The setup step after Apple Health: Check sync under the cards opens the check below them.
+    @MainActor
+    func testTheSetupStepOpensTheCheckBelowTheCards() throws {
+        let app = launch(["-RyftScreen", "tracker-setup", "-RyftTrackers", "garmin", "-RyftScrollBottom", "YES"])
+        let open = app.buttons["trackerSetup.checkSync"]
+        XCTAssertTrue(open.waitForExistence(timeout: 15))
+        XCTAssertFalse(row(app, "heart_rate").exists, "closed until asked")
+        open.tap()
+        XCTAssertTrue(value(of: row(app, "steps"), "BEGINSWITH 'Arriving'"), "the check ran below the cards")
+        XCTAssertTrue(app.buttons["check.run"].exists && app.buttons["trackerSetup.done"].exists)
     }
 
     @MainActor

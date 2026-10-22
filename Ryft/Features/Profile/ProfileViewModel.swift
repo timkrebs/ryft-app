@@ -1150,8 +1150,10 @@ struct TrackerCheckRecord: Codable, Equatable, Sendable {
     }
 
     /// What diagnostics carry (Report a problem, Copy diagnostics): the last check, unless it's over 14 days old.
+    /// It names tracker ids, so it goes with `devices.setup` on, like `trackers`.
     @MainActor static func forReport(_ env: AppEnvironment) -> TrackerCheckRecord? {
-        load(env).flatMap { env.clock.now().timeIntervalSince($0.at) <= reportAge ? $0 : nil }
+        guard env.flags.isOn(.devicesSetup) else { return nil }
+        return load(env).flatMap { env.clock.now().timeIntervalSince($0.at) <= reportAge ? $0 : nil }
     }
 }
 
