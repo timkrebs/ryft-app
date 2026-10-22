@@ -40,14 +40,17 @@ struct InlineMessage: View {
     var isRetrying = false
     /// "Details" opens something (a sheet) instead of the inline toggle.
     var onDetails: (() -> Void)? = nil
-    /// Prefix of the buttons' identifiers: "<prefix>.retry", "<prefix>.details".
+    /// Prefix of the buttons' identifiers: "<prefix>.retry", "<prefix>.details", "<prefix>.action".
     var identifier = "inlineMessage"
+    /// A plain action, not a retry ("Garmin Connect in the App Store"): a secondary capsule where the buttons
+    /// sit. Its title is already localized (`String(localized:)`) and shown verbatim.
+    var action: (title: String, perform: () -> Void)?
 
     @State private var retrying = false
     @State private var showDetails = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var hasButtons: Bool { retry != nil || details != nil || onDetails != nil }
+    private var hasTextButtons: Bool { retry != nil || details != nil || onDetails != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -63,17 +66,19 @@ struct InlineMessage: View {
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                     if let caption {
+                        // Secondary ink: tertiary was under 4.5:1 on the card in light mode.
                         Text(caption)
                             .font(.ryft(.caption))
                             .monospacedDigit()
-                            .foregroundStyle(Theme.textTertiary)
+                            .foregroundStyle(Theme.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 0)
             }
+            if let action { actionButton(action) }
             // ui.md §3.2: the buttons start at the card's leading edge, 18 pt apart; stacked at AX sizes.
-            if hasButtons { buttons }
+            if hasTextButtons { buttons }
             if showDetails, let details {
                 Text(details)
                     .font(.system(.caption, design: .monospaced))
@@ -85,11 +90,29 @@ struct InlineMessage: View {
         .padding(.horizontal, 14)
         .padding(.top, 14)
         // A button row's 44 pt targets already leave room under their labels.
-        .padding(.bottom, hasButtons && !showDetails ? 2 : 14)
+        .padding(.bottom, hasTextButtons && !showDetails ? 2 : 14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
             .strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
+    }
+
+    /// The plain action: `PrimaryButton`'s secondary look, wrapping instead of shrinking at large sizes.
+    private func actionButton(_ action: (title: String, perform: () -> Void)) -> some View {
+        Button(action: action.perform) {
+            Text(verbatim: action.title)
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(Theme.surfaceRaised, in: Capsule())
+        }
+        .buttonStyle(PressableButtonStyle())
+        .padding(.top, 4)
+        .accessibilityIdentifier("\(identifier).action")
     }
 
     /// Try again and Details: each at least 44 × 44 pt.
@@ -280,7 +303,8 @@ struct SyncStatusLineView: View {
     /// The line as one button (Sync details), or as text without an action.
     @ViewBuilder
     private func tappable(now: Date, hint: LocalizedStringKey) -> some View {
-        let color = current.isActive || current.isIssue ? Theme.textSecondary : Theme.textTertiary
+        // Slow scoring reads like an issue's line (secondary ink), without the pulse of progress.
+        let color = current.isActive || current.isIssue || current == .scoringSlow ? Theme.textSecondary : Theme.textTertiary
         if let action {
             Button(action: action) {
                 label(now: now)
@@ -311,12 +335,14 @@ struct SyncStatusLineView: View {
         .frame(maxWidth: current.isStale ? nil : .infinity)
     }
 
-    /// VoiceOver hears the stale claim, and the return to "Up to date" after a manual Try again;
-    /// the other changes stay silent (they would chatter).
+    /// VoiceOver hears the stale claim, slow scoring once, and the return to "Up to date" after a manual
+    /// Try again; the other changes stay silent (they would chatter).
     private func announce(_ old: SyncLine, _ new: SyncLine) {
         let now = Date.now
         if new.isStale, !old.isStale {
             AccessibilityNotification.Announcement(new.text(now: now)).post()
+        } else if new == .scoringSlow, old != .scoringSlow {
+            AccessibilityNotification.Announcement(String(localized: "Taking longer than usual")).post()
         } else if retried, case .upToDate = new {
             retried = false
             AccessibilityNotification.Announcement(new.text(now: now)).post()
@@ -745,6 +771,32 @@ private struct SetupStep: View {
             SyncStatusLineView(line: .issue(.me, signedOut: true), action: {})
             SyncStatusLineView(line: .reading(.sleep), action: {})
         }
+    }
+}
+
+#Preview("Sync status line · taking longer", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        VStack(spacing: 12) {
+            SyncStatusLineView(line: .scoring(night: true), action: {})
+            // 5b: scoring past max(60 s, 3 × the estimate). No pulse; the tap opens Sync details.
+            SyncStatusLineView(line: .scoringSlow, action: {})
+            SyncStatusLineView(line: .scoring(night: false), action: {})
+        }
+    }
+}
+
+#Preview("Sync status line · taking longer · de · AX3", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        SyncStatusLineView(line: .scoringSlow, action: {})
+    }
+    .environment(\.locale, Locale(identifier: "de"))
+    .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Inline message · action", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        InlineMessage(message: "Your night hasn't reached Apple Health yet. Open Garmin Connect to sync it.", systemImage: "moon.zzz",
+                      caption: "Last data from Garmin Connect: Wed 23:24", action: ("Garmin Connect in the App Store", {}))
     }
 }
 

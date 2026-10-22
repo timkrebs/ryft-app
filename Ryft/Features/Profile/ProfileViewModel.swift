@@ -333,6 +333,30 @@ final class SyncDetailsModel {
         return String(localized: "Idle")
     }
 
+    /// When scoring began (`SyncService.scoringSince`), and the platform's estimate.
+    private var scoringSince: Date? { sync.scoringSince(pendingDays: state.syncStatus?.pendingDays ?? []) }
+    private var expectedScoringSec: Int {
+        state.syncStatus?.expectedWithinSec ?? sync.lastScoring?.expectedWithinSec ?? SyncCoordinator.defaultExpectedScoring
+    }
+
+    /// "Waiting since 10:21 · usually 20 s"; the platform's pending days when this app isn't timing them;
+    /// "Nothing waiting" when nothing is.
+    var scoringText: String {
+        guard let since = scoringSince else {
+            let pending = state.syncStatus?.pendingDays ?? []
+            return pending.isEmpty ? String(localized: "Nothing waiting")
+                : String(localized: "Pending: \(pending.joined(separator: ", "))")
+        }
+        return String(localized: "Waiting since \(Fmt.time(since)) · usually \(expectedScoringSec) s")
+    }
+
+    /// The same rule as Today's "Taking longer than usual" (`TodayStates.scoringSlow`).
+    var scoringIsSlow: Bool {
+        let listed = !(state.syncStatus?.pendingDays.isEmpty ?? true)
+        return TodayStates.scoringSlow(since: scoringSince, expected: expectedScoringSec, now: env.clock.now(),
+                                       checkedAt: listed ? sync.statusReadAt : nil)
+    }
+
     var backlogText: String {
         guard let bytes = sync.backlogBytes else { return String(localized: "None") }
         return String(localized: "About \(bytes.formatted(.byteCount(style: .file)))")
@@ -430,6 +454,7 @@ final class SyncDetailsModel {
         if let status = state.syncStatus {
             lines.append("server today \(status.today.day) \(status.today.state.rawValue) · pending \(status.pendingDays.joined(separator: ",")) · expected \(status.expectedWithinSec) s")
         }
+        lines.append("scoring since \(scoringSince.map { $0.ISO8601Format() } ?? "-") · expected \(expectedScoringSec) s · slow \(scoringIsSlow)")
         for row in streams {
             guard let p = row.progress else { lines.append("\(row.id): -"); continue }
             let ignored = p.lastIgnored.map { "dup \($0.duplicate) out \($0.outsideWindow) unk \($0.unknownType)" } ?? "-"
