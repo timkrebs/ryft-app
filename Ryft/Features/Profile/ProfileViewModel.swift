@@ -1599,6 +1599,10 @@ enum RyftFeatures {
     /// Resting heart rate derived from overnight heart rate: false until API.md documents it (lead's decision 10);
     /// the ticket that lands that contract flips it.
     static let restingHRFromHeartRate = false
+    /// Readiness without HRV: the platform calibrating from resting-heart-rate nights alone (design.md §7). False
+    /// until API.md documents it (the ticket that lands that contract flips it): today a day's baselines need HRV
+    /// nights as well (`baseline_days = min(N_hrv, N_rhr)`), so without HRV there's no Readiness.
+    static let baselinesWithoutHRV = false
 
     enum Feature: CaseIterable, Sendable {
         case strain, sleep, recovery, readiness
@@ -1620,7 +1624,8 @@ enum RyftFeatures {
     }
 
     /// nil for "Other": what arrives depends on the tracker.
-    static func line(for tracker: Tracker, derivedRestingHR: Bool = restingHRFromHeartRate) -> Line? {
+    static func line(for tracker: Tracker, derivedRestingHR: Bool = restingHRFromHeartRate,
+                     baselinesWithoutHRV: Bool = baselinesWithoutHRV) -> Line? {
         switch tracker.integration {
         case .unknown:
             return nil
@@ -1636,8 +1641,10 @@ enum RyftFeatures {
         let level = { (s: TrackerSignal) in Level(tracker.capabilities[s] ?? .unverified) }
         let restingHR = derivedRestingHR ? max(level(.restingHR), level(.heartRate)) : level(.restingHR)
         let recovery = min(level(.sleep), restingHR)
+        // Readiness needs settled baselines: HRV's too, until the platform calibrates without it.
+        let readiness = baselinesWithoutHRV ? recovery : min(recovery, level(.hrv))
         let levels: [Feature: Level] = [.strain: level(.heartRate), .sleep: level(.sleep), .recovery: recovery,
-                                        .readiness: recovery]
+                                        .readiness: readiness]
         var ok = [Feature.strain, .sleep].filter { levels[$0] == .yes }.map(\.name)
         var rest: [String] = []
         if recovery == .yes {
@@ -1645,9 +1652,10 @@ enum RyftFeatures {
                 let inputs = [(TrackerSignal.restingHR, restingHR), (.sleep, level(.sleep)), (.respiratoryRate, level(.respiratoryRate))]
                     .filter { $0.1 >= .partial }.map { $0.0.inline }
                 rest.append(String(localized: "Recovery from \(inputs.formatted(.list(type: .and))), no HRV"))
-                rest.append(String(localized: "Readiness from the same"))
+                if readiness == .yes { rest.append(String(localized: "Readiness from the same")) }
             } else {
-                ok += [Feature.recovery.name, Feature.readiness.name]
+                ok.append(Feature.recovery.name)
+                if readiness == .yes { ok.append(Feature.readiness.name) }
             }
         }
         let partly = Feature.allCases.filter { levels[$0] == .partial }.map(\.name)
@@ -1658,7 +1666,10 @@ enum RyftFeatures {
             let signals: [TrackerSignal] = switch feature {
             case .strain: [.heartRate]
             case .sleep: [.sleep]
-            case .recovery, .readiness: [(TrackerSignal.sleep, level(.sleep)), (.restingHR, restingHR)].filter { $0.1 == .no }.map(\.0)
+            case .recovery: [(TrackerSignal.sleep, level(.sleep)), (.restingHR, restingHR)].filter { $0.1 == .no }.map(\.0)
+            case .readiness:
+                ([(TrackerSignal.sleep, level(.sleep)), (.restingHR, restingHR)] + (baselinesWithoutHRV ? [] : [(.hrv, level(.hrv))]))
+                    .filter { $0.1 == .no }.map(\.0)
             }
             if let i = needs.firstIndex(where: { $0.signals == signals }) {
                 needs[i].features.append(feature)

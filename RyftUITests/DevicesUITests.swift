@@ -58,8 +58,8 @@ final class DevicesUITests: XCTestCase {
         XCTAssertTrue(garmin.isSelected && !iPhone.isSelected, "another tile clears Just my iPhone")
     }
 
-    /// Garmin's card: HRV and resting heart rate are facts ("Not shared"), not faults; the features line says what
-    /// Recovery needs; the store button is the App Store page.
+    /// Garmin's card: HRV is a fact ("Not shared"), not a fault; resting heart rate arrives; the features line says
+    /// what Readiness needs; the store button is the App Store page.
     @MainActor
     func testGarminsCardSaysWhatDoesntReachRYFT() throws {
         let app = launch("tracker-setup", trackers: "garmin")
@@ -71,6 +71,7 @@ final class DevicesUITests: XCTestCase {
         XCTAssertEqual(hrv.label, "Heart rate variability")
         XCTAssertTrue((hrv.value as? String ?? "").hasPrefix("Not shared"), "HRV: \(String(describing: hrv.value))")
         XCTAssertTrue((element(app, "tracker.capability.heart_rate").value as? String ?? "").hasPrefix("Arrives"))
+        XCTAssertTrue((element(app, "tracker.capability.resting_hr").value as? String ?? "").hasPrefix("Arrives"))
 
         let store = app.buttons["tracker.open"]
         for _ in 0..<4 where !store.exists { app.swipeUp() }
