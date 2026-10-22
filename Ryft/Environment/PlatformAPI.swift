@@ -119,10 +119,13 @@ extension APIClient: PlatformAPI {
         try await send("GET", path: "/v1/behaviors/impact", body: Optional<Int>.none)
     }
 
-    /// `204`. No `503` retry: the report queue retries, and a retry after the platform stored the
-    /// report would file it twice.
+    /// `204`. One attempt (`singleAttempt`): the report queue retries, a retry after the platform stored
+    /// the report would file it twice, and a `429` (10 a day) answers at once instead of waiting out
+    /// `Retry-After`.
     func postFeedback(_ post: FeedbackPost) async throws {
-        _ = try await exchange("POST", path: "/v1/feedback", body: post, unavailableRetries: 0)
+        _ = try await APIClient.$singleAttempt.withValue(true) {
+            try await exchange("POST", path: "/v1/feedback", body: post, unavailableRetries: 0)
+        }
     }
 }
 

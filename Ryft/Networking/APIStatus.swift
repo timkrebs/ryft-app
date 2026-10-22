@@ -93,6 +93,8 @@ final class APIStatus {
     /// A response to a request started before arrives in an older `epoch` and is dropped.
     func forgetRequests() {
         epoch += 1
+        // A 503 wait of the previous account's stops at its next step: its notice goes now.
+        retryNotice = nil
         requests = []
         failures = []
         cancelledCount = 0

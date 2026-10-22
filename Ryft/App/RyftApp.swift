@@ -342,17 +342,30 @@ struct RootView: View {
     @Environment(TrainCoordinator.self) private var train
 
     var body: some View {
-        #if DEBUG
-        // `-RyftScreen consent` (or invite, aboutYou, accountHint, signInMethods): one screen
-        // on mock data, for screenshots of states demo mode never reaches.
-        if let screen = DebugScreen.requested {
-            screen.view
-        } else {
+        Group {
+            #if DEBUG
+            // `-RyftScreen consent` (or invite, aboutYou, accountHint, signInMethods): one screen
+            // on mock data, for screenshots of states demo mode never reaches.
+            if let screen = DebugScreen.requested {
+                screen.view
+            } else {
+                content
+            }
+            #else
             content
+            #endif
         }
-        #else
-        content
-        #endif
+        // "Send to RYFT" on the refresh Details sheet (Today's error card).
+        .environment(\.reportProblemDestination, reportProblem)
+    }
+
+    /// Report a problem, pre-filled with what failed, pushed onto the Details sheet's stack.
+    private var reportProblem: ReportProblemDestination {
+        { [screens] resource, status, code, requestID in
+            AnyView(ReportProblemView(model: screens.profile.report,
+                                      context: ReportContext(resource: resource, status: status, requestID: requestID,
+                                                             code: code)))
+        }
     }
 
     private var content: some View {
@@ -460,6 +473,8 @@ enum DebugScreen: String {
     case reportProblemRateLimited = "report-problem-rate-limited"
     /// "What's included" open, scrolled to it.
     case reportProblemIncluded = "report-problem-included"
+    /// Today's refresh Details sheet (503, 3 failures) with "Send to RYFT".
+    case refreshDetailsSend = "refresh-details-send"
 
     static var requested: DebugScreen? {
         UserDefaults.standard.string(forKey: "RyftScreen").flatMap(DebugScreen.init(rawValue:))
@@ -488,6 +503,8 @@ enum DebugScreen: String {
         case .reportProblem, .reportProblemDetails, .reportProblemSent, .reportProblemQueued,
              .reportProblemRateLimited, .reportProblemIncluded:
             DebugReportProblem(screen: self)
+        case .refreshDetailsSend:
+            DebugRefreshDetails()
         }
     }
 
@@ -524,6 +541,26 @@ private struct DebugBodySettings: View {
         } else {
             NavigationStack { BaselineSleepNeedForm(editor: screens.bodySettings, showsClose: true) }
         }
+    }
+}
+
+/// Today with its refresh Details sheet open at the opening (medium) detent: the issue a pull left after three
+/// 503s, data from 14:05.
+private struct DebugRefreshDetails: View {
+    @State private var showsDetails = true
+
+    var body: some View {
+        TodayView()
+            .sheet(isPresented: $showsDetails) { RefreshDetailsSheet(issue: Self.issue) }
+    }
+
+    private static var issue: RefreshIssue {
+        let calendar = Calendar.current
+        let at = { (h: Int, m: Int) in calendar.date(bySettingHour: h, minute: m, second: 12, of: .now) ?? .now }
+        let error = ResourceError(kind: .transient, status: 503, code: nil,
+                                  requestID: "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c", transport: nil, attempts: 3,
+                                  at: at(14, 7))
+        return RefreshIssue(reason: .busy, resource: .today, dataFrom: at(14, 5), failures: 3, error: error)
     }
 }
 

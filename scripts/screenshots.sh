@@ -8,6 +8,7 @@
 #   screens: notifications invite consent aboutYou aboutYouSaved accountHint signInMethods syncDetails baselineSleepNeed sleepNeed bedtime tonight
 #            report-problem report-problem-details report-problem-sent report-problem-queued report-problem-rate-limited
 #            report-problem-included
+#            refresh-details-send
 #   scenarios (Today in one in-between state, `-RyftScenario`): import pending calibrating watch
 #     waitingForSleep pendingNoPrevious recalculating recalculatingYesterday needsVitals needsVitalsBaselines
 #     (Today's rows, ui.md §1.6)
@@ -53,7 +54,7 @@ for scheme in dark light; do
   for tab in $TABS; do
     xcrun simctl terminate "$DEVICE" "$BUNDLE" 2>/dev/null || true
     case $tab in
-      notifications|invite|consent|aboutYou|aboutYouSaved|accountHint|signInMethods|syncDetails|baselineSleepNeed|sleepNeed|bedtime|tonight|report-problem*) set -- -RyftScreen "$tab" ;;
+      notifications|invite|consent|aboutYou|aboutYouSaved|accountHint|signInMethods|syncDetails|baselineSleepNeed|sleepNeed|bedtime|tonight|report-problem*|refresh-details*) set -- -RyftScreen "$tab" ;;
       import|pending|calibrating|watch|waitingForSleep|pendingNoPrevious|recalculating|recalculatingYesterday|needsVitals|needsVitalsBaselines)
         set -- -RyftTab today -RyftScenario "$tab" ;;
       *) set -- -RyftTab "$tab" ;;
