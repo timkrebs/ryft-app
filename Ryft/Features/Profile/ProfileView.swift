@@ -1479,8 +1479,8 @@ private struct TrackerCheckCard: View {
     @ScaledMetric(relativeTo: .headline) private var headerGlyph: CGFloat = 17
     @ScaledMetric(relativeTo: .headline) private var headerGlyphWidth: CGFloat = 24
     @ScaledMetric(relativeTo: .callout) private var trayGlyph: CGFloat = 28
-    /// "That's normal." lines up with the row names (glyph column + spacing).
-    @ScaledMetric(relativeTo: .callout) private var rowIndent: CGFloat = 34
+    /// "That's normal." lines up with the row names: CheckRow's glyph column (scaled like there) plus its 10 pt.
+    @ScaledMetric(relativeTo: .callout) private var rowGlyphWidth: CGFloat = 24
 
     private var app: String { check.app ?? tracker.name }
     /// Only a vendor's app has a store page to send people to.
@@ -1580,7 +1580,7 @@ private struct TrackerCheckCard: View {
                     Text("That's normal.")
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textSecondary)
-                        .padding(.leading, rowIndent)
+                        .padding(.leading, rowGlyphWidth + 10)
                         .padding(.bottom, 8)
                 }
                 if row.signal == lastMissing {
