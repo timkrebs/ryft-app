@@ -409,7 +409,7 @@ account. Screenshots stay local, not in the repo.
 - **Check sync, Just my iPhone:** steps ✓ (07:31 PM) via `HKDevice.model` "iPhone": **device matching verified on
   hardware**. "1 of 1 expected signal is arriving", in the singular.
 - **Not covered:** Apple Watch matching (the user has none), and the morning night hint.
-- **Process:** two screenshots caught a FaceTime call (one picture-in-picture). Both were deleted at once. New rule:
+- **Process:** two screenshots caught non-RYFT content. Both were deleted at once. New rule:
   start only when the user says the phone is free; screenshot only right after a successful RYFT launch.
 - **Flaky `PullToRefreshTests.thePullReturnsAfterThreeSecondsAtMost`** (debugger): a race in the test fake (it slept
   before the status read instead of keeping it in flight), not product code, and #33 doesn't make it worse. → Its own

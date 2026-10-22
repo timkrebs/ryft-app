@@ -5,24 +5,23 @@ metadata:
   type: feedback
 ---
 
-The user's iPhone ("Tim’s iPhone", iPhone 16 Pro, iPhone17,1, UDID 00008140-001E19363610801C) is his personal phone. He
-connected it on 2026-10-22 so I could test on a real device before CI.
+The user sometimes connects his personal iPhone so checks can run on a real device before CI. Find it with
+`xcrun devicectl list devices` (Reality: physical). Don't write its identifiers into the repo.
 
 **Rules:**
-- Start a device session only after he says the phone is free. Him saying "I added my iPhone" isn't that.
-- Before every screenshot (`devicectl device capture screenshot`), make sure RYFT is the foreground app:
-  - launch it in the same step;
-  - check that the launch succeeded;
+- Start a device session only after he says the phone is free. "I connected my iPhone" isn't that.
+- Before every screenshot (`devicectl device capture screenshot`):
+  - RYFT must be the foreground app: launch it in the same step and check that the launch succeeded;
   - never capture after a failed launch.
-- If a capture shows anything that isn't RYFT, delete it at once, don't describe its content, and tell him.
-- A call can still be running in picture-in-picture over RYFT, even after he says the phone is free (happened twice on
-  2026-10-22). Before capturing, check `devicectl device info processes` for `avconferenced` / `InCallService`. If they
-  show up, ask him to end the call first. They can idle without a call, so ask rather than assume either way.
+- **Calls:** another app can still be on screen, e.g. a call in picture-in-picture. Check
+  `devicectl device info processes` for call services and ask if they're present. They can also idle without a call.
+- If a capture shows anything that isn't RYFT, delete it at once, don't describe it, and tell him.
 - App arguments go after `--`:
-  `devicectl device process launch --device <udid> --terminate-existing dev.timkrebs.ryft -- -RyftFlags devices.setup …`.
+  `devicectl device process launch --device <id> --terminate-existing dev.timkrebs.ryft -- -RyftFlags devices.setup …`.
+- Use Debug launch arguments (`-RyftFlags`, `-RyftTrackers`, `-RyftScreen`) that never persist to his account.
+- Relaunch RYFT without arguments at the end.
 
-**Why:** on 2026-10-22 my first launch failed on argument syntax, and the screenshot taken right after it caught him in a
-FaceTime call. I deleted it immediately and told him.
+**Why:** in the first session (2026-10-22), two screenshots caught non-RYFT content: one taken after a failed launch, one
+through picture-in-picture. Both were deleted at once.
 
-**How to apply:** any work on a physical device. Prefer Debug launch arguments (`-RyftFlags`, `-RyftTrackers`,
-`-RyftScreen`) over driving the UI. See [[parallel-worktrees]] for builds.
+**How to apply:** any work on a physical device. See [[parallel-worktrees]] for builds.
