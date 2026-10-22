@@ -253,7 +253,7 @@ Encoding for `PUT` omits the server fields (a dedicated `encode(to:)`).
 | Server copies (`SportActivity` per day) | `CachedDocument activities.<day>`, **never with `route` or `hr_samples`** (§7.2) | compaction with days (1 year) | wiped | from the platform | — |
 | A route the detail screen fetched | memory of the detail view model only | while the screen is open | — | — | — |
 | Privacy zones | `LocalPrivacyZone` rows, sealed with the account's zone key | until changed | wiped; parked with the rows on expiry | **never** (they'd reveal the place they hide) | **never** |
-| Route default, auto-pause | `UserDefaults`, keyed per account | until changed | wiped | no | no |
+| Route default, auto-pause | `UserDefaults`, keyed per account | until changed; the route default resets to "not chosen" after a restore (§8.6) | wiped | no | no |
 | Live Activity content | ActivityKit (no route, no coordinates) | ends with the recording | ended on wipe | — | — |
 | Export file | `tmp/RYFT-export-<day>.json`, `.completeFileProtection` | until the share sheet closes; any left is deleted at launch (§8.7) | — | — | — |
 
@@ -428,7 +428,7 @@ actor and no clock.
 | 2 Speed gate | Distance to the last accepted *filtered* position, minus the two accuracies, over Δt (≥ 1 s): if it's above `sport.maxSpeed`, reject (counted as `implausible`). |
 | 3 Filter | Constant-velocity Kalman per axis in a local tangent plane (WGS84 meridional and prime-vertical radii at the anchor latitude; re-anchored every 5 km). Measurement variance `max(hAcc, 3 m)²`; white-acceleration process noise `σa` from the catalogue. Innovation gate at 3.5σ: a rejected fix is counted; 3 rejections in a row re-initialise at the measurement (a real jump, a tunnel exit). Δt > 15 s resets the velocity variance. |
 | 4 Distance | Sum the geodesic step between consecutive filtered positions while `recording` (not paused) and the filter's speed is ≥ 0.3 m/s, so a stationary phone accrues nothing with auto-pause off. Distance is horizontal, like every GPS watch; ascent is separate. |
-| 5 Gaps | Δt > 10 s between accepted fixes: bridge with the straight line if the implied speed is ≤ `maxSpeed`, else don't (counted `gap`). A route-off resume after a kill never bridges (§3.9). |
+| 5 Gaps | Δt > 10 s between accepted fixes *within one running process*: bridge with the straight line if the implied speed is ≤ `maxSpeed`, else don't (counted `gap`). A resume after a kill never bridges (§3.9). |
 | 6 Pace | Rolling 30 s of moving time over (t, cumulative distance): pace = Δt/Δd once Δd ≥ 20 m and ≥ 10 s of data, else none ("—"). Average pace = moving time / distance. Cycling shows speed. |
 | 7 Splits | When the distance crosses k × 1000 m, interpolate the crossing time between the two filtered points. A split is `{index, distance_m: 1000, duration_sec: moving time in it, ascent_m}`. Finish adds the partial last split with its real distance. Laps are local (§13 R7). |
 | 8 Auto-pause | If enabled: enter when the filter's speed is < the sport's threshold for 10 s of fix time, or `isStationary` for 5 s. Leave at ≥ 1.5 × threshold for 3 s. The filter keeps running while auto-paused. Manual pause and resume always work. |
@@ -571,12 +571,12 @@ struct Checkpoint: Sendable {
     - Finish ends the activity at the **last checkpoint's** time, not at the launch time. The 24 h cap (§3.1) still
       applies to a resumed recording.
   - **Rebuilding the state.** The pipeline is rebuilt from the header. The filter re-initialises at the first new fix.
-    - With the route on, the last stored `route` point (already outside every zone) bridges the gap per §3.3 step 5.
-      If the run was inside a zone at the kill, there is no such point near the gap, and the implied-speed check
-      usually refuses the bridge.
-    - With the route off, no coordinate was ever stored, so nothing is bridged.
-    - Indoor runs re-query the pedometer (§3.5).
+    - **Decision: a gap across a kill is never bridged.** The time from the last checkpoint to the resume counts as
+      a pause and adds no distance, with the route on or off. Distance continues from the first new fix.
+    - Resume therefore needs no stored coordinate, and route chunks are never opened to resume.
+    - Indoor runs re-query the pedometer (§3.5). That isn't a GPS bridge: the pedometer measured the steps.
   - **Another account's row** found at launch (parked, or left by a crash) is never resumed. §8.4 decides its fate.
+    Signed out after an expiry, a killed recording stays parked; the account's next sign-in shows it as `interrupted`.
 - **The Live Activity** gets `staleDate = now + 90 s` on each update, so a killed app's activity reads as paused
   rather than frozen-live. On launch, `ActivityTrackingController.endAll(except:)` keeps only the restored one.
 
@@ -937,6 +937,8 @@ func saveActivityWorkout(_ w: ActivityWorkout) async throws -> WorkoutSaveResult
 - **Per activity.** The pre-start "Record route" toggle defaults to the account's setting.
 - **The setting** (Profile → Activities) is **unset until the first GPS Start**. Then one explicit choice is asked
   and remembered (plan decision D1-3).
+- **After a restore or migration** to another iPhone, or when zones can't be opened, the setting goes back to "not
+  chosen" and the zones message shows (§8.6, S8).
 - **Without the route:**
   - distance, pace, splits and elevation are computed on the device;
   - no coordinate is written to disk (§2.3), sent, exported or saved to Health;
@@ -1039,7 +1041,7 @@ enum RouteTrimmer {
 | Path | Activities, chunks, manual sleep, zones, keys | Running recording |
 | --- | --- | --- |
 | **User sign-out** | The confirmation lists what isn't confirmed ("2 activities haven't reached RYFT. Signing out deletes them from this phone.") and offers **Send first** (a flush, at most 10 s) or **Sign out anyway**. Then all of that account's rows are deleted, keys first. | Can't happen: the recording cover is full screen. |
-| **Session expiry** (a final `401`) | Unconfirmed rows, their chunks and the account's zones and keys are **parked**: `parkedAt = now`, still bound to `account`. Confirmed rows go. | Keeps recording. Save waits: "Sign in to save". |
+| **Session expiry** (a final `401`) | Unconfirmed rows (and the recording's row), their chunks, the account's unconfirmed manual sleep, its zones and their keys are **parked**: `parkedAt = now`, still bound to `account`. Confirmed rows and their chunks go, keys first. | Keeps recording and checkpointing under **its own `account`** (below). Save waits: "Sign in to save". |
 | **Another account signs in** | `purge(notBelongingTo:)` deletes everything else, parked or not. | A parked recording of the other account is discarded with its key. |
 | **Same account signs in** | Unparked, then flushed. | Saved normally. |
 | **Parked for 30 days** | Deleted at the next launch or nightly compaction, keys first. An account deleted on the web looks exactly like an expiry (a final `401`), so this limit is what removes its data from the phone. | The same. |
@@ -1047,8 +1049,16 @@ enum RouteTrimmer {
 
 **Code:**
 - `wipeLocalData` learns the reason (`AuthService.swift:549–565`, `:622–647`).
-- `TrainStore.wipe(parkingActivitiesOf: String?)` skips the four activity models when parking. Otherwise it deletes
-  them like the rest.
+- **`TrainStore.wipe(parkingActivitiesOf: String?)`.**
+  - With an account, it keeps, of the four activity models, only exactly what the table parks:
+    - that account's unconfirmed or recording `LocalActivity` rows and their chunks;
+    - its unconfirmed `LocalManualSleep`;
+    - its `LocalPrivacyZone` rows.
+  - Every other row of those models is deleted, keys first, like the rest of the store.
+  - With `nil`, it deletes them all.
+- **The recording keeps its own account.** `Checkpoint` carries the `account` captured at Start. `ActivityStore.apply`
+  writes to the row with that id *and* that account, and never consults `env.auth.accountID`, which is nil while
+  signed out. This one write path is the only exception to the account filter on reads.
 - `onWipe` (same setter site) stops the uploader inside the sign-out itself, as `TrainSyncService.accountChanged()`
   does today.
 - `wipeSharedLocalData` adds `ActivityPreferences.wipe(defaults:)` beside `WorkoutHealthExport.wipe`.
@@ -1111,9 +1121,25 @@ in memory in tests.
   - `routeDroppedAt` is set and the activity stays.
   - Its row and detail say "Route removed: it couldn't be sent within 30 days."
   - HR chunks stay until confirmed: they hold no location.
-- **Orphans.** At launch, chunks whose key is missing are deleted. At the first launch after an install (no marker in
-  `UserDefaults`), every `dev.timkrebs.ryft.activity.*` and `….zones.*` Keychain item is deleted, because Keychain
-  items survive an uninstall.
+- **Orphans.** At launch, chunks whose key is missing are deleted.
+- **Install, restore or migration (review S8)**, detected at launch, before any recording or upload, by a device
+  marker:
+  - a random value stored twice: as a Keychain item `dev.timkrebs.ryft.device` (`AfterFirstUnlockThisDeviceOnly`)
+    and in `UserDefaults` (`activities.deviceMarker`);
+  - **neither present → a fresh install.** Delete every `dev.timkrebs.ryft.activity.*` and `….zones.*` Keychain
+    item (Keychain items survive an uninstall), then write both markers.
+  - **`UserDefaults` has it and the Keychain doesn't (or they differ) → a restore or migration to another iPhone.**
+    `UserDefaults` and the store came back; `ThisDeviceOnly` keys didn't. Then:
+    - every account's route default is reset to "not chosen";
+    - the unopenable zone rows and route and heart-rate chunks are deleted. The affected activities keep their
+      totals and get `routeDroppedAt`;
+    - a per-account `zonesLost` flag is set;
+    - fresh markers are written.
+  - **Any zone row that fails to open** at any time triggers the same reset for its account.
+  - **While `zonesLost` is set,** pre-start and Activities settings show "Your privacy zones couldn't be restored on
+    this iPhone. Add them again." (copy in ui.md). The flag clears when the user adds a zone or dismisses it.
+  - **Why this closes the hole.** The next GPS Start asks the route question again, with that message in view. A run
+    can't silently start with zero zones and an old "Record route: on" default.
 - **File protection** stays `completeUntilFirstUserAuthentication`.
 
 ### 8.7 Export (review S7, A5)
@@ -1332,7 +1358,8 @@ config, `PlatformAPI.swift:144`):
   - phase transitions refused and allowed per the table;
   - a checkpoint every 30 s on the clock and on each phase change;
   - snapshot cadence 1 s observed / 10 s not;
-  - resume from a checkpoint: route on bridges, route off doesn't, indoor re-queries the pedometer;
+  - resume from a checkpoint never bridges: the gap is a pause with no distance, route on or off; indoor
+    re-queries the pedometer;
   - background launch: gap ≤ 10 min → resumes; gap > 10 min → `interrupted`, the background session invalidated
     and no fix loop running;
   - foreground `interrupted`: Resume offered only for a gap < 6 h on the same day; Finish ends at the last
@@ -1358,6 +1385,15 @@ config, `PlatformAPI.swift:144`):
 - **At rest (S1):** seal and open round trip; wrong activity, kind or sequence (AAD) fails; key deleted → chunks
   unreadable and then deleted; the 30-day unconfirmed route limit drops the route, keeps the activity and sets
   `routeDroppedAt`; orphan cleanup; the first launch after an install deletes old Keychain items.
+- **Restore (S8), with an in-memory `KeyStore` and `UserDefaults` suite:**
+  - **defaults marker present, Keychain marker missing:** the route default is "not chosen" for every account; zone
+    rows and sealed chunks are deleted; `zonesLost` is set; the next pre-start asks the route question and shows the
+    message;
+  - **a zone row that fails to open:** the same for that account;
+  - **neither marker:** a fresh install, Keychain items cleared, no message;
+  - **both present and equal:** nothing changes.
+- **Expiry while recording:** checkpoints keep landing under the recording's own account with `env.auth.accountID ==
+  nil`; parking keeps exactly the table's rows, and confirmed rows go.
 - **Uploader:**
   - **idempotency:** two flushes of one revision → one PUT; an edit in flight → a second PUT; a retry after a
     timeout reuses the id;

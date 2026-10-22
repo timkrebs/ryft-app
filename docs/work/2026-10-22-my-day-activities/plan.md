@@ -122,4 +122,14 @@ Every ticket gets the localization-editor (en + de) and test-engineer. Reviews p
   - **The lead's call on S6 (the architect's split):** deleting an activity deletes RYFT's Apple Health copy; deleting the
     account keeps Health copies and says so. Manual entries aren't written to Apple Health.
   - New API requests: R16 (no route in list or `PUT` answers) and R17 (`account_deleted` on the final 401).
+- **Privacy re-review: implementation may start** (per-PR sign-off on A3–A6 still applies).
+  - B1–B3 and S1–S7 are fixed; deviation 1 ("send as recorded" after review) and deviation 2 (`workoutType` in both) are
+    accepted.
+  - **S8 (new):** a restore to a new iPhone drops the device-only zone keys. It's detected with a twin marker (Keychain
+    device-only plus UserDefaults); the route default resets to "not chosen", with a notice. It must be in A5 before the
+    flag turns on.
+  - **Resume:** a gap across a kill is never bridged (a pause, no distance). Background relaunch ≤ 10 min auto-resumes; a
+    foreground launch always asks; Resume under 6 h, same day.
+  - The policy also needs the 30-day limits (unsent routes, parked data) and "Apple Health copies stay after account
+    deletion".
 

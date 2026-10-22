@@ -108,9 +108,11 @@ Reading order and eye path:
 | D9 | Detail | pending upload / failed | as R1, R4 | Retry |
 | D10 | Detail | delete confirmation | Delete tapped | Delete / Keep |
 | D11 | Detail / row | route removed after 30 days | route unconfirmed for 30 days | none |
+| D12 | Row / detail / sheet | route withheld | recorded with zones, none now | Review: send as recorded / add zones / send without |
+| S8 | Settings / pre-start | zones couldn't be restored | restore on a new iPhone | Add zones |
 | P10 | Pre-start | first Start of a GPS sport | route choice not yet stored | Record route / Don't record route (equal) |
-| U1 | Resume your run | auto-resume | relaunch within 10 min of the last checkpoint | none (continues; line shown) |
-| U2 | Resume your run | interrupted | gap over 10 min | Finish / Discard (Resume as new segment only if the architect keeps it) |
+| U1 | Resume your run | background auto-resume | background relaunch within 10 min of the checkpoint | none (continues; line shown) |
+| U2 | Resume your run | asks | foreground launch | Resume (under 6 h and same day) / Finish / Discard |
 | T1 | Settings | Activities section | Profile | rows |
 | T2 | Privacy zones | none / list / add place | | Add place |
 
@@ -708,6 +710,18 @@ A route is kept on the phone for at most 30 days if it hasn't been confirmed as 
 - Before the 30 days (route still on the phone, upload pending/failed): the R1/R4 detail adds "The route is removed from this iPhone after 30 days if it isn't uploaded." | "Die Route wird nach 30 Tagen von diesem iPhone entfernt, wenn sie nicht hochgeladen ist."
 - VoiceOver: the row label ends "route removed after 30 days"; the detail card is read as text.
 
+### 8.1b Withheld route: review sheet (D12)
+A route is **withheld** when the activity was recorded with privacy zones but the account has none now (`design.md` §8.2). The activity uploaded without the route; nothing sends it automatically.
+- **Row and detail:** line `caption` `textSecondary` with `lock.shield`: "Route not sent · Review" | "Route nicht gesendet · Prüfen" (a text button, 44 pt). In the detail the map card shows the same line and the button.
+- **Review sheet** (`.medium` detent, title "Route not sent"): `callout` `textSecondary`: "You recorded this activity with privacy zones, but you have none now. RYFT didn't send the route." | "Du hast diese Aktivität mit Privatzonen aufgezeichnet, hast aber jetzt keine. RYFT hat die Route nicht gesendet." A small non-interactive `RouteMap(.summary)` of the stored (already trimmed) route.
+- **Choices**, equal weight, stacked, nothing preselected, no teal:
+  1. **Send the route as recorded** | "Route wie aufgezeichnet senden": `caption`: "It was trimmed by your privacy zones when you recorded it." | "Sie wurde beim Aufzeichnen durch deine Privatzonen gekürzt."
+  2. **Add your zones again** | "Zonen erneut hinzufügen": opens Privacy zones; after adding, the route is re-trimmed and the sheet returns. `caption`: "The route is trimmed again, then sent." | "Die Route wird erneut gekürzt und dann gesendet."
+  3. **Send without the route** | "Ohne Route senden": `caption`: "Distance and splits are kept." | "Distanz und Zwischenzeiten bleiben erhalten." Removes the route from this iPhone after confirmation ("Remove the route from this iPhone? This can't be undone." | "Route von diesem iPhone entfernen? Das lässt sich nicht rückgängig machen.").
+  Cancel (text): "Decide later" | "Später entscheiden" (the row keeps the line).
+- **States:** *sending* (the chosen button shows "Sending…" | "Sende …", disabled, no spinner; others disabled); *sent* (sheet closes, line disappears, the row shows R1 then the usual state); *offline* (choice is stored, "It will be sent when you're online." | "Sie wird gesendet, sobald du online bist."); *failed* (`InlineMessage` "Couldn't send the route. It is still on this iPhone." | "Die Route konnte nicht gesendet werden. Sie ist weiterhin auf diesem iPhone." with Try again, Details).
+- VoiceOver: focus on the title; each choice reads its caption as hint; the map is "Route map, already trimmed by your privacy zones." AX: buttons full width, scroll.
+
 ### 8.2 States
 - Loading: outline placeholders for each card (same size, no spinner), stat values `Fmt.placeholder`.
 - Offline with cached: show the cache and `caption` "Showing what's saved on this iPhone."
@@ -745,29 +759,31 @@ A route is kept on the phone for at most 30 days if it hasn't been confirmed as 
 
 ## 9. "Resume your run?" (U1, U2)
 
-Matches `design.md` §3.9 (re-check after the architect's revision; the numbers below follow the privacy review).
-- **Within 10 min of the last checkpoint (U1):** no question. The recorder resumes by itself on relaunch (the gap is a pause and the route has a break; a straight line is never drawn across it) and the recording screen shows for 2 s: "Resumed after a break of 4 min".
-- **Over 10 min (U2):** a full-screen cover over Today (not an alert; the data deserves space), `interactiveDismissDisabled`, titled "Finish your run?". RYFT never promises to resume after hours.
+Follows `design.md` §3.9 and the security review:
+- **Background relaunch** (the system relaunched the app for location): resumes by itself only within 10 min of the last checkpoint, with no question; the recording screen shows for 2 s "Resumed after a break of 4 min". Over 10 min, it waits for the user at the next foreground launch (below).
+- **Foreground launch** (force-quit, crash): always asks, a full-screen cover over Today (not an alert), `interactiveDismissDisabled`.
+- **Resume** is offered only when the gap is under 6 h **and** on the same calendar day as the last checkpoint. Otherwise only **Finish** and **Discard**, and the title is "Finish your run?". RYFT never promises to resume after hours.
+- **The gap:** The gap across a restart is never bridged: the time from the last saved point to the resume counts as a pause and adds no distance (route on or off; indoor, steps are re-counted from the pedometer). See design.md §3.9.
 
 Layout, centred top to bottom:
 - The sport icon circle (64 pt).
-- Title `title` "Finish your run?" (sport word swaps: run, ride, walk, hike, activity).
+- Title `title`: "Resume your run?" when Resume is offered, else "Finish your run?" (sport word swaps: run, ride, walk, hike, activity).
 - A small card (`Theme.surface`) of facts, `StatRow`s: "Started 07:12", "Last saved 07:48", "Distance so far 5.21 km", "Time so far 36:02". All from the checkpoint (30 s granularity).
 - `callout` `textSecondary`: "RYFT stopped recording at 07:48, when the app was closed. It can't continue from there, but nothing recorded until then is lost."
-- **Finish** (`PrimaryButton(.primary)`): the finish summary with the data up to the last checkpoint.
+- **Finish**: the finish summary with the data up to the last checkpoint.
 - **Discard** (text button, `Theme.alert`): confirmation dialog as 7.1 (same copy).
-- **Resume as a new segment** (`PrimaryButton(.secondary)`, only if the architect keeps it): starts a new segment of the same activity at the current position; the gap is not counted and not bridged. Label "Continue as a new segment" | "Als neuen Abschnitt fortsetzen".
+- **Resume** (`PrimaryButton(.primary)`, only when offered): continues the same recording at the saved distance; the gap isn't counted. **Finish** is then `PrimaryButton(.secondary)`; when Resume isn't offered Finish is primary.
 - Never auto-discards. If neither is chosen, the cover appears again on the next launch.
 - A store that can't be read: `InlineMessage` "RYFT couldn't read the saved recording." with **Details**; the data stays untouched.
 
 **Copy (en | de):**
 | Key | en | de |
 | --- | --- | --- |
-| title | Finish your %@? | %@ beenden? |
+| title | Resume your %@? · Finish your %@? | %@ fortsetzen? · %@ beenden? |
 | sport word | run · ride · walk · hike · activity | Lauf · Fahrt · Spaziergang · Wanderung · Aktivität |
 | facts | Started · Last saved · Distance so far · Time so far | Gestartet · Zuletzt gesichert · Bisherige Distanz · Bisherige Zeit |
 | body | RYFT stopped recording at %@, when the app was closed. It can't continue from there, but nothing recorded until then is lost. | RYFT hat um %@ aufgehört aufzuzeichnen, als die App beendet wurde. Es kann von dort nicht weitergehen, aber nichts bis dahin Aufgezeichnetes geht verloren. |
-| finish / discard | Finish with what was saved · Discard | Mit dem Gesicherten beenden · Verwerfen |
+| resume / finish / discard | Resume · Finish with what was saved · Discard | Fortsetzen · Mit dem Gesicherten beenden · Verwerfen |
 | auto line | Resumed after a break of %@ | Nach %@ Pause fortgesetzt |
 | unreadable | RYFT couldn't read the saved recording. | RYFT konnte die gesicherte Aufzeichnung nicht lesen. |
 
@@ -800,6 +816,8 @@ A "Test" text button plays a sample phrase ("Play a sample" / "Beispiel abspiele
 - Empty: `lock.shield` `textTertiary` "No privacy zones yet" + `callout` "Add your home or workplace so routes don't show where you live or work."
 - Zones are stored on the device only and never uploaded (copy line "Stored on this iPhone only.").
 - Footer `caption` `textTertiary`: "A zone applies to routes not yet uploaded. Routes you already uploaded aren't changed." **Editing a zone's place or radius replaces the zone** (the old one is removed, a new one created); the edit sheet says so: "Changing the place or radius replaces this zone." | "Wenn du Ort oder Radius änderst, ersetzt das diese Zone." Same footer in de: "Eine Zone gilt für Routen, die noch nicht hochgeladen sind. Bereits hochgeladene Routen ändern sich nicht."
+
+**S8: zones couldn't be restored.** After a restore to a new iPhone the zones can't be opened, so the route default resets to "not chosen" (4.1a asks again). Notice: "Your privacy zones couldn't be restored on this iPhone. Add them again." | "Deine Privatzonen konnten auf diesem iPhone nicht wiederhergestellt werden. Füge sie erneut hinzu." Shown (1) at the top of Settings → Privacy zones as a persistent info block (`info.circle`, `callout` `textSecondary`, with **Add place**), until a zone exists or the user dismisses it; (2) **once** on the next GPS Start, as a short sheet before the route question (4.1a) with **Add zone** and **Continue without** (equal size). Not red; VoiceOver reads it as text.
 
 **Heart-rate sensor screen:** scan list of BLE devices exposing the Heart Rate service (name, signal bars with a word "Strong/OK/Weak", "Connect"), connected state `checkmark.circle.fill` `accent` + "Connected" + "Forget". Empty: "No sensors found. Put on your sensor and keep it close." Bluetooth permission pre-prompt (same pattern as 4.3): "RYFT connects to your heart-rate sensor over Bluetooth while you record." (de "RYFT verbindet sich mit deinem Herzfrequenz-Sensor über Bluetooth, solange du aufzeichnest."). Denied: **Open Settings**.
 
@@ -871,6 +889,6 @@ No count-ups; the timers tick without animation.
 6. **Unmerge:** the contract has no way to undo a merge; none is designed. Needed?
 7. **Recording appearance:** follows the system. Should the recording screen always be dark (battery on OLED) or always light (sunlight)? I chose system with 7:1 contrast.
 8. ~~Privacy zones retroactive~~ (decided: applies to routes not yet uploaded). Previously: the zone applies to future saves only in this spec; routes stored locally in full or already trimmed on device? The route shown on the summary and detail would be the trimmed one if only the trimmed one is stored. Architect and security reviewer to decide; copy depends on it.
-9. **Resume after a kill:** auto-resume within 10 min; beyond that Finish or Discard (and "new segment" only if the architect keeps it). Confirm against `design.md` §3.9 once revised.
+9. **Gap bridging:** waiting for the architect's sentence (marked in §9).
 10. **Padel symbol:** no SF Symbol exists; `figure.racquetball` is a stand-in. Acceptable?
 11. **Live HR zones:** zone word during recording needs the user's HR max/reserve on the phone; the phone computes no scores. Show bpm only, and the zone only from the platform's profile values already on device? I specified the zone word; drop it if the profile values aren't available on device.

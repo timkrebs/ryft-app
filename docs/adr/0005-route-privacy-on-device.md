@@ -72,7 +72,10 @@ diagnostics, and the store itself (backups, SQLite free pages).
    - route and heart-rate chunks and zones are sealed with AES-GCM keys kept in the Keychain as
      `AfterFirstUnlockThisDeviceOnly`;
    - deleting a key (at confirmation, discard, wipe, or after 30 days unconfirmed for the route) makes the data
-     unreadable everywhere it lingers.
+     unreadable everywhere it lingers;
+   - a restore or migration to another iPhone is detected by a `ThisDeviceOnly` Keychain marker that's missing while
+     its `UserDefaults` twin exists. It resets the route default to "not chosen" and asks the user to add their
+     zones again, so a run can't start with zero zones and an old "on" (S8).
 9. **Export:**
    - the file contains trimmed routes, `hr_samples`, splits, manual sleep and unconfirmed rows, never zones;
    - it's deleted when the share sheet closes, and any leftover is deleted at launch.
@@ -109,7 +112,8 @@ diagnostics, and the store itself (backups, SQLite free pages).
 **Costs:**
 - **No retroactive trimming.** Changing zones doesn't fix routes already uploaded. The user has to delete those
   activities to remove them.
-- **Lost gap bridging.** Route-off recordings lose it after a kill, and so does a run killed inside a zone.
+- **No gap bridging across a kill.** The gap is a pause with no distance, route on or off, so resume never opens
+  stored coordinates.
 - **Chords.** Until the API takes segments, a mid-route pass draws a straight chord through a zone (inside the
   circle).
 - **The summary shows the trimmed route,** not the full one: the full one never existed on disk.
