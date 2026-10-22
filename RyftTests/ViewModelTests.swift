@@ -1604,3 +1604,22 @@ struct RefreshAllOrNothingTests {
 private final class PullDone {
     var value = false
 }
+
+@Suite("Day loads and cancellation")
+@MainActor
+struct DayLoadCancellationTests {
+    /// Code review should-fix 1: Strain's and Sleep's `.task(id:)` loads restart (are cancelled) when the
+    /// day or the data changes; that shows no "The operation couldn't be completed".
+    @Test func aCancelledDayLoadShowsNoError() async {
+        let api = MockPlatformAPI()
+        api.faults["day"] = .init(.cancel)
+        let (_, state, _) = makeState(api: api)
+        let strain = StrainViewModel(state: state, store: TrainStore(inMemory: true))
+        await strain.load()
+        #expect(strain.error == nil)
+        let sleep = SleepViewModel(state: state)
+        await sleep.load()
+        #expect(sleep.error == nil)
+        #expect(api.count("day") >= 1)                          // it was asked, and came back cancelled
+    }
+}

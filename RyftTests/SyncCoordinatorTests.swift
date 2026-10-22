@@ -908,7 +908,8 @@ struct ReadSchedulerTests {
     }
 
     /// Beyond the cap: no retry now, counted, and automatic reads send nothing until then. A pull
-    /// ignores the resource's hold but not the shared one after a `429` (30 s at most).
+    /// ignores the resource's hold, not the shared one after a `429`: longer than it may wait (5 s),
+    /// so it fails at once with that 429 instead of waiting under "Updating…" (review 11).
     @Test func retryAfterBeyondTheCapHoldsAutomaticReadsBack() async {
         let api = MockPlatformAPI()
         api.faults["me"] = .init(.status(429, retryAfter: 30), times: 1)
@@ -923,12 +924,14 @@ struct ReadSchedulerTests {
         #expect(api.count("me") == 1)                           // held back, nothing counted
         #expect(env.reads.states[.me]?.consecutiveFailures == 1)
 
-        let pull = Task { try? await state.repository.refreshUser(mode: .latest, userInitiated: true) }
-        #expect(await eventually { clock.pendingSleeps == 1 })  // the rate limit holds every start back
-        #expect(api.count("me") == 1)
+        await #expect(throws: APIError.self) { try await state.repository.refreshUser(mode: .latest, userInitiated: true) }
+        #expect(api.count("me") == 1 && clock.pendingSleeps == 0)   // nothing sent, nothing waited
+        #expect(env.reads.states[.me]?.consecutiveFailures == 2)
+        #expect(env.reads.states[.me]?.lastError?.status == 429)
+
         clock.advance(by: RequestBudget.maxHoldBack)
-        await pull.value
-        #expect(api.count("me") == 2)                           // then pull and Try again go out
+        try? await state.repository.refreshUser(mode: .latest, userInitiated: true)
+        #expect(api.count("me") == 2)                           // the hold is over: it goes out
         #expect(env.reads.states[.me]?.retryNotBefore == nil)
     }
 
@@ -1043,6 +1046,8 @@ struct ReadSchedulerTests {
         api.faults["me"] = .init(.unavailable)
         let (env, state, _) = readGraph(api: api)
         try? await state.repository.refreshUser(mode: .latest)
+        #expect(ReadScheduler(env: env).states[.me] == nil)    // not yet: one save per `persistDelay`
+        await env.reads.savePending()
 
         let relaunched = ReadScheduler(env: env)
         #expect(relaunched.states[.me] == env.reads.states[.me])
@@ -1364,10 +1369,13 @@ struct RefreshPolicyTests {
         let since = now.addingTimeInterval(-3 * 3600)
         var f = TodaySyncFacts(now: now)
         f.syncs = false
-        #expect(TodayStates.line(f, staleSince: since) == .stale(since: since, offersRetry: true))
+        #expect(TodayStates.line(f, staleSince: since) == .stale(since: since))
         // The card is on screen (last on Today): the line points to it instead.
         #expect(TodayStates.line(f, staleSince: since, card: .today) == .issue(.today))
         #expect(TodayStates.line(f, card: .history) == .issue(.history))
+        // A signed-out card: the line says so, whichever read found out.
+        #expect(TodayStates.line(f, card: .me, signedOut: true) == .issue(.me, signedOut: true))
+        #expect(SyncLine.issue(.me, signedOut: true).text(now: now) == String(localized: "You're signed out · Details"))
         f.isLoading = true
         #expect(TodayStates.line(f, staleSince: since) == .updating)
         f.isLoading = false
@@ -1502,6 +1510,7 @@ struct ReadSchedulerWaiterTests {
         api.faults["insights"] = .init(.status(401, retryAfter: nil))
         try? await state.repository.refreshInsights(mode: .latest)
         #expect(env.reads.states[.insights]?.lastError?.kind == .signedOut)
+        await env.reads.savePending()
         let account = env.auth.accountID
 
         await env.auth.signOut(reason: .sessionExpired)
@@ -1680,5 +1689,175 @@ struct RefreshDetailsSheetTests {
     /// `Date.now`, not `AppClock`), so only its constant is unit-testable; the UI test covers the progression.
     @Test func eachLineStepIsHeldSixHundredMilliseconds() {
         #expect(SyncStatusLineView.minimumShown == 0.6)
+    }
+}
+
+/// Set from an observation callback (any thread).
+private final class Tripped: @unchecked Sendable {
+    private let lock = NSLock()
+    private var tripped = false
+    var value: Bool { lock.withLock { tripped } }
+    func trip() { lock.withLock { tripped = true } }
+}
+
+/// A silent push whose refresh never ends on its own (the days take 60 s on the clock).
+@MainActor
+private final class HangingRefreshSteps: SyncSteps {
+    let clock: TestClock
+    private(set) var reported: [SyncPhase] = []
+
+    init(clock: TestClock) {
+        self.clock = clock
+    }
+
+    func upload() async throws -> [String] { [] }
+    var hasBacklog: Bool { false }
+    var isWaitingForUnlock: Bool { false }
+    var isUploading: Bool { false }
+    func stopAfterCurrentPage() async {}
+    var expectedScoringSeconds: Int? { nil }
+    func syncStatus() async throws -> SyncStatus { throw ReadScheduler.NotSent() }
+    func refreshDays(_ days: [String]) async throws { try await clock.sleep(for: .seconds(60)) }
+    func refreshTrends() async throws {}
+    func refreshInsights() async throws {}
+    func refreshStale() async {}
+    func report(_ phase: SyncPhase) { reported.append(phase) }
+}
+
+@Suite("Refresh: final review (observation, limits, background)")
+@MainActor
+struct RefreshFinalReviewTests {
+    /// Perf 1: Today observes `isLoading` and `refreshInputs`. A config read (like a journal's or
+    /// Train's) changes neither; a read of today does.
+    @Test func onlyTodaysReadsInvalidateWhatTodayObserves() async throws {
+        let api = MockPlatformAPI()
+        let (env, state, clock) = readGraph(api: api)
+        await state.refresh(force: true)
+        let tripped = Tripped()
+        withObservationTracking {
+            _ = state.isLoading
+            _ = state.refreshInputs
+        } onChange: { tripped.trip() }
+        _ = try await env.reads.run(ReadKey(.config)) { try await api.config() }
+        #expect(!tripped.value)
+
+        _ = try await state.repository.refreshDay(clock.now(), mode: .latest)
+        #expect(tripped.value)
+    }
+
+    /// Perf 2: Today's card and line read the stored inputs (no SwiftData in `body`), and they match
+    /// what the full record says.
+    @Test func theStoredInputsMatchTheRecord() async {
+        let api = MockPlatformAPI()
+        api.faults["day"] = .init(.status(503, retryAfter: nil))
+        let (_, state, clock) = readGraph(api: api)
+        for _ in 0..<3 { _ = try? await state.repository.refreshDay(clock.now(), mode: .latest) }
+        #expect(state.refreshInputs == RefreshPolicy.inputs(state.resourceStates))
+        #expect(state.refreshIssue?.resource == .today)          // nothing cached: the card
+    }
+
+    /// Perf 4: in the background a timed-out request isn't tried again; a 503 still is.
+    @Test func theBackgroundDoesntRetryATimeout() {
+        let top: (ClosedRange<Double>) -> Double = { $0.upperBound }
+        let timeout = APIError.transport(URLError(.timedOut))
+        #expect(RetryPolicy.background.delay(before: 1, after: timeout, random: top) == nil)
+        #expect(RetryPolicy.background.delay(before: 1, after: URLError(.timedOut), random: top) == nil)
+        #expect(RetryPolicy.foreground.delay(before: 1, after: timeout, random: top) != nil)
+        #expect(RetryPolicy.background.delay(before: 1, after: APIError.http(503, ""), random: top) != nil)
+    }
+
+    /// Perf 4: a silent push's refresh gives up after 20 s (iOS allows ~30 s), as a cancellation.
+    @Test func aSilentPushRefreshGivesUpAfterTwentySeconds() async {
+        let clock = TestClock()
+        let steps = HangingRefreshSteps(clock: clock)
+        let coordinator = SyncCoordinator(steps: steps, clock: clock)
+        let run = Task { await coordinator.run(.silentPush(days: ["2026-10-21"])) }
+        #expect(await eventually { clock.pendingSleeps == 2 })  // the days, the deadline
+        clock.advance(by: .seconds(19))
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(steps.reported.last == .refreshing)
+        clock.advance(by: .seconds(1))
+        let outcome = await run.value
+        #expect(outcome.cancelled && outcome.error == nil)
+        #expect(steps.reported.last == .idle)                   // not "sync paused"
+    }
+
+    /// Security low: the 429's hold is set with the slot's release, so the read parked behind it waits.
+    @Test func aHoldSetWithTheReleaseHoldsTheParkedRead() async throws {
+        let clock = TestClock()
+        let budget = RequestBudget(clock: clock, maxInFlight: 1)
+        try await budget.acquire(.normal)
+        let admitted = Calls()
+        Task {
+            guard (try? await budget.acquire(.normal)) != nil else { return }
+            admitted.count += 1
+        }
+        let deadline = ContinuousClock.now + .seconds(30)
+        while await budget.waiting != 1, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(1)) }
+
+        await budget.release(holdBack: 3)
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        #expect(admitted.isEmpty)
+        clock.advance(by: .seconds(3))
+        #expect(await eventually { admitted.count == 1 })
+    }
+
+    /// Review 11: a hold longer than the read may wait fails at once (and leaves the queue).
+    @Test func aLongHoldFailsAtOnce() async {
+        let clock = TestClock()
+        let budget = RequestBudget(clock: clock)
+        await budget.holdBack(seconds: 20)
+        await #expect(throws: RequestBudget.HeldBack(seconds: 20)) {
+            try await budget.acquire(.high, maxHold: .seconds(5))
+        }
+        #expect(await budget.waiting == 0)
+        #expect(await budget.inFlight == 0)
+    }
+
+    /// Nit: a caller that's already cancelled doesn't start a flight.
+    @Test func aCancelledCallerStartsNoFlight() async {
+        let (env, _, _) = readGraph()
+        let calls = Calls()
+        let caller = Task { () async throws -> Int? in
+            try await env.reads.run(ReadKey(.config)) {
+                calls.count += 1
+                return 1
+            }
+        }
+        caller.cancel()
+        await #expect(throws: CancellationError.self) { try await caller.value }
+        #expect(calls.isEmpty && env.reads.inFlight.isEmpty)
+    }
+}
+
+@Suite("Refresh: what a pull invalidates on Today")
+@MainActor
+struct PullInvalidationTests {
+    /// Perf 1 as a number. Before, Today's `body` read the scheduler's `states` and `inFlight` and the
+    /// store's days, so every one of these events invalidated it. Now it reads `isLoading` and
+    /// `refreshInputs`, which change only when what Today shows could change.
+    @Test func aPullChangesWhatTodayObservesAFewTimes() async {
+        let api = MockPlatformAPI()
+        let (env, state, clock) = readGraph(api: api)
+        await state.refresh(force: true)
+        let events = Calls(), published = Calls()
+        func counting(_ body: () -> Void) {
+            let before = (state.isLoading, state.refreshInputs)
+            body()
+            events.count += 1
+            if state.isLoading != before.0 || state.refreshInputs != before.1 { published.count += 1 }
+        }
+        let reads = env.reads.onChange, days = state.repository.onDaysChanged
+        env.reads.onChange = { change in counting { reads?(change) } }
+        state.repository.onDaysChanged = { counting { days?() } }
+
+        let c = SyncCoordinator(steps: SlowUploadSteps(state: state, clock: clock, uploadDuration: .zero), clock: clock)
+        await state.pullToRefresh(coordinator: c)
+        await state.pullPhases?.value
+
+        // 6 reads (today, sync status, history, me, trends, insights): start and land each, plus the stores.
+        #expect(events.count >= 12, "events \(events.count)")
+        // Measured 2026-10-22: 14 events (plus 6 writes of `states`, also observed before), 4 changes now.
+        #expect(published.count <= 4, "published \(published.count) of \(events.count)")
     }
 }

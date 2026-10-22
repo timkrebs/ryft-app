@@ -92,6 +92,7 @@ final class TrainStubURLProtocol: URLProtocol {
 @Suite("Train sync", .serialized)
 struct TrainSyncTests {
     let store = TrainStore(inMemory: true)
+    let api: APIClient
     let service: TrainSyncService
 
     init() {
@@ -100,6 +101,7 @@ struct TrainSyncTests {
         config.protocolClasses = [TrainStubURLProtocol.self]
         let api = APIClient(session: URLSession(configuration: config), tokens: FakeTokens(), sleep: { _ in },
                             baseURL: URL(string: "https://api.test"))
+        self.api = api
         service = TrainSyncService(store: store, remote: { api }, debounce: .milliseconds(30), monitorsNetwork: false)
     }
 
@@ -212,6 +214,42 @@ struct TrainSyncTests {
         #expect(service.pendingCount == 0 && !a.pendingCompletion)
         let last = try APIClient.jsonDecoder.decode(TrainSession.self, from: TrainStubURLProtocol.requests[1].body)
         #expect(last.exercises[0].sets.compactMap(\.reps) == [5, 5])
+    }
+
+    /// Security should-fix: another account while `complete` is in flight. The replay stops; nothing of
+    /// the previous account's lands (no summary answer, no write to its session), nothing more is sent.
+    @Test func anAccountChangeStopsTheReplay() async throws {
+        let a = session("A")
+        check(a.orderedExercises[0].orderedSets[0], reps: 5, kg: 100)
+        TrainStubURLProtocol.script([.echo, .hold])
+        let finishing = Task { await service.finish(a) }
+        #expect(await eventually { TrainStubURLProtocol.requests.count == 2 })   // the PUT, then `complete` held
+        service.accountChanged()
+        TrainStubURLProtocol.release()
+
+        #expect(await finishing.value == nil)
+        #expect(service.lastCompletion == nil && service.lastError == nil)
+        #expect(a.pendingCompletion)                            // not written for the account that left
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(TrainStubURLProtocol.requests.count == 2)
+        #expect(!service.isFlushing)
+    }
+
+    /// Code review should-fix: Finish waits for the upload at most its cap, then says "will sync"; the
+    /// replay goes on and completes the workout when the network answers.
+    @Test func finishWaitsAtMostItsCap() async throws {
+        let quick = TrainSyncService(store: store, remote: { [api] in api }, debounce: .milliseconds(30),
+                                     finishWait: .milliseconds(200), monitorsNetwork: false)
+        let a = session("A")
+        check(a.orderedExercises[0].orderedSets[0], reps: 5, kg: 100)
+        TrainStubURLProtocol.script([.hold, .status(200, try Fixture.data("train_session_completed"))])
+        let started = ContinuousClock.now
+        let done = await quick.finish(a)
+        #expect(done == nil && a.pendingCompletion)             // "will sync"
+        #expect(ContinuousClock.now - started < .seconds(5))
+
+        TrainStubURLProtocol.release()
+        #expect(await eventually { !a.pendingCompletion && quick.pendingCount == 0 })
     }
 
     @Test func changesAreDebouncedIntoOnePut() async throws {
