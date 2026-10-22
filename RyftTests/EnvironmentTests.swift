@@ -2590,12 +2590,33 @@ struct TrackerSetupScreensTests {
         let all = [garmin, oura, phone, unknown]
         #expect(store.worn(all) == all) // nothing chosen: every source
 
+        // Only a source matched to a tracker that wasn't chosen goes: an unchosen Oura doesn't cancel Garmin's hint.
         store.set(["garmin"])
-        #expect(store.worn(all) == [garmin, phone])
-        store.set(["garmin", "other"])
-        #expect(store.worn(all) == [garmin, phone, unknown]) // Other: what no tracker claims
+        #expect(store.worn(all) == [garmin, phone, unknown])
+        store.set(["iphone"]) // just the iPhone: no tracker's source is a candidate
+        #expect(store.worn([garmin, oura, phone]) == [phone])
         (env.flags as? StaticFlags)?.overrides[.devicesSetup] = false
         #expect(store.worn(all) == all)
+    }
+
+    /// T1's rule: an Apple source without a device model matches no tracker and is still a candidate.
+    @Test func appleSourcesWithoutADeviceModelStayCandidates() throws {
+        let env = AppEnvironment.test(flags: [.devicesSetup: true])
+        let store = TrackerSelectionStore(env: env)
+        let now = Date.now
+        // The Apple Watch chosen, its source without a model: the night hint keeps its candidate.
+        let watch = SourceFreshness(source: "Tim's Apple Watch", bundleID: "com.apple.health.81E2",
+                                    newest: now.addingTimeInterval(-9 * 3_600))
+        store.set(["apple_watch"])
+        #expect(store.worn([watch]) == [watch])
+        // Garmin chosen, and an unknown Apple source wrote at 07:05: it stays, so it still counts as the night's
+        // evidence (T1 shows no hint then).
+        let garmin = SourceFreshness(source: "Connect", bundleID: "com.garmin.connect.mobile",
+                                     newest: now.addingTimeInterval(-10 * 3_600))
+        let morning = try #require(Calendar.current.date(bySettingHour: 7, minute: 5, second: 0, of: now))
+        let apple = SourceFreshness(source: "Apple", bundleID: "com.apple.health.9C11", newest: morning)
+        store.set(["garmin"])
+        #expect(store.worn([garmin, apple]) == [garmin, apple])
     }
 
     @Test func nothingChosenReadsNoCatalog() {

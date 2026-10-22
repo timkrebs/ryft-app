@@ -1379,9 +1379,10 @@ final class TrackerSelectionStore {
         return Self.normalized(picked, catalog: env.trackerCatalog)
     }
 
-    /// The sources Today's night hint may name (design.md §6.2, §9.3): with `devices.setup` on and a choice made,
-    /// the iPhone's own records and the chosen trackers' sources ("Other": any source no tracker claims);
-    /// otherwise all of them.
+    /// The sources Today's night hint may weigh (design.md §6.2, §9.3): with `devices.setup` on and a choice made,
+    /// a source the catalog matches to a tracker that wasn't chosen goes; everything else stays, the iPhone's own
+    /// records and sources no tracker claims included (an Apple Watch without a device model is still a candidate,
+    /// as T1's rule has it). Without a choice, all of them.
     func worn(_ freshness: [SourceFreshness]) -> [SourceFreshness] {
         guard env.flags.isOn(.devicesSetup) else { return freshness }
         let chosen = Set(trackers)
@@ -1389,7 +1390,7 @@ final class TrackerSelectionStore {
         let catalog = env.trackerCatalog
         return freshness.filter { source in
             if source.isPhone { return true }
-            guard let tracker = catalog.match(source.ref) else { return chosen.contains("other") }
+            guard let tracker = catalog.match(source.ref) else { return true }
             return chosen.contains(tracker.id)
         }
     }
