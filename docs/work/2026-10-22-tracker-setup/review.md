@@ -312,3 +312,15 @@ PRs:
 - **#7:** the repo texts are done; the three ryftapp.de/privacy lines are the user's to add.
 - **#8:** deferred (the store sits in the App Group). #11 is partly fixed: the older onboarding keys (`firstRunDone`,
   `aboutYouDone`, `hintSeen`) predate this work. → Both go in the STATUS follow-ups.
+
+### T1: code re-verification at d1e6dfe
+- **Fixed:** #1, #2, #3, #4, #6, #7, #9, #10, #11. No regressions to rows A–E or the status line.
+- **#5, partly fixed:** the phone-clock start is sound, but a first-sight start never gets a follow-up status read. A user
+  without notification permission sees a false "Taking longer" until they pull. → Item 36: one scheduled
+  `refreshStatus()` at start + threshold; "slow" needs a read taken after the threshold that still lists the days.
+- **#8:** a comment is still incomplete. → Item 37.
+- **Row C header copy:** "Yesterday's readiness, until last night is scored." now shows for every row-C waiting state.
+  **The lead confirms it:** it's true whenever row C shows yesterday's readiness, and the gauge title still says it's
+  waiting for last night.
+- **Known red test:** `PullToRefreshTests.thePullReturnsAfterThreeSecondsAtMost` fails locally 10/10 on the branch and
+  2/3 on `d9fc265` (it passed on #33's CI). → The debugger is finding the cause and whether T1 makes it worse.
