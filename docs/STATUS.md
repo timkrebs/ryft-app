@@ -56,8 +56,9 @@ Plan, design note, UI spec and review log: `docs/work/2026-10-21-refresh-resilie
 - CI UI tests: the 60 s allowance is too tight on GitHub's runners. The nightly Full run on `main` timed out
   (`TrainSessionUITests`), and passing walkthroughs range from 30 to 55 s with or without #27. A timed-out test isn't retried
   (xcodebuild moves on). #30 raises UISmoke and Full to 180 s. Branches with #27 still hit it more often (3 of 8 against 0 of
-  19), always with runner symptoms. If timeouts continue after #30, run the walkthrough 10× on CI with per-tap timings, a #27
-  build vs. a main build.
+  19), always with runner symptoms. performance-profiler found no app cause: a build without #27 is just as slow when starved
+  (up to 60.7 s); idle CPU and accessibility trees are equal. If timeouts continue on `main` after #30, shrink the Insights
+  accessibility tree (468 elements; one element per chart) and raise the walkthrough's 5 s `waitForExistence` timeouts.
 - `AuthService.token()` signs out on a session-ending refresh error without checking whose session it is (a slow refresh of
   account A across a switch to B); move `forgetRequests()` into `AuthService.apply` to close a one-render gap.
 - Convert `Ryft/` and `RyftTests/` to folders in Xcode (new types still go into existing files).

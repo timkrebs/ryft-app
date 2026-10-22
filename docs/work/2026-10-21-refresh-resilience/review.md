@@ -376,8 +376,8 @@ fail-fast past the cap; nits; card/line accessibility containers.
 - #26 merged (c34bb9a) on the user's go. `main` was then merged into:
   - **#28** (082f927): tree identical to integration 064950f. CI **green**.
   - **#27** (a962b1b): `APIClient` + `APIStatus` from integration 776bb7c, strings per key. Its delta matches the
-    integration's line for line; local build clean. CI: unit tests green, UI smoke red, `testDemoTabsWalkthrough` over 60 s.
-    The failed job is being re-run.
+    integration's line for line; local build clean. CI: unit tests green, UI smoke red, `testDemoTabsWalkthrough` over 60 s,
+    and again on the re-run (attempt 2). With #27 that makes 4 of 9 runs.
 - **CI tally corrected.** Across the last 35 runs, the walkthrough passes in 30–55 s without #27 (19 runs) and 33–42 s with it
   (5 passing runs); it timed out in 3 of 8 runs with #27 and 0 of 19 without.
   - The nightly Full run on `main` (39726928969, ebad505, without #27) also timed out at 60 s, in
@@ -386,4 +386,27 @@ fail-fast past the cap; nits; card/line accessibility containers.
     couldn't resolve GitHub's artifact host (`ENOTFOUND`), so there is no xcresult.
   - `retryOnFailure` doesn't retry a test that timed out: xcodebuild restarts the runner and goes on with the next test.
   - **Decision:** #30 now raises both UISmoke and Full to 180 s. Merge it before #27.
+- **Why only the lookups were slow.** In the two red runs on a962b1b, XCUITest's element lookups took 15–30 s per walkthrough
+  ("Find" plus "Checking existence"), against about 1 s in passing runs. "Wait for idle" stayed at its usual ~15 s. That pointed
+  at the app's main thread or accessibility tree, so the lead asked performance-profiler to prove it or rule it out.
+- **performance-profiler: runner-only.** The baseline was c34bb9a (#26 only), which differs from a962b1b by exactly #27. Each
+  build ran 5× unloaded and 5× CPU-starved (36 `yes` on 12 cores).
+
+  | Walkthrough | #27 (a962b1b) | baseline (c34bb9a) |
+  | --- | --- | --- |
+  | unloaded | 23–38 s | 25–32 s |
+  | starved | 24.4, 25.7, 43.0, 45.0, 51.1 s | 25.3, 55.1, 56.9, 59.6, 60.7 s |
+  | starved, CI order (RefreshResilience first) | 39.7–52.9 s | — |
+
+  - **Idle in demo mode, 10 s per tab:** 0.00–0.01 s of CPU on both builds. Nothing republishes at rest: no spinner, no
+    TimelineView tick, no re-pull on tab switches.
+  - **Accessibility elements per tab** (Today / Sleep / Strain / Insights / Profile): 128/154/175/468/184 with #27,
+    125/154/175/468/184 without. #27 adds 3 elements, the status line.
+  - **Leftover state:** `-RyftFault` comes in as a launch argument (volatile domain), and nothing persists.
+  - **Why lookups suffer most on a starved VM:** Insights has 468 elements, and a full snapshot takes about 0.65 s unloaded. At a
+    15–25× slowdown each lookup costs several seconds. Not caused by #27.
+- **Decision:** #27 is not the cause, and it stays as it is. #30 (180 s) goes in first, then `main` goes into #27.
+  - The 4-of-9 vs 0-of-19 split isn't reproduced locally. The residual risk is that GitHub's VMs differ from a starved 12-core
+    Mac. If walkthroughs still exceed 60 s regularly on `main` after #27, give the Insights charts one combined accessibility
+    element (it shrinks the tree) and raise the 5 s `waitForExistence` timeouts in `StoreSmokeUITests`.
 
