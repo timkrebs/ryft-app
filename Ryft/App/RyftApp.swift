@@ -119,7 +119,7 @@ struct RyftApp: App {
                     // A workout asked for before, or the previous account's open one, doesn't carry over.
                     WorkoutLauncher.discardPending()
                     trainCoordinator.accountChanged()
-                    if old != nil { state.reset() }
+                    state.accountChanged(from: old)
                     // That account's gates, steps and sync state are its own.
                     screens.onboarding.switchAccount(new)
                     // Its last requests and a report's draft too: nothing of A's goes out as B.
@@ -162,7 +162,7 @@ struct RyftApp: App {
                 }
                 .task {
                     appDelegate.handlers = PushHandlers(registrar: screens.push, router: screens.router,
-                                                        coordinator: coordinator)
+                                                        coordinator: coordinator, reads: state.env.reads)
                 }
                 // Back online: upload what HealthKit collected meanwhile, then reload.
                 .onChange(of: connectivity.isOnline) { _, online in
@@ -230,6 +230,9 @@ struct RyftApp: App {
                     await WorkoutHealthExport.shared.appBecameActive(now: .now)
                 }
             } else if phase == .background {
+                // What failed in the last 1.5 s is still waiting for its coalesced save: write it
+                // before iOS may suspend (or kill) the app.
+                state.env.reads.savePendingNow()
                 // Not a cancel: the page in flight finishes (in a background task), and what's
                 // left of an import goes to the backfill task.
                 _ = BackgroundWork.finishInBackground(coordinator: coordinator, app: UIApplication.shared,
@@ -240,11 +243,12 @@ struct RyftApp: App {
         }
     }
 
-    /// Queued sessions go up first; then the library, plans and today's plan.
+    /// Queued sessions go up first (waited for 3 s at most: a slow upload goes on); then the
+    /// library, plans and today's plan.
     private func refreshTrain() async {
         guard settings.demoMode || auth.isSignedIn else { return }
         trainCoordinator.refreshActive()
-        await trainSync.flush()
+        await trainSync.flush(upTo: .seconds(3))
         await trainLibrary.refresh()
     }
 

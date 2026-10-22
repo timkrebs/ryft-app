@@ -123,6 +123,86 @@
         }
       }
     },
+    "%lld failed" : {
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Fehlversuch"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Fehlversuche"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld failed"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld failed"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld failed in a row" : {
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Fehlversuch in Folge"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Fehlversuche in Folge"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld failed in a row"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld failed in a row"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld / 4000" : {
       "localizations" : {
         "de" : {
@@ -320,6 +400,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eine Mitteilung zu deiner Aufwachzeit. Sie klingelt auf dieser iOS-Version nicht wie ein Wecker."
+          }
+        }
+      }
+    },
+    "A proxy answered before RYFT did." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Proxy hat geantwortet, bevor RYFT es konnte."
           }
         }
       }
@@ -752,6 +842,16 @@
         }
       }
     },
+    "Code" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code"
+          }
+        }
+      }
+    },
     "Continue with this one" : {
       "localizations" : {
         "de" : {
@@ -772,12 +872,65 @@
         }
       }
     },
+    "Copy details" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Details kopieren"
+          }
+        }
+      }
+    },
     "Copy diagnostics" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Diagnose kopieren"
+          }
+        }
+      }
+    },
+    "Copy request ID" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anfrage-ID kopieren"
+          }
+        }
+      }
+    },
+    "Couldn't load today · Details" : {
+      "comment" : "Today's status line while the error card about today is shown (last on Today); tapping scrolls to the card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heute konnte nicht geladen werden · Details"
+          }
+        }
+      }
+    },
+    "Couldn't load your data · Details" : {
+      "comment" : "Today's status line while the error card is shown for another part of the data; tapping scrolls to the card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Daten konnten nicht geladen werden · Details"
+          }
+        }
+      }
+    },
+    "Couldn't load your history · Details" : {
+      "comment" : "Today's status line while the error card about the score history is shown; tapping scrolls to the card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Verlauf konnte nicht geladen werden · Details"
           }
         }
       }
@@ -1002,6 +1155,16 @@
         }
       }
     },
+    "Failed in a row" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fehlversuche in Folge"
+          }
+        }
+      }
+    },
     "First score: the last 3 days" : {
       "localizations" : {
         "de" : {
@@ -1139,6 +1302,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Hier ist dein Workout."
+          }
+        }
+      }
+    },
+    "HTTP status" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HTTP-Status"
           }
         }
       }
@@ -1333,6 +1506,26 @@
         }
       }
     },
+    "loaded %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "geladen %@"
+          }
+        }
+      }
+    },
+    "Loaded data" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geladene Daten"
+          }
+        }
+      }
+    },
     "Maximum heart rate" : {
       "localizations" : {
         "de" : {
@@ -1359,6 +1552,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Noch keine Herzfrequenz. Mit einem Krafttraining auch auf deiner Uhr kommt sie, sobald die Uhr synchronisiert."
+          }
+        }
+      }
+    },
+    "No errors" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Fehler"
           }
         }
       }
@@ -1393,6 +1596,16 @@
         }
       }
     },
+    "No response" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Antwort"
+          }
+        }
+      }
+    },
     "Not allowed in iOS Settings." : {
       "localizations" : {
         "de" : {
@@ -1419,6 +1632,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nicht erteilt"
+          }
+        }
+      }
+    },
+    "Not loaded yet" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch nicht geladen"
           }
         }
       }
@@ -1563,6 +1786,16 @@
         }
       }
     },
+    "Opens sync details" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet die Sync-Details"
+          }
+        }
+      }
+    },
     "Opens the editor" : {
       "localizations" : {
         "de" : {
@@ -1589,6 +1822,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Öffnet, was nötig ist"
+          }
+        }
+      }
+    },
+    "Part of your data couldn't be loaded. The details help us find out why." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Teil deiner Daten konnte nicht geladen werden. Die Details helfen uns, die Ursache zu finden."
           }
         }
       }
@@ -1776,6 +2019,26 @@
         }
       }
     },
+    "Remote settings" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konfiguration"
+          }
+        }
+      }
+    },
+    "Request ID" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anfrage-ID"
+          }
+        }
+      }
+    },
     "Report a problem" : {
       "localizations" : {
         "de" : {
@@ -1916,6 +2179,16 @@
         }
       }
     },
+    "RYFT can't be reached right now. Your connection looks fine, so this isn't on your side." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT ist gerade nicht erreichbar. Deine Verbindung scheint in Ordnung zu sein, es liegt also nicht an dir."
+          }
+        }
+      }
+    },
     "RYFT couldn't take that change. Try again later." : {
       "localizations" : {
         "de" : {
@@ -1946,6 +2219,16 @@
         }
       }
     },
+    "RYFT is busy right now. Your data is safe; try again in a moment." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT ist gerade ausgelastet. Deine Daten sind sicher, versuch es gleich noch einmal."
+          }
+        }
+      }
+    },
     "RYFT is invite-only during the beta. Enter your invite code to continue." : {
       "localizations" : {
         "de" : {
@@ -1972,6 +2255,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT braucht deine Einwilligung, bevor es deine Gesundheitsdaten synchronisieren kann."
+          }
+        }
+      }
+    },
+    "RYFT sent an answer this version of the app can't read." : {
+      "comment" : "Error when the platform's answer can't be decoded (status 200 and request ID are kept in Details).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT hat eine Antwort geschickt, die diese App-Version nicht lesen kann."
           }
         }
       }
@@ -2096,6 +2390,26 @@
         }
       }
     },
+    "Send to RYFT" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An RYFT senden"
+          }
+        }
+      }
+    },
+    "Sends this and the last 20 requests. No health values." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sendet dies und die letzten 20 Anfragen. Keine Gesundheitswerte."
+          }
+        }
+      }
+    },
     "Send" : {
       "localizations" : {
         "de" : {
@@ -2166,6 +2480,26 @@
         }
       }
     },
+    "Showing data from" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt Daten von"
+          }
+        }
+      }
+    },
+    "Showing data from %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt Daten von %@"
+          }
+        }
+      }
+    },
     "Shows how your sleep need adds up, and your baseline to change" : {
       "localizations" : {
         "de" : {
@@ -2176,12 +2510,33 @@
         }
       }
     },
+    "Shows what couldn't load" : {
+      "comment" : "VoiceOver hint of Today's status line while it points to the error card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt, was nicht geladen werden konnte"
+          }
+        }
+      }
+    },
     "Shows your baseline sleep need to change" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zeigt deinen Schlaf-Grundbedarf zum Ändern"
+          }
+        }
+      }
+    },
+    "Sign in" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anmelden"
           }
         }
       }
@@ -2387,6 +2742,16 @@
         }
       }
     },
+    "Sync status" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync-Status"
+          }
+        }
+      }
+    },
     "Sync state: phase, queue and backlog, and per data type the number of records and days and the date of the newest record" : {
       "localizations" : {
         "de" : {
@@ -2567,6 +2932,16 @@
         }
       }
     },
+    "This version of RYFT is too old to load new data. Update it to continue." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Version von RYFT ist zu alt, um neue Daten zu laden. Aktualisiere sie, um fortzufahren."
+          }
+        }
+      }
+    },
     "Time to get up" : {
       "localizations" : {
         "de" : {
@@ -2645,12 +3020,32 @@
         }
       }
     },
+    "Tries to load your data again" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Versucht erneut, deine Daten zu laden"
+          }
+        }
+      }
+    },
     "Try another wake time" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Andere Aufwachzeit ausprobieren"
+          }
+        }
+      }
+    },
+    "Trying again…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neuer Versuch …"
           }
         }
       }
@@ -2885,6 +3280,16 @@
         }
       }
     },
+    "What failed" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Betroffen"
+          }
+        }
+      }
+    },
     "What happened? What did you expect?" : {
       "localizations" : {
         "de" : {
@@ -2975,6 +3380,16 @@
         }
       }
     },
+    "Yesterday %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gestern %@"
+          }
+        }
+      }
+    },
     "Yesterday's readiness, until last night is scored." : {
       "localizations" : {
         "de" : {
@@ -3001,6 +3416,27 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bei diesem Konto kannst du dich anmelden mit:"
+          }
+        }
+      }
+    },
+    "You're signed out · Details" : {
+      "comment" : "Today's status line while the signed-out card is shown (last on Today); tapping scrolls to the card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du bist abgemeldet · Details"
+          }
+        }
+      }
+    },
+    "You're signed out, so new data can't load." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du bist abgemeldet, deshalb können keine neuen Daten geladen werden."
           }
         }
       }
@@ -5452,18 +5888,6 @@
           "stringUnit" : {
             "state" : "machine_translated",
             "value" : "Kopieren und bearbeiten"
-          }
-        }
-      }
-    },
-    "Couldn't refresh just now — showing your last loaded data." : {
-      "comment" : "Message displayed when an error occurs while refreshing data, showing the last loaded data instead.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "Aktualisieren gerade nicht möglich – es werden deine zuletzt geladenen Daten angezeigt."
           }
         }
       }

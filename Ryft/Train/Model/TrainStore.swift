@@ -160,7 +160,12 @@ final class TrainStore {
     // MARK: account
 
     /// Log out / account switch: everything Train goes.
+    /// Bumped by `wipe()`: work started before it (an upload's answer) must not write into rows the
+    /// wipe deleted (`TrainSyncService.Generation`).
+    private(set) var epoch = 0
+
     func wipe() {
+        epoch += 1
         // Batch deletes skip cascade rules, so children go explicitly.
         try? context.delete(model: LocalSet.self)
         try? context.delete(model: LocalSessionExercise.self)

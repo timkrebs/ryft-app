@@ -80,7 +80,7 @@ extension APIClient: TrainDataSource {
     func planToday() async throws -> PlanToday? {
         let r = try await exchange("GET", path: "/v1/plans/today", body: Optional<Int>.none)
         guard r.status != 204, !r.data.isEmpty else { return nil }
-        return try Self.jsonDecoder.decode(PlanToday.self, from: r.data)
+        return try Self.decode(PlanToday.self, from: r)
     }
 
     func sessions(from: Date, to: Date) async throws -> [SessionSummary] {
@@ -94,7 +94,7 @@ extension APIClient: TrainDataSource {
 
     func putSession(_ s: TrainSession) async throws -> SessionPutResult {
         let r = try await exchange("PUT", path: "/v1/sessions/\(Self.idPath(s.id))", body: s, accepting: [409])
-        let copy = try Self.jsonDecoder.decode(TrainSession.self, from: r.data)
+        let copy = try Self.decode(TrainSession.self, from: r)
         return r.status == 409 ? .conflict(copy) : .saved(copy)
     }
 

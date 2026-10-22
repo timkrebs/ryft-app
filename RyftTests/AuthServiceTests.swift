@@ -242,6 +242,16 @@ struct AuthServiceTests {
         #expect(auth.isSignedIn)
     }
 
+    /// A refresh failure that keeps the session is transient for the read pipeline; one that ends
+    /// it never reaches it (it becomes `APIError.signedOut`).
+    @Test func refreshFailuresThatKeepTheSessionAreTransient() {
+        #expect(FailureKind.of(Self.apiError(.unexpectedFailure, status: 503)) == .transient)
+        #expect(FailureKind.of(Self.apiError(.overRequestRateLimit, status: 429)) == .transient)
+        #expect(FailureKind.of(Self.apiError(.unexpectedFailure, status: 408)) == .transient)
+        #expect(FailureKind.of(AuthError.refreshDiscarded) == .transient)
+        #expect(FailureKind.of(Self.apiError(.refreshTokenNotFound, status: 400)) == .other)
+    }
+
     @Test func refreshedTokenIsReturned() async throws {
         let client = MockAuthClient(session: .preview())
         let auth = make(client)

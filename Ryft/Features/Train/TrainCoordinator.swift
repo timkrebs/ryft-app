@@ -169,6 +169,8 @@ final class TrainCoordinator {
     /// Signed out or another account: the previous account's workout closes (it stays stored
     /// for that account) and leaves the lock screen.
     func accountChanged() {
+        // The upload queue's replay first: nothing of the previous account's may land after this.
+        sync.accountChanged()
         live?.stop()
         live = nil
         summary = nil
@@ -183,14 +185,18 @@ final class TrainCoordinator {
         // A second tap while the first one finishes changes nothing.
         guard controller.phase != .finishing, controller.phase != .completed else { return }
         let s = controller.session
+        let generation = sync.generation
         let result = await controller.finish(bodyweightKg: bodyweightKg)
         active = nil
+        // Signed out or another account meanwhile: no summary or Health export over theirs.
+        guard sync.generation == generation else { return }
         // Shown over the session; Done closes both (`summaryDone`).
         summary = FinishSummary(sessionID: s.id, completed: result)
         // To Apple Health, if you turned that on, once it is complete here.
         if s.status == .completed, let end = s.endedAt {
             await (export ?? .shared).save(sessionID: s.id, start: s.startedAt, end: end)
         }
+        guard sync.generation == generation else { return }
         await library.sessionCompleted()
     }
 
