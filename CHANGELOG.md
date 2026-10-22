@@ -38,6 +38,9 @@ Store "What's New".
   of your sleep need you aim for. RYFT tells you when to be in bed tonight (Today from 17:00,
   Sleep → Bedtime, the widget), reminds you to wind down, and can wake you with a real alarm
   (iOS 26). The next morning, Sleep shows how close the night came to the plan.
+- Profile → Report a problem: write to RYFT from the app, optionally with diagnostics (app version,
+  device, the last requests and the sync status, never health values). Saved and sent later when
+  you're offline.
 
 ### Changed
 - Your baseline sleep need and maximum heart rate can be changed where you see them: in

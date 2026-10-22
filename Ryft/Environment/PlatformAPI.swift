@@ -27,6 +27,8 @@ protocol PlatformAPI: RyftDataSource, TrainDataSource {
     func revokeConsent() async throws
     /// `POST /v1/me/invite`: `204`; `422` for every bad code, `429` after 5 tries an hour.
     func redeemInvite(code: String) async throws
+    /// `POST /v1/feedback`: `204`; `429` after 10 a day; `422` outside the limits. Open behind the invite gate.
+    func postFeedback(_ post: FeedbackPost) async throws
 
     /// `GET /v1/sleep/plan?wake=HH:MM` (local wake time).
     func sleepPlan(wake: String) async throws -> SleepPlan
@@ -115,6 +117,12 @@ extension APIClient: PlatformAPI {
 
     func behaviorImpact() async throws -> BehaviorImpacts {
         try await send("GET", path: "/v1/behaviors/impact", body: Optional<Int>.none)
+    }
+
+    /// `204`. No `503` retry: the report queue retries, and a retry after the platform stored the
+    /// report would file it twice.
+    func postFeedback(_ post: FeedbackPost) async throws {
+        _ = try await exchange("POST", path: "/v1/feedback", body: post, unavailableRetries: 0)
     }
 }
 
@@ -252,6 +260,28 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     func postAppleAuthorization(code: String) async throws {
         try enter("appleAuthorization")
         lock.withLock { appleCodes.append(code) }
+    }
+
+    /// Reports `POST /v1/feedback` took, oldest first (`failure`/`failNext` script offline and `5xx`).
+    private(set) var feedbackPosts: [FeedbackPost] = []
+    /// The platform's cap per user and day: the next report past it answers `429`.
+    var feedbackDailyLimit = 10
+    private var feedbackDays: [String] = []
+
+    /// Runs before each report is taken (tests hold one open with it).
+    var beforeFeedback: (@Sendable (FeedbackPost) async -> Void)?
+
+    func postFeedback(_ post: FeedbackPost) async throws {
+        try enter("feedback")
+        await beforeFeedback?(post)
+        let today = DayFormat.string(from: now())
+        try lock.withLock {
+            guard feedbackDays.filter({ $0 == today }).count < feedbackDailyLimit else {
+                throw APIError.http(429, "at most 10 reports a day", requestID: "mock-feedback-429")
+            }
+            feedbackDays.append(today)
+            feedbackPosts.append(post)
+        }
     }
 
     func config() async throws -> RemoteConfig { try enter("config"); return remoteConfig }

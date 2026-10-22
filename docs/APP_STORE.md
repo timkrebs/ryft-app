@@ -34,7 +34,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | Requirement (guideline) | Status | Evidence |
 | --- | --- | --- |
 | Privacy manifest in the app target. `NSPrivacyTracking = false`, no tracking domains (5.1.2) | ok (fixed) | `Ryft/PrivacyInfo.xcprivacy` |
-| Collected data types, each linked to the user, not used for tracking, purpose App Functionality (5.1.1): Health, Fitness, Email Address, Name, User ID, **Device ID** (the per-install `device_id` sent with every sync), **Other User Content** (workout notes). No crash or diagnostics SDK | ok (fixed) | `PrivacyInfo.xcprivacy` → `NSPrivacyCollectedDataTypes` |
+| Collected data types, each linked to the user, not used for tracking, purpose App Functionality (5.1.1): Health, Fitness, Email Address, Name, User ID, **Device ID** (the per-install `device_id` sent with every sync), **Other User Content** (workout notes, journal answers, feedback text), **Other Diagnostic Data** (Report a problem → "Include diagnostics"). No crash or diagnostics SDK | ok (fixed) | `PrivacyInfo.xcprivacy` → `NSPrivacyCollectedDataTypes` |
 | Required-reason APIs. App code uses only `UserDefaults` (`CA92.1`). No file timestamps, boot time, disk space or keyboards | ok (fixed) | grep of `Ryft/`, `RyftWidgets/` |
 | Packages. swift-crypto ships its own manifests. supabase-swift, swift-http-types, swift-clocks, swift-concurrency-extras, xctest-dynamic-overlay and swift-asn1 call no required-reason API, so they need none. The session is in the Keychain, not `UserDefaults`. Apple frameworks (SwiftData, HealthKit) are exempt | ok | grep of `SourcePackages/checkouts/*/Sources` |
 | Xcode **Generate Privacy Report** on an archive lists exactly the declared types | user | Organizer → Archives → Generate Privacy Report (needs the signed archive) |
@@ -142,7 +142,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
    None", no unrestricted web access (the in-app Safari only opens our own legal pages),
    no user-generated content shared with others. **Made for Kids: No.**
 4. **App Privacy.** Answer exactly as `PrivacyInfo.xcprivacy`:
-   - Health, Fitness, Email Address, Name, User ID, Device ID, Other User Content
+   - Health, Fitness, Email Address, Name, User ID, Device ID, Other User Content, Other Diagnostic Data
    - all *linked to the user*, *not used for tracking*, purpose *App Functionality*
    - no third-party advertising, no analytics
 5. **URLs.**

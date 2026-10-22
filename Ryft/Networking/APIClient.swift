@@ -452,6 +452,8 @@ final class APIClient: RyftDataSource {
             throw APIError.notConfigured
         }
         let status = await statusSink()
+        // What comes back belongs to the account this started for (`APIStatus.forgetRequests`).
+        let epoch = await status.epoch
         // One gate, not twenty failed requests: behind the invite gate only onboarding goes out.
         if await status.inviteBlocked, !Self.isOpenBehindInviteGate(method, path) {
             throw APIError.http(403, "invite required", code: .inviteRequired)
@@ -485,11 +487,11 @@ final class APIClient: RyftDataSource {
                     return nil
                 } ?? "cancelled"
                 if error is CancellationError {
-                    await status.cancelled()
+                    await status.cancelled(epoch: epoch)
                 } else {
                     await status.record(APIStatus.RequestFailure(date: .now, method: method, path: path, status: 0,
                                                                  requestID: nil, durationMs: Self.milliseconds(since: started),
-                                                                 transport: transport))
+                                                                 transport: transport), epoch: epoch)
                 }
                 if unavailable > 0 { await status.finishedWaiting() }
                 throw error
@@ -500,11 +502,11 @@ final class APIClient: RyftDataSource {
                 if unavailable > 0 { await status.finishedWaiting() }
                 // Served, but a gate in warn mode would have refused it: prompt for what's missing.
                 if let warned = response.map(Self.gates), !warned.isEmpty {
-                    await status.observe(warned, enforced: false)
+                    await status.observe(warned, enforced: false, epoch: epoch)
                 }
                 let requestID = response?.value(forHTTPHeaderField: "X-Request-ID")
                 await status.served(.init(date: .now, method: method, path: path, status: code, requestID: requestID,
-                                          durationMs: durationMs))
+                                          durationMs: durationMs), epoch: epoch)
                 return (code, data, requestID)
             }
             let retryAfter = response.flatMap(Self.retryAfter)
@@ -539,9 +541,9 @@ final class APIClient: RyftDataSource {
             let requestID = response?.value(forHTTPHeaderField: "X-Request-ID") ?? body?.requestId
             let error = APIError.http(code, message, requestID: requestID, code: body?.code, retryAfter: retryAfter)
             APIStatus.log.error("\(code) \(body?.code?.rawValue ?? "", privacy: .public) on \(method, privacy: .public) \(redactedPath(path), privacy: .public), request \(requestID ?? "-", privacy: .public)")
-            if let gate = error.gate { await status.observe([gate], enforced: true) }
+            if let gate = error.gate { await status.observe([gate], enforced: true, epoch: epoch) }
             await status.record(.init(date: .now, method: method, path: path, status: code,
-                                      code: body?.code?.rawValue, requestID: requestID, durationMs: durationMs))
+                                      code: body?.code?.rawValue, requestID: requestID, durationMs: durationMs), epoch: epoch)
             throw error
         }
     }
