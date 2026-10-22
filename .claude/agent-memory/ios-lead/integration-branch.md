@@ -13,7 +13,9 @@ while the user hasn't merged yet:
 4. Put the cross-PR wiring on top of that integration branch as its own draft PR. Its CI then proves the combined state.
 
 The user squash-merges, so each later PR still needs `main` merged in after the earlier one lands. The resolutions are already
-known, and the integration branch shows what they are.
+known, and the integration branch shows what they are. The ruleset requires branches to be **up to date** before merging
+(`gh pr merge` refuses with "head branch is not up to date"). So every merge costs the next PR one full CI cycle (~15–20 min).
+Plan the merge sequence to fit that, and check that `git diff <integration-commit>` is empty after each `main` merge.
 
 **Why:** in the 2026-10-22 refresh-resilience work, #26, #28 and #27 conflicted pairwise (xcstrings, `scripts/screenshots.sh`,
 `APIClient.exchange`). The integration branch (#31) caught the cross-PR seams, such as the epoch on T1's new code paths and one
