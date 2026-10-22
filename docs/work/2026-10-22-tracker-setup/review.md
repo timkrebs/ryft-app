@@ -275,3 +275,15 @@ region regenerated with the `#` escaping).
 - **Accepted:** the catalog line in Copy diagnostics with the flag off. T1 uses the catalog regardless.
 - **The 9 deviations are accepted with those conditions.**
 
+
+### T1: security re-verification at d1e6dfe
+- **Fixed:** the nesting bomb (refused in 0 ms, before parsing), the Apple Watch hijack (all 6 prefixes, exact IDs,
+  `device_models` and the store ID), the generator injection (`--check` plus `--self-test` in lint), the CPU blow-up (44 ms
+  for 261 KB), and the earlier nits. The guide text (382 strings) is clean.
+- **Partly fixed → items 32–35 back to the implementer:**
+  - dot segments and `%2F` get past the path prefixes (`/setup/../auth/callback`);
+  - Fitbit's prefix narrows to `/googlehealth/answer/`;
+  - U+F8FF (renders as the Apple logo) passes ICU's `\p{Co}` → add a `generalCategory == .privateUse` check;
+  - at most 3 combining marks per grapheme;
+  - `integration` pinned per id;
+  - no bundle ID that belongs to another known tracker.
