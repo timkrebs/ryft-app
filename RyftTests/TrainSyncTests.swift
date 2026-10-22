@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import Ryft
 
@@ -14,6 +15,8 @@ final class TrainStubURLProtocol: URLProtocol {
         case cancelled
         /// Like `echo`, once `release()` is called: a PUT still in flight meanwhile.
         case hold
+        /// Like `status`, once `release()` is called.
+        case holdThen(Int, Data)
     }
 
     /// Lets a `hold` reply answer.
@@ -62,6 +65,9 @@ final class TrainStubURLProtocol: URLProtocol {
             // Blocks this loader's thread only (the suite is serialized); a missing release ends it.
             _ = Self.gate.wait(timeout: .now() + 10)
             respond(200, body)
+        case .holdThen(let code, let data):
+            _ = Self.gate.wait(timeout: .now() + 10)
+            respond(code, data)
         }
     }
 
@@ -216,23 +222,43 @@ struct TrainSyncTests {
         #expect(last.exercises[0].sets.compactMap(\.reps) == [5, 5])
     }
 
-    /// Security should-fix: another account while `complete` is in flight. The replay stops; nothing of
-    /// the previous account's lands (no summary answer, no write to its session), nothing more is sent.
+    /// Security should-fix: the sign-out's wipe (`AuthService.apply`, before the app's account-change
+    /// handler runs) while `complete` is in flight, whose answer is a real completed session arriving
+    /// after it. Nothing is written into the wiped store and no summary answer is kept. Without the
+    /// guard after `completeSession`, the answer would write the deleted session and its sets back.
+    @Test func aWipeMidCompleteWritesNothing() async throws {
+        let a = session("A")
+        check(a.orderedExercises[0].orderedSets[0], reps: 5, kg: 100)
+        TrainStubURLProtocol.script([.echo, .holdThen(200, try Fixture.data("train_session_completed"))])
+        let finishing = Task { await service.finish(a) }
+        #expect(await eventually { TrainStubURLProtocol.requests.count == 2 })   // the PUT, then `complete` held
+        store.wipe()
+        TrainStubURLProtocol.release()
+
+        #expect(await finishing.value == nil)
+        #expect(service.lastCompletion == nil)
+        #expect(try store.context.fetchCount(FetchDescriptor<LocalSession>()) == 0)
+        #expect(try store.context.fetchCount(FetchDescriptor<LocalSessionExercise>()) == 0)
+        #expect(try store.context.fetchCount(FetchDescriptor<LocalSet>()) == 0)
+        #expect(await eventually { !service.isFlushing })
+        #expect(TrainStubURLProtocol.requests.count == 2)
+    }
+
+    /// Another account while `complete` is in flight: the replay stops at once (its request is
+    /// cancelled), and nothing of the previous account's shows or is sent afterwards.
     @Test func anAccountChangeStopsTheReplay() async throws {
         let a = session("A")
         check(a.orderedExercises[0].orderedSets[0], reps: 5, kg: 100)
         TrainStubURLProtocol.script([.echo, .hold])
         let finishing = Task { await service.finish(a) }
-        #expect(await eventually { TrainStubURLProtocol.requests.count == 2 })   // the PUT, then `complete` held
+        #expect(await eventually { TrainStubURLProtocol.requests.count == 2 })
         service.accountChanged()
         TrainStubURLProtocol.release()
 
         #expect(await finishing.value == nil)
-        #expect(service.lastCompletion == nil && service.lastError == nil)
-        #expect(a.pendingCompletion)                            // not written for the account that left
+        #expect(service.lastCompletion == nil && service.lastError == nil && !service.isFlushing)
         try? await Task.sleep(for: .milliseconds(100))
         #expect(TrainStubURLProtocol.requests.count == 2)
-        #expect(!service.isFlushing)
     }
 
     /// Code review should-fix: Finish waits for the upload at most its cap, then says "will sync"; the
@@ -250,6 +276,7 @@ struct TrainSyncTests {
 
         TrainStubURLProtocol.release()
         #expect(await eventually { !a.pendingCompletion && quick.pendingCount == 0 })
+        #expect(TrainStubURLProtocol.requests.filter { $0.path.hasSuffix("/complete") }.count == 1)
     }
 
     @Test func changesAreDebouncedIntoOnePut() async throws {

@@ -1767,7 +1767,7 @@ struct RefreshFinalReviewTests {
     }
 
     /// Perf 4: a silent push's refresh gives up after 20 s (iOS allows ~30 s), as a cancellation.
-    @Test func aSilentPushRefreshGivesUpAfterTwentySeconds() async {
+    @Test(.timeLimit(.minutes(1))) func aSilentPushRefreshGivesUpAfterTwentySeconds() async {
         let clock = TestClock()
         let steps = HangingRefreshSteps(clock: clock)
         let coordinator = SyncCoordinator(steps: steps, clock: clock)
@@ -1859,5 +1859,32 @@ struct PullInvalidationTests {
         #expect(events.count >= 12, "events \(events.count)")
         // Measured 2026-10-22: 14 events (plus 6 writes of `states`, also observed before), 4 changes now.
         #expect(published.count <= 4, "published \(published.count) of \(events.count)")
+    }
+}
+
+@Suite("Refresh: the record is saved before the app may be suspended")
+@MainActor
+struct ReadRecordSuspensionTests {
+    /// Review B: what failed during a silent push is saved before its completion handler (iOS may
+    /// suspend or kill the app right after); the coalesced save would come 1.5 s later.
+    @Test func aSilentPushSavesTheRecordBeforeItEnds() async {
+        let api = MockPlatformAPI()
+        api.faults["insights"] = .init(.status(503, retryAfter: nil))
+        let (env, state, clock) = readGraph(api: api)
+        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: SyncService(env: env)), clock: clock)
+        let router = DeepLinkRouter(state: state, sleep: SleepViewModel(state: state),
+                                    strain: StrainViewModel(state: state, store: TrainStore(inMemory: true)),
+                                    insights: InsightsViewModel(state: state))
+        let handlers = PushHandlers(registrar: PushRegistrar(env: env), router: router, coordinator: coordinator,
+                                    reads: env.reads)
+        _ = await AppDelegate.refresh(day: DayFormat.string(from: clock.now()), handlers: handlers)
+        #expect(ReadScheduler(env: env).states[.insights]?.consecutiveFailures == 1)
+    }
+
+    /// Nothing waiting: nothing is written.
+    @Test func savingNowWithoutAPendingSaveWritesNothing() async {
+        let (env, _, _) = readGraph()
+        env.reads.savePendingNow()
+        #expect((env.persistence as? TrainStore)?.documentFetchedAt(key: ReadScheduler.documentKey) == nil)
     }
 }
