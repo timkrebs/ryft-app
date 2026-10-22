@@ -291,7 +291,8 @@ final class MockContentSource: ContentSource, @unchecked Sendable {
 /// - **Untrusted:** a download is used only when `TrackerCatalog.decode` accepts it (off the main actor) and
 ///   it isn't older than what's shown. A refusal keeps the current copy, records why, and stores no ETag.
 /// - **Crash-guarded:** a marker with the body's SHA-256 exists while a copy is decoded. Left over at launch,
-///   the last run died decoding: the cache goes, and that body is refused unread from then on.
+///   the last run died decoding: the cache goes, and that body is refused unread from then on. The refused
+///   hashes live in a file of their own beside the marker, which sign-out doesn't wipe.
 /// - **Cached** as `CachedDocument` "content.trackers" (body, ETag, when it was checked), re-validated at
 ///   launch; sign-out wipes it and the bundled copy serves until the next check.
 @MainActor
@@ -311,8 +312,6 @@ final class TrackerCatalogStore {
         var checkedAt: Date?
         var failedAt: Date?
         var failure: String?
-        /// SHA-256 of bodies the decoder died on, newest last (at most `maxRefused`): never decoded again.
-        var refused: [String]?
     }
 
     static let ttl: TimeInterval = 86_400
@@ -322,7 +321,10 @@ final class TrackerCatalogStore {
     static let documentKey = "content.trackers"
     /// While a copy is decoded: `contentDirectory/trackers.decoding`, holding the body's SHA-256.
     static let markerName = "trackers.decoding"
-    static let maxRefused = 8
+    /// SHA-256 of bodies the decoder died on, one per line, newest last (at most `maxRefused`): never decoded
+    /// again. App-only (`contentDirectory`), and kept through sign-out and account deletion.
+    static let refusedName = "trackers.refused"
+    nonisolated static let maxRefused = 8
     /// An ETag longer than this, or with anything but visible ASCII, isn't kept.
     nonisolated static let maxETag = 128
 
@@ -411,6 +413,13 @@ final class TrackerCatalogStore {
     // MARK: private
 
     private var marker: URL? { env?.contentDirectory.appendingPathComponent(Self.markerName) }
+    private var refusedFile: URL? { env?.contentDirectory.appendingPathComponent(Self.refusedName) }
+
+    /// What's in memory, joined with the file (a sign-out may have emptied the memory, never the file).
+    private func readRefused() {
+        guard let refusedFile else { return }
+        refused = Self.merged(refused, Self.refusedHashes(at: refusedFile))
+    }
 
     private func loadCache() async {
         guard let env else { return }
@@ -420,7 +429,7 @@ final class TrackerCatalogStore {
         checkedAt = cached?.checkedAt
         failedAt = cached?.failedAt
         lastFailure = cached?.failure
-        refused = cached?.refused ?? []
+        readRefused()
         // The last run died decoding a copy: the cache goes unread, and that body is never decoded again.
         if let marker, let hash = Self.leftover(marker) {
             refuse(hash)
@@ -455,6 +464,7 @@ final class TrackerCatalogStore {
             case .notModified:
                 await answered(note: nil)
             case .fetched(let data, let newTag):
+                readRefused()
                 guard !refused.contains(Self.hash(data)) else { return await failed("crashed") }
                 let shown = remote ?? .bundled
                 switch await decode(data) {
@@ -486,7 +496,11 @@ final class TrackerCatalogStore {
     }
 
     private func refuse(_ hash: String) {
-        refused = Array((refused.filter { $0 != hash } + [hash]).suffix(Self.maxRefused))
+        readRefused()
+        refused = Self.merged(refused, [hash])
+        guard let refusedFile else { return }
+        try? FileManager.default.createDirectory(at: refusedFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? Data(refused.joined(separator: "\n").utf8).write(to: refusedFile, options: .atomic)
     }
 
     private func answered(note: String?) async {
@@ -506,7 +520,7 @@ final class TrackerCatalogStore {
     private func save() async {
         guard let env else { return }
         let cached = Cached(body: body, etag: body == nil ? nil : etag, checkedAt: checkedAt, failedAt: failedAt,
-                            failure: lastFailure, refused: refused.isEmpty ? nil : refused)
+                            failure: lastFailure)
         guard let data = await Self.encode(cached) else { return }
         env.persistence.saveDocumentData(data, key: Self.documentKey, at: env.clock.now())
     }
@@ -522,6 +536,20 @@ final class TrackerCatalogStore {
         } catch {
             return .failure(error)
         }
+    }
+
+    /// `a` then whatever of `b` is new, newest last, at most `maxRefused`.
+    nonisolated static func merged(_ a: [String], _ b: [String]) -> [String] {
+        var seen = Set<String>()
+        let all = (a + b).reversed().filter { seen.insert($0).inserted }.reversed()
+        return Array(all.suffix(maxRefused))
+    }
+
+    /// The refused hashes on disk (64 hex characters each; anything else is ignored).
+    nonisolated static func refusedHashes(at url: URL) -> [String] {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        return text.split(separator: "\n").map(String.init)
+            .filter { $0.count == 64 && $0.allSatisfy { "0123456789abcdef".contains($0) } }
     }
 
     nonisolated static func hash(_ data: Data) -> String {

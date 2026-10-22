@@ -2924,7 +2924,9 @@ struct TrackerCatalogGuardTests {
         await store.load()
 
         #expect(store.current == .bundled && store.lastFailure == "crashed")
-        #expect(cached(env)?.body == nil && cached(env)?.etag == nil && cached(env)?.refused == [hash])
+        #expect(cached(env)?.body == nil && cached(env)?.etag == nil)
+        let refusedFile = env.contentDirectory.appendingPathComponent(TrackerCatalogStore.refusedName)
+        #expect(TrackerCatalogStore.refusedHashes(at: refusedFile) == [hash])
         #expect(!FileManager.default.fileExists(atPath: marker.path))
         #expect(!store.isDue(at: clock.now())) // a failure: an hour's wait
 
@@ -2937,6 +2939,27 @@ struct TrackerCatalogGuardTests {
         await store.refreshIfDue()
         #expect(store.current.version == version(days: 1, 2) && store.lastFailure == nil)
         #expect(!FileManager.default.fileExists(atPath: marker.path)) // gone after every decode
+    }
+
+    /// Sign-out wipes the cache, never the refused hashes: a body that crashed the decoder stays refused unread.
+    @Test func aRefusedBodyStaysRefusedAfterSignOut() async throws {
+        let (store, content, _, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} }
+        let poison = try catalogBody(version: version(days: 1))
+        TrackerCatalogStore.mark(env.contentDirectory.appendingPathComponent(TrackerCatalogStore.markerName),
+                                 hash: TrackerCatalogStore.hash(poison))
+        await store.load()
+        #expect(store.lastFailure == "crashed")
+
+        env.persistence.wipe() // sign-out
+        store.accountChanged()
+        let relaunched = TrackerCatalogStore(env: env) // and a relaunch: nothing in memory
+        content.script([.success(.fetched(poison, etag: "p"))])
+        await relaunched.refreshIfDue()
+
+        #expect(content.requests.count == 1 && relaunched.lastFailure == "crashed" && relaunched.current == .bundled)
+        #expect(TrackerCatalogStore.merged(["a", "b"], ["b", "c"]) == ["a", "b", "c"])
+        #expect(TrackerCatalogStore.merged((0..<10).map(String.init), []).count == TrackerCatalogStore.maxRefused)
     }
 
     @Test func withTheFlagOffTheBundledCopyServesAndNothingIsRead() async throws {
@@ -3059,12 +3082,33 @@ struct TrackerSetupScreensTests {
         let all = [garmin, oura, phone, unknown]
         #expect(store.worn(all) == all) // nothing chosen: every source
 
+        // Only a source matched to a tracker that wasn't chosen goes: an unchosen Oura doesn't cancel Garmin's hint.
         store.set(["garmin"])
-        #expect(store.worn(all) == [garmin, phone])
-        store.set(["garmin", "other"])
-        #expect(store.worn(all) == [garmin, phone, unknown]) // Other: what no tracker claims
+        #expect(store.worn(all) == [garmin, phone, unknown])
+        store.set(["iphone"]) // just the iPhone: no tracker's source is a candidate
+        #expect(store.worn([garmin, oura, phone]) == [phone])
         (env.flags as? StaticFlags)?.overrides[.devicesSetup] = false
         #expect(store.worn(all) == all)
+    }
+
+    /// T1's rule: an Apple source without a device model matches no tracker and is still a candidate.
+    @Test func appleSourcesWithoutADeviceModelStayCandidates() throws {
+        let env = AppEnvironment.test(flags: [.devicesSetup: true])
+        let store = TrackerSelectionStore(env: env)
+        let now = Date.now
+        // The Apple Watch chosen, its source without a model: the night hint keeps its candidate.
+        let watch = SourceFreshness(source: "Tim's Apple Watch", bundleID: "com.apple.health.81E2",
+                                    newest: now.addingTimeInterval(-9 * 3_600))
+        store.set(["apple_watch"])
+        #expect(store.worn([watch]) == [watch])
+        // Garmin chosen, and an unknown Apple source wrote at 07:05: it stays, so it still counts as the night's
+        // evidence (T1 shows no hint then).
+        let garmin = SourceFreshness(source: "Connect", bundleID: "com.garmin.connect.mobile",
+                                     newest: now.addingTimeInterval(-10 * 3_600))
+        let morning = try #require(Calendar.current.date(bySettingHour: 7, minute: 5, second: 0, of: now))
+        let apple = SourceFreshness(source: "Apple", bundleID: "com.apple.health.9C11", newest: morning)
+        store.set(["garmin"])
+        #expect(store.worn([garmin, apple]) == [garmin, apple])
     }
 
     @Test func nothingChosenReadsNoCatalog() {
