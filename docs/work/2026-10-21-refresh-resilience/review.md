@@ -371,3 +371,19 @@ fail-fast past the cap; nits; card/line accessibility containers.
   run the walkthrough on CI 10× with per-tap timings (`-test-iterations 10`) for a T1 build vs. a main build. That's a follow-up
   in STATUS.
 - #31 re-run (attempt 2): **green**. All five code/CI PRs are approved and green.
+
+### Merges (2026-10-22)
+- #26 merged (c34bb9a) on the user's go. `main` was then merged into:
+  - **#28** (082f927): tree identical to integration 064950f. CI **green**.
+  - **#27** (a962b1b): `APIClient` + `APIStatus` from integration 776bb7c, strings per key. Its delta matches the
+    integration's line for line; local build clean. CI: unit tests green, UI smoke red, `testDemoTabsWalkthrough` over 60 s.
+    The failed job is being re-run.
+- **CI tally corrected.** Across the last 35 runs, the walkthrough passes in 30–55 s without #27 (19 runs) and 33–42 s with it
+  (5 passing runs); it timed out in 3 of 8 runs with #27 and 0 of 19 without.
+  - The nightly Full run on `main` (39726928969, ebad505, without #27) also timed out at 60 s, in
+    `TrainSessionUITests.testLogTwoSetsSurviveKillAndFinish`. So "only with #27" is not true.
+  - Today's red run was a starved runner: every step from the third tab on took 2–9 s, 91 s in total, and the same runner then
+    couldn't resolve GitHub's artifact host (`ENOTFOUND`), so there is no xcresult.
+  - `retryOnFailure` doesn't retry a test that timed out: xcodebuild restarts the runner and goes on with the next test.
+  - **Decision:** #30 now raises both UISmoke and Full to 180 s. Merge it before #27.
+

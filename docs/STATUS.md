@@ -47,15 +47,17 @@ Plan, design note, UI spec and review log: `docs/work/2026-10-21-refresh-resilie
 5. **Instruments** (Release build; Time Profiler + Points of Interest + Hangs; subsystem `dev.timkrebs.ryft`, categories `reads` and `sync`). Pull to refresh 5× during a sync, 10 s apart. Record `pull-total` p50/max, `pull-gate`, `budget` max, the longest main-thread slice (target < 33 ms, look for `persist`/`saveDocument`/`WireCoding.decode`), and hangs. Cold launch 3× (App Launch): `launch` < 400 ms warm. One silent push in the background: push → last `fetch` < 25 s.
 
 **Follow-ups (not in this release):**
-- CI: UISmoke `-retry-tests-on-failure -test-iterations 2` and test-plan allowances of 180/300 s. Two #27 runs stalled in XCTest's crash-reporter sync on the CI VM; the re-run was green.
 - The 600 ms line hold isn't unit-testable (`@State` + `Task.sleep`); move it into a model on `AppClock`.
 - The widget has no kind for "scored, no readiness" (it says "Waiting for last night").
 - Writes and uploads don't honour the global 429 hold (they have their own budgets).
 - `lint-strings.py`: check `%#@token@` substitutions and English plurals.
 - The disclosure chevron renders white on iOS 26 (app-wide; ui-designer).
 - "App too old" card: ready, unshipped until the platform signals it (`API_REQUESTS.md` §3).
-- CI UI smoke: branches with #27 hit the 60 s allowance in 4 of 7 runs (infra symptoms each time, local timings equal). Merge
-  #30 first. If it still flakes on `main`, compare the walkthrough over 10 CI iterations, a #27 build vs. a main build.
+- CI UI tests: the 60 s allowance is too tight on GitHub's runners. The nightly Full run on `main` timed out
+  (`TrainSessionUITests`), and passing walkthroughs range from 30 to 55 s with or without #27. A timed-out test isn't retried
+  (xcodebuild moves on). #30 raises UISmoke and Full to 180 s. Branches with #27 still hit it more often (3 of 8 against 0 of
+  19), always with runner symptoms. If timeouts continue after #30, run the walkthrough 10× on CI with per-tap timings, a #27
+  build vs. a main build.
 - `AuthService.token()` signs out on a session-ending refresh error without checking whose session it is (a slow refresh of
   account A across a switch to B); move `forgetRequests()` into `AuthService.apply` to close a one-render gap.
 - Convert `Ryft/` and `RyftTests/` to folders in Xcode (new types still go into existing files).
