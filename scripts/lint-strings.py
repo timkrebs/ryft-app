@@ -23,6 +23,11 @@ for path in CATALOGS:
         plural = de.get("variations", {}).get("plural")
         if plural is not None and not {"one", "other"} <= plural.keys():
             problems.append(f"{path}: German plural incomplete for {key!r}")
+        # A plural on one argument of several (Xcode's substitutions), e.g. "n of 7 nights".
+        for name, sub in de.get("substitutions", {}).items():
+            sub_plural = sub.get("variations", {}).get("plural")
+            if sub_plural is not None and not {"one", "other"} <= sub_plural.keys():
+                problems.append(f"{path}: German plural incomplete for {key!r} ({name})")
 if problems:
     print("\n".join(problems))
     print(f"\n{len(problems)} string problem(s).")

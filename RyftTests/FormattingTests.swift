@@ -46,4 +46,18 @@ struct FormattingTests {
         #expect(Fmt.distance(meters: 0) == "–")
         #expect(Fmt.percent(82) == "82%")
     }
+
+    /// The raw night's "11:17 PM — 6:52 AM" under German (review T2): a time follows the locale it's given.
+    @Test func timesFollowTheLocale() throws {
+        let day = Date(timeIntervalSince1970: 1_792_600_000)
+        let evening = try #require(Calendar.current.date(bySettingHour: 23, minute: 17, second: 0, of: day))
+        let morning = try #require(Calendar.current.date(bySettingHour: 6, minute: 52, second: 0, of: day))
+        #expect(Fmt.time(evening, locale: Locale(identifier: "de")) == "23:17")
+        #expect(Fmt.time(evening, locale: Locale(identifier: "de_DE")) == "23:17")
+        let early = Fmt.time(morning, locale: Locale(identifier: "de_DE"))
+        #expect(early.hasSuffix("6:52") && !early.contains("AM"))
+        let us = Fmt.time(evening, locale: Locale(identifier: "en_US"))
+        #expect(us.hasPrefix("11:17") && us.hasSuffix("PM"))
+        #expect(Fmt.time(evening, locale: Locale(identifier: "en_GB")) == "23:17")
+    }
 }

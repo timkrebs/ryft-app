@@ -29,8 +29,11 @@ enum ReadinessCopy {
         }
     }
 
+    /// An unscored row (the platform's placeholder, `DailyScore.empty`) has no readiness yet: its
+    /// `state: calibrating` is never a baseline being learned, whatever its flag says.
     static func sentence(score: DailyScore?) -> String {
         guard let score else { return sentence(for: ReadinessState?.none) }
-        return sentence(for: score.resolvedState, nightsToGo: score.nightsToGo, baselineReady: !score.calibrating)
+        let unscored = score.standing == .unscored
+        return sentence(for: score.resolvedState, nightsToGo: score.nightsToGo, baselineReady: unscored || !score.calibrating)
     }
 }
