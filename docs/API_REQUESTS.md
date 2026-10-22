@@ -162,22 +162,26 @@ not moving after 1 day." The tester wears a Garmin. App brief: `CLAUDE_FOLLOWUP_
 `../plattform/CLAUDE_FOLLOWUP_BASELINE_WITHOUT_HRV.md`. The vendor facts below are from
 `docs/work/2026-10-22-tracker-setup/trackers-research.md`, checked 2026-10-22.
 
-1. **Derive a nightly resting heart rate when the tracker writes none. Without it, the platform brief doesn't fix this
-   tester.**
-   - Garmin's own FAQ lists what Garmin Connect writes to Apple Health: no HRV, **no resting heart rate**, no respiration,
-     no Pulse Ox (<https://support.garmin.com/en-US/?faq=lK5FPB9iPF5PXFkIpFlFPA>). Oura's export list has no HRV and no
-     resting HR either (<https://support.ouraring.com/hc/en-us/articles/360025438734-Apple-Health-Integration>).
-   - The platform reads resting HR only from resting-HR samples (`internal/scoring/compute.go:166`). So the planned
-     change (baseline nights counted from resting HR) still leaves a Garmin or Oura user at `baseline_days: 0`, and
-     calibrating forever.
-   - **Ask:** when a night has no resting-HR sample but has heart-rate samples inside the main sleep, derive the night's
-     resting HR from them. The scoring-scientist picks the method (e.g. the lowest 30-minute rolling mean in sleep) and
-     documents it in `SCORING.md`. Count derived nights for `baseline_days`. Apple Watch users, who have resting-HR
-     samples, keep identical numbers.
-   - **Contract:** say it in `recovery_inputs`, e.g. `rhr` plus `rhr_source: "tracker" | "derived"`, or a separate
-     input. The app's text says "resting heart rate (from your overnight heart rate)" when it's derived.
-   - **Also:** the planned Insights card "Recovery uses resting heart rate, sleep and breathing rate" is wrong for
-     Garmin, which shares no breathing rate. Build the sentence from the actual inputs.
+1. **Count baseline nights from resting heart rate, as the platform brief plans. That is enough for Garmin, which does
+   write resting heart rate.** *(Corrected 2026-10-22 after a check on a real iPhone. The first version of this
+   request said Garmin writes none.)*
+   - **What the device shows.** On the user's iPhone 16 Pro (iOS 27.0.1), Apple Health has **daily resting-heart-rate
+     samples from Garmin Connect, stamped 00:00**, plus heart rate, sleep with stages, steps and workouts. There is **no
+     HRV**, no respiration and no SpO₂.
+     - Garmin's FAQ omits resting heart rate from its list
+       (<https://support.garmin.com/en-US/?faq=lK5FPB9iPF5PXFkIpFlFPA>), but the device data beats the FAQ.
+     - So `rhrBase.N` fills for Garmin users and only `lnHRVBase.N` stays 0. The brief's change (baseline nights from
+       resting HR; HRV counted on its own as `hrv_baseline_days`; calibrating only on HRV when there is an HRV source)
+       gets this tester to 7/7.
+   - **Daily samples stamped 00:00.** Garmin's resting HR is one value per calendar day, not a night measurement. Please
+     check that `e.last(… SampleRestingHR, dayStart, dayEnd)` (`compute.go:166`) attributes it to the intended day.
+   - **A fallback, lower priority.** Oura's export list has no HRV and no resting HR
+     (<https://support.ouraring.com/hc/en-us/articles/360025438734-Apple-Health-Integration>; not yet checked on a device).
+     For trackers that really write no resting HR, derive a night's resting HR from heart-rate samples in the main sleep
+     (method chosen by the scoring-scientist, documented in `SCORING.md`), and say so in `recovery_inputs` (e.g.
+     `rhr_source: "tracker" | "derived"`). Apple Watch numbers must not change.
+   - **Also:** build the planned Insights sentence "Recovery uses resting heart rate, sleep and breathing rate" from the
+     actual inputs. Garmin shares no breathing rate.
 2. **`User.trackers: [string]` via `PATCH /v1/me`:** what the user says they wear, the ids from `trackers.json`
    (`apple_watch`, `garmin`, `oura`, …, `other`, `iphone`), validated against a closed set. Shown in
    `GET /v1/admin/users` and `beta_report.sh`. The app stores the choice locally until this exists.
