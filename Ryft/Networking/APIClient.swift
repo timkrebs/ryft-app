@@ -106,6 +106,11 @@ extension Error {
     }
 }
 
+/// An error from outside the platform's API (the auth SDK) that knows whether trying again can help.
+protocol TransientClassifiable: Error {
+    var isTransientFailure: Bool { get }
+}
+
 /// What a failed read means for the read pipeline (`ReadScheduler`): retried, ignored, counted,
 /// or the user's to act on. Pure; classification table in the refresh-resilience design (§3).
 enum FailureKind: String, Codable, Sendable {
@@ -127,6 +132,9 @@ enum FailureKind: String, Codable, Sendable {
     static func of(_ error: Error) -> FailureKind {
         if error is CancellationError { return .cancelled }
         if let url = error as? URLError { return url.code == .cancelled ? .cancelled : .transient }
+        // The auth SDK's own refresh failing without ending the session (5xx, 408, 429, a refresh
+        // another one replaced): try again, like the platform's own transient answers.
+        if let classified = error as? any TransientClassifiable { return classified.isTransientFailure ? .transient : .other }
         guard let api = error as? APIError else { return .other }
         switch api {
         case .transport(let inner):
@@ -334,9 +342,9 @@ final class APIClient: RyftDataSource {
     /// `POST /v1/sync` with a body `SyncEngine` encoded off the main actor (and gzipped,
     /// `contentEncoding: "gzip"`, when the platform takes it).
     func sync(encoded body: Data, contentEncoding: String?) async throws -> SyncResponse {
-        let data = try await exchange("POST", path: "/v1/sync", encodedBody: body, contentEncoding: contentEncoding,
-                                      base: settings.ingestURL).data
-        return try Self.jsonDecoder.decode(SyncResponse.self, from: data)
+        let answer = try await exchange("POST", path: "/v1/sync", encodedBody: body, contentEncoding: contentEncoding,
+                                        base: settings.ingestURL)
+        return try Self.decode(SyncResponse.self, from: answer)
     }
 
     func me() async throws -> User {
@@ -394,9 +402,22 @@ final class APIClient: RyftDataSource {
     // MARK: plumbing
 
     func send<B: Encodable, R: Decodable>(_ method: String, path: String, body: B?, base: URL? = nil) async throws -> R {
-        let data = try await data(method, path: path, body: body, base: base)
-        return try Self.jsonDecoder.decode(R.self, from: data)
+        try Self.decode(R.self, from: try await exchange(method, path: path, body: body, base: base))
     }
+
+    /// The answer's body, or — when this build can't read it — an `APIError` that keeps the status
+    /// and request ID it came with (a report can find it; never retried, `FailureKind.other`).
+    static func decode<R: Decodable>(_ type: R.Type, from answer: Answer) throws -> R {
+        do {
+            return try jsonDecoder.decode(R.self, from: answer.data)
+        } catch is DecodingError {
+            throw APIError.http(answer.status, String(localized: "RYFT sent an answer this version of the app can't read."),
+                                requestID: answer.requestID)
+        }
+    }
+
+    /// A served request: its status, body and `X-Request-ID`.
+    typealias Answer = (status: Int, data: Data, requestID: String?)
 
     func data<B: Encodable>(_ method: String, path: String, body: B?, base: URL? = nil) async throws -> Data {
         try await exchange(method, path: path, body: body, base: base).data
@@ -406,7 +427,7 @@ final class APIClient: RyftDataSource {
     /// e.g. `409` on `PUT /v1/sessions/{id}`, whose body is the server's copy.
     func exchange<B: Encodable>(_ method: String, path: String, body: B?, base: URL? = nil,
                                 accepting: Set<Int> = [],
-                                unavailableRetries: Int = APIClient.maxUnavailableRetries) async throws -> (status: Int, data: Data) {
+                                unavailableRetries: Int = APIClient.maxUnavailableRetries) async throws -> Answer {
         try await exchange(method, path: path, encodedBody: body.map { try Self.jsonEncoder.encode($0) }, base: base,
                            accepting: accepting, unavailableRetries: unavailableRetries)
     }
@@ -414,7 +435,7 @@ final class APIClient: RyftDataSource {
     /// The request with an already encoded JSON body (or none).
     func exchange(_ method: String, path: String, encodedBody: Data?, contentEncoding: String? = nil, base: URL? = nil,
                   accepting: Set<Int> = [],
-                  unavailableRetries: Int = APIClient.maxUnavailableRetries) async throws -> (status: Int, data: Data) {
+                  unavailableRetries: Int = APIClient.maxUnavailableRetries) async throws -> Answer {
         guard let root = base ?? baseURL ?? settings.apiURL, root.host != nil,
               let url = URL(string: path, relativeTo: root) else {
             throw APIError.notConfigured
@@ -452,9 +473,13 @@ final class APIClient: RyftDataSource {
                     if case .transport(let inner) = e { return (inner as? URLError)?.code.name ?? "transport" }
                     return nil
                 } ?? "cancelled"
-                let entry = APIStatus.RequestFailure(date: .now, method: method, path: path, status: 0, requestID: nil,
-                                                     durationMs: Self.milliseconds(since: started), transport: transport)
-                if error is CancellationError { await status.served(entry) } else { await status.record(entry) }
+                if error is CancellationError {
+                    await status.cancelled()
+                } else {
+                    await status.record(APIStatus.RequestFailure(date: .now, method: method, path: path, status: 0,
+                                                                 requestID: nil, durationMs: Self.milliseconds(since: started),
+                                                                 transport: transport))
+                }
                 if unavailable > 0 { await status.finishedWaiting() }
                 throw error
             }
@@ -466,10 +491,10 @@ final class APIClient: RyftDataSource {
                 if let warned = response.map(Self.gates), !warned.isEmpty {
                     await status.observe(warned, enforced: false)
                 }
-                await status.served(.init(date: .now, method: method, path: path, status: code,
-                                          requestID: response?.value(forHTTPHeaderField: "X-Request-ID"),
+                let requestID = response?.value(forHTTPHeaderField: "X-Request-ID")
+                await status.served(.init(date: .now, method: method, path: path, status: code, requestID: requestID,
                                           durationMs: durationMs))
-                return (code, data)
+                return (code, data, requestID)
             }
             let retryAfter = response.flatMap(Self.retryAfter)
             switch code {
@@ -483,7 +508,7 @@ final class APIClient: RyftDataSource {
             case 429 where !rateLimited && !single:
                 rateLimited = true
                 let wait = min(retryAfter ?? 1, Self.maxRateLimitWait)
-                APIStatus.log.notice("429 on \(method, privacy: .public) \(path, privacy: .public); retrying in \(wait) s")
+                APIStatus.log.notice("429 on \(method, privacy: .public) \(redactedPath(path), privacy: .public); retrying in \(wait) s")
                 try await sleep(wait)
                 continue
             case 503 where unavailable < unavailableRetries && !single:
@@ -502,7 +527,7 @@ final class APIClient: RyftDataSource {
                 ?? String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let requestID = response?.value(forHTTPHeaderField: "X-Request-ID") ?? body?.requestId
             let error = APIError.http(code, message, requestID: requestID, code: body?.code, retryAfter: retryAfter)
-            APIStatus.log.error("\(code) \(body?.code?.rawValue ?? "", privacy: .public) on \(method, privacy: .public) \(path, privacy: .public), request \(requestID ?? "-", privacy: .public)")
+            APIStatus.log.error("\(code) \(body?.code?.rawValue ?? "", privacy: .public) on \(method, privacy: .public) \(redactedPath(path), privacy: .public), request \(requestID ?? "-", privacy: .public)")
             if let gate = error.gate { await status.observe([gate], enforced: true) }
             await status.record(.init(date: .now, method: method, path: path, status: code,
                                       code: body?.code?.rawValue, requestID: requestID, durationMs: durationMs))

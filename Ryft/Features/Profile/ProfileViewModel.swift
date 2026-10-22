@@ -274,6 +274,7 @@ final class SyncDetailsModel {
     private var env: AppEnvironment { state.env }
     var engine: SyncEngineState { sync.engineState }
     var requests: [APIStatus.RequestFailure] { apiStatus.requests }
+    var cancelledRequests: Int { apiStatus.cancelledCount }
     var canSync: Bool { !sync.isSyncing && env.settings.isConfigured && env.auth.isSignedIn && !env.isDemo }
 
     /// One stream: how far it got and what the platform said to its last page.
@@ -426,10 +427,10 @@ final class SyncDetailsModel {
         lines.append("resources (resource | fetched_at | last_error status code request_id at | consecutive_failures):")
         let states = state.resourceStates
         lines += ReadResource.allCases.map { (states[$0] ?? ResourceState()).diagnosticLine($0) }
-        lines.append("requests:")
+        lines.append("requests (cancelled since launch: \(cancelledRequests)):")
         for r in requests {
             let duration = r.durationMs.map(String.init) ?? "-"
-            lines.append("\(r.date.ISO8601Format()) \(r.status) \(r.code ?? "-") \(r.method) \(r.path) \(r.requestID ?? "-") duration_ms=\(duration) transport=\(r.transport ?? "-")")
+            lines.append("\(r.date.ISO8601Format()) \(r.status) \(r.code ?? "-") \(r.method) \(redactedPath(r.path)) \(r.requestID ?? "-") duration_ms=\(duration) transport=\(r.transport ?? "-")")
         }
         return lines.joined(separator: "\n")
     }

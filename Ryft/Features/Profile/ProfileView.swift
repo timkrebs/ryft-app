@@ -222,7 +222,7 @@ struct ProfileView: View {
                 }
                 ForEach(apiStatus.failures) { f in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(verbatim: "\(f.status) \(f.method) \(f.path)")
+                        Text(verbatim: "\(f.status) \(f.method) \(redactedPath(f.path))")
                             .font(.system(.caption, design: .monospaced))
                             .foregroundStyle(Theme.textSecondary)
                             .lineLimit(1)
@@ -640,7 +640,7 @@ struct SyncDetailsView: View {
             }
             ForEach(model.requests) { r in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: "\(r.transport ?? String(r.status))\(r.code.map { " \($0)" } ?? "") \(r.method) \(r.path)")
+                    Text(verbatim: "\(r.transport ?? String(r.status))\(r.code.map { " \($0)" } ?? "") \(r.method) \(redactedPath(r.path))")
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle((200..<300).contains(r.status) ? Theme.textSecondary : Theme.warning)
                         .lineLimit(1)

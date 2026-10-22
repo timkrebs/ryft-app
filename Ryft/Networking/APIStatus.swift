@@ -23,6 +23,9 @@ final class APIStatus {
     /// A `403 invite_required` (not just a warning): every call but onboarding's stops
     /// until the code is redeemed (APIClient).
     private(set) var inviteBlocked = false
+    /// Requests cancelled since launch (a pull let go, a screen closed). Not failures: they take
+    /// none of the `maxFailures` slots and show as one count in Copy diagnostics.
+    private(set) var cancelledCount = 0
 
     static let maxFailures = 20
     nonisolated static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "api")
@@ -56,7 +59,11 @@ final class APIStatus {
         served(failure)
     }
 
-    /// A request the platform answered, or one cancelled before it did (failures go through `record` too).
+    func cancelled() {
+        cancelledCount += 1
+    }
+
+    /// A request the platform answered (failures go through `record` too).
     func served(_ request: RequestFailure) {
         requests.insert(request, at: 0)
         if requests.count > Self.maxFailures { requests.removeLast(requests.count - Self.maxFailures) }
@@ -201,4 +208,16 @@ actor RequestBudget {
         parked = [:]
         waiting.values.forEach { $0.resume() }
     }
+}
+
+// MARK: - redaction
+
+/// A request path as Sync details, Copy diagnostics and the log may show it: no query or fragment
+/// (`?wake=06:30`, date ranges), and UUID segments (install, session, plan, exercise) as `{id}`.
+/// Day segments (`/v1/days/2026-10-21`) and names stay: they say which day failed, nothing more.
+func redactedPath(_ path: String) -> String {
+    let bare = path.prefix { $0 != "?" && $0 != "#" }
+    return bare.split(separator: "/", omittingEmptySubsequences: false)
+        .map { UUID(uuidString: String($0)) == nil ? String($0) : "{id}" }
+        .joined(separator: "/")
 }

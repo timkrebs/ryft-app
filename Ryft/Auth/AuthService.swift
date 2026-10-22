@@ -776,6 +776,12 @@ extension AuthService: AccessTokenProvider {
     }
 }
 
+/// A refresh failure that keeps the session (`endsSession` false) is transient for the read
+/// pipeline: retried and counted like a `503`, never "something went wrong".
+extension AuthError: TransientClassifiable {
+    var isTransientFailure: Bool { !endsSession }
+}
+
 extension AuthError {
     /// Whether the session is unusable, as opposed to Supabase being briefly
     /// unreachable or overloaded (keep the session and try again later).
