@@ -847,13 +847,20 @@ private final class FirstPostHold: @unchecked Sendable {
 }
 
 /// Answers every request: `200`, with a gate header on `/v1/gate`, a `404` on `/v1/missing`, a `429` with
-/// `Retry-After: 30` on `/v1/feedback`, and no answer (a timeout) on `/v1/timeout`.
+/// `Retry-After: 30` on `/v1/feedback`, a `503` with `Retry-After: 5` on `/v1/busy…`, and no answer (a timeout)
+/// on `/v1/timeout`. It counts what reached it per path.
 private final class LateReplyURLProtocol: URLProtocol {
     override static func canInit(with request: URLRequest) -> Bool { true }
     override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var counts: [String: Int] = [:]
+    /// Requests that reached the network for `path`.
+    static func attempts(_ path: String) -> Int { lock.withLock { counts[path] ?? 0 } }
+
     override func startLoading() {
         let path = request.url?.path ?? ""
+        Self.lock.withLock { Self.counts[path, default: 0] += 1 }
         if path == "/v1/timeout" {
             client?.urlProtocol(self, didFailWithError: URLError(.timedOut))
             return
@@ -861,7 +868,8 @@ private final class LateReplyURLProtocol: URLProtocol {
         var headers = ["X-Request-ID": "late-1"]
         if path == "/v1/gate" { headers["X-RYFT-Gate"] = "consent_required" }
         if path == "/v1/feedback" { headers["Retry-After"] = "30" }
-        let code = path == "/v1/missing" ? 404 : path == "/v1/feedback" ? 429 : 200
+        if path.hasPrefix("/v1/busy") { headers["Retry-After"] = "5" }
+        let code = path == "/v1/missing" ? 404 : path == "/v1/feedback" ? 429 : path.hasPrefix("/v1/busy") ? 503 : 200
         guard let url = request.url,
               let response = HTTPURLResponse(url: url, statusCode: code, httpVersion: "HTTP/1.1",
                                              headerFields: headers) else { return }
@@ -1304,6 +1312,62 @@ struct ReportProblemTests {
         await flushing.value
 
         #expect(api.feedbackPosts.map(\.message) == ["First"]) // already on its way; the second stays home
+    }
+
+    /// A request of the previous account's waiting out a 503 across an account change never goes out again:
+    /// no second attempt (A's body with B's token), and no "RYFT is catching up" left on screen.
+    @Test(.timeLimit(.minutes(1))) func aRetryNeverOutlivesItsAccount() async {
+        let clock = TestClock()
+        let status = APIStatus()
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [LateReplyURLProtocol.self]
+        let base = URL(string: "https://api.test")!
+        let client = APIClient(session: URLSession(configuration: config), tokens: FakeTokens(),
+                               sleep: { try await clock.sleep(for: .seconds($0)) }, baseURL: base, status: status)
+        let request = Task { () -> Error? in
+            do {
+                _ = try await client.data("PATCH", path: "/v1/busy-account", body: ["sleep_base_min": 450], base: base)
+                return nil
+            } catch {
+                return error
+            }
+        }
+        #expect(await eventually { clock.pendingSleeps == 1 }) // waiting out the 503
+        #expect(status.retryNotice != nil)
+
+        status.forgetRequests() // signed out (and in as someone else) meanwhile
+        #expect(status.retryNotice == nil)
+        clock.advance(by: .seconds(60))
+        let error = await request.value
+
+        #expect(error is CancellationError)
+        #expect(LateReplyURLProtocol.attempts("/v1/busy-account") == 1)
+        #expect(status.retryNotice == nil && status.requests.isEmpty && status.failures.isEmpty)
+    }
+
+    /// A 503 wait that ends in a throw (its task cancelled) takes "RYFT is catching up" with it.
+    @Test(.timeLimit(.minutes(1))) func aCancelledWaitClearsTheNotice() async {
+        let status = APIStatus()
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [LateReplyURLProtocol.self]
+        let base = URL(string: "https://api.test")!
+        // The wait throws as a cancelled `Task.sleep` does.
+        let client = APIClient(session: URLSession(configuration: config), tokens: FakeTokens(),
+                               sleep: { _ in throw CancellationError() }, baseURL: base, status: status)
+        var thrown: Error?
+        do {
+            _ = try await client.data("GET", path: "/v1/busy-cancelled", body: Optional<Int>.none, base: base)
+        } catch {
+            thrown = error
+        }
+        #expect(thrown is CancellationError)
+        #expect(status.retryNotice == nil)
+        #expect(LateReplyURLProtocol.attempts("/v1/busy-cancelled") == 1)
+
+        // And an account change takes a notice with it at once.
+        status.waiting(seconds: 12)
+        status.forgetRequests()
+        #expect(status.retryNotice == nil)
     }
 
     /// One redaction for every path the app shows or sends: the report's request lines use `redactedPath`
