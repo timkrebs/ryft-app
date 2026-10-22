@@ -22,10 +22,10 @@ Brief: `CLAUDE_FOLLOWUP_REFRESH_RESILIENCE.md` (TestFlight 1.0.0 `20261021.14112
 | # | PR | Review | CI | State |
 | --- | --- | --- | --- | --- |
 | T3 | #26 `feat: report a problem with diagnostics` | approved (code, security, UI, l10n) | green | **merged** (c34bb9a) |
-| T2 | #28 `fix: one consistent Today state` | approved (code, UI, l10n) | green before `main` moved | `main` merged in (082f927, tree = integration 064950f); CI re-running |
-| T1 | #27 `fix: refresh per resource with silent retries` | approved (code, security, perf, UI, tests) | green before `main` moved | `main` merged in (a962b1b: `APIClient` + `APIStatus` from integration 776bb7c, strings per key); unit green, UI smoke timed out (runner), re-running |
+| T2 | #28 `fix: one consistent Today state` | approved (code, UI, l10n) | green | **merged** (9745392) |
+| T1 | #27 `fix: refresh per resource with silent retries` | approved (code, security, perf, UI, tests) | UI smoke timeouts were the runner (profiler) | `main` merged in (2ff5f1c = integration 776bb7c + #30); CI running, then merge |
 | T5 | #31 `feat: send a refresh problem to RYFT` (draft) | approved (code, security ×2) | green on 31b025c (re-run) | after #28 and #27: merge `main` in, then ready |
-| CI | #30 `ci: UI tests get 180 s before they count as hung` (UISmoke + nightly Full) | lead | re-running (6df97bb) | **merge before #27** |
+| CI | #30 `ci: UI tests get 180 s before they count as hung` (UISmoke + nightly Full) | lead | green | **merged** (1864e28) |
 | T4 | #29 `docs: refresh resilience` (draft) | — | — | last |
 
 ## Tickets
