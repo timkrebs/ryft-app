@@ -302,3 +302,13 @@ PRs:
   - CI failed once on the hostile-copy timing bound: over 1 s on the runner against 45 ms locally.
   - The lead loosened the bound to 2 s, which still catches the quadratic check (adc270c).
 - **#34** `feat: tracker setup and devices & sync` (T2), a draft stacked on #33.
+
+### T2: security re-verification at a5a0249
+- **Fixed:** #2 (demo flags), #3, #4, #5, #6, #9, #10, #12. Nothing new is unsafe.
+- **#1, partly fixed.** The marker is app-only and written before both decodes, and remembered hashes are refused unread.
+  - **Gap:** the refused-hash list lives in the `content.trackers` document, which sign-out wipes. That allows one crash
+    per sign-out.
+  - → Keep the hashes in a file next to the marker, and merge them rather than assign (T2 follow-up batch).
+- **#7:** the repo texts are done; the three ryftapp.de/privacy lines are the user's to add.
+- **#8:** deferred (the store sits in the App Group). #11 is partly fixed: the older onboarding keys (`firstRunDone`,
+  `aboutYouDone`, `hintSeen`) predate this work. → Both go in the STATUS follow-ups.
