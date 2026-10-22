@@ -753,12 +753,14 @@ struct TrackerCatalogTests {
         let clock = ContinuousClock()
         var catalog: TrackerCatalog?
         // The best of three: a busy simulator (the parallel Unit plan) shouldn't decide it.
-        var elapsed = Duration.seconds(1)
+        var elapsed = Duration.seconds(3_600)
         for _ in 0..<3 {
             elapsed = min(elapsed, try clock.measure { catalog = try TrackerCatalog.decode(data, now: CatalogFixture.now) })
         }
         #expect(catalog?.trackers.count == 40)
-        #expect(elapsed < .milliseconds(100), "\(elapsed)") // about 45 ms in a Debug build on the simulator
+        // About 45 ms locally, over a second on a busy CI runner. The bound guards against the quadratic check
+        // the review found (22–36 s for a third of this size), not against a slow machine.
+        #expect(elapsed < .seconds(2), "\(elapsed)")
     }
 
     // MARK: matching and names
