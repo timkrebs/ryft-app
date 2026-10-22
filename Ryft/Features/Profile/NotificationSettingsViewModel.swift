@@ -129,6 +129,9 @@ final class NotificationSettingsViewModel {
                 user.notifications = saved
                 state.user = user
             }
+        } catch where error.isCancellation {
+            // Not confirmed, not failed: the platform's answer on the next load decides.
+            prefs = previous
         } catch {
             prefs = previous
             self.error = String(localized: "Couldn't save: \(error.localizedDescription)")

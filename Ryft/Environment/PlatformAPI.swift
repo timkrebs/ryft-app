@@ -178,13 +178,37 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     init(screens: RyftDataSource = MockDataSource.shared, train: TrainDataSource = MockTrainSource.shared) {
         self.screens = screens
         self.train = train
+        #if DEBUG
+        faults = FaultInjection.parse(UserDefaults.standard.string(forKey: "RyftFault"))
+        #endif
     }
+
+    #if DEBUG
+    /// Fault injection (DEBUG only, compiled out of Release): `-RyftFault "/v1/me=429:2x1,/v1/days=timeout"` in
+    /// demo mode (or a test setting `faults`) makes the named routes fail the way one attempt of the live
+    /// client fails (scheduled reads make single attempts; `ReadScheduler` retries above this). Keyed by the
+    /// call name `enter` records; a rule with `remaining` fails that many calls, then lets them through.
+    var faults: [String: FaultInjection.Rule] = [:]
+    #endif
 
     /// Records the call, then throws a scripted failure if there is one.
     private func enter(_ name: String) throws {
         let error: Error? = lock.withLock {
             calls.append(name)
             if let e = failNext { failNext = nil; return e }
+            #if DEBUG
+            if let rule = faults[name] {
+                switch rule.remaining {
+                case nil:
+                    return rule.fault.error(route: name)
+                case let n? where n > 0:
+                    faults[name]?.remaining = n - 1
+                    return rule.fault.error(route: name)
+                default:
+                    faults[name] = nil
+                }
+            }
+            #endif
             return failure
         }
         if let error { throw error }
@@ -495,3 +519,96 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     }
     func deleteSession(id: UUID) async throws { try enter("deleteSession"); try await train.deleteSession(id: id) }
 }
+
+#if DEBUG
+/// `-RyftFault "<path>=<fault>[x<n>],…"` (DEBUG only; nothing of this exists in Release). Faults: `429`,
+/// `429:7` (with `Retry-After: 7`), `503`, `500`, `404` (any status), `timeout`, `offline`, `cancel`;
+/// `x<n>` fails the first n calls only: `-RyftFault "/v1/me=429:1x1,/v1/days=503:1x2"`. Paths are in
+/// `routes`. Only the demo / mock API honours it, below the read pipeline, so the real retries run.
+enum FaultInjection {
+    enum Fault: Equatable, Sendable {
+        /// `"429"`, `"429:7"`, `"503:2"`, `"500"`, `"404"`.
+        case status(Int, retryAfter: Int?)
+        /// `.transport(URLError(.timedOut))`.
+        case timeout
+        /// `.transport(URLError(.notConnectedToInternet))`.
+        case offline
+        /// `.transport(URLError(.cancelled))`: what a cancelled task's request throws.
+        case cancel
+
+        static let tooManyRequests = Fault.status(429, retryAfter: nil)
+        static let unavailable = Fault.status(503, retryAfter: nil)
+        static let notFound = Fault.status(404, retryAfter: nil)
+
+        /// What one attempt throws: `.http(status, …, requestID: "fault-<route>", retryAfter:)` (a `429` with
+        /// the edge's plain-text body) or `.transport(URLError)`.
+        func error(route: String) -> Error {
+            switch self {
+            case .status(let status, let retryAfter):
+                let message: String
+                switch status {
+                case 429: message = ""
+                case 503: message = "request timed out"
+                case 404: message = "not found"
+                default: message = "injected fault"
+                }
+                return APIError.http(status, message, requestID: "fault-\(route)", retryAfter: retryAfter)
+            case .timeout: return APIError.transport(URLError(.timedOut))
+            case .offline: return APIError.transport(URLError(.notConnectedToInternet))
+            case .cancel: return APIError.transport(URLError(.cancelled))
+            }
+        }
+
+        init?(_ spec: String) {
+            switch spec {
+            case "timeout": self = .timeout
+            case "offline": self = .offline
+            case "cancel": self = .cancel
+            default:
+                let parts = spec.split(separator: ":", maxSplits: 1).map(String.init)
+                guard let status = Int(parts[0]), (100...599).contains(status) else { return nil }
+                let retryAfter = parts.count > 1 ? Int(parts[1]) : nil
+                if parts.count > 1, retryAfter == nil { return nil }
+                self = .status(status, retryAfter: retryAfter)
+            }
+        }
+    }
+
+    struct Rule: Equatable, Sendable {
+        var fault: Fault
+        /// Calls still to fail; nil: every call.
+        var remaining: Int?
+
+        init(_ fault: Fault, times remaining: Int? = nil) {
+            self.fault = fault
+            self.remaining = remaining
+        }
+    }
+
+    /// Path → `MockPlatformAPI` call name.
+    static let routes: [String: String] = [
+        "/v1/me": "me", "/v1/me/sync": "syncStatus", "/v1/days": "days", "/v1/days/{day}": "day",
+        "/v1/days/today": "day", "/v1/trends": "trends", "/v1/insights": "insights", "/v1/config": "config",
+        "/v1/sync": "sync", "/v1/behaviors": "behaviors", "/v1/journal/{day}": "journal",
+        "/v1/behaviors/impact": "behaviorImpact", "/v1/plans": "plans", "/v1/plans/today": "planToday",
+        "/v1/exercises": "exercises", "/v1/sleep": "sleep",
+    ]
+
+    static func parse(_ spec: String?) -> [String: Rule] {
+        var out: [String: Rule] = [:]
+        for pair in (spec ?? "").split(separator: ",") {
+            let parts = pair.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count == 2, let route = routes[parts[0]] else { continue }
+            var faultSpec = parts[1]
+            var times: Int?
+            if let x = faultSpec.lastIndex(of: "x"), let n = Int(faultSpec[faultSpec.index(after: x)...]), n > 0 {
+                times = n
+                faultSpec = String(faultSpec[..<x])
+            }
+            guard let fault = Fault(faultSpec) else { continue }
+            out[route] = Rule(fault, times: times)
+        }
+        return out
+    }
+}
+#endif

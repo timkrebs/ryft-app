@@ -10,6 +10,8 @@ struct TodayView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var model: TodayViewModel { screens.today }
+    /// The error card's scroll target (the status line's "Couldn't load today · Details").
+    static let issueCardID = "today.refreshIssue"
     @State private var showsJournal = false
     /// Counts scores that landed while the night was pending: one success haptic each.
     @State private var landed = 0
@@ -78,10 +80,20 @@ struct TodayView: View {
                 .sheet(isPresented: $showsJournal) {
                     JournalSheet(model: JournalSheetModel(store: screens.journal))
                 }
+                // The status line's tap: Sync details over Today, with its own stack.
+                .sheet(isPresented: Binding(get: { model.showsSyncDetails }, set: { model.showsSyncDetails = $0 })) {
+                    SyncDetailsSheet(model: screens.profile.syncDetails)
+                }
                 // The journal: whether it's live (M5), and yesterday's answer for the card.
                 .task(id: model.lastUpdated) {
                     await screens.journal.load()
                     await screens.journal.loadDay(screens.journal.yesterday)
+                }
+                // "Couldn't load today · Details": the card is last on Today; bring it into view.
+                .onChange(of: model.scrollToIssue) {
+                    withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.standard)) {
+                        proxy.scrollTo(Self.issueCardID, anchor: .bottom)
+                    }
                 }
                 // Each mark scrolls its target into view.
                 .onChange(of: model.coachMarks.step) { _, step in
@@ -109,7 +121,7 @@ struct TodayView: View {
             }
             .accessibilityElement(children: .combine)
             if model.hasDataSource {
-                SyncStatusLineView(line: model.syncLine) { model.resolveLine() }
+                SyncStatusLineView(line: model.syncLine, action: { model.resolveLine() }, retry: { await model.refresh() })
             }
         }
         .frame(maxWidth: .infinity)
@@ -224,8 +236,9 @@ struct TodayView: View {
                           retry: { model.resolve(step) })
         case .retrying(let notice):
             InlineMessage(message: notice, systemImage: "clock.arrow.circlepath")
-        case .error(let message, let details):
-            InlineMessage(message: message, details: details, retry: { await model.refresh() })
+        case .refreshIssue(let issue):
+            RefreshIssueCard(issue: issue, retry: { await model.refresh() }, signIn: { await model.signIn() })
+                .id(Self.issueCardID)
         case .syncPaused(let message, let details):
             InlineMessage(message: message, systemImage: "heart.text.square", details: details,
                           retry: { await model.refresh() })

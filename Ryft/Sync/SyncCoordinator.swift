@@ -22,6 +22,8 @@ protocol SyncSteps: AnyObject {
     var expectedScoringSeconds: Int? { get }
     /// `GET /v1/me/sync`: the days scoring hasn't finished, today's state, any gate.
     func syncStatus() async throws -> SyncStatus
+    /// The same, asked for by the person (pull to refresh): it doesn't wait out a `Retry-After`.
+    func syncStatus(userInitiated: Bool) async throws -> SyncStatus
     /// Fetches the touched days (and today) regardless of their TTL.
     func refreshDays(_ days: [String]) async throws
     func refreshTrends() async throws
@@ -30,6 +32,11 @@ protocol SyncSteps: AnyObject {
     func refreshStale() async
     /// The pipeline moved on (`SyncMachine`): awaiting scores, refreshing, done, failed, idle (cancelled).
     func report(_ phase: SyncPhase)
+}
+
+extension SyncSteps {
+    /// Steps without a user-initiated path (test fakes) ask the ordinary way.
+    func syncStatus(userInitiated: Bool) async throws -> SyncStatus { try await syncStatus() }
 }
 
 /// Runs syncs as one pipeline with explicit dependencies:
@@ -56,8 +63,9 @@ protocol SyncSteps: AnyObject {
 ///   (`APIClient.runsInBackground`), and a backlog goes to `BGProcessingTask`.
 /// - **HealthKit delivery.** `run(_:afterUpload:)` calls the delivery's completion right
 ///   after the upload step, not after scoring waits and refreshes.
-/// - **Backoff.** Transient failures (transport, 5xx after `APIClient`'s own
-///   retries) retry with exponential backoff (2 s, 4 s); 4xx don't.
+/// - **Backoff.** Transient upload failures (transport, 5xx after `APIClient`'s own
+///   retries) retry with exponential backoff (2 s, 4 s); 4xx don't. Reads after the upload
+///   go through `ReadScheduler` (its own retries, per resource) and never fail the run.
 actor SyncCoordinator {
     enum Trigger: Equatable, Sendable {
         case userInitiated, appActive, reconnect, healthKit, background
@@ -96,6 +104,9 @@ actor SyncCoordinator {
     /// After this long the days are refreshed anyway (their scores may still be pending).
     static let maximumScoringWait: Duration = .seconds(300)
     static let maxUploadAttempts = 3
+    /// A silent push's refresh (the days, then trends and insights) gives up after this: iOS allows
+    /// about 30 s. The reads it started finish on their own; their callers stop waiting at once.
+    static let silentPushRefreshDeadline: Duration = .seconds(20)
     static let firstBackoff: Duration = .seconds(2)
 
     private let steps: SyncSteps
@@ -157,6 +168,13 @@ actor SyncCoordinator {
         }
         queued = next
         return await next.value
+    }
+
+    /// `GET /v1/me/sync` now, outside a run (pull to refresh's phase 2): through the read pipeline,
+    /// so a scoring poll in flight is joined, with the step's effects (the screens' state, gates,
+    /// an operator's re-sync request). A failure is recorded there, not here.
+    func refreshStatus() async {
+        _ = try? await steps.syncStatus(userInitiated: true)
     }
 
     /// Stops the running pipeline and drops a queued rerun (its deliveries are completed).
@@ -259,6 +277,25 @@ actor SyncCoordinator {
 
     // MARK: the pipeline
 
+    /// `body`, or `CancellationError` once `limit` passed on the clock (the body is cancelled then;
+    /// its scheduled reads let their callers go at once).
+    private static func within(_ limit: Duration, _ clock: AppClock,
+                               _ body: @escaping @Sendable () async throws -> Void) async throws {
+        try await withThrowingTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                try await body()
+                return true
+            }
+            group.addTask {
+                try await clock.sleep(for: limit)
+                return false
+            }
+            let finished = try await group.next() ?? false
+            group.cancelAll()
+            if !finished { throw CancellationError() }
+        }
+    }
+
     private static func pipeline(_ trigger: Trigger, steps: SyncSteps, clock: AppClock, scoring: ScoringSignal,
                                  inBackground: @Sendable () async -> Bool,
                                  afterUpload: [@Sendable () -> Void]) async -> Outcome {
@@ -305,12 +342,19 @@ actor SyncCoordinator {
             await steps.report(.refreshing)
             let refresh = Signposts.sync.beginInterval("refresh", id: Signposts.sync.makeSignpostID())
             defer { Signposts.sync.endInterval("refresh", refresh) }
-            try await steps.refreshDays(touched)
-            // Trends and insights depend on the days, not on each other.
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask { try await steps.refreshTrends() }
-                group.addTask { try await steps.refreshInsights() }
-                try await group.waitForAll()
+            let refreshing: @Sendable () async throws -> Void = {
+                try await steps.refreshDays(touched)
+                // Trends and insights depend on the days, not on each other.
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    group.addTask { try await steps.refreshTrends() }
+                    group.addTask { try await steps.refreshInsights() }
+                    try await group.waitForAll()
+                }
+            }
+            if case .silentPush = trigger {
+                try await within(silentPushRefreshDeadline, clock, refreshing)
+            } else {
+                try await refreshing()
             }
             await steps.report(.done)
         } catch is CancellationError {
@@ -385,7 +429,7 @@ actor SyncCoordinator {
         guard let api = error as? APIError else { return false }
         switch api {
         case .transport: return true
-        case .http(let code, _, _, _): return code >= 500
+        case .http(let code, _, _, _, _): return code >= 500
         case .notConfigured, .signedOut: return false
         }
     }
@@ -498,13 +542,23 @@ final class LiveSyncSteps: SyncSteps {
 
     var expectedScoringSeconds: Int? { sync.lastScoring?.expectedWithinSec }
 
-    /// `GET /v1/me/sync`, kept for the screens (Today's pending and scored states). A gate
-    /// goes to onboarding; an operator's re-sync request to the next upload.
     func syncStatus() async throws -> SyncStatus {
-        let status = try await state.env.api.syncStatus()
-        state.syncStatus = status
-        if let gate = status.gate { apiStatus.observe([gate], enforced: false) }
-        sync.receive(status)
+        try await syncStatus(userInitiated: false)
+    }
+
+    /// `GET /v1/me/sync`, kept for the screens (Today's pending and scored states). A gate
+    /// goes to onboarding; an operator's re-sync request to the next upload. Scheduled
+    /// (`ReadKey(.syncStatus)`): a pull's ask joins a poll in flight, and the other way round.
+    /// The effects run inside the flight, so they happen even if this caller stops waiting.
+    func syncStatus(userInitiated: Bool) async throws -> SyncStatus {
+        let env = state.env, state = state, apiStatus = apiStatus, sync = sync
+        let status = try await env.reads.run(ReadKey(.syncStatus), userInitiated: userInitiated,
+                                             store: { (status: SyncStatus) in
+            state.syncStatus = status
+            if let gate = status.gate { apiStatus.observe([gate], enforced: false) }
+            sync.receive(status)
+        }) { try await env.api.syncStatus() }
+        guard let status else { throw ReadScheduler.NotSent() }
         return status
     }
 
@@ -512,14 +566,25 @@ final class LiveSyncSteps: SyncSteps {
         try await state.refreshDays(days)
     }
 
+    /// After scores landed: newer than now, or nothing. A failed read is recorded per resource, never thrown.
     func refreshTrends() async throws {
-        try await state.repository.refreshTrend(.readiness, .week, force: true)
+        let since = state.env.clock.now()
+        do {
+            try await state.repository.refreshTrend(.readiness, .week, mode: .changed(since: since))
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {}
         // Other series refetch when Insights shows them.
         state.repository.markTrendsStale()
     }
 
     func refreshInsights() async throws {
-        try await state.repository.refreshInsights(force: true)
+        let since = state.env.clock.now()
+        do {
+            try await state.repository.refreshInsights(mode: .changed(since: since))
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {}
     }
 
     func refreshStale() async {

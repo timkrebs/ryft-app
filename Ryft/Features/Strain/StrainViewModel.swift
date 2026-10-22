@@ -123,6 +123,9 @@ final class StrainViewModel {
         defer { isLoading = false }
         do {
             _ = try await state.dayDetail(for: date)
+        } catch where error.isCancellation {
+            // `.task(id:)` restarted (another day, new data): the next load says what's true.
+            return
         } catch {
             if detail == nil { self.error = error.localizedDescription }
         }

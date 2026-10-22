@@ -7,6 +7,8 @@ struct PushHandlers {
     let registrar: PushRegistrar
     let router: DeepLinkRouter
     let coordinator: SyncCoordinator
+    /// The read record: saved before a silent push's completion handler lets iOS suspend the app.
+    let reads: ReadScheduler
 }
 
 /// UIKit's half of push: APNs token callbacks, the silent refresh, and taps
@@ -58,17 +60,25 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             return
         }
         perform { handlers in
-            let coordinator = handlers.coordinator
-            let deadline = Task {
-                try? await Task.sleep(for: Self.silentPushBudget)
-                await coordinator.cancel()
-            }
-            // Only the day the platform scored: it may end a wait for that day. Refreshing
-            // always takes today along (`AppState.refreshDays`).
-            let outcome = await coordinator.run(.silentPush(days: [day]))
-            deadline.cancel()
-            completionHandler(outcome.error == nil && !outcome.cancelled ? .newData : .failed)
+            completionHandler(await Self.refresh(day: day, handlers: handlers))
         }
+    }
+
+    /// A silent push's work: the coordinator's run within `silentPushBudget`, then the read record's
+    /// pending save, since iOS may suspend the app as soon as the completion handler is called.
+    @MainActor
+    static func refresh(day: String, handlers: PushHandlers) async -> UIBackgroundFetchResult {
+        let coordinator = handlers.coordinator
+        let deadline = Task {
+            try? await Task.sleep(for: silentPushBudget)
+            await coordinator.cancel()
+        }
+        // Only the day the platform scored: it may end a wait for that day. Refreshing
+        // always takes today along (`AppState.refreshDays`).
+        let outcome = await coordinator.run(.silentPush(days: [day]))
+        deadline.cancel()
+        handlers.reads.savePendingNow()
+        return outcome.error == nil && !outcome.cancelled ? .newData : .failed
     }
 
     // MARK: UNUserNotificationCenterDelegate

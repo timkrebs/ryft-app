@@ -135,6 +135,10 @@ extension TrainStore {
 
     func saveDocument<T: Encodable>(_ value: T, key: String, at date: Date = .now) {
         guard let data = WireCoding.encode(value) else { return }
+        saveDocumentData(data, key: key, at: date)
+    }
+
+    func saveDocumentData(_ data: Data, key: String, at date: Date = .now) {
         var d = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key == key })
         d.fetchLimit = 1
         if let row = (try? context.fetch(d))?.first {

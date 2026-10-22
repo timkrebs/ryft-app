@@ -288,16 +288,20 @@ final class OnboardingCoordinator {
         var status: SyncStatus?
     }
 
-    /// The three reads at once. Failures leave a part unknown (the cache decides); the
-    /// first run gives up waiting after `checkTimeout`.
+    /// The three reads at once, through the read pipeline (joined with the launch's own reads of
+    /// the same resources). Failures leave a part unknown (the cache decides); the first run gives
+    /// up waiting after `checkTimeout`.
     private func fetchWithTimeout() async -> Answer {
-        let api = api, clock = env.clock
+        let api = api, clock = env.clock, reads = env.reads, state = state
         let tz = TimeZone.current.identifier
         return await withTaskGroup(of: Answer?.self) { group in
             group.addTask {
-                async let me = try? api.me()
-                async let config = try? api.config()
-                async let status = try? api.syncStatus()
+                // The user is stored inside the read, so it lands even when the timeout wins.
+                async let me = try? reads.run(ReadKey(.me), store: { (user: User) in state.user = user }) {
+                    try await api.me()
+                }
+                async let config = try? reads.run(ReadKey(.config)) { try await api.config() }
+                async let status = try? reads.run(ReadKey(.syncStatus)) { try await api.syncStatus() }
                 var user = await me
                 // New users start in Europe/Berlin, which defines every day boundary.
                 if let u = user, u.tz != tz, let patched = try? await api.patchMe(UserPatch(tz: tz)) { user = patched }
@@ -428,6 +432,8 @@ final class OnboardingCoordinator {
         do {
             try await body()
             return true
+        } catch where error.isCancellation {
+            return false
         } catch {
             errorMessage = message(error) ?? error.localizedDescription
             errorDetails = error.diagnosticDetails

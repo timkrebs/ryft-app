@@ -54,33 +54,108 @@ struct TodayViewModelTests {
         #expect(vm.greeting == String(localized: "Good evening,"))
     }
 
-    @Test func failureWithoutDataShowsTheError() async {
+    /// Nothing cached at all: the card shows after one failed pass (a blank Today is the alternative).
+    @Test func failureWithoutDataShowsTheCardAfterOnePass() async {
         let api = MockPlatformAPI()
-        api.failure = APIError.http(500, "")
+        api.failure = APIError.http(500, "", requestID: "rid-500")
         let (env, state, _) = makeState(api: api)
         let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
 
         await state.refresh()
 
-        #expect(vm.status == .error(message: APIError.http(500, "").localizedDescription, details: "HTTP 500"))
+        guard case .refreshIssue(let issue) = vm.status else {
+            Issue.record("expected the card, got \(String(describing: vm.status))")
+            return
+        }
+        #expect(issue.reason == .busy && issue.resource == .today && issue.failures == 1 && issue.dataFrom == nil)
+        #expect(issue.error.status == 500 && issue.error.requestID == "rid-500" && issue.error.attempts == 3)
+        #expect(api.count("day") == 3) // two silent retries first
     }
 
-    @Test func failureWithDataSaysItsTheLastLoaded() async {
+    /// Criterion 8/9 from the failure itself: status, code, request ID and resource reach the card's issue,
+    /// and the line then reads "Couldn't load today · Details".
+    @Test func theCardCarriesTheFailuresStatusCodeAndRequestID() async {
         let api = MockPlatformAPI()
-        let (env, state, clock) = makeState(api: api)
+        api.failure = APIError.http(503, "request timed out", requestID: "rid-503", code: .consentRequired)
+        let (env, state, _) = makeState(api: api)
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+
+        await state.refresh()
+
+        guard case .refreshIssue(let issue) = vm.status else {
+            Issue.record("expected the card, got \(String(describing: vm.status))")
+            return
+        }
+        #expect(issue.resourceName == ReadResource.today.displayName)
+        #expect(issue.statusText == "503" && issue.error.requestID == "rid-503")
+        #expect(issue.error.code == "consent_required")
+        #expect(vm.syncLine.text(now: env.clock.now()) == String(localized: "Couldn't load today · Details"))
+    }
+
+    /// Criterion 8: the line's tap. With the card on screen it scrolls to the card (once per tap) and
+    /// opens nothing; otherwise it opens Sync details.
+    @Test func tappingTheIssueLineScrollsToTheCardInsteadOfOpeningDetails() async {
+        let api = MockPlatformAPI()
+        api.failure = APIError.http(500, "", requestID: "rid-500")
+        let (env, state, _) = makeState(api: api)
         let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
         await state.refresh()
+        #expect(vm.syncLine == .issue(.today))
+        #expect(vm.scrollToIssue == 0)
+
+        vm.resolveLine()
+        #expect(vm.scrollToIssue == 1 && !vm.showsSyncDetails)
+        vm.resolveLine()
+        #expect(vm.scrollToIssue == 2 && !vm.showsSyncDetails)
+    }
+
+    @Test func tappingAnyOtherLineOpensSyncDetails() async {
+        let (env, state, _) = makeState()
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        await state.refresh()
+        #expect(vm.syncLine == .upToDate(state.lastUpdated, demo: false))
+
+        vm.resolveLine()
+
+        #expect(vm.showsSyncDetails && vm.scrollToIssue == 0)
+    }
+
+    @Test func tappingTheOfflineLineOpensSyncDetails() {
+        let (env, state, _) = makeState(online: false)
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        #expect(vm.syncLine == .offline)
+        vm.resolveLine()
+        #expect(vm.showsSyncDetails && vm.scrollToIssue == 0)
+    }
+
+    /// With data on screen a failure changes nothing until it lasts: 3 in a row and older than 2 h.
+    @Test func failureWithDataShowsNoCardUntilThreeFailuresAndTwoHours() async {
+        let api = MockPlatformAPI()
+        // Morning, so 2 h later is still the same day (a new day has no data of its own yet).
+        let morning = Calendar.current.date(bySettingHour: 8, minute: 0, second: 0, of: .now)!
+        let (env, state, clock) = makeState(api: api, now: morning)
+        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        await state.refresh()
+        let loaded = state.lastUpdated
+        #expect(loaded != nil)
         api.failure = APIError.http(503, "")
         clock.advance(by: .seconds(6 * 60)) // today's 5 minutes are over: it asks again
 
-        await state.refresh()
+        for _ in 0..<3 { await state.refresh() }
 
-        guard case .error(let message, _) = vm.status else {
-            Issue.record("expected an error status, got \(String(describing: vm.status))")
+        #expect(state.resourceStates[.today]?.consecutiveFailures == 3)
+        #expect(vm.status == nil)                                  // under 2 h: nothing changes on screen
+        #expect(vm.syncLine == .upToDate(loaded, demo: false))
+        #expect(vm.readiness != nil)                               // still on screen
+
+        clock.advance(by: .seconds(2 * 3600))
+        guard case .refreshIssue(let issue) = vm.status else {
+            Issue.record("expected the card past 2 h, got \(String(describing: vm.status))")
             return
         }
-        #expect(message == String(localized: "Couldn't refresh just now — showing your last loaded data."))
-        #expect(vm.readiness != nil) // still on screen
+        #expect(issue.resource == .today && issue.dataFrom == loaded && issue.failures == 3)
+        // One "Try again" on screen, the card's; the line points to the card (last on Today).
+        #expect(vm.syncLine == .issue(.today))
     }
 
     @Test func offlineShowsThePillAndRequestsNothing() async {
@@ -1734,5 +1809,190 @@ struct OnboardingEdgeTests {
         #expect(auth.signInMethods.map(\.provider) == ["email"])
         await auth.signOut()
         #expect(auth.signInMethods.isEmpty && !auth.hasAppleSignIn)
+    }
+}
+
+// MARK: - T0 refresh resilience: root-cause tests, now asserting the fix (T1)
+//
+// T0 wrote these against the all-or-nothing refresh, wrapped in `withKnownIssue`. T1 (per-resource reads through
+// `ReadScheduler`, `RefreshPolicy` for the card) made them pass; they now assert the fixed behaviour.
+
+#if DEBUG
+@Suite("T0: refresh per resource")
+@MainActor
+struct RefreshAllOrNothingTests {
+    private func model(_ api: MockPlatformAPI) -> (TodayViewModel, AppState, TestClock) {
+        let (env, state, clock) = makeState(api: api)
+        let sync = SyncService(env: env)
+        let vm = TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        return (vm, state, clock)
+    }
+
+    /// Item 1: `/v1/me` or `/v1/days` failing no longer turns a refresh whose other calls worked into a card.
+    @Test(arguments: [("me", FaultInjection.Fault.timeout), ("days", .unavailable), ("me", .tooManyRequests)])
+    func oneFailingReadShowsNoCard(route: String, fault: FaultInjection.Fault) async {
+        let api = MockPlatformAPI()
+        let (vm, state, clock) = model(api)
+        await state.refresh()                  // everything cached and current
+        api.faults[route] = .init(fault)
+
+        await vm.refresh()                     // pull to refresh: returns after today and the sync status
+        await finishPull(state, clock)         // me and history come in phase 3
+
+        #expect(api.count(route) >= 2)         // it did fail, and was retried
+        #expect(state.lastUpdated != nil)      // the day itself loaded fine
+        #expect(vm.status == nil, "got \(String(describing: vm.status))")
+    }
+
+    /// Phase 3 to its end, moving the test clock through retries and the rate-limit hold-back.
+    private func finishPull(_ state: AppState, _ clock: TestClock) async {
+        guard let phases = state.pullPhases else { return }
+        let done = PullDone()
+        let waiter = Task {
+            await phases.value
+            done.value = true
+        }
+        for _ in 0..<120 where !done.value {
+            clock.advance(by: .seconds(1))
+            try? await Task.sleep(for: .milliseconds(2))
+        }
+        await waiter.value
+    }
+
+    /// A failing `/v1/days/{day}` with a cached copy is swallowed by the repository (and counted).
+    @Test func aFailingDayWithACachedCopyIsSwallowed() async {
+        let api = MockPlatformAPI()
+        let (vm, state, clock) = model(api)
+        await state.refresh()
+        api.faults["day"] = .init(.timeout)
+        await vm.refresh()
+        await finishPull(state, clock)
+        #expect(vm.status == nil)
+    }
+
+    /// Trends and insights are independent of `/v1/me`: a failed `/v1/me` costs nothing else.
+    @Test func aFailedMeLeavesTheRestOfTheRefresh() async {
+        let api = MockPlatformAPI()
+        let (_, state, _) = model(api)
+        await state.refresh()
+        let trends = api.count("trends"), insights = api.count("insights")
+        api.faults["me"] = .init(.timeout)
+
+        await state.refresh(force: true)
+
+        #expect(api.count("trends") == trends + 1 && api.count("insights") == insights + 1)
+        #expect(state.resourceStates[.me]?.consecutiveFailures == 1)
+        #expect(state.resourceStates[.me]?.lastError?.transport == "timedOut")
+        #expect(state.resourceStates[.trends]?.consecutiveFailures == 0)
+    }
+
+    /// Item 1, second path: `refreshDays` (after a sync, a silent push) records a failed read per resource and
+    /// neither throws it nor owns the card.
+    @Test func aFailedHistoryAfterASyncShowsNoCard() async throws {
+        let api = MockPlatformAPI()
+        let (vm, state, _) = model(api)
+        await state.refresh()
+        api.faults["days"] = .init(.timeout)
+
+        try await state.refreshDays([])
+
+        #expect(vm.status == nil, "got \(String(describing: vm.status))")
+        #expect(state.resourceStates[.history]?.consecutiveFailures == 1)
+    }
+
+    /// Item 2, cancellation: a cancelled request (`URLError.cancelled` in `.transport`, the mock's `cancel`
+    /// fault) is no failure: no card, no count, no `lastError`.
+    @Test(arguments: [FaultInjection.Fault.cancel])
+    func aCancelledRefreshIsNotAFailure(fault: FaultInjection.Fault) async {
+        let api = MockPlatformAPI()
+        let (vm, state, _) = model(api)
+        await state.refresh()
+        api.faults["days"] = .init(fault)
+        api.faults["me"] = .init(fault)
+
+        await state.refresh(force: true)
+
+        #expect(vm.status == nil)
+        for resource in [ReadResource.history, .me] {
+            #expect(state.resourceStates[resource]?.lastError == nil)
+            #expect(state.resourceStates[resource]?.consecutiveFailures == 0)
+        }
+        #expect(api.count("me") == 2) // never retried
+    }
+
+    /// The other cancellation shape: Swift's `CancellationError`.
+    @Test func aSwiftCancellationErrorIsNotAFailureEither() async {
+        let api = MockPlatformAPI()
+        let (vm, state, _) = model(api)
+        await state.refresh()
+        api.failure = CancellationError()
+
+        await state.refresh(force: true)
+
+        #expect(vm.status == nil)
+        #expect(state.resourceStates.values.allSatisfy { $0.lastError == nil && $0.consecutiveFailures == 0 })
+    }
+
+    /// And after a sync, `refreshDays` records nothing for a cancellation.
+    @Test func refreshDaysRecordsNoCancellation() async {
+        let api = MockPlatformAPI()
+        let (_, state, _) = model(api)
+        await state.refresh()
+        api.failure = CancellationError()
+
+        try? await state.refreshDays([])
+
+        #expect(state.resourceStates.values.allSatisfy { $0.lastError == nil && $0.consecutiveFailures == 0 })
+    }
+
+    /// Item 5: every card has Details: the resource, the status (or "no response" and the transport), the
+    /// request ID when there was one. A cancellation never makes a card.
+    @Test func everyCardHasDetails() async {
+        for fault in [FaultInjection.Fault.unavailable, .timeout, .cancel] {
+            let api = MockPlatformAPI()
+            let (vm, state, _) = model(api)
+            api.faults["day"] = .init(fault)       // nothing cached: one failed pass shows the card
+            api.faults["days"] = .init(fault)
+            await vm.refresh()
+            await state.pullPhases?.value
+            guard fault != .cancel else {
+                #expect(vm.status == nil, "\(fault): \(String(describing: vm.status))")
+                continue
+            }
+            guard case .refreshIssue(let issue) = vm.status else { Issue.record("no card for \(fault)"); continue }
+            #expect(issue.resource == .today && issue.failures >= 1)
+            if fault == .unavailable {
+                #expect(issue.reason == .busy && issue.error.status == 503 && issue.error.requestID == "fault-day")
+            } else {
+                #expect(issue.reason == .unreachable && issue.error.status == nil && issue.error.transport == "timedOut")
+            }
+            #expect(issue.copyText.contains(String(localized: "Today")))
+        }
+    }
+}
+#endif
+
+/// Set once the awaited work has ended (main actor).
+@MainActor
+private final class PullDone {
+    var value = false
+}
+
+@Suite("Day loads and cancellation")
+@MainActor
+struct DayLoadCancellationTests {
+    /// Code review should-fix 1: Strain's and Sleep's `.task(id:)` loads restart (are cancelled) when the
+    /// day or the data changes; that shows no "The operation couldn't be completed".
+    @Test func aCancelledDayLoadShowsNoError() async {
+        let api = MockPlatformAPI()
+        api.faults["day"] = .init(.cancel)
+        let (_, state, _) = makeState(api: api)
+        let strain = StrainViewModel(state: state, store: TrainStore(inMemory: true))
+        await strain.load()
+        #expect(strain.error == nil)
+        let sleep = SleepViewModel(state: state)
+        await sleep.load()
+        #expect(sleep.error == nil)
+        #expect(api.count("day") >= 1)                          // it was asked, and came back cancelled
     }
 }

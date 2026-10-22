@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import Ryft
 
@@ -10,6 +11,19 @@ final class TrainStubURLProtocol: URLProtocol {
         case status(Int, Data)
         /// 200 with the request body (the platform answering a PUT with the document).
         case echo
+        /// `URLError.cancelled`, as a cancelled request ends (`APIClient` makes it a `CancellationError`).
+        case cancelled
+        /// Like `echo`, once `release()` is called: a PUT still in flight meanwhile.
+        case hold
+        /// Like `status`, once `release()` is called.
+        case holdThen(Int, Data)
+    }
+
+    /// Lets a `hold` reply answer.
+    private static let gate = DispatchSemaphore(value: 0)
+
+    static func release() {
+        gate.signal()
     }
 
     private static let lock = NSLock()
@@ -22,6 +36,7 @@ final class TrainStubURLProtocol: URLProtocol {
 
     static func reset() {
         lock.withLock { replies = []; seen = [] }
+        while gate.wait(timeout: .now()) == .success {}
     }
 
     static var requests: [(method: String, path: String, body: Data)] { lock.withLock { seen } }
@@ -44,6 +59,15 @@ final class TrainStubURLProtocol: URLProtocol {
             respond(code, data)
         case .echo:
             respond(200, body)
+        case .cancelled:
+            client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
+        case .hold:
+            // Blocks this loader's thread only (the suite is serialized); a missing release ends it.
+            _ = Self.gate.wait(timeout: .now() + 10)
+            respond(200, body)
+        case .holdThen(let code, let data):
+            _ = Self.gate.wait(timeout: .now() + 10)
+            respond(code, data)
         }
     }
 
@@ -74,6 +98,7 @@ final class TrainStubURLProtocol: URLProtocol {
 @Suite("Train sync", .serialized)
 struct TrainSyncTests {
     let store = TrainStore(inMemory: true)
+    let api: APIClient
     let service: TrainSyncService
 
     init() {
@@ -82,6 +107,7 @@ struct TrainSyncTests {
         config.protocolClasses = [TrainStubURLProtocol.self]
         let api = APIClient(session: URLSession(configuration: config), tokens: FakeTokens(), sleep: { _ in },
                             baseURL: URL(string: "https://api.test"))
+        self.api = api
         service = TrainSyncService(store: store, remote: { api }, debounce: .milliseconds(30), monitorsNetwork: false)
     }
 
@@ -153,6 +179,104 @@ struct TrainSyncTests {
         let complete = try APIClient.jsonDecoder.decode(SessionComplete.self, from: TrainStubURLProtocol.requests[2].body)
         let sentEnd = try #require(complete.endedAt)
         #expect(abs(sentEnd.timeIntervalSince(finishedAt)) < 1)
+    }
+
+    /// Code review blocker 1: a PUT that comes back cancelled is never a refusal. It and `complete`
+    /// stay queued, and replay in order later (they used to be dequeued and lost).
+    @Test func aCancelledPutKeepsTheQueue() async throws {
+        let a = session("A")
+        check(a.orderedExercises[0].orderedSets[0], reps: 5, kg: 100)
+        TrainStubURLProtocol.script([.cancelled])
+        let done = await service.finish(a)
+        #expect(done == nil)
+        #expect(service.pendingCount == 2)                      // the PUT and `complete`
+        #expect(a.pendingCompletion)
+
+        TrainStubURLProtocol.reset()
+        TrainStubURLProtocol.script([.echo, .status(200, try Fixture.data("train_session_completed"))])
+        await service.flush()
+        let sent = TrainStubURLProtocol.requests.map { "\($0.method) \($0.path)" }
+        #expect(sent == ["PUT \(path(a.id))", "POST \(path(a.id, "/complete"))"])
+        #expect(service.pendingCount == 0 && !a.pendingCompletion)
+    }
+
+    /// Finish while the debounced PUT is in flight: Finish cancels the 2 s wait, never the PUT, and
+    /// waits for the replay; the last state goes up and the workout completes.
+    @Test func finishDuringAPutInFlightLosesNothing() async throws {
+        let a = session("A")
+        check(a.orderedExercises[0].orderedSets[0], reps: 5, kg: 100)
+        TrainStubURLProtocol.script([.hold, .echo, .status(200, try Fixture.data("train_session_completed"))])
+        service.sessionChanged(a)
+        #expect(await eventually { TrainStubURLProtocol.requests.count == 1 })   // the debounced PUT, held
+        check(a.orderedExercises[0].orderedSets[1], reps: 5, kg: 100)
+        let finishing = Task { await service.finish(a) }
+        #expect(await eventually { a.pendingCompletion })      // Finish ran: the wait is cancelled
+        TrainStubURLProtocol.release()
+
+        let done = await finishing.value
+        #expect(done != nil)
+        let sent = TrainStubURLProtocol.requests.map { "\($0.method) \($0.path)" }
+        #expect(sent == ["PUT \(path(a.id))", "PUT \(path(a.id))", "POST \(path(a.id, "/complete"))"])
+        #expect(service.pendingCount == 0 && !a.pendingCompletion)
+        let last = try APIClient.jsonDecoder.decode(TrainSession.self, from: TrainStubURLProtocol.requests[1].body)
+        #expect(last.exercises[0].sets.compactMap(\.reps) == [5, 5])
+    }
+
+    /// Security should-fix: the sign-out's wipe (`AuthService.apply`, before the app's account-change
+    /// handler runs) while `complete` is in flight, whose answer is a real completed session arriving
+    /// after it. Nothing is written into the wiped store and no summary answer is kept. Without the
+    /// guard after `completeSession`, the answer would write the deleted session and its sets back.
+    @Test func aWipeMidCompleteWritesNothing() async throws {
+        let a = session("A")
+        check(a.orderedExercises[0].orderedSets[0], reps: 5, kg: 100)
+        TrainStubURLProtocol.script([.echo, .holdThen(200, try Fixture.data("train_session_completed"))])
+        let finishing = Task { await service.finish(a) }
+        #expect(await eventually { TrainStubURLProtocol.requests.count == 2 })   // the PUT, then `complete` held
+        store.wipe()
+        TrainStubURLProtocol.release()
+
+        #expect(await finishing.value == nil)
+        #expect(service.lastCompletion == nil)
+        #expect(try store.context.fetchCount(FetchDescriptor<LocalSession>()) == 0)
+        #expect(try store.context.fetchCount(FetchDescriptor<LocalSessionExercise>()) == 0)
+        #expect(try store.context.fetchCount(FetchDescriptor<LocalSet>()) == 0)
+        #expect(await eventually { !service.isFlushing })
+        #expect(TrainStubURLProtocol.requests.count == 2)
+    }
+
+    /// Another account while `complete` is in flight: the replay stops at once (its request is
+    /// cancelled), and nothing of the previous account's shows or is sent afterwards.
+    @Test func anAccountChangeStopsTheReplay() async throws {
+        let a = session("A")
+        check(a.orderedExercises[0].orderedSets[0], reps: 5, kg: 100)
+        TrainStubURLProtocol.script([.echo, .hold])
+        let finishing = Task { await service.finish(a) }
+        #expect(await eventually { TrainStubURLProtocol.requests.count == 2 })
+        service.accountChanged()
+        TrainStubURLProtocol.release()
+
+        #expect(await finishing.value == nil)
+        #expect(service.lastCompletion == nil && service.lastError == nil && !service.isFlushing)
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(TrainStubURLProtocol.requests.count == 2)
+    }
+
+    /// Code review should-fix: Finish waits for the upload at most its cap, then says "will sync"; the
+    /// replay goes on and completes the workout when the network answers.
+    @Test func finishWaitsAtMostItsCap() async throws {
+        let quick = TrainSyncService(store: store, remote: { [api] in api }, debounce: .milliseconds(30),
+                                     finishWait: .milliseconds(200), monitorsNetwork: false)
+        let a = session("A")
+        check(a.orderedExercises[0].orderedSets[0], reps: 5, kg: 100)
+        TrainStubURLProtocol.script([.hold, .status(200, try Fixture.data("train_session_completed"))])
+        let started = ContinuousClock.now
+        let done = await quick.finish(a)
+        #expect(done == nil && a.pendingCompletion)             // "will sync"
+        #expect(ContinuousClock.now - started < .seconds(5))
+
+        TrainStubURLProtocol.release()
+        #expect(await eventually { !a.pendingCompletion && quick.pendingCount == 0 })
+        #expect(TrainStubURLProtocol.requests.filter { $0.path.hasSuffix("/complete") }.count == 1)
     }
 
     @Test func changesAreDebouncedIntoOnePut() async throws {

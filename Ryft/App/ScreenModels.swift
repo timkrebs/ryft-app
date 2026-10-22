@@ -50,19 +50,25 @@ final class ScreenModels {
         let env = state.env
         featureFlags = (env.flags as? FlagStore).map { store in
             FeatureFlags(flags: store, clock: env.clock) {
-                // Flags are evaluated per user: nothing to ask before sign-in.
+                // Flags are evaluated per user: nothing to ask before sign-in (and nothing recorded).
                 guard env.isDemo || env.auth.isSignedIn else { throw APIError.signedOut }
-                return try await env.api.config()
+                guard let config = try await env.reads.run(ReadKey(.config), { try await env.api.config() }) else {
+                    throw ReadScheduler.NotSent()
+                }
+                return config
             }
         }
         profile = ProfileViewModel(state: state, sync: sync, coordinator: coordinator, onboarding: onboarding)
         trainToday = TrainTodayViewModel(library: library, store: store, clock: state.env.clock)
+        // Train's reads share the pipeline's budget and per-resource record.
+        library.reads = state.env.reads
         bedtime = BedtimePlanner(state: state)
     }
 
-    /// Pull to refresh on any tab: upload, wait for scoring, reload everything.
+    /// Pull to refresh on any tab: the upload starts, today and the sync status load at once, the
+    /// rest after the upload (`AppState.pullToRefresh`). Returns within 3 s; the status line
+    /// carries what's still running.
     func pullToRefresh() async {
-        await coordinator.run(.userInitiated)
-        await state.refresh(force: true)
+        await state.pullToRefresh(coordinator: coordinator)
     }
 }
