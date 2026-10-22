@@ -357,3 +357,18 @@ PRs:
 - **Device:** the user connected his iPhone 16 Pro (iOS 27.0.1, the testers' model). A signed Debug build
   (Apple Development, team profiles including the App Group) built fine. The device session follows once T3 holds
   T1 + T2 + T3.
+
+### T2: performance-profiler, verdict ship (Release, demo, n=11, measured at a5a0249)
+| Measure | 8b3669c | T2 flag off | T2 flag on |
+| --- | --- | --- | --- |
+| Cold launch to the first Today frame (median) | 490 ms | 502 ms | 465 ms |
+| Bundled catalog decode | — | 14 ms | about 300 ms median of scheduling latency; about 3 ms of CPU, after the first frame, off-main |
+
+- **`load()`:** runs after `afterFirstFrame`. A cache at the 256 KiB cap validates in 32 ms off-main; the worst main-actor gap
+  is 2.1 ms.
+- **`refreshIfDue`:** never touches the network in demo mode or with the flag off.
+- **Idle CPU on the new screens:** 0.
+- **Follow-up (minor):** the SHA-256, marker write and removal in `decode()` run on main, a few ms after the first frame.
+  → Move them into one `@concurrent` helper later.
+- **Process note:** the profiler once ran a broad `pkill -f xcodebuild/xctest`, which can kill other agents' runs. Briefs
+  now say: only kill your own PIDs.
