@@ -324,3 +324,18 @@ PRs:
   waiting for last night.
 - **Known red test:** `PullToRefreshTests.thePullReturnsAfterThreeSecondsAtMost` fails locally 10/10 on the branch and
   2/3 on `d9fc265` (it passed on #33's CI). → The debugger is finding the cause and whether T1 makes it worse.
+
+### CI: UI smoke red on #33 and #34 since the afternoon of 2026-10-22, caused by the runner image
+- **What failed:** `StoreSmokeUITests` "signed in, tabs visible", then a hang until the 3-minute allowance.
+- **What the evidence shows:**
+  - The xcresult has the app healthy on Today, in a **466 × 678 window with the tabs as a vertical strip on the right**.
+  - The spindump shows the app's main thread idle; the hang was the runner's.
+- **Cause:**
+  - The runner image moved from `Xcode_27.1_Release_Candidate` (green this morning) to the final `Xcode_27.1`.
+  - Its newest runtime, iOS 27.1 (24A94425), supports only "iPhone Duo" (also confirmed on the lead's Mac).
+  - `scripts/ci-simulator.sh` took the newest runtime and silently fell back to its last iPhone, so CI was running an
+    iPhone Duo.
+- **Fix: #35** `ci: UI tests run on an iPhone 17 Pro, not whatever the newest runtime offers`. It picks the newest runtime
+  that has the wanted type and logs the choice. It merges before #33 and #34.
+- **Follow-up (STATUS):** how RYFT behaves on an iPhone Duo (side tab strip, UI-test queries) is a product question for
+  later.
