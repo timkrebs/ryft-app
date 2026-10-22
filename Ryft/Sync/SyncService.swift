@@ -65,6 +65,10 @@ final class SyncService {
     /// What the last upload's responses said about scoring: the days queued, how long it
     /// has recently taken (`SyncResponse.scoring`).
     private(set) var lastScoring: SyncScoring?
+    /// When the pipeline began waiting for scores (`awaitingScores`). Kept after a wait the coordinator
+    /// gave up on (`SyncCoordinator.maximumScoringWait`) while the platform still lists pending days;
+    /// cleared by the platform's word that they're scored (design.md §6.1, `scoringSince`).
+    private(set) var scoringWaitStart: Date?
     /// Uploads wait behind this gate (no consent to the current policy, no beta access)
     /// until it's passed. Not an error: something the user does (`OnboardingCoordinator`).
     private(set) var pausedFor: APIErrorCode?
@@ -86,7 +90,35 @@ final class SyncService {
         // Always the account's platform: demo mode never syncs.
         engine = SyncEngine(health: env.health, api: env.liveAPI, defaults: env.defaults)
         engineState = SyncEngineState.load(account: env.auth.accountID, defaults: env.defaults)
-        machine = SyncMachine.make { [weak self] to, _ in self?.phase = to }
+        machine = SyncMachine.make { [weak self] to, from in self?.entered(to, from: from) }
+    }
+
+    private func entered(_ to: SyncPhase, from: SyncPhase) {
+        phase = to
+        switch (from, to) {
+        case (_, .awaitingScores):
+            scoringWaitStart = env.clock.now()
+        case (.awaitingScores, .refreshing):
+            // Before the cut-off the wait ended on the platform's word (a silent push, or GET /v1/me/sync
+            // no longer listing the days). At the cut-off it gave up: the start stays for "Taking longer".
+            if let start = scoringWaitStart,
+               env.clock.now().timeIntervalSince(start) < SyncCoordinator.maximumScoringWait.timeInterval {
+                scoringWaitStart = nil
+            }
+        case (.idle, .refreshing), (.done, .refreshing), (.failed, .refreshing):
+            // A silent push's refresh: the platform scored a day.
+            scoringWaitStart = nil
+        default:
+            break
+        }
+    }
+
+    /// When scoring began, for "Taking longer than usual" (design.md §6.1): the current wait's start while
+    /// the pipeline awaits scores; after the wait, the same start while the platform's latest
+    /// `pending_days` still holds days. No poll of its own: the next GET /v1/me/sync answers.
+    func scoringSince(pendingDays: [String]) -> Date? {
+        guard let start = scoringWaitStart, phase == .awaitingScores || !pendingDays.isEmpty else { return nil }
+        return start
     }
 
     /// Moves the pipeline on (refused transitions are ignored: the table guards them).
@@ -103,6 +135,7 @@ final class SyncService {
         hasBacklog = false
         pausedFor = nil
         waitingForUnlock = false
+        scoringWaitStart = nil
     }
 
     /// The app went to the background: the page being uploaded finishes (its anchor
@@ -255,6 +288,8 @@ final class SyncService {
     /// wait): what the sync acts on.
     func receive(_ status: SyncStatus) {
         if let requested = status.resyncRequestedAt { fullResyncRequested(at: requested) }
+        // Nothing pending on the platform: no wait is slow any more.
+        if status.pendingDays.isEmpty { scoringWaitStart = nil }
     }
 
     /// `resync_requested_at`: the operator found data missing. A request this account
