@@ -1594,6 +1594,7 @@ struct ReportProblemView: View {
             String(localized: "Loaded data, per area (Today, History, Profile …): when RYFT last loaded it, and its last error's status, code and request ID"),
             String(localized: "Sync state: phase, queue and backlog, and per data type the number of records and days and the date of the newest record"),
             String(localized: "Account gates and feature flags"),
+            String(localized: "Your last Check sync, if you ran one: its day, and per tracker and data type a result code"),
         ]
         if context { rows.append(String(localized: "From Details: what failed, its status, error code and request ID")) }
         return rows

@@ -669,6 +669,498 @@ final class BodySettingsEditor {
     }
 }
 
+// MARK: - check sync
+
+/// One signal's result in Check sync (design.md §4.4): what HealthKit showed, not words (`TrackerCheckText`).
+enum SignalCheck: Equatable, Sendable {
+    /// Queued, then while the probe reads (D2 K1).
+    case waiting, checking
+    /// From the tracker: a nightly signal since last night began, any other within 48 h.
+    case arrived(Date)
+    /// A nightly signal whose newest record is from before last night began.
+    case notLastNight(lastSeen: Date)
+    /// Expected: the catalog says the tracker doesn't share it (D2 K3).
+    case notShared
+    /// Neutral: `partial` or `unverified` without data, workouts without a workout, stages without sleep.
+    case notSeenYet
+    /// Neutral: this tracker should send it, but another selected one did (the platform takes one source per hour
+    /// or night). Its code is `not_seen`.
+    case elsewhere(app: String)
+    /// Unexpected: the catalog says `yes` and nothing came (D2 K4). `visible`: RYFT sees the type from another
+    /// source, so it may read it; otherwise RYFT can't tell "not allowed to read" from "nobody wrote it" (§4.5).
+    case missing(visible: Bool)
+
+    /// What `devices.check` and Report a problem keep (§4.7): no times, no names.
+    var code: String? {
+        switch self {
+        case .waiting, .checking: return nil
+        case .arrived: return "arrived"
+        case .notLastNight: return "not_last_night"
+        case .notShared: return "not_shared"
+        case .notSeenYet, .elsewhere: return "not_seen"
+        case .missing(let visible): return visible ? "missing_visible" : "missing_unknown"
+        }
+    }
+
+    var isMissing: Bool { if case .missing = self { return true } else { return false } }
+    var isArrived: Bool { if case .arrived = self { return true } else { return false } }
+    var isNotLastNight: Bool { if case .notLastNight = self { return true } else { return false } }
+}
+
+/// One tracker's check: a row per signal in `TrackerSignal` order, and what they add up to.
+struct TrackerCheck: Equatable, Sendable, Identifiable {
+    /// First match wins: checking › cantRead › unknownTracker › silent › needsFix › nightMissing › ok.
+    enum Overall: String, Equatable, Sendable {
+        case checking, ok, nightMissing = "night_missing", needsFix = "needs_fix", silent
+        case cantRead = "cant_read", unknownTracker = "unknown_tracker"
+    }
+
+    struct Row: Equatable, Sendable, Identifiable {
+        let signal: TrackerSignal
+        var check: SignalCheck
+        var id: TrackerSignal { signal }
+    }
+
+    let trackerID: String
+    /// What the text calls it: the vendor's app ("Garmin Connect"), else the tracker's name; nil for Other.
+    let app: String?
+    var overall: Overall
+    var rows: [Row]
+    /// D2's "4 of 6 expected signals are arriving": the rows that arrived, missed last night or should arrive and
+    /// don't. `no`, `partial` and `unverified` without data don't count; data beats the catalog, so they do once
+    /// they arrive.
+    var expected: Int
+    var arriving: Int
+    /// Signals that arrived although the catalog says `no` (catalog drift, logged by the model).
+    var drift: [TrackerSignal] = []
+
+    var id: String { trackerID }
+    var needsFix: Int { rows.filter(\.check.isMissing).count }
+}
+
+/// The §4.4 table, pure: the probe's samples in, one tracker's check out.
+enum TrackerCheckRules {
+    /// How far back the check looks.
+    static let window: TimeInterval = 48 * 3_600
+    /// A night's signals: one older than when last night began (18:00 the evening before) didn't come last night.
+    static let nightly: Set<TrackerSignal> = [.hrv, .restingHR, .sleep, .sleepStages, .respiratoryRate, .spo2]
+    /// What the probe asks HealthKit about (stages come with sleep).
+    static var streams: [HealthStream] { TrackerSignal.allCases.compactMap(\.stream) }
+
+    /// Before the probe answers: every row waiting (Other's and the can't-read trackers' rows come with the result).
+    static func waiting(_ tracker: Tracker) -> TrackerCheck {
+        let rows = tracker.integration == .none ? [] : TrackerSignal.allCases.map { TrackerCheck.Row(signal: $0, check: .waiting) }
+        return TrackerCheck(trackerID: tracker.id, app: name(tracker), overall: .checking, rows: rows, expected: 0, arriving: 0)
+    }
+
+    /// `catalog` matches sources to trackers (T1's `match`); `alongside` are the other selected trackers, whose data
+    /// makes a gap here `elsewhere` instead of `missing`. Samples from RYFT itself never count.
+    static func classify(_ tracker: Tracker, samples: [SourceSample], visible: Set<HealthStream>,
+                         now: Date, calendar: Calendar = .current,
+                         catalog: TrackerCatalog = .bundled, alongside: [Tracker] = []) -> TrackerCheck {
+        let catalog = including(tracker, in: catalog)
+        let since = now.addingTimeInterval(-window)
+        let recent = samples.filter { $0.newest >= since && !HealthProbe.isRYFT($0.source) }
+        switch tracker.integration {
+        case .none:
+            return TrackerCheck(trackerID: tracker.id, app: name(tracker), overall: .cantRead, rows: [], expected: 0, arriving: 0)
+        case .unknown:
+            return unknown(tracker, recent: recent, catalog: catalog)
+        case .appleBuiltin, .vendorApp:
+            break
+        }
+        let mine = recent.filter { catalog.match($0.source)?.id == tracker.id }
+        let others = alongside.filter { $0.id != tracker.id }
+        let night = RawNight.window(before: now, calendar: calendar)
+        let rows = TrackerSignal.allCases.map { signal in
+            TrackerCheck.Row(signal: signal, check: check(signal, of: tracker, mine: mine, recent: recent, visible: visible,
+                                                          night: night, catalog: catalog, others: others))
+        }
+        let overall: TrackerCheck.Overall
+        if mine.isEmpty {
+            overall = .silent
+        } else if rows.contains(where: \.check.isMissing) {
+            overall = .needsFix
+        } else if rows.contains(where: \.check.isNotLastNight) {
+            overall = .nightMissing
+        } else {
+            overall = .ok
+        }
+        let drift = rows.filter { $0.check.isArrived && tracker.capabilities[$0.signal] == .no }.map(\.signal)
+        return TrackerCheck(trackerID: tracker.id, app: name(tracker), overall: overall, rows: rows,
+                            expected: rows.filter { $0.check.isArrived || $0.check.isNotLastNight || $0.check.isMissing }.count,
+                            arriving: rows.filter(\.check.isArrived).count, drift: drift)
+    }
+
+    /// Without a selection: the trackers whose sources wrote in the window, in picker order; the iPhone only when
+    /// nothing else did; Other when nothing matched.
+    static func seen(_ samples: [SourceSample], catalog: TrackerCatalog, now: Date) -> [Tracker] {
+        let since = now.addingTimeInterval(-window)
+        let ids = Set(samples.filter { $0.newest >= since && !HealthProbe.isRYFT($0.source) }
+            .compactMap { catalog.match($0.source)?.id })
+        let found = catalog.trackers.filter { ids.contains($0.id) && $0.id != "iphone" }
+        if !found.isEmpty { return found }
+        return [catalog.tracker(ids.contains("iphone") ? "iphone" : "other")].compactMap { $0 }
+    }
+
+    private static func name(_ tracker: Tracker) -> String? {
+        tracker.integration == .unknown ? nil : tracker.appName ?? tracker.name
+    }
+
+    // swiftlint:disable:next function_parameter_count
+    private static func check(_ signal: TrackerSignal, of tracker: Tracker, mine: [SourceSample], recent: [SourceSample],
+                              visible: Set<HealthStream>, night: Date, catalog: TrackerCatalog,
+                              others: [Tracker]) -> SignalCheck {
+        let capability = tracker.capabilities[signal] ?? .unverified
+        let newest: Date?
+        if signal == .sleepStages {
+            // Stages are a detail of sleep: nothing to judge without a night.
+            let sleep = mine.filter { $0.stream == .sleep }
+            guard !sleep.isEmpty else { return .notSeenYet }
+            newest = sleep.filter { $0.hasStages == true }.map(\.newest).max()
+        } else {
+            newest = mine.filter { $0.stream == signal.stream }.map(\.newest).max()
+        }
+        if let newest {
+            return nightly.contains(signal) && newest < night ? .notLastNight(lastSeen: newest) : .arrived(newest)
+        }
+        switch capability {
+        case .no:
+            return .notShared
+        case .partial, .unverified:
+            return .notSeenYet
+        case .yes:
+            // A day without a workout is no gap.
+            if signal == .workouts { return .notSeenYet }
+            if signal == .sleepStages { return .missing(visible: true) }
+            let elsewhere = others.first { other in
+                recent.contains { $0.stream == signal.stream && catalog.match($0.source)?.id == other.id }
+            }
+            if let elsewhere, let app = name(elsewhere) { return .elsewhere(app: app) }
+            return .missing(visible: signal.stream.map(visible.contains) ?? false)
+        }
+    }
+
+    /// Other (D2 C4): rows only for what apps the catalog doesn't know sent; nothing is promised, so nothing is
+    /// missing.
+    private static func unknown(_ tracker: Tracker, recent: [SourceSample], catalog: TrackerCatalog) -> TrackerCheck {
+        let unmatched = recent.filter { catalog.match($0.source) == nil }
+        let rows: [TrackerCheck.Row] = TrackerSignal.allCases.compactMap { signal in
+            let newest = signal == .sleepStages
+                ? unmatched.filter { $0.stream == .sleep && $0.hasStages == true }.map(\.newest).max()
+                : unmatched.filter { $0.stream == signal.stream }.map(\.newest).max()
+            return newest.map { TrackerCheck.Row(signal: signal, check: .arrived($0)) }
+        }
+        return TrackerCheck(trackerID: tracker.id, app: nil, overall: .unknownTracker, rows: rows,
+                            expected: rows.count, arriving: rows.count)
+    }
+
+    /// A tracker from another copy of the catalog still matches its own sources.
+    private static func including(_ tracker: Tracker, in catalog: TrackerCatalog) -> TrackerCatalog {
+        guard catalog.tracker(tracker.id) == nil else { return catalog }
+        return TrackerCatalog(version: catalog.version, trackers: [tracker] + catalog.trackers, healthAccess: catalog.healthAccess)
+    }
+}
+
+extension TrackerSignal {
+    /// Check sync's row name.
+    var checkName: String {
+        switch self {
+        case .heartRate: return String(localized: "Heart rate")
+        case .hrv: return String(localized: "HRV")
+        case .restingHR: return String(localized: "Resting heart rate")
+        case .sleep: return String(localized: "Sleep")
+        case .sleepStages: return String(localized: "Sleep stages")
+        case .respiratoryRate: return String(localized: "Breathing rate")
+        case .spo2: return String(localized: "Blood oxygen")
+        case .workouts: return String(localized: "Workouts")
+        case .steps: return String(localized: "Steps")
+        }
+    }
+
+    /// Inside a sentence: "RYFT can read resting heart rate, but …".
+    var checkPhrase: String {
+        switch self {
+        case .heartRate: return String(localized: "heart rate")
+        case .hrv: return String(localized: "HRV")
+        case .restingHR: return String(localized: "resting heart rate")
+        case .sleep: return String(localized: "sleep")
+        case .sleepStages: return String(localized: "sleep stages")
+        case .respiratoryRate: return String(localized: "breathing rate")
+        case .spo2: return String(localized: "blood oxygen")
+        case .workouts: return String(localized: "workouts")
+        case .steps: return String(localized: "steps")
+        }
+    }
+}
+
+/// Check sync's words (ui.md §5.7, design.md §4.5): what RYFT can know, never "denied".
+enum TrackerCheckText {
+    /// The row's trailing result.
+    static func result(_ check: SignalCheck, signal: TrackerSignal, app: String?, now: Date,
+                       calendar: Calendar = .current) -> String {
+        switch check {
+        case .waiting: return String(localized: "waiting…")
+        case .checking: return String(localized: "checking…")
+        case .arrived(let date):
+            if signal == .sleep || signal == .sleepStages, date >= RawNight.window(before: now, calendar: calendar) {
+                return String(localized: "last night")
+            }
+            return calendar.isDate(date, inSameDayAs: now) ? String(localized: "last \(Fmt.time(date))")
+                : SyncLine.dataTime(date, now: now, calendar: calendar)
+        case .notLastNight(let date): return SyncLine.dataTime(date, now: now, calendar: calendar)
+        case .notShared: return app.map { String(localized: "Not shared by \($0)") } ?? String(localized: "Not shared")
+        case .notSeenYet: return String(localized: "not seen yet")
+        case .elsewhere(let other): return String(localized: "from \(other) instead")
+        case .missing: return String(localized: "should arrive, nothing yet")
+        }
+    }
+
+    /// VoiceOver's value for a row.
+    static func spoken(_ check: SignalCheck, signal: TrackerSignal, app: String?, now: Date) -> String {
+        let result = result(check, signal: signal, app: app, now: now)
+        switch check {
+        case .waiting: return String(localized: "Waiting")
+        case .checking: return String(localized: "Checking")
+        case .arrived: return String(localized: "Arriving, \(result)")
+        case .notLastNight: return String(localized: "Not since last night, last seen \(result)")
+        case .notShared: return String(localized: "\(result), expected")
+        case .notSeenYet: return String(localized: "Not seen yet")
+        case .elsewhere: return result
+        case .missing: return String(localized: "Should arrive, nothing yet. Fix available")
+        }
+    }
+
+    /// "4 of 6 expected signals are arriving." and, with gaps, "2 need a fix."
+    static func summary(expected: Int, arriving: Int, needsFix: Int) -> String {
+        let count = String(localized: "\(arriving) of \(expected) expected signals are arriving.")
+        guard needsFix > 0 else { return count }
+        return count + " " + String(localized: "\(needsFix) need a fix.")
+    }
+
+    static func announcement(expected: Int, arriving: Int, needsFix: Int) -> String {
+        String(localized: "Check finished.") + " " + summary(expected: expected, arriving: arriving, needsFix: needsFix)
+    }
+
+    /// The fix's first sentence (§4.5): one signal with what RYFT can know about it, or several.
+    static func fixLead(_ rows: [TrackerCheck.Row], app: String) -> String {
+        let missing = rows.filter(\.check.isMissing)
+        guard missing.count == 1, let row = missing.first else {
+            return String(localized: "Several signals should arrive and don't. The cause is usually one permission in \(app).")
+        }
+        if row.check == .missing(visible: true) {
+            return String(localized: "RYFT can read \(row.signal.checkPhrase), but none came from \(app) in the last 2 days.")
+        }
+        // swiftlint:disable:next line_length
+        return String(localized: "RYFT doesn't see any \(row.signal.checkPhrase) in Apple Health. Either RYFT isn't allowed to read it, or \(app) isn't writing it.")
+    }
+
+    static func silent(app: String?) -> String {
+        guard let app else {
+            return String(localized: "No data from your tracker's app yet. Open it and let it sync, then tap Check again.")
+        }
+        return String(localized: "No data from \(app) yet. Open \(app) and let it sync, then tap Check again.")
+    }
+}
+
+/// What the last check found, for the signed-in account: codes only (design.md §4.7). Report a problem sends it
+/// as `sync_check`; Devices & sync (T2) reads it for "Last checked". `CachedDocument` "devices.check", wiped with
+/// the account's other documents on sign-out. Entries, not a dictionary: the cache's snake-case coder would rename
+/// dictionary keys.
+struct TrackerCheckRecord: Codable, Equatable, Sendable {
+    struct Entry: Codable, Equatable, Sendable {
+        let tracker: String
+        /// A `TrackerSignal` raw value, or "overall".
+        let signal: String
+        let code: String
+    }
+
+    static let documentKey = "devices.check"
+
+    let account: String
+    let at: Date
+    let entries: [Entry]
+
+    init(account: String, at: Date, checks: [TrackerCheck]) {
+        self.account = account
+        self.at = at
+        entries = checks.flatMap { check in
+            [Entry(tracker: check.trackerID, signal: "overall", code: check.overall.rawValue)]
+                + check.rows.compactMap { row in
+                    row.check.code.map { Entry(tracker: check.trackerID, signal: row.signal.rawValue, code: $0) }
+                }
+        }
+    }
+
+    /// "checked 2026-10-22", then per tracker "garmin needs_fix heart_rate=arrived hrv=not_shared …": ids and codes,
+    /// the check's day, never a time of day or a source's name.
+    var lines: [String] {
+        var order: [String] = []
+        var byTracker: [String: [Entry]] = [:]
+        for entry in entries {
+            if byTracker[entry.tracker] == nil { order.append(entry.tracker) }
+            byTracker[entry.tracker, default: []].append(entry)
+        }
+        return ["checked \(DayFormat.string(from: at))"] + order.map { tracker in
+            let list = byTracker[tracker] ?? []
+            let overall = list.first { $0.signal == "overall" }?.code ?? "-"
+            return ([tracker, overall] + list.filter { $0.signal != "overall" }.map { "\($0.signal)=\($0.code)" })
+                .joined(separator: " ")
+        }
+    }
+
+    /// The signed-in account's last check; nothing in demo mode or for another account.
+    @MainActor static func load(_ env: AppEnvironment) -> TrackerCheckRecord? {
+        guard !env.isDemo, let account = env.auth.accountID,
+              let record = env.persistence.document(Self.self, key: documentKey), record.account == account else { return nil }
+        return record
+    }
+}
+
+/// Check sync (ui.md §5): the selected trackers, what HealthKit has from each in the last 48 h, and the fix for
+/// what's missing. Only the user starts it, in the foreground: on appearance and with Check again. The reads run in
+/// `HealthProbe`, off the main actor.
+@MainActor
+@Observable
+final class TrackerCheckModel {
+    enum Phase: Equatable {
+        case idle, running, done
+        /// RYFT never asked for Health access (D2 K9).
+        case notAsked
+        /// No Apple Health on this device.
+        case unavailable
+        /// The phone is locked (protected data): unlock and check again.
+        case locked
+        case failed
+    }
+
+    let catalog: TrackerCatalog
+    /// The selection, in its order; without one, the trackers seen in Apple Health once the check ran.
+    private(set) var trackers: [Tracker]
+    private(set) var phase: Phase = .idle
+    private(set) var checks: [TrackerCheck]
+    /// Types RYFT sees from any source but itself.
+    private(set) var visible: Set<HealthStream> = []
+    private(set) var checkedAt: Date?
+
+    @ObservationIgnored private let env: AppEnvironment
+    @ObservationIgnored private let health: HealthStore
+    @ObservationIgnored private var started = false
+
+    /// `trackers`: catalog ids (`TrackerSelectionStore.trackers` once T2 lands); unknown ids are dropped.
+    init(env: AppEnvironment, health: HealthStore, trackers ids: [String], catalog: TrackerCatalog? = nil) {
+        let catalog = catalog ?? env.trackerCatalog
+        var seen = Set<String>()
+        let chosen = ids.filter { seen.insert($0).inserted }.compactMap(catalog.tracker)
+        self.env = env
+        self.health = health
+        self.catalog = catalog
+        trackers = chosen
+        checks = chosen.map(TrackerCheckRules.waiting)
+    }
+
+    /// The one place that picks the store: in demo mode the `-RyftSyncCheck` scenario's (Debug), else the
+    /// Garmin-like or Apple Watch one, never this iPhone's Health; otherwise `env.health`.
+    static func make(env: AppEnvironment, trackers: [String]) -> TrackerCheckModel {
+        guard env.isDemo else { return TrackerCheckModel(env: env, health: env.health, trackers: trackers) }
+        let requested = SyncCheckScenario.requested
+        let scenario = requested ?? (trackers.contains("garmin") ? .garmin : .appleWatch)
+        return TrackerCheckModel(env: env, health: scenario.store(now: env.clock.now()),
+                                 trackers: requested?.trackers ?? trackers)
+    }
+
+    var isRunning: Bool { phase == .running }
+    var now: Date { env.clock.now() }
+    var expected: Int { checks.reduce(0) { $0 + $1.expected } }
+    var arriving: Int { checks.reduce(0) { $0 + $1.arriving } }
+    var needsFix: Int { checks.reduce(0) { $0 + $1.needsFix } }
+    /// The strong hint (§4.5): not one type visible, not even the iPhone's steps, so RYFT *may* not be allowed to
+    /// read at all. Never "is".
+    var mayNotRead: Bool { phase == .done && visible.isEmpty }
+    /// K7, last on the screen: whenever a tracker is silent or has an unexpected gap.
+    var showsPermissionCard: Bool {
+        phase == .done && (mayNotRead || checks.contains { $0.overall == .silent || $0.needsFix > 0 })
+    }
+
+    /// On appearance: once per screen.
+    func start(stagger: Bool) async {
+        guard !started else { return }
+        await run(stagger: stagger)
+    }
+
+    /// Reads HealthKit and classifies. `stagger` shows the rows top-down, 150 ms apart (off under Reduce Motion).
+    func run(stagger: Bool = false) async {
+        guard phase != .running else { return }
+        started = true
+        guard health.isAvailable else { phase = .unavailable; return }
+        guard await health.accessStatus() != .notAsked else { phase = .notAsked; return }
+        phase = .running
+        checks = trackers.map { tracker in
+            var check = TrackerCheckRules.waiting(tracker)
+            for i in check.rows.indices { check.rows[i].check = .checking }
+            return check
+        }
+        let now = env.clock.now()
+        do {
+            let found = try await HealthProbe(health: health)
+                .run(TrackerCheckRules.streams, since: now.addingTimeInterval(-TrackerCheckRules.window))
+            visible = found.visible
+            if trackers.isEmpty { trackers = TrackerCheckRules.seen(found.samples, catalog: catalog, now: now) }
+            let results = trackers.map {
+                TrackerCheckRules.classify($0, samples: found.samples, visible: found.visible, now: now,
+                                           catalog: catalog, alongside: trackers)
+            }
+            if stagger, checks.count == results.count { await reveal(results) }
+            checks = results
+            checkedAt = now
+            phase = .done
+            results.forEach { HealthProbe.logDrift(tracker: $0.trackerID, signals: $0.drift) }
+            save(results, at: now)
+        } catch {
+            checks = trackers.map(TrackerCheckRules.waiting)
+            phase = ProtectedData.isLocked(error) ? .locked : .failed
+        }
+    }
+
+    /// K9's Allow access: the system prompt, then the check.
+    func requestAccess() async {
+        try? await health.requestAuthorization()
+        await run()
+    }
+
+    /// Each row's result 150 ms after its predecessor's, so the list reads top-down; a cancelled screen skips it.
+    private func reveal(_ results: [TrackerCheck]) async {
+        for (i, result) in results.enumerated() {
+            for row in result.rows {
+                guard let j = checks[i].rows.firstIndex(where: { $0.signal == row.signal }) else { continue }
+                guard (try? await env.clock.sleep(for: .milliseconds(150))) != nil else { return }
+                checks[i].rows[j].check = row.check
+            }
+        }
+    }
+
+    private func save(_ results: [TrackerCheck], at date: Date) {
+        guard !env.isDemo, let account = env.auth.accountID else { return }
+        env.persistence.saveDocument(TrackerCheckRecord(account: account, at: date, checks: results),
+                                     key: TrackerCheckRecord.documentKey, at: date)
+    }
+
+    /// Previews and screenshots: the screen in one state, without reading.
+    func stage(_ phase: Phase, checks: [TrackerCheck]? = nil, visible: Set<HealthStream>? = nil) {
+        started = true
+        self.phase = phase
+        if let checks { self.checks = checks }
+        if let visible { self.visible = visible }
+        if phase == .running {
+            self.checks = trackers.map { tracker in
+                var check = TrackerCheckRules.waiting(tracker)
+                for i in check.rows.indices where i < 3 { check.rows[i].check = i < 2 ? .arrived(now) : .checking }
+                return check
+            }
+        }
+    }
+}
+
 // MARK: - report a problem
 
 /// What a report is about when it comes from an error's Details (ui.md §5.3: the chip and the prefill).
@@ -749,7 +1241,8 @@ enum FeedbackPayload {
     /// The last requests sent along (`APIStatus` keeps as many).
     static let maxRequests = 20
     /// Every key `diagnostics` may carry.
-    static let keys: Set<String> = ["requests", "resources", "sync", "gates", "flags", "locale", "report_context"]
+    static let keys: Set<String> = ["requests", "resources", "sync", "gates", "flags", "locale", "report_context",
+                                    "sync_check"]
 
     /// Characters as the platform counts them (Unicode scalars: Go's runes).
     static func length(_ text: String) -> Int { text.unicodeScalars.count }
@@ -758,7 +1251,8 @@ enum FeedbackPayload {
     static func make(message: String, category: FeedbackCategory, includeDiagnostics: Bool,
                      requests: [APIStatus.RequestFailure], resources: [ReadResource: ResourceState] = [:],
                      sync: FeedbackSync, gates: Set<APIErrorCode>,
-                     flags: [String: Bool], context: ReportContext?, about: FeedbackAbout) -> FeedbackPost {
+                     flags: [String: Bool], context: ReportContext?, about: FeedbackAbout,
+                     syncCheck: [String]? = nil) -> FeedbackPost {
         let text = clipped(message.trimmingCharacters(in: .whitespacesAndNewlines), to: maxMessage)
         // Off: nothing is attached but the message (ui.md §5.2).
         guard includeDiagnostics else { return FeedbackPost(message: text, category: category) }
@@ -770,7 +1264,7 @@ enum FeedbackPayload {
                             requestIds: requestIDs(context: context, requests: requests, resources: resources),
                             diagnostics: diagnostics(requests: requests, resources: resources, sync: sync,
                                                      gates: gates, flags: flags, context: context,
-                                                     locale: about.locale))
+                                                     locale: about.locale, syncCheck: syncCheck))
     }
 
     /// The context's ID first, then the failed requests' IDs (newest first), then the resources' last errors'
@@ -821,11 +1315,12 @@ enum FeedbackPayload {
     }
 
     // swiftlint:disable function_parameter_count
-    /// The allow-list: `requests` (newest first), `resources`, `sync`, `gates`, `flags`, `locale` and, from an
-    /// error's Details, `report_context`. Over 32 KiB the oldest requests go first, then resources and sync.
+    /// The allow-list: `requests` (newest first), `resources`, `sync`, `gates`, `flags`, `locale`, from an error's
+    /// Details `report_context`, and after a Check sync `sync_check` (`TrackerCheckRecord.lines`: tracker ids and
+    /// result codes). Over 32 KiB the oldest requests go first, then resources and sync.
     static func diagnostics(requests: [APIStatus.RequestFailure], resources: [ReadResource: ResourceState],
                             sync: FeedbackSync, gates: Set<APIErrorCode>, flags: [String: Bool],
-                            context: ReportContext?, locale: String) -> [String: String] {
+                            context: ReportContext?, locale: String, syncCheck: [String]? = nil) -> [String: String] {
         // swiftlint:enable function_parameter_count
         var base = [
             "gates": gates.isEmpty ? "-" : gates.map(\.rawValue).sorted().joined(separator: ","),
@@ -836,6 +1331,7 @@ enum FeedbackPayload {
             base["report_context"] = [context.resource, context.statusText, context.requestID ?? "-"]
                 .joined(separator: " · ")
         }
+        if let syncCheck, !syncCheck.isEmpty { base["sync_check"] = syncCheck.joined(separator: "\n") }
         let syncText = syncLines(sync).joined(separator: "\n")
         let resourcesText = resourceLines(resources).joined(separator: "\n")
         func assembled(_ lines: [String]) -> [String: String] {
@@ -1075,7 +1571,8 @@ final class ReportProblemModel {
         FeedbackPayload.make(message: message, category: category, includeDiagnostics: includeDiagnostics,
                              requests: apiStatus.requests, resources: includeDiagnostics ? resources() : [:],
                              sync: includeDiagnostics ? sync() : FeedbackSync(),
-                             gates: apiStatus.gates, flags: flagValues, context: context, about: .current)
+                             gates: apiStatus.gates, flags: flagValues, context: context, about: .current,
+                             syncCheck: includeDiagnostics ? TrackerCheckRecord.load(env)?.lines : nil)
     }
 
     private var flagValues: [String: Bool] {
