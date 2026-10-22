@@ -1329,8 +1329,10 @@ struct RefreshPolicyTests {
         let since = now.addingTimeInterval(-3 * 3600)
         var f = TodaySyncFacts(now: now)
         f.syncs = false
-        #expect(TodayStates.line(f, staleSince: since, cardShown: false) == .stale(since: since, offersRetry: true))
-        #expect(TodayStates.line(f, staleSince: since, cardShown: true) == .stale(since: since, offersRetry: false))
+        #expect(TodayStates.line(f, staleSince: since) == .stale(since: since, offersRetry: true))
+        // The card is on screen (last on Today): the line points to it instead.
+        #expect(TodayStates.line(f, staleSince: since, card: .today) == .issue(.today))
+        #expect(TodayStates.line(f, card: .history) == .issue(.history))
         f.isLoading = true
         #expect(TodayStates.line(f, staleSince: since) == .updating)
         f.isLoading = false

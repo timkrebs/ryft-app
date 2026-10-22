@@ -10,6 +10,8 @@ struct TodayView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var model: TodayViewModel { screens.today }
+    /// The error card's scroll target (the status line's "Couldn't load today · Details").
+    static let issueCardID = "today.refreshIssue"
     @State private var showsJournal = false
     /// Counts scores that landed while the night was pending: one success haptic each.
     @State private var landed = 0
@@ -84,6 +86,12 @@ struct TodayView: View {
                 .task(id: model.lastUpdated) {
                     await screens.journal.load()
                     await screens.journal.loadDay(screens.journal.yesterday)
+                }
+                // "Couldn't load today · Details": the card is last on Today; bring it into view.
+                .onChange(of: model.scrollToIssue) {
+                    withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.standard)) {
+                        proxy.scrollTo(Self.issueCardID, anchor: .bottom)
+                    }
                 }
                 // Each mark scrolls its target into view.
                 .onChange(of: model.coachMarks.step) { _, step in
@@ -203,6 +211,7 @@ struct TodayView: View {
             InlineMessage(message: notice, systemImage: "clock.arrow.circlepath")
         case .refreshIssue(let issue):
             RefreshIssueCard(issue: issue, retry: { await model.refresh() }, signIn: { await model.signIn() })
+                .id(Self.issueCardID)
         case .syncPaused(let message, let details):
             InlineMessage(message: message, systemImage: "heart.text.square", details: details,
                           retry: { await model.refresh() })

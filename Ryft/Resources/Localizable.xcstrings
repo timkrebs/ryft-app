@@ -658,6 +658,39 @@
         }
       }
     },
+    "Couldn't load today · Details" : {
+      "comment" : "Today's status line while the error card about today is shown (last on Today); tapping scrolls to the card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heute konnte nicht geladen werden · Details"
+          }
+        }
+      }
+    },
+    "Couldn't load your data · Details" : {
+      "comment" : "Today's status line while the error card is shown for another part of the data; tapping scrolls to the card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Daten konnten nicht geladen werden · Details"
+          }
+        }
+      }
+    },
+    "Couldn't load your history · Details" : {
+      "comment" : "Today's status line while the error card about the score history is shown; tapping scrolls to the card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Verlauf konnte nicht geladen werden · Details"
+          }
+        }
+      }
+    },
     "Counts, dates and request IDs for support; no health data" : {
       "localizations" : {
         "de" : {
@@ -1778,6 +1811,17 @@
         }
       }
     },
+    "RYFT sent an answer this version of the app can't read." : {
+      "comment" : "Error when the platform's answer can't be decoded (status 200 and request ID are kept in Details).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT hat eine Antwort geschickt, die diese App-Version nicht lesen kann."
+          }
+        }
+      }
+    },
     "RYFT stops syncing and scoring your health data. Nothing is deleted: your scores stay readable, and you can export your data or delete your account at any time." : {
       "localizations" : {
         "de" : {
@@ -1974,6 +2018,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zeigt, wie sich dein Schlafbedarf zusammensetzt, und deinen Grundbedarf zum Ändern"
+          }
+        }
+      }
+    },
+    "Shows what couldn't load" : {
+      "comment" : "VoiceOver hint of Today's status line while it points to the error card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt, was nicht geladen werden konnte"
           }
         }
       }

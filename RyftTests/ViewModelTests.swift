@@ -98,8 +98,8 @@ struct TodayViewModelTests {
             return
         }
         #expect(issue.resource == .today && issue.dataFrom == loaded && issue.failures == 3)
-        // One "Try again" on screen: the card's.
-        #expect(vm.syncLine == .stale(since: loaded!, offersRetry: false))
+        // One "Try again" on screen, the card's; the line points to the card (last on Today).
+        #expect(vm.syncLine == .issue(.today))
     }
 
     @Test func offlineShowsThePillAndRequestsNothing() async {

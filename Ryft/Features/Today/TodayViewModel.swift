@@ -93,11 +93,18 @@ final class TodayViewModel {
         return nil
     }
 
-    /// The calm error card is on screen: the status line then drops its own "Try again".
-    var showsRefreshIssue: Bool {
-        if case .refreshIssue = status { return true }
-        return false
+    /// The calm error card is on screen: the status line then points to it instead of offering its
+    /// own "Try again".
+    var showsRefreshIssue: Bool { refreshIssueResource != nil }
+
+    /// The resource the card is about, while it's on screen.
+    var refreshIssueResource: ReadResource? {
+        if case .refreshIssue(let issue) = status { return issue.resource }
+        return nil
     }
+
+    /// Bumped when the line's "Couldn't load today · Details" is tapped: Today scrolls to the card.
+    private(set) var scrollToIssue = 0
 
     /// Sync details as a sheet from Today (the status line's tap).
     var showsSyncDetails = false
@@ -151,7 +158,7 @@ final class TodayViewModel {
     var hero: TodayHero { TodayStates.hero(facts) }
     /// The import's slim row under the header, once a day is scored and the backfill goes on.
     var importRow: ImportProgress? { TodayStates.importRow(facts) }
-    var syncLine: SyncLine { TodayStates.line(facts, staleSince: state.staleSince, cardShown: showsRefreshIssue) }
+    var syncLine: SyncLine { TodayStates.line(facts, staleSince: state.staleSince, card: refreshIssueResource) }
     var watchHint: WatchSyncHint? { TodayStates.watchHint(facts) }
     /// Last night from Apple Health beside the pending gauge (raw totals, not a score).
     var rawNight: RawNight? {
@@ -177,6 +184,7 @@ final class TodayViewModel {
         switch syncLine {
         case .actionNeeded(let step): resolve(step)
         case .waitingForUnlock: break
+        case .issue: scrollToIssue += 1
         default: showsSyncDetails = true
         }
     }
@@ -350,6 +358,9 @@ enum SyncLine: Equatable {
     /// (`RefreshPolicy.staleSince`): "Showing data from 14:05 · Try again". `offersRetry` is false
     /// while the error card (which has its own Try again) is on screen.
     case stale(since: Date, offersRetry: Bool)
+    /// The error card is on screen, last on Today: "Couldn't load today · Details" points to it
+    /// (tapping scrolls there).
+    case issue(ReadResource)
     /// The upload failed; the message under the cards says why.
     case paused
     case upToDate(Date?, demo: Bool)
@@ -364,6 +375,7 @@ enum SyncLine: Equatable {
         case .scoring: return "waveform.path.ecg"
         case .updating: return "arrow.triangle.2.circlepath"
         case .stale: return "clock"
+        case .issue: return "exclamationmark.circle"
         case .paused: return "exclamationmark.circle"
         case .upToDate: return "checkmark.circle"
         }
@@ -389,6 +401,9 @@ enum SyncLine: Equatable {
         case .scoring(night: false): return String(localized: "Scoring your latest data")
         case .updating: return String(localized: "Updating…")
         case .stale(let since, _): return String(localized: "Showing data from \(Self.dataTime(since, now: now))")
+        case .issue(.today): return String(localized: "Couldn't load today · Details")
+        case .issue(.history): return String(localized: "Couldn't load your history · Details")
+        case .issue: return String(localized: "Couldn't load your data · Details")
         case .paused: return String(localized: "Health sync paused")
         case .upToDate(let date, let demo):
             let prefix = demo ? String(localized: "Demo data · ") : ""
@@ -494,8 +509,8 @@ enum TodayStates {
 
     /// What the line says, most urgent first: the user's to do, then why nothing moves,
     /// then what moves, then how fresh it is. `staleSince` (`RefreshPolicy`) only shows when
-    /// idle; `cardShown`: the error card owns "Try again".
-    static func line(_ f: TodaySyncFacts, staleSince: Date? = nil, cardShown: Bool = false) -> SyncLine {
+    /// idle; while the error card is on screen (`card`), the line points to it instead.
+    static func line(_ f: TodaySyncFacts, staleSince: Date? = nil, card: ReadResource? = nil) -> SyncLine {
         if let gate = f.gate { return .actionNeeded(gate) }
         if !f.online { return .offline }
         if f.waitingForUnlock { return .waitingForUnlock }
@@ -508,7 +523,8 @@ enum TodayStates {
         if case .pending = hero(f) { night = true } else { night = false }
         if f.phase == .awaitingScores { return .scoring(night: night) }
         if f.phase == .refreshing || f.isLoading { return .updating }
-        if let since = staleSince { return .stale(since: since, offersRetry: !cardShown) }
+        if let card { return .issue(card) }
+        if let since = staleSince { return .stale(since: since, offersRetry: true) }
         if f.syncFailed { return .paused }
         if case .pending(let p) = hero(f), !p.waitingForSleep { return .scoring(night: true) }
         return .upToDate(f.lastUpdated, demo: f.isDemo)

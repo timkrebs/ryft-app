@@ -45,85 +45,96 @@ struct InlineMessage: View {
     @State private var showDetails = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
+    private var hasButtons: Bool { retry != nil || details != nil || onDetails != nil }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Theme.textSecondary)
-                .padding(.top, 1)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 8) {
-                Text(message)
-                    .font(.ryft(.callout))
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let caption {
-                    Text(caption)
-                        .font(.ryft(.caption))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.textTertiary)
+                    .padding(.top, 1)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(message)
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-                }
-                if retry != nil || details != nil || onDetails != nil {
-                    let layout = typeSize.isAccessibilitySize
-                        ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0)) : AnyLayout(HStackLayout(spacing: 18))
-                    layout {
-                        if let retry {
-                            Button {
-                                Task {
-                                    retrying = true
-                                    await retry()
-                                    retrying = false
-                                }
-                            } label: {
-                                if retrying || isRetrying, let retryingTitle {
-                                    Text(retryingTitle).font(.ryft(.callout)).foregroundStyle(Theme.textTertiary)
-                                } else if retrying || isRetrying {
-                                    ProgressView().controlSize(.small).tint(Theme.accent)
-                                } else {
-                                    Text(retryTitle).font(.ryft(.callout)).foregroundStyle(Theme.accent)
-                                }
-                            }
-                            .frame(minHeight: 44)
-                            .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil, alignment: .leading)
-                            .contentShape(Rectangle())
-                            .buttonStyle(.plain)
-                            .disabled(retrying || isRetrying)
-                        }
-                        if let onDetails {
-                            Button("Details", action: onDetails)
-                                .font(.ryft(.callout))
-                                .foregroundStyle(Theme.textSecondary)
-                                .frame(minHeight: 44)
-                                .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil, alignment: .leading)
-                                .contentShape(Rectangle())
-                                .buttonStyle(.plain)
-                                .accessibilityIdentifier("refreshIssue.details")
-                        } else if details != nil {
-                            Button(showDetails ? "Hide details" : "Details") { showDetails.toggle() }
-                                .font(.ryft(.callout))
-                                .foregroundStyle(Theme.textSecondary)
-                                .frame(minHeight: 44)
-                                .contentShape(Rectangle())
-                                .buttonStyle(.plain)
-                        }
+                    if let caption {
+                        Text(caption)
+                            .font(.ryft(.caption))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                if showDetails, let details {
-                    Text(details)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(Theme.textTertiary)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            // ui.md §3.2: the buttons start at the card's leading edge, 18 pt apart; stacked at AX sizes.
+            if hasButtons { buttons }
+            if showDetails, let details {
+                Text(details)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(Theme.textTertiary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .padding(14)
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        // A button row's 44 pt targets already leave room under their labels.
+        .padding(.bottom, hasButtons && !showDetails ? 2 : 14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
             .strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
+    }
+
+    /// Try again and Details: each at least 44 × 44 pt.
+    private var buttons: some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0)) : AnyLayout(HStackLayout(spacing: 18))
+        return layout {
+            if let retry {
+                Button {
+                    Task {
+                        retrying = true
+                        await retry()
+                        retrying = false
+                    }
+                } label: {
+                    if retrying || isRetrying, let retryingTitle {
+                        Text(retryingTitle).font(.ryft(.callout)).foregroundStyle(Theme.textTertiary)
+                    } else if retrying || isRetrying {
+                        ProgressView().controlSize(.small).tint(Theme.accent)
+                    } else {
+                        Text(retryTitle).font(.ryft(.callout)).foregroundStyle(Theme.accent)
+                    }
+                }
+                .frame(minWidth: 44, minHeight: 44)
+                .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil, alignment: .leading)
+                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .disabled(retrying || isRetrying)
+            }
+            if let onDetails {
+                Button("Details", action: onDetails)
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("refreshIssue.details")
+            } else if details != nil {
+                Button(showDetails ? "Hide details" : "Details") { showDetails.toggle() }
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+            }
+        }
     }
 }
 
@@ -251,6 +262,9 @@ struct SyncStatusLineView: View {
             .frame(maxWidth: .infinity)
         case .waitingForUnlock:
             label(now: now).foregroundStyle(Theme.textTertiary)
+        case .issue:
+            tappable(now: now, hint: "Shows what couldn't load")
+                .accessibilityIdentifier("today.syncLine.issue")
         default:
             tappable(now: now, hint: "Opens sync details")
         }
@@ -259,7 +273,7 @@ struct SyncStatusLineView: View {
     /// The line as one button (Sync details), or as text without an action.
     @ViewBuilder
     private func tappable(now: Date, hint: LocalizedStringKey) -> some View {
-        let color = current.isActive ? Theme.textSecondary : Theme.textTertiary
+        let color = current.isActive || current.isIssue ? Theme.textSecondary : Theme.textTertiary
         if let action {
             Button(action: action) {
                 label(now: now)
@@ -275,7 +289,8 @@ struct SyncStatusLineView: View {
     }
 
     private func label(now: Date) -> some View {
-        HStack(spacing: 6) {
+        // The icon sits on the first line when the text wraps.
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: current.systemImage)
                 .symbolEffect(.pulse, options: .repeating, isActive: current.isActive && !reduceMotion)
                 .accessibilityHidden(true)
@@ -304,6 +319,7 @@ struct SyncStatusLineView: View {
 
 extension SyncLine {
     var isStale: Bool { if case .stale = self { return true } else { return false } }
+    var isIssue: Bool { if case .issue = self { return true } else { return false } }
 }
 
 // MARK: - refresh issue (the calm error card and its Details)
@@ -389,6 +405,7 @@ struct RefreshDetailsSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.reportProblemDestination) private var reportProblem
+    @Environment(\.locale) private var locale
     @State private var copied = false
 
     var body: some View {
@@ -402,35 +419,10 @@ struct RefreshDetailsSheet: View {
                                       detail: issue.statusText == nil ? String(localized: "No response") : nil)
                             DetailRow(title: "Code", value: issue.error.code ?? "—", monospaced: true)
                             RequestIDRow(requestID: issue.error.requestID, answered: issue.error.status != nil)
-                            DetailRow(title: "Time", value: Self.time(issue.error.at))
-                            DetailRow(title: "Showing data from", value: issue.dataFrom.map(Self.time) ?? "—")
+                            DetailRow(title: "Time", value: Self.time(issue.error.at, locale: locale))
+                            DetailRow(title: "Showing data from",
+                                      value: issue.dataFrom.map { Self.time($0, locale: locale) } ?? "—")
                             DetailRow(title: "Failed in a row", value: issue.failures.formatted())
-                        }
-                    }
-                    VStack(spacing: 10) {
-                        if let reportProblem {
-                            NavigationLink {
-                                reportProblem(issue.resourceName, issue.statusText ?? issue.error.statusText,
-                                              issue.error.requestID)
-                            } label: {
-                                Text("Send to RYFT")
-                                    .font(.ryft(.callout))
-                                    .foregroundStyle(Theme.onAccent)
-                                    .frame(maxWidth: .infinity, minHeight: 44)
-                                    .background(Theme.accent, in: Capsule())
-                            }
-                            .buttonStyle(PressableButtonStyle())
-                        }
-                        PrimaryButton(title: copied ? "Copied" : "Copy details", style: .secondary) {
-                            UIPasteboard.general.string = issue.copyText
-                            copied = true
-                        }
-                        if reportProblem != nil {
-                            Text("Sends this and the last 20 requests. No health values.")
-                                .font(.ryft(.caption))
-                                .foregroundStyle(Theme.textTertiary)
-                                .multilineTextAlignment(.center)
-                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
@@ -438,6 +430,8 @@ struct RefreshDetailsSheet: View {
                 .padding(.vertical, 16)
             }
             .scrollIndicators(.hidden)
+            // Pinned: "Send to RYFT" (and Copy details) are reachable at the opening (medium) detent.
+            .safeAreaInset(edge: .bottom) { actions }
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle(Text("Details"))
             .navigationBarTitleDisplayMode(.inline)
@@ -451,10 +445,43 @@ struct RefreshDetailsSheet: View {
         .presentationDragIndicator(.visible)
     }
 
-    /// "14:07:12" today, else with the date.
-    static func time(_ date: Date) -> String {
-        Calendar.current.isDateInToday(date) ? date.formatted(date: .omitted, time: .standard)
-            : date.formatted(date: .abbreviated, time: .standard)
+    /// "Send to RYFT" (only once Report a problem is wired), "Copy details", and what's sent.
+    private var actions: some View {
+        VStack(spacing: 10) {
+            if let reportProblem {
+                NavigationLink {
+                    reportProblem(issue.resourceName, issue.statusText ?? issue.error.statusText, issue.error.requestID)
+                } label: {
+                    Text("Send to RYFT")
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.onAccent)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Theme.accent, in: Capsule())
+                }
+                .buttonStyle(PressableButtonStyle())
+            }
+            PrimaryButton(title: copied ? "Copied" : "Copy details", style: .secondary) {
+                UIPasteboard.general.string = issue.copyText
+                copied = true
+            }
+            if reportProblem != nil {
+                Text("Sends this and the last 20 requests. No health values.")
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textTertiary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, Theme.Metrics.screenPadding)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(Theme.background)
+    }
+
+    /// "14:07:12" today, else with the date; in the screen's locale (German shows 24-hour time).
+    static func time(_ date: Date, locale: Locale) -> String {
+        let today = Calendar.current.isDateInToday(date)
+        return date.formatted(Date.FormatStyle(date: today ? .omitted : .abbreviated, time: .standard, locale: locale))
     }
 }
 
@@ -497,19 +524,27 @@ private struct RequestIDRow: View {
     let answered: Bool
     @State private var copied = false
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Request ID")
-                .font(.ryft(.callout))
-                .foregroundStyle(Theme.textSecondary)
-            if let requestID {
-                HStack(alignment: .center, spacing: 8) {
+        if let requestID {
+            // One row (ui.md §3.4): the label, the ID as received, the copy button at the trailing edge.
+            // At AX sizes the ID and its button go under the label.
+            let layout = typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
+            layout {
+                Text("Request ID")
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize()
+                HStack(alignment: .center, spacing: 4) {
+                    Spacer(minLength: 0)
                     Text(verbatim: requestID)
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(Theme.textPrimary)
+                        .multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
                     Button(action: copy) {
                         Image(systemName: copied ? "checkmark" : "doc.on.doc")
                             .font(.system(size: 15, weight: .medium))
@@ -519,10 +554,17 @@ private struct RequestIDRow: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text(copied ? "Copied" : "Copy request ID"))
+                    // The glyph lines up with the other rows' values; its 44 pt target reaches into the padding.
+                    .padding(.trailing, -13)
                 }
-                .accessibilityElement(children: .combine)
-                .accessibilityAction(named: Text("Copy request ID"), copy)
-            } else {
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAction(named: Text("Copy request ID"), copy)
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Request ID")
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textSecondary)
                 Text("Not available")
                     .font(.ryft(.body))
                     .foregroundStyle(Theme.textPrimary)
