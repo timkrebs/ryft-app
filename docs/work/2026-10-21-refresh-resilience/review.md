@@ -359,3 +359,14 @@ fail-fast past the cap; nits; card/line accessibility containers.
   session it is (a slow refresh of A across a switch to B); move `forgetRequests()` into `AuthService.apply` to close the one-render
   gap. Plus a test for 401 refresh across `forgetRequests`.
 - Lead fix: `LateReplyURLProtocol.reset(_:)`, so a retried test starts from zero (ReportProblemTests green locally).
+
+### CI pattern (lead, honest tally)
+- UI smoke went red on the 60 s allowance in **4 of 7** runs of branches that contain #27 (#27: cd43ab2, f3403b3, 763f65e;
+  #31: 31b025c), and in **0 of 4** without it (#26 ×2, #28, #30). Re-runs and later commits passed (f3403b3 re-run, 96d0421,
+  ea6f2bc).
+- Each red run was read from its xcresult: crash-reporter sync stalls (2) and a starved runner running the walkthrough ~3× slow (2).
+  App CPU stays low, nothing crashed, and local per-tab timings with and without #27 match within ±0.2 s.
+- **Most likely:** #27 adds a little accessibility-tree and background load that only matters on a starved 3-core CI VM. **Not
+  proven either way.** Mitigation: **#30 (allowance 180 s), merged first.** If UI smoke still flakes on `main` after #30 and #27,
+  run the walkthrough on CI 10× with per-tap timings (`-test-iterations 10`) for a T1 build vs. a main build. That's a follow-up
+  in STATUS.

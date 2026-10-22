@@ -54,6 +54,8 @@ Plan, design note, UI spec and review log: `docs/work/2026-10-21-refresh-resilie
 - `lint-strings.py`: check `%#@token@` substitutions and English plurals.
 - The disclosure chevron renders white on iOS 26 (app-wide; ui-designer).
 - "App too old" card: ready, unshipped until the platform signals it (`API_REQUESTS.md` §3).
+- CI UI smoke: branches with #27 hit the 60 s allowance in 4 of 7 runs (infra symptoms each time, local timings equal). Merge
+  #30 first. If it still flakes on `main`, compare the walkthrough over 10 CI iterations, a #27 build vs. a main build.
 - `AuthService.token()` signs out on a session-ending refresh error without checking whose session it is (a slow refresh of
   account A across a switch to B); move `forgetRequests()` into `AuthService.apply` to close a one-render gap.
 - Convert `Ryft/` and `RyftTests/` to folders in Xcode (new types still go into existing files).
