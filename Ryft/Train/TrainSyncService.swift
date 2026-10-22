@@ -29,11 +29,22 @@ final class TrainSyncService {
     /// The replay in flight. It belongs to this service, not to whoever asked: a new set or Finish
     /// cancels the 2 s wait, never a request in flight.
     private var replay: Task<Void, Never>?
+    /// The running replay's identity: only it clears `replay` when it ends (not one an account
+    /// change or a wipe left behind).
+    private var replayID: UUID?
     /// The op being sent right now; a change meanwhile queues a fresh `put`.
     private var inFlightSeq: Int?
     private var flushAgain = false
-    /// Bumped by `accountChanged()`: an answer that arrives for the account before is dropped.
-    private(set) var generation = 0
+    /// Which account (`accountChanged()`) and which store contents (`TrainStore.wipe()`) a replay works
+    /// for: an answer that arrives after either moved is dropped. The wipe moves it at once, in the
+    /// sign-out itself, before the app's account-change handler runs.
+    struct Generation: Equatable {
+        let account: Int
+        let store: Int
+    }
+
+    private var accountCount = 0
+    var generation: Generation { Generation(account: accountCount, store: store.epoch) }
     /// Finish waits this long for the replay, then says "will sync" (the replay goes on).
     private let finishWait: Duration
     /// Off in tests: they drive "offline" through the stub URLProtocol instead.
@@ -95,11 +106,12 @@ final class TrainSyncService {
     /// Signed out or another account: the replay and the 2 s wait stop, and nothing of the previous
     /// account's shows (summary, error). An answer still in flight for it is dropped (`generation`).
     func accountChanged() {
-        generation += 1
+        accountCount += 1
         debounceTask?.cancel()
         debounceTask = nil
         replay?.cancel()
         replay = nil
+        replayID = nil
         isFlushing = false
         flushAgain = false
         inFlightSeq = nil
@@ -161,7 +173,7 @@ final class TrainSyncService {
             flushAgain = true
             return replay
         }
-        let generation = generation
+        let generation = generation, id = UUID()
         // Its own task: cancelling the caller (the debounce, Finish's view) can't cancel a PUT; only
         // `accountChanged()` does.
         let task = Task { [weak self] in
@@ -171,12 +183,14 @@ final class TrainSyncService {
                 await drain(generation)
             } while flushAgain && isOnline && generation == self.generation
             // Same main-actor step as the last check: nobody can join a replay that's over.
-            guard generation == self.generation else { return }
+            guard replayID == id else { return }
             flushAgain = false
             replay = nil
+            replayID = nil
             isFlushing = false
         }
         replay = task
+        replayID = id
         isFlushing = true
         return task
     }
@@ -196,7 +210,7 @@ final class TrainSyncService {
         }
     }
 
-    private func drain(_ generation: Int) async {
+    private func drain(_ generation: Generation) async {
         while generation == self.generation, let op = store.pendingOps().first {
             inFlightSeq = op.seq
             defer { inFlightSeq = nil }
@@ -238,7 +252,7 @@ final class TrainSyncService {
         }
     }
 
-    private func perform(_ op: PendingTrainOp, _ generation: Int) async throws {
+    private func perform(_ op: PendingTrainOp, _ generation: Generation) async throws {
         switch op.kind {
         case .put:
             guard let s = store.session(id: op.sessionId) else { return } // discarded meanwhile
@@ -265,7 +279,7 @@ final class TrainSyncService {
         }
     }
 
-    private func put(_ s: LocalSession, _ generation: Int) async throws {
+    private func put(_ s: LocalSession, _ generation: Generation) async throws {
         var doc = s.wire
         for _ in 0..<Self.maxConflictRounds {
             let result = try await remote.putSession(doc)

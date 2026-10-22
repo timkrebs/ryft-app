@@ -657,6 +657,8 @@ final class AuthService {
         Settings.shared.clearPerUserState()
         // Cached read models, logged sessions, the offline library and queued uploads are per account.
         TrainStore.shared.wipe()
+        // Its replay stops now, not when the app's account-change handler runs a runloop later.
+        TrainSyncService.shared.accountChanged()
         TrainLibrary.shared.wipe()
         RestActivityController.shared.end()
         // The lock screen must not keep showing this account's readiness.
