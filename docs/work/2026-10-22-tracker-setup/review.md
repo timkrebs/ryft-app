@@ -287,3 +287,18 @@ region regenerated with the `#` escaping).
   - at most 3 combining marks per grapheme;
   - `integration` pinned per id;
   - no bundle ID that belongs to another known tracker.
+
+### T2 fix batch: done (merges fb0b586 and cb8f580 onto T1 85c5368; 6e6246b, b9cada2, a30aed3, a5a0249), items 0–24
+Unit 830/830; UISmoke 14 passed, 1 skipped (`DevicesUITests` 5/5, `TodayStatesUITests` 4/4); lint green; zero warnings.
+- **Item 1 goes further than asked:** answers fetched before an account or demo switch are dropped (a generation
+  counter), and the Demo data toggle refetches.
+- **Item 10, changed:** no `ViewThatFits`. The picker measures each name's widest word against the tile's room and falls
+  back to one column. Unit-tested; the 375 pt check is with the code reviewer.
+- **Item 19:** "Open Health" with the path text only with the flag on. Flag off, Profile is as on main.
+- The `MockData` copy of the content is gone; previews use `.bundled`.
+
+PRs:
+- **#33** `fix: source names and the night-not-synced state` (T1 + T5 content), draft.
+  - CI failed once on the hostile-copy timing bound: over 1 s on the runner against 45 ms locally.
+  - The lead loosened the bound to 2 s, which still catches the quadratic check (adc270c).
+- **#34** `feat: tracker setup and devices & sync` (T2), a draft stacked on #33.
