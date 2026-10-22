@@ -44,6 +44,10 @@ final class AppState {
         if env.isDemo { todayScenario = UserDefaults.standard.string(forKey: "RyftScenario").flatMap(TodayScenario.init) }
         #endif
         dismissedInsightIDs = loadDismissed()
+        // Today's inputs follow the read record and the days in the store, not every read.
+        env.reads.onChange = { [weak self] change in self?.readsChanged(change) }
+        self.repository.onDaysChanged = { [weak self] in self?.readsChanged(.record) }
+        readsChanged(.record)
     }
 
     private var now: Date { env.clock.now() }
@@ -101,8 +105,24 @@ final class AppState {
     /// The reads behind Today's numbers; one of them in flight is "Updating…".
     private static let loadingResources: Set<ReadResource> = [.today, .history, .me, .syncStatus, .trends, .insights]
 
-    /// A read of today, history, me, sync status, trends or insights is in flight.
-    var isLoading: Bool { env.reads.inFlight.contains { Self.loadingResources.contains($0.resource) } }
+    /// A read of today, history, me, sync status, trends or insights is in flight. Stored, and set only
+    /// when it changes: a journal's, config's or Train's read doesn't touch Today.
+    private(set) var isLoading = false
+
+    /// What Today's card and stale line depend on (`RefreshPolicy.inputs`): today's and history's
+    /// states with their store times, and a final "signed out". Stored, replaced only when different;
+    /// `refreshIssue` and `staleSince` evaluate it against the time, without SwiftData in `body`.
+    private(set) var refreshInputs: [ReadResource: ResourceState] = [:]
+
+    /// The read record or the days changed: recompute what Today shows from them, once, and publish
+    /// only what differs (a read that started changes nothing but `isLoading`).
+    private func readsChanged(_ change: ReadScheduler.Change) {
+        let loading = env.reads.inFlight.contains { Self.loadingResources.contains($0.resource) }
+        if loading != isLoading { isLoading = loading }
+        guard change == .record else { return }
+        let inputs = RefreshPolicy.inputs(resourceStates)
+        if inputs != refreshInputs { refreshInputs = inputs }
+    }
 
     /// Pull to refresh: phases 2 and 3 of the last pull (tests await them).
     @ObservationIgnored private(set) var pullPhases: Task<Void, Never>?
@@ -244,7 +264,9 @@ final class AppState {
     /// What the read pipeline knows per resource. Today's `fetchedAt` is the current day's row's
     /// (exact across midnight and relaunches); history's is the later of the record's and the
     /// store's newest past score, so a cache from before the record isn't "never loaded".
+    /// Two SwiftData fetches: for Sync details and `readsChanged`, never in Today's `body`.
     var resourceStates: [ReadResource: ResourceState] {
+        _ = env.reads.revision                  // Sync details re-renders when the record changes
         var states = env.reads.states
         states[.today, default: ResourceState()].fetchedAt = repository.detailFetchedAt(todayKey)
         if let stored = repository.newestPastScoreFetchedAt(before: todayKey) {
@@ -259,13 +281,13 @@ final class AppState {
     /// The calm card on Today, or nil (`RefreshPolicy.issue`).
     var refreshIssue: RefreshIssue? {
         guard hasDataSource else { return nil }
-        return RefreshPolicy.issue(for: resourceStates, now: now, online: readsOnline)
+        return RefreshPolicy.issue(for: refreshInputs, now: now, online: readsOnline)
     }
 
     /// "Showing data from 14:05" on the status line, or nil (`RefreshPolicy.staleSince`).
     var staleSince: Date? {
         guard hasDataSource else { return nil }
-        return RefreshPolicy.staleSince(for: resourceStates, now: now, online: readsOnline)
+        return RefreshPolicy.staleSince(for: refreshInputs, now: now, online: readsOnline)
     }
 
     /// Forget what's shown (account changed, demo mode switched): reads in flight stop, their
@@ -275,6 +297,7 @@ final class AppState {
         pullPhases?.cancel()
         env.reads.reset()
         if isDemo { repository.clear() } else { repository.invalidate() }
+        readsChanged(.record)
     }
 
     /// Signed out, signed in, or another account (`auth.accountID` changed from `old`). Leaving an
@@ -424,6 +447,16 @@ struct RefreshIssue: Equatable, Sendable {
 /// Under the thresholds a failure changes nothing on screen; offline is never an error.
 enum RefreshPolicy {
     static let failuresBeforeIssue = 3
+
+    /// The part of the record `issue` and `staleSince` read: today, history, and any resource whose
+    /// last answer says the person can act (signed out, an outdated app). Other resources' reads
+    /// change nothing here, so Today doesn't re-render for them.
+    static func inputs(_ states: [ReadResource: ResourceState]) -> [ReadResource: ResourceState] {
+        states.filter { resource, state in
+            resource == .today || resource == .history
+                || (state.consecutiveFailures >= 1 && (state.lastError?.kind == .signedOut || state.lastError?.kind == .appTooOld))
+        }
+    }
     /// What's on screen counts as stale after this long without a successful fetch.
     static let staleAfter: [ReadResource: TimeInterval] = [.today: 2 * 3600, .history: 24 * 3600]
 

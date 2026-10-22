@@ -17,6 +17,8 @@ protocol Persistence: AnyObject {
     /// Small keyed documents (`CachedDocument`), wiped with the rest.
     func document<T: Decodable>(_ type: T.Type, key: String) -> T?
     func saveDocument<T: Encodable>(_ value: T, key: String, at date: Date)
+    /// The same, for a document encoded elsewhere (off the main actor).
+    func saveDocumentData(_ data: Data, key: String, at date: Date)
     func removeDocument(key: String)
 }
 

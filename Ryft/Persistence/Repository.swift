@@ -372,6 +372,10 @@ final class Repository {
         forget(kinds)
     }
 
+    /// The days changed (a score or a day's detail stored, the cache cleared): AppState recomputes
+    /// what Today's card and stale line read from them.
+    @ObservationIgnored var onDaysChanged: (() -> Void)?
+
     private func forget(_ kinds: [Kind]) {
         for kind in kinds {
             let prefix = kind.rawValue + "."
@@ -385,6 +389,7 @@ final class Repository {
             case .workouts: workoutsRevision += 1
             }
         }
+        if kinds.contains(.days) { onDaysChanged?() }
     }
 
     private func row(for key: String) -> CachedDay {
@@ -829,8 +834,19 @@ struct ResourceState: Codable, Equatable, Sendable {
 @MainActor
 @Observable
 final class ReadScheduler {
-    private(set) var states: [ReadResource: ResourceState] = [:]
-    private(set) var inFlight: Set<ReadKey> = []
+    /// Not observed: every read changes these (a journal's, config's or Train's too). Screens read
+    /// what they need through `onChange` (AppState's stored summary) or `revision` (Sync details).
+    @ObservationIgnored private(set) var states: [ReadResource: ResourceState] = [:]
+    @ObservationIgnored private(set) var inFlight: Set<ReadKey> = []
+    /// Bumped when the record changes (a read landed, a reset): what Sync details observes.
+    private(set) var revision = 0
+    /// What changed: `.inFlight` when a read started, `.record` when one landed or the record was
+    /// replaced. AppState recomputes Today's inputs from it.
+    enum Change { case inFlight, record }
+    @ObservationIgnored var onChange: ((Change) -> Void)?
+    /// The record waits this long for more changes before it's saved: one save per pull, not six.
+    static let persistDelay: Duration = .milliseconds(1500)
+    @ObservationIgnored private var pendingSave: Task<Void, Never>?
     /// Jitter source; tests set a fixed one.
     @ObservationIgnored var random: @Sendable (ClosedRange<Double>) -> Double = { .random(in: $0) }
     /// Admission for every try; tests may swap in their own limits.
@@ -951,18 +967,28 @@ final class ReadScheduler {
             flight.outcome.resolve(.failure(CancellationError()))
             flight.followUp?.resolve(.failure(CancellationError()))
         }
+        changed(.record)
     }
 
     /// Another account, a sign-in or demo data: reads in flight stop, and what's known is the
-    /// signed-in account's own record (none for demo data).
+    /// signed-in account's own record (none for demo data). A save still pending is the old one's.
     func reset() {
+        pendingSave?.cancel()
+        pendingSave = nil
         cancelAll()
         states = load()
+        changed(.record)
     }
 
     /// Replaces what's known (previews, tests); nothing is sent or persisted.
     func seed(_ states: [ReadResource: ResourceState]) {
         self.states = states
+        changed(.record)
+    }
+
+    private func changed(_ change: Change) {
+        if change == .record { revision += 1 }
+        onChange?(change)
     }
 
     /// Copy diagnostics: one line per resource, no health values.
@@ -996,6 +1022,7 @@ final class ReadScheduler {
         let account = env?.auth.accountID
         flights[key] = flight
         inFlight.insert(key)
+        changed(.inFlight)
         // Inherits the task-locals (`runsInBackground`); never detached.
         flight.task = Task { [weak self] in
             let result: Result<(any Sendable)?, Error>
@@ -1044,6 +1071,7 @@ final class ReadScheduler {
         guard flights[key]?.id == id else { return }
         flights[key] = nil
         inFlight.remove(key)
+        changed(.record)
     }
 
     private static func erase<T: Sendable>(_ store: (@MainActor (T) -> Void)?) -> Store? {
@@ -1108,7 +1136,10 @@ final class ReadScheduler {
     private func succeeded(_ resource: ReadResource) {
         let now = clock.now()
         var s = states[resource] ?? ResourceState()
-        let moved = s.fetchedAt.map { now.timeIntervalSince($0) > 60 } ?? true
+        // Today's and history's times live in their SwiftData rows (AppState.resourceStates): only a
+        // change of failures is worth a save for them.
+        let moved = !Self.storeOwnsFetchedAt.contains(resource)
+            && (s.fetchedAt.map { now.timeIntervalSince($0) > 60 } ?? true)
         let changed = s.consecutiveFailures != 0 || s.retryNotBefore != nil
         s.fetchedAt = now
         s.consecutiveFailures = 0
@@ -1129,12 +1160,34 @@ final class ReadScheduler {
         persist()
     }
 
+    /// Resources whose `fetchedAt` the store already keeps (`detailFetchedAt`, `scoreFetchedAt`).
+    private static let storeOwnsFetchedAt: Set<ReadResource> = [.today, .history]
+
     /// The signed-in account's record survives a force-quit (a report sent afterwards still says
-    /// what failed); demo data and a signed-out record never persist.
+    /// what failed); demo data and a signed-out record never persist. One save per `persistDelay`
+    /// (real time, not the app clock: it's housekeeping, not behaviour).
     private func persist() {
+        guard let env, !env.isDemo, env.auth.accountID != nil, pendingSave == nil else { return }
+        pendingSave = Task { [weak self] in
+            try? await Task.sleep(for: Self.persistDelay)
+            guard !Task.isCancelled else { return }
+            await self?.savePending()
+        }
+    }
+
+    /// Saves the record now (the pending save fires this; tests call it). Encoded off the main actor.
+    func savePending() async {
+        pendingSave?.cancel()
+        pendingSave = nil
         guard let env, !env.isDemo, let account = env.auth.accountID else { return }
-        let states = Dictionary(uniqueKeysWithValues: states.map { ($0.key.rawValue, $0.value) })
-        env.persistence.saveDocument(Saved(account: account, states: states), key: Self.documentKey, at: clock.now())
+        let saved = Saved(account: account, states: Dictionary(uniqueKeysWithValues: states.map { ($0.key.rawValue, $0.value) }))
+        guard let data = await Self.encode(saved), env.auth.accountID == account else { return }
+        env.persistence.saveDocumentData(data, key: Self.documentKey, at: clock.now())
+    }
+
+    @concurrent
+    private static func encode(_ saved: Saved) async -> Data? {
+        WireCoding.encode(saved)
     }
 
     /// The signed-in account's own record; another account's (or an older format) is ignored. A
