@@ -2432,7 +2432,9 @@ struct TrackerCatalogGuardTests {
         await store.load()
 
         #expect(store.current == .bundled && store.lastFailure == "crashed")
-        #expect(cached(env)?.body == nil && cached(env)?.etag == nil && cached(env)?.refused == [hash])
+        #expect(cached(env)?.body == nil && cached(env)?.etag == nil)
+        let refusedFile = env.contentDirectory.appendingPathComponent(TrackerCatalogStore.refusedName)
+        #expect(TrackerCatalogStore.refusedHashes(at: refusedFile) == [hash])
         #expect(!FileManager.default.fileExists(atPath: marker.path))
         #expect(!store.isDue(at: clock.now())) // a failure: an hour's wait
 
@@ -2445,6 +2447,27 @@ struct TrackerCatalogGuardTests {
         await store.refreshIfDue()
         #expect(store.current.version == version(days: 1, 2) && store.lastFailure == nil)
         #expect(!FileManager.default.fileExists(atPath: marker.path)) // gone after every decode
+    }
+
+    /// Sign-out wipes the cache, never the refused hashes: a body that crashed the decoder stays refused unread.
+    @Test func aRefusedBodyStaysRefusedAfterSignOut() async throws {
+        let (store, content, _, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} }
+        let poison = try catalogBody(version: version(days: 1))
+        TrackerCatalogStore.mark(env.contentDirectory.appendingPathComponent(TrackerCatalogStore.markerName),
+                                 hash: TrackerCatalogStore.hash(poison))
+        await store.load()
+        #expect(store.lastFailure == "crashed")
+
+        env.persistence.wipe() // sign-out
+        store.accountChanged()
+        let relaunched = TrackerCatalogStore(env: env) // and a relaunch: nothing in memory
+        content.script([.success(.fetched(poison, etag: "p"))])
+        await relaunched.refreshIfDue()
+
+        #expect(content.requests.count == 1 && relaunched.lastFailure == "crashed" && relaunched.current == .bundled)
+        #expect(TrackerCatalogStore.merged(["a", "b"], ["b", "c"]) == ["a", "b", "c"])
+        #expect(TrackerCatalogStore.merged((0..<10).map(String.init), []).count == TrackerCatalogStore.maxRefused)
     }
 
     @Test func withTheFlagOffTheBundledCopyServesAndNothingIsRead() async throws {
