@@ -347,3 +347,13 @@ PRs:
   T1's "an Apple source without a device model is a candidate" (the hint disappears, or shows wrongly). → Item 26: drop
   only sources matched to an unchosen tracker; keep unmatched ones. Add 2 tests.
 - **Expected, not bugs:** an unchosen-but-matched source doesn't cancel the hint; "Just my iPhone" shows no hint.
+
+### Batches after the re-verifications
+- **T1, items 36–37 (288636a):** "slow" only after a status read taken past the threshold, with exactly one scheduled read
+  (a one-shot, cancelled by a new start, by the wait ending, or by an account change); the comment is corrected. Unit
+  774/774, `TodayStatesUITests` 4/4.
+- **T2, items 25–26 (a48695a, 490552a):** refused hashes are kept in their own file (at most 8), survive sign-out and are
+  merged; `worn` keeps unmatched sources. Unit 832/832, `DevicesUITests` 5/5.
+- **Device:** the user connected his iPhone 16 Pro (iOS 27.0.1, the testers' model). A signed Debug build
+  (Apple Development, team profiles including the App Group) built fine. The device session follows once T3 holds
+  T1 + T2 + T3.
