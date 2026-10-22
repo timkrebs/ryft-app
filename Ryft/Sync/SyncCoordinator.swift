@@ -22,6 +22,8 @@ protocol SyncSteps: AnyObject {
     var expectedScoringSeconds: Int? { get }
     /// `GET /v1/me/sync`: the days scoring hasn't finished, today's state, any gate.
     func syncStatus() async throws -> SyncStatus
+    /// The same, asked for by the person (pull to refresh): it doesn't wait out a `Retry-After`.
+    func syncStatus(userInitiated: Bool) async throws -> SyncStatus
     /// Fetches the touched days (and today) regardless of their TTL.
     func refreshDays(_ days: [String]) async throws
     func refreshTrends() async throws
@@ -30,6 +32,11 @@ protocol SyncSteps: AnyObject {
     func refreshStale() async
     /// The pipeline moved on (`SyncMachine`): awaiting scores, refreshing, done, failed, idle (cancelled).
     func report(_ phase: SyncPhase)
+}
+
+extension SyncSteps {
+    /// Steps without a user-initiated path (test fakes) ask the ordinary way.
+    func syncStatus(userInitiated: Bool) async throws -> SyncStatus { try await syncStatus() }
 }
 
 /// Runs syncs as one pipeline with explicit dependencies:
@@ -164,7 +171,7 @@ actor SyncCoordinator {
     /// so a scoring poll in flight is joined, with the step's effects (the screens' state, gates,
     /// an operator's re-sync request). A failure is recorded there, not here.
     func refreshStatus() async {
-        _ = try? await steps.syncStatus()
+        _ = try? await steps.syncStatus(userInitiated: true)
     }
 
     /// Stops the running pipeline and drops a queued rerun (its deliveries are completed).
@@ -506,17 +513,23 @@ final class LiveSyncSteps: SyncSteps {
 
     var expectedScoringSeconds: Int? { sync.lastScoring?.expectedWithinSec }
 
+    func syncStatus() async throws -> SyncStatus {
+        try await syncStatus(userInitiated: false)
+    }
+
     /// `GET /v1/me/sync`, kept for the screens (Today's pending and scored states). A gate
     /// goes to onboarding; an operator's re-sync request to the next upload. Scheduled
     /// (`ReadKey(.syncStatus)`): a pull's ask joins a poll in flight, and the other way round.
-    func syncStatus() async throws -> SyncStatus {
-        let env = state.env
-        guard let status = try await env.reads.run(ReadKey(.syncStatus), { try await env.api.syncStatus() }) else {
-            throw ReadScheduler.NotSent()
-        }
-        state.syncStatus = status
-        if let gate = status.gate { apiStatus.observe([gate], enforced: false) }
-        sync.receive(status)
+    /// The effects run inside the flight, so they happen even if this caller stops waiting.
+    func syncStatus(userInitiated: Bool) async throws -> SyncStatus {
+        let env = state.env, state = state, apiStatus = apiStatus, sync = sync
+        let status = try await env.reads.run(ReadKey(.syncStatus), userInitiated: userInitiated,
+                                             store: { (status: SyncStatus) in
+            state.syncStatus = status
+            if let gate = status.gate { apiStatus.observe([gate], enforced: false) }
+            sync.receive(status)
+        }) { try await env.api.syncStatus() }
+        guard let status else { throw ReadScheduler.NotSent() }
         return status
     }
 

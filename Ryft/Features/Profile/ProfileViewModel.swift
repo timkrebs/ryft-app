@@ -345,6 +345,8 @@ final class SyncDetailsModel {
     func resendRecent() async {
         sync.resendRecent()
         await state.pullToRefresh(coordinator: coordinator)
+        // The pull returns before its upload ends; the queue is worth reading after it.
+        await state.pullUploaded?.value
         await loadQueue()
     }
 

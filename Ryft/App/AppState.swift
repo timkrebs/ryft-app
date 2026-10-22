@@ -106,6 +106,12 @@ final class AppState {
 
     /// Pull to refresh: phases 2 and 3 of the last pull (tests await them).
     @ObservationIgnored private(set) var pullPhases: Task<Void, Never>?
+    /// The last pull's phase 2; `reset()` cancels it with the phases.
+    @ObservationIgnored private var pullNow: Task<Void, Never>?
+    /// Ends when the last pull's upload has (or after `uploadWaitCap`): Sync details' "Send
+    /// recent days again" reloads its queue then. Nil when the pull sent nothing.
+    @ObservationIgnored private(set) var pullUploaded: Task<Void, Never>?
+    static let uploadWaitCap: Duration = .seconds(60)
 
     /// How long the pull's spinner may last, and how long phase 3 waits for the upload.
     static let spinnerCap: Duration = .seconds(3)
@@ -120,16 +126,22 @@ final class AppState {
     /// and 3 belong to this object, so a cancelled `.refreshable` cancels neither. Offline, or
     /// without a data source, nothing is sent.
     func pullToRefresh(coordinator: SyncCoordinator) async {
+        pullUploaded = nil
         guard hasDataSource, isDemo || env.connectivity.isOnline else { return }
         let signposts = Signposts.reads
         let spinner = signposts.beginInterval("pull", id: signposts.makeSignpostID())
-        let clock = env.clock
+        let clock = env.clock, account = env.auth.accountID
         let (uploaded, upload) = AsyncStream<Void>.makeStream()
+        let (uploadEnded, endUpload) = AsyncStream<Void>.makeStream()
         Task {
             await coordinator.run(.userInitiated, afterUpload: {
                 upload.yield()
                 upload.finish()
+                endUpload.finish()
             })
+        }
+        pullUploaded = Task {
+            await Self.firstOf({ for await _ in uploadEnded {} }, { try? await clock.sleep(for: Self.uploadWaitCap) })
         }
         let now = now
         // Phase 2's end as a stream: iterating it stops on cancellation, `Task.value` would not,
@@ -145,6 +157,11 @@ final class AppState {
         }
         let phases = Task { [self] in
             await Self.firstOf({ for await _ in uploaded { break } }, { try? await clock.sleep(for: Self.uploadHeadStart) })
+            // Reset (sign-out, another account, demo switched) meanwhile: the rest isn't this pull's.
+            guard !Task.isCancelled, hasDataSource, isDemo || env.auth.accountID == account else {
+                await phase2.value
+                return
+            }
             let interval = signposts.beginInterval("pull-rest", id: signposts.makeSignpostID())
             await withTaskGroup(of: Void.self) { group in
                 let from = DayFormat.shift(now, days: -(Self.historyDays - 1))
@@ -156,6 +173,7 @@ final class AppState {
             signposts.endInterval("pull-rest", interval)
             await phase2.value
         }
+        pullNow = phase2
         pullPhases = phases
         await Self.firstOf({ for await _ in settled {} }, { try? await clock.sleep(for: Self.spinnerCap) })
         signposts.endInterval("pull", spinner)
@@ -248,8 +266,17 @@ final class AppState {
     /// Forget what's shown (account changed, demo mode switched): reads in flight stop, their
     /// record goes. Sign-out wipes the account's store; demo data is cleared here.
     func reset() {
+        pullNow?.cancel()
+        pullPhases?.cancel()
         env.reads.reset()
         if isDemo { repository.clear() } else { repository.invalidate() }
+    }
+
+    /// Signed out, signed in, or another account (`auth.accountID` changed from `old`). Leaving an
+    /// account forgets its screens; every change, a sign-in after an expired session included,
+    /// gives the read record to the account now signed in (never what failed while signed out).
+    func accountChanged(from old: String?) {
+        if old != nil { reset() } else { env.reads.reset() }
     }
 
     /// `PATCH /v1/me`; a failure is the caller's to show (the setting's form, inline).

@@ -119,7 +119,7 @@ struct RyftApp: App {
                     // A workout asked for before, or the previous account's open one, doesn't carry over.
                     WorkoutLauncher.discardPending()
                     trainCoordinator.accountChanged()
-                    if old != nil { state.reset() }
+                    state.accountChanged(from: old)
                     // That account's gates, steps and sync state are its own.
                     screens.onboarding.switchAccount(new)
                     // The previous account's reminders and alarms go; this one's come back.

@@ -292,11 +292,14 @@ final class OnboardingCoordinator {
     /// the same resources). Failures leave a part unknown (the cache decides); the first run gives
     /// up waiting after `checkTimeout`.
     private func fetchWithTimeout() async -> Answer {
-        let api = api, clock = env.clock, reads = env.reads
+        let api = api, clock = env.clock, reads = env.reads, state = state
         let tz = TimeZone.current.identifier
         return await withTaskGroup(of: Answer?.self) { group in
             group.addTask {
-                async let me = try? reads.run(ReadKey(.me)) { try await api.me() }
+                // The user is stored inside the read, so it lands even when the timeout wins.
+                async let me = try? reads.run(ReadKey(.me), store: { (user: User) in state.user = user }) {
+                    try await api.me()
+                }
                 async let config = try? reads.run(ReadKey(.config)) { try await api.config() }
                 async let status = try? reads.run(ReadKey(.syncStatus)) { try await api.syncStatus() }
                 var user = await me

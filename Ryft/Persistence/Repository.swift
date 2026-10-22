@@ -222,18 +222,13 @@ final class Repository {
     }
 
     /// `fetch` through the read pipeline (`env.reads`): coalesced, retried, budgeted and recorded per
-    /// resource; offline nothing is sent. `store` writes the answer once, whoever else joined; an
-    /// answer for an account that's gone meanwhile is dropped unwritten.
+    /// resource; offline nothing is sent. `store` runs inside the flight, once, whoever started or
+    /// joined it and even if this caller is cancelled; an answer for an account that's gone
+    /// meanwhile is dropped unwritten.
     private func scheduled<T: Sendable>(_ key: ReadKey, mode: ReadMode, userInitiated: Bool,
                                         fetch: @escaping @MainActor () async throws -> T,
                                         store: @escaping @MainActor (T) -> Void) async throws -> T? {
-        let account = env.auth.accountID
-        return try await env.reads.run(key, mode: mode, userInitiated: userInitiated) { [env] in
-            let value = try await fetch()
-            guard env.auth.accountID == account else { throw CancellationError() }
-            store(value)
-            return value
-        }
+        try await env.reads.run(key, mode: mode, userInitiated: userInitiated, store: store, fetch)
     }
 
     /// The day's detail: cached and fresh → no request (`.ifStale`). A failure with a cached
@@ -812,11 +807,14 @@ struct ResourceState: Codable, Equatable, Sendable {
 /// - **Budgets** every try through `RequestBudget` (3 in flight, 5 starts a second), releasing
 ///   the slot during a backoff.
 /// - **Records** per resource: last success, last error, failures in a row (`ResourceState`),
-///   persisted for the live account (`CachedDocument` "reads.state").
-/// - **Owns** each fetch in an unstructured task, so a caller's cancellation (`.refreshable`,
-///   `.task(id:)`) neither cancels nor fails a shared read. Only `cancelAll()` does.
+///   persisted for the signed-in account (`CachedDocument` "reads.state", with its account ID).
+/// - **Owns** each fetch in an unstructured task. Every caller waits through its own continuation:
+///   a caller's cancellation (`.refreshable`, `.task(id:)`, a deadline) releases that caller at once
+///   with `CancellationError`, while the fetch goes on for the others and stores its answer
+///   (the flight's `store`, whoever started it). Only `cancelAll()` stops a fetch.
 ///
-/// Offline (not demo) nothing is sent and nothing is recorded. Cancellation is never a failure.
+/// Offline or signed out (not demo) nothing is sent and nothing is recorded. Cancellation is never
+/// a failure.
 @MainActor
 @Observable
 final class ReadScheduler {
@@ -841,67 +839,114 @@ final class ReadScheduler {
     /// Bumped by `cancelAll()`: a follow-up queued before it doesn't start after it.
     @ObservationIgnored private var generation = 0
 
-    private final class Flight {
-        let id: UUID
-        let started: Date
-        let task: Task<(any Sendable)?, Error>
-        var followUp: Task<(any Sendable)?, Error>?
+    /// A result many callers wait for. Each waiter has its own continuation: its cancellation
+    /// releases only that waiter (`CancellationError`); the work behind it goes on.
+    @MainActor
+    private final class Outcome {
+        private var result: Result<(any Sendable)?, Error>?
+        private var waiters: [UUID: CheckedContinuation<(any Sendable)?, Error>] = [:]
 
-        init(id: UUID, started: Date, task: Task<(any Sendable)?, Error>) {
-            self.id = id
-            self.started = started
-            self.task = task
+        func value() async throws -> (any Sendable)? {
+            if let result { return try result.get() }
+            let id = UUID()
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    if let result {
+                        continuation.resume(with: result)
+                    } else if Task.isCancelled {
+                        continuation.resume(throwing: CancellationError())
+                    } else {
+                        waiters[id] = continuation
+                    }
+                }
+            } onCancel: {
+                Task { @MainActor in self.release(id) }
+            }
         }
+
+        /// The first result wins; every waiter gets it.
+        func resolve(_ result: Result<(any Sendable)?, Error>) {
+            guard self.result == nil else { return }
+            self.result = result
+            let pending = waiters
+            waiters = [:]
+            for continuation in pending.values { continuation.resume(with: result) }
+        }
+
+        private func release(_ id: UUID) {
+            waiters.removeValue(forKey: id)?.resume(throwing: CancellationError())
+        }
+    }
+
+    /// Writes an answer into the read models; any caller's, since every store for one key is the same.
+    typealias Store = @MainActor (any Sendable) -> Void
+
+    @MainActor
+    private final class Flight {
+        let id = UUID()
+        let started: Date
+        let outcome = Outcome()
+        var task: Task<Void, Never>?
+        /// Run once on success, whoever started or joined the flight (the first store given wins).
+        var store: Store?
+        /// One shared rerun for `.changed` callers that need data newer than this flight, and its store.
+        var followUp: Outcome?
+        var followUpStore: Store?
+
+        init(started: Date) {
+            self.started = started
+        }
+    }
+
+    /// What's persisted: the record and whose it is (a mismatch on load is ignored).
+    private struct Saved: Codable {
+        let account: String
+        let states: [String: ResourceState]
     }
 
     init(env: AppEnvironment) {
         self.env = env
         clock = env.clock
         budget = RequestBudget(clock: env.clock)
-        if !env.isDemo, let saved = env.persistence.document([String: ResourceState].self, key: Self.documentKey) {
-            for (key, value) in saved { if let r = ReadResource(rawValue: key) { states[r] = value } }
-        }
+        states = load()
     }
 
-    /// Runs `fetch` for `key`, or joins the fetch in flight (see `ReadMode`). Offline (not demo):
-    /// nothing is sent, returns nil, nothing is recorded. Retries per `RetryPolicy` (`.background`
-    /// while `APIClient.runsInBackground`). Records the outcome for `key.resource`. Throws the last
-    /// error when it failed, `CancellationError` when it was cancelled. `userInitiated` (pull, Try
-    /// again) ignores `retryNotBefore`.
+    /// Runs `fetch` for `key`, or joins the fetch in flight (see `ReadMode`). Offline or signed out
+    /// (not demo): nothing is sent, returns nil, nothing is recorded. Retries per `RetryPolicy`
+    /// (`.background` while `APIClient.runsInBackground`). Records the outcome for `key.resource`;
+    /// `store` writes the answer inside the flight, so it lands even if this caller is cancelled or
+    /// joined a flight another caller started without one. Throws the last error when it failed,
+    /// `CancellationError` when this caller (or the flight) was cancelled. `userInitiated` (pull,
+    /// Try again) ignores `retryNotBefore`.
     @discardableResult
     func run<T: Sendable>(_ key: ReadKey, mode: ReadMode = .latest, userInitiated: Bool = false,
+                          store: (@MainActor (T) -> Void)? = nil,
                           _ fetch: @escaping @MainActor () async throws -> T) async throws -> T? {
-        guard let env, env.isDemo || env.connectivity.isOnline else { return nil }
-        if !userInitiated, let notBefore = states[key.resource]?.retryNotBefore, clock.now() < notBefore { return nil }
-        // No await between the lookup and the insert: two callers can't both start one.
-        let task: Task<(any Sendable)?, Error>
-        if let flight = flights[key] {
-            if case .changed(let since) = mode, flight.started < since {
-                task = flight.followUp ?? followUp(after: flight, key, userInitiated: userInitiated, fetch)
-            } else {
-                task = flight.task
-            }
-        } else {
-            task = start(key, fetch)
+        guard let outcome = enter(key, mode: mode, userInitiated: userInitiated, store: Self.erase(store), fetch) else {
+            return nil
         }
-        return try await task.value as? T
+        return try await outcome.value() as? T
     }
 
-    /// Cancels every read in flight (sign-out, account change); nothing is recorded for them.
+    /// Cancels every read in flight (sign-out, account change): their callers are released with
+    /// `CancellationError`, nothing is recorded or stored for them.
     func cancelAll() {
         generation += 1
-        for flight in flights.values {
-            flight.task.cancel()
-            flight.followUp?.cancel()
-        }
+        let stopped = Array(flights.values)
         flights = [:]
         inFlight = []
+        for flight in stopped {
+            flight.task?.cancel()
+            flight.outcome.resolve(.failure(CancellationError()))
+            flight.followUp?.resolve(.failure(CancellationError()))
+        }
     }
 
-    /// Another account (or demo data): what this one knew is forgotten.
+    /// Another account, a sign-in or demo data: reads in flight stop, and what's known is the
+    /// signed-in account's own record (none for demo data).
     func reset() {
         cancelAll()
-        states = [:]
+        states = load()
     }
 
     /// Replaces what's known (previews, tests); nothing is sent or persisted.
@@ -916,41 +961,83 @@ final class ReadScheduler {
 
     // MARK: flights
 
-    private func start<T: Sendable>(_ key: ReadKey,
-                                    _ fetch: @escaping @MainActor () async throws -> T) -> Task<(any Sendable)?, Error> {
-        let id = UUID()
+    /// The outcome to wait on: the flight for `key` (joined), its follow-up, or a new flight; nil
+    /// when nothing is sent (offline, signed out, held back). No await: two callers can't both start one.
+    private func enter<T: Sendable>(_ key: ReadKey, mode: ReadMode, userInitiated: Bool, store: Store?,
+                                    _ fetch: @escaping @MainActor () async throws -> T) -> Outcome? {
+        guard let env, env.isDemo || (env.connectivity.isOnline && env.auth.accountID != nil) else { return nil }
+        if !userInitiated, let notBefore = states[key.resource]?.retryNotBefore, clock.now() < notBefore { return nil }
+        if let flight = flights[key] {
+            if case .changed(let since) = mode, flight.started < since {
+                if flight.followUpStore == nil { flight.followUpStore = store }
+                return flight.followUp ?? followUp(after: flight, key, userInitiated: userInitiated, fetch)
+            }
+            if flight.store == nil { flight.store = store }
+            return flight.outcome
+        }
+        return start(key, store: store, fetch).outcome
+    }
+
+    private func start<T: Sendable>(_ key: ReadKey, store: Store?,
+                                    _ fetch: @escaping @MainActor () async throws -> T) -> Flight {
+        let flight = Flight(started: clock.now())
+        flight.store = store
         let account = env?.auth.accountID
+        flights[key] = flight
         inFlight.insert(key)
         // Inherits the task-locals (`runsInBackground`); never detached.
-        let task = Task { [weak self] () async throws -> (any Sendable)? in
-            guard let self else { throw CancellationError() }
-            defer { self.landed(key, id) }
-            return try await self.attempts(key, account: account, fetch)
+        flight.task = Task { [weak self] in
+            let result: Result<(any Sendable)?, Error>
+            do {
+                guard let self else { throw CancellationError() }
+                let value = try await self.attempts(key, account: account, fetch)
+                // `attempts` checked the account and cancellation; no await since.
+                flight.store?(value)
+                result = .success(value)
+            } catch {
+                result = .failure(error)
+            }
+            self?.landed(key, flight.id)
+            flight.outcome.resolve(result)
         }
-        flights[key] = Flight(id: id, started: clock.now(), task: task)
-        return task
+        return flight
     }
 
     /// One shared rerun after `flight`, for `.changed` callers that need data newer than it.
     private func followUp<T: Sendable>(after flight: Flight, _ key: ReadKey, userInitiated: Bool,
-                                       _ fetch: @escaping @MainActor () async throws -> T) -> Task<(any Sendable)?, Error> {
-        let previous = flight.task
+                                       _ fetch: @escaping @MainActor () async throws -> T) -> Outcome {
+        let outcome = Outcome()
+        flight.followUp = outcome
         let generation = generation
-        let task = Task { [weak self] () async throws -> (any Sendable)? in
-            _ = try? await previous.value
-            guard let self, self.generation == generation else { throw CancellationError() }
-            try Task.checkCancellation()
-            let value: T? = try await self.run(key, mode: .latest, userInitiated: userInitiated, fetch)
-            return value
+        Task { [weak self] in
+            _ = try? await flight.outcome.value()
+            guard let self, self.generation == generation else {
+                outcome.resolve(.failure(CancellationError()))
+                return
+            }
+            guard let next = self.enter(key, mode: .latest, userInitiated: userInitiated, store: flight.followUpStore, fetch)
+            else {
+                outcome.resolve(.success(nil))
+                return
+            }
+            do {
+                outcome.resolve(.success(try await next.value()))
+            } catch {
+                outcome.resolve(.failure(error))
+            }
         }
-        flight.followUp = task
-        return task
+        return outcome
     }
 
     private func landed(_ key: ReadKey, _ id: UUID) {
         guard flights[key]?.id == id else { return }
         flights[key] = nil
         inFlight.remove(key)
+    }
+
+    private static func erase<T: Sendable>(_ store: (@MainActor (T) -> Void)?) -> Store? {
+        guard let store else { return nil }
+        return { value in if let value = value as? T { store(value) } }
     }
 
     /// The tries for one flight: single attempts through the budget, backoff between them.
@@ -982,7 +1069,8 @@ final class ReadScheduler {
             signposts.endInterval("fetch", request)
             await budget.release()
             // Signed out or another account meanwhile: the answer isn't theirs, and neither is its outcome.
-            guard env?.auth.accountID == account else { throw CancellationError() }
+            // Stopped by `cancelAll()` (a reset): nothing is recorded or stored.
+            guard env?.auth.accountID == account, !Task.isCancelled else { throw CancellationError() }
             switch outcome {
             case .success(let value):
                 succeeded(key.resource)
@@ -1028,11 +1116,30 @@ final class ReadScheduler {
         persist()
     }
 
-    /// The live account's record survives a force-quit (a report sent afterwards still says what
-    /// failed); demo data never persists.
+    /// The signed-in account's record survives a force-quit (a report sent afterwards still says
+    /// what failed); demo data and a signed-out record never persist.
     private func persist() {
-        guard let env, !env.isDemo else { return }
-        let document = Dictionary(uniqueKeysWithValues: states.map { ($0.key.rawValue, $0.value) })
-        env.persistence.saveDocument(document, key: Self.documentKey, at: clock.now())
+        guard let env, !env.isDemo, let account = env.auth.accountID else { return }
+        let states = Dictionary(uniqueKeysWithValues: states.map { ($0.key.rawValue, $0.value) })
+        env.persistence.saveDocument(Saved(account: account, states: states), key: Self.documentKey, at: clock.now())
+    }
+
+    /// The signed-in account's own record; another account's (or an older format) is ignored. A
+    /// "signed out" from before is over: whoever loads this is signed in again.
+    private func load() -> [ReadResource: ResourceState] {
+        guard let env, !env.isDemo, let account = env.auth.accountID,
+              let saved = env.persistence.document(Saved.self, key: Self.documentKey), saved.account == account
+        else { return [:] }
+        var states: [ReadResource: ResourceState] = [:]
+        for (key, value) in saved.states {
+            guard let resource = ReadResource(rawValue: key) else { continue }
+            var state = value
+            if state.lastError?.kind == .signedOut {
+                state.lastError = nil
+                state.consecutiveFailures = 0
+            }
+            states[resource] = state
+        }
+        return states
     }
 }
