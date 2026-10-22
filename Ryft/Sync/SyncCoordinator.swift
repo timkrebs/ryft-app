@@ -104,6 +104,9 @@ actor SyncCoordinator {
     /// After this long the days are refreshed anyway (their scores may still be pending).
     static let maximumScoringWait: Duration = .seconds(300)
     static let maxUploadAttempts = 3
+    /// A silent push's refresh (the days, then trends and insights) gives up after this: iOS allows
+    /// about 30 s. The reads it started finish on their own; their callers stop waiting at once.
+    static let silentPushRefreshDeadline: Duration = .seconds(20)
     static let firstBackoff: Duration = .seconds(2)
 
     private let steps: SyncSteps
@@ -274,6 +277,25 @@ actor SyncCoordinator {
 
     // MARK: the pipeline
 
+    /// `body`, or `CancellationError` once `limit` passed on the clock (the body is cancelled then;
+    /// its scheduled reads let their callers go at once).
+    private static func within(_ limit: Duration, _ clock: AppClock,
+                               _ body: @escaping @Sendable () async throws -> Void) async throws {
+        try await withThrowingTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                try await body()
+                return true
+            }
+            group.addTask {
+                try await clock.sleep(for: limit)
+                return false
+            }
+            let finished = try await group.next() ?? false
+            group.cancelAll()
+            if !finished { throw CancellationError() }
+        }
+    }
+
     private static func pipeline(_ trigger: Trigger, steps: SyncSteps, clock: AppClock, scoring: ScoringSignal,
                                  inBackground: @Sendable () async -> Bool,
                                  afterUpload: [@Sendable () -> Void]) async -> Outcome {
@@ -320,12 +342,19 @@ actor SyncCoordinator {
             await steps.report(.refreshing)
             let refresh = Signposts.sync.beginInterval("refresh", id: Signposts.sync.makeSignpostID())
             defer { Signposts.sync.endInterval("refresh", refresh) }
-            try await steps.refreshDays(touched)
-            // Trends and insights depend on the days, not on each other.
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask { try await steps.refreshTrends() }
-                group.addTask { try await steps.refreshInsights() }
-                try await group.waitForAll()
+            let refreshing: @Sendable () async throws -> Void = {
+                try await steps.refreshDays(touched)
+                // Trends and insights depend on the days, not on each other.
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    group.addTask { try await steps.refreshTrends() }
+                    group.addTask { try await steps.refreshInsights() }
+                    try await group.waitForAll()
+                }
+            }
+            if case .silentPush = trigger {
+                try await within(silentPushRefreshDeadline, clock, refreshing)
+            } else {
+                try await refreshing()
             }
             await steps.report(.done)
         } catch is CancellationError {
