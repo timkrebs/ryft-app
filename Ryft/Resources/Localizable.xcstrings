@@ -1846,6 +1846,16 @@
         }
       }
     },
+    "Per data source: when it was last loaded, and its last error's status, code and request ID" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pro Datenquelle: wann sie zuletzt geladen wurde und Status, Fehlercode und Anfrage-ID ihres letzten Fehlers"
+          }
+        }
+      }
+    },
     "Perform" : {
       "localizations" : {
         "de" : {
@@ -2802,12 +2812,12 @@
         }
       }
     },
-    "The last 20 requests: method, path without its query, status, error code, request ID, time" : {
+    "The last 20 requests: method, path without its query, status, error code, request ID, time, duration" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Die letzten 20 Anfragen: Methode, Pfad ohne Parameter, Status, Fehlercode, Anfrage-ID, Zeitpunkt"
+            "value" : "Die letzten 20 Anfragen: Methode, Pfad ohne Parameter, Status, Fehlercode, Anfrage-ID, Zeitpunkt, Dauer"
           }
         }
       }

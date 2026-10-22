@@ -846,18 +846,25 @@ private final class FirstPostHold: @unchecked Sendable {
     func isFirst(_ message: String) -> Bool { lock.withLock { seen.insert(message).inserted } }
 }
 
-/// Answers every request: `200`, with a gate header on `/v1/gate` and a `404` on `/v1/missing`.
+/// Answers every request: `200`, with a gate header on `/v1/gate`, a `404` on `/v1/missing`, a `429` with
+/// `Retry-After: 30` on `/v1/feedback`, and no answer (a timeout) on `/v1/timeout`.
 private final class LateReplyURLProtocol: URLProtocol {
     override static func canInit(with request: URLRequest) -> Bool { true }
     override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
         let path = request.url?.path ?? ""
+        if path == "/v1/timeout" {
+            client?.urlProtocol(self, didFailWithError: URLError(.timedOut))
+            return
+        }
         var headers = ["X-Request-ID": "late-1"]
         if path == "/v1/gate" { headers["X-RYFT-Gate"] = "consent_required" }
+        if path == "/v1/feedback" { headers["Retry-After"] = "30" }
+        let code = path == "/v1/missing" ? 404 : path == "/v1/feedback" ? 429 : 200
         guard let url = request.url,
-              let response = HTTPURLResponse(url: url, statusCode: path == "/v1/missing" ? 404 : 200,
-                                             httpVersion: "HTTP/1.1", headerFields: headers) else { return }
+              let response = HTTPURLResponse(url: url, statusCode: code, httpVersion: "HTTP/1.1",
+                                             headerFields: headers) else { return }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data("{}".utf8))
         client?.urlProtocolDidFinishLoading(self)
@@ -934,10 +941,22 @@ struct ReportProblemTests {
     @Test func linesFollowTheirTemplates() {
         let r = request(0, status: 200, path: "/v1/sleep/plan?wake=06:30", id: "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c")
         #expect(FeedbackPayload.line(r) == "GET /v1/sleep/plan 200 - 01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c \(r.date.ISO8601Format())")
-        #expect(FeedbackPayload.path("/v1/trends?metric=hrv&range=week#x") == "/v1/trends")
-        // IDs in a path become `{id}` (the install ID in `/v1/devices/…/push`); days stay.
-        #expect(FeedbackPayload.path("/v1/devices/01A14FFA-EB7C-73E3-9CF9-262C70D5ED9C/push") == "/v1/devices/{id}/push")
-        #expect(FeedbackPayload.path("/v1/journal/2026-10-21") == "/v1/journal/2026-10-21")
+        // With a measured duration the line ends in it.
+        var timed = r
+        timed.durationMs = 412
+        #expect(FeedbackPayload.line(timed) == FeedbackPayload.line(r) + " 412ms")
+        let fetched = Date(timeIntervalSince1970: 1_792_600_000)
+        let error = ResourceError(kind: .transient, status: 503, code: nil, requestID: "01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c",
+                                  transport: nil, attempts: 3, at: fetched)
+        let timeout = ResourceError(kind: .transient, status: nil, code: nil, requestID: nil, transport: "timedOut",
+                                    attempts: 3, at: fetched)
+        let lines = FeedbackPayload.resourceLines([.today: ResourceState(fetchedAt: fetched),
+                                                   .me: ResourceState(fetchedAt: fetched, lastError: error, consecutiveFailures: 3),
+                                                   .history: ResourceState(lastError: timeout, consecutiveFailures: 1)])
+        #expect(lines.count == ReadResource.allCases.count)
+        #expect(lines.first == "today \(fetched.ISO8601Format()) - - -")
+        #expect(lines.contains("me \(fetched.ISO8601Format()) 503 - 01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c"))
+        #expect(lines.contains("history - timedOut - -") && lines.contains("journal - - - -"))
         let newest = Date(timeIntervalSince1970: 1_792_600_000)
         #expect(FeedbackPayload.syncLines(Self.sync) == [
             "phase incremental · recent true · backfill true",
@@ -1287,6 +1306,73 @@ struct ReportProblemTests {
         #expect(api.feedbackPosts.map(\.message) == ["First"]) // already on its way; the second stays home
     }
 
+    /// One redaction for every path the app shows or sends: the report's request lines use `redactedPath`
+    /// (Sync details and the log do too): no query, `{id}` for UUIDs, days kept.
+    @Test func oneRedactionForEveryPath() {
+        for (path, redacted) in [("/v1/trends?metric=hrv&range=week#x", "/v1/trends"),
+                                 ("/v1/devices/01A14FFA-EB7C-73E3-9CF9-262C70D5ED9C/push", "/v1/devices/{id}/push"),
+                                 ("/v1/workouts/01a14ffa-eb7c-73e3-9cf9-262c70d5ed9c", "/v1/workouts/{id}"),
+                                 ("/v1/journal/2026-10-21", "/v1/journal/2026-10-21"),
+                                 ("/v1/sleep/plan?wake=06:30", "/v1/sleep/plan")] {
+            #expect(redactedPath(path) == redacted)
+            #expect(FeedbackPayload.line(request(0, path: path)).components(separatedBy: " ")[1] == redacted)
+        }
+    }
+
+    /// `POST /v1/feedback` makes one attempt: a `429` (10 a day) answers at once, with no `Retry-After` wait.
+    @Test(.timeLimit(.minutes(1))) func postFeedbackDoesNotWaitOnA429() async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [LateReplyURLProtocol.self]
+        let base = URL(string: "https://api.test")!
+        let waits = SleepLog()
+        let client = APIClient(session: URLSession(configuration: config), tokens: FakeTokens(),
+                               sleep: { waits.record($0) }, baseURL: base, status: APIStatus())
+        var status: Int?
+        do {
+            try await client.postFeedback(FeedbackPost(message: "Hi"))
+        } catch {
+            status = (error as? APIError)?.status
+        }
+        #expect(status == 429 && waits.waits.isEmpty)
+    }
+
+    /// After `forgetRequests()` a late cancellation or transport failure of the previous account's leaves
+    /// `requests`, `failures` and `cancelledCount` empty (`APIStatus.epoch`).
+    @Test(.timeLimit(.minutes(1))) func aLateCancellationOrTimeoutLeavesNothing() async {
+        let clock = TestClock()
+        let status = APIStatus()
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [LateReplyURLProtocol.self]
+        let base = URL(string: "https://api.test")!
+        let client = APIClient(session: URLSession(configuration: config), tokens: SlowTokens(clock: clock),
+                               sleep: { _ in }, baseURL: base, status: status)
+        func get(_ path: String) -> Task<Void, Never> {
+            Task { _ = try? await client.data("GET", path: path, body: Optional<Int>.none, base: base) }
+        }
+
+        // Without a switch, both count: a timeout as a failure, a cancellation as cancelled.
+        let timeout = get("/v1/timeout")
+        let cancelled = get("/v1/me")
+        #expect(await eventually { clock.pendingSleeps == 2 })
+        cancelled.cancel()
+        clock.advance(by: .seconds(1))
+        await timeout.value
+        await cancelled.value
+        #expect(status.failures.count == 1 && status.failures.first?.transport == "timedOut")
+        #expect(status.cancelledCount == 1)
+
+        let lateTimeout = get("/v1/timeout")
+        let lateCancelled = get("/v1/me")
+        #expect(await eventually { clock.pendingSleeps == 2 })
+        status.forgetRequests() // the account changed while they were on their way
+        lateCancelled.cancel()
+        clock.advance(by: .seconds(1))
+        await lateTimeout.value
+        await lateCancelled.value
+
+        #expect(status.requests.isEmpty && status.failures.isEmpty && status.cancelledCount == 0)
+    }
+
     /// A response to a request that started for the previous account lands nowhere: not in the requests, not
     /// in the failures, not as a gate (`APIStatus.epoch`).
     @Test(.timeLimit(.minutes(1))) func aResponseFromThePreviousAccountIsNotRecorded() async {
@@ -1352,8 +1438,22 @@ struct ReportProblemTests {
                                           ("GET", "/v1/trends?metric=hrv&range=week", 200), ("GET", "/v1/days/2026-10-18", 200),
                                           ("GET", "/v1/me", 503), ("POST", "/v1/devices/\(install)/push", 204),
                                           ("GET", "/v1/workouts/\(workout)", 200)].enumerated() {
-            status.record(.init(date: env.clock.now(), method: method, path: path, status: code, requestID: requestIDs[i]))
+            status.record(.init(date: env.clock.now(), method: method, path: path, status: code, requestID: requestIDs[i],
+                                durationMs: i.isMultiple(of: 2) ? 100 + i : nil))
         }
+        // What the read pipeline recorded: a load, a 503 with its request ID, a timeout.
+        let resourceID = UUID().uuidString.lowercased()
+        let loaded = env.clock.now() // the app's own clock, not a sample's time
+        env.reads.seed([
+            .today: ResourceState(fetchedAt: loaded),
+            .me: ResourceState(fetchedAt: loaded, lastError: ResourceError(kind: .transient, status: 503, code: nil,
+                                                                         requestID: resourceID, transport: nil,
+                                                                         attempts: 3, at: loaded),
+                               consecutiveFailures: 3, retryNotBefore: loaded),
+            .history: ResourceState(lastError: ResourceError(kind: .transient, status: nil, code: nil, requestID: nil,
+                                                             transport: "timedOut", attempts: 3, at: loaded),
+                                    consecutiveFailures: 1),
+        ])
         let sync = SyncService(env: env)
         let profile = ProfileViewModel(state: state, sync: sync,
                                        coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
@@ -1365,7 +1465,8 @@ struct ReportProblemTests {
 
         #expect(Set(d.keys) == FeedbackPayload.keys)
         let templates: [String: [Regex<Substring>]] = [
-            "requests": [/(?:GET|POST|PUT|PATCH|DELETE) \/[^ ?#]* \d{3} [a-z_-]+ \S+ \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/],
+            "requests": [/(?:GET|POST|PUT|PATCH|DELETE) \/[^ ?#]* \d{3} [a-z_-]+ \S+ \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z(?: \d+ms)?/],
+            "resources": [/[a-zA-Z]+ (?:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z|-) (?:[A-Za-z0-9]+|-) (?:[a-z_]+|-) \S+/],
             "sync": [/phase [a-z]+ · recent (?:true|false) · backfill (?:true|false)/,
                      /queue running (?:true|false) · queued (?:true|false) · backlog \d+ B/,
                      /stream [A-Za-z0-9_]+ · \d+ rec · \d+ days · newest (?:\d{4}-\d{2}-\d{2}|-)/],
@@ -1389,7 +1490,14 @@ struct ReportProblemTests {
         #expect(!sent.contains("wake=") && !sent.contains("06:30") && !sent.contains("metric="))
         // The install ID and other IDs in paths stay home: the only UUIDs are request IDs, in their place.
         #expect(!sent.lowercased().contains(install) && !sent.lowercased().contains(workout))
-        let allowed = Set(requestIDs + [ReportContext.preview.requestID].compactMap { $0 })
+        let allowed = Set(requestIDs + [resourceID] + [ReportContext.preview.requestID].compactMap { $0 })
+        // Every resource once, in order, with the seeded record and nothing more (no counts, no retry times).
+        let resourceLines = try #require(d["resources"]).components(separatedBy: "\n")
+        #expect(resourceLines.map { $0.components(separatedBy: " ")[0] } == ReadResource.allCases.map(\.rawValue))
+        #expect(resourceLines.contains { $0.hasPrefix("me ") && $0.hasSuffix(" 503 - \(resourceID)") })
+        // (History's load time is the stored scores', which AppState folds in.)
+        #expect(resourceLines.contains { $0.hasPrefix("history ") && $0.hasSuffix(" timedOut - -") })
+        #expect(d["requests"]?.contains("ms") == true)
         let uuid = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/
         for value in d.values {
             for found in value.matches(of: uuid) { #expect(allowed.contains(String(found.output)), "\(found.output)") }
