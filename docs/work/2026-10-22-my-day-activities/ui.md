@@ -88,7 +88,7 @@ Reading order and eye path:
 | G9 | Recording | HR sensor lost | connection dropped | none (line changes) |
 | G10 | Recording | low battery / low power mode | LPM or ≤ 10 % | none (info line) |
 | L1 | Live Activity | running | recording | tap opens recording |
-| L2 | Live Activity | paused / auto-paused | pause | Resume (interactive) |
+| L2 | Live Activity | paused / auto-paused | pause | Open (no controls in v1) |
 | L3 | Live Activity | stale | app not updating (killed) | tap opens RYFT |
 | Z1 | Finish summary | default | Stop confirmed | Save |
 | Z2 | Finish summary | too short | < 10 s or < 20 m moved | Discard (Save still allowed) |
@@ -107,8 +107,10 @@ Reading order and eye path:
 | D8 | Detail | strength | sport strength or `session_id` | existing summary |
 | D9 | Detail | pending upload / failed | as R1, R4 | Retry |
 | D10 | Detail | delete confirmation | Delete tapped | Delete / Keep |
-| U1 | Resume your run | resumable | checkpoint found, gap under 6 h | Resume |
-| U2 | Resume your run | too old | gap 6 h or more | Finish / Discard |
+| D11 | Detail / row | route removed after 30 days | route unconfirmed for 30 days | none |
+| P10 | Pre-start | first Start of a GPS sport | route choice not yet stored | Record route / Don't record route (equal) |
+| U1 | Resume your run | auto-resume | relaunch within 10 min of the last checkpoint | none (continues; line shown) |
+| U2 | Resume your run | interrupted | gap over 10 min | Finish / Discard (Resume as new segment only if the architect keeps it) |
 | T1 | Settings | Activities section | Profile | rows |
 | T2 | Privacy zones | none / list / add place | | Add place |
 
@@ -390,6 +392,8 @@ Same sheet frame, title "Add sleep", `.medium` detent (`.large` at AX sizes).
 
 ## 4. Start activity: pre-start
 
+> **Privacy review (Art. 25, no pre-set "on").** Route recording has no default until the user decides.
+
 Presented full-screen (`fullScreenCover`) from the buttons, the plus menu, the App Intent and the Control Center control, with a Close (`xmark`, 44 pt) top leading. Title "Start activity" (inline).
 
 ### 4.1 Layout (GPS sports, P1/P2)
@@ -405,10 +409,18 @@ Top to bottom, on `Theme.background`:
    - Right: `location.fill` / `location` / `location.slash` (none).
    - Becoming ready crosses at ≤ 20 m horizontally for 3 consecutive updates (not a single lucky fix), so Start doesn't flicker. Hysteresis: ready is lost only above 30 m for 5 s.
 4. **Today's strain as context** (`StatRow`-style single line, no card): "Today's strain so far  7.1" with a `ZoneBar`-less one-liner: `callout` `textSecondary` label, `StrainPill` value; shows "—" and "No strain yet today" if none. Never a target, band or recommendation.
-5. **Record route toggle** (`Toggle` row, `Theme.accent` tint is the shipped toggle style): "Record route", sub-label `caption` `textSecondary`: on: "Saved with this activity. Privacy zones are applied before upload."; off: "Distance and pace are still recorded; the route isn't kept." Default on for GPS sports, per the Settings default (4.6). If privacy zones exist and the toggle is on, a second caption line "2 privacy zones active" with `lock.shield` `textTertiary`.
+5. **Record route toggle** (`Toggle` row, `Theme.accent` tint is the shipped toggle style): "Record route", sub-label `caption` `textSecondary`: on: "Saved with this activity. Privacy zones are applied before upload."; off: "Distance and pace are still recorded; the route isn't kept." Never preselected by RYFT: until the user has chosen once, this row is replaced by the first-Start question (4.1a); afterwards it starts from the remembered default (Settings). If privacy zones exist and the toggle is on, a second caption line "2 privacy zones active" with `lock.shield` `textTertiary`.
 6. **Start** (`PrimaryButton(.primary)` custom large, 72 pt tall, full width, bottom pinned above the safe area, `headline` text "Start"). Disabled (`opacity 0.45`, shipped) until ready; while not ready, under it a text button "Start anyway" (`callout`, `textPrimary`, min 44) and a `caption` line "Waiting for GPS: accuracy 34 m, needs 20 m or better". "Start anyway" starts the recording; distance counts only fixes within the accuracy filter, so it begins when a good fix arrives (G4 line shows).
    When ready: the secondary line disappears and the button is active. A medium-impact haptic once when it turns ready (not under Reduce Motion? haptics are not motion; fine, once only).
 - The map's camera move and accuracy-circle resize animate ≤ 250 ms; reduced motion: instant.
+
+### 4.1a First Start of a GPS sport: ask once (P10)
+The first time Start is tapped for any GPS sport (route choice not yet stored), Start does not begin recording; a bottom sheet (`.medium` detent, not dismissible by swipe: closing it returns to pre-start) asks:
+- `headline` "Record your route?", `callout` `textSecondary`: "Distance and pace are recorded either way. A saved route lets you see the map later. It is uploaded only if you save the activity, and privacy zones are applied first. You can change this per activity and in Settings."
+- Two buttons of **equal size, weight and style** (`PrimaryButton(.secondary)` both, 44+ pt, stacked, nothing preselected, no teal): **Record route** and **Don't record route**.
+- The choice is stored as the default (Settings: "Record route by default", now showing the stored value) and the activity starts at once with it. The pre-start toggle then shows the stored value and stays changeable. A `caption` `textTertiary`: "You can change this in Settings."
+- VoiceOver: sheet focus starts on the headline; the two buttons have no "recommended" trait. Indoor sports never see this.
+Copy (en | de): "Record your route?" | "Route aufzeichnen?"; body | "Distanz und Tempo werden in jedem Fall erfasst. Eine gespeicherte Route zeigt dir später die Karte. Sie wird nur hochgeladen, wenn du die Aktivität sicherst, und Privatzonen werden vorher angewendet. Du kannst das pro Aktivität und in den Einstellungen ändern."; "Record route" | "Route aufzeichnen"; "Don't record route" | "Route nicht aufzeichnen"; "You can change this in Settings." | "Das kannst du in den Einstellungen ändern."
 
 ### 4.2 Indoor sports (P7)
 No map, no GPS indicator, no toggle (route does not exist). Large sport icon (64 pt in a 112 pt circle, `accent.opacity(0.12)`), name `title`, under it `callout` `textSecondary` "Indoor. Steps from this iPhone's pedometer give distance." plus, if Motion & Fitness isn't allowed, a small card with the same pattern as the P8 pre-prompt. Today's strain line as in 4.1. Start is always active.
@@ -574,20 +586,20 @@ background, Mist text, Teal accent), `.rounded` bold monospaced numerals, the tr
 (`Ryft/Train/RestActivity.swift`, per its comment; the two must stay Codable-identical).
 
 **Attributes / state (design needs; architect confirms):**
-- Attributes: `sport: String` (display name), `symbol: String` (SF Symbol), `startedAt: Date`, `activityID: UUID`, `usesGPS: Bool`.
-- ContentState: `isPaused: Bool`, `autoPaused: Bool`, `movingSec: Double` (frozen while paused), `resumedAt: Date?` (for the live timer), `distanceM: Double?`, `paceSecPerKm: Double?` (nil = "–:–"), `speedMps: Double?` (cycling), `gpsState: enum {good, weak, lost}`.
-- The timer runs by itself: `Text(timerInterval: resumedAt - movingSec ... .distantFuture)` while running; paused is static text. App pushes distance and pace at most every 10 s or 50 m (whichever first, battery); no location or place name ever goes into the activity.
+- `RecordingAttributes` (names as `design.md` §6): static `activityID: UUID`, `sport: String` (raw), `title`, `symbol`, `startedAt`.
+- `ContentState`: `phase` (recording, paused, autoPaused), `movingAnchor: Date?`, `pausedMovingSec: Double`, `distanceM`, `pace: Double?` / `speedKmh: Double?`, `updatedAt`. Weak GPS and stale are shown from `updatedAt` age (`staleDate` +90 s), not a separate field.
+- The timer runs by itself: `Text(timerInterval:pauseTime:)` from `movingAnchor`/`pausedMovingSec`; paused is static text. App pushes distance and pace at most every 10 s or 50 m (whichever first, battery); no location or place name ever goes into the activity.
 
 **Lock screen / banner** (as `LockScreenView`, padding 16, `Brand.graphite`):
 - Top: label "RUN" (`caption2.weight(.semibold)`, tracking 2, Teal) with the sport symbol; paused: "PAUSED" (the label word changes; glyph `pause.fill`), auto-paused "AUTO-PAUSED". Right: timer `size 40 .semibold .rounded` Mist, `monospacedDigit`; paused: static, `Brand.mist.opacity(0.6)` plus the word.
 - Middle row: two columns separated by a 1 pt `Mist 15 %` rule: Distance "5.21 km" and Pace "5:34 /km" (cycling: "Speed 24.8 km/h"), values `title3` `.rounded` `.semibold` Mist, labels `caption2` tracking 1.2 `Mist 60 %` ("DISTANCE", "PACE").
-- Bottom: `Open` capsule (shipped `DoneLink` look) deep link `ryft://activity/recording`. Paused: instead a second **Resume** capsule (a `Button(intent: ResumeActivityIntent)`, a `LiveActivityIntent`, Teal capsule) so it can be resumed from the lock screen; Stop is deliberately not offered in the Live Activity (no accidental finish).
+- Bottom: `Open` capsule (shipped `DoneLink` look) deep link `ryft://activity/recording`. Always `Open` only: **no Pause, Resume or Stop controls in v1** (plan decision 3); resuming happens in the app.
 - GPS weak: Pace shows "–:–" and a `exclamationmark.circle` + "Weak GPS" `caption` in Mist 60 %. L3 stale (`isStale`): the metrics dim to Mist 40 %, line "Open RYFT to keep recording" (`callout`) and `Open` capsule; the recorder is system-protected, but the activity can't update.
 
 **Dynamic Island expanded:**
 - Leading: `Label(sport, symbol)` `caption.weight(.semibold)` Teal (paused: `pause.fill` + "Paused").
 - Trailing: timer `size 28 .semibold .rounded`, max width 110, like the rest timer.
-- Bottom: `HStack`: distance `callout` "5.21 km", pace `callout` "5:34 /km", `Spacer`, the `Open` capsule (paused: **Resume** capsule). Values Mist; labels omitted (compact space; the units say what they are).
+- Bottom: `HStack`: distance `callout` "5.21 km", pace `callout` "5:34 /km", `Spacer`, the `Open` capsule. Values Mist; labels omitted (compact space; the units say what they are).
 **Compact:** leading the sport symbol (Teal; paused: `pause.fill`); trailing the elapsed timer `.body .rounded .semibold`, `maxWidth: 56`; for sessions over 59:59 it switches to `h:mm` (static `Text` updated by the app each minute) to fit.
 **Minimal:** the sport symbol, Teal; paused `pause.fill`. (Weak GPS: nothing extra; no glyph clutter.)
 Light mode: the Island is always dark; the lock screen banner uses `activityBackgroundTint(Brand.graphite)` in both schemes like the rest timer.
@@ -604,7 +616,7 @@ Light mode: the Island is always dark; the lock screen banner uses `activityBack
 | metrics | DISTANCE · PACE · SPEED | DISTANZ · TEMPO · TEMPO |
 | weak | Weak GPS | Schwaches GPS |
 | stale | Open RYFT to keep recording | Öffne RYFT, um weiter aufzuzeichnen |
-| buttons | Open · Resume | Öffnen · Fortsetzen |
+| buttons | Open | Öffnen |
 
 ---
 
@@ -615,12 +627,12 @@ if the app dies here). Navigation title "Activity summary" inline, no back (the 
 
 ### 7.1 Layout (Z1)
 1. **Header:** sport icon circle (64 pt like `WorkoutDetailView`), name `title`, `callout` `textSecondary` "Thursday 22 Oct · 07:12–07:48".
-2. **Map** (`RouteMap(.summary)`, `cardRadius`, 220 pt, fits the route with padding 24): Teal 4 pt polyline with casing, hollow start dot, filled finish dot, km ticks every km (small 6 pt `Mist` dots only; no text). Non-interactive; tap opens it full-screen for inspection. If a privacy zone is active: its circle dashed 1.5 pt `textSecondary`, with the caption "The route is trimmed inside privacy zones before upload." If route off: replaced by a muted card `map` + "Route not recorded" (D2). No route and no GPS (indoor): nothing here.
+2. **Map** (`RouteMap(.summary)`, `cardRadius`, 220 pt, fits the route with padding 24): Teal 4 pt polyline with casing, hollow start dot, filled finish dot, km ticks every km (small 6 pt `Mist` dots only; no text). Non-interactive; tap opens it full-screen for inspection. If a privacy zone is active: its circle dashed 1.5 pt `textSecondary`, with the caption "The route is trimmed inside privacy zones before upload." The route shown here follows the stored choice for this activity (4.1a), never a RYFT default. If route off: replaced by a muted card `map` + "Route not recorded" (D2). No route and no GPS (indoor): nothing here.
 3. **Stat grid** (shipped `WorkoutDetailView` 3-column stat tile pattern): DISTANCE, TIME (moving), AVG PACE (or SPEED); second row: ELAPSED if different from moving ("0:36:20 · 36:02 moving"), ELEVATION ↑, ↓ (when available). Values `headline` `monospacedDigit`.
 4. **Splits** (`SplitsTable`, new, `Ryft/Features/Activities/SplitsTable.swift`), `Card` with `CardHeader("Splits")`: one row per km (last partial row "0.21 km"): columns Km · Pace · bar · Elev. Pace `body` `monospacedDigit`; the bar is a 6 pt tall capsule scaled to the pace relative to the fastest, `Theme.accent` for all (single hue; the **fastest** row gets the text "Fastest" `caption` after the number, and the slowest nothing). Elevation delta "+8 m" `caption` `textSecondary`. Hairlines between rows. Header row labels `ryftLabelStyle`. Over 20 km: collapses to the first 10 and "Show all 32" button.
 5. **Effort** (`EffortScale`, as 3.3), optional, labelled "How hard did it feel?" 
 6. **Notes** (multiline, as 3.1).
-7. **Privacy zone suggestion** (Z6, only on the first route save while no zone exists and not dismissed twice): a `Card` with `hairline` border, `lock.shield` `textSecondary`, `headline` "Hide where you start and finish?", `callout`: "A privacy zone trims the first and last part of your routes around a place, before upload and export. You can add more places in Settings." Radius `Slider`-less segmented picker 200 m / 300 m / 500 m. Buttons: **Add start as zone** (`PrimaryButton(.secondary)`) and **Not now** (text). Adding it re-draws the map trimmed. It is an offer, not a gate.
+7. **Privacy zone suggestion** (Z6, only on the first route save while no zone exists and not dismissed twice): a `Card` with `hairline` border, `lock.shield` `textSecondary`, `headline` "Hide where you start and finish?", `callout`: "A privacy zone removes every part of the route inside its circle, before upload and export. You can add more places in Settings." Radius segmented picker 200 m / 300 m / 400 m / 500 m, **400 m preselected**. Buttons: **Add start as zone** (`PrimaryButton(.secondary)`) and **Not now** (text). Adding it re-draws the map trimmed. It is an offer, not a gate.
 8. **Actions** (pinned bottom): **Save** (`PrimaryButton(.primary)`, 56 pt) and **Discard** (text button, `Theme.alert` text, 44 min, below). Discard opens a `confirmationDialog` (Z7): "Discard this activity?" message "The recording and its route will be deleted from this iPhone. This can't be undone." Buttons **Discard** (destructive), **Keep** (cancel). At the dialog the route is not yet deleted.
 
 ### 7.2 States
@@ -639,7 +651,7 @@ if the app dies here). Navigation title "Activity summary" inline, no back (the 
 | show all | Show all %d | Alle %d anzeigen |
 | effort | How hard did it feel? | Wie anstrengend war es? |
 | zone title | Hide where you start and finish? | Start und Ziel verbergen? |
-| zone body | A privacy zone trims the first and last part of your routes around a place, before upload and export. You can add more places in Settings. | Eine Privatzone kürzt Anfang und Ende deiner Routen rund um einen Ort, vor Upload und Export. Weitere Orte fügst du in den Einstellungen hinzu. |
+| zone body | A privacy zone removes every part of the route inside its circle, before upload and export. You can add more places in Settings. | Eine Privatzone entfernt jeden Teil der Route innerhalb ihres Kreises, vor Upload und Export. Weitere Orte fügst du in den Einstellungen hinzu. |
 | add start zone | Add start as zone | Start als Zone hinzufügen |
 | not now | Not now | Nicht jetzt |
 | route trimmed | The route is trimmed inside privacy zones before upload. | Die Route wird in Privatzonen vor dem Upload gekürzt. |
@@ -683,9 +695,18 @@ Pushed from a My Day row (`NavigationLink`), nav bar inline with the activity na
 10. **Notes** (when present): `Card` "Notes", `body` `textPrimary`; "Add a note" text button if empty and editable.
 11. **Footer** (editable only): **Edit** (`PrimaryButton(.secondary)`) and **Delete** (text, `alert`). Delete confirmation (D10): title "Delete this activity?" message "It's removed from RYFT, including its route, and your strain for the day is recalculated." (recorded) / "…It's removed from RYFT and your strain for the day is recalculated." (manual). Buttons **Delete** (destructive) / **Keep**.
 
+**Account deletion confirmation** (Profile, existing flow; add one line to it): en: "Workouts RYFT saved to Apple Health stay there. You can delete them in the Health app." · de: "Trainings, die RYFT in Apple Health gesichert hat, bleiben dort. Du kannst sie in der Health-App löschen." (design.md §5)
+
 **Edit rules:** manual: all fields (sheet from §3, title "Edit activity", Save). Recorded: sport, effort and notes editable; times and distance are measured, not editable (copy "Measured by RYFT. Times and distance can't be changed."); delete only. Editing an uploaded item updates `client_updated_at`; shows R1 until confirmed again. Merged items: only notes/effort.
 
 **D8 strength:** Train sessions open the existing session summary (`TrainRoute.session`) via the row; no `ActivityDetailView`. A manual Strength activity (no sets) opens `ActivityDetailView` without map, charts or splits, with the stat grid duration, effort, and the suggestion card from 3.4 "Log this in Train" (`PrimaryButton(.secondary)`, opens the Train log flow) at the top.
+
+### 8.1a Route removed after 30 days (D11)
+A route is kept on the phone for at most 30 days if it hasn't been confirmed as uploaded. After that it is removed; distance, time and splits stay.
+- **Detail:** in the map's place a muted card (`map` glyph `textTertiary`, `callout` `textSecondary`): "The route of this activity wasn't uploaded within 30 days and was removed from your phone. Distance and splits are kept." de: "Die Route dieser Aktivität wurde nicht innerhalb von 30 Tagen hochgeladen und von deinem iPhone entfernt. Distanz und Zwischenzeiten bleiben erhalten." No action; `info.circle` glyph.
+- **Row (My Day, full screen only; the card shows no extra line):** a fourth line, `caption` `textSecondary` with `map` glyph: "Route removed after 30 days" | "Route nach 30 Tagen entfernt". Detail row only on the day shown; shown once, no badge or colour.
+- Before the 30 days (route still on the phone, upload pending/failed): the R1/R4 detail adds "The route is removed from this iPhone after 30 days if it isn't uploaded." | "Die Route wird nach 30 Tagen von diesem iPhone entfernt, wenn sie nicht hochgeladen ist."
+- VoiceOver: the row label ends "route removed after 30 days"; the detail card is read as text.
 
 ### 8.2 States
 - Loading: outline placeholders for each card (same size, no spinner), stat values `Fmt.placeholder`.
@@ -708,8 +729,8 @@ Pushed from a My Day row (`NavigationLink`), nav bar inline with the activity na
 | merged | Merged from two sources: heart rate from %@, route and distance from RYFT. RYFT counts this activity once. | Aus zwei Quellen zusammengeführt: Herzfrequenz von %@, Route und Distanz von RYFT. RYFT zählt diese Aktivität nur einmal. |
 | measured | Measured by RYFT. Times and distance can't be changed. | Von RYFT gemessen. Zeiten und Distanz lassen sich nicht ändern. |
 | delete title | Delete this activity? | Diese Aktivität löschen? |
-| delete rec | It's removed from RYFT, including its route, and your strain for the day is recalculated. | Sie wird aus RYFT entfernt, einschließlich ihrer Route, und dein Tages-Strain wird neu berechnet. |
-| delete man | It's removed from RYFT and your strain for the day is recalculated. | Sie wird aus RYFT entfernt und dein Tages-Strain wird neu berechnet. |
+| delete rec | It's removed from RYFT, including its route, and your strain for the day is recalculated. If it was saved to Apple Health: "Its copy in Apple Health is deleted too." (de: "Auch die Kopie in Apple Health wird gelöscht.") If RYFT can no longer write to Apple Health: "The copy in Apple Health stays; delete it in the Health app." (de: "Die Kopie in Apple Health bleibt; lösche sie in der Health-App.") | Sie wird aus RYFT entfernt, einschließlich ihrer Route, und dein Tages-Strain wird neu berechnet. |
+| delete man | It's removed from RYFT and your strain for the day is recalculated. (Manual entries aren't saved to Apple Health, so no Health sentence; see design.md §5.) | Sie wird aus RYFT entfernt und dein Tages-Strain wird neu berechnet. |
 | cached | Showing what's saved on this iPhone. | Zeigt, was auf diesem iPhone gespeichert ist. |
 | no route | Route not recorded | Route nicht aufgezeichnet |
 | log in train | Log this in Train | In Train erfassen |
@@ -724,30 +745,30 @@ Pushed from a My Day row (`NavigationLink`), nav bar inline with the activity na
 
 ## 9. "Resume your run?" (U1, U2)
 
-Trigger: launch, with a checkpointed recording in `recording` or `paused` state and no live recorder. A full-screen cover over Today (not an alert; there are three real choices and the data deserves space), `interactiveDismissDisabled`.
+Matches `design.md` §3.9 (re-check after the architect's revision; the numbers below follow the privacy review).
+- **Within 10 min of the last checkpoint (U1):** no question. The recorder resumes by itself on relaunch (the gap is a pause and the route has a break; a straight line is never drawn across it) and the recording screen shows for 2 s: "Resumed after a break of 4 min".
+- **Over 10 min (U2):** a full-screen cover over Today (not an alert; the data deserves space), `interactiveDismissDisabled`, titled "Finish your run?". RYFT never promises to resume after hours.
 
 Layout, centred top to bottom:
 - The sport icon circle (64 pt).
-- Title `title` "Resume your run?" (sport word swaps: run, ride, walk, hike, activity).
+- Title `title` "Finish your run?" (sport word swaps: run, ride, walk, hike, activity).
 - A small card (`Theme.surface`) of facts, `StatRow`s: "Started 07:12", "Last saved 07:48", "Distance so far 5.21 km", "Time so far 36:02". All from the checkpoint (30 s granularity).
-- `callout` `textSecondary` explaining the gap honestly: "RYFT stopped recording at 07:48, about 12 minutes ago, when the app was closed. The gap isn't counted."
-- **Resume** (`PrimaryButton(.primary)`): continues the same recording at the saved distance (the gap is recorded as a paused interval and the route has a break; a straight line is never drawn across the gap). Resume continues as running immediately; the state line (2 s) says "Resumed after a break of 12 min".
-- **Finish** (`PrimaryButton(.secondary)`): goes to the finish summary with the data up to the last checkpoint ("Finish with what was saved").
+- `callout` `textSecondary`: "RYFT stopped recording at 07:48, when the app was closed. It can't continue from there, but nothing recorded until then is lost."
+- **Finish** (`PrimaryButton(.primary)`): the finish summary with the data up to the last checkpoint.
 - **Discard** (text button, `Theme.alert`): confirmation dialog as 7.1 (same copy).
-- U2 (gap ≥ 6 h, or the next calendar day): Resume is not offered. Title "Finish your run?" and body "RYFT stopped recording at 07:48. Finish it with what was saved, or discard it." Buttons Finish (primary) and Discard.
-- Never auto-discards. If the user dismisses neither, the cover appears again on the next launch. A pending count badge isn't needed.
-- Also when a recording isn't resumable because the store is corrupt: `InlineMessage` "RYFT couldn't read the saved recording." **Details**; the data is kept untouched, no destructive default.
+- **Resume as a new segment** (`PrimaryButton(.secondary)`, only if the architect keeps it): starts a new segment of the same activity at the current position; the gap is not counted and not bridged. Label "Continue as a new segment" | "Als neuen Abschnitt fortsetzen".
+- Never auto-discards. If neither is chosen, the cover appears again on the next launch.
+- A store that can't be read: `InlineMessage` "RYFT couldn't read the saved recording." with **Details**; the data stays untouched.
 
 **Copy (en | de):**
 | Key | en | de |
 | --- | --- | --- |
-| title | Resume your %@? | %@ fortsetzen? |
+| title | Finish your %@? | %@ beenden? |
 | sport word | run · ride · walk · hike · activity | Lauf · Fahrt · Spaziergang · Wanderung · Aktivität |
 | facts | Started · Last saved · Distance so far · Time so far | Gestartet · Zuletzt gesichert · Bisherige Distanz · Bisherige Zeit |
-| gap | RYFT stopped recording at %@, about %@ ago, when the app was closed. The gap isn't counted. | RYFT hat um %@ aufgehört aufzuzeichnen, vor etwa %@, als die App beendet wurde. Die Lücke wird nicht gezählt. |
-| resume / finish / discard | Resume · Finish with what was saved · Discard | Fortsetzen · Mit dem Gesicherten beenden · Verwerfen |
-| old title/body | Finish your run? · RYFT stopped recording at %@. Finish it with what was saved, or discard it. | Lauf beenden? · RYFT hat um %@ aufgehört aufzuzeichnen. Beende ihn mit dem Gesicherten oder verwirf ihn. |
-| resumed line | Resumed after a break of %@ | Nach %@ Pause fortgesetzt |
+| body | RYFT stopped recording at %@, when the app was closed. It can't continue from there, but nothing recorded until then is lost. | RYFT hat um %@ aufgehört aufzuzeichnen, als die App beendet wurde. Es kann von dort nicht weitergehen, aber nichts bis dahin Aufgezeichnetes geht verloren. |
+| finish / discard | Finish with what was saved · Discard | Mit dem Gesicherten beenden · Verwerfen |
+| auto line | Resumed after a break of %@ | Nach %@ Pause fortgesetzt |
 | unreadable | RYFT couldn't read the saved recording. | RYFT konnte die gesicherte Aufzeichnung nicht lesen. |
 
 VoiceOver: focus starts on the title; facts are read as one element each; the gap sentence follows; the primary button is
@@ -763,7 +784,7 @@ A new section **Activities** in Profile, between Notifications and Data (`Profil
 | --- | --- | --- | --- | --- |
 | Auto-pause | Toggle; sub-label | on for running and cycling, off for walking, hiking | "Auto-pause" / "Pauses the timer when you stop moving." | "Automatische Pause" / "Hält die Zeit an, wenn du stehen bleibst." |
 | Audio cues | Toggle + sub-picker "Every kilometre" (locale: mile) | off | "Audio cues" / "Speaks your distance, time and pace at each kilometre." | "Sprachansagen" / "Sagt bei jedem Kilometer Distanz, Zeit und Tempo an." |
-| Record route by default | Toggle | on | "Record route by default" / "You can change it for each activity." | "Route standardmäßig aufzeichnen" / "Das kannst du für jede Aktivität ändern." |
+| Record route by default | Toggle, set by the first-Start question (4.1a); until then shown as "Not chosen yet" and not a toggle | not chosen (no default) | "Record route by default" / "You can change it for each activity." | "Route standardmäßig aufzeichnen" / "Das kannst du für jede Aktivität ändern." |
 | Privacy zones | chevron row, value "2 places" | none | "Privacy zones" / "Hide where you start and finish." | "Privatzonen" / "Verberge, wo du startest und aufhörst." |
 | Heart-rate sensor | chevron row, value name/"Not connected" (flag `activity.liveHR`; hidden when off) | none | "Heart-rate sensor" / "Show live heart rate while you record." | "Herzfrequenz-Sensor" / "Zeigt die Herzfrequenz live beim Aufzeichnen." |
 | Save to Apple Health | follows the existing workouts opt-in (shown only if on) | — | "Save activities to Apple Health" | "Aktivitäten in Apple Health sichern" |
@@ -773,16 +794,16 @@ Audio cues sub-settings: **Language** follows the app language (en/de), no picke
 A "Test" text button plays a sample phrase ("Play a sample" / "Beispiel abspielen").
 
 **Privacy zones screen (T2):**
-- Intro `callout` `textSecondary`: "RYFT trims the first and last 200 to 500 metres of a route around these places before upload and before any export. Your activity's distance and time are unchanged."
+- Intro `callout` `textSecondary`: "RYFT removes every part of a route inside these circles before upload and before any export. Your activity's distance and time are unchanged."
 - List: each zone: place name (the user types a label like "Home"; default "Zone 1"), radius, a `Map` thumbnail 56 pt; swipe and context menu **Delete**.
-- **Add place** (`PrimaryButton(.secondary)`): a sheet with a map and a movable pin ("Move the map to the place"), options "Use my current location" and a label field, a **radius** control with three detents **200 m · 300 m · 500 m** (segmented; the circle is drawn on the map, dashed 1.5 pt `textSecondary`, fill `accent` 10 %). Save adds it. Max 5 zones ("You can have up to 5 privacy zones.").
+- **Add place** (`PrimaryButton(.secondary)`): a sheet with a map and a movable pin ("Move the map to the place"), options "Use my current location" and a label field, a **radius** control with four detents **200 m · 300 m · 400 m · 500 m** (segmented, **400 m preselected**; the circle is drawn on the map, dashed 1.5 pt `textSecondary`, fill `accent` 10 %). Save adds it. Max 5 zones ("You can have up to 5 privacy zones.").
 - Empty: `lock.shield` `textTertiary` "No privacy zones yet" + `callout` "Add your home or workplace so routes don't show where you live or work."
 - Zones are stored on the device only and never uploaded (copy line "Stored on this iPhone only.").
-- Footer `caption` `textTertiary`: "Zones trim routes saved from now on. Routes you already uploaded aren't changed." (architect to confirm retroactive trimming; open question 8.)
+- Footer `caption` `textTertiary`: "A zone applies to routes not yet uploaded. Routes you already uploaded aren't changed." **Editing a zone's place or radius replaces the zone** (the old one is removed, a new one created); the edit sheet says so: "Changing the place or radius replaces this zone." | "Wenn du Ort oder Radius änderst, ersetzt das diese Zone." Same footer in de: "Eine Zone gilt für Routen, die noch nicht hochgeladen sind. Bereits hochgeladene Routen ändern sich nicht."
 
 **Heart-rate sensor screen:** scan list of BLE devices exposing the Heart Rate service (name, signal bars with a word "Strong/OK/Weak", "Connect"), connected state `checkmark.circle.fill` `accent` + "Connected" + "Forget". Empty: "No sensors found. Put on your sensor and keep it close." Bluetooth permission pre-prompt (same pattern as 4.3): "RYFT connects to your heart-rate sensor over Bluetooth while you record." (de "RYFT verbindet sich mit deinem Herzfrequenz-Sensor über Bluetooth, solange du aufzeichnest."). Denied: **Open Settings**.
 
-**VoiceOver and AX:** every toggle has its sub-label as `accessibilityValue`/hint; the zone list rows read "Home, 300 metres"; the add-place map has the text alternative "Map. Zone centred at the pin. Radius 300 metres" and a coordinates-free instruction: "Use my current location" is the accessible path, so the map drag is never required. At AX sizes rows stack label above value; the radius control becomes a vertical list of three buttons.
+**VoiceOver and AX:** every toggle has its sub-label as `accessibilityValue`/hint; the zone list rows read "Home, 300 metres"; the add-place map has the text alternative "Map. Zone centred at the pin. Radius 300 metres" and a coordinates-free instruction: "Use my current location" is the accessible path, so the map drag is never required. At AX sizes rows stack label above value; the radius control becomes a vertical list of four buttons.
 
 ---
 
@@ -844,12 +865,12 @@ No count-ups; the timers tick without animation.
 ## 15. Open questions
 1. **Past days:** the brief says read-only; I kept "Add activity" and "Add sleep" for the last 14 days (the sheet already lets you pick any past time), only Start is removed. OK, or hide Add on past days too?
 2. **Units:** `Fmt.distance` follows the locale road units; pace and speed would follow it too (min/km vs min/mi, km/h vs mph). Is there, or should there be, a units setting?
-3. **Rest timer interactivity:** is a Resume button (iOS 17 `LiveActivityIntent`) in the Live Activity acceptable? Stop is deliberately absent.
+3. ~~Live Activity controls~~ Decided: none in v1.
 4. **Strain without heart rate:** does the platform score `perceived_effort`? The Add sheet footer and detail copy have two variants; the scoring-scientist decides.
 5. **Merged row source order and names:** relies on `hr_source` being a friendly name and on `trackers.json` (PR #33); until then the raw source string is shown.
 6. **Unmerge:** the contract has no way to undo a merge; none is designed. Needed?
 7. **Recording appearance:** follows the system. Should the recording screen always be dark (battery on OLED) or always light (sunlight)? I chose system with 7:1 contrast.
-8. **Privacy zones retroactive:** the zone applies to future saves only in this spec; routes stored locally in full or already trimmed on device? The route shown on the summary and detail would be the trimmed one if only the trimmed one is stored. Architect and security reviewer to decide; copy depends on it.
-9. **Resume after crash:** the 6 h limit and "the gap isn't counted" are proposals for the architect's checkpoint design.
+8. ~~Privacy zones retroactive~~ (decided: applies to routes not yet uploaded). Previously: the zone applies to future saves only in this spec; routes stored locally in full or already trimmed on device? The route shown on the summary and detail would be the trimmed one if only the trimmed one is stored. Architect and security reviewer to decide; copy depends on it.
+9. **Resume after a kill:** auto-resume within 10 min; beyond that Finish or Discard (and "new segment" only if the architect keeps it). Confirm against `design.md` §3.9 once revised.
 10. **Padel symbol:** no SF Symbol exists; `figure.racquetball` is a stand-in. Acceptable?
 11. **Live HR zones:** zone word during recording needs the user's HR max/reserve on the phone; the phone computes no scores. Show bpm only, and the zone only from the platform's profile values already on device? I specified the zone word; drop it if the profile values aren't available on device.

@@ -115,3 +115,11 @@ Every ticket gets the localization-editor (en + de) and test-engineer. Reviews p
   - A5 (privacy) ∥ A6 (Health; after the tracker HealthStore PR).
   - A7 docs last.
   - **Uploads go live only after C1.**
+- **Privacy review of the design (security-privacy-reviewer):** sign-off withheld for B1–B3.
+  - Revised in `design.md` and ADRs 0003–0006 (B1 trim at checkpoint + zones parked per account; B2 account filter, purge on
+    account change, 30-day expiry; B3 immutable zones; S1 encrypted route/HR chunks with Keychain keys; S2 auto-resume
+    ≤ 10 min; S3 Background Modes only in the release PR; S5–S7). `ui.md` is aligned.
+  - **The lead's call on S6 (the architect's split):** deleting an activity deletes RYFT's Apple Health copy; deleting the
+    account keeps Health copies and says so. Manual entries aren't written to Apple Health.
+  - New API requests: R16 (no route in list or `PUT` answers) and R17 (`account_deleted` on the final 401).
+

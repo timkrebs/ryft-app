@@ -11,6 +11,16 @@
 
 Code anchors (`File.swift:N`) are from `main` at `58b696c`. Tracker-branch anchors say so.
 
+**Revised 2026-10-22 after the security and privacy review** (B1–B3, S1–S7 and the nits). The changes are in:
+- §2.3–§2.4: storage;
+- §3.9: checkpoints and resume;
+- §4: upload;
+- §5: Apple Health delete, read and write types;
+- §6: Live Activity names, no intents;
+- §7.2–§7.3: no route in reads;
+- §8: zones, accounts, at rest, export, App Review;
+- §10–§15.
+
 **What this note decides**
 - the data model: the sport catalogue, the wire draft, the local model, where each datum lives and for how long;
 - `ActivityRecorder`: its machine, sources, pipeline, observation, isolation, checkpoints and resume;
@@ -42,6 +52,10 @@ Code anchors (`File.swift:N`) are from `main` at `58b696c`. Tracker-branch ancho
 6. **Sign-out wipes the whole store with batch deletes** (`TrainStore.swift:167–184`, called from
    `AuthService.wipeSharedLocalData` `AuthService.swift:654–671`), on any sign-out, expiry or account switch
    (`:622–647`). Train's unsent outbox goes with it today. Unconfirmed activities would too (§8.4).
+   - It deletes every `CachedDocument` (`TrainStore.swift:182`), so anything kept there is gone after any wipe.
+   - On sign-out `apply(nil)` also removes `lastUserKey` (`AuthService.swift:631–632`). So the next sign-in of
+     *another* account sees no previous id and wipes nothing (`:627`). Anything kept across a sign-out must carry its
+     account and be filtered by it (§8.4).
 7. **`StateMachine` is `@MainActor`** (`StateMachine.swift:8–15`). `TransitionTable` is a plain struct, so an
    actor can check `allows(_:_:)` without the GameplayKit engine.
 8. **`DayDetail`** (`Models.swift:662–684`) has `sleep`, `workouts` (each with `source`, `sourceBundleId`, `strain`,
@@ -67,7 +81,7 @@ flowchart LR
   subgraph Device
     S["Sensors (seams)<br/>LocationSource · AltitudeSource<br/>PedometerSource · HeartRateSource"] --> R["ActivityRecorder (actor)<br/>TrackPipeline (pure)"]
     R -->|"snapshots ≤1/s"| RS["RecordingSession<br/>@MainActor @Observable"]
-    R -->|"checkpoints /30 s"| ST["ActivityStore (@MainActor)<br/>LocalActivity · ActivityTrackChunk"]
+    R -->|"checkpoints /30 s<br/>route trimmed + sealed"| ST["ActivityStore (@MainActor)<br/>LocalActivity · ActivityTrackChunk<br/>scoped to the account"]
     RS --> LA["Live Activity ≤1/10 s"]
     ADD["Add activity / Add sleep"] --> ST
     ST --> UP["ActivityUploader (@MainActor)<br/>revisions · backoff · generation"]
@@ -91,7 +105,8 @@ flowchart LR
 | The running recording's numbers | `ActivityRecorder` (in memory), checkpointed to `LocalActivity` |
 | Upload state | derived from `LocalActivity` revisions plus the uploader's last attempt |
 | My Day's list | computed by `MyDayAssembler` on read; never stored |
-| Privacy zones, route default, auto-pause, voice cues | the device, per account |
+| Privacy zones, route default, auto-pause | the device, per account (zones sealed, §8.6) |
+| Which account a local row belongs to | `LocalActivity.account`; every fetch filters by it (§8.4) |
 
 ## 2. Data model
 
@@ -111,7 +126,7 @@ gives every property; §2 (Add) and §3 (Start) read the same table. Unknown wir
 | `gravel` | `bicycle` | yes | `.cycling` · outdoor | secondary | on · 1.5 | 22 | 3.0 | cycle |
 | `indoor_running` | `figure.run` (treadmill if on iOS 17) | no: pedometer | `.running` · indoor | none | on · cadence 0 | — | — | foot |
 | `indoor_cycling` | `figure.indoor.cycle` | no | `.cycling` · indoor | none | off | — | — | cycle |
-| `rowing` | `figure.rower` | no (Q9) | `.rowing` | none | off | — | — | water |
+| `rowing` | `figure.rower` | no (plan D1-8) | `.rowing` | none | off | — | — | water |
 | `swimming` | `figure.pool.swim` | no | `.swimming` | none | off | — | — | water |
 | `strength` | `dumbbell.fill` | no; suggests Train | `.traditionalStrengthTraining` | none | off | — | — | gym |
 | `hiit` | `figure.highintensity.intervaltraining` | no | `.highIntensityIntervalTraining` | none | off | — | — | gym |
@@ -122,7 +137,7 @@ gives every property; §2 (Add) and §3 (Start) read the same table. Unknown wir
 | `ski_touring` | `figure.skiing.crosscountry` | yes | `.crossCountrySkiing` · outdoor (closest) | **primary** | off · 0.3 | 30 | 5.0 | snow |
 | `football` | `figure.soccer` | no | `.soccer` | none | off | — | — | ball |
 | `tennis` | `figure.tennis` | no | `.tennis` | none | off | — | — | ball |
-| `padel` | `figure.tennis` | no | `.tennis` (Apple has no padel; Q9) | none | off | — | — | ball |
+| `padel` | `figure.tennis` | no | `.tennis` (Apple has no padel; plan D1-8) | none | off | — | — | ball |
 | `other` | `figure.mixed.cardio` | no | `.other` | none | off | — | — | other |
 
 - **Elevation:** *primary* asks for Motion & Fitness and uses the barometer (the brief's list). *Secondary* uses the
@@ -173,13 +188,17 @@ Encoding for `PUT` omits the server fields (a dedicated `encode(to:)`).
 ```swift
 @Model final class LocalActivity {            // one per manual or recorded activity, until compaction
     @Attribute(.unique) var id: UUID
-    var account: String                        // Supabase user id at creation (§8.4)
+    var account: String                        // Supabase user id at creation; every fetch filters by it (§8.4)
+    var parkedAt: Date?                        // set when a session expiry kept the row (§8.4); 30-day limit
     var sportRaw: String; var originRaw: String
     var phaseRaw: String                       // RecordingPhase while recording; "saved" for documents
     var start: Date; var end: Date?; var movingSec: Double
     var distanceM: Double?; var ascentM: Double?; var descentM: Double?
     var perceivedEffort: Int?; var notes: String
     var recordRoute: Bool
+    var zoneCountAtRecording: Int              // privacy zones active when recording started (§8.2, withhold rule)
+    var routeWithheld: Bool                    // the route isn't attached until the user decides (§8.2)
+    var routeDroppedAt: Date?                  // unconfirmed for 30 days: the route went, the activity stayed (§8.6)
     var splitsData: Data?                      // [ActivitySplit], wire JSON
     var pausesData: Data?                      // [DateInterval] (manual and auto), for HealthKit events and resume
     var headerData: Data?                      // RecordingHeader (§3.9) while recording / interrupted
@@ -191,9 +210,15 @@ Encoding for `PUT` omits the server fields (a dedicated `encode(to:)`).
     var createdAt: Date; var updatedAt: Date
 }
 @Model final class ActivityTrackChunk {        // append-only, one per checkpoint and kind; no relationship
-    var activityID: UUID; var seq: Int; var kindRaw: String   // profile · route · heartRate
-    var data: Data                             // TrackCodec, ≤ ~1 KB
+    var activityID: UUID; var account: String; var seq: Int; var kindRaw: String   // profile · route · heartRate
+    var data: Data                             // TrackCodec, ≤ ~1 KB; route and heartRate sealed (AES-GCM, §8.6)
     var count: Int; var first: Date; var last: Date
+}
+@Model final class LocalPrivacyZone {          // the account's zones (§8.2); kept and parked like the rows
+    @Attribute(.unique) var id: UUID
+    var account: String; var parkedAt: Date?
+    var sealed: Data                           // PrivacyZone JSON, AES-GCM with the account's zone key (§8.6)
+    var createdAt: Date
 }
 @Model final class LocalManualSleep {          // "Add sleep", until confirmed
     @Attribute(.unique) var day: String
@@ -207,8 +232,10 @@ Encoding for `PUT` omits the server fields (a dedicated `encode(to:)`).
 - **The kinds split location from everything else:**
   - `profile` holds time, cumulative distance, altitude and speed: no coordinates. Charts, splits and resume use it.
   - `route` holds time, latitude, longitude, horizontal accuracy and altitude. It's written **only with the route
-    opt-in**.
-  - `heartRate` holds time and bpm (BLE).
+    opt-in**, **already trimmed by the zones active at recording** (§8.2), and **sealed** (§8.6).
+  - `heartRate` holds time and bpm (BLE), sealed.
+- **No coordinate anywhere else.** `RecordingHeader` holds no Kalman anchor and no last position: the filter
+  re-initialises at the first fix after a resume (§3.9). A test decodes a header and asserts it.
 - **`TrackCodec`** (`Recording/TrackCodec.swift`): a 4-byte magic with version, the kind, the count, a base time
   (Float64), then packed little-endian records. A profile record is 16 B, a route record 28 B, a heart-rate record 6 B.
   So 2 h at 1 Hz is about 115 KB of profile and 200 KB of route. Encoding runs in the recorder actor.
@@ -217,22 +244,27 @@ Encoding for `PUT` omits the server fields (a dedicated `encode(to:)`).
 
 | Datum | Where | Lifetime | Sign-out / deletion | Export | Uploaded |
 | --- | --- | --- | --- | --- | --- |
-| `LocalActivity` (no coordinates) | account store (§0.5) | confirmed + 30 days, then compaction | wiped (§8.4 for expiry) | yes, while unconfirmed | yes |
-| `profile` chunks | account store | as the row | wiped | no (splits are) | no |
-| `route` chunks (raw) | account store | **until the platform confirmed the trimmed route and Apple Health, if on, saved its copy** | wiped | trimmed, while unconfirmed | trimmed, opt-in |
-| `heartRate` chunks | account store | until confirmed | wiped | as `hr_samples` | as `hr_samples` |
-| `LocalManualSleep` | account store | until confirmed | wiped | no (the platform's day has it) | yes |
-| Server copies (`SportActivity` per day) | `CachedDocument activities.<day>` | compaction with days (1 year) | wiped | from the platform | — |
-| Privacy zones | `CachedDocument activities.privacyZones` | until changed | wiped | **never** (they'd reveal the place they hide) | **never** |
-| Route default, auto-pause, voice cues | `UserDefaults`, keyed per account | until changed | wiped | no | no |
+| `LocalActivity` (no coordinates) | account store (§0.5) | confirmed + 30 days, then compaction | wiped; parked on expiry ≤ 30 days (§8.4) | yes, while unconfirmed | yes |
+| `profile` chunks | account store | as the row | as the row | no (splits are) | no |
+| `route` chunks | account store, trimmed at checkpoint, sealed with a per-activity key | **until the platform confirmed the route and Apple Health, if on, saved its copy; at most 30 days unconfirmed** (§8.6) | key deleted, then rows | trimmed again, while unconfirmed | trimmed again, simplified, opt-in |
+| `heartRate` chunks | account store, sealed | until confirmed; at most 30 days | key deleted, then rows | as `hr_samples` | as `hr_samples` |
+| Per-activity and zone keys | Keychain, `AfterFirstUnlockThisDeviceOnly`, not synchronizable | until confirm, discard, 30 days, wipe | deleted | never | never |
+| `LocalManualSleep` | account store | until confirmed | wiped; parked on expiry | yes, while unconfirmed | yes |
+| Server copies (`SportActivity` per day) | `CachedDocument activities.<day>`, **never with `route` or `hr_samples`** (§7.2) | compaction with days (1 year) | wiped | from the platform | — |
+| A route the detail screen fetched | memory of the detail view model only | while the screen is open | — | — | — |
+| Privacy zones | `LocalPrivacyZone` rows, sealed with the account's zone key | until changed | wiped; parked with the rows on expiry | **never** (they'd reveal the place they hide) | **never** |
+| Route default, auto-pause | `UserDefaults`, keyed per account | until changed | wiped | no | no |
 | Live Activity content | ActivityKit (no route, no coordinates) | ends with the recording | ended on wipe | — | — |
+| Export file | `tmp/RYFT-export-<day>.json`, `.completeFileProtection` | until the share sheet closes; any left is deleted at launch (§8.7) | — | — | — |
 
 - **Nothing is written to App Group files.** `readiness.json` stays the only shared file. Whether the SwiftData file
   itself sits in the group container is §0.5's verification. We don't move it: moving it would orphan every existing
   store.
 - **File protection** stays the default (`completeUntilFirstUserAuthentication`), so checkpoints land while the phone
   is locked. Never raise it to `.complete` for this store. Device test D4 checks it.
-- **Device backups** include the store, as they do today. Raw coordinates live there only until confirmation.
+- **Device backups** include the store, as they do today. Route and heart-rate chunks and the zones are sealed with
+  keys that are `ThisDeviceOnly`, so a backup restored anywhere else, or read in Finder, can't open them. Deleting a
+  key makes its chunks unreadable at once, including copies left in SQLite's free pages (§8.6).
 
 ### 2.5 My Day items (`Features/MyDay/MyDayAssembler.swift`, A1; ADR 0006)
 
@@ -310,7 +342,7 @@ stateDiagram-v2
   finishing --> finished: Save
   finishing --> discarded: Discard (confirmed)
   idle --> interrupted: launch finds a recording checkpoint
-  interrupted --> recording: Resume (or a background relaunch)
+  interrupted --> recording: Resume (gap < 6 h, same day)
   interrupted --> finishing: Finish (ends at the last checkpoint)
   interrupted --> discarded: Discard
   finished --> [*]
@@ -427,7 +459,7 @@ actor and no clock.
 - **Finish lets the user correct the distance** ("Treadmill said …"). It's stored and sent as `distance_m`.
 - **Without Motion permission:** time only, plus the distance typed at Finish.
 
-### 3.6 Live heart rate (`Recording/HeartRateSensor.swift`, behind `activity.liveHR`; can be A3's last commit or a follow-up)
+### 3.6 Live heart rate (`Recording/HeartRateSensor.swift`, behind `activity.liveHR`; a follow-up PR, plan D1-6)
 
 - **Core Bluetooth, standard Heart Rate service `0x180D`, measurement `0x2A37`.** It parses the uint8/uint16 flag.
   RR intervals are ignored.
@@ -456,7 +488,11 @@ actor ActivityRecorder {
     func discard() async                 // → discarded: sources stopped
     func setObserved(_ observed: Bool)   // snapshot cadence: 1 s observed, 10 s otherwise
 }
-struct RecordingOptions: Sendable { var recordRoute: Bool; var autoPause: Bool; var liveHR: Bool; var barometer: Bool; var pedometer: Bool }
+struct RecordingOptions: Sendable {
+    var recordRoute: Bool; var autoPause: Bool; var liveHR: Bool; var barometer: Bool; var pedometer: Bool
+    var zones: [PrivacyZone]               // the account's zones at Start: route chunks are trimmed by them (§8.2)
+    var keys: ChunkKeys?                   // the activity's route and heart-rate keys from ActivityVault, in memory only (§8.6)
+}
 struct RecorderSnapshot: Sendable, Equatable {
     let phase: RecordingPhase; let movingAnchor: Date?   // now − moving time while recording, so clocks tick on their own
     let movingSec: Double; let elapsedSec: Double; let distanceM: Double
@@ -473,7 +509,8 @@ enum RecorderEvent: Sendable { case checkpoint(Checkpoint), split(ActivitySplit)
   - on any phase change, at once.
 - **The UI's clock** uses `movingAnchor` in a `TimelineView(.periodic(by: 1))`. It needs no snapshot per second.
 - **`RecordingSession`** (`@MainActor @Observable`, `Features/Activities/RecordingSession.swift`, A4) formats values.
-  It forwards actions, feeds `RecordingActivityController` (§6), and speaks voice cues on `.split`.
+  It forwards actions and feeds `ActivityTrackingController` (§6). Voice cues on `.split` are a follow-up PR
+  (plan D1-5).
 - **The map** is off by default (battery). While shown, it appends `routeTail` to an in-memory polyline,
   Douglas–Peucker-simplified at 2 m.
 
@@ -498,34 +535,50 @@ enum RecorderEvent: Sendable { case checkpoint(Checkpoint), split(ActivitySplit)
 ```swift
 struct Checkpoint: Sendable {
     let activityID: UUID; let seq: Int
-    let header: RecordingHeader        // phase, sport, options, start, pauses, moving s, distance, ascent/descent,
-                                       // splits, partial split start, last fix time, elevation offset, pedometer
-                                       // baselines, diagnostics; no coordinates
-    let profile: Data?; let route: Data?; let heartRate: Data?   // TrackCodec, since the previous checkpoint
+    let header: RecordingHeader        // phase, sport, options (without zones or key), start, pauses, moving s,
+                                       // distance, ascent/descent, splits, partial split start, last fix time,
+                                       // elevation offset, pedometer baselines, diagnostics. No coordinates: no
+                                       // Kalman anchor, no last position (a test asserts it)
+    let profile: Data?                 // TrackCodec, since the previous checkpoint
+    let route: Data?                   // TrackCodec, points inside a zone already dropped, then sealed
+    let heartRate: Data?               // TrackCodec, sealed
 }
 ```
 
 - **When.** Every 30 s on `env.clock`. On every phase change and every lap. When the scene goes to the background
   (`RecordingSession` asks the actor for one).
 - **How.** `ActivityStore.apply(_:) -> Bool` upserts the header and inserts the chunks in one `save()`. A failed save
-  is counted and shown as "Progress isn't being saved" on the recording screen.
+  is counted and shown as "Progress isn't being saved" on the recording screen. Store errors are logged by domain and
+  code only, never with `localizedDescription` (it can quote values).
+- **Trimming and sealing happen before the write**, in the actor: `RouteTrimmer.drop(_:zones:)` removes every point
+  inside a zone, then `ActivityVault.seal` encrypts the chunk (§8.2, §8.6). The in-memory map shows the untrimmed
+  tail; the disk never sees it.
 - **Not durable.** `ActivityStore.isDurable` is false when `TrainStore` fell back to memory (§0.5). Pre-start then
   warns that the recording can't survive the app closing.
 - **On launch.** `RecordingCoordinator.restore(inBackground:)` runs in `RyftApp.init`, next to the HealthKit observers
   (`RyftApp.swift:83–85`). It looks for a `LocalActivity` whose phase is recording, paused or auto-paused.
   - **Background launch** (Core Location relaunched the app for a background session; **verify on a device**, D3):
-    re-create the `CLBackgroundActivitySession` and the fix loop at once, and continue `recording` with the gap from
-    the last checkpoint counted as a pause.
-  - **Foreground launch** (force-quit, crash): phase `interrupted`, and the cover shows "Resume your run?" with
-    Resume, Finish and Discard.
-    - Finish ends the activity at the **last checkpoint's** time, not at the launch time.
-    - After more than 24 h since the start, only Finish and Discard are offered.
+    - **Gap since the last checkpoint ≤ 10 min, and the row belongs to the signed-in account:** re-create the
+      `CLBackgroundActivitySession` and the fix loop at once, and continue `recording` with the gap counted as a
+      pause.
+    - **Otherwise:** phase `interrupted`, and the background session is invalidated at once, with no fix loop. Nobody
+      is told they're being located for a run they may have finished an hour ago. The Live Activity ends; the next
+      foreground launch asks.
+  - **Foreground launch** (force-quit, crash): phase `interrupted`, and the cover shows "Resume your run?" (ui.md
+    U1/U2):
+    - **Gap < 6 h and the same calendar day:** Resume, Finish and Discard.
+    - **Otherwise:** "Finish your run?" with Finish and Discard only.
+    - Finish ends the activity at the **last checkpoint's** time, not at the launch time. The 24 h cap (§3.1) still
+      applies to a resumed recording.
   - **Rebuilding the state.** The pipeline is rebuilt from the header. The filter re-initialises at the first new fix.
-    - With the route on, the last `route` chunk's final point bridges the gap per §3.3 step 5.
+    - With the route on, the last stored `route` point (already outside every zone) bridges the gap per §3.3 step 5.
+      If the run was inside a zone at the kill, there is no such point near the gap, and the implied-speed check
+      usually refuses the bridge.
     - With the route off, no coordinate was ever stored, so nothing is bridged.
     - Indoor runs re-query the pedometer (§3.5).
+  - **Another account's row** found at launch (parked, or left by a crash) is never resumed. §8.4 decides its fate.
 - **The Live Activity** gets `staleDate = now + 90 s` on each update, so a killed app's activity reads as paused
-  rather than frozen-live. On launch, `RecordingActivityController.endAll(except:)` keeps only the restored one.
+  rather than frozen-live. On launch, `ActivityTrackingController.endAll(except:)` keeps only the restored one.
 
 ### 3.10 Permissions and degraded modes
 
@@ -534,7 +587,7 @@ struct Checkpoint: Sendable {
 | Location not asked | Pre-prompt sheet (why, When In Use only, the blue pill) → `requestWhenInUse()`. Asked at the first Start, never at launch. |
 | Location denied or restricted | Pre-start says so, with Open Settings and "Record without GPS": time; for foot sports also pedometer distance if Motion is allowed. |
 | Precise Location off | `requestTemporaryPrecise()` (Info.plist `NSLocationTemporaryUsageDescriptionDictionary`, key `ActivityRecording`, en + de). Declined: as denied, with an explanation. |
-| No background location in the build (`canRunInBackground == false`) | Recording works with the screen on only: `isIdleTimerDisabled` while recording, and a banner. `activities.recording` never ships in such a build: a unit test asserts `UIBackgroundModes` contains `location` once U2 is done. |
+| No background location in the build (`canRunInBackground == false`) | Recording works with the screen on only: `isIdleTimerDisabled` while recording, and a banner. `activities.recording` never ships in such a build: the release PR commits U2 with a unit test asserting `UIBackgroundModes` contains `location` (§8.5). |
 | Motion denied | GPS-only elevation; indoor run is time plus the typed distance. |
 | Bluetooth denied | No live HR; the "after your tracker syncs" line. |
 | Live Activities off | Recording unaffected; no Live Activity. |
@@ -616,20 +669,31 @@ stateDiagram-v2
   - backgrounding, with a `beginBackgroundTask` for the request in flight;
   - after sign-in, for rows of that account.
 - **Generation:** an account counter plus `TrainStore.epoch`, exactly like `TrainSyncService.Generation`.
+- **Only the signed-in account's rows.** `flush` reads through `ActivityStore`, whose every fetch filters
+  `account == env.auth.accountID` (§8.4). Signed out, nothing is sent. A row is never sent under another account's
+  token, even before the sign-in purge has run.
 - **On confirm**, `onConfirmed`:
-  - stores the answer in the read model (`Repository.store(activity:)`);
-  - deletes `route` and `heartRate` chunks once Apple Health is done or off (§2.4);
+  - stores the answer in the read model (`Repository.store(activity:)`), **without `route` and `hr_samples`** (§7.2);
+  - once Apple Health is done or off, deletes the activity's key, then its `route` and `heartRate` chunks (§2.4,
+    §8.6);
   - triggers the scoring follow-up (§4.3) and the Health save (§5).
 
 ### 4.2 Payload (`Ryft/Activities/ActivityPayload.swift`, A4; the route part in A5)
 
-`@concurrent static func make(_ row: LocalActivitySnapshot, chunks: [ChunkSnapshot], zones: [PrivacyZone]) async -> Data`:
+`@concurrent static func make(_ row: LocalActivitySnapshot, chunks: [ChunkSnapshot], zones: [PrivacyZone], key: SymmetricKey?) async -> ActivityPayload`
+(the JSON, plus whether the route was attached or withheld):
 1. **Totals and splits** come from the row. They're always sent.
-2. **Route:** only if `recordRoute` and A5 has merged. Trim by zones (§8.2), encode as a polyline (precision 5
-   unless API.md says 6, R4), and join the segments (R5).
+2. **Route**, only if `recordRoute`, A5 has merged and the withhold rule (§8.2) allows it:
+   - open the sealed chunks with the activity's key;
+   - **trim again** by the account's *current* zones (the chunks were trimmed at checkpoint by the zones of the
+     moment);
+   - **always simplify** with Douglas–Peucker at ≥ 3 m;
+   - encode latitude and longitude only, as a polyline (precision 5 unless API.md says 6, R4): **no altitude, no
+     timestamps**;
+   - join the segments (R5).
 3. **`hr_samples`:** 5 s means.
-4. **Size.** If the JSON exceeds 240 KiB (the platform's limit is 256 KiB), Douglas–Peucker the route at 2, 5, 10,
-   then 20 m, then the HR at 15 s and 30 s, until it fits. Still too big → `failed` (413) with Details.
+4. **Size.** If the JSON exceeds 240 KiB (the platform's limit is 256 KiB), Douglas–Peucker the route at 5, 10, then
+   20 m, then the HR at 15 s and 30 s, until it fits. Still too big → `failed` (413) with Details.
 
 The final JSON encode happens inside `APIClient`'s `send` on the caller's actor, as Train's PUTs do (≤ 256 KiB, a few
 ms). The expensive parts happen above, off the main actor.
@@ -718,29 +782,52 @@ func saveActivityWorkout(_ w: ActivityWorkout) async throws -> WorkoutSaveResult
   `activities.*` runs against the stub. Once per id, never in demo mode.
   - The phone must be unlocked: HealthKit is unreadable while locked (`ProtectedData`). A save that hits a lock waits
     for `protectedDataDidBecomeAvailable`.
-  - So the Live Activity has no Stop button (§6).
+  - The route given to Health goes through the same trimming as the upload (current zones, ≥ 3 m simplification),
+    with timestamps (HealthKit requires them) but only inside start…end.
+- **Read and write types.**
+  - RYFT never asks to *read* `HKSeriesType.workoutRoute()` or the distance types.
+  - A test pins it: the share set minus `workoutType` doesn't intersect `HealthKitManager.readTypes`, and
+    `readTypes` contains no route type.
+  - `workoutType` is the one deliberate overlap: trackers' workouts are read, RYFT's are written. That's been so since
+    the strength opt-in, and the sync drops RYFT's own.
+- **Deleting (decision).**
+  - **Deleting an activity** in RYFT also deletes RYFT's own workout in Apple Health and its route. The query is
+    `HKMetadataKeyExternalUUID == id` *and* `predicateForObjects(from: .default())`. The route goes explicitly with
+    `HKWorkoutRoute`s of that workout, then the workout.
+    - The confirmation says "Also removes it from Apple Health" when `healthStateRaw == saved`.
+    - If write access was taken away meanwhile, the delete in RYFT still happens, and the confirmation says "The copy
+      in Apple Health stays; delete it in the Health app."
+  - **Deleting the account** leaves RYFT's workouts in Apple Health. The deletion confirmation says "Workouts RYFT
+    saved to Apple Health stay there. You can delete them in the Health app."
+  - Why the difference: deleting one activity means "this is wrong". Deleting the account means "stop using RYFT",
+    not "erase my Fitness history"; the Health copies are the user's own data, written at their request.
 
 ## 6. Live Activity, App Intents, the control (A4)
 
-- **`RecordingAttributes: ActivityAttributes`** (`Ryft/Activities/Recording/RecordingActivity.swift` and
-  `RyftWidgets/RecordingAttributes.swift`; both in `check-shared-types.py`):
-  - static: `activityID: UUID`, `sport: String` (raw), `title`, `symbol`, `startedAt`;
-  - `ContentState`: `phase` (recording, paused, autoPaused), `movingAnchor: Date?`, `pausedMovingSec: Double`,
-    `distanceM`, `pace: Double?` / `speedKmh: Double?`, `updatedAt`.
-- **The clock** is `Text(timerInterval:pauseTime:)`, so the lock screen ticks without updates.
-- **`RecordingActivityController`** follows `RestActivityController`'s shape: `start`, `update` (throttled per §3.11,
+- **`ActivityTrackingAttributes: ActivityAttributes`**, with ui.md §6's names. The widget copy is
+  `RyftWidgets/ActivityTrackingAttributes.swift`; the app copy is
+  `Ryft/Activities/Recording/ActivityTrackingActivity.swift` (ui.md's spot next to `RestActivity` is the §9.2
+  fallback). Both are in `check-shared-types.py`.
+  - Attributes: `sport: String` (display name), `symbol: String`, `startedAt: Date`, `activityID: UUID`,
+    `usesGPS: Bool`.
+  - `ContentState`: `isPaused: Bool`, `autoPaused: Bool`, `movingSec: Double` (frozen while paused), `resumedAt:
+    Date?`, `distanceM: Double?`, `paceSecPerKm: Double?`, `speedMps: Double?`, `gpsState` (`good`, `weak`, `lost`).
+  - No place name, coordinate or route ever goes in.
+- **The clock** is `Text(timerInterval:)` from `resumedAt − movingSec` while running, and static text while paused,
+  so the lock screen ticks without updates.
+- **`ActivityTrackingController`** follows `RestActivityController`'s shape: `start`, `update` (throttled per §3.11,
   `staleDate` +90 s), `end`, `endAll(except:)`. It isn't a `.shared` in new code; `RecordingCoordinator` owns it.
-- **The widget** (`RyftWidgets/RecordingLiveActivity.swift`, synchronized) shows time, distance and pace, or "Paused".
-  - **Pause and Resume** are `LiveActivityIntent`s (`RecordingIntents.swift` in both targets, shared-type-checked);
-    `perform` runs in the app and calls the recorder.
-  - **No Stop**, because finishing needs effort, notes and Save or Discard, and Health needs an unlocked phone.
+- **The widget** (`RyftWidgets/ActivityTrackingLiveActivity.swift`, synchronized) shows time, distance and pace, or
+  "Paused".
+  - **No interactive controls in v1** (plan decision 3): no Pause, no Resume, no Stop. A pocket can't press them, and
+    finishing needs effort, notes, Save or Discard and an unlocked phone for Health.
   - Tapping opens `ryft://activity/recording`.
 - **One Live Activity at a time.** The rest timer's and the recording's don't coexist, because of the mutual
   exclusion in §3.10.
 - **Intents** (`Features/Activities/ActivityIntents.swift`):
   - `SportChoice: AppEnum` mirrors the GPS sports and indoor running.
   - `StartActivityIntent(sport:)` is `openAppWhenRun`, `requiresAuthentication`, and **opens pre-start with the sport
-    selected** (permissions, GPS lock and the Start tap stay with the user; Q8).
+    selected** (permissions, GPS lock and the Start tap stay with the user; plan D1-7).
   - `OpenRunIntent` is the control's action, duplicated in `RyftWidgets/` like `OpenWorkoutIntent`.
   - `StartRunControl` (`RyftWidgets/StartRunControl.swift`, iOS 18, kind `dev.timkrebs.ryft.run`) is "Start run".
 - **`WorkoutLauncher`'s pending start generalises** to `enum LaunchRequest { case workout(QuickStart), activity(Sport)
@@ -780,6 +867,9 @@ func saveActivityWorkout(_ w: ActivityWorkout) async throws -> WorkoutSaveResult
     - `ReadResource.activities` is added to `Repository.swift:700–728`, normal priority, display name "Activities";
     - TTLs follow days: 5 min today, 24 h for a past day;
     - stored as `CachedDocument "activities.<day>"`.
+- **No route in any list or day read.** `GET /v1/activities?from&to`, the day detail and `PUT` answers are expected
+  without `route` and `hr_samples` (R16). If one arrives anyway, `Repository.store(activities:)` and
+  `store(activity:)` strip both before writing. A test pins it.
   - The card runs it on `.task(id: state.lastUpdated)`. `AppState.refreshDays` (after a sync's `days_touched`) adds
     it for the touched days.
 - **Once the platform decides (R1):**
@@ -796,19 +886,24 @@ func saveActivityWorkout(_ w: ActivityWorkout) async throws -> WorkoutSaveResult
   - Strain's week strip (`StrainView.swift:62–91`, `StrainViewModel.StripDay`) moves to `Design/DateStrip.swift`;
   - Strain and My Day use it, 7 days back.
 - **The Today card is always today**, like everything else on Today. D2 may add more days to the strip.
-- **Past days are read-only, with two exceptions:** manual and RYFT-recorded activities, and manual sleep, can be
-  edited and deleted. On past days the ＋ menu and the bottom buttons are hidden.
+- **Past days (plan decision 1):**
+  - Add activity and Add sleep work for the last 14 days. Start activity is today only.
+  - Manual and RYFT-recorded activities and manual sleep can be edited and deleted on any day; everything else is
+    read-only.
   - Manual activities: every field.
   - Recorded activities: sport within the same family, perceived effort and notes. Times, distance and route came
     from the recording.
-  - Delete: a confirmation, then a tombstone (§4.1).
+  - Delete: a confirmation (with §5's Apple Health sentence), then a tombstone (§4.1).
 - **Taps:**
   - sleep → the Sleep tab for that night (`DeepLinkRouter`);
   - workout → `WorkoutDetailView`;
   - session → `TrainRoute.session`;
   - activity → `ActivityDetailView`.
 - **`ActivityDetailView`** (A2 builds it without a map; A4 adds the rest):
-  - the map with the route;
+  - the map with the route:
+    - for this device's unconfirmed activity, from its sealed chunks, trimmed by the current zones;
+    - otherwise fetched on demand with `GET /v1/activities/{id}` and kept **in the view model's memory only**, never
+      cached. It's fetched again when the screen opens again; offline, "Route available when you're online";
   - splits;
   - pace (a bar per km) and elevation (area, from `profile`) charts per `ChartStyle`;
   - the HR curve and zones:
@@ -824,105 +919,216 @@ func saveActivityWorkout(_ w: ActivityWorkout) async throws -> WorkoutSaveResult
 
 - **`AddActivityModel`** (pure validation, shared with edit):
   - start defaults to the last hour, ending now;
-  - start up to 30 days back (D2 may change it);
+  - start up to 14 days back (plan decision 1);
   - end > start; duration ≤ 24 h; end ≤ now (env.clock);
   - optional distance 0.01–1000 km; perceived effort 1–10; notes ≤ 500 characters.
 - **Strength** shows "Log it in Train for sets and load", which opens the Train start sheet; saving it as a manual
   activity stays possible.
 - **The sport picker** searches, with recents first (the last 5 sports per account in defaults).
 - **`AddSleepModel`:**
-  - wake ≤ now; bed < wake; at most 16 h; bed on or after 12:00 the day before;
+  - a night whose wake day is within the last 14 days; wake ≤ now; bed < wake; 1–16 h (ui.md S2);
   - offered only per §2.5 rule 5;
   - stored in `LocalManualSleep`, uploaded by the uploader, deletable.
 
-## 8. Privacy (A5 for zones and the route; security-privacy-reviewer signs off A3–A6)
+## 8. Privacy (A3 trims and seals at checkpoint; A5 owns zones, the route opt-in and export; security-privacy-reviewer signs off A3–A6)
 
 ### 8.1 Route opt-in
 
 - **Per activity.** The pre-start "Record route" toggle defaults to the account's setting.
 - **The setting** (Profile → Activities) is **unset until the first GPS Start**. Then one explicit choice is asked
-  and remembered: an opt-in that the brief's "default on" becomes after the first answer (Q3).
-- **Without the route:** distance, pace, splits and elevation are computed on the device; no coordinate is written
-  to disk (§2.3), sent, exported or saved to Health. The live map still works from memory.
+  and remembered (plan decision D1-3).
+- **Without the route:**
+  - distance, pace, splits and elevation are computed on the device;
+  - no coordinate is written to disk (§2.3), sent, exported or saved to Health;
+  - the live map still works from memory.
 - **Until A5 merges,** A4 uploads totals and splits only, never a route. This ordering makes it safe by construction.
 
-### 8.2 Privacy zones (`Ryft/Activities/PrivacyZones.swift`)
+### 8.2 Privacy zones (`PrivacyZone` and `RouteTrimmer` in `Recording/RouteTrimmer.swift`, A3; storage and editor A5)
 
 ```swift
-struct PrivacyZone: Codable, Equatable, Sendable {
-    let id: UUID; var name: String            // "Home", user's words
-    var place: Coordinate                     // what the user picked; never leaves the device
-    var radiusM: Double                       // 200, 300, 400 or 500
-    let offset: Coordinate                    // secret, random, generated once: |offset| ≤ radius − 100 m
-    var centre: Coordinate { place + offset } // the circle that trims; the place stays ≥ 100 m inside it
+/// Immutable. An edit of the place or the radius makes a new zone (new id, new offset): an old offset can never
+/// outlive the radius it was drawn for.
+struct PrivacyZone: Codable, Equatable, Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    let id: UUID; let name: String            // "Home", user's words
+    let place: Coordinate                     // what the user picked; never leaves the device
+    let radiusM: Double                       // 200, 300, 400 or 500
+    let offset: Displacement                  // east/north metres, secret
+    var centre: Coordinate { get }            // place moved by offset (local tangent plane)
+    /// The only initialiser for new or edited zones: the offset is uniform over the disc of radius radiusM − 100 m
+    /// (r = (radiusM − 100)·√u, θ = 2πv, u and v from SystemRandomNumberGenerator), so the place stays ≥ 100 m inside.
+    static func make(name: String, place: Coordinate, radiusM: Double) -> PrivacyZone
+    func replacing(name: String? = nil, place: Coordinate? = nil, radiusM: Double? = nil) -> PrivacyZone   // a rename keeps id and offset; place or radius → make(...)
 }
 enum RouteTrimmer {
     /// Every point inside any zone's circle is dropped, wherever it is on the route (not only its ends).
-    /// Returns the remaining segments in order.
+    static func drop(_ points: [RoutePoint], zones: [PrivacyZone]) -> [RoutePoint]          // at each checkpoint
+    /// The same, returning the remaining segments in order (payload, Health, export).
     static func trim(_ route: [RoutePoint], zones: [PrivacyZone]) -> [[RoutePoint]]
 }
 ```
 
 - **Zones are off by default.** After the first route save, the app suggests adding one. There can be up to 5.
-  - They're stored as `CachedDocument "activities.privacyZones"` (per account, wiped).
+  - They're stored as `LocalPrivacyZone` rows: per account, sealed with the account's zone key (§8.6), parked with
+    the activities on expiry (§8.4).
+  - They're **not** a `CachedDocument`: `TrainStore.wipe()` deletes every document (`TrainStore.swift:182`), which
+    is how an expiry used to lose the zones while keeping the routes (review B1).
   - They're **never uploaded, never exported, and never logged**.
-- **Trimming happens at send time**, in `ActivityPayload.make`, the Health save and the export. So a zone added later
-  applies to everything not uploaded yet.
-  - Routes already on the platform aren't changed: the platform never learns the zones. The settings screen says so.
-- **The secret offset** means the circle the trimmed ends trace isn't centred on the place.
+- **Trimming happens twice:**
+  1. **At each checkpoint.** The recorder drops in-zone points (with the zones of the moment, passed in
+     `RecordingOptions.zones`) before a route chunk is encoded and sealed. **No in-zone point ever reaches the
+     disk.**
+  2. **At every exit path:** `ActivityPayload.make`, the Health save, the export and the detail map of an unconfirmed
+     activity trim again with the account's *current* zones. So a zone added later applies to everything not uploaded
+     yet.
+
+  Routes already on the platform aren't changed: the platform never learns the zones. The settings footer says so
+  (ui.md open question 8). The summary and detail always show the trimmed route.
+- **The withhold rule.**
+  - **When:** the row was recorded with zones (`zoneCountAtRecording > 0`) and the account now has none.
+  - **What happens:** the route is **not attached**. The activity uploads without it, `routeWithheld = true`, and
+    its row shows "Route not sent · Review".
+  - **Review offers** "Add your zones again" (the route is then re-trimmed and sent), "Send the route as recorded"
+    (it was trimmed by your zones when you recorded it), or "Remove the route".
+  - Nothing sends it automatically.
+- **The offset.** The circle the trimmed ends trace isn't centred on the place, and an edit always draws a new
+  offset (review B3).
 - **Segments.** Until the API takes route segments (R5), segments are joined, so a mid-route pass shows as a chord
   across the circle.
 
 ### 8.3 Logging and diagnostics
 
 - **No coordinate in any `Logger` call**, public or private, in any signpost, diagnostics string, Report a problem
-  payload or crash-adjacent string.
-- **`LocationFix`, `RoutePoint`, `Coordinate` and `PrivacyZone` have redacting `description`s.** A test asserts that
-  `String(describing:)` of each contains no coordinate digits.
-- **`RecordingDiagnostics`** holds counts and accuracies only (§3.3).
-- Copy diagnostics gets one line per recording: phase, duration, counts. Nothing else.
-- code-reviewer and security-privacy-reviewer grep every PR of this brief for `latitude|longitude|coordinate` in log
-  calls.
+  payload, error string, or `fatalError` / `precondition` / `assert` message.
+- **Redacting types.** `LocationFix`, `RoutePoint`, `Coordinate`, `Displacement` and `PrivacyZone` implement
+  `CustomStringConvertible`, `CustomDebugStringConvertible` and `CustomReflectable`. Their descriptions show
+  accuracy or radius only, and their `customMirror` has no children, so `print`, `dump`, `debugPrint`, string
+  interpolation and the debugger's summary show no coordinate. A test asserts that each of the three renderings
+  contains no coordinate digits.
+- **`RecordingDiagnostics`** holds counts and accuracies only (§3.3). `RecordingHeader` holds no coordinate (§2.3,
+  tested).
+- **Store and Keychain errors** are logged by domain and code only.
+- **Copy diagnostics** gets one line per recording: phase, duration, counts. Nothing else.
+  - The line is also named in the diagnostics comment of `PrivacyInfo.xcprivacy` (`:106`) and in `APP_STORE.md` §1
+    (A5).
+- **Review grep.** code-reviewer and security-privacy-reviewer grep every PR of this brief for
+  `latitude|longitude|coordinate|CLLocation|CLLocationCoordinate2D|\.coordinate`. The grep covers log calls and
+  `fatalError` / `precondition` / `assert` messages.
 
-### 8.4 Sign-out, deletion, expiry
+### 8.4 Accounts: sign-out, expiry, another account, deletion (review B2)
 
-- **User sign-out.** The confirmation lists what isn't confirmed yet: "2 activities haven't reached RYFT. Signing
-  out deletes them from this phone." It offers **Send first** (a flush, at most 10 s) and **Sign out anyway**. A
-  recording in progress can't reach Profile (the cover is full screen).
-- **Account deletion** wipes everything, as today.
-- **Session expiry** (a final `401`; Q5, proposed):
-  - The wipe keeps `LocalActivity`, chunks and `LocalManualSleep` rows that are unconfirmed or recording, and keeps
-    a running recording going. A finished one waits ("Sign in to save").
-  - These rows are bound to `account`. The next sign-in of that account uploads them; another account's sign-in
-    deletes them. They're never shown signed out.
-  - This needs `wipeLocalData` to know the reason (`AuthService.swift:549–565`, `:622–647`) and
-    `TrainStore.wipe(keepingUnconfirmedActivitiesOf:)`.
-  - If the lead declines, expiry wipes like sign-out. That is the one path that can lose a run.
-- **Hooks at the wipe.** The new types aren't `.shared`, so `wipeSharedLocalData` (`AuthService.swift:654–671`)
-  can't reach them directly.
-  - `AuthService` gets `onWipe: (@MainActor (SignOutReason?) -> Void)?`, set by `RyftApp.init` next to
-    `beforeSignOut` (`RyftApp.swift:70`). It runs inside the wipe, so the uploader stops in the sign-out itself, as
-    `TrainSyncService.accountChanged()` does today.
-  - It calls `ActivityUploader.accountChanged()` and `RecordingCoordinator.accountChanged(reason:)`. The latter stops
-    the recorder unless parked, and ends its Live Activity.
-  - `wipeSharedLocalData` itself adds `ActivityPreferences.wipe(defaults:)`, beside `WorkoutHealthExport.wipe`.
+**Every read is scoped to the signed-in account:**
+- **`ActivityStore` filters every fetch** by `account == env.auth.accountID`: activities, chunks, manual sleep and
+  zones. Signed out, it returns nothing. The running recording lives in the recorder until it's saved.
+- **The uploader reads only through the store** (§4.1), and My Day reads only through the store and the Repository.
+  So another account's row can't be shown or sent, even before the purge below.
 
-### 8.5 Manifest, texts, App Review
+**At sign-in, before anything reads:**
+- `AuthService` gets `onAccountWillChange: (@MainActor (_ from: String?, _ to: String?, _ reason: SignOutReason?) ->
+  Void)?`. `apply(_:)` calls it **before** it publishes the new session (`AuthService.swift:622–647`), so before
+  `RyftApp`'s `onChange(of: auth.accountID)`, the first flush and the first My Day read.
+- `RyftApp.init` sets it next to `beforeSignOut` (`RyftApp.swift:70`). It calls:
+  - `ActivityStore.purge(notBelongingTo: to)`: rows, chunks, manual sleep and zones of any other account, their keys
+    first;
+  - `ActivityUploader.accountChanged()`;
+  - `RecordingCoordinator.accountChanged(reason:)`.
+- It doesn't rely on `lastUserKey`, which sign-out removes (§0.6).
+- The same account's parked rows are unparked (`parkedAt = nil`) and flushed.
+
+**Per path:**
+
+| Path | Activities, chunks, manual sleep, zones, keys | Running recording |
+| --- | --- | --- |
+| **User sign-out** | The confirmation lists what isn't confirmed ("2 activities haven't reached RYFT. Signing out deletes them from this phone.") and offers **Send first** (a flush, at most 10 s) or **Sign out anyway**. Then all of that account's rows are deleted, keys first. | Can't happen: the recording cover is full screen. |
+| **Session expiry** (a final `401`) | Unconfirmed rows, their chunks and the account's zones and keys are **parked**: `parkedAt = now`, still bound to `account`. Confirmed rows go. | Keeps recording. Save waits: "Sign in to save". |
+| **Another account signs in** | `purge(notBelongingTo:)` deletes everything else, parked or not. | A parked recording of the other account is discarded with its key. |
+| **Same account signs in** | Unparked, then flushed. | Saved normally. |
+| **Parked for 30 days** | Deleted at the next launch or nightly compaction, keys first. An account deleted on the web looks exactly like an expiry (a final `401`), so this limit is what removes its data from the phone. | The same. |
+| **Account deletion in the app** | Everything is deleted. | n/a |
+
+**Code:**
+- `wipeLocalData` learns the reason (`AuthService.swift:549–565`, `:622–647`).
+- `TrainStore.wipe(parkingActivitiesOf: String?)` skips the four activity models when parking. Otherwise it deletes
+  them like the rest.
+- `onWipe` (same setter site) stops the uploader inside the sign-out itself, as `TrainSyncService.accountChanged()`
+  does today.
+- `wipeSharedLocalData` adds `ActivityPreferences.wipe(defaults:)` beside `WorkoutHealthExport.wipe`.
+
+### 8.5 Manifest, texts, App Review (review S3)
 
 - **`PrivacyInfo.xcprivacy`** gains `NSPrivacyCollectedDataTypePreciseLocation`: linked, not tracking, App
-  Functionality (A5).
+  Functionality. Its diagnostics comment gains the recording line (A5).
 - **Info.plist (en + de via `InfoPlist.xcstrings`):**
-  - `NSLocationWhenInUseUsageDescription`, `NSLocationTemporaryUsageDescriptionDictionary` and
+  - `NSLocationWhenInUseUsageDescription`, `NSLocationTemporaryUsageDescriptionDictionary` (`ActivityRecording`) and
     `NSMotionUsageDescription` (A3);
-  - `NSBluetoothAlwaysUsageDescription` (with live HR);
   - `NSHealthUpdateUsageDescription` (A6);
+  - `NSBluetoothAlwaysUsageDescription` only with the live-HR follow-up;
   - no `NSLocationAlways…`.
-- **The user's steps:** the privacy policy and the App Privacy answers in App Store Connect (Location → Precise
-  Location, linked, App Functionality). The policy text goes to the platform session (web-engineer).
-- **App Review notes** (A7, `APP_STORE.md`):
-  - background location only while an activity is recorded, When In Use, the blue indicator;
-  - how to reach it (Today → My Day → Start activity → Running → Start);
-  - which flags the review account has on.
+- **`UIBackgroundModes` → `location` can't hide behind a flag** (App Review 2.5.4: a declared background mode must
+  serve a feature the reviewer can use).
+  - So **U2 is committed only in the release PR that turns `activities.recording` on**. That PR also carries:
+    - the Info.plist test (`location` present, no `Always` key);
+    - the control and App Shortcut registration (§6);
+    - the review notes.
+  - Until then, `main` builds have `canRunInBackground == false` (§3.10). Device tests D1–D4 run from Xcode on a local,
+    uncommitted U2.
+- **App Review notes** (`APP_STORE.md`, written in A7, pasted by the user at submission):
+  - "Location is used only while you record an activity. RYFT asks for When In Use access, never Always. While a
+    recording runs with the screen off, iOS shows the blue location indicator; recording stops when you finish or
+    discard."
+  - The path: Today → My Day → Start activity → Running → wait for GPS → Start → lock the phone → unlock → long-press
+    Stop → Save.
+  - The review account has `activities.recording` and `activities.manual` on.
+  - Routes are optional ("Record route"), trimmed by privacy zones on the device, and deletable.
+
+### 8.6 At rest (review S1)
+
+**The concern.** Trimming at send time alone wasn't safe at rest:
+- the store (probably in the App Group container) goes into iCloud and Finder backups;
+- SQLite free pages keep deleted rows;
+- before C1 nothing is ever confirmed.
+
+**`ActivityVault`** (`Ryft/Activities/ActivityVault.swift`, A3) sits behind a `KeyStore` seam: the Keychain live,
+in memory in tests.
+- **Keys.** One 256-bit `SymmetricKey` per activity and kind (`dev.timkrebs.ryft.activity.<id>.route`, `….hr`), and
+  one per account for zones (`dev.timkrebs.ryft.zones.<account>`).
+- **Keychain attributes.** `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synchronizable. The keys are never
+  in a backup that restores elsewhere, and they're readable while the phone is locked, so checkpoints keep working.
+- **Sealing.** `route` and `heartRate` chunks and `LocalPrivacyZone.sealed` use AES-GCM (CryptoKit). The associated
+  data is the activity id, the kind and the sequence, so a chunk can't be moved between rows. The actor seals with
+  the keys from `RecordingOptions.keys`, held in memory for the recording only.
+- **If the Keychain fails** at Start or a checkpoint: no route or HR chunk is written. That's counted and shown
+  ("Route isn't being saved"). An unsealed chunk is never written.
+- **Key deletion = crypto-shredding.** A key is deleted, then its chunks:
+  - at confirm (after Health);
+  - at discard;
+  - at the 30-day limit below;
+  - at sign-out, purge and the parked limit;
+  - at Remove route.
+
+  Ciphertext left in free pages or backups is then unreadable.
+- **Raw route at most 30 days unconfirmed.** At launch and in the nightly compaction, an activity whose route chunks
+  are older than 30 days (counted from its end) and still unconfirmed loses the route key and chunks.
+  - `routeDroppedAt` is set and the activity stays.
+  - Its row and detail say "Route removed: it couldn't be sent within 30 days."
+  - HR chunks stay until confirmed: they hold no location.
+- **Orphans.** At launch, chunks whose key is missing are deleted. At the first launch after an install (no marker in
+  `UserDefaults`), every `dev.timkrebs.ryft.activity.*` and `….zones.*` Keychain item is deleted, because Keychain
+  items survive an uninstall.
+- **File protection** stays `completeUntilFirstUserAuthentication`.
+
+### 8.7 Export (review S7, A5)
+
+- **What's added to `DataExport.Archive`:**
+  - **`activities`:** the platform's copies, with trimmed routes (R14), `hr_samples` and splits;
+  - **`manualSleep`:** what the platform's days mark as manual (R11), plus unconfirmed local manual sleep;
+  - **`unconfirmedActivities`:** built by `ActivityPayload.make` (current zones, simplified; the withhold rule
+    applies).
+  - **Zones are never exported.** The export screen says so.
+- **The file** keeps `.completeFileProtection` (`DataExport.swift:61`).
+  - `ShareSheet` (`DataExport.swift:66–75`) sets `completionWithItemsHandler`, which deletes the file whether the
+    user shared or cancelled.
+  - At launch, any `tmp/RYFT-export-*` file is deleted (`DataExport.swift:59` writes there today and never removes
+    it).
 
 ## 9. File layout
 
@@ -932,22 +1138,26 @@ enum RouteTrimmer {
 Ryft/Activities/                      domain, no views (like Ryft/Train/)
   Sport.swift                         A1  catalogue (§2.1)
   LocalActivity.swift                 A1  @Model LocalActivity, ActivityTrackChunk, LocalManualSleep, snapshots
-  ActivityStore.swift                 A1  @MainActor: documents, day queries, compaction; A3 adds checkpoint API
+                                          (A5 adds LocalPrivacyZone)
+  ActivityStore.swift                 A1  @MainActor: documents, day queries, account filter, purge, parking,
+                                          compaction; A3 adds checkpoint API
+  ActivityVault.swift                 A3  KeyStore seam, per-activity and zone keys, AES-GCM seal/open (§8.6)
   ActivitiesAPI.swift                 A1  protocol, ActivitiesError, live stub
   ActivityUploader.swift              A2  §4.1
   ActivityPayload.swift               A4  §4.2 (route part A5)
-  ActivityPreferences.swift           A2  route default, auto-pause per family, voice cues, recents (per account)
-  PrivacyZones.swift                  A5  PrivacyZone, store, RouteTrimmer
+  ActivityPreferences.swift           A2  route default, auto-pause per family, recents (per account)
+  PrivacyZoneStore.swift              A5  LocalPrivacyZone storage, withhold rule
   ActivityHealthExport.swift          A6  ActivityWorkout mapping, the save after confirm
   Recording/
     ActivityRecorder.swift            A3  actor
     TrackPipeline.swift               A3  pure pipeline, splits, auto-pause, pace
     KalmanTrack.swift  Geodesy.swift  ElevationFusion.swift  TrackCodec.swift  RecordingDiagnostics.swift   A3
     Sources.swift                     A3  protocols, value types, ActivitySensors
+    RouteTrimmer.swift                A3  PrivacyZone (immutable, make/replacing), RouteTrimmer.drop/trim
     LiveLocationSource.swift  LiveMotionSources.swift   A3
-    HeartRateSensor.swift             A3 (last commit) or follow-up, behind activity.liveHR
+    HeartRateSensor.swift             live-HR follow-up PR, behind activity.liveHR (plan decision D1-6)
     ReplaySources.swift               A3  fixture, clocked and replay sources (DEBUG/preview/tests)
-    RecordingActivity.swift           A4  RecordingAttributes (app copy), RecordingActivityController
+    ActivityTrackingActivity.swift    A4  ActivityTrackingAttributes (app copy), ActivityTrackingController
 Ryft/Features/MyDay/                  A1  MyDayAssembler, MyDayViewModel, MyDayCard, MyDayView, MyDayRow
 Ryft/Features/Activities/
   AddActivitySheet, AddActivityModel, AddSleepSheet, AddSleepModel, SportPicker,
@@ -958,18 +1168,20 @@ Ryft/Features/Activities/
 Ryft/Design/DateStrip.swift           A1   Ryft/Design/RouteMap.swift   A4 (SwiftUI Map + MapPolyline)
 Ryft/Preview/MockActivities.swift     A1   MockActivitiesSource, demo items, a 400 m replay track literal
 Ryft/Networking/Models.swift          A1   // MARK: - Activities (draft)   APIClient+Activities.swift   C1
-RyftWidgets/RecordingAttributes.swift  RecordingLiveActivity.swift  RecordingIntents.swift
-            OpenRunIntent.swift  StartRunControl.swift                           A4
+RyftWidgets/ActivityTrackingAttributes.swift  ActivityTrackingLiveActivity.swift
+            OpenRunIntent.swift  StartRunControl.swift                           A4 (no Live Activity intents in v1)
 RyftTests/Activities/                 SportCatalogTests, MyDayAssemblerTests, ActivityStoreTests (A1);
                                       AddActivityValidationTests, ActivityUploaderTests (A2);
                                       TrackPipelineTests, KalmanTrackTests, SplitsTests, AutoPauseTests,
-                                      ElevationFusionTests, TrackCodecTests, ActivityRecorderTests (A3);
-                                      RecordingSessionTests, ActivityPayloadTests (A4); PrivacyZoneTests (A5);
+                                      ElevationFusionTests, TrackCodecTests, ActivityRecorderTests,
+                                      RouteTrimmerTests, ActivityVaultTests, RedactionTests (A3);
+                                      RecordingSessionTests, ActivityPayloadTests (A4);
+                                      PrivacyZoneStoreTests, AccountScopeTests, DataExportTests (A5);
                                       ActivityHealthExportTests (A6)
 RyftTests/Fixtures/Tracks/            road-5k.json, trail-switchbacks.json, stationary.json (+ .gpx), from
                                       scripts/make-tracks.py (A3)
 RyftUITests/                          MyDayUITests (A1), AddActivityUITests (A2), RecordingUITests (A4)
-scripts/make-tracks.py  scripts/gpx-play.sh (A3)    scripts/check-shared-types.py (+3 entries, A4)
+scripts/make-tracks.py  scripts/gpx-play.sh (A3)    scripts/check-shared-types.py (+2 entries, A4)
 ```
 
 ### 9.2 Fallback without the conversion (bad for a feature of this size)
@@ -984,7 +1196,7 @@ New files in `Ryft/` and `RyftTests/` wouldn't compile. Everything would have to
 | `ActivitiesAPI`, stub | `Environment/PlatformAPI.swift`; `MockActivitiesSource` in `Preview/MockTrain.swift` |
 | Pipeline, Kalman, geodesy, elevation, codec, diagnostics | `Train/TrainMath.swift` |
 | Recorder actor, sources, live sources, BLE, replay | `Health/HealthKitManager.swift` (EOF) |
-| Recording Live Activity (app copy) | `Train/RestActivity.swift` |
+| Recording Live Activity (app copy) | `Train/RestActivity.swift` (where ui.md §6 places it) |
 | My Day model, assembler, card, view | `Features/Today/TodayViewModel.swift`, `TodayView.swift`: the tracker PRs' hot spots |
 | Add, pre-start, recording, finish, detail, settings, zones | `Features/Strain/StrainComponents.swift`, `WorkoutDetailView.swift`, `Features/Train/Session/SessionView.swift`, `Features/Profile/ProfileView.swift` |
 | Intents | `Features/Train/TrainCoordinator.swift` |
@@ -1013,23 +1225,25 @@ flowchart LR
   A4 --> A6["A6 health: save activities with route"]
   A5 --> A6
   TR --> A6
-  U2["U2 user: Background Modes → Location"] --> A4
-  P["platform: API.md → Activities"] --> C1["C1 networking: activities contract<br/>(api-contract-keeper)"]
-  C1 -.->|"live uploads"| ON["flags on"]
+  P["platform: API.md → Activities"] --> C1["C1 api: activities contract<br/>(api-contract-keeper)"]
   A6 --> A7["A7 docs: activities"]
   A5 --> A7
+  A7 --> REL["release PR: U2 committed + activities.recording on<br/>+ Info.plist test + control/phrase + review notes"]
+  C1 --> REL
+  U2["U2 user: Background Modes → Location<br/>(local only until the release PR)"] -.-> REL
 ```
 
 | # | PR | Owner (reviewers beyond code-reviewer) | Owns alone | Needs the platform contract | In parallel |
 | --- | --- | --- | --- | --- | --- |
 | A1 | `today: My Day` | ios-developer; sync-engineer writes the core (`LocalActivity`, `ActivityStore`, `Repository` changes) (ui-validator) | `Activities/Sport, LocalActivity, ActivityStore, ActivitiesAPI`; `Features/MyDay/*`; `Design/DateStrip`; `Preview/MockActivities`; `MyDayUITests` | no: DayDetail exists; server activity rows show once C1 is in (R1 decides the read) | first to merge; A2 and A3 code against the frozen core with a throwaway copy |
 | A2 | `activities: add activity and add sleep` | ios-developer; sync-engineer owns `ActivityUploader` (security-privacy for the sign-out copy) | `ActivityUploader`, `ActivityPreferences`; `Features/Activities/Add*`, `SportPicker`, `ActivityDetail*` | live uploads: `PUT`/`DELETE /v1/activities`, `/v1/sleep/manual` | with A3 |
-| A3 | `activities: GPS recording engine` | sync-engineer (test-engineer for fixtures; performance-profiler later; security-privacy) | `Activities/Recording/*` except `RecordingActivity`; `make-tracks.py`, `gpx-play.sh`, track fixtures | no | with A2; could start before the tracker merges (only `TrainStore.swift`, `Machines.swift`, `AppEnvironment` init, Info.plist) |
-| A4 | `activities: recording UI, Live Activity, finish and upload` | ios-developer (UI, Live Activity, intents) + sync-engineer (coordinator, lifecycle, payload) (ui-validator, performance-profiler, security-privacy) | `Features/Activities/PreStart*, Recording*, Finish*, ResumeRecording*, ActivityIntents`; `ActivityPayload`; `RecordingActivity`; `RyftWidgets/Recording*`, `OpenRunIntent`, `StartRunControl`; `Design/RouteMap`; `RecordingUITests` | live uploads | A5 and A6 code in parallel against `ActivityPayload.make` and `ActivityWorkout` |
-| A5 | `activities: privacy zones and route opt-in` | sync-engineer (trimmer, payload, export) + ios-developer (settings, zone editor) (**security-privacy sign-off**) | `PrivacyZones`; `ActivitySettingsView`, `PrivacyZoneEditor` | no (R4 and R5 shape the route field) | with A4, A6 |
+| A3 | `activities: GPS recording engine` | sync-engineer (test-engineer for fixtures; performance-profiler later; **security-privacy**: trimming and sealing at checkpoint) | `Activities/Recording/*` except `ActivityTrackingActivity`; `ActivityVault`; `make-tracks.py`, `gpx-play.sh`, track fixtures | no | with A2; its pure core could start before the tracker merges (only `TrainStore.swift`, `Machines.swift`, `AppEnvironment` init, Info.plist) |
+| A4 | `activities: recording UI, Live Activity, finish and upload` | ios-developer (UI, Live Activity, intents) + sync-engineer (coordinator, lifecycle, payload) (ui-validator, performance-profiler, security-privacy) | `Features/Activities/PreStart*, Recording*, Finish*, ResumeRecording*, ActivityIntents`; `ActivityPayload`; `ActivityTrackingActivity`; `RyftWidgets/ActivityTracking*`, `OpenRunIntent`, `StartRunControl`; `Design/RouteMap`; `RecordingUITests` | live uploads | A5 and A6 code in parallel against `ActivityPayload.make` and `ActivityWorkout` |
+| A5 | `activities: privacy zones and route opt-in` | sync-engineer (zone store, payload route, export, account scoping tests) + ios-developer (settings, zone editor, withhold review) (**security-privacy sign-off**) | `PrivacyZoneStore`; `ActivitySettingsView`, `PrivacyZoneEditor`; the export part of `DataExport.swift` | no (R4 and R5 shape the route field) | with A4, A6 |
 | A6 | `health: save activities with route to Apple Health` | sync-engineer (security-privacy) | `ActivityHealthExport`; the `HealthStore` additions | no | with A5 |
 | A7 | `docs: activities` | ios-lead + localization-editor | `docs/ARCHITECTURE.md` (§ activities and recording; the seam table), `STATUS.md`, `CHANGELOG.md`, `APP_STORE.md`, `TESTFLIGHT_NOTES.md`, `docs/ACTIVITIES.md` (GPX playback, fixtures) | no | last |
-| C1 | `networking: activities contract` (not in the brief's list; or folded into A2) | api-contract-keeper (test-engineer) | `APIClient+Activities.swift`; fixtures; `scripts/contract/extract.py` MAP | **is** the contract | whenever API.md publishes |
+| C1 | `api: activities contract` (plan decision D1-1) | api-contract-keeper (test-engineer) | `APIClient+Activities.swift`; fixtures; `scripts/contract/extract.py` MAP | **is** the contract | whenever API.md publishes |
+| — | release PR (`release: activities`) | ios-lead + release-manager | U2's Info.plist change, the Info.plist test, the flag flip, `StartRunControl` and the phrase registered, review notes | after C1 and the platform deploy | — |
 
 **File requests now.** The lead files §13 into `docs/API_REQUESTS.md` → Activities now, not in A7: the platform is
 designing the contract today.
@@ -1041,8 +1255,8 @@ config, `PlatformAPI.swift:144`):
 | --- | --- | --- |
 | `today.myDay` | the card, the full view, Strain's list change | A1 + ui-validator |
 | `activities.manual` | Add activity, Add sleep, edit and delete | A2 + C1 + platform deployed |
-| `activities.recording` | Start activity, pre-start, intents (and the control and phrase registration, §6) | A4 + A5 + U2 + device tests + privacy sign-off + C1 |
-| `activity.liveHR` | Connect heart-rate sensor | after U3 and a device test |
+| `activities.recording` | Start activity, pre-start, intents (and the control and phrase registration, §6) | the release PR: A4 + A5 + A6 + C1 + device tests + privacy sign-off, with U2 committed in the same PR (§8.5) |
+| `activity.liveHR` | Connect heart-rate sensor | the follow-up PR, after U3 and a device test |
 
 **Frozen interfaces** (changes go through the lead):
 - **A1:**
@@ -1050,14 +1264,14 @@ config, `PlatformAPI.swift:144`):
   - §2.2 `SportActivity` and friends (until C1);
   - §2.3 models;
   - `ActivityStore`'s document API: `snapshots(onDay:)`, `save(manual:)`, `update(_:_:)`, `tombstone(_:)`,
-    `unconfirmed()`, `confirm(_:revision:)`, `isDurable`;
+    `unconfirmed()`, `confirm(_:revision:)`, `purge(notBelongingTo:)`, `isDurable`; every fetch filtered by account;
   - `ActivitiesAPI`;
   - `MyDayItem`, `MyDayInput`, `MyDayAssembler.items`;
   - `ReadResource.activities`, `Repository.activities(day:)` and `refreshActivities`;
   - `DateStrip`;
   - the four flags.
 - **A2:** `UploadState`, `ActivityUploader`'s API, `SyncCoordinator.Trigger.activitySaved(days:)`,
-  `ActivityPreferences`.
+  `ActivityPreferences`, `AuthService.onAccountWillChange` and `onWipe`, `TrainStore.wipe(parkingActivitiesOf:)`.
 - **A3:**
   - §3.1 `RecordingPhase` and its table;
   - §3.2 sources and `ActivitySensors`;
@@ -1065,9 +1279,12 @@ config, `PlatformAPI.swift:144`):
   - `RecordingOptions`, `RecorderSnapshot`, `RecorderEvent`, `Checkpoint`, `RecordingHeader`;
   - `ActivityRecorder`'s API;
   - `ActivityStore.begin`, `apply(_:)` and `activeRecording()`;
-  - `TrackPipeline.ingest`.
-- **A4:** `RecordingAttributes`, `RecordingCoordinator.restore(inBackground:)`, `ActivityPayload.make`, `LaunchRequest`.
-- **A5:** `PrivacyZone`, `RouteTrimmer.trim`.
+  - `TrackPipeline.ingest`;
+  - `PrivacyZone` (immutable, `make`, `replacing`), `RouteTrimmer.drop` and `trim`;
+  - `ActivityVault` and `KeyStore`.
+- **A4:** `ActivityTrackingAttributes` (ui.md §6 names), `RecordingCoordinator.restore(inBackground:)`,
+  `ActivityPayload.make`, `LaunchRequest`.
+- **A5:** `LocalPrivacyZone`, the zone store's API, the withhold rule (`routeWithheld`).
 - **A6:** `ActivityWorkout`, `HealthStore.saveActivityWorkout`.
 
 **Shared regions after the tracker merge** (re-anchor on the merged `main`; nobody reformats outside their own):
@@ -1080,16 +1297,17 @@ config, `PlatformAPI.swift:144`):
 | `Environment/PlatformAPI.swift` | A1 | the protocol line `:6`; `MockPlatformAPI` conformance; demo flags `:144` | T2 changes `:144` |
 | `Environment/AppEnvironment.swift` | A3 | the `sensors:` init parameter next to `content:` | T2's init |
 | `Persistence/Repository.swift` | A1 | `Kind`, revision, reads, `refreshActivities`, `ReadResource` | none |
-| `Train/Model/TrainStore.swift` | A1 (schema, wipe), A2 (wipe with the reason, Q5) | `:14–15`, `:167–184` | none |
+| `Train/Model/TrainStore.swift` | A1 (schema, wipe), A2 (`wipe(parkingActivitiesOf:)`, §8.4) | `:14–15`, `:167–184` | none |
 | `Sync/SyncCoordinator.swift` | A2 | `Trigger` `:70–83`, `merge` `:271`, pipeline `:313` | none |
 | `App/RyftApp.swift` | A2 (uploader triggers), A4 (restore, cover, scene phase) | after `:83–85`; `:168`; `:190–240`; RootView `:408` | T2 and T3 add tasks and `DebugScreen` cases: adjacent |
-| `Auth/AuthService.swift` | A2 | `:654–671` hooks; A2/Q5 the reason | none |
+| `Auth/AuthService.swift` | A2 | `onAccountWillChange` called in `apply` `:622–647` before the session is published; `onWipe` and the reason; `:654–671` | none |
+| `Features/Profile/DataExport.swift` | A5 | `Archive` fields; `ShareSheet` `:66–75` completion handler; launch cleanup | none |
 | `Features/Profile/ProfileView.swift` | A2 (sign-out confirmation), A5 (an "Activities" row), A6 (toggle text `:368–383`) | after T2's Data section edits | T2 `:351–366`, T3: start after they merge |
 | `Environment/HealthStore.swift` | A6 | protocol after `:148`, live after `:311`, mock after `:482`, `recordedElsewhere` `:299–311` | T1 and T3 (start after) |
 | `Features/Train/TrainCoordinator.swift` | A4 (`LaunchRequest`), A6 (`WorkoutHealthExport` gate) | `:256–325`, `:426–535` | none |
 | `Features/Strain/StrainView.swift`, `StrainViewModel.swift` | A1 | strip `:62–91`, `StripDay` `:20–34`, activities `:97–112`, `:126–154` | none |
 | `Ryft/Info.plist`, `Resources/InfoPlist.xcstrings` | A3, A6 (+ live HR) | usage strings | none (U2 edits `UIBackgroundModes` in Xcode) |
-| `Ryft/PrivacyInfo.xcprivacy` | A5 | one collected type | T2 edits 3 lines |
+| `Ryft/PrivacyInfo.xcprivacy` | A5 | one collected type; the diagnostics comment (`:106`) | T2 edits 3 lines |
 | `Localizable.xcstrings`, `TestPlans/UISmoke.xctestplan` | all | keys; `selectedTests` | all: resolve at merge, then `make lint` |
 
 ## 11. Tests
@@ -1115,12 +1333,31 @@ config, `PlatformAPI.swift:144`):
   - a checkpoint every 30 s on the clock and on each phase change;
   - snapshot cadence 1 s observed / 10 s not;
   - resume from a checkpoint: route on bridges, route off doesn't, indoor re-queries the pedometer;
-  - background-launch auto-resume vs foreground `interrupted`; Finish ends at the last checkpoint;
+  - background launch: gap ≤ 10 min → resumes; gap > 10 min → `interrupted`, the background session invalidated
+    and no fix loop running;
+  - foreground `interrupted`: Resume offered only for a gap < 6 h on the same day; Finish ends at the last
+    checkpoint;
   - the 24 h cap;
+  - **route chunks never contain an in-zone point** (zones at Start; a fixture run that starts and ends inside a
+    zone), and they're sealed: their bytes don't decode without the key;
+  - Keychain failure → no route chunk is written, and it's counted;
+  - `RecordingHeader` has no coordinate field: its encoded JSON has no latitude, longitude or anchor key (a
+    reflection test over its stored properties).
   - nothing on the main thread (`MainThread.assertOff` counts with fakes, as `SyncEngineTests` do).
 - **`StateMachineTests`:** `RecordingMachine` on both engines.
 - **Store.** Checkpoint upsert and append; `activeRecording`; tombstones; compaction (30 days; raw route at
-  confirm); wipe and parking (Q5); not durable → `isDurable == false`.
+  confirm); not durable → `isDurable == false`.
+- **Accounts (B2), one test each:**
+  - every fetch returns only the signed-in account's rows, chunks, sleep and zones; signed out → none;
+  - expiry parks unconfirmed rows *and* zones and keys; confirmed rows go;
+  - account B signing in after A's expiry (with `lastUserKey` gone) purges A's rows, zones and keys **before** the
+    first flush and the first My Day read (`onAccountWillChange` order);
+  - the same account signing in unparks and uploads, with the route trimmed by the parked zones;
+  - parked for 30 days → deleted, keys first;
+  - the uploader never sends a row of another account, even with the purge stubbed out.
+- **At rest (S1):** seal and open round trip; wrong activity, kind or sequence (AAD) fails; key deleted → chunks
+  unreadable and then deleted; the 30-day unconfirmed route limit drops the route, keeps the activity and sets
+  `routeDroppedAt`; orphan cleanup; the first launch after an install deletes old Keychain items.
 - **Uploader:**
   - **idempotency:** two flushes of one revision → one PUT; an edit in flight → a second PUT; a retry after a
     timeout reuses the id;
@@ -1135,17 +1372,33 @@ config, `PlatformAPI.swift:144`):
 - **Assembler** (a table): every rule of §2.5, merged rows with two badges and the tracker display name, local
   overlay over the server copy, tombstones, the sleep rules with `nightGap`, ordering, strain states.
 - **Validation:** future end, more than 24 h, end ≤ start, effort range, notes length, sleep window.
-- **Payload:** totals only before A5; trimmed route after; size reduction to 240 KiB; HR to 5 s.
+- **Payload:**
+  - totals only before A5; trimmed route after;
+  - always simplified (≥ 3 m), latitude and longitude only, no altitude or timestamps in the polyline;
+  - size reduction to 240 KiB; HR to 5 s;
+  - **withhold:** recorded with zones and none now → no route, `routeWithheld`; "Send as recorded" attaches it;
+    "Remove" deletes key and chunks.
 - **Privacy:**
   - trimming keeps no point inside any circle, mid-route included;
-  - the offset keeps the place ≥ 100 m inside;
-  - descriptions are redacted;
-  - zones never appear in the export or payload;
-  - zones apply at send time.
-- **Health** (`MockHealthStore`): saved once per id; `alreadySaved`; same family ≥ 60 % → `recordedElsewhere`; the
-  tidy never deletes a run for a strength workout; route refused → saved without; no save in demo mode;
-  `withoutOwnWorkouts` keeps dropping RYFT-sourced workouts.
-- **Info.plist** (with U2): `UIBackgroundModes` contains `location`; no `NSLocationAlways*` key.
+  - **B3 invariant**, property-style over 10 000 seeded zones: `distance(place, centre) ≤ radius − 100 m`, and after
+    every edit (500 → 200 m, a moved place) through `replacing`; offsets are uniform over the disc (a coarse
+    histogram);
+  - `print`, `debugPrint`, `dump` and interpolation of every location type are redacted;
+  - zones never appear in the export or payload; zones apply at send time;
+  - the zone store survives an expiry (B1 regression): park, sign in again, upload → trimmed by the parked zones.
+- **Reads (S5):** `Repository.store(activities:)` and `store(activity:)` drop `route` and `hr_samples`; the detail
+  view model fetches the route and never writes it.
+- **Export (S7):** the archive has activities, splits, `hr_samples`, manual sleep and unconfirmed rows (trimmed), and
+  no zones; the share sheet's completion deletes the file; launch deletes leftover `RYFT-export-*` files.
+- **Health** (`MockHealthStore`):
+  - saved once per id; `alreadySaved`; same family ≥ 60 % → `recordedElsewhere`;
+  - the tidy never deletes a run for a strength workout;
+  - route refused → saved without; no save in demo mode;
+  - `withoutOwnWorkouts` keeps dropping RYFT-sourced workouts;
+  - share and read types: the share set minus `workoutType` doesn't meet `readTypes`, and no route type is read;
+  - deleting an activity deletes our workout and its route by external UUID, and only ours;
+  - access revoked → the RYFT delete still happens and reports "stays in Apple Health".
+- **Info.plist:** no `NSLocationAlways*` key (now). With the release PR: `UIBackgroundModes` contains `location`.
 - **Wire** (C1): one fixture test per shape from API.md; until then, from the platform brief's shapes.
 
 ### 11.2 Fixture tracks (`scripts/make-tracks.py`, stdlib, seeded; A3)
@@ -1185,41 +1438,45 @@ against a running UI test is brittle. So:
 
 ### 11.4 Device (the user; noted in STATUS as device-only)
 
+All of these run from Xcode with U2 applied locally and not committed (§8.5).
+
 | # | What |
 | --- | --- |
 | D1 | A real 5 km run, phone in a pocket, screen off: distance against the tracker; splits; the Live Activity; ascent on a hilly route |
 | D2 | Battery: 60 min, screen off, iPhone 17, from 100 %: ≤ 8 % (performance-profiler); background updates never stall (diagnostics: longest gap) |
-| D3 | Force-quit mid-run → "Resume your run?"; let iOS terminate it (memory pressure) → background relaunch resumes, or not (decides §3.9's background branch) |
-| D4 | Lock the phone during a run: checkpoints keep landing (diagnostics count); Health save waits for the unlock |
-| D5 | The merged row once the tracker's workout arrives; Apple Health: one workout in Fitness with route; RYFT's removed when the watch's covers it |
+| D3 | Force-quit mid-run → "Resume your run?"; let iOS terminate it (memory pressure) → a background relaunch within 10 min resumes; after 10 min no blue indicator appears and the next launch asks (§3.9) |
+| D4 | Lock the phone during a run: checkpoints keep landing (diagnostics count; the Keychain key is readable after first unlock); Health save waits for the unlock |
+| D5 | The merged row once the tracker's workout arrives; Apple Health: one workout in Fitness with route; RYFT's removed when the watch's covers it; deleting the activity in RYFT removes ours from Fitness |
 | D6 | Permission paths: denied, Precise off (temporary precise), Motion denied |
-| D7 | `TrainStore` location (§0.5) and file protection |
+| D7 | `TrainStore` location (§0.5) and file protection; a route recorded through a zone shows trimmed on the summary |
 
 ## 12. Risks
 
 | Risk | Mitigation |
 | --- | --- |
 | **Battery** above 8 %/h | `liveUpdates` stationary pause, background cadence (§3.11), no map off screen, measured (D2); the manager-based source and HealthKit-sync coalescing as levers |
-| **Background termination** | Checkpoints every 30 s plus on background; bounded memory (chunks flushed); a background relaunch re-creates the session (D3); a foreground launch asks; Finish ends at the last checkpoint |
+| **Background termination** | Checkpoints every 30 s plus on background; bounded memory (chunks flushed); a background relaunch resumes only within 10 min, else the session is dropped at once (D3); a foreground launch asks; Finish ends at the last checkpoint |
 | **GPS in cities and forests** | Accuracy gate, speed gate, innovation gate, gap bridging, "weak GPS" indicator; fixtures for canopy and multipath; D1 against a tracker; distance is never adjusted after Finish |
 | **Permission denial** | §3.10: every path has a recording mode or a clear stop; Always never asked |
-| **App Review** of background location | When In Use, the blue pill, review notes with the path and flags (A7); the purpose string names the recording; no Always; ships behind `activities.recording` (the reviewer account gets it) |
-| **Privacy** | ADR 0005: opt-in, on-device zones with an offset, no coordinates in logs, raw route deleted after confirmation, zones never leave the device; security-privacy sign-off before `activities.recording`; manifest and policy (user) |
-| **Losing a run** | ADR 0004: nothing deleted before confirmation; the sign-out confirmation; expiry parking (Q5); not-durable warning |
+| **App Review** of background location (2.5.4) | U2 ships only with the release that turns recording on; When In Use, the blue indicator, the review notes in §8.5; no Always; the review account has the flags |
+| **A home revealed by a route** | Trimmed before the disk (checkpoint) and again at every exit; zones parked with the rows and never in a document the wipe deletes; the withhold rule; immutable zones with a fresh offset per edit (ADR 0005) |
+| **One account's run in another account** | Every fetch scoped to the account; the purge before the first read and flush; parked rows limited to 30 days; tests per path (§8.4) |
+| **Data at rest** (backups, free pages, no confirmation before C1) | Route, HR and zones sealed with `ThisDeviceOnly` keys; keys deleted first (crypto-shredding); unconfirmed raw routes dropped after 30 days (§8.6) |
+| **Losing a run** | ADR 0004: nothing deleted before confirmation; the sign-out confirmation; expiry parking; not-durable warning. A Keychain failure costs the route, never the activity |
 | **Platform timing** | The fake, the stub, `notAvailableYet`, flags; My Day useful without the contract (DayDetail) |
 | **Two sources of the same run** (RYFT + tracker) | The platform merges (R10 families); Apple Health skips or tidies the overlap; the sync never re-uploads RYFT's workouts |
 | **Merge friction with tracker PRs** | Start after they merge; own folders; §10's region table; no edits to `TodayViewModel`; one-line insertions elsewhere |
 | **SwiftData** migration or fallback | New entities and optional columns only (lightweight); memory fallback detected (`isDurable`) |
 | **Classic groups** if U1 doesn't happen | §9.2; only A3's pure core proceeds |
 
-## 13. API requests (the lead files them now as `docs/API_REQUESTS.md` → Activities)
+## 13. API requests (filed in `docs/API_REQUESTS.md` → Activities and My Day; R16 and R17 are new)
 
 | # | Request |
 | --- | --- |
 | R1 | **My Day read.** Prefer extending `GET /v1/days/{day}` (additive): `activities: [Activity]` (no route, no `hr_samples`), `merged_with`, and the sleep fields in R11. Today's existing read and refresh paths then carry My Day with no new resource. If `GET /v1/my-day/{day}` is chosen instead, the app needs per item: `type`, `id`, `start`, `end`, `sport` or `activity`, `title`, `distance_m`, `strain`, `scoring_state`, `sources: [{name, bundle_id?}]`, `origin`, and `merged: [{type, id}]`. |
 | R2 | `scoring_state` values for activities (`pending`, `scored`, …) and when `strain_source: none` is final. |
 | R3 | After `PUT /v1/activities/{id}` or `/v1/sleep/manual/{day}`: the response carries `days_touched` and `scoring.expected_within_sec` (as `POST /v1/sync`), and the day is in `GET /v1/me/sync` `pending_days` until rescored. Is the silent push sent for it? |
-| R4 | Route encoding: polyline precision (5 or 6), max points, whether `route` may carry altitude. |
+| R4 | Route encoding: polyline precision (5 or 6) and max points. The app sends latitude and longitude only (simplified ≥ 3 m), never altitude or timestamps. |
 | R5 | Route segments: `route` as an array of polylines (privacy-zone gaps), or a documented separator. |
 | R6 | `GET /v1/activities/{id}`: `hr` and `zone_min` for the window (like `WorkoutDetail`) when the platform has heart rate, so the detail screen shows the curve for unmerged activities. |
 | R7 | Laps (the lap button) aren't in the contract: local and Apple Health only for now. Add `laps?` if wanted. |
@@ -1230,7 +1487,9 @@ against a running UI test is brittle. So:
 | R12 | `PUT` semantics: the response body (the stored `Activity`?), `200` vs `201`, conflicts by `client_updated_at`? `DELETE` idempotent (`404` = gone)? |
 | R13 | `hr_samples` size: 1 Hz for 2 h is about 7 200 entries, near the 256 KiB cap. Accept 5 s means (the app's plan), or a compact `{start, interval_sec, bpm: []}`. |
 | R14 | Export: `GET /v1/activities?from&to&include=route` (or the export endpoint) so "Export my data" includes routes without one GET per activity. |
-| R15 | How far back a manual activity may start, and `notes` ≤ 500 counted in characters or bytes. |
+| R15 | How far back a manual activity may start (the app allows 14 days), and `notes` ≤ 500 counted in characters or bytes. |
+| R16 | `route` and `hr_samples` appear **only** in `GET /v1/activities/{id}` (and R14's export), never in `GET /v1/activities?from&to`, the day detail, `GET /v1/my-day` or `PUT` answers. |
+| R17 | A final `401` for an account deleted on the web carries a distinct `code` (e.g. `account_deleted`), so the app deletes parked activities at once instead of after 30 days (§8.4). |
 | — | Naming only: API.md `Activity` is `SportActivity` in the app (ActivityKit owns `Activity`). |
 
 ## 14. User steps (Needs-you)
@@ -1238,44 +1497,40 @@ against a running UI test is brittle. So:
 | # | Step | Before |
 | --- | --- | --- |
 | U1 | Xcode → select the `Ryft` group → **Convert to Folder**; the same for `RyftTests`. Build, run the Unit plan, commit as `chore: synchronized folders` (the pbxproj change comes from Xcode, not by hand). | A1 |
-| U2 | Target Ryft → Signing & Capabilities → **Background Modes** (already present) → tick **Location updates**. This adds `location` to `UIBackgroundModes`; no entitlement changes. | A4 merges; D1–D3 |
-| U3 | Background Modes → **Uses Bluetooth LE accessories**. | `activity.liveHR` on |
-| U4 | Possibly Background Modes → **Audio, AirPlay, and Picture in Picture**, if D1 shows voice cues don't speak with the screen off (App Review then asks why). | voice cues on |
-| U5 | Privacy policy (platform session, web-engineer); App Store Connect → App Privacy: **Location → Precise Location, linked to the user, App Functionality**. | `activities.recording` on |
-| U6 | Device tests D1–D7. | flags on |
-| U7 | Run the platform brief; the platform architect decides R1. | C1 |
+| U2 | Target Ryft → Signing & Capabilities → **Background Modes** (already present) → tick **Location updates**. This adds `location` to `UIBackgroundModes`; no entitlement changes. **Locally only** for device tests D1–D7; **committed only in the release PR** that turns `activities.recording` on (App Review 2.5.4, §8.5). | device tests; the release PR |
+| U3 | Background Modes → **Uses Bluetooth LE accessories**. | the live-HR follow-up |
+| U4 | Background Modes → **Audio, AirPlay, and Picture in Picture**, if the voice-cue follow-up needs it. | the voice-cue follow-up |
+| U5 | **Privacy manifest:** check `PrivacyInfo.xcprivacy`'s new `NSPrivacyCollectedDataTypePreciseLocation` entry (linked, not tracking, App Functionality) and the recording line in its diagnostics comment (A5 writes them) against the App Store answers. | the release PR |
+| U6 | **App Store Connect → App Privacy:** add **Location → Precise Location**, linked to the user, not used for tracking, purpose App Functionality. Re-check Health & Fitness (routes and manual sleep) and Diagnostics (the recording line). | submission |
+| U7 | **The four `Info.plist` strings, en + de** (`InfoPlist.xcstrings`): `NSLocationWhenInUseUsageDescription`, `NSLocationTemporaryUsageDescriptionDictionary` (`ActivityRecording`), `NSMotionUsageDescription`, and the changed `NSHealthUpdateUsageDescription`. Approve the wording: iOS shows it in the prompts, and App Review reads it. | A3 / A6 merge |
+| U8 | **ryftapp.de privacy policy** (platform session, web-engineer): a section on activities, routes (opt-in, trimmed by on-device privacy zones, at most 30 days unsent on the phone, deleted with the activity and the account, exported), manual sleep, precise location while recording, and Apple Health writes. Bump `PRIVACY_POLICY_VERSION`, so users re-consent through the existing consent gate. | `activities.manual` / `.recording` on |
+| U9 | **App Review notes** (text in §8.5 and `APP_STORE.md` after A7): paste them at submission; make sure the review account has `activities.recording` and `activities.manual` on. | submission |
+| U10 | Device tests D1–D7. | the release PR |
+| U11 | Run the platform brief; the platform architect decides R1. | C1 |
 
-## 15. Open questions for the lead (each with a recommendation)
+## 15. Decisions and open questions
 
-1. **The extra ticket C1** (`networking: activities contract`, api-contract-keeper) vs folding it into A2.
-   Recommendation: C1. It follows the contract-first rule, and A2 isn't held up by the platform.
-2. **R1: extend the day detail, or a new My Day endpoint.** Recommendation: extend `GET /v1/days/{day}` (ADR 0006).
-   Send it to the platform architect now.
-3. **The route default.** The brief says "default on" and "opt-in". Recommendation: ask once at the first GPS Start,
-   then remember the answer as the default (§8.1). security-privacy-reviewer to confirm.
-4. **Privacy zones:**
-   - trim everywhere on the route (not only its ends), with a secret centre offset;
-   - chords until R5;
-   - zones never exported;
-   - no retroactive trimming of routes already uploaded.
+**Decided by the lead** (`plan.md` → Decisions):
+- C1 is its own PR;
+- R1 asks for the day-detail extension;
+- the route default is asked once;
+- session expiry parks (now scoped and limited, §8.4);
+- voice cues and live HR are follow-ups;
+- intents open pre-start;
+- the catalogue calls stand;
+- the Strain list adopts the assembler;
+- the Live Activity has no interactive controls;
+- past days allow Add for 14 days;
+- `DateStrip` is extracted.
 
-   Recommendation: yes to all four.
-5. **Session expiry parks unconfirmed activities and a running recording** (§8.4), the one exception to "sign-out
-   wipes the store". Recommendation: yes. The alternative can delete a run mid-hike.
-6. **Voice cues per km.** Recommendation: build them in A4 behind the setting (off by default), but don't advertise
-   them until D1 shows they speak with the screen off. If they need U4, decide then.
-7. **Live HR** as A3's last commit or a separate follow-up after U3. Recommendation: a follow-up PR. The brief's list
-   puts it in A3, but it needs U3 and its own device test.
-8. **Intents open pre-start** (sport selected) rather than starting at once. Recommendation: open pre-start;
-   revisit a one-tap start for the Action Button after D1.
-9. **The catalogue's judgement calls:**
-   - `rowing` as no-GPS (erg), versus GPS for on-water;
-   - `padel` → `.tennis` in Apple Health;
-   - `ski_touring` → `.crossCountrySkiing`;
-   - which sports get auto-pause by default.
-
-   Recommendation: as in §2.1; ui-designer confirms the symbols.
-10. **Strain's activity list** adopts the assembler in A1, which deletes its own merge. Recommendation: yes.
-11. **The Live Activity offers Pause and Resume** (`LiveActivityIntent`) but no Stop. Recommendation: yes.
-12. **Raw route retention ends at confirmation** (plus Apple Health); profiles stay 30 days. Recommendation: yes. The
-    reviewer may shorten the 30 days.
+**After the security and privacy review (B1–B3, S1–S7), still open:**
+1. **Deleting from Apple Health is split** (§5): deleting an activity removes our Health copy; deleting the account
+   leaves the Health copies, and the confirmation says so. Recommendation: keep the split. A Health workout the user
+   asked for is their data and feeds their Fitness history; one wrong activity is not.
+2. **The withhold rule lets the user send a route "as recorded"** after review (§8.2). The stored route was already
+   trimmed at recording, so this is safe. Recommendation: keep the choice rather than make the route unsendable.
+3. **`workoutType` stays in both the read and the share set** (§5): trackers' workouts are read, RYFT's are written,
+   and the sync drops its own. The new test excludes it explicitly. Recommendation: accept, as since the strength
+   opt-in.
+4. **Raw-route limits.** Raw routes are dropped after 30 days unconfirmed; profiles stay 30 days after confirmation.
+   Recommendation: keep 30 days. The reviewer may shorten it.

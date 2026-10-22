@@ -36,7 +36,8 @@ the fixes.
      `maxSpeed`.
 2. **A constant-velocity Kalman filter, two states per axis (position, velocity):**
    - **Frame.** East and north metres in a local tangent plane: WGS84 meridional and prime-vertical radii at the
-     anchor latitude, re-anchored every 5 km.
+     anchor latitude, re-anchored every 5 km. The anchor lives in memory only. It's never part of a checkpoint
+     (ADR 0005), so a resume re-initialises the filter at its first fix.
    - **Measurement variance** is `max(horizontalAccuracy, 3 m)²`, so every fix is weighted by what Core Location
      says about it.
    - **Process noise** is white acceleration with σa per sport: 1.0 for walking and hiking, 1.5 for running, 3.0 for

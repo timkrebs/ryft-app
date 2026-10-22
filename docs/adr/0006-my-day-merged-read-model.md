@@ -1,6 +1,7 @@
 # 0006 — My Day is a merged read model: the platform's items plus local overlays, computed on read
 
-- Status: proposed (2026-10-22, My Day and activities, `docs/work/2026-10-22-my-day-activities/design.md` §2.5, §7)
+- Status: proposed (2026-10-22, My Day and activities, `docs/work/2026-10-22-my-day-activities/design.md` §2.5, §7);
+  revised the same day after the security and privacy review (B2, S5)
 - Deciders: ios-lead, on ios-architect's proposal; the read path (R1) also needs the platform architect
 - Applies to: `Ryft/Features/MyDay/MyDayAssembler.swift`, `MyDayViewModel.swift`, `Persistence/Repository.swift`
   (`ReadResource.activities`), `Features/Strain/StrainViewModel.swift` (activities list),
@@ -34,7 +35,8 @@ workout.
      sessions, a pending manual sleep).
    - **Output:** rows, never persisted. The view model computes them from caches on each render, memoised per
      Repository revision.
-2. **The local layer overlays the platform's by id:**
+2. **The local layer is the signed-in account's only** (`ActivityStore` scopes every fetch, ADR 0004). It overlays
+   the platform's by id:
    - an unconfirmed local edit wins until confirmed, and keeps the last strain the platform reported;
    - a tombstone hides the item;
    - local-only items are added.
@@ -48,6 +50,8 @@ workout.
    - **Now:** `GET /v1/days/{day}` (existing) plus `GET /v1/activities?from&to` for the day, through `ReadScheduler`
      as `ReadResource.activities`. It's cached as `CachedDocument "activities.<day>"`, with the day's TTLs and
      refreshed for `days_touched`.
+   - **No route in any of these reads.** `route` and `hr_samples` are stripped before anything is cached (request
+     R16). A detail screen fetches a route on demand and holds it in memory only (ADR 0005).
    - **Recommended to the platform (R1):** extend `GET /v1/days/{day}` additively with the day's activities, merge
      ids and sleep origin. My Day then *is* Today's read: no second resource, already refreshed by every sync, silent
      push and pull. `.activities` then leaves My Day's path.
