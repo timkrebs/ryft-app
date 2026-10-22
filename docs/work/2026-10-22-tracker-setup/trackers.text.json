@@ -7,7 +7,7 @@
       ],
       "de": [
         "Öffne Health → Zusammenfassung → dein Bild → Apps → RYFT.",
-        "Tippe auf „Alle aktivieren"."
+        "Tippe auf „Alle aktivieren“."
       ]
     }
   },
@@ -20,7 +20,7 @@
         ],
         "de": [
           "Öffne auf deinem iPhone Health → Zusammenfassung → dein Bild → Geräte → deine Apple Watch → Datenschutzeinstellungen und aktiviere Fitnessdaten.",
-          "Öffne Health → Durchsuchen → Schlaf, lege einen Schlafplan fest und aktiviere „Schlaf mit Apple Watch aufzeichnen"."
+          "Öffne Health → Durchsuchen → Schlaf, lege einen Schlafplan fest und aktiviere „Schlaf mit Apple Watch aufzeichnen“."
         ]
       },
       "habits": {
@@ -54,8 +54,8 @@
         ],
         "de": [
           "Öffne Garmin Connect → Mehr → Einstellungen → Connect Apps.",
-          "Tippe unter „Verfügbare Apps" auf Apple Health → Mit Apple Health verbinden.",
-          "Aktiviere alle Datentypen und tippe dann auf „Zulassen".",
+          "Tippe unter „Verfügbare Apps“ auf Apple Health → Mit Apple Health verbinden.",
+          "Aktiviere alle Datentypen und tippe dann auf „Zulassen“.",
           "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → Connect → Alle aktivieren."
         ]
       },
@@ -110,8 +110,8 @@
         ],
         "de": [
           "Öffne Oura → Menü (oben links) → Einstellungen.",
-          "Tippe unter „Datenfreigabe" auf Apple Health.",
-          "Aktiviere „Mit Health verbinden" und erlaube alle Datentypen.",
+          "Tippe unter „Datenfreigabe“ auf Apple Health.",
+          "Aktiviere „Mit Health verbinden“ und erlaube alle Datentypen.",
           "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → Oura → Alle aktivieren."
         ]
       },
@@ -163,7 +163,7 @@
         "de": [
           "Öffne Polar Flow → Mehr → Allgemeine Einstellungen.",
           "Aktiviere Apple Health.",
-          "Tippe auf „Alle Kategorien aktivieren" und dann „Zulassen".",
+          "Tippe auf „Alle Kategorien aktivieren“ und dann „Zulassen“.",
           "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → Polar Flow → Alle aktivieren."
         ]
       },
@@ -174,7 +174,7 @@
         ],
         "de": [
           "Synchronisiere deine Uhr mit Polar Flow. Neue Daten gehen dann zu Apple Health.",
-          "Daten fehlen? Öffne Polar Flow → Mehr → Allgemeine Einstellungen und tippe auf „Jetzt synchronisieren". Das sendet die letzten zwei Wochen erneut."
+          "Daten fehlen? Öffne Polar Flow → Mehr → Allgemeine Einstellungen und tippe auf „Jetzt synchronisieren“. Das sendet die letzten zwei Wochen erneut."
         ]
       },
       "limits": {
@@ -259,7 +259,7 @@
         ],
         "de": [
           "Öffne Withings → Profil → Einstellungen (Zahnrad) → Gesundheitsdaten zu Apple Health exportieren.",
-          "Tippe zweimal auf „Weiter", aktiviere alle Datentypen, tippe dann auf „Zulassen" und „Fertig".",
+          "Tippe zweimal auf „Weiter“, aktiviere alle Datentypen, tippe dann auf „Zulassen“ und „Fertig“.",
           "Zum späteren Prüfen: Öffne Health → Zusammenfassung → dein Bild → Apps → Withings → Alle aktivieren."
         ]
       },
@@ -324,7 +324,7 @@
         ],
         "de": [
           "Öffne Health → Zusammenfassung → dein Bild → Apps → Ultrahuman.",
-          "Tippe auf „Alle Kategorien aktivieren"."
+          "Tippe auf „Alle Kategorien aktivieren“."
         ]
       },
       "habits": {
@@ -351,8 +351,8 @@
         "de": [
           "Melde dich in Google Health mit einem erwachsenen Google-Konto an.",
           "Öffne Google Health → Verbindungen (oben links) → Apps und Services.",
-          "Tippe unter „Verbindungen hinzufügen" auf Apple Health → Erste Schritte → Zustimmen.",
-          "Tippe auf „Alle Kategorien aktivieren", dann „Zulassen", dann „Fertig"."
+          "Tippe unter „Verbindungen hinzufügen“ auf Apple Health → Erste Schritte → Zustimmen.",
+          "Tippe auf „Alle Kategorien aktivieren“, dann „Zulassen“, dann „Fertig“."
         ]
       },
       "habits": {
@@ -362,7 +362,7 @@
         ],
         "de": [
           "Halte Google Health auf dem neuesten Stand.",
-          "Wenn Google Health „Neue Datentypen verfügbar" zeigt, überprüfe und erlaube sie."
+          "Wenn Google Health „Neue Datentypen verfügbar“ zeigt, überprüfe und erlaube sie."
         ]
       },
       "limits": {
