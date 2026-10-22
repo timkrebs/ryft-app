@@ -376,7 +376,7 @@ struct TrackerCatalogTests {
         // 3: the list and its ids.
         #expect(CatalogFixture.refusal({ trackers(&$0) { $0 = Array($0.prefix(1)) } }) == invalid("trackers.count", "trackers"))
         #expect(CatalogFixture.refusal(garmin: { $0["id"] = "Garmin" }) == invalid("id.format", "trackers[0].id"))
-        #expect(CatalogFixture.refusal({ trackers(&$0) { $0[3]["id"] = "garmin" } }) == invalid("id.duplicate", "trackers[3].id"))
+        #expect(CatalogFixture.refusal({ trackers(&$0) { $0[3]["id"] = "garmin"; $0[3]["integration"] = "vendor_app" } }) == invalid("id.duplicate", "trackers[3].id"))
         #expect(CatalogFixture.refusal({ trackers(&$0) { $0.remove(at: 2) } }) == invalid("id.required", "trackers"))
         // 4: closed enums; an unknown signal key is ignored (above).
         #expect(CatalogFixture.refusal(garmin: { $0["form"] = "wristband" }) == invalid("enum.form", "trackers[0].form"))
@@ -426,10 +426,16 @@ struct TrackerCatalogTests {
             // 7: store id digits only.
             ({ $0["app_store_id"] = "id583446403" }, invalid("store.format", "trackers[0].app_store_id")),
             // 8: integration none and unknown carry no identity; none shares nothing.
-            ({ $0["integration"] = "none"; $0["healthkit"] = [String: Any](); $0["capabilities"] = ["steps": "yes"] },
+            ({ $0["id"] = "band"; $0["app_store_id"] = nil; $0["integration"] = "none"; $0["healthkit"] = [String: Any]()
+               $0["capabilities"] = ["steps": "yes"] },
              invalid("integration.none", "trackers[0].capabilities.steps")),
-            ({ $0["integration"] = "none"; $0["capabilities"] = [String: Any]() }, invalid("integration.identity", "trackers[0].healthkit")),
-            ({ $0["integration"] = "unknown" }, invalid("integration.identity", "trackers[0].healthkit")),
+            ({ $0["id"] = "band"; $0["app_store_id"] = nil; $0["integration"] = "none"; $0["capabilities"] = [String: Any]()
+               $0["healthkit"] = ["bundle_ids": ["com.band.app"]] }, invalid("integration.identity", "trackers[0].healthkit")),
+            ({ $0["id"] = "band"; $0["app_store_id"] = nil; $0["integration"] = "unknown"; $0["healthkit"] = ["bundle_ids": ["com.band.app"]] },
+             invalid("integration.identity", "trackers[0].healthkit")),
+            // A known tracker's integration is the build's.
+            ({ $0["integration"] = "apple_builtin" }, invalid("integration.pinned", "trackers[0].integration")),
+            ({ $0["integration"] = "none"; $0["capabilities"] = [String: Any]() }, invalid("integration.pinned", "trackers[0].integration")),
         ]
         for (i, (edit, error)) in cases.enumerated() {
             #expect(CatalogFixture.refusal(garmin: edit) == error, "case \(i)")
@@ -437,26 +443,55 @@ struct TrackerCatalogTests {
     }
 
     @Test func oneBundleIDBelongsToOneTracker() {
-        func add(_ doc: inout [String: Any], healthkit: [String: Any]) {
+        // Two trackers the build doesn't know, so only the copy's own ownership rule applies.
+        func add(_ doc: inout [String: Any], _ a: [String: Any], _ b: [String: Any]) {
             var list = doc["trackers"] as? [[String: Any]] ?? []
-            list.append(["id": "oura", "name": "Oura", "form": "ring", "integration": "vendor_app", "healthkit": healthkit,
-                         "checked": "2026-10-22"])
+            for (id, healthkit) in [("band_a", a), ("band_b", b)] {
+                list.append(["id": id, "name": id, "form": "band", "integration": "vendor_app", "healthkit": healthkit, "checked": "2026-10-22"])
+            }
             doc["trackers"] = list
         }
-        // The same ID, an ID under Garmin's prefix: refused at the tracker that repeats or falls under it.
-        #expect(CatalogFixture.refusal({ add(&$0, healthkit: ["bundle_ids": ["com.garmin.connect.mobile"]]) })
+        let mine: [String: Any] = ["bundle_ids": ["com.band.app"], "bundle_id_prefixes": ["com.band.app"]]
+        // The same ID, an ID under the other's prefix: refused at the tracker that repeats or falls under it.
+        #expect(CatalogFixture.refusal({ add(&$0, mine, ["bundle_ids": ["com.band.app"]]) })
+                == .invalid(rule: "bundle.duplicate", path: "trackers[5].healthkit.bundle_ids[0]"))
+        #expect(CatalogFixture.refusal({ add(&$0, mine, ["bundle_ids": ["com.band.app.watchkitapp"]]) })
+                == .invalid(rule: "bundle.duplicate", path: "trackers[5].healthkit.bundle_ids[0]"))
+        // A wider prefix over the other's IDs: the other's own ID is the one taken away.
+        #expect(CatalogFixture.refusal({ add(&$0, mine, ["bundle_id_prefixes": ["com.band.ap", "com.band.app."]]) })
                 == .invalid(rule: "bundle.duplicate", path: "trackers[4].healthkit.bundle_ids[0]"))
-        #expect(CatalogFixture.refusal({ add(&$0, healthkit: ["bundle_ids": ["com.garmin.connect.mobile.watchkitapp"]]) })
-                == .invalid(rule: "bundle.duplicate", path: "trackers[4].healthkit.bundle_ids[0]"))
-        // A wider prefix over Garmin's IDs: Garmin's own ID is the one taken away.
-        #expect(CatalogFixture.refusal({ add(&$0, healthkit: ["bundle_id_prefixes": ["com.garmin.connect"]]) })
-                == .invalid(rule: "bundle.duplicate", path: "trackers[0].healthkit.bundle_ids[0]"))
-        #expect(CatalogFixture.refusal({ add(&$0, healthkit: ["bundle_id_prefixes": ["com.garmin.connect.mobile."]]) })
-                == .invalid(rule: "bundle.duplicate", path: "trackers[0].healthkit.bundle_ids[0]"))
         // A neighbour that only starts with the same letters is another app.
-        #expect(CatalogFixture.refusal({ add(&$0, healthkit: ["bundle_ids": ["com.garmin.connect.mobile2"]]) }) == nil)
+        #expect(CatalogFixture.refusal({ add(&$0, mine, ["bundle_ids": ["com.band.app2"]]) }) == nil)
         // Apple Watch and iPhone share their prefix: their devices tell them apart.
         #expect(CatalogFixture.refusal() == nil)
+    }
+
+    @Test func aKnownTrackersAppCantMoveUnderAnotherName() {
+        func oura(_ healthkit: [String: Any]) -> CatalogError? {
+            CatalogFixture.refusal({ doc in
+                var list = doc["trackers"] as? [[String: Any]] ?? []
+                list.append(["id": "oura", "name": "Oura", "form": "ring", "integration": "vendor_app", "healthkit": healthkit,
+                             "checked": "2026-10-22"])
+                doc["trackers"] = list
+            })
+        }
+        // Garmin's app under Oura's name: as an ID, the watch app under it, or a prefix over it.
+        #expect(oura(["bundle_ids": ["com.garmin.connect.mobile"]]) == .invalid(rule: "bundle.known", path: "trackers[4].healthkit.bundle_ids[0]"))
+        #expect(oura(["bundle_ids": ["COM.Garmin.Connect.Mobile.watchkitapp"]])
+                == .invalid(rule: "bundle.known", path: "trackers[4].healthkit.bundle_ids[0]"))
+        #expect(oura(["bundle_id_prefixes": ["com.garmin.connect"]]) == .invalid(rule: "bundle.known", path: "trackers[4].healthkit.bundle_id_prefixes[0]"))
+        // Also with Garmin missing from the copy, and under a tracker id the build doesn't know.
+        #expect(CatalogFixture.refusal(garmin: { $0["id"] = "band"; $0["app_store_id"] = nil })
+                == .invalid(rule: "bundle.known", path: "trackers[0].healthkit.bundle_ids[0]"))
+        // Oura's own, and a new ID for Garmin, stay allowed.
+        #expect(oura(["bundle_ids": ["com.ouraring.oura"]]) == nil)
+        #expect(CatalogFixture.refusal(garmin: { $0["healthkit"] = ["bundle_ids": ["com.garmin.connect.mobile", "com.garmin.connect.next"]] }) == nil)
+        // The Watch stays Apple's integration.
+        #expect(CatalogFixture.refusal({ doc in
+            var list = doc["trackers"] as? [[String: Any]] ?? []
+            list[1]["integration"] = "vendor_app"
+            doc["trackers"] = list
+        }) == .invalid(rule: "integration.pinned", path: "trackers[1].integration"))
     }
 
     @Test func helpLinksStayOnTheTrackersOwnHosts() throws {
@@ -464,7 +499,7 @@ struct TrackerCatalogTests {
             try CatalogFixture.decode(garmin: {
                 $0["help_url"] = url
                 $0["id"] = id
-                if id != "garmin" { $0["app_store_id"] = nil }
+                if id != "garmin" { $0["app_store_id"] = nil; $0["healthkit"] = nil }
             }).tracker(id)?.help
         }
         #expect(try help("https://support.garmin.com/en-US/")?.host == "support.garmin.com")
@@ -544,6 +579,39 @@ struct TrackerCatalogTests {
         #expect(TrackerCatalog.bundled.displayName(ref("Tim's Apple Watch", "com.apple.health.4B1C", "Watch")) == "Tim's Apple Watch")
     }
 
+    @Test func dotSegmentsAndEncodedSlashesNeverPassAPathPrefix() throws {
+        func help(_ url: String, id: String = "garmin") throws -> URL? {
+            try CatalogFixture.decode(garmin: {
+                $0["help_url"] = url
+                $0["id"] = id
+                if id != "garmin" { $0["app_store_id"] = nil; $0["healthkit"] = nil }
+            }).tracker(id)?.help
+        }
+        for url in ["https://ryftapp.de/setup/../auth/callback", "https://ryftapp.de/setup/%2E%2E/invite/ABC",
+                    "https://ryftapp.de/setup/%2e./invite/ABC", "https://ryftapp.de/help/..%2Finvite/ABC",
+                    "https://ryftapp.de/help/./guide", "https://ryftapp.de/help/x%5Cy", "https://ryftapp.de/help/x%2fy",
+                    "https://support.garmin.com/en-US/../x"] {
+            #expect(try help(url) == nil, "\(url)")
+        }
+        #expect(try help("https://support.google.com/googlehealth/../accounts/x", id: "fitbit") == nil)
+        #expect(try help("https://support.google.com/googlehealth/answer/%2E%2E/x", id: "fitbit") == nil)
+        // Dots inside a segment are ordinary.
+        #expect(try help("https://ryftapp.de/help/v1.2/sync..guide") != nil)
+        #expect(try help("https://support.google.com/googlehealth/answer/17037331?hl=en", id: "fitbit") != nil)
+    }
+
+    @Test func privateUseAndStackedMarksAreRefused() {
+        // U+F8FF draws Apple's logo on Apple's platforms.
+        #expect(CatalogFixture.refusal(garmin: { $0["name"] = "Garmin \u{F8FF}" }) == .invalid(rule: "text.control", path: "trackers[0].name"))
+        #expect(CatalogFixture.refusal(garmin: { $0["name"] = "Garmin \u{F0001}" }) == .invalid(rule: "text.control", path: "trackers[0].name"))
+        // One character with 70 marks: within the length caps, refused for its stack.
+        let stack = "a" + String(repeating: "\u{0301}", count: 70)
+        #expect(CatalogFixture.refusal(garmin: { $0["setup_steps"] = ["en": [stack], "de": ["x"]] })
+                == .invalid(rule: "text.marks", path: "trackers[0].setup_steps.en[0]"))
+        // Up to three are real text (Vietnamese "ệ" decomposed has two).
+        #expect(CatalogFixture.refusal(garmin: { $0["name"] = "Ve\u{0323}\u{0302}t a\u{0301}\u{0300}\u{0308}" }) == nil)
+    }
+
     @Test func onlyTheIPhoneIsAPhone() {
         #expect(CatalogFixture.refusal(garmin: { $0["form"] = "phone" }) == .invalid(rule: "form.phone", path: "trackers[0].form"))
         #expect(CatalogFixture.refusal() == nil) // the iPhone itself is
@@ -580,9 +648,11 @@ struct TrackerCatalogTests {
 
     @Test func helpHostsAreExactAndPlain() throws {
         func help(_ url: String, id: String) throws -> URL? {
-            try CatalogFixture.decode(garmin: { $0["help_url"] = url; $0["id"] = id; $0["app_store_id"] = nil }).tracker(id)?.help
+            try CatalogFixture.decode(garmin: { $0["help_url"] = url; $0["id"] = id; $0["app_store_id"] = nil; $0["healthkit"] = nil })
+                .tracker(id)?.help
         }
         #expect(try help("https://support.google.com/googlehealth/answer/17037331", id: "fitbit") != nil)
+        #expect(try help("https://support.google.com/googlehealth/thread/123", id: "fitbit") == nil) // user posts
         #expect(try help("https://support.google.com/accounts/answer/1", id: "fitbit") == nil) // Google's, not Fitbit's
         #expect(try help("https://sites.google.com/view/fitbit", id: "fitbit") == nil)
         #expect(try help("https://www.google.com/url?q=https://evil.example", id: "fitbit") == nil)
