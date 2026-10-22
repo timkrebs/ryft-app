@@ -2812,15 +2812,17 @@ struct RyftFeaturesTests {
 
     @Test(arguments: [
         ("apple_watch", "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery\u{00A0}✓ · Readiness\u{00A0}✓"),
-        ("garmin", "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery and Readiness need resting heart rate, which Garmin Connect doesn't share"),
-        ("oura", "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery and Readiness need resting heart rate, which Oura doesn't share"),
-        ("polar", "Sleep\u{00A0}✓ · Strain in part · Recovery and Readiness need resting heart rate, which Polar Flow doesn't share"),
+        // Garmin Connect shares resting heart rate (one value a day, at midnight; a device check): Recovery fills,
+        // and Readiness waits for HRV until the platform calibrates without it.
+        ("garmin", "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery from \(list(["resting heart rate", "sleep"])), no HRV · Readiness needs HRV, which Garmin Connect doesn't share"),
+        ("oura", "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery needs resting heart rate, which Oura doesn't share · Readiness needs \(list(["resting heart rate", "HRV"])), which Oura doesn't share"),
+        ("polar", "Sleep\u{00A0}✓ · Strain in part · Recovery needs resting heart rate, which Polar Flow doesn't share · Readiness needs \(list(["resting heart rate", "HRV"])), which Polar Flow doesn't share"),
         ("suunto", "Not confirmed yet: \(all)"),
-        ("coros", "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery and Readiness need resting heart rate, which COROS doesn't share"),
+        ("coros", "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery needs resting heart rate, which COROS doesn't share · Readiness needs \(list(["resting heart rate", "HRV"])), which COROS doesn't share"),
         ("withings", "Strain in part · Not confirmed yet: \(list(["Sleep", "Recovery", "Readiness"]))"),
         ("amazfit", "Not confirmed yet: \(all)"),
         ("ultrahuman", "Strain\u{00A0}✓ · Not confirmed yet: \(list(["Sleep", "Recovery", "Readiness"]))"),
-        ("fitbit", "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery from \(list(["resting heart rate", "sleep", "breathing rate"])), no HRV · Readiness from the same"),
+        ("fitbit", "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery from \(list(["resting heart rate", "sleep", "breathing rate"])), no HRV · Readiness needs HRV, which Google Health doesn't share"),
         ("samsung_galaxy_watch", "Steps\u{00A0}✓ · Sleep, Strain, Recovery and Readiness stay empty without data from your tracker"),
         ("iphone", "Steps\u{00A0}✓ · Sleep, Strain, Recovery and Readiness stay empty: they need heart rate and sleep from a watch or ring."),
     ])
@@ -2835,10 +2837,19 @@ struct RyftFeaturesTests {
     }
 
     /// Once the platform derives resting heart rate from overnight heart rate, Garmin's Recovery fills without HRV.
+    /// Once the platform derives resting heart rate from overnight heart rate, Oura's Recovery fills without it.
     @Test func derivedRestingHeartRateUnblocksRecovery() throws {
-        let garmin = try #require(TrackerCatalog.bundled.tracker("garmin"))
+        let oura = try #require(TrackerCatalog.bundled.tracker("oura"))
         #expect(!RyftFeatures.restingHRFromHeartRate) // until API.md documents it
-        #expect(RyftFeatures.line(for: garmin, derivedRestingHR: true)?.text
+        #expect(RyftFeatures.line(for: oura, derivedRestingHR: true)?.text
+                == "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery from \(Self.list(["resting heart rate", "sleep", "breathing rate"])), no HRV · Readiness needs HRV, which Oura doesn't share")
+    }
+
+    /// Once the platform calibrates from resting-heart-rate nights, Readiness comes without HRV.
+    @Test func baselinesWithoutHRVBringReadiness() throws {
+        let garmin = try #require(TrackerCatalog.bundled.tracker("garmin"))
+        #expect(!RyftFeatures.baselinesWithoutHRV) // until API.md documents it
+        #expect(RyftFeatures.line(for: garmin, baselinesWithoutHRV: true)?.text
                 == "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery from \(Self.list(["resting heart rate", "sleep"])), no HRV · Readiness from the same")
     }
 
@@ -2847,6 +2858,7 @@ struct RyftFeaturesTests {
         var caps = garmin.capabilities
         caps[.heartRate] = .no
         caps[.sleep] = .no
+        caps[.restingHR] = .no
         let blind = Tracker(id: "garmin", name: "Garmin", form: .watch, appName: "Garmin Connect", integration: .vendorApp,
                             identity: garmin.identity, appStoreID: nil, capabilities: caps, notes: [:], setup: garmin.setup,
                             habits: garmin.habits, limits: garmin.limits, help: nil, checked: garmin.checked)
@@ -2854,7 +2866,8 @@ struct RyftFeaturesTests {
         #expect(line.text == [
             "Strain needs heart rate, which Garmin Connect doesn't share",
             "Sleep needs sleep, which Garmin Connect doesn't share",
-            "Recovery and Readiness need \(Self.list(["sleep", "resting heart rate"])), which Garmin Connect doesn't share",
+            "Recovery needs \(Self.list(["sleep", "resting heart rate"])), which Garmin Connect doesn't share",
+            "Readiness needs \(Self.list(["sleep", "resting heart rate", "HRV"])), which Garmin Connect doesn't share",
         ].joined(separator: " · "))
         #expect(!line.text.contains("✗"))
     }
