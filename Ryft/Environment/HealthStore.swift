@@ -83,7 +83,7 @@ struct SourceSample: Equatable, Sendable {
     let source: SourceRef
     /// Its end date.
     let newest: Date
-    /// Sleep only: that source's segments in the window hold core, deep or REM.
+    /// Sleep only: that source's newest night holds core, deep or REM (`HealthProbe.newestNightHasStages`).
     var hasStages: Bool?
 }
 
@@ -275,8 +275,8 @@ extension HealthKitManager: HealthStore {
     // MARK: check sync (design.md §4.1, §10: a handful of small queries, never in the background)
 
     /// Per type (concurrently): one source query, then per source (one after the other) its newest record,
-    /// whose device names an Apple device. For sleep the newest 200 segments, which also say whether there
-    /// are stages. RYFT's own source is skipped: its strength workouts say nothing about a tracker. (By bundle
+    /// whose device names an Apple device. For sleep the newest 200 segments, whose newest night says whether
+    /// there are stages. RYFT's own source is skipped: its strength workouts say nothing about a tracker. (By bundle
     /// ID: `HKSource.default()` raises an exception in an unsigned build.)
     func newestSamples(of streams: [HealthStream], since: Date) async throws -> [SourceSample] {
         let store = store
@@ -301,11 +301,12 @@ extension HealthKitManager: HealthStore {
         return try await withThrowingTaskGroup(of: HealthStream?.self) { group in
             for (stream, type) in types {
                 group.addTask {
-                    guard let any = try await Self.samples(store: store, type: type, predicate: nil, limit: 1,
-                                                           newestFirst: false).first else { return nil }
-                    if !HealthProbe.isRYFT(bundleID: any.sourceRevision.source.bundleIdentifier) { return stream }
-                    let sources = try await Self.sources(store: store, type: type, predicate: nil)
-                    return sources.contains { !HealthProbe.isRYFT(bundleID: $0.bundleIdentifier) } ? stream : nil
+                    let first = try await Self.samples(store: store, type: type, predicate: nil, limit: 1,
+                                                       newestFirst: false).first
+                    let readable = try await HealthProbe.readable(firstRecordFrom: first?.sourceRevision.source.bundleIdentifier) {
+                        try await Self.sources(store: store, type: type, predicate: nil).map(\.bundleIdentifier)
+                    }
+                    return readable ? stream : nil
                 }
             }
             var visible = Set<HealthStream>()
@@ -337,10 +338,10 @@ extension HealthKitManager: HealthStore {
                                 deviceModel: model)
             var sample = SourceSample(stream: stream, source: ref, newest: latest.endDate)
             if stream == .sleep {
-                let staged: Set<SleepStage> = [.core, .deep, .rem]
-                sample.hasStages = records.contains { record in
-                    (record as? HKCategorySample).flatMap { sleepStage($0.value) }.map(staged.contains) ?? false
-                }
+                sample.hasStages = HealthProbe.newestNightHasStages(records.compactMap { record in
+                    guard let segment = record as? HKCategorySample, let stage = sleepStage(segment.value) else { return nil }
+                    return SleepSegment(start: segment.startDate, end: segment.endDate, stage: stage, source: source.name)
+                })
             }
             found.append(sample)
         }
@@ -694,7 +695,32 @@ actor HealthProbe {
     /// A signal arrived that the catalog says the tracker doesn't share: the catalog is out of date. Ids only.
     nonisolated static func logDrift(tracker: String, signals: [TrackerSignal]) {
         guard !signals.isEmpty else { return }
-        log.notice("catalog drift: \(tracker, privacy: .public) shares \(signals.map(\.rawValue).joined(separator: ","), privacy: .public)")
+        log.notice("catalog drift: \(tracker, privacy: .private) shares \(signals.map(\.rawValue).joined(separator: ","), privacy: .public)")
+    }
+
+    /// Whether a type proves that RYFT may read it (design.md §4.5): no record, no; another source's record, yes. RYFT
+    /// can always read what it wrote, so when the first record is RYFT's own, the type's sources decide (asked only
+    /// then).
+    nonisolated static func readable(firstRecordFrom source: String?,
+                                     sources: () async throws -> [String]) async rethrows -> Bool {
+        guard let source else { return false }
+        if !isRYFT(bundleID: source) { return true }
+        return try await sources().contains { !isRYFT(bundleID: $0) }
+    }
+
+    /// Whether one source's newest night holds core, deep or REM: from the segment that ends last, back through every
+    /// segment that ends within 3 h of the night's start so far. An older night with stages doesn't count.
+    nonisolated static func newestNightHasStages(_ segments: [SleepSegment]) -> Bool {
+        let latestFirst = segments.sorted { $0.end > $1.end }
+        guard var start = latestFirst.first?.start else { return false }
+        let staged: Set<SleepStage> = [.core, .deep, .rem]
+        var found = false
+        for segment in latestFirst {
+            guard segment.end >= start.addingTimeInterval(-3 * 3_600) else { break }
+            start = min(start, segment.start)
+            found = found || staged.contains(segment.stage)
+        }
+        return found
     }
 
     private static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "check")
