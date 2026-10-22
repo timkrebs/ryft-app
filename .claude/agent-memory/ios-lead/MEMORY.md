@@ -1,1 +1,2 @@
 - [Parallel worktrees](parallel-worktrees.md) — scratchpad worktrees from origin/main, copy xcconfigs+fonts, one simulator each
+- [Integration branch](integration-branch.md) — pre-resolve multi-PR conflicts on one branch; its CI proves the combined state

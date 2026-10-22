@@ -1,1 +1,2 @@
 - [Refresh card diagnosis](refresh-card-diagnosis.md) — Details-less card means transport/cancel error; fault seam location
+- [CI UI test crash-reporter hang](ci-uitest-crashreporter-hang.md) — 1-min timeout after passed body = XCTest crash sync stall, infra

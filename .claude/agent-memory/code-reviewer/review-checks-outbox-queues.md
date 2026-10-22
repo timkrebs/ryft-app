@@ -1,6 +1,6 @@
 ---
 name: review-checks-outbox-queues
-description: Recurring RYFT review check for persisted outboxes/queues (feedback queue, Train ops) — stale snapshot loops cause double sends
+description: Recurring RYFT review checks for persisted outboxes/queues (feedback queue, Train ops) — stale snapshot loops, late responses after account resets, epoch bumped after the wipe
 metadata:
   type: feedback
 ---
@@ -22,3 +22,9 @@ Related (T3 re-review, 2026-10-22): when state is "forgotten" on an account chan
 check for in-flight work that writes it back afterwards (APIClient `served`/`record` after 503/429 waits of up to
 ~2 min) — a reset needs an epoch/account tag, not just a clear. And check that a race test *fails* against the old
 code instead of hanging on a never-advanced `TestClock` sleep (advance generously before awaiting, or `.timeLimit`).
+
+Epoch timing (T1 final, 2026-10-22): an epoch/generation bumped from RyftApp's `.onChange(of: auth.accountID)` runs a
+runloop *after* `AuthService.apply` → `wipeSharedLocalData()` (synchronous `TrainStore.wipe()`); a response landing in
+between still passes the guard and writes to batch-deleted rows. Check where the bump sits relative to the wipe; bump
+in the wipe path (or a store epoch that `wipe()` increments). Also check the race test's stub: an "echo"/hold reply
+that can't decode as the real answer makes the test pass with the post-await guard deleted.

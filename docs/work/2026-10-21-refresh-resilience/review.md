@@ -370,3 +370,4 @@ fail-fast past the cap; nits; card/line accessibility containers.
   proven either way.** Mitigation: **#30 (allowance 180 s), merged first.** If UI smoke still flakes on `main` after #30 and #27,
   run the walkthrough on CI 10× with per-tap timings (`-test-iterations 10`) for a T1 build vs. a main build. That's a follow-up
   in STATUS.
+- #31 re-run (attempt 2): **green**. All five code/CI PRs are approved and green.
