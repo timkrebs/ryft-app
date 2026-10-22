@@ -3,6 +3,32 @@
 What the iOS app needs that `../plattform/docs/API.md` does not (yet) provide.
 The platform agent owns the contract; the app never invents fields silently.
 
+## Activities and My Day (open, 2026-10-22)
+
+For `CLAUDE_FOLLOWUP_MY_DAY_ACTIVITIES.md` (app) and `../plattform/CLAUDE_FOLLOWUP_ACTIVITIES.md` (platform). The app builds
+against an in-memory fake until `API.md` → Activities is published, and mirrors it then in its own contract PR. These are
+the questions and additions from the app's design note (`docs/work/2026-10-22-my-day-activities/design.md` §13). The
+first one decides how the app reads My Day.
+
+| # | Request |
+| --- | --- |
+| R1 | **My Day read.** Prefer extending `GET /v1/days/{day}` (additive): `activities: [Activity]` (no route, no `hr_samples`), `merged_with`, and the sleep fields in R11. Today's existing read and refresh paths then carry My Day with no new resource. If `GET /v1/my-day/{day}` is chosen instead, the app needs per item: `type`, `id`, `start`, `end`, `sport` or `activity`, `title`, `distance_m`, `strain`, `scoring_state`, `sources: [{name, bundle_id?}]`, `origin`, and `merged: [{type, id}]`. |
+| R2 | `scoring_state` values for activities (`pending`, `scored`, …) and when `strain_source: none` is final. |
+| R3 | After `PUT /v1/activities/{id}` or `/v1/sleep/manual/{day}`: the response carries `days_touched` and `scoring.expected_within_sec` (as `POST /v1/sync`), and the day is in `GET /v1/me/sync` `pending_days` until rescored. Is the silent push sent for it? |
+| R4 | Route encoding: polyline precision (5 or 6), max points, whether `route` may carry altitude. |
+| R5 | Route segments: `route` as an array of polylines (privacy-zone gaps), or a documented separator. |
+| R6 | `GET /v1/activities/{id}`: `hr` and `zone_min` for the window (like `WorkoutDetail`) when the platform has heart rate, so the detail screen shows the curve for unmerged activities. |
+| R7 | Laps (the lap button) aren't in the contract: local and Apple Health only for now. Add `laps?` if wanted. |
+| R8 | `hr_source` as `{name, bundle_id}` (or a tracker id), so the app shows the catalogue's display name. |
+| R9 | A downsampled `profile?` (t, distance, altitude) for charts on other devices. Otherwise charts come from splits there. |
+| R10 | The sport families of the merge rule, published, so Apple Health's overlap rule (§5) matches. |
+| R11 | `SleepDetail.origin` (`manual` / `tracker`) and its source (`name`, `bundle_id`), for "added by you" and the source badge. The manual sleep's day convention (wake day?), its validation, and tracker-wins behaviour in examples. |
+| R12 | `PUT` semantics: the response body (the stored `Activity`?), `200` vs `201`, conflicts by `client_updated_at`? `DELETE` idempotent (`404` = gone)? |
+| R13 | `hr_samples` size: 1 Hz for 2 h is about 7 200 entries, near the 256 KiB cap. Accept 5 s means (the app's plan), or a compact `{start, interval_sec, bpm: []}`. |
+| R14 | Export: `GET /v1/activities?from&to&include=route` (or the export endpoint) so "Export my data" includes routes without one GET per activity. |
+| R15 | How far back a manual activity may start, and `notes` ≤ 500 counted in characters or bytes. |
+| — | Naming only: API.md `Activity` is `SportActivity` in the app (ActivityKit owns `Activity`). |
+
 ## Train (open, 2026-10-19)
 
 The app now mirrors `API.md` → Train and its Swift block. Two divergences are
