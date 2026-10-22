@@ -37,6 +37,7 @@ strings: build
 lint: check-entitlements
 	python3 scripts/lint-strings.py
 	python3 scripts/check-shared-types.py
+	python3 scripts/trackers.py --self-test
 	python3 scripts/trackers.py --check
 
 # The tracker catalog's bundled copy: Content/trackers.json into its generated region at the end of

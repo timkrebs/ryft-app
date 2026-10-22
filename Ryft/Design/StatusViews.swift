@@ -40,14 +40,17 @@ struct InlineMessage: View {
     var isRetrying = false
     /// "Details" opens something (a sheet) instead of the inline toggle.
     var onDetails: (() -> Void)? = nil
-    /// Prefix of the buttons' identifiers: "<prefix>.retry", "<prefix>.details".
+    /// Prefix of the buttons' identifiers: "<prefix>.retry", "<prefix>.details", "<prefix>.action".
     var identifier = "inlineMessage"
+    /// A plain action, not a retry ("Garmin Connect in the App Store"): a secondary capsule where the buttons
+    /// sit. Its title is already localized (`String(localized:)`) and shown verbatim.
+    var action: (title: String, perform: () -> Void)?
 
     @State private var retrying = false
     @State private var showDetails = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var hasButtons: Bool { retry != nil || details != nil || onDetails != nil }
+    private var hasTextButtons: Bool { retry != nil || details != nil || onDetails != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -63,17 +66,19 @@ struct InlineMessage: View {
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                     if let caption {
+                        // Secondary ink: tertiary was under 4.5:1 on the card in light mode.
                         Text(caption)
                             .font(.ryft(.caption))
                             .monospacedDigit()
-                            .foregroundStyle(Theme.textTertiary)
+                            .foregroundStyle(Theme.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 0)
             }
+            if let action { actionButton(action) }
             // ui.md §3.2: the buttons start at the card's leading edge, 18 pt apart; stacked at AX sizes.
-            if hasButtons { buttons }
+            if hasTextButtons { buttons }
             if showDetails, let details {
                 Text(details)
                     .font(.system(.caption, design: .monospaced))
@@ -85,11 +90,29 @@ struct InlineMessage: View {
         .padding(.horizontal, 14)
         .padding(.top, 14)
         // A button row's 44 pt targets already leave room under their labels.
-        .padding(.bottom, hasButtons && !showDetails ? 2 : 14)
+        .padding(.bottom, hasTextButtons && !showDetails ? 2 : 14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
             .strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
+    }
+
+    /// The plain action: `PrimaryButton`'s secondary look, wrapping instead of shrinking at large sizes.
+    private func actionButton(_ action: (title: String, perform: () -> Void)) -> some View {
+        Button(action: action.perform) {
+            Text(verbatim: action.title)
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(Theme.surfaceRaised, in: Capsule())
+        }
+        .buttonStyle(PressableButtonStyle())
+        .padding(.top, 4)
+        .accessibilityIdentifier("\(identifier).action")
     }
 
     /// Try again and Details: each at least 44 × 44 pt.
@@ -280,7 +303,8 @@ struct SyncStatusLineView: View {
     /// The line as one button (Sync details), or as text without an action.
     @ViewBuilder
     private func tappable(now: Date, hint: LocalizedStringKey) -> some View {
-        let color = current.isActive || current.isIssue ? Theme.textSecondary : Theme.textTertiary
+        // Slow scoring reads like an issue's line (secondary ink), without the pulse of progress.
+        let color = current.isActive || current.isIssue || current == .scoringSlow ? Theme.textSecondary : Theme.textTertiary
         if let action {
             Button(action: action) {
                 label(now: now)
@@ -311,12 +335,14 @@ struct SyncStatusLineView: View {
         .frame(maxWidth: current.isStale ? nil : .infinity)
     }
 
-    /// VoiceOver hears the stale claim, and the return to "Up to date" after a manual Try again;
-    /// the other changes stay silent (they would chatter).
+    /// VoiceOver hears the stale claim, slow scoring once, and the return to "Up to date" after a manual
+    /// Try again; the other changes stay silent (they would chatter).
     private func announce(_ old: SyncLine, _ new: SyncLine) {
         let now = Date.now
         if new.isStale, !old.isStale {
             AccessibilityNotification.Announcement(new.text(now: now)).post()
+        } else if new == .scoringSlow, old != .scoringSlow {
+            AccessibilityNotification.Announcement(String(localized: "Taking longer than usual")).post()
         } else if retried, case .upToDate = new {
             retried = false
             AccessibilityNotification.Announcement(new.text(now: now)).post()
@@ -789,6 +815,16 @@ private struct CheckRowPreview: View {
 struct SetupCard: View {
     var action: () -> Void
 
+    @Environment(\.appEnvironment) private var env
+    @Environment(ScreenModels.self) private var screens: ScreenModels?
+
+    /// With `devices.setup` on, step 1 names the first chosen tracker with an app of its own ("Garmin Connect"),
+    /// or no vendor; off, it reads as it always did.
+    private var app: String? {
+        guard env.flags.isOn(.devicesSetup), let devices = screens?.devices else { return nil }
+        return devices.trackers.compactMap(env.trackerCatalog.tracker).first { $0.integration == .vendorApp }?.appTitle
+    }
+
     var body: some View {
         Card {
             VStack(alignment: .leading, spacing: 14) {
@@ -799,9 +835,17 @@ struct SetupCard: View {
                     .font(.ryft(.title))
                     .foregroundStyle(Theme.textPrimary)
                 VStack(alignment: .leading, spacing: 10) {
-                    SetupStep(number: 1, text: "Let Garmin Connect write to Apple Health (Garmin Connect → More → Settings → Apple Health).")
-                    SetupStep(number: 2, text: "Allow RYFT to read Health data when asked.")
-                    SetupStep(number: 3, text: "Check your RYFT server URL in Profile.")
+                    if !env.flags.isOn(.devicesSetup) {
+                        NumberedStep(number: 1, text: "Let Garmin Connect write to Apple Health (Garmin Connect → More → Settings → Apple Health).",
+                                     total: 3)
+                    } else if let app {
+                        NumberedStep(number: 1, verbatim: String(localized: "Let \(app) write to Apple Health. Profile → Devices & sync shows how."),
+                                     total: 3)
+                    } else {
+                        NumberedStep(number: 1, text: "Let your watch or ring app write to Apple Health.", total: 3)
+                    }
+                    NumberedStep(number: 2, text: "Allow RYFT to read Health data when asked.", total: 3)
+                    NumberedStep(number: 3, text: "Check your RYFT server URL in Profile.", total: 3)
                 }
                 Button(action: action) {
                     Text("Open Profile")
@@ -818,9 +862,452 @@ struct SetupCard: View {
     }
 }
 
-private struct SetupStep: View {
+/// One tracker's setup card (ui.md §3): what reaches RYFT and what that means for its features, how to set the
+/// tracker up, how to keep it flowing, and the store button. Catalog text is plain (`Text(verbatim:)`); the only
+/// links are the vendor's allowlisted guide and the App Store page built from digits (ADR 0002).
+struct TrackerSetupCard: View {
+    let tracker: Tracker
+    /// In a list of several (onboarding): the header opens and closes the card.
+    var expanded: Binding<Bool>?
+    /// "Show me again later"; nil: no such button.
+    var later: (() -> Void)?
+    /// Just my iPhone: "Add a tracker".
+    var addTracker: (() -> Void)?
+
+    @Environment(\.locale) private var locale
+    @Environment(\.openURL) private var openURL
+    @Environment(\.appEnvironment) private var env
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var guide: GuidePage?
+
+    /// A guide older than this says its steps may have changed (ui.md C6).
+    static let staleAfterDays = 180
+
+    private var isOpen: Bool { expanded?.wrappedValue ?? true }
+    private var features: RyftFeatures.Line? { RyftFeatures.line(for: tracker) }
+    private var steps: [String] { tracker.setup.value(in: locale) }
+    private var habits: [String] { tracker.habits.value(in: locale) }
+    /// A tracker that writes nothing already says so in the app's own words: its lines about RYFT go.
+    private var limits: [String] {
+        let all = tracker.limits.value(in: locale)
+        return tracker.integration == .none ? all.filter { !$0.contains("RYFT") } : all
+    }
+
+    var body: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 18) {
+                if let expanded {
+                    disclosure(expanded)
+                } else {
+                    header
+                }
+                if isOpen { content }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("tracker.card.\(tracker.id)")
+        .sheet(item: $guide) { SafariView(url: $0.url).ignoresSafeArea() }
+    }
+
+    // MARK: header
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: tracker.symbol)
+                .font(.system(size: 22, weight: .regular))
+                .foregroundStyle(Theme.textSecondary)
+                .accessibilityHidden(true)
+            Text(verbatim: tracker.cardTitle)
+                .font(.ryft(.headline))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+        }
+    }
+
+    /// The collapsed card's row (ui.md §3.1): the whole row toggles, with the one-line verdict.
+    private func disclosure(_ expanded: Binding<Bool>) -> some View {
+        Button {
+            withAnimation(Theme.Motion.respecting(reduceMotion)) { expanded.wrappedValue.toggle() }
+        } label: {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: tracker.symbol)
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(Theme.textSecondary)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: tracker.cardTitle)
+                        .font(.ryft(.headline))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text(verbatim: RyftFeatures.verdict(for: tracker))
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: reduceMotion && expanded.wrappedValue ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.textTertiary)
+                    .rotationEffect(.degrees(!reduceMotion && expanded.wrappedValue ? 180 : 0))
+                    .accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "\(tracker.cardTitle), \(RyftFeatures.verdict(for: tracker))"))
+        .accessibilityValue(expanded.wrappedValue ? Text("Expanded") : Text("Collapsed"))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("tracker.header.\(tracker.id)")
+    }
+
+    // MARK: content
+
+    @ViewBuilder private var content: some View {
+        if let features {
+            Text(verbatim: features.text)
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(Text(verbatim: features.spoken))
+                .accessibilityIdentifier("tracker.features")
+        }
+        switch tracker.integration {
+        case .none: honestLimit
+        case .unknown: otherTracker
+        case .appleBuiltin, .vendorApp: capabilities
+        }
+        if tracker.integration == .none {
+            // Nothing to set up: only the vendor's own page.
+            if let help = tracker.help { guideRow(help) }
+        } else if !steps.isEmpty || tracker.help != nil {
+            setUp
+        }
+        if !habits.isEmpty { bullets("Keep it flowing", habits) }
+        if !limits.isEmpty { bullets("Good to know", limits) }
+        if tracker.isJustIPhone {
+            Text("You can add a tracker any time. RYFT will show how to connect it.")
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        buttons
+    }
+
+    /// "What reaches RYFT": one row per signal, sleep stages as Sleep's detail.
+    private var capabilities: some View {
+        section("What reaches RYFT") {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(TrackerSignal.rows.enumerated()), id: \.element) { index, signal in
+                    if index > 0 { Divider().overlay(Theme.separator) }
+                    CapabilityRow(title: signal.title, spokenTitle: signal.spoken, state: state(of: signal),
+                                  detail: detail(of: signal))
+                        .accessibilityIdentifier("tracker.capability.\(signal.rawValue)")
+                }
+            }
+        }
+    }
+
+    /// A tracker that writes nothing to Apple Health (ui.md C2): a fact, not a fault, and what stays empty.
+    private var honestLimit: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.textSecondary)
+                    .padding(.top, 1)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 8) {
+                    // Catalog text only ever as an argument, shown verbatim (ADR 0002).
+                    Text(verbatim: String(localized: "RYFT can't read \(tracker.name) data on iPhone today."))
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text(verbatim: String(localized: "\(tracker.name) doesn't write to Apple Health, so nothing it records can reach RYFT. Your iPhone's own step count still does."))
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("tracker.limit")
+            section("What stays empty") {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach([TrackerSignal.heartRate, .hrv, .restingHR, .sleep, .respiratoryRate, .spo2], id: \.self) { signal in
+                        CapabilityRow(title: signal.title, spokenTitle: signal.spoken, state: .notAvailable)
+                        Divider().overlay(Theme.separator)
+                    }
+                    CapabilityRow(title: TrackerSignal.steps.title, state: .partial, word: String(localized: "From your iPhone"))
+                }
+            }
+        }
+    }
+
+    /// "Other" (ui.md C4): no promises, the check shows what arrives.
+    private var otherTracker: some View {
+        Text("RYFT reads whatever your tracker saves to Apple Health. What arrives depends on the tracker, so the check shows exactly what it is.")
+            .font(.ryft(.callout))
+            .foregroundStyle(Theme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// "Set it up": one numbered run, then the vendor's guide and when it was checked.
+    private var setUp: some View {
+        section("Set it up") {
+            VStack(alignment: .leading, spacing: 10) {
+                if let app = tracker.appName, tracker.integration == .vendorApp, !steps.isEmpty {
+                    Text(verbatim: String(localized: "In \(app)"))
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                    NumberedStep(number: index + 1, verbatim: step, total: steps.count)
+                }
+                if let help = tracker.help {
+                    guideRow(help)
+                }
+            }
+        }
+    }
+
+    private func guideRow(_ url: URL) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Button {
+                guide = GuidePage(url: url)
+            } label: {
+                HStack {
+                    guideTitle
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textPrimary)
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.textTertiary)
+                        .accessibilityHidden(true)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(.isLink)
+            .accessibilityValue(checkedText.map { Text(verbatim: $0) } ?? Text(verbatim: ""))
+            .accessibilityIdentifier("tracker.guide")
+            if let checkedText {
+                Text(verbatim: checkedText)
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    /// The page's maker: the vendor's (a tracker app, or one that writes nothing), Apple's for its own devices.
+    private var guideTitle: Text {
+        switch tracker.integration {
+        case .vendorApp, .none: return Text("Vendor guide")
+        case .appleBuiltin: return Text("Apple's guide")
+        case .unknown: return Text("Guide")
+        }
+    }
+
+    /// "Checked 22 Oct 2026", or with "Steps may have changed." once it's older than 180 days.
+    private var checkedText: String? {
+        guard let day = DayFormat.date(from: tracker.checked) else { return nil }
+        let date = day.formatted(.dateTime.day().month(.abbreviated).year().locale(locale))
+        let age = env.clock.now().timeIntervalSince(day)
+        return age > Double(Self.staleAfterDays) * 86_400
+            ? String(localized: "Checked \(date). Steps may have changed.")
+            : String(localized: "Checked \(date)")
+    }
+
+    private func bullets(_ title: LocalizedStringKey, _ items: [String]) -> some View {
+        section(title) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Image(systemName: "circle.fill")
+                            .font(.system(size: 4))
+                            .foregroundStyle(Theme.textTertiary)
+                            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+                            .accessibilityHidden(true)
+                        Text(verbatim: item)
+                            .font(.ryft(.callout))
+                            .foregroundStyle(Theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var buttons: some View {
+        if tracker.integration == .vendorApp, let store = tracker.appStoreURL {
+            // The App Store page, which says "Open" itself when the app is installed: no URL schemes (ADR 0002).
+            PrimaryButton(verbatim: String(localized: "\(tracker.appTitle) in the App Store"), style: .secondary) {
+                openURL(store)
+            }
+            .accessibilityHint(Text("Opens the App Store."))
+            .accessibilityIdentifier("tracker.open")
+        }
+        if let addTracker {
+            PrimaryButton(title: "Add a tracker", style: .secondary) { addTracker() }
+                .accessibilityIdentifier("tracker.add")
+        }
+        if let later {
+            // Not the screen's "Show me again later": this one puts off this tracker only.
+            Button(action: later) { Text(verbatim: String(localized: "Set up \(tracker.cardTitle) later")) }
+                .font(.ryft(.body))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .accessibilityIdentifier("tracker.later")
+        }
+    }
+
+    // MARK: rows
+
+    private func state(of signal: TrackerSignal) -> CapabilityState {
+        let state = CapabilityState(tracker.capabilities[signal] ?? .unverified)
+        // The iPhone alone doesn't "keep" anything from RYFT: those signals aren't there at all.
+        return tracker.isJustIPhone && state == .no ? .notAvailable : state
+    }
+
+    /// The catalog's reason, or for Sleep whether its stages arrive.
+    private func detail(of signal: TrackerSignal) -> String? {
+        if let note = tracker.notes[signal] { return note.value(in: locale) }
+        guard signal == .sleep, let sleep = tracker.capabilities[.sleep], sleep == .yes || sleep == .partial else { return nil }
+        switch tracker.capabilities[.sleepStages] ?? .unverified {
+        case .yes: return String(localized: "With sleep stages")
+        case .partial: return String(localized: "Sleep stages in part")
+        case .no: return String(localized: "No sleep stages")
+        case .unverified: return String(localized: "Sleep stages not confirmed")
+        }
+    }
+
+    /// A hairline, a label (capped at AX3, like `ProfileSection`), then the content.
+    private func section<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Divider().overlay(Theme.separator)
+            Text(title).ryftLabelStyle()
+                .dynamicTypeSize(...DynamicTypeSize.accessibility3)
+                .accessibilityAddTraits(.isHeader)
+            content()
+        }
+    }
+
+    private struct GuidePage: Identifiable {
+        let url: URL
+        var id: String { url.absoluteString }
+    }
+}
+
+extension Tracker {
+    /// The picker's name: the two RYFT itself names are localized ("Just my iPhone", "Other").
+    var title: String {
+        switch id {
+        case TrackerSelectionStore.iPhone: return String(localized: "Just my iPhone")
+        case "other": return String(localized: "Other")
+        default: return name
+        }
+    }
+
+    /// The card's heading: "Other tracker" for Other.
+    var cardTitle: String { integration == .unknown ? String(localized: "Other tracker") : title }
+}
+
+/// Setup cards on the bundled catalog, one canvas per variant.
+private struct TrackerCardsPreview: View {
+    let ids: [String]
+    var checked: String?
+    /// Several cards as onboarding shows them: the first open, the rest collapsed.
+    var collapsible = false
+    @State private var open: String?
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ForEach(ids, id: \.self) { id in
+                let tracker = MockData.tracker(id, checked: checked)
+                TrackerSetupCard(tracker: tracker,
+                                 expanded: collapsible ? Binding(get: { (open ?? ids.first) == id },
+                                                                 set: { open = $0 ? id : nil }) : nil,
+                                 later: tracker.isJustIPhone ? nil : {},
+                                 addTracker: tracker.isJustIPhone ? {} : nil)
+            }
+        }
+        .environment(\.appEnvironment, .preview())
+    }
+}
+
+#Preview("Tracker card · Garmin", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["garmin"]) }
+}
+
+#Preview("Tracker card · Garmin · de · AX3", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["garmin"]) }
+        .environment(\.locale, Locale(identifier: "de"))
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Tracker card · collapsed list", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["garmin", "oura"], collapsible: true) }
+}
+
+#Preview("Tracker card · guide stale", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["garmin"], checked: "2026-03-03") }
+}
+
+#Preview("Tracker card · Fitbit", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["fitbit"]) }
+}
+
+#Preview("Tracker card · Samsung", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["samsung_galaxy_watch"]) }
+}
+
+#Preview("Tracker card · Samsung · de · AX3", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["samsung_galaxy_watch"]) }
+        .environment(\.locale, Locale(identifier: "de"))
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Tracker card · Just my iPhone", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["iphone"]) }
+}
+
+#Preview("Tracker card · Other", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["other"]) }
+}
+
+#Preview("Tracker card · Apple Watch", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["apple_watch"]) }
+}
+
+#Preview("Tracker card · Oura", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["oura"]) }
+}
+
+/// One step of a numbered run ("1  Open the app's settings."): setup cards and their fixes.
+/// Catalog text goes in verbatim, never as Markdown.
+struct NumberedStep: View {
     let number: Int
-    let text: LocalizedStringKey
+    let text: Text
+    /// VoiceOver says "Step 1 of 4" when the run's length is known.
+    var total: Int?
+    /// The number's circle grows with the text (18 pt at the default size).
+    @ScaledMetric(relativeTo: .caption) private var badge: CGFloat = 18
+
+    init(number: Int, text: LocalizedStringKey, total: Int? = nil) {
+        self.number = number
+        self.text = Text(text)
+        self.total = total
+    }
+
+    init(number: Int, verbatim: String, total: Int? = nil) {
+        self.number = number
+        text = Text(verbatim: verbatim)
+        self.total = total
+    }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -828,13 +1315,15 @@ private struct SetupStep: View {
                 .font(.ryft(.caption))
                 .monospacedDigit()
                 .foregroundStyle(Theme.accent)
-                .frame(width: 18, height: 18)
+                .frame(width: badge, height: badge)
                 .background(Theme.accent.opacity(0.14), in: Circle())
-            Text(text)
+            text
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(total.map { Text("Step \(number) of \($0)") + Text(verbatim: ", ") + text } ?? text)
     }
 }
 
@@ -889,6 +1378,32 @@ private struct SetupStep: View {
             SyncStatusLineView(line: .issue(.me, signedOut: true), action: {})
             SyncStatusLineView(line: .reading(.sleep), action: {})
         }
+    }
+}
+
+#Preview("Sync status line · taking longer", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        VStack(spacing: 12) {
+            SyncStatusLineView(line: .scoring(night: true), action: {})
+            // 5b: scoring past max(60 s, 3 × the estimate). No pulse; the tap opens Sync details.
+            SyncStatusLineView(line: .scoringSlow, action: {})
+            SyncStatusLineView(line: .scoring(night: false), action: {})
+        }
+    }
+}
+
+#Preview("Sync status line · taking longer · de · AX3", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        SyncStatusLineView(line: .scoringSlow, action: {})
+    }
+    .environment(\.locale, Locale(identifier: "de"))
+    .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Inline message · action", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        InlineMessage(message: "Your night hasn't reached Apple Health yet. Open Garmin Connect to sync it.", systemImage: "moon.zzz",
+                      caption: "Last data from Garmin Connect: Wed 23:24", action: ("Garmin Connect in the App Store", {}))
     }
 }
 

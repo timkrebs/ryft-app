@@ -11,7 +11,7 @@
 #            refresh-details-send
 #   scenarios (Today in one in-between state, `-RyftScenario`): import pending calibrating watch
 #     waitingForSleep pendingNoPrevious recalculating recalculatingYesterday needsVitals needsVitalsBaselines
-#     (Today's rows, ui.md §1.6)
+#     (Today's rows, ui.md §1.6); nightGap scoringSlow (the night hint and "Taking longer than usual")
 #   SHOT_LANG=de: German (files end in -de), in Germany's region (de_DE)
 #   SHOT_LOCALE=de_AT: another region for SHOT_LANG
 # Times use each locale's own clock ("23:17" in German), not this simulator's 24-Hour Time switch
@@ -55,7 +55,7 @@ for scheme in dark light; do
     xcrun simctl terminate "$DEVICE" "$BUNDLE" 2>/dev/null || true
     case $tab in
       notifications|invite|consent|aboutYou|aboutYouSaved|accountHint|signInMethods|syncDetails|baselineSleepNeed|sleepNeed|bedtime|tonight|report-problem*|refresh-details*) set -- -RyftScreen "$tab" ;;
-      import|pending|calibrating|watch|waitingForSleep|pendingNoPrevious|recalculating|recalculatingYesterday|needsVitals|needsVitalsBaselines)
+      import|pending|calibrating|watch|waitingForSleep|pendingNoPrevious|recalculating|recalculatingYesterday|needsVitals|needsVitalsBaselines|nightGap|scoringSlow)
         set -- -RyftTab today -RyftScenario "$tab" ;;
       *) set -- -RyftTab "$tab" ;;
     esac

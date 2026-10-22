@@ -323,6 +323,17 @@ enum MockData {
     private static func mockUUID(_ n: Int) -> UUID {
         UUID(uuidString: String(format: "00000000-0000-4000-8000-%012d", n)) ?? UUID()
     }
+
+    /// One of the bundled catalog's trackers; `checked` replaces its date (the stale-guide preview).
+    static func tracker(_ id: String, checked: String? = nil) -> Tracker {
+        guard let t = TrackerCatalog.bundled.tracker(id) ?? TrackerCatalog.bundled.trackers.first else {
+            preconditionFailure("the bundled catalog has trackers")
+        }
+        guard let checked else { return t }
+        return Tracker(id: t.id, name: t.name, form: t.form, appName: t.appName, integration: t.integration,
+                       identity: t.identity, appStoreID: t.appStoreID, capabilities: t.capabilities, notes: t.notes,
+                       setup: t.setup, habits: t.habits, limits: t.limits, help: t.help, checked: checked)
+    }
 }
 
 /// SplitMix64 — tiny deterministic PRNG so mock data is stable across launches.

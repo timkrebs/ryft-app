@@ -7,7 +7,8 @@ import Observation
 /// - **Per user.** The last answer is cached in SwiftData per account
 ///   (`CachedDocument` "config.<account>"), so a cold start offline uses that
 ///   account's flags, and another account on the phone never sees them.
-///   Sign-out wipes the cache with the other read models.
+///   Sign-out wipes the cache with the other read models. Demo data's flags
+///   (the in-memory platform's) are cached as "config.demo", never as an account's.
 /// - **Due** once `evaluated_at + ttl_sec` has passed.
 /// - **Never mid-interaction.** A new answer is cached at once, but the screens
 ///   switch to it on the next appearance (`applyPending()`: a tab change, the
@@ -16,7 +17,8 @@ import Observation
 @MainActor
 @Observable
 final class FlagStore: FeatureFlagProvider {
-    static let shared = FlagStore(store: .shared, defaults: .standard, account: AuthService.shared.accountID)
+    static let shared = FlagStore(store: .shared, defaults: .standard, account: AuthService.shared.accountID,
+                                  demo: Settings.shared.demoMode)
 
     static let overridesKey = "flags.overrides"
     /// Until the platform said otherwise (API.md: `ttl_sec` 21600).
@@ -34,6 +36,10 @@ final class FlagStore: FeatureFlagProvider {
     private let defaults: UserDefaults
 
     private(set) var account: String?
+    /// Demo data: the flags shown and cached are demo's own.
+    private(set) var demo = false
+    /// Bumped by every account or demo switch: an answer asked for before it isn't applied after it.
+    @ObservationIgnored private(set) var generation = 0
     private(set) var remote: [String: Bool] = [:]
     private(set) var evaluatedAt: Date?
     private(set) var fetchedAt: Date?
@@ -42,11 +48,12 @@ final class FlagStore: FeatureFlagProvider {
     /// Arrived while screens were showing; applied on the next appearance.
     @ObservationIgnored private(set) var pending: Cached?
 
-    init(store: TrainStore, defaults: UserDefaults, account: String? = nil) {
+    init(store: TrainStore, defaults: UserDefaults, account: String? = nil, demo: Bool = false) {
         self.store = store
         self.defaults = defaults
         self.account = account
-        if let cached = store.document(Cached.self, key: Self.cacheKey(account)) { show(cached) }
+        self.demo = demo
+        if let cached = store.document(Cached.self, key: cacheKey) { show(cached) }
         #if DEBUG
         let saved = defaults.dictionary(forKey: Self.overridesKey) as? [String: Bool] ?? [:]
         overrides = Dictionary(uniqueKeysWithValues: saved.compactMap { k, v in FeatureFlag(rawValue: k).map { ($0, v) } })
@@ -75,10 +82,15 @@ final class FlagStore: FeatureFlagProvider {
         return now.timeIntervalSince(evaluated) >= ttl
     }
 
-    /// Caches the answer; the screens get it now only if they show nothing remote yet.
-    func apply(_ config: RemoteConfig, fetchedAt: Date) {
+    /// The cache this account (or demo data) reads and writes.
+    private var cacheKey: String { Self.cacheKey(demo ? "demo" : account) }
+
+    /// Caches the answer; the screens get it now only if they show nothing remote yet. `generation`: when it
+    /// was asked for; an answer from before an account or demo switch is dropped.
+    func apply(_ config: RemoteConfig, fetchedAt: Date, generation: Int? = nil) {
+        if let generation, generation != self.generation { return }
         let cached = Cached(config: config, fetchedAt: fetchedAt)
-        store.saveDocument(cached, key: Self.cacheKey(account), at: fetchedAt)
+        store.saveDocument(cached, key: cacheKey, at: fetchedAt)
         if evaluatedAt == nil {
             show(cached)
             pending = nil
@@ -99,14 +111,26 @@ final class FlagStore: FeatureFlagProvider {
     func switchAccount(_ id: String?) {
         guard id != account else { return }
         account = id
-        clear()
-        if let cached = store.document(Cached.self, key: Self.cacheKey(id)) { show(cached) }
+        reload()
+    }
+
+    /// Demo data on or off: demo's own flags, or this account's cached ones again (never demo's).
+    func setDemo(_ on: Bool) {
+        guard on != demo else { return }
+        demo = on
+        reload()
     }
 
     /// Forgets the current account's flags (and its cache).
     func reset() {
-        store.removeDocument(key: Self.cacheKey(account))
+        store.removeDocument(key: cacheKey)
         clear()
+    }
+
+    private func reload() {
+        generation += 1
+        clear()
+        if let cached = store.document(Cached.self, key: cacheKey) { show(cached) }
     }
 
     private func clear() {
@@ -171,9 +195,10 @@ actor FeatureFlags {
         let task = Task { [flags, clock, fetch] in
             let due = await flags.isStale(at: clock.now())
             guard force || due else { return false }
+            let generation = await flags.generation
             do {
                 let config = try await fetch()
-                await flags.apply(config, fetchedAt: clock.now())
+                await flags.apply(config, fetchedAt: clock.now(), generation: generation)
                 return true
             } catch {
                 return false

@@ -25,9 +25,11 @@ import UIKit
 final class OnboardingCoordinator {
     enum Step: String, CaseIterable, Identifiable, Sendable {
         case invite, consent, aboutYou
+        /// "What do you wear?" (`devices.setup`), before Apple Health.
+        case wear
         var id: String { rawValue }
-        /// A gate the platform enforces; "about you" only belongs to the first run.
-        var isGate: Bool { self != .aboutYou }
+        /// A gate the platform enforces; "about you" and "what do you wear" only belong to the first run.
+        var isGate: Bool { self == .invite || self == .consent }
     }
 
     enum Phase: Equatable, Sendable {
@@ -53,11 +55,16 @@ final class OnboardingCoordinator {
         var aboutYouDone = false
         /// The birth year was just saved: the step stays to show the platform's estimate.
         var aboutYouSaved = false
+        /// "What do you wear?" was answered or skipped on this phone.
+        var wearAsked = false
+        /// `devices.setup`: the step exists at all.
+        var devicesSetup = false
     }
 
     /// The missing steps, in order. Invite only when the platform says its gate applies
     /// (with the gate off, `beta_access: false` is normal); consent whenever the account
-    /// hasn't agreed to the policy in force; "about you" until answered or skipped once.
+    /// hasn't agreed to the policy in force; "about you" until answered or skipped once; "what do you wear"
+    /// likewise, while `devices.setup` is on.
     nonisolated static func missing(_ f: Facts) -> [Step] {
         var out: [Step] = []
         let inviteSignal = f.serverGate == .inviteRequired || f.reported.contains(.inviteRequired)
@@ -66,6 +73,7 @@ final class OnboardingCoordinator {
         let consentSignal = f.serverGate == .consentRequired || f.reported.contains(.consentRequired)
         if (f.userKnown && !consented) || consentSignal { out.append(.consent) }
         if f.userKnown, !f.aboutYouDone, f.birthYear == nil || f.aboutYouSaved { out.append(.aboutYou) }
+        if f.userKnown, f.devicesSetup, !f.wearAsked { out.append(.wear) }
         return out
     }
 
@@ -98,17 +106,25 @@ final class OnboardingCoordinator {
     /// The birth year is saved; "about you" shows the estimate until Continue.
     private(set) var aboutYouSaved = false
     private var hintSeen = false
+    /// "What do you wear?" answered or skipped, and the setup screen after Apple Health left (per account).
+    private(set) var wearAsked = false
+    private(set) var trackerSetupDone = false
 
     /// This account reached the tabs on this phone once (`reachedTabs()`); per account, so
     /// another account on a phone that already allowed Apple Health still gets its steps.
     private var firstRunDone = false
 
-    init(state: AppState, apiStatus: APIStatus, startSync: @escaping @MainActor () async -> Void) {
+    init(state: AppState, apiStatus: APIStatus, devices: TrackerSelectionStore? = nil,
+         startSync: @escaping @MainActor () async -> Void) {
         self.state = state
         self.apiStatus = apiStatus
         self.startSync = startSync
         bodySettings = BodySettingsEditor(state: state)
+        self.devices = devices ?? TrackerSelectionStore(env: state.env)
     }
+
+    /// What the user wears: "What do you wear?" saves it, the setup screen after Apple Health reads it.
+    let devices: TrackerSelectionStore
 
     /// About you: maximum heart rate and baseline sleep need, editable right there.
     let bodySettings: BodySettingsEditor
@@ -123,7 +139,7 @@ final class OnboardingCoordinator {
         return Facts(userKnown: u != nil, betaAccess: u?.betaAccess ?? true, consentVersion: u?.consent?.policyVersion,
                      policyVersion: config?.privacyPolicyVersion, serverGate: syncStatus?.gate,
                      reported: apiStatus.gates, birthYear: u?.birthYear, aboutYouDone: aboutYouDone,
-                     aboutYouSaved: aboutYouSaved)
+                     aboutYouSaved: aboutYouSaved, wearAsked: wearAsked, devicesSetup: env.flags.isOn(.devicesSetup))
     }
 
     var missing: [Step] {
@@ -197,14 +213,19 @@ final class OnboardingCoordinator {
     func canDefer(_ step: Step) -> Bool {
         switch step {
         case .invite: return !apiStatus.inviteBlocked
-        case .consent, .aboutYou: return true
+        case .consent, .aboutYou, .wear: return true
         }
     }
 
     func later(_ step: Step) {
         guard canDefer(step) else { return }
         clearError()
-        if step == .aboutYou { finishAboutYou() } else { deferred.insert(step) }
+        switch step {
+        case .aboutYou: finishAboutYou()
+        // Skip saves nothing: the step is answered for this account, and Profile can choose later.
+        case .wear: finishWear()
+        case .invite, .consent: deferred.insert(step)
+        }
     }
 
     /// "About you" is answered (or skipped) for good on this phone; Profile can change it later.
@@ -332,6 +353,8 @@ final class OnboardingCoordinator {
         firstRunDone = account.map { defaults.bool(forKey: Self.key("firstRunDone", $0)) } ?? false
         aboutYouDone = account.map { defaults.bool(forKey: Self.key("aboutYouDone", $0)) } ?? false
         hintSeen = account.map { defaults.bool(forKey: Self.key("hintSeen", $0)) } ?? false
+        wearAsked = account.map { defaults.bool(forKey: Self.key("wearAsked", $0)) } ?? false
+        trackerSetupDone = account.map { defaults.bool(forKey: Self.key("trackerSetupDone", $0)) } ?? false
     }
 
     // MARK: steps
@@ -480,6 +503,7 @@ struct OnboardingStepView: View {
         case .invite: InviteCodeView(model: model)
         case .consent: ConsentView(model: model)
         case .aboutYou: AboutYouView(model: model)
+        case .wear: TrackerPickerView(model: model)
         }
     }
 }
@@ -768,6 +792,219 @@ private struct AboutYouValue<Content: View>: View {
     }
 }
 
+// MARK: - what do you wear (devices.setup)
+
+extension OnboardingCoordinator {
+    /// Continue on "What do you wear?": the choice, saved for this account (Skip is `later(.wear)`).
+    func answerWear(_ ids: [String]) {
+        devices.set(ids)
+        finishWear()
+    }
+
+    /// "What do you wear?" is answered or skipped for good on this phone; Profile → Devices & sync changes it.
+    func finishWear() {
+        wearAsked = true
+        defaults.set(true, forKey: key("wearAsked"))
+    }
+
+    /// The chosen trackers that need setting up in an app of their own (not the Apple Watch, not the iPhone).
+    var setupTrackers: [Tracker] {
+        let catalog = env.trackerCatalog
+        return devices.trackers.compactMap(catalog.tracker).filter(TrackerSelectionStore.needsSetup)
+    }
+
+    /// After Apple Health access, once per account (design.md §8): the cards of the trackers to set up.
+    var showsTrackerSetup: Bool {
+        phase == .ready && env.flags.isOn(.devicesSetup) && isFirstRun && !trackerSetupDone && !env.isDemo
+            && env.auth.isSignedIn && !setupTrackers.isEmpty
+    }
+
+    /// A deleted account's answers to "What do you wear?" and the setup screen leave this phone too.
+    func forgetTrackerSteps(of account: String) {
+        defaults.removeObject(forKey: Self.key("wearAsked", account))
+        defaults.removeObject(forKey: Self.key("trackerSetupDone", account))
+    }
+
+    /// Done (the guides count as set up, but those put off) or "Show me again later" (all of them, for
+    /// Profile → Devices & sync); then the tabs.
+    func finishTrackerSetup(later: Bool) {
+        for tracker in setupTrackers {
+            if later {
+                devices.markLater(tracker.id)
+            } else if !devices.isLater(tracker.id) {
+                devices.markSetUp(tracker.id)
+            }
+        }
+        trackerSetupDone = true
+        defaults.set(true, forKey: key("trackerSetupDone"))
+    }
+}
+
+/// The pinned bar of a long onboarding screen (ui.md §2.4): the main button above "not now", on Graphite or
+/// Mist with a hairline on top, reachable at every text size.
+private struct PinnedBar<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(spacing: 6) { content() }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+            .frame(maxWidth: 480)
+            .frame(maxWidth: .infinity)
+            .background(Theme.background.ignoresSafeArea(edges: .bottom))
+            .overlay(alignment: .top) {
+                Rectangle().fill(Theme.separator).frame(height: Theme.Metrics.hairline)
+            }
+    }
+}
+
+/// The tiles of "What do you wear?" (ui.md §2.2): two columns, "Other" and "Just my iPhone" full width and last.
+/// One column at accessibility sizes, and whenever a name's longest word wouldn't fit a tile on this screen at
+/// this text size (a word is never broken). Several may be picked; "Just my iPhone" only on its own.
+struct TrackerPickerGrid: View {
+    let catalog: TrackerCatalog
+    @Binding var picked: [String]
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var width: CGFloat = 0
+
+    /// Full-width rows at the end.
+    private static let wide = ["other", TrackerSelectionStore.iPhone]
+    static let gap: CGFloat = 10
+
+    private var regular: [Tracker] { catalog.trackers.filter { !Self.wide.contains($0.id) } }
+    private var wide: [Tracker] { Self.wide.compactMap(catalog.tracker) }
+
+    var body: some View {
+        VStack(spacing: Self.gap) {
+            if Self.fitsTwoColumns(regular.map(\.title), width: width, size: typeSize) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Self.gap), count: 2), spacing: Self.gap) {
+                    ForEach(regular) { tile($0) }
+                }
+            } else {
+                ForEach(regular) { tile($0) }
+            }
+            ForEach(wide) { tile($0) }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("What do you wear?"))
+        .accessibilityHint(Text("Choose all that apply"))
+    }
+
+    /// Two columns while every word of every name fits a tile's room at `size` (not at accessibility sizes).
+    /// Before the width is known, as at the default size.
+    static func fitsTwoColumns(_ names: [String], width: CGFloat, size: DynamicTypeSize) -> Bool {
+        guard !size.isAccessibilitySize else { return false }
+        guard width > 0 else { return true }
+        let room = (width - gap) / 2 - SelectableTile.chrome(size)
+        return widestWord(names, size: size) <= room - 1
+    }
+
+    /// The widest single word among `names` in the tiles' font (Satoshi callout, scaled like `.ryft(.callout)`).
+    static func widestWord(_ names: [String], size: DynamicTypeSize) -> CGFloat {
+        let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(size))
+        let base = UIFont(name: RyftFonts.postScriptName(for: .regular), size: 14) ?? .systemFont(ofSize: 14)
+        let font = UIFontMetrics(forTextStyle: .callout).scaledFont(for: base, compatibleWith: traits)
+        let words = names.flatMap { $0.split(whereSeparator: \.isWhitespace) }
+        return words.map { (String($0) as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+    }
+
+    private func tile(_ tracker: Tracker) -> some View {
+        SelectableTile(symbol: tracker.symbol, title: tracker.title, isSelected: picked.contains(tracker.id),
+                       hint: tracker.id == TrackerSelectionStore.iPhone ? "Clears your other choices" : nil) {
+            let next = TrackerSelectionStore.toggled(tracker.id, in: picked)
+            withAnimation(Theme.Motion.respecting(reduceMotion)) { picked = next.picked }
+            if next.cleared {
+                AccessibilityNotification.Announcement(String(localized: "Other choices cleared")).post()
+            }
+        }
+        .accessibilityIdentifier("wear.tile.\(tracker.id)")
+    }
+}
+
+/// "What do you wear?" (ui.md §2): the first run's step after About you, before Apple Health. Continue saves the
+/// choice for this account; Skip saves nothing and doesn't ask again. Profile → Devices & sync changes it later.
+struct TrackerPickerView: View {
+    let model: OnboardingCoordinator
+    @State private var picked: [String]
+    @Environment(\.appEnvironment) private var env
+
+    /// `picked`: previews start with a choice.
+    init(model: OnboardingCoordinator, picked: [String] = []) {
+        self.model = model
+        _picked = State(initialValue: picked)
+    }
+
+    var body: some View {
+        OnboardingScreen(symbol: "antenna.radiowaves.left.and.right",
+                         title: "What do you wear?",
+                         text: "Pick your watch, band or ring. RYFT then shows how to get its data into Apple Health.") {
+            TrackerPickerGrid(catalog: env.trackerCatalog, picked: $picked)
+            Text("RYFT only uses this to show you setup steps and to check that your data arrives. You can change it any time in Profile → Devices & sync.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .safeAreaInset(edge: .bottom) {
+            PinnedBar {
+                PrimaryButton(title: "Continue") { model.answerWear(picked) }
+                    .disabled(picked.isEmpty)
+                    .accessibilityIdentifier("wear.continue")
+                LaterButton(title: "Skip") { model.later(.wear) }
+                    .accessibilityIdentifier("wear.skip")
+            }
+        }
+        .task { await env.catalogStore.refreshIfDue() }
+    }
+}
+
+/// After Apple Health access (ui.md §3.5): the chosen trackers' setup cards, the first open and the others
+/// collapsed. Done and "Show me again later" both lead to the tabs; nothing here is mandatory, and the first
+/// sync already runs.
+struct TrackerSetupStepView: View {
+    let model: OnboardingCoordinator
+    /// The open card in a list of several.
+    @State private var open: String?
+
+    var body: some View {
+        let trackers = model.setupTrackers
+        OnboardingScreen(symbol: "checklist",
+                         title: trackers.count > 1 ? "Set up your trackers" : "Set up your tracker",
+                         text: "A few minutes now saves a silent week of missing data.") {
+            VStack(spacing: 12) {
+                ForEach(trackers) { tracker in
+                    if trackers.count == 1 {
+                        TrackerSetupCard(tracker: tracker)
+                    } else {
+                        // `open` nil: the first card; "": none.
+                        TrackerSetupCard(tracker: tracker,
+                                         expanded: Binding(get: { (open ?? trackers.first?.id) == tracker.id },
+                                                           set: { open = $0 ? tracker.id : "" }),
+                                         later: {
+                                             // Put off: this card closes, the next one still to set up opens.
+                                             model.devices.markLater(tracker.id)
+                                             open = trackers.first { $0.id != tracker.id && !model.devices.isLater($0.id) }?.id ?? ""
+                                         })
+                    }
+                }
+            }
+            // T3 wires the inline Check sync here (design.md §8, ui.md §3.5): its button under the cards, the
+            // result opening below them.
+        }
+        .safeAreaInset(edge: .bottom) {
+            PinnedBar {
+                PrimaryButton(title: "Done") { model.finishTrackerSetup(later: false) }
+                    .accessibilityIdentifier("trackerSetup.done")
+                LaterButton(title: "Show me again later") { model.finishTrackerSetup(later: true) }
+                    .accessibilityIdentifier("trackerSetup.later")
+            }
+        }
+    }
+}
+
 /// One onboarding step on mock data, for previews and the Debug `-RyftScreen` captures.
 struct OnboardingStepPreview: View {
     let step: OnboardingCoordinator.Step
@@ -812,6 +1049,42 @@ struct OnboardingStepPreview: View {
 #Preview("About you · light") {
     OnboardingStepPreview(step: .aboutYou).previewEnvironment(scheme: .light)
 }
+
+/// "What do you wear?" or the setup screen after Apple Health, on the bundled catalog.
+@MainActor
+private func trackerStepPreview(setup: Bool = false, picked: [String] = [], scheme: ColorScheme = .dark,
+                                de: Bool = false, size: DynamicTypeSize = .large) -> some View {
+    let state = AppState.preview()
+    let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
+    model.devices.stage(picked)
+    return Group {
+        if setup {
+            TrackerSetupStepView(model: model)
+        } else {
+            TrackerPickerView(model: model, picked: picked)
+        }
+    }
+    .previewEnvironment(state, scheme: scheme)
+    .environment(\.locale, Locale(identifier: de ? "de" : "en"))
+    .dynamicTypeSize(size)
+}
+
+#Preview("Tracker picker · empty · dark") { trackerStepPreview() }
+#Preview("Tracker picker · empty · light") { trackerStepPreview(scheme: .light) }
+#Preview("Tracker picker · Garmin and Oura · dark") { trackerStepPreview(picked: ["garmin", "oura"]) }
+#Preview("Tracker picker · Garmin and Oura · light · de") {
+    trackerStepPreview(picked: ["garmin", "oura"], scheme: .light, de: true)
+}
+#Preview("Tracker picker · just my iPhone · dark") { trackerStepPreview(picked: ["iphone"]) }
+#Preview("Tracker picker · AX3") { trackerStepPreview(picked: ["garmin"], size: .accessibility3) }
+#Preview("Tracker picker · AX5") { trackerStepPreview(picked: ["garmin"], size: .accessibility5) }
+#Preview("Tracker setup · Garmin · dark") { trackerStepPreview(setup: true, picked: ["garmin"]) }
+#Preview("Tracker setup · Garmin · light · de") { trackerStepPreview(setup: true, picked: ["garmin"], scheme: .light, de: true) }
+#Preview("Tracker setup · Garmin and Oura · dark") { trackerStepPreview(setup: true, picked: ["garmin", "oura"]) }
+#Preview("Tracker setup · Garmin and Oura · light") {
+    trackerStepPreview(setup: true, picked: ["garmin", "oura"], scheme: .light)
+}
+#Preview("Tracker setup · AX3") { trackerStepPreview(setup: true, picked: ["fitbit"], size: .accessibility3) }
 
 // MARK: - Apple Health
 
@@ -938,9 +1211,20 @@ private struct HealthPermissionScreen: View {
 }
 
 /// Empty state when there's no Health data: Health access may be off, or the
-/// watch isn't writing to Apple Health. HealthKit never tells an app which.
+/// watch isn't writing to Apple Health. HealthKit never tells an app which. With a
+/// tracker chosen (`devices.setup`) it names that tracker's app and the catalog's
+/// route to RYFT's own permission.
 struct HealthAccessHint: View {
     @Environment(\.openURL) private var openURL
+    @Environment(\.appEnvironment) private var env
+    @Environment(\.locale) private var locale
+    @Environment(ScreenModels.self) private var screens: ScreenModels?
+
+    /// The first chosen tracker with an app of its own ("Garmin Connect").
+    private var app: String? {
+        guard env.flags.isOn(.devicesSetup), let devices = screens?.devices else { return nil }
+        return devices.trackers.compactMap(env.trackerCatalog.tracker).first { $0.integration == .vendorApp }?.appTitle
+    }
 
     var body: some View {
         Card {
@@ -948,10 +1232,14 @@ struct HealthAccessHint: View {
                 Label("No Health data yet", systemImage: "heart.text.square")
                     .font(.ryft(.headline))
                     .foregroundStyle(Theme.textPrimary)
-                Text("RYFT needs Apple Health access, and your watch app writing to Apple Health (Garmin Connect → More → Settings → Apple Health). Check RYFT's access in Health → your profile → Apps → RYFT.")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let app {
+                    trackerText(app)
+                } else {
+                    Text("RYFT needs Apple Health access, and your watch app writing to Apple Health (Garmin Connect → More → Settings → Apple Health). Check RYFT's access in Health → your profile → Apps → RYFT.")
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Button {
                     HealthLinks.open(with: openURL)
                 } label: {
@@ -961,6 +1249,18 @@ struct HealthAccessHint: View {
             }
         }
         .accessibilityElement(children: .contain)
+    }
+
+    /// Both places, as the sync check words it: the tracker's app writing, RYFT reading.
+    @ViewBuilder private func trackerText(_ app: String) -> some View {
+        Text(verbatim: String(localized: "RYFT needs \(app) writing to Apple Health, and Apple Health access. Profile → Devices & sync shows how to set up \(app)."))
+            .font(.ryft(.callout))
+            .foregroundStyle(Theme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        let steps = env.trackerCatalog.healthAccess.value(in: locale)
+        ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+            NumberedStep(number: index + 1, verbatim: step, total: steps.count)
+        }
     }
 }
 

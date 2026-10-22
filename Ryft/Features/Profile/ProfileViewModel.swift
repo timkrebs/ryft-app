@@ -17,21 +17,26 @@ final class ProfileViewModel {
     let syncDetails: SyncDetailsModel
     /// About → Report a problem, and "Send to RYFT" from an error's Details.
     let report: ReportProblemModel
+    /// Data → Devices & sync (`devices.setup`).
+    let devices: DevicesViewModel
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, onboarding: OnboardingCoordinator? = nil,
-         apiStatus: APIStatus? = nil) {
+         apiStatus: APIStatus? = nil, devices selection: TrackerSelectionStore? = nil) {
         self.state = state
         self.sync = sync
         self.coordinator = coordinator
         self.onboarding = onboarding
         self.apiStatus = apiStatus ?? .shared
         bodySettings = BodySettingsEditor(state: state)
+        let devices = DevicesViewModel(state: state, selection: selection ?? TrackerSelectionStore(env: state.env))
+        self.devices = devices
         let details = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator, apiStatus: apiStatus)
         syncDetails = details
         // The read pipeline's record and Sync details' state through the report's allow-list (never its
-        // support text).
+        // support text); the trackers' ids while `devices.setup` is on.
         report = ReportProblemModel(env: state.env, apiStatus: apiStatus ?? .shared,
-                                    resources: { state.resourceStates }) {
+                                    resources: { state.resourceStates },
+                                    trackers: { devices.isEnabled ? devices.selection.trackers : nil }) {
             FeedbackSync(engine: sync.engineState, backlogBytes: sync.backlogBytes, running: details.isRunning,
                          queued: details.hasQueuedRun, streams: details.streams)
         }
@@ -92,7 +97,12 @@ final class ProfileViewModel {
     var accountErrorDetails: String? { auth.errorDetails }
 
     func logOut() async { await auth.signOut() }
-    func deleteAccount() async { await auth.deleteAccount() }
+    func deleteAccount() async {
+        let account = auth.accountID
+        await auth.deleteAccount()
+        // Deleted: this phone forgets the account's tracker steps too (what it wore went with the store).
+        if let account, auth.accountID != account { onboarding?.forgetTrackerSteps(of: account) }
+    }
 
     // MARK: body
 
@@ -200,6 +210,8 @@ final class ProfileViewModel {
 
     func setDemoMode(_ on: Bool) async {
         settings.demoMode = on
+        // Demo data's flags are its own: off again, the account's cached flags, never demo's.
+        (env.flags as? FlagStore)?.setDemo(on)
         state.reset()
         await state.refresh()
     }
@@ -333,6 +345,28 @@ final class SyncDetailsModel {
         return String(localized: "Idle")
     }
 
+    /// When scoring began (`SyncService.scoringSince`), and the platform's estimate.
+    private var scoringSince: Date? { sync.scoringSince(pendingDays: state.syncStatus?.pendingDays ?? []) }
+    private var expectedScoringSec: Int {
+        state.syncStatus?.expectedWithinSec ?? sync.lastScoring?.expectedWithinSec ?? SyncCoordinator.defaultExpectedScoring
+    }
+
+    /// "Waiting since 10:21 · usually 20 s"; the platform's pending days when this app isn't timing them;
+    /// "Nothing waiting" when nothing is.
+    var scoringText: String {
+        guard let since = scoringSince else {
+            let pending = state.syncStatus?.pendingDays ?? []
+            return pending.isEmpty ? String(localized: "Nothing waiting")
+                : String(localized: "Pending: \(pending.joined(separator: ", "))")
+        }
+        return String(localized: "Waiting since \(Fmt.time(since)) · usually \(expectedScoringSec) s")
+    }
+
+    /// The same rule as Today's "Taking longer than usual" (`TodayStates.scoringSlow`).
+    var scoringIsSlow: Bool {
+        TodayStates.scoringSlow(since: scoringSince, expected: expectedScoringSec, now: env.clock.now())
+    }
+
     var backlogText: String {
         guard let bytes = sync.backlogBytes else { return String(localized: "None") }
         return String(localized: "About \(bytes.formatted(.byteCount(style: .file)))")
@@ -430,6 +464,7 @@ final class SyncDetailsModel {
         if let status = state.syncStatus {
             lines.append("server today \(status.today.day) \(status.today.state.rawValue) · pending \(status.pendingDays.joined(separator: ",")) · expected \(status.expectedWithinSec) s")
         }
+        lines.append("scoring since \(scoringSince.map { $0.ISO8601Format() } ?? "-") · expected \(expectedScoringSec) s · slow \(scoringIsSlow)")
         for row in streams {
             guard let p = row.progress else { lines.append("\(row.id): -"); continue }
             let ignored = p.lastIgnored.map { "dup \($0.duplicate) out \($0.outsideWindow) unk \($0.unknownType)" } ?? "-"
@@ -438,6 +473,7 @@ final class SyncDetailsModel {
         lines.append("resources (resource | fetched_at | last_error status code request_id at | consecutive_failures):")
         let states = state.resourceStates
         lines += ReadResource.allCases.map { (states[$0] ?? ResourceState()).diagnosticLine($0) }
+        lines.append(env.catalogStore.diagnosticLine)
         if let check = TrackerCheckRecord.forReport(env) { lines.append("sync check: " + check.lines.joined(separator: " · ")) }
         lines.append("requests (cancelled since launch: \(cancelledRequests)):")
         for r in requests {
@@ -1352,7 +1388,7 @@ enum FeedbackPayload {
     /// The last requests sent along (`APIStatus` keeps as many).
     static let maxRequests = 20
     /// Every key `diagnostics` may carry.
-    static let keys: Set<String> = ["requests", "resources", "sync", "gates", "flags", "locale", "report_context",
+    static let keys: Set<String> = ["requests", "resources", "sync", "gates", "flags", "locale", "report_context", "trackers",
                                     "sync_check"]
 
     /// Characters as the platform counts them (Unicode scalars: Go's runes).
@@ -1362,8 +1398,8 @@ enum FeedbackPayload {
     static func make(message: String, category: FeedbackCategory, includeDiagnostics: Bool,
                      requests: [APIStatus.RequestFailure], resources: [ReadResource: ResourceState] = [:],
                      sync: FeedbackSync, gates: Set<APIErrorCode>,
-                     flags: [String: Bool], context: ReportContext?, about: FeedbackAbout,
-                     syncCheck: [String]? = nil) -> FeedbackPost {
+                     flags: [String: Bool], trackers: [String]? = nil, syncCheck: [String]? = nil,
+                     context: ReportContext?, about: FeedbackAbout) -> FeedbackPost {
         let text = clipped(message.trimmingCharacters(in: .whitespacesAndNewlines), to: maxMessage)
         // Off: nothing is attached but the message (ui.md §5.2).
         guard includeDiagnostics else { return FeedbackPost(message: text, category: category) }
@@ -1374,8 +1410,8 @@ enum FeedbackPayload {
                             osVersion: clipped(about.osVersion, to: maxField),
                             requestIds: requestIDs(context: context, requests: requests, resources: resources),
                             diagnostics: diagnostics(requests: requests, resources: resources, sync: sync,
-                                                     gates: gates, flags: flags, context: context,
-                                                     locale: about.locale, syncCheck: syncCheck))
+                                                     gates: gates, flags: flags, trackers: trackers, syncCheck: syncCheck,
+                                                     context: context, locale: about.locale))
     }
 
     /// The context's ID first, then the failed requests' IDs (newest first), then the resources' last errors'
@@ -1426,12 +1462,14 @@ enum FeedbackPayload {
     }
 
     // swiftlint:disable function_parameter_count
-    /// The allow-list: `requests` (newest first), `resources`, `sync`, `gates`, `flags`, `locale`, from an error's
-    /// Details `report_context`, and after a Check sync `sync_check` (`TrackerCheckRecord.lines`: tracker ids and
-    /// result codes). Over 32 KiB the oldest requests go first, then resources and sync.
+    /// The allow-list: `requests` (newest first), `resources`, `sync`, `gates`, `flags`, `locale`, with
+    /// `devices.setup` on `trackers` (catalog ids, "garmin,oura", never a device's name), after a Check sync
+    /// `sync_check` (`TrackerCheckRecord.lines`: tracker ids and result codes) and, from an error's Details,
+    /// `report_context`. Over 32 KiB the oldest requests go first, then resources and sync.
     static func diagnostics(requests: [APIStatus.RequestFailure], resources: [ReadResource: ResourceState],
                             sync: FeedbackSync, gates: Set<APIErrorCode>, flags: [String: Bool],
-                            context: ReportContext?, locale: String, syncCheck: [String]? = nil) -> [String: String] {
+                            trackers: [String]? = nil, syncCheck: [String]? = nil, context: ReportContext?,
+                            locale: String) -> [String: String] {
         // swiftlint:enable function_parameter_count
         var base = [
             "gates": gates.isEmpty ? "-" : gates.map(\.rawValue).sorted().joined(separator: ","),
@@ -1442,6 +1480,7 @@ enum FeedbackPayload {
             base["report_context"] = [context.resource, context.statusText, context.requestID ?? "-"]
                 .joined(separator: " · ")
         }
+        if let trackers { base["trackers"] = trackers.isEmpty ? "-" : trackers.joined(separator: ",") }
         if let syncCheck, !syncCheck.isEmpty { base["sync_check"] = syncCheck.joined(separator: "\n") }
         let syncText = syncLines(sync).joined(separator: "\n")
         let resourcesText = resourceLines(resources).joined(separator: "\n")
@@ -1587,6 +1626,8 @@ final class ReportProblemModel {
     private let apiStatus: APIStatus
     private let sync: @MainActor () -> FeedbackSync
     private let resources: @MainActor () -> [ReadResource: ResourceState]
+    /// What the user wears (ids), while `devices.setup` is on; nil: not sent.
+    private let trackers: @MainActor () -> [String]?
     private let queue: FeedbackQueueStore
 
     var message = ""
@@ -1611,10 +1652,12 @@ final class ReportProblemModel {
     /// (only `FeedbackPayload.resourceLines`' and `FeedbackSync`'s fields go out).
     init(env: AppEnvironment, apiStatus: APIStatus, queue: FeedbackQueueStore? = nil,
          resources: @escaping @MainActor () -> [ReadResource: ResourceState] = { [:] },
+         trackers: @escaping @MainActor () -> [String]? = { nil },
          sync: @escaping @MainActor () -> FeedbackSync) {
         self.env = env
         self.apiStatus = apiStatus
         self.resources = resources
+        self.trackers = trackers
         self.sync = sync
         self.queue = queue ?? PersistentFeedbackQueue(env: env)
         reloadWaiting()
@@ -1682,9 +1725,12 @@ final class ReportProblemModel {
         FeedbackPayload.make(message: message, category: category, includeDiagnostics: includeDiagnostics,
                              requests: apiStatus.requests, resources: includeDiagnostics ? resources() : [:],
                              sync: includeDiagnostics ? sync() : FeedbackSync(),
-                             gates: apiStatus.gates, flags: flagValues, context: context, about: .current,
-                             syncCheck: includeDiagnostics ? syncCheck : nil)
+                             gates: apiStatus.gates, flags: flagValues, trackers: trackers(),
+                             syncCheck: includeDiagnostics ? syncCheck : nil, context: context, about: .current)
     }
+
+    /// "What's included" lists the trackers only when they go out.
+    var includesTrackers: Bool { trackers() != nil }
 
     /// The last Check sync as diagnostics carry it (ids and codes), when there is a recent one: "What's included"
     /// lists it only then.
@@ -1884,4 +1930,470 @@ extension AppInfo {
             String(bytes: raw.prefix { $0 != 0 }, encoding: .utf8) ?? "unknown"
         }
     }
+}
+
+// MARK: - devices & sync
+
+/// What the user wears, for one account (design.md §3.1): catalog ids in picker order, `["iphone"]` for just the
+/// iPhone, and which guides were finished or put off.
+struct TrackerSelection: Codable, Equatable, Sendable {
+    let account: String
+    var trackers: [String]
+    var updatedAt: Date
+    /// Guides marked "Done".
+    var setUp: [String] = []
+    /// "Show me again later" (Devices & sync: "Set up later").
+    var later: [String] = []
+}
+
+/// The selection, stored like the read record (`reads.state`): a `CachedDocument` "devices.selection" for the
+/// signed-in account only, carrying its account ID and read only when that matches. Sign-out wipes it with the
+/// store, and an account change reloads (`accountChanged`). Demo data keeps its own in memory. Local until API.md
+/// has `User.trackers` (design.md §3.4).
+@MainActor
+@Observable
+final class TrackerSelectionStore {
+    static let documentKey = "devices.selection"
+    /// "Just my iPhone": on its own or not at all.
+    nonisolated static let iPhone = "iphone"
+    /// Demo data wears an Apple Watch, unless a run says otherwise (`-RyftTrackers garmin,oura`, Debug).
+    static let demoTrackers = ["apple_watch"]
+
+    @ObservationIgnored private let env: AppEnvironment
+    /// The signed-in account's, as stored.
+    private var live: TrackerSelection?
+    private var demo: TrackerSelection
+
+    init(env: AppEnvironment) {
+        self.env = env
+        var ids = Self.demoTrackers
+        #if DEBUG
+        if let picked = UserDefaults.standard.string(forKey: "RyftTrackers") {
+            ids = picked.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        }
+        #endif
+        demo = TrackerSelection(account: "demo", trackers: ids, updatedAt: .distantPast)
+        accountChanged()
+    }
+
+    /// nil: nothing chosen (the step was skipped, or another account's answer).
+    var selection: TrackerSelection? {
+        if env.isDemo { return demo }
+        guard let live, live.account == env.auth.accountID else { return nil }
+        return live
+    }
+
+    /// The catalog's trackers that were picked, in picker order (a remote copy may have dropped one). Nothing
+    /// chosen: nothing read (the catalog may not be decoded yet at launch).
+    var trackers: [String] {
+        guard let picked = selection?.trackers, !picked.isEmpty else { return [] }
+        return Self.normalized(picked, catalog: env.trackerCatalog)
+    }
+
+    /// The sources Today's night hint may name (design.md §6.2, §9.3): with `devices.setup` on and a choice made,
+    /// the iPhone's own records and the chosen trackers' sources ("Other": any source no tracker claims);
+    /// otherwise all of them.
+    func worn(_ freshness: [SourceFreshness]) -> [SourceFreshness] {
+        guard env.flags.isOn(.devicesSetup) else { return freshness }
+        let chosen = Set(trackers)
+        guard !chosen.isEmpty else { return freshness }
+        let catalog = env.trackerCatalog
+        return freshness.filter { source in
+            if source.isPhone { return true }
+            guard let tracker = catalog.match(source.ref) else { return chosen.contains("other") }
+            return chosen.contains(tracker.id)
+        }
+    }
+
+    /// Saves what was picked: known ids only, de-duplicated, in picker order; "Just my iPhone" alone. Guides of
+    /// trackers no longer worn are forgotten.
+    func set(_ ids: [String]) {
+        let picked = Self.normalized(ids, catalog: env.trackerCatalog)
+        mutate { s in
+            s.trackers = picked
+            s.setUp.removeAll { !picked.contains($0) }
+            s.later.removeAll { !picked.contains($0) }
+        }
+    }
+
+    func markSetUp(_ id: String) {
+        guard trackers.contains(id) else { return }
+        mutate { s in
+            s.later.removeAll { $0 == id }
+            if !s.setUp.contains(id) { s.setUp.append(id) }
+        }
+    }
+
+    func markLater(_ id: String) {
+        guard trackers.contains(id) else { return }
+        mutate { s in
+            s.setUp.removeAll { $0 == id }
+            if !s.later.contains(id) { s.later.append(id) }
+        }
+    }
+
+    func isLater(_ id: String) -> Bool { selection?.later.contains(id) ?? false }
+
+    /// Signed in, out, or as someone else: that account's answer, or none.
+    func accountChanged() {
+        guard let account = env.auth.accountID,
+              let saved = env.persistence.document(TrackerSelection.self, key: Self.documentKey), saved.account == account
+        else {
+            live = nil
+            return
+        }
+        live = saved
+    }
+
+    /// Previews and screenshot runs: this choice, in memory.
+    func stage(_ ids: [String]) {
+        demo.trackers = ids
+        live = env.auth.accountID.map { TrackerSelection(account: $0, trackers: ids, updatedAt: env.clock.now()) }
+    }
+
+    private func mutate(_ change: (inout TrackerSelection) -> Void) {
+        let now = env.clock.now()
+        if env.isDemo {
+            change(&demo)
+            demo.updatedAt = now
+            return
+        }
+        guard let account = env.auth.accountID else { return }
+        var s = selection ?? TrackerSelection(account: account, trackers: [], updatedAt: now)
+        change(&s)
+        s.updatedAt = now
+        live = s
+        env.persistence.saveDocument(s, key: Self.documentKey, at: now)
+    }
+
+    /// Known ids only, once each, in the catalog's order; "Just my iPhone" excludes the rest.
+    nonisolated static func normalized(_ ids: [String], catalog: TrackerCatalog) -> [String] {
+        let known = Set(ids.filter { catalog.tracker($0) != nil })
+        if known.contains(iPhone) { return [iPhone] }
+        return catalog.trackers.map(\.id).filter(known.contains)
+    }
+
+    /// A tile tapped (ui.md §2.3): "Just my iPhone" clears every other choice, any other tile clears it.
+    /// `cleared`: other choices went, which VoiceOver announces.
+    nonisolated static func toggled(_ id: String, in picked: [String]) -> (picked: [String], cleared: Bool) {
+        if picked.contains(id) { return (picked.filter { $0 != id }, false) }
+        if id == iPhone { return ([iPhone], !picked.isEmpty) }
+        return (picked.filter { $0 != iPhone } + [id], false)
+    }
+
+    /// A tracker whose data needs more than Apple Health itself: everything but the Apple Watch and the iPhone.
+    nonisolated static func needsSetup(_ tracker: Tracker) -> Bool { tracker.integration != .appleBuiltin }
+}
+
+/// Profile → Data → Devices & sync (ui.md §4): what the user wears and each tracker's card, what Apple Health
+/// has seen (`User.sources`, with RYFT's names), RYFT's own Health access, and the way to Sync details.
+@MainActor
+@Observable
+final class DevicesViewModel {
+    private let state: AppState
+    let selection: TrackerSelectionStore
+    private(set) var healthStatus: HealthAccess = .unknown
+
+    init(state: AppState, selection: TrackerSelectionStore) {
+        self.state = state
+        self.selection = selection
+    }
+
+    private var env: AppEnvironment { state.env }
+    var catalog: TrackerCatalog { env.trackerCatalog }
+    /// `devices.setup`: off, Profile looks as it did.
+    var isEnabled: Bool { env.flags.isOn(.devicesSetup) }
+
+    var trackers: [Tracker] { selection.trackers.compactMap(catalog.tracker) }
+
+    /// Profile → Data's row: "Garmin · Oura", "Garmin · Oura · +1", or "Not set".
+    var summary: String {
+        let names = trackers.map(\.title)
+        guard !names.isEmpty else {
+            return String(localized: "devices.summary.none", defaultValue: "Not set",
+                          comment: "Profile → Data → Devices & sync row when no tracker is chosen.")
+        }
+        let shown = names.prefix(2).joined(separator: " · ")
+        return names.count > 2 ? "\(shown) · +\(names.count - 2)" : shown
+    }
+
+    /// Under each tracker's name. "Not checked yet" until Check sync (T3) has a result to show.
+    func status(of tracker: Tracker) -> String {
+        selection.isLater(tracker.id) ? String(localized: "Set up later") : String(localized: "Not checked yet")
+    }
+
+    /// The picker sheet's Done.
+    func save(_ ids: [String]) { selection.set(ids) }
+
+    // MARK: seen in Apple Health
+
+    struct SourceRow: Identifiable, Equatable {
+        let id: String
+        /// RYFT's name for it ("Garmin Connect"), or HealthKit's.
+        let name: String
+        /// "Heart rate, sleep and steps".
+        let kinds: String
+        let lastSeen: Date
+        /// A tracker in the catalog, or one of Apple's own devices; otherwise "Not a tracker RYFT knows".
+        let known: Bool
+    }
+
+    /// `User.sources`: what sent data in the last 30 days, newest first, by RYFT's names.
+    var sources: [SourceRow] {
+        let catalog = catalog
+        return (state.user?.sources ?? []).map { s in
+            let ref = SourceRef(name: s.name, bundleID: s.bundleId, deviceModel: nil)
+            let apple = s.bundleId?.lowercased().hasPrefix("com.apple.") ?? false
+            return SourceRow(id: s.bundleId ?? s.name, name: catalog.displayName(ref), kinds: Self.kinds(s.kinds),
+                             lastSeen: s.lastSeen, known: apple || catalog.match(ref) != nil)
+        }
+    }
+
+    func lastSeenText(_ row: SourceRow) -> String {
+        String(localized: "Last data \(SyncLine.dataTime(row.lastSeen, now: env.clock.now()))")
+    }
+
+    static func kinds(_ kinds: [SourceKind]) -> String {
+        let names = kinds.map { kind -> String in
+            switch kind {
+            case .energy: return String(localized: "active energy")
+            case .hr: return String(localized: "heart rate")
+            case .hrv: return String(localized: "HRV")
+            case .resp: return String(localized: "breathing rate")
+            case .sleep: return String(localized: "sleep")
+            case .spo2: return String(localized: "blood oxygen")
+            case .steps: return String(localized: "steps")
+            case .workout: return String(localized: "workouts")
+            }
+        }
+        let text = names.formatted(.list(type: .and))
+        return text.prefix(1).uppercased() + text.dropFirst()
+    }
+
+    // MARK: Apple Health access
+
+    var healthStatusText: String {
+        switch healthStatus {
+        case .unavailable: return String(localized: "Not available")
+        case .notAsked: return String(localized: "Not requested")
+        case .asked: return String(localized: "Requested")
+        case .unknown: return Fmt.placeholder
+        }
+    }
+
+    var canAskForHealth: Bool { healthStatus == .notAsked }
+    /// The catalog's route to RYFT's own read permission (Health → … → Apps → RYFT).
+    var healthAccessSteps: [String] { catalog.healthAccess.current }
+
+    func refreshHealthStatus() async { healthStatus = await env.health.accessStatus() }
+
+    func requestHealthAccess() async {
+        try? await env.health.requestAuthorization()
+        await refreshHealthStatus()
+    }
+
+    /// On appearance: the catalog when due (never in demo mode or offline).
+    func appeared() async {
+        await refreshHealthStatus()
+        await env.catalogStore.refreshIfDue()
+    }
+}
+
+/// What a tracker's matrix means for RYFT's features (design.md §8, ui.md §3.2): the setup card's line. Mirrors
+/// the platform's model: Strain needs heart rate; Sleep needs sleep; Recovery and Readiness need sleep and resting
+/// heart rate, and Recovery uses whichever of HRV, resting heart rate, sleep and breathing rate arrive. What's
+/// missing is said in words, never as ✗. Pure.
+enum RyftFeatures {
+    /// Resting heart rate derived from overnight heart rate: false until API.md documents it (lead's decision 10);
+    /// the ticket that lands that contract flips it.
+    static let restingHRFromHeartRate = false
+
+    enum Feature: CaseIterable, Sendable {
+        case strain, sleep, recovery, readiness
+
+        var name: String {
+            switch self {
+            case .strain: return String(localized: "Strain")
+            case .sleep: return String(localized: "Sleep")
+            case .recovery: return String(localized: "Recovery")
+            case .readiness: return String(localized: "Readiness")
+            }
+        }
+    }
+
+    /// The line and how VoiceOver says it ("✓" as "yes").
+    struct Line: Equatable, Sendable {
+        let text: String
+        let spoken: String
+    }
+
+    /// nil for "Other": what arrives depends on the tracker.
+    static func line(for tracker: Tracker, derivedRestingHR: Bool = restingHRFromHeartRate) -> Line? {
+        switch tracker.integration {
+        case .unknown:
+            return nil
+        case .none:
+            return line(ok: [String(localized: "Steps")],
+                        rest: [String(localized: "Sleep, Strain, Recovery and Readiness stay empty without data from your tracker")])
+        case .appleBuiltin where tracker.isJustIPhone:
+            return line(ok: [String(localized: "Steps")],
+                        rest: [String(localized: "Sleep, Strain, Recovery and Readiness stay empty: they need heart rate and sleep from a watch or ring.")])
+        case .appleBuiltin, .vendorApp:
+            break
+        }
+        let level = { (s: TrackerSignal) in Level(tracker.capabilities[s] ?? .unverified) }
+        let restingHR = derivedRestingHR ? max(level(.restingHR), level(.heartRate)) : level(.restingHR)
+        let recovery = min(level(.sleep), restingHR)
+        let levels: [Feature: Level] = [.strain: level(.heartRate), .sleep: level(.sleep), .recovery: recovery,
+                                        .readiness: recovery]
+        var ok = [Feature.strain, .sleep].filter { levels[$0] == .yes }.map(\.name)
+        var rest: [String] = []
+        if recovery == .yes {
+            if level(.hrv) == .no {
+                let inputs = [(TrackerSignal.restingHR, restingHR), (.sleep, level(.sleep)), (.respiratoryRate, level(.respiratoryRate))]
+                    .filter { $0.1 >= .partial }.map { $0.0.inline }
+                rest.append(String(localized: "Recovery from \(inputs.formatted(.list(type: .and))), no HRV"))
+                rest.append(String(localized: "Readiness from the same"))
+            } else {
+                ok += [Feature.recovery.name, Feature.readiness.name]
+            }
+        }
+        let partly = Feature.allCases.filter { levels[$0] == .partial }.map(\.name)
+        if !partly.isEmpty { rest.append(String(localized: "\(partly.formatted(.list(type: .and))) in part")) }
+        // Features that can't fill, grouped by the signals they lack ("Recovery and Readiness need resting heart rate").
+        var needs: [(features: [Feature], signals: [TrackerSignal])] = []
+        for feature in Feature.allCases where levels[feature] == .no {
+            let signals: [TrackerSignal] = switch feature {
+            case .strain: [.heartRate]
+            case .sleep: [.sleep]
+            case .recovery, .readiness: [(TrackerSignal.sleep, level(.sleep)), (.restingHR, restingHR)].filter { $0.1 == .no }.map(\.0)
+            }
+            if let i = needs.firstIndex(where: { $0.signals == signals }) {
+                needs[i].features.append(feature)
+            } else {
+                needs.append(([feature], signals))
+            }
+        }
+        let app = tracker.appName ?? tracker.name
+        for need in needs {
+            let features = need.features.map(\.name).formatted(.list(type: .and))
+            let signals = need.signals.map(\.inline).formatted(.list(type: .and))
+            rest.append(need.features.count == 1
+                        ? String(localized: "\(features) needs \(signals), which \(app) doesn't share")
+                        : String(localized: "\(features) need \(signals), which \(app) doesn't share"))
+        }
+        let unconfirmed = Feature.allCases.filter { levels[$0] == .unverified }.map(\.name)
+        if !unconfirmed.isEmpty { rest.append(String(localized: "Not confirmed yet: \(unconfirmed.formatted(.list(type: .and)))")) }
+        return line(ok: ok, rest: rest)
+    }
+
+    /// The collapsed card's one line (ui.md §3.3): "Heart rate, sleep, workouts · no HRV".
+    static func verdict(for tracker: Tracker) -> String {
+        switch tracker.integration {
+        case .none: return String(localized: "Can't be read on iPhone today")
+        case .unknown: return String(localized: "Depends on your tracker's app")
+        case .appleBuiltin, .vendorApp: break
+        }
+        let arriving = [TrackerSignal.heartRate, .sleep, .workouts, .steps, .restingHR, .respiratoryRate]
+            .filter { tracker.capabilities[$0] == .yes }.prefix(3).map(\.inline)
+        guard !arriving.isEmpty else { return String(localized: "Not confirmed yet") }
+        let list = arriving.joined(separator: ", ")
+        let text = list.prefix(1).uppercased() + list.dropFirst()
+        return tracker.capabilities[.hrv] == .no ? String(localized: "\(text) · no HRV") : text
+    }
+
+    private static func line(ok: [String], rest: [String]) -> Line {
+        // A no-break space keeps "✓" with its feature.
+        Line(text: (ok.map { String(localized: "\($0)\u{00A0}✓") } + rest).joined(separator: " · "),
+             spoken: (ok.map { String(localized: "\($0), yes") } + rest).joined(separator: ". "))
+    }
+
+    /// no < not confirmed < partly < yes: a feature is as good as the worst signal it needs.
+    enum Level: Int, Comparable, Sendable {
+        case no, unverified, partial, yes
+
+        init(_ capability: Capability) {
+            switch capability {
+            case .no: self = .no
+            case .unverified: self = .unverified
+            case .partial: self = .partial
+            case .yes: self = .yes
+            }
+        }
+
+        static func < (a: Level, b: Level) -> Bool { a.rawValue < b.rawValue }
+    }
+}
+
+extension TrackerSignal {
+    /// The capability rows' order (ui.md §3.2): sleep stages are a detail of Sleep.
+    static let rows: [TrackerSignal] = [.heartRate, .hrv, .restingHR, .sleep, .respiratoryRate, .spo2, .workouts, .steps]
+
+    /// A row's name ("Heart rate", "HRV", "SpO₂").
+    var title: String {
+        switch self {
+        case .heartRate: return String(localized: "Heart rate")
+        case .hrv: return String(localized: "HRV")
+        case .restingHR: return String(localized: "Resting heart rate")
+        case .sleep: return String(localized: "Sleep")
+        case .sleepStages: return String(localized: "Sleep stages")
+        case .respiratoryRate: return String(localized: "Breathing rate")
+        case .spo2: return String(localized: "SpO₂")
+        case .workouts: return String(localized: "Workouts")
+        case .steps: return String(localized: "Steps")
+        }
+    }
+
+    /// What VoiceOver says ("Heart rate variability", "Blood oxygen").
+    var spoken: String {
+        switch self {
+        case .hrv: return String(localized: "Heart rate variability")
+        case .spo2: return String(localized: "Blood oxygen")
+        default: return title
+        }
+    }
+
+    /// Inside a sentence ("needs resting heart rate").
+    var inline: String {
+        switch self {
+        case .heartRate: return String(localized: "heart rate")
+        case .hrv: return String(localized: "HRV")
+        case .restingHR: return String(localized: "resting heart rate")
+        case .sleep: return String(localized: "sleep")
+        case .sleepStages: return String(localized: "sleep stages")
+        case .respiratoryRate: return String(localized: "breathing rate")
+        case .spo2: return String(localized: "blood oxygen")
+        case .workouts: return String(localized: "workouts")
+        case .steps: return String(localized: "steps")
+        }
+    }
+}
+
+extension Tracker {
+    /// The tracker's glyph, the one mapping every tracker view uses (tiles, cards, rows, the sync check): the
+    /// form factor only, never a logo, and Apple's silhouettes only for the Apple Watch and the iPhone themselves.
+    var symbol: String {
+        switch id {
+        case "apple_watch": return "applewatch"
+        case TrackerSelectionStore.iPhone: return "iphone"
+        default: break
+        }
+        switch form {
+        case .watch: return "watch.analog"
+        case .band: return "figure.run.circle"
+        case .ring: return "circle.circle"
+        case .phone, .other: return "ellipsis.circle"
+        }
+    }
+
+    /// "Just my iPhone": decided by its id, never by what a copy says its form is.
+    var isJustIPhone: Bool { id == TrackerSelectionStore.iPhone }
+
+    /// The app named in sentences: "Garmin Connect", or the tracker's own name.
+    var appTitle: String { appName ?? name }
+}
+
+extension Localized {
+    /// The text for a view's language (previews set it; the app follows its own).
+    func value(in locale: Locale) -> T { value(for: locale.language.languageCode?.identifier) }
 }

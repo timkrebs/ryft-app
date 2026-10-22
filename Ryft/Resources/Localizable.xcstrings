@@ -26,6 +26,17 @@
         }
       }
     },
+    "%@ doesn't write to Apple Health, so nothing it records can reach RYFT. Your iPhone's own step count still does." : {
+      "comment" : "Setup card of a tracker that writes nothing to Apple Health. The argument is its name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ schreibt nicht in Apple Health, deshalb kann nichts davon RYFT erreichen. Die Schritte deines iPhones kommen weiterhin an."
+          }
+        }
+      }
+    },
     "%@ duplicates" : {
       "localizations" : {
         "de" : {
@@ -36,12 +47,46 @@
         }
       }
     },
+    "%@ in part" : {
+      "comment" : "Setup card's features line: features that work only in part, e.g. \"Strain in part\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ teilweise"
+          }
+        }
+      }
+    },
     "%@ in the App Store" : {
+      "comment" : "Button on Today's hint and on a setup card: the tracker app's App Store page (it shows Open when installed). The argument is the app, e.g. Garmin Connect.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ im App Store"
+          }
+        }
+      }
+    },
+    "%@ need %@, which %@ doesn't share" : {
+      "comment" : "Setup card's features line: features (several), the signals they need, the app that doesn't share them.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ brauchen %2$@; %3$@ teilt das nicht"
+          }
+        }
+      }
+    },
+    "%@ needs %@, which %@ doesn't share" : {
+      "comment" : "Setup card's features line: one feature, the signals it needs, the app that doesn't share them.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ braucht %2$@; %3$@ teilt das nicht"
           }
         }
       }
@@ -86,6 +131,17 @@
         }
       }
     },
+    "%@ · no HRV" : {
+      "comment" : "Collapsed setup card: what arrives, then that HRV doesn't, e.g. \"Heart rate, sleep, workouts · no HRV\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · kein HRV"
+          }
+        }
+      }
+    },
     "%@ · Request ID %@" : {
       "localizations" : {
         "de" : {
@@ -123,6 +179,17 @@
         }
       }
     },
+    "%@, yes" : {
+      "comment" : "VoiceOver for \"Strain ✓\" in the setup card's features line.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, ja"
+          }
+        }
+      }
+    },
     "%@, expected" : {
       "localizations" : {
         "de" : {
@@ -139,6 +206,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@: %2$@"
+          }
+        }
+      }
+    },
+    "%@ ✓" : {
+      "comment" : "Setup card's features line: a feature that works, e.g. \"Strain ✓\" (a no-break space keeps the check with it).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ✓"
           }
         }
       }
@@ -544,6 +622,17 @@
         }
       }
     },
+    "A few minutes now saves a silent week of missing data." : {
+      "comment" : "Text of the setup screen after Apple Health access.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein paar Minuten jetzt ersparen dir eine Woche ohne Daten."
+          }
+        }
+      }
+    },
     "A notification %lld min before tonight's bedtime. It moves with your day." : {
       "localizations" : {
         "de" : {
@@ -684,6 +773,17 @@
         }
       }
     },
+    "Add a tracker" : {
+      "comment" : "Button on the Just my iPhone card: opens What do you wear?",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gerät hinzufügen"
+          }
+        }
+      }
+    },
     "Add an exercise" : {
       "localizations" : {
         "de" : {
@@ -796,6 +896,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "App-Version und Build"
+          }
+        }
+      }
+    },
+    "Apple Health access" : {
+      "comment" : "Section in Profile → Devices & sync.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zugriff auf Apple Health"
+          }
+        }
+      }
+    },
+    "Apple's guide" : {
+      "comment" : "Link to Apple's help page on a setup card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anleitung von Apple"
+          }
+        }
+      }
+    },
+    "Apps and devices that sent data to RYFT in the last 30 days." : {
+      "comment" : "Footnote of Seen in Apple Health.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps und Geräte, die in den letzten 30 Tagen Daten an RYFT gesendet haben."
+          }
+        }
+      }
+    },
+    "Arrives" : {
+      "comment" : "A signal's state on a setup card: the tracker shares it.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kommt an"
           }
         }
       }
@@ -1003,6 +1147,7 @@
       }
     },
     "Breathing rate" : {
+      "comment" : "A signal on a setup card.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -1013,11 +1158,23 @@
       }
     },
     "breathing rate" : {
+      "comment" : "A signal inside a sentence (\"Recovery from resting heart rate, sleep and breathing rate\").",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Atemfrequenz"
+          }
+        }
+      }
+    },
+    "Can't be read on iPhone today" : {
+      "comment" : "Collapsed setup card of a tracker that writes nothing to Apple Health.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf dem iPhone derzeit nicht lesbar"
           }
         }
       }
@@ -1038,6 +1195,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eine Änderung bewertet vergangene Tage nicht von selbst neu."
+          }
+        }
+      }
+    },
+    "Checked %@" : {
+      "comment" : "Under a setup card's guide link: when its steps were checked, e.g. 22 Oct 2026.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geprüft am %@"
+          }
+        }
+      }
+    },
+    "Checked %@. Steps may have changed." : {
+      "comment" : "Under a setup card's guide link when the check is over 180 days old.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geprüft am %@. Die Schritte können sich geändert haben."
+          }
+        }
+      }
+    },
+    "Choose" : {
+      "comment" : "Button in Devices & sync when no tracker is chosen.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auswählen"
           }
         }
       }
@@ -1122,6 +1312,17 @@
         }
       }
     },
+    "Choose all that apply" : {
+      "comment" : "VoiceOver hint of the What do you wear? tiles.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wähle alles Zutreffende"
+          }
+        }
+      }
+    },
     "Choose your birth year" : {
       "localizations" : {
         "de" : {
@@ -1132,12 +1333,34 @@
         }
       }
     },
+    "Clears your other choices" : {
+      "comment" : "VoiceOver hint of the Just my iPhone tile.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entfernt deine anderen Auswahlen"
+          }
+        }
+      }
+    },
     "Code" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Code"
+          }
+        }
+      }
+    },
+    "Collapsed" : {
+      "comment" : "VoiceOver value of a closed setup card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eingeklappt"
           }
         }
       }
@@ -1305,12 +1528,52 @@
         }
       }
     },
+    "Depends on your tracker's app" : {
+      "comment" : "Collapsed setup card of Other.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hängt von der App deines Geräts ab"
+          }
+        }
+      }
+    },
     "Device model and iOS version" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gerätemodell und iOS-Version"
+          }
+        }
+      }
+    },
+    "Devices & sync" : {
+      "comment" : "Profile → Data row and screen title: what you wear and how its data reaches RYFT.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geräte & Sync"
+          }
+        }
+      }
+    },
+    "devices.summary.none" : {
+      "comment" : "Profile → Data → Devices & sync row when no tracker is chosen.",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht festgelegt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Not set"
           }
         }
       }
@@ -1351,6 +1614,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Jedes Training, das du erfasst, erscheint in Fitness und Health. Nur das Workout, keine Herzfrequenz."
+          }
+        }
+      }
+    },
+    "Edit trackers" : {
+      "comment" : "VoiceOver label of Edit in Devices & sync.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geräte bearbeiten"
           }
         }
       }
@@ -1425,6 +1699,17 @@
         }
       }
     },
+    "Expanded" : {
+      "comment" : "VoiceOver value of an open setup card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgeklappt"
+          }
+        }
+      }
+    },
     "Even your iPhone's steps aren't arriving, so RYFT may not be allowed to read Health." : {
       "localizations" : {
         "de" : {
@@ -1485,6 +1770,17 @@
         }
       }
     },
+    "For support: requests and streams." : {
+      "comment" : "Under the Sync details link in Devices & sync.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Für den Support: Anfragen und Datenströme."
+          }
+        }
+      }
+    },
     "From %@" : {
       "comment" : "VoiceOver, after the readiness gauge in row D: the day the readiness is from, e.g. Tuesday, 20 October.",
       "localizations" : {
@@ -1536,6 +1832,17 @@
         }
       }
     },
+    "From your iPhone" : {
+      "comment" : "Steps on the card of a tracker that writes nothing: they come from the iPhone.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Von deinem iPhone"
+          }
+        }
+      }
+    },
     "Full resync" : {
       "localizations" : {
         "de" : {
@@ -1562,6 +1869,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Erteilt"
+          }
+        }
+      }
+    },
+    "Good to know" : {
+      "comment" : "Section of a setup card: the tracker's limits.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gut zu wissen"
+          }
+        }
+      }
+    },
+    "Guide" : {
+      "comment" : "Link to the help page on the Other tracker's setup card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anleitung"
           }
         }
       }
@@ -1602,6 +1931,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Herzfrequenz von %@"
+          }
+        }
+      }
+    },
+    "Heart rate variability" : {
+      "comment" : "VoiceOver name of HRV.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Herzfrequenzvariabilität"
           }
         }
       }
@@ -1706,6 +2046,17 @@
         }
       }
     },
+    "In %@" : {
+      "comment" : "Heading over a setup card's steps: in the tracker's app, e.g. In Garmin Connect.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In %@"
+          }
+        }
+      }
+    },
     "In bed by" : {
       "localizations" : {
         "de" : {
@@ -1786,12 +2137,56 @@
         }
       }
     },
+    "Just my iPhone" : {
+      "comment" : "Tile in What do you wear?: no wearable, only the iPhone.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur mein iPhone"
+          }
+        }
+      }
+    },
+    "Keep it flowing" : {
+      "comment" : "Section of a setup card: habits that keep data arriving.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Damit es weiterläuft"
+          }
+        }
+      }
+    },
     "Language and region" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sprache und Region"
+          }
+        }
+      }
+    },
+    "Last data from %@: %@" : {
+      "comment" : "Under the night hint: the source's name and the time of its newest record (e.g. 'Wed 23:24').",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letzte Daten von %1$@: %2$@"
+          }
+        }
+      }
+    },
+    "Last data %@" : {
+      "comment" : "Seen in Apple Health: when a source last sent data, e.g. Yesterday 22:10.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letzte Daten %@"
           }
         }
       }
@@ -1886,6 +2281,17 @@
         }
       }
     },
+    "Let %@ write to Apple Health. Profile → Devices & sync shows how." : {
+      "comment" : "Setup card on Today, step 1, with the chosen tracker's app.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lass %@ in Apple Health schreiben. Profil → Geräte & Sync zeigt dir, wie."
+          }
+        }
+      }
+    },
     "loaded %@" : {
       "localizations" : {
         "de" : {
@@ -1932,6 +2338,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Maximale Herzfrequenz"
+          }
+        }
+      }
+    },
+    "No data from other apps yet." : {
+      "comment" : "Seen in Apple Health without sources.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch keine Daten aus anderen Apps."
           }
         }
       }
@@ -2036,6 +2453,28 @@
         }
       }
     },
+    "No sleep stages" : {
+      "comment" : "Detail under Sleep on a setup card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ohne Schlafphasen"
+          }
+        }
+      }
+    },
+    "Not a tracker RYFT knows. It still counts." : {
+      "comment" : "Seen in Apple Health: a source the tracker list doesn't have.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kein Gerät, das RYFT kennt. Die Daten zählen trotzdem."
+          }
+        }
+      }
+    },
     "Not allowed in iOS Settings." : {
       "localizations" : {
         "de" : {
@@ -2052,6 +2491,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gerade läuft kein Workout. Sag „Start a RYFT workout“, um eines zu starten."
+          }
+        }
+      }
+    },
+    "Not checked yet" : {
+      "comment" : "Status of a tracker in Devices & sync before Check sync ran.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch nicht geprüft"
+          }
+        }
+      }
+    },
+    "Not confirmed" : {
+      "comment" : "A signal's state on a setup card: not verified either way.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht bestätigt"
+          }
+        }
+      }
+    },
+    "Not confirmed yet" : {
+      "comment" : "Collapsed setup card when nothing is verified.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch nicht bestätigt"
+          }
+        }
+      }
+    },
+    "Not confirmed yet: %@" : {
+      "comment" : "Setup card's features line: features whose signals aren't verified.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch nicht bestätigt: %@"
           }
         }
       }
@@ -2137,6 +2620,7 @@
       }
     },
     "Not shared" : {
+      "comment" : "A signal's state on a setup card: the tracker doesn't share it (expected, not an error).",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -2226,6 +2710,17 @@
         }
       }
     },
+    "Nothing waiting" : {
+      "comment" : "Sync details → Engine → Scoring: no upload is waiting to be scored.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nichts ausstehend"
+          }
+        }
+      }
+    },
     "Off" : {
       "localizations" : {
         "de" : {
@@ -2286,12 +2781,34 @@
         }
       }
     },
+    "Opens setup and details" : {
+      "comment" : "VoiceOver hint of a tracker row in Devices & sync.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet Einrichtung und Details"
+          }
+        }
+      }
+    },
     "Opens sync details" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Öffnet die Sync-Details"
+          }
+        }
+      }
+    },
+    "Opens the App Store." : {
+      "comment" : "Caption under a setup card's store button.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet den App Store."
           }
         }
       }
@@ -2326,6 +2843,39 @@
         }
       }
     },
+    "Other" : {
+      "comment" : "Tile in What do you wear?: a tracker not in the list.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Andere"
+          }
+        }
+      }
+    },
+    "Other choices cleared" : {
+      "comment" : "VoiceOver announcement after Just my iPhone replaced the other choices.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Andere Auswahl entfernt"
+          }
+        }
+      }
+    },
+    "Other tracker" : {
+      "comment" : "Setup card title for Other.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anderes Gerät"
+          }
+        }
+      }
+    },
     "Other signals" : {
       "localizations" : {
         "de" : {
@@ -2346,6 +2896,17 @@
         }
       }
     },
+    "Partly" : {
+      "comment" : "A signal's state on a setup card: shared in part.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Teilweise"
+          }
+        }
+      }
+    },
     "Peak" : {
       "localizations" : {
         "de" : {
@@ -2356,12 +2917,34 @@
         }
       }
     },
+    "Pending: %@" : {
+      "comment" : "Sync details → Engine → Scoring: the days the platform still lists as pending (yyyy-MM-dd, comma-separated).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausstehend: %@"
+          }
+        }
+      }
+    },
     "Perform" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Leistung"
+          }
+        }
+      }
+    },
+    "Pick your watch, band or ring. RYFT then shows how to get its data into Apple Health." : {
+      "comment" : "Text of What do you wear?",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wähle deine Uhr, dein Armband oder deinen Ring. RYFT zeigt dir dann, wie die Daten in Apple Health landen."
           }
         }
       }
@@ -2468,6 +3051,17 @@
         }
       }
     },
+    "Readiness from the same" : {
+      "comment" : "Setup card's features line, after \"Recovery from …, no HRV\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bereitschaft ebenso"
+          }
+        }
+      }
+    },
     "Reading Apple Health" : {
       "localizations" : {
         "de" : {
@@ -2485,6 +3079,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ausgangswerte werden neu berechnet"
+          }
+        }
+      }
+    },
+    "Recovery from %@, no HRV" : {
+      "comment" : "Setup card's features line: what Recovery uses, a list such as resting heart rate and sleep.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erholung aus %@, ohne HRV"
           }
         }
       }
@@ -2624,12 +3229,13 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ruheherzfrequenz"
+            "value" : "Ruhepuls"
           }
         }
       }
     },
     "Resting heart rate" : {
+      "comment" : "A signal on a setup card.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -2720,11 +3326,12 @@
       }
     },
     "RYFT can't read %@ data on iPhone today." : {
+      "comment" : "Setup card of a tracker that writes nothing to Apple Health. The argument is its name.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "RYFT kann Daten von %@ auf dem iPhone derzeit nicht lesen."
+            "value" : "RYFT kann die Daten von %@ auf dem iPhone derzeit nicht lesen."
           }
         }
       }
@@ -2809,12 +3416,56 @@
         }
       }
     },
+    "RYFT needs %@ writing to Apple Health, and Apple Health access. Profile → Devices & sync shows how to set up %@." : {
+      "comment" : "No Health data hint, with the chosen tracker's app (both arguments).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT braucht Daten, die %1$@ in Apple Health schreibt, und Zugriff auf Apple Health. Unter Profil → Geräte & Sync siehst du, wie du %2$@ einrichtest."
+          }
+        }
+      }
+    },
     "RYFT needs your consent before it can sync your health data." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT braucht deine Einwilligung, bevor es deine Gesundheitsdaten synchronisieren kann."
+          }
+        }
+      }
+    },
+    "RYFT only uses this to show you setup steps and to check that your data arrives." : {
+      "comment" : "Footnote of the tracker picker in Devices & sync.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT nutzt das nur, um dir Einrichtungsschritte zu zeigen und zu prüfen, ob deine Daten ankommen."
+          }
+        }
+      }
+    },
+    "RYFT only uses this to show you setup steps and to check that your data arrives. You can change it any time in Profile → Devices & sync." : {
+      "comment" : "Footnote of What do you wear? in onboarding.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT nutzt das nur, um dir Einrichtungsschritte zu zeigen und zu prüfen, ob deine Daten ankommen. Du kannst es jederzeit unter Profil → Geräte & Sync ändern."
+          }
+        }
+      }
+    },
+    "RYFT reads whatever your tracker saves to Apple Health. What arrives depends on the tracker, so the check shows exactly what it is." : {
+      "comment" : "Setup card of Other.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT liest, was dein Gerät in Apple Health speichert. Was ankommt, hängt vom Gerät ab; die Prüfung zeigt dir genau, was es ist."
           }
         }
       }
@@ -2950,6 +3601,17 @@
         }
       }
     },
+    "Seen in Apple Health" : {
+      "comment" : "Section in Devices & sync: sources that sent data.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In Apple Health gefunden"
+          }
+        }
+      }
+    },
     "Send" : {
       "localizations" : {
         "de" : {
@@ -3020,6 +3682,28 @@
         }
       }
     },
+    "Set it up" : {
+      "comment" : "Section of a setup card: the steps.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einrichten"
+          }
+        }
+      }
+    },
+    "Set up %@ later" : {
+      "comment" : "Button on one tracker's setup card: put this tracker's setup off (Devices & sync shows it as Set up later).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ später einrichten"
+          }
+        }
+      }
+    },
     "Set up Bedtime & wake" : {
       "localizations" : {
         "de" : {
@@ -3030,12 +3714,56 @@
         }
       }
     },
+    "Set up later" : {
+      "comment" : "Status of a tracker in Devices & sync after Show me again later.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Später einrichten"
+          }
+        }
+      }
+    },
+    "Set up your tracker" : {
+      "comment" : "Title of the setup screen after Apple Health access (one tracker).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Richte dein Gerät ein"
+          }
+        }
+      }
+    },
+    "Set up your trackers" : {
+      "comment" : "Title of the setup screen after Apple Health access (several trackers).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Richte deine Geräte ein"
+          }
+        }
+      }
+    },
     "Setting up RYFT" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT wird eingerichtet"
+          }
+        }
+      }
+    },
+    "Show me again later" : {
+      "comment" : "Button: put a tracker's setup off; it stays in Profile → Devices & sync.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Später noch einmal zeigen"
           }
         }
       }
@@ -3182,11 +3910,56 @@
       }
     },
     "sleep stages" : {
+      "comment" : "A signal inside a sentence.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schlafphasen"
+          }
+        }
+      }
+    },
+    "Sleep stages in part" : {
+      "comment" : "Detail under Sleep on a setup card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlafphasen teilweise"
+          }
+        }
+      }
+    },
+    "Sleep stages not confirmed" : {
+      "comment" : "Detail under Sleep on a setup card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlafphasen nicht bestätigt"
+          }
+        }
+      }
+    },
+    "Sleep, Strain, Recovery and Readiness stay empty without data from your tracker" : {
+      "comment" : "Features line of a tracker that writes nothing to Apple Health.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlaf, Belastung, Erholung und Bereitschaft bleiben ohne Daten deines Geräts leer"
+          }
+        }
+      }
+    },
+    "Sleep, Strain, Recovery and Readiness stay empty: they need heart rate and sleep from a watch or ring." : {
+      "comment" : "Features line of Just my iPhone.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlaf, Belastung, Erholung und Bereitschaft bleiben leer: Sie brauchen Herzfrequenz und Schlaf von einer Uhr oder einem Ring."
           }
         }
       }
@@ -3227,6 +4000,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Etwas funktioniert nicht"
+          }
+        }
+      }
+    },
+    "SpO₂" : {
+      "comment" : "A signal on a setup card (blood oxygen).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SpO₂"
           }
         }
       }
@@ -3292,6 +4076,17 @@
         }
       }
     },
+    "Step %lld of %lld" : {
+      "comment" : "VoiceOver before a numbered setup step.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schritt %1$lld von %2$lld"
+          }
+        }
+      }
+    },
     "Step %lld of 3: %@" : {
       "localizations" : {
         "de" : {
@@ -3308,6 +4103,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schritte"
+          }
+        }
+      }
+    },
+    "Still scoring your night" : {
+      "comment" : "Pending gauge title when scoring takes longer than usual (the status line says 'Taking longer than usual').",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Nacht wird noch bewertet"
           }
         }
       }
@@ -3392,12 +4198,45 @@
         }
       }
     },
+    "Taking longer than usual" : {
+      "comment" : "Pending gauge title (and VoiceOver announcement) when scoring takes longer than usual.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dauert länger als üblich"
+          }
+        }
+      }
+    },
+    "Taking longer than usual · Details" : {
+      "comment" : "Today's status line when scoring takes over 3× the usual time; tapping opens Sync details.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dauert länger als üblich · Details"
+          }
+        }
+      }
+    },
     "Tell me when my first scores are ready" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sag mir, wenn meine ersten Werte bereit sind"
+          }
+        }
+      }
+    },
+    "Tell RYFT what you wear to see how to set up your data." : {
+      "comment" : "Devices & sync when no tracker is chosen.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sag RYFT, was du trägst, dann zeigt es dir, wie du deine Daten einrichtest."
           }
         }
       }
@@ -3588,6 +4427,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Um deine Werte zu berechnen, verarbeitet RYFT Gesundheitsdaten aus Apple Health. Das heißt:"
+          }
+        }
+      }
+    },
+    "To check what RYFT may read:" : {
+      "comment" : "Heading over the steps to RYFT's own Health permission.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "So prüfst du, was RYFT lesen darf:"
           }
         }
       }
@@ -3820,6 +4670,17 @@
         }
       }
     },
+    "Vendor guide" : {
+      "comment" : "Link to the tracker maker's help page on a setup card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anleitung des Herstellers"
+          }
+        }
+      }
+    },
     "VO₂ max" : {
       "localizations" : {
         "de" : {
@@ -3856,6 +4717,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wartet, bis du dein iPhone entsperrst"
+          }
+        }
+      }
+    },
+    "Waiting since %@ · usually %lld s" : {
+      "comment" : "Sync details → Engine → Scoring: when scoring began and the platform's usual time in seconds.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wartet seit %1$@ · meist %2$lld s"
           }
         }
       }
@@ -3940,12 +4812,56 @@
         }
       }
     },
+    "What do you wear?" : {
+      "comment" : "Onboarding step and picker title.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was trägst du?"
+          }
+        }
+      }
+    },
     "What happened? What did you expect?" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Was ist passiert? Was hast du erwartet?"
+          }
+        }
+      }
+    },
+    "What reaches RYFT" : {
+      "comment" : "Section of a setup card: signal by signal.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was bei RYFT ankommt"
+          }
+        }
+      }
+    },
+    "What stays empty" : {
+      "comment" : "Section of a setup card of a tracker that writes nothing.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was leer bleibt"
+          }
+        }
+      }
+    },
+    "What you wear, as RYFT's tracker ids (no device names)" : {
+      "comment" : "Report a problem → What's included.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was du trägst, als Geräte-IDs von RYFT (keine Gerätenamen)"
           }
         }
       }
@@ -3996,6 +4912,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Runterfahren"
+          }
+        }
+      }
+    },
+    "With sleep stages" : {
+      "comment" : "Detail under Sleep on a setup card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mit Schlafphasen"
           }
         }
       }
@@ -4056,6 +4983,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Die Bereitschaft von gestern, bis die letzte Nacht bewertet ist."
+          }
+        }
+      }
+    },
+    "You can add a tracker any time. RYFT will show how to connect it." : {
+      "comment" : "Just my iPhone card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du kannst jederzeit ein Gerät hinzufügen. RYFT zeigt dir, wie du es verbindest."
           }
         }
       }
@@ -4183,6 +5121,17 @@
         }
       }
     },
+    "Your data is safe. RYFT will keep trying." : {
+      "comment" : "Pending gauge line when scoring takes longer than usual.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Daten sind sicher. RYFT versucht es weiter."
+          }
+        }
+      }
+    },
     "Your health data, your consent" : {
       "localizations" : {
         "de" : {
@@ -4199,6 +5148,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dein Verlauf ist unterwegs."
+          }
+        }
+      }
+    },
+    "Your night hasn't reached Apple Health yet." : {
+      "comment" : "Today's morning hint when the quiet source isn't a known tracker.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Nacht ist noch nicht in Apple Health angekommen."
+          }
+        }
+      }
+    },
+    "Your night hasn't reached Apple Health yet. Keep your Apple Watch near your iPhone so it syncs." : {
+      "comment" : "Today's morning hint when the quiet source is an Apple Watch. German: a soft hyphen in “synchronisieren” keeps the full stop off a line of its own at accessibility sizes.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Nacht ist noch nicht in Apple Health angekommen. Halte deine Apple Watch in der Nähe deines iPhones, damit sie synchroni­siert."
+          }
+        }
+      }
+    },
+    "Your night hasn't reached Apple Health yet. Open %@ to sync it." : {
+      "comment" : "Today's morning hint: the tracker's app (e.g. Garmin Connect) hasn't sent last night to Apple Health yet. German: a soft hyphen in “synchronisieren” keeps the full stop off a line of its own at accessibility sizes.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Nacht ist noch nicht in Apple Health angekommen. Öffne %@, um sie zu synchroni­sieren."
           }
         }
       }
@@ -4229,6 +5211,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Deine Sitzung ist abgelaufen. Melde dich erneut an, um weiterzumachen."
+          }
+        }
+      }
+    },
+    "Your trackers" : {
+      "comment" : "Section in Devices & sync.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Geräte"
           }
         }
       }
@@ -8415,6 +9408,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Lass Garmin Connect in Apple Health schreiben (Garmin Connect → Mehr → Einstellungen → Apple Health)."
+          }
+        }
+      }
+    },
+    "Let your watch or ring app write to Apple Health." : {
+      "comment" : "Setup card on Today, step 1.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lass die App deiner Uhr oder deines Rings in Apple Health schreiben."
           }
         }
       }

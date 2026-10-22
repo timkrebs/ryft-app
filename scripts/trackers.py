@@ -20,6 +20,8 @@ import json
 import os
 import re
 import sys
+import tempfile
+import unicodedata
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONTENT = os.path.join(ROOT, "Content", "trackers.json")
@@ -34,8 +36,17 @@ PAIRS = ("setup_steps", "habits", "limits")
 
 
 def canonical(data):
-    """The JSON as the literal holds it: two-space indents, key order as in the file, UTF-8 as is."""
-    return json.dumps(data, ensure_ascii=False, indent=2)
+    # Two-space indents, key order as in the file, UTF-8 as is, and every `#` as the JSON escape
+    # #: in the Swift raw literal a closing quote run followed by `#` would end the string, and a
+    # backslash followed by `#(` would interpolate code. Without any `#` neither can appear; the app's
+    # JSON parse turns the escape back.
+    return json.dumps(data, ensure_ascii=False, indent=2).replace("#", "\\u0023")
+
+
+def folded(s):
+    """As the app folds before its brand check: compatibility forms, case and diacritics away."""
+    decomposed = unicodedata.normalize("NFKD", unicodedata.normalize("NFKC", s))
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
 
 
 def region(data):
@@ -124,8 +135,8 @@ def check(data, swift_text):
         return ["the document must be a JSON object"], warnings
     if data.get("schema_version") != 1 or isinstance(data.get("schema_version"), bool):
         errors.append(f"schema_version must be 1 (is {data.get('schema_version')!r})")
-    if '"""#' in canonical(data):
-        errors.append('the content contains """#, which would end the Swift literal')
+    if "#" in canonical(data):
+        errors.append("the literal still contains #: it could end the Swift string or interpolate")
 
     pattern = hook_pattern()
     swift_pattern = re.search(r'static let brandPattern = #"(.+?)"#', swift_text)
@@ -135,8 +146,10 @@ def check(data, swift_text):
         errors.append(f"CatalogValidator.brandPattern differs from the hook's pattern ({pattern})")
     brand = re.compile(pattern, re.IGNORECASE)
     for path, s in strings(data):
-        if brand.search(s):
+        if brand.search(folded(s)):
             errors.append(f"{path}: contains the denylisted brand")
+        if any(unicodedata.category(c) == "Co" for c in s):
+            errors.append(f"{path}: contains a private-use character (U+F8FF draws Apple's logo)")
 
     check_pair(errors, (data.get("health_access") or {}).get("steps"), "health_access.steps")
     trackers = data.get("trackers")
@@ -171,12 +184,50 @@ def check(data, swift_text):
     return errors, warnings
 
 
+def self_test():
+    """The generator on scratch files: the region round-trips, `#` never reaches the literal, the
+    line-length disable comes only with a long line, and a stale region fails --check."""
+    data = {"schema_version": 1, "version": "2026-10-22.1", "trackers": [
+        {"id": "iphone", "name": "Just my iPhone", "checked": datetime.date.today().isoformat()},
+        {"id": "other", "name": "Other #1 \\#(evil) \"\"\"#", "checked": datetime.date.today().isoformat()}]}
+    body = region(data)
+    assert "#" not in body.split('#"""', 1)[1].rsplit('"""#', 1)[0], "a # reached the literal"
+    literal = body.split('#"""\n', 1)[1].rsplit('\n    """#', 1)[0]
+    assert json.loads("\n".join(line[4:] for line in literal.split("\n"))) == data, "the literal doesn't round-trip"
+    assert "swiftlint:disable" not in body, "a disable without a long line"
+    data["trackers"][1]["name"] = "x" * 200
+    assert "// swiftlint:disable line_length" in region(data), "a long line without its disable"
+    with tempfile.TemporaryDirectory() as tmp:
+        swift = os.path.join(tmp, "Status.swift")
+        with open(swift, "w", encoding="utf-8") as f:
+            f.write("struct A {}\n")
+        before, current = split_swift(open(swift, encoding="utf-8").read())
+        assert current is None, "a region where none was written"
+        with open(swift, "w", encoding="utf-8") as f:
+            f.write(before.rstrip("\n") + "\n\n" + region(data))
+        before, current = split_swift(open(swift, encoding="utf-8").read())
+        assert current == region(data) and before == "struct A {}\n\n", "the rewrite moved something"
+        data["version"] = "2026-10-22.2"
+        assert current != region(data), "a stale region looks current"
+    errors, _ = check({"schema_version": 1, "trackers": [{"id": "other", "name": "W\u0301h" + "oop", "checked": "2026-10-22"}]},
+                      "static let brandPattern = #\"" + hook_pattern() + "\"#")
+    assert any("denylisted brand" in e for e in errors), "the folded brand passed"
+    errors, _ = check({"schema_version": 1, "trackers": [{"id": "other", "name": "Other \uf8ff", "checked": "2026-10-22"}]},
+                      "static let brandPattern = #\"" + hook_pattern() + "\"#")
+    assert any("private-use" in e for e in errors), "a private-use character passed"
+    print("trackers.py self-test: ok")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--write", action="store_true", help="rewrite the generated region from the JSON")
     mode.add_argument("--check", action="store_true", help="fail when the region is stale or a rule is broken")
+    mode.add_argument("--self-test", action="store_true", help="test this script on scratch copies (make lint)")
     args = parser.parse_args()
+    if args.self_test:
+        self_test()
+        return
 
     data = load_content()
     with open(SWIFT, encoding="utf-8") as f:

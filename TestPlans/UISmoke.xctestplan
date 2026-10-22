@@ -24,6 +24,7 @@
         "TodayStatesUITests",
         "NotificationsUITests",
         "RefreshResilienceUITests",
+        "DevicesUITests",
         "SyncCheckUITests"
       ],
       "target": {

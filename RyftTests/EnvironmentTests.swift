@@ -827,6 +827,46 @@ struct RawHealthTests {
         #expect(SourceFreshness(source: "Garmin Connect", bundleID: "com.garmin.connect.mobile", newest: t).isApp)
         #expect(!SourceFreshness(source: "Apple Watch", bundleID: "com.apple.health.4B1C", newest: t).isApp)
     }
+
+    @Test func eachSourceCountsItsNewerOfHeartRateAndSleep() {
+        let garminHR = SourceFreshness(source: "Connect", bundleID: "com.garmin.connect.mobile", newest: t)
+        let garminSleep = SourceFreshness(source: "Connect", bundleID: "com.garmin.connect.mobile", newest: t.addingTimeInterval(3_600))
+        let watchHR = SourceFreshness(source: "Tim's Apple Watch", bundleID: "com.apple.health.4B1C", newest: t.addingTimeInterval(600),
+                                      deviceModel: "Watch")
+        let watchSleep = SourceFreshness(source: "Tim's Apple Watch", bundleID: "com.apple.health.4B1C", newest: t)
+        // The iPhone writes no heart rate, only its sleep schedule's in-bed time.
+        let phoneSleep = SourceFreshness(source: "Tim's iPhone", bundleID: "com.apple.health.3F0A", newest: t.addingTimeInterval(7_200),
+                                         deviceModel: "iPhone")
+        let merged = SourceFreshness.newestPerSource([[garminHR, watchHR], [garminSleep, watchSleep, phoneSleep]])
+        #expect(merged.map(\.source) == ["Connect", "Tim's Apple Watch", "Tim's iPhone"])
+        #expect(merged[0].newest == garminSleep.newest) // sleep is newer: an app that only wrote the night counts
+        #expect(merged[1].newest == watchHR.newest && merged[1].deviceModel == "Watch") // the model from either
+        #expect(merged[2].isPhone && !merged[1].isPhone && !merged[0].isPhone)
+        // Sources without a bundle ID stay apart by name.
+        let a = SourceFreshness(source: "A", bundleID: nil, newest: t), b = SourceFreshness(source: "B", bundleID: nil, newest: t)
+        #expect(SourceFreshness.newestPerSource([[a], [b]]).count == 2)
+    }
+
+    @Test func theDeviceModelComesFromTheDeviceOrTheProductType() {
+        #expect(SourceRef.deviceModel(model: "Watch", productType: "Watch7,1") == "Watch")
+        #expect(SourceRef.deviceModel(model: nil, productType: "Watch7,1") == "Watch")
+        #expect(SourceRef.deviceModel(model: "", productType: "iPhone17,1") == "iPhone")
+        #expect(SourceRef.deviceModel(model: nil, productType: nil) == nil)
+        #expect(SourceRef.deviceModel(model: nil, productType: "7,1") == nil)
+        #expect(SourceFreshness(source: "x", bundleID: "com.apple.health.1", newest: t, deviceModel: "iPhone").ref
+                == SourceRef(name: "x", bundleID: "com.apple.health.1", deviceModel: "iPhone"))
+    }
+
+    @Test func lastNightKeepsItsSourcesBundleID() throws {
+        func segment(_ from: Double, _ to: Double, _ source: String, _ bundle: String?) -> SleepSegment {
+            SleepSegment(start: t.addingTimeInterval(from * 60), end: t.addingTimeInterval(to * 60), stage: .core, source: source,
+                         sourceBundleId: bundle)
+        }
+        let night = try #require(RawNight.from([segment(0, 400, "Connect", "com.garmin.connect.mobile"),
+                                                segment(10, 100, "Tim's iPhone", "com.apple.health.3F0A")]))
+        #expect(night.source == "Connect" && night.bundleID == "com.garmin.connect.mobile")
+        #expect(night.ref == SourceRef(name: "Connect", bundleID: "com.garmin.connect.mobile", deviceModel: nil))
+    }
 }
 
 // MARK: - Check sync
@@ -1358,8 +1398,8 @@ struct ReportProblemTests {
                       includeDiagnostics: Bool = true, context: ReportContext? = nil) -> FeedbackPost {
         FeedbackPayload.make(message: message, category: .bug, includeDiagnostics: includeDiagnostics,
                              requests: requests, sync: Self.sync, gates: [.consentRequired],
-                             flags: ["sync.gzip": false, "push.enabled": true], context: context, about: about,
-                             syncCheck: Self.syncCheck)
+                             flags: ["sync.gzip": false, "push.enabled": true], trackers: ["garmin", "oura"],
+                             syncCheck: Self.syncCheck, context: context, about: about)
     }
 
     private func model(_ api: MockPlatformAPI = MockPlatformAPI(), online: Bool = true, signedIn: Bool = true,
@@ -1391,7 +1431,9 @@ struct ReportProblemTests {
                                                                    .today: ResourceState(lastError: error("fail-1"))])
         #expect(withResources == ["ctx-1", "fail-1", "fail-2", "res-1"])
         let d = try #require(post.diagnostics)
+        // Every key; `trackers` goes only with `devices.setup` on (DevicesAndDiagnosticsTests).
         #expect(Set(d.keys) == FeedbackPayload.keys)
+        #expect(d["trackers"] == "garmin,oura")
         #expect(d["sync"] == Self.syncText)
         #expect(d["gates"] == "consent_required" && d["locale"] == "de_DE")
         #expect(d["flags"] == "push.enabled=1,sync.gzip=0")
@@ -1980,7 +2022,7 @@ struct ReportProblemTests {
     /// from Apple Health, no query string. Every number therefore is a count, a status, a byte size, a day or a
     /// request's time, so a cached score can't hide in one (which is why there's no numeric loophole to test).
     @Test func noHealthValuesInTheDiagnostics() async throws {
-        let env = AppEnvironment.test()
+        let env = AppEnvironment.test(flags: [.devicesSetup: true]) // every key, the trackers' ids included
         let state = AppState(env: env)
         await state.refresh() // MockData's scores in the read models
         state.repository.store(scores: try Fixture.decode([DailyScore].self, "days"))
@@ -2030,6 +2072,7 @@ struct ReportProblemTests {
                                        coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
                                                                     clock: env.clock),
                                        apiStatus: status)
+        profile.devices.save(["garmin", "oura"])
         // A check whose sources carry names and times of day.
         await TrackerCheckModel(env: env, health: MockHealthStore.garminLike(now: env.clock.now(), sleepOff: true),
                                 trackers: ["garmin"]).run()
@@ -2038,6 +2081,7 @@ struct ReportProblemTests {
         let d = try #require(post.diagnostics)
 
         #expect(Set(d.keys) == FeedbackPayload.keys)
+        #expect(d["trackers"] == "garmin,oura") // ids, never a device's name
         let templates: [String: [Regex<Substring>]] = [
             "requests": [/(?:GET|POST|PUT|PATCH|DELETE) \/[^ ?#]* \d{3} [a-z_-]+ \S+ \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z(?: \d+ms)?/],
             "resources": [/[a-zA-Z]+ (?:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z|-) (?:[A-Za-z0-9]+|-) (?:[a-z_]+|-) \S+/],
@@ -2048,6 +2092,7 @@ struct ReportProblemTests {
             "flags": [/[a-z.]+=[01](?:,[a-z.]+=[01])*/],
             "locale": [/[A-Za-z0-9_@=-]+/],
             "report_context": [/[^·\n]+ · [^·\n]+ · \S+/],
+            "trackers": [/-|[a-z][a-z0-9_]*(?:,[a-z][a-z0-9_]*)*/],
             "sync_check": [/checked \d{4}-\d{2}-\d{2}/, /[a-z_]+ [a-z_]+(?: [a-z0-9_]+=[a-z_]+)+/],
         ]
         for (key, value) in d {
@@ -2289,5 +2334,743 @@ struct WorkoutHealthExportTests {
         let none = String(localized: "No heart rate yet. With a strength workout on your watch too, it arrives once the watch syncs.")
         #expect(SessionSummarySheet.heartRateLine(workout("ryft-session", hr: nil)) == none)
         #expect(SessionSummarySheet.heartRateLine(workout("Garmin Connect", hr: nil)) == none)
+    }
+}
+
+// MARK: - Tracker setup: the catalog's remote copy, the selection, the features line (design.md §2.6, §3, §8)
+
+/// Two days after the newest date in the bundled catalog: a download built from it passes "not after tomorrow",
+/// whatever the content ships next.
+private let catalogNow: Date = {
+    let bundled = TrackerCatalog.bundled
+    let days = bundled.trackers.map(\.checked) + [String(bundled.version.prefix(10))]
+    return DayFormat.shift(days.compactMap(DayFormat.date(from:)).max() ?? .now, days: 2)
+}()
+
+/// The bundled copy's version moved by `days`, with number `n`: a newer or an older download.
+private func version(days: Int, _ n: Int = 1) -> String {
+    let day = DayFormat.date(from: String(TrackerCatalog.bundled.version.prefix(10))) ?? catalogNow
+    return "\(DayFormat.string(from: DayFormat.shift(day, days: days))).\(n)"
+}
+
+/// The bundled catalog as a download: another `version`, and whatever `change` does to it.
+private func catalogBody(version: String, _ change: (inout [String: Any]) -> Void = { _ in }) throws -> Data {
+    var root = try #require(try JSONSerialization.jsonObject(with: Data(TrackerCatalog.bundledJSON.utf8)) as? [String: Any])
+    root["version"] = version
+    change(&root)
+    return try JSONSerialization.data(withJSONObject: root)
+}
+
+@MainActor
+private func catalogStore(flag: Bool = true, online: Bool = true)
+    -> (TrackerCatalogStore, MockContentSource, TestClock, AppEnvironment) {
+    let content = MockContentSource()
+    let clock = TestClock(now: catalogNow)
+    let env = AppEnvironment.test(clock: clock, flags: [.devicesSetup: flag], online: online, content: content)
+    return (env.catalogStore, content, clock, env)
+}
+
+@Suite("Tracker catalog: the copy from ryftapp.de")
+@MainActor
+struct TrackerCatalogStoreTests {
+    private let bundled = TrackerCatalog.bundled.version
+
+    private func cached(_ env: AppEnvironment) -> TrackerCatalogStore.Cached? {
+        env.persistence.document(TrackerCatalogStore.Cached.self, key: TrackerCatalogStore.documentKey)
+    }
+
+    @Test func theBundledCopyServesUntilADownloadIsBetter() async {
+        let (store, content, _, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} } // the store holds its environment weakly
+        #expect(store.current == .bundled && store.origin == .bundled(bundled))
+        await store.load()
+        #expect(store.current == .bundled && content.requests.isEmpty)
+    }
+
+    @Test func aNewerValidCopyIsShownAndCachedWithItsETag() async throws {
+        let (store, content, clock, env) = catalogStore()
+        content.script([.success(.fetched(try catalogBody(version: version(days: 1)), etag: #"W/"a1""#))])
+
+        await store.refreshIfDue()
+
+        #expect(content.requests == [.init(path: "trackers.json", etag: nil, maxBytes: 262_144)])
+        #expect(store.current.version == version(days: 1) && store.lastFailure == nil)
+        #expect(store.origin == .remote(version(days: 1), etag: #"W/"a1""#, checkedAt: clock.now()))
+        #expect(cached(env)?.etag == #"W/"a1""# && cached(env)?.body != nil)
+    }
+
+    @Test func theETagGoesBackAndA304KeepsTheCopy() async throws {
+        let (store, content, clock, env) = catalogStore()
+        content.script([.success(.fetched(try catalogBody(version: version(days: 1)), etag: "e1")), .success(.notModified)])
+        await store.refreshIfDue()
+        clock.advance(by: .seconds(25 * 3_600))
+
+        await store.refreshIfDue()
+
+        #expect(content.requests.map(\.etag) == [nil, "e1"])
+        #expect(store.current.version == version(days: 1) && store.checkedAt == clock.now())
+        #expect(cached(env)?.checkedAt == clock.now() && cached(env)?.etag == "e1")
+    }
+
+    @Test func dueADayAfterAnAnswerAndAnHourAfterAFailure() async throws {
+        let (store, content, clock, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} } // the store holds its environment weakly
+        content.script([.failure(ContentError.http(404)), .success(.notModified), .success(.notModified)])
+        await store.refreshIfDue()
+        #expect(store.lastFailure == "http 404" && store.current == .bundled) // the URL isn't published yet: silent
+
+        clock.advance(by: .seconds(59 * 60))
+        await store.refreshIfDue()
+        #expect(content.requests.count == 1) // one attempt, then the next due time is the retry
+        clock.advance(by: .seconds(2 * 60))
+        await store.refreshIfDue()
+        #expect(content.requests.count == 2 && store.lastFailure == nil)
+
+        clock.advance(by: .seconds(23 * 3_600))
+        await store.refreshIfDue()
+        #expect(content.requests.count == 2)
+        clock.advance(by: .seconds(3_600))
+        await store.refreshIfDue()
+        #expect(content.requests.count == 3)
+        await store.refreshIfDue(force: true) // Debug → Reload tracker catalog
+        #expect(content.requests.count == 4)
+    }
+
+    @Test func anInvalidCopyKeepsTheCurrentOneAndStoresNoETag() async throws {
+        let (store, content, clock, env) = catalogStore()
+        let markup = try catalogBody(version: version(days: 1)) { root in
+            guard var trackers = root["trackers"] as? [[String: Any]] else { return }
+            trackers[1]["name"] = "Garmin <b>now</b>"
+            root["trackers"] = trackers
+        }
+        content.script([.success(.fetched(markup, etag: "bad")), .success(.notModified)])
+
+        await store.refreshIfDue()
+
+        #expect(store.current == .bundled)
+        #expect(store.lastFailure == "invalid text.markup at trackers[1].name")
+        #expect(cached(env)?.etag == nil && cached(env)?.body == nil)
+        clock.advance(by: .seconds(3_601))
+        await store.refreshIfDue()
+        #expect(content.requests.map(\.etag) == [nil, nil])
+    }
+
+    /// The trust rules a download must pass (ADR 0002): an off-allowlist link is dropped, not followed.
+    @Test func aLinkOffTheAllowlistIsDroppedAndTheTextKept() async throws {
+        let (store, content, _, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} } // the store holds its environment weakly
+        let body = try catalogBody(version: version(days: 1)) { root in
+            guard var trackers = root["trackers"] as? [[String: Any]] else { return }
+            trackers[1]["help_url"] = "https://garmin.example.net/apple-health"
+            root["trackers"] = trackers
+        }
+        content.script([.success(.fetched(body, etag: nil))])
+        await store.refreshIfDue()
+        #expect(store.current.version == version(days: 1))
+        #expect(store.current.tracker("garmin")?.help == nil && store.current.tracker("garmin")?.name == "Garmin")
+    }
+
+    @Test func anOlderCopyNeverRollsBack() async throws {
+        let (store, content, clock, env) = catalogStore()
+        content.script([.success(.fetched(try catalogBody(version: version(days: 1)), etag: "new")),
+                        .success(.fetched(try catalogBody(version: version(days: 0, 9)), etag: "old"))])
+        await store.refreshIfDue()
+        clock.advance(by: .seconds(25 * 3_600))
+
+        await store.refreshIfDue()
+
+        #expect(store.current.version == version(days: 1) && cached(env)?.etag == "new")
+        #expect(store.lastFailure == "older \(version(days: 0, 9))")
+    }
+
+    @Test func aCopyOlderThanTheBundledOneIsNotShown() async throws {
+        let (store, content, _, env) = catalogStore()
+        content.script([.success(.fetched(try catalogBody(version: version(days: -1)), etag: "old"))])
+        await store.refreshIfDue()
+        #expect(store.current == .bundled && cached(env)?.etag == nil)
+    }
+
+    @Test func oversizeIsRefused() async {
+        let (store, content, _, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} } // the store holds its environment weakly
+        content.script([.success(.fetched(Data(repeating: 0x20, count: 300_000), etag: "big"))])
+        await store.refreshIfDue()
+        #expect(store.current == .bundled && store.lastFailure == "too large")
+    }
+
+    @Test func offlineBehindTheFlagOrInDemoNothingIsAsked() async {
+        let (offline, offlineContent, _, offlineEnv) = catalogStore(online: false)
+        defer { withExtendedLifetime(offlineEnv) {} } // the store holds its environment weakly
+        await offline.refreshIfDue()
+        let (dark, darkContent, _, darkEnv) = catalogStore(flag: false)
+        defer { withExtendedLifetime(darkEnv) {} } // the store holds its environment weakly
+        await dark.refreshIfDue()
+        let demo = AppEnvironment.preview()
+        await demo.catalogStore.refreshIfDue()
+
+        #expect(offlineContent.requests.isEmpty && darkContent.requests.isEmpty)
+        #expect((demo.content as? MockContentSource)?.requests.isEmpty == true)
+        #expect(offline.lastFailure == nil && dark.lastFailure == nil)
+    }
+
+    @Test func oneRequestAtATime() async throws {
+        let (store, content, _, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} } // the store holds its environment weakly
+        content.script([.success(.fetched(try catalogBody(version: version(days: 1)), etag: "e")),
+                        .success(.notModified)])
+        async let a: Void = store.refreshIfDue()
+        async let b: Void = store.refreshIfDue()
+        _ = await (a, b)
+        #expect(content.requests.count == 1)
+    }
+
+    @Test func theCacheIsCheckedAgainAtLaunch() async throws {
+        let (_, _, clock, env) = catalogStore()
+        env.persistence.saveDocument(TrackerCatalogStore.Cached(body: try catalogBody(version: version(days: 1, 2)), etag: "e2",
+                                                                checkedAt: clock.now()),
+                                     key: TrackerCatalogStore.documentKey, at: clock.now())
+        let relaunched = TrackerCatalogStore(env: env)
+        await relaunched.load()
+        #expect(relaunched.current.version == version(days: 1, 2) && relaunched.checkedAt == clock.now())
+        #expect(!relaunched.isDue(at: clock.now()))
+
+        // The rules tightened since (here: the body went bad): refused, dropped with its ETag.
+        env.persistence.saveDocument(TrackerCatalogStore.Cached(body: Data("{\"schema_version\": 2}".utf8), etag: "e3"),
+                                     key: TrackerCatalogStore.documentKey, at: clock.now())
+        let again = TrackerCatalogStore(env: env)
+        await again.load()
+        #expect(again.current == .bundled && again.lastFailure == "cache schema 2")
+        #expect(cached(env)?.body == nil && cached(env)?.etag == nil)
+    }
+
+    @Test func newestWinsAgainstTheBundledCopyAtLaunch() async throws {
+        let (_, _, clock, env) = catalogStore()
+        env.persistence.saveDocument(TrackerCatalogStore.Cached(body: try catalogBody(version: version(days: -1)), etag: "old"),
+                                     key: TrackerCatalogStore.documentKey, at: clock.now())
+        let store = TrackerCatalogStore(env: env)
+        await store.load()
+        #expect(store.current == .bundled)
+    }
+
+    @Test func copyDiagnosticsSaysWhichCopyAndWhy() async throws {
+        let (store, content, _, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} } // the store holds its environment weakly
+        #expect(store.diagnosticLine == "catalog bundled \(bundled) etag - checked - failure -")
+        content.script([.failure(URLError(.notConnectedToInternet))])
+        await store.refreshIfDue()
+        #expect(store.diagnosticLine == "catalog bundled \(bundled) etag - checked - failure offline")
+    }
+}
+
+/// Serves replies by URL and records what it saw (`WebContentSource`'s own session).
+final class WebContentStub: URLProtocol {
+    struct Reply {
+        var status: Int
+        var headers: [String: String] = [:]
+        var body = Data()
+    }
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var replies: [String: Reply] = [:]
+    nonisolated(unsafe) private static var seen: [URLRequest] = []
+
+    static func serve(_ r: [String: Reply]) {
+        lock.withLock { replies = r; seen = [] }
+    }
+
+    static var requests: [URLRequest] { lock.withLock { seen } }
+
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url else { return }
+        let reply = Self.lock.withLock { () -> Reply in
+            Self.seen.append(request)
+            return Self.replies[url.absoluteString] ?? Reply(status: 404)
+        }
+        guard let response = HTTPURLResponse(url: url, statusCode: reply.status, httpVersion: "HTTP/1.1",
+                                             headerFields: reply.headers) else { return }
+        if (300..<400).contains(reply.status), let location = reply.headers["Location"], let next = URL(string: location) {
+            // The session asks its delegate; followed, this load ends here and a new one starts.
+            client?.urlProtocol(self, wasRedirectedTo: URLRequest(url: next), redirectResponse: response)
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: reply.body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+@Suite("Tracker catalog: fetching from ryftapp.de", .serialized)
+struct WebContentSourceTests {
+    private let file = "https://ryftapp.de/trackers.json"
+
+    private func source() -> WebContentSource {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [WebContentStub.self]
+        return WebContentSource(configuration: config)
+    }
+
+    @Test func twoHundredBringsTheBodyAndItsETag() async throws {
+        WebContentStub.serve([file: .init(status: 200, headers: ["ETag": #"W/"5f2""#], body: Data("{}".utf8))])
+        let answer = try await source().fetch("trackers.json", ifNoneMatch: nil, maxBytes: 1_000)
+        #expect(answer == .fetched(Data("{}".utf8), etag: #"W/"5f2""#))
+        let request = try #require(WebContentStub.requests.first)
+        #expect(request.value(forHTTPHeaderField: "If-None-Match") == nil)
+        #expect(request.value(forHTTPHeaderField: "Authorization") == nil && request.value(forHTTPHeaderField: "Cookie") == nil)
+    }
+
+    @Test func theETagGoesOutAnd304IsNotModified() async throws {
+        WebContentStub.serve([file: .init(status: 304)])
+        let answer = try await source().fetch("trackers.json", ifNoneMatch: "e1", maxBytes: 1_000)
+        #expect(answer == .notModified)
+        #expect(WebContentStub.requests.first?.value(forHTTPHeaderField: "If-None-Match") == "e1")
+    }
+
+    @Test func aRedirectWithinRyftappIsFollowed() async throws {
+        let moved = "https://ryftapp.de/content/trackers.json"
+        WebContentStub.serve([file: .init(status: 302, headers: ["Location": moved]),
+                              moved: .init(status: 200, body: Data("{}".utf8))])
+        let answer = try await source().fetch("trackers.json", ifNoneMatch: nil, maxBytes: 1_000)
+        #expect(answer == .fetched(Data("{}".utf8), etag: nil))
+        #expect(WebContentStub.requests.map { $0.url?.absoluteString } == [file, moved])
+    }
+
+    @Test func aRedirectAnywhereElseIsNot() async throws {
+        WebContentStub.serve([file: .init(status: 302, headers: ["Location": "https://example.com/trackers.json"])])
+        await #expect(throws: ContentError.http(302)) {
+            try await source().fetch("trackers.json", ifNoneMatch: nil, maxBytes: 1_000)
+        }
+        #expect(WebContentStub.requests.map { $0.url?.host } == ["ryftapp.de"])
+        #expect(!WebContentSource.allows(URL(string: "http://ryftapp.de/trackers.json")))
+        #expect(!WebContentSource.allows(URL(string: "https://ryftapp.de:8443/trackers.json")))
+        #expect(!WebContentSource.allows(URL(string: "https://ryftapp.de.example.com/trackers.json")))
+    }
+
+    @Test func readingStopsPastTheLimit() async {
+        WebContentStub.serve([file: .init(status: 200, body: Data(repeating: 0x20, count: 2_000))])
+        await #expect(throws: ContentError.tooLarge) {
+            try await source().fetch("trackers.json", ifNoneMatch: nil, maxBytes: 1_000)
+        }
+    }
+
+    @Test func otherStatusesThrow() async {
+        WebContentStub.serve([file: .init(status: 404)])
+        await #expect(throws: ContentError.http(404)) {
+            try await source().fetch("trackers.json", ifNoneMatch: nil, maxBytes: 1_000)
+        }
+    }
+}
+
+@Suite("Tracker selection: per account")
+@MainActor
+struct TrackerSelectionTests {
+    @Test func savedForTheAccountInPickerOrderKnownIdsOnce() {
+        let env = AppEnvironment.test()
+        let store = TrackerSelectionStore(env: env)
+        #expect(store.selection == nil && store.trackers.isEmpty) // nothing chosen yet
+
+        store.set(["oura", "garmin", "made_up", "garmin"])
+
+        #expect(store.trackers == ["garmin", "oura"])
+        #expect(store.selection?.account == env.auth.accountID)
+        #expect(TrackerSelectionStore(env: env).trackers == ["garmin", "oura"]) // stored: a relaunch has it
+    }
+
+    @Test func justMyIPhoneIsOnItsOwn() {
+        let store = TrackerSelectionStore(env: .test())
+        store.set(["garmin", "iphone"])
+        #expect(store.trackers == ["iphone"])
+
+        #expect(TrackerSelectionStore.toggled("iphone", in: ["garmin", "oura"]) == (["iphone"], true))
+        #expect(TrackerSelectionStore.toggled("iphone", in: []) == (["iphone"], false))
+        #expect(TrackerSelectionStore.toggled("oura", in: ["iphone"]) == (["oura"], false))
+        #expect(TrackerSelectionStore.toggled("other", in: ["garmin"]) == (["garmin", "other"], false)) // Other combines
+        #expect(TrackerSelectionStore.toggled("garmin", in: ["garmin", "oura"]) == (["oura"], false))
+    }
+
+    @Test func anotherAccountsChoiceIsNeverRead() {
+        let env = AppEnvironment.test()
+        env.persistence.saveDocument(TrackerSelection(account: "someone-else", trackers: ["garmin"], updatedAt: .now),
+                                     key: TrackerSelectionStore.documentKey, at: .now)
+        let store = TrackerSelectionStore(env: env)
+        #expect(store.selection == nil && store.trackers.isEmpty)
+    }
+
+    @Test func idsTheCatalogNoLongerHasAreDropped() throws {
+        let env = AppEnvironment.test()
+        let account = try #require(env.auth.accountID)
+        env.persistence.saveDocument(TrackerSelection(account: account, trackers: ["garmin", "retired_band"], updatedAt: .now),
+                                     key: TrackerSelectionStore.documentKey, at: .now)
+        #expect(TrackerSelectionStore(env: env).trackers == ["garmin"])
+    }
+
+    @Test func signOutLeavesNothing() async {
+        let env = AppEnvironment.test()
+        let store = TrackerSelectionStore(env: env)
+        store.set(["garmin"])
+
+        env.persistence.wipe() // AuthService's wipe on sign-out
+        await env.auth.signOut()
+        store.accountChanged() // RyftApp, on the account change
+
+        #expect(store.selection == nil && store.trackers.isEmpty)
+        store.set(["oura"]) // signed out: nobody to save it for
+        #expect(store.selection == nil)
+        #expect(env.persistence.document(TrackerSelection.self, key: TrackerSelectionStore.documentKey) == nil)
+    }
+
+    @Test func guidesDoneOrPutOffFollowTheChoice() {
+        let store = TrackerSelectionStore(env: .test())
+        store.set(["garmin", "oura"])
+        store.markLater("garmin")
+        store.markSetUp("oura")
+        #expect(store.isLater("garmin") && store.selection?.setUp == ["oura"])
+        store.markSetUp("garmin")
+        #expect(!store.isLater("garmin") && store.selection?.setUp == ["oura", "garmin"])
+        store.markLater("polar") // not chosen: nothing
+        store.set(["oura"])
+        #expect(store.selection?.setUp == ["oura"] && store.selection?.later == [])
+    }
+
+    @Test func demoDataKeepsItsChoiceInMemory() {
+        let env = AppEnvironment.preview()
+        let store = TrackerSelectionStore(env: env)
+        #expect(store.trackers == ["apple_watch"])
+        store.set(["oura"])
+        #expect(store.trackers == ["oura"])
+        #expect(env.persistence.document(TrackerSelection.self, key: TrackerSelectionStore.documentKey) == nil)
+    }
+
+    @Test func onlyTrackersWithTheirOwnAppNeedSetup() throws {
+        let catalog = TrackerCatalog.bundled
+        let needing = catalog.trackers.filter(TrackerSelectionStore.needsSetup).map(\.id)
+        #expect(!needing.contains("apple_watch") && !needing.contains("iphone"))
+        #expect(needing.contains("garmin") && needing.contains("samsung_galaxy_watch") && needing.contains("other"))
+    }
+}
+
+/// The setup card's features line for every tracker in the catalog (R1's matrices, design.md §8, lead's decision 10).
+@Suite("Tracker setup: what reaches RYFT means which features")
+struct RyftFeaturesTests {
+    private static func list(_ items: [String]) -> String { items.formatted(.list(type: .and)) }
+    private static let all = list(["Strain", "Sleep", "Recovery", "Readiness"])
+
+    @Test(arguments: [
+        ("apple_watch", "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery\u{00A0}✓ · Readiness\u{00A0}✓"),
+        ("garmin", "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery and Readiness need resting heart rate, which Garmin Connect doesn't share"),
+        ("oura", "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery and Readiness need resting heart rate, which Oura doesn't share"),
+        ("polar", "Sleep\u{00A0}✓ · Strain in part · Recovery and Readiness need resting heart rate, which Polar Flow doesn't share"),
+        ("suunto", "Not confirmed yet: \(all)"),
+        ("coros", "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery and Readiness need resting heart rate, which COROS doesn't share"),
+        ("withings", "Strain in part · Not confirmed yet: \(list(["Sleep", "Recovery", "Readiness"]))"),
+        ("amazfit", "Not confirmed yet: \(all)"),
+        ("ultrahuman", "Strain\u{00A0}✓ · Not confirmed yet: \(list(["Sleep", "Recovery", "Readiness"]))"),
+        ("fitbit", "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery from \(list(["resting heart rate", "sleep", "breathing rate"])), no HRV · Readiness from the same"),
+        ("samsung_galaxy_watch", "Steps\u{00A0}✓ · Sleep, Strain, Recovery and Readiness stay empty without data from your tracker"),
+        ("iphone", "Steps\u{00A0}✓ · Sleep, Strain, Recovery and Readiness stay empty: they need heart rate and sleep from a watch or ring."),
+    ])
+    func line(id: String, expected: String) throws {
+        let tracker = try #require(TrackerCatalog.bundled.tracker(id))
+        #expect(RyftFeatures.line(for: tracker)?.text == expected)
+    }
+
+    @Test func otherPromisesNothing() throws {
+        #expect(RyftFeatures.line(for: try #require(TrackerCatalog.bundled.tracker("other"))) == nil)
+        #expect(TrackerCatalog.bundled.trackers.count == 13)
+    }
+
+    /// Once the platform derives resting heart rate from overnight heart rate, Garmin's Recovery fills without HRV.
+    @Test func derivedRestingHeartRateUnblocksRecovery() throws {
+        let garmin = try #require(TrackerCatalog.bundled.tracker("garmin"))
+        #expect(!RyftFeatures.restingHRFromHeartRate) // until API.md documents it
+        #expect(RyftFeatures.line(for: garmin, derivedRestingHR: true)?.text
+                == "Strain\u{00A0}✓ · Sleep\u{00A0}✓ · Recovery from \(Self.list(["resting heart rate", "sleep"])), no HRV · Readiness from the same")
+    }
+
+    @Test func missingSignalsAreNamedNeverCrossed() throws {
+        let garmin = try #require(TrackerCatalog.bundled.tracker("garmin"))
+        var caps = garmin.capabilities
+        caps[.heartRate] = .no
+        caps[.sleep] = .no
+        let blind = Tracker(id: "garmin", name: "Garmin", form: .watch, appName: "Garmin Connect", integration: .vendorApp,
+                            identity: garmin.identity, appStoreID: nil, capabilities: caps, notes: [:], setup: garmin.setup,
+                            habits: garmin.habits, limits: garmin.limits, help: nil, checked: garmin.checked)
+        let line = try #require(RyftFeatures.line(for: blind))
+        #expect(line.text == [
+            "Strain needs heart rate, which Garmin Connect doesn't share",
+            "Sleep needs sleep, which Garmin Connect doesn't share",
+            "Recovery and Readiness need \(Self.list(["sleep", "resting heart rate"])), which Garmin Connect doesn't share",
+        ].joined(separator: " · "))
+        #expect(!line.text.contains("✗"))
+    }
+
+    @Test func voiceOverSaysYes() throws {
+        let watch = try #require(TrackerCatalog.bundled.tracker("apple_watch"))
+        #expect(RyftFeatures.line(for: watch)?.spoken == "Strain, yes. Sleep, yes. Recovery, yes. Readiness, yes")
+    }
+
+    @Test func theCollapsedCardsVerdict() throws {
+        let catalog = TrackerCatalog.bundled
+        #expect(RyftFeatures.verdict(for: try #require(catalog.tracker("garmin"))) == "Heart rate, sleep, workouts · no HRV")
+        #expect(RyftFeatures.verdict(for: try #require(catalog.tracker("samsung_galaxy_watch"))) == "Can't be read on iPhone today")
+        #expect(RyftFeatures.verdict(for: try #require(catalog.tracker("suunto"))) == "Not confirmed yet")
+    }
+}
+
+@Suite("Tracker setup: Devices & sync, diagnostics")
+@MainActor
+struct DevicesAndDiagnosticsTests {
+    private func profile(flag: Bool) -> ProfileViewModel {
+        let state = AppState(env: .test(flags: [.devicesSetup: flag]))
+        let sync = SyncService(env: state.env)
+        return ProfileViewModel(state: state, sync: sync,
+                                coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: state.env.clock))
+    }
+
+    @Test func copyDiagnosticsHasTheCatalogLine() {
+        #expect(profile(flag: true).syncDetails.diagnostics.contains("catalog bundled \(TrackerCatalog.bundled.version) etag -"))
+    }
+
+    @Test func seenInAppleHealthUsesRYFTsNames() {
+        let state = AppState(env: .test())
+        var user = MockData.user
+        user.sources = [
+            UserSource(name: "Connect", bundleId: "com.garmin.connect.mobile", kinds: [.hr, .sleep, .steps], lastSeen: .now),
+            UserSource(name: "Tim's Apple Watch", bundleId: "com.apple.health.81E2", kinds: [.hrv], lastSeen: .now),
+            UserSource(name: "Sleep Cycle", bundleId: "com.lexwarelabs.goodmorning", kinds: [.sleep], lastSeen: .now),
+        ]
+        state.user = user
+        let model = DevicesViewModel(state: state, selection: TrackerSelectionStore(env: state.env))
+
+        #expect(model.sources.map(\.name) == ["Garmin Connect", "Tim's Apple Watch", "Sleep Cycle"])
+        #expect(model.sources.map(\.known) == [true, true, false]) // Apple's own devices aren't "unknown"
+        let kinds = ["heart rate", "sleep", "steps"].formatted(.list(type: .and))
+        #expect(model.sources.first?.kinds == "H" + kinds.dropFirst())
+    }
+
+    @Test func profileSummary() {
+        let state = AppState(env: .test())
+        let model = DevicesViewModel(state: state, selection: TrackerSelectionStore(env: state.env))
+        #expect(model.summary == String(localized: "Not set"))
+        model.save(["garmin", "oura", "polar"])
+        #expect(model.summary == "Garmin · Oura · +1")
+        model.selection.markLater("oura")
+        #expect(model.status(of: model.trackers[1]) == String(localized: "Set up later"))
+    }
+
+    @Test func aReportCarriesTheTrackersIdsOnlyWithTheFlag() {
+        let d = FeedbackPayload.diagnostics(requests: [], resources: [:], sync: FeedbackSync(), gates: [], flags: [:],
+                                            trackers: ["garmin", "oura"], context: nil, locale: "de_DE")
+        #expect(d["trackers"] == "garmin,oura" && FeedbackPayload.keys.isSuperset(of: d.keys))
+        #expect(FeedbackPayload.diagnostics(requests: [], resources: [:], sync: FeedbackSync(), gates: [], flags: [:],
+                                            trackers: [], context: nil, locale: "de_DE")["trackers"] == "-")
+        #expect(FeedbackPayload.diagnostics(requests: [], resources: [:], sync: FeedbackSync(), gates: [], flags: [:],
+                                            context: nil, locale: "de_DE")["trackers"] == nil)
+
+        let on = profile(flag: true)
+        on.devices.save(["garmin"])
+        #expect(on.report.includesTrackers)
+        on.report.message = "Steps look low."
+        #expect(on.report.payload().diagnostics?["trackers"] == "garmin")
+        on.report.includeDiagnostics = false
+        #expect(on.report.payload().diagnostics == nil)
+
+        let off = profile(flag: false)
+        #expect(!off.report.includesTrackers && off.report.payload().diagnostics?["trackers"] == nil)
+    }
+}
+
+@Suite("Tracker catalog: crash guard, the flag, what's kept")
+@MainActor
+struct TrackerCatalogGuardTests {
+    private func cached(_ env: AppEnvironment) -> TrackerCatalogStore.Cached? {
+        env.persistence.document(TrackerCatalogStore.Cached.self, key: TrackerCatalogStore.documentKey)
+    }
+
+    /// The last run died decoding a copy (its marker is left): the cache goes unread, and that body is refused
+    /// unread from then on; another one is decoded as ever.
+    @Test func aDecodeThatDiedIsNeverRepeated() async throws {
+        let (store, content, clock, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} }
+        let poison = try catalogBody(version: version(days: 1))
+        let hash = TrackerCatalogStore.hash(poison)
+        env.persistence.saveDocument(TrackerCatalogStore.Cached(body: poison, etag: "p1", checkedAt: clock.now()),
+                                     key: TrackerCatalogStore.documentKey, at: clock.now())
+        let marker = env.contentDirectory.appendingPathComponent(TrackerCatalogStore.markerName)
+        TrackerCatalogStore.mark(marker, hash: hash)
+
+        await store.load()
+
+        #expect(store.current == .bundled && store.lastFailure == "crashed")
+        #expect(cached(env)?.body == nil && cached(env)?.etag == nil && cached(env)?.refused == [hash])
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+        #expect(!store.isDue(at: clock.now())) // a failure: an hour's wait
+
+        content.script([.success(.fetched(poison, etag: "p2")),
+                        .success(.fetched(try catalogBody(version: version(days: 1, 2)), etag: "f1"))])
+        clock.advance(by: .seconds(3_601))
+        await store.refreshIfDue()
+        #expect(store.current == .bundled && store.lastFailure == "crashed" && content.requests.map(\.etag) == [nil])
+        clock.advance(by: .seconds(3_601))
+        await store.refreshIfDue()
+        #expect(store.current.version == version(days: 1, 2) && store.lastFailure == nil)
+        #expect(!FileManager.default.fileExists(atPath: marker.path)) // gone after every decode
+    }
+
+    @Test func withTheFlagOffTheBundledCopyServesAndNothingIsRead() async throws {
+        let (store, content, clock, env) = catalogStore(flag: false)
+        defer { withExtendedLifetime(env) {} }
+        env.persistence.saveDocument(TrackerCatalogStore.Cached(body: try catalogBody(version: version(days: 1)), etag: "e1",
+                                                                checkedAt: clock.now()),
+                                     key: TrackerCatalogStore.documentKey, at: clock.now())
+        await store.load()
+        await store.refreshIfDue()
+        #expect(store.current == .bundled && store.checkedAt == nil && content.requests.isEmpty)
+
+        (env.flags as? StaticFlags)?.overrides[.devicesSetup] = true
+        await store.load()
+        #expect(store.current.version == version(days: 1)) // on: the cache, checked
+        (env.flags as? StaticFlags)?.overrides[.devicesSetup] = false
+        #expect(store.current == .bundled && store.origin == .bundled(TrackerCatalog.bundled.version))
+    }
+
+    @Test func onlyAPlainETagIsKept() async throws {
+        #expect(TrackerCatalogStore.storable(#"W/"5f2-abc""#) == #"W/"5f2-abc""#)
+        #expect(TrackerCatalogStore.storable("a b") == nil && TrackerCatalogStore.storable("café") == nil)
+        #expect(TrackerCatalogStore.storable(String(repeating: "a", count: 129)) == nil)
+        #expect(TrackerCatalogStore.storable("") == nil && TrackerCatalogStore.storable(nil) == nil)
+
+        let (store, content, clock, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} }
+        content.script([.success(.fetched(try catalogBody(version: version(days: 1)), etag: "two words")),
+                        .success(.notModified)])
+        await store.refreshIfDue()
+        clock.advance(by: .seconds(25 * 3_600))
+        await store.refreshIfDue()
+        #expect(store.current.version == version(days: 1) && content.requests.map(\.etag) == [nil, nil])
+    }
+
+    @Test func failuresCarryNoOutsideText() {
+        let text = TrackerCatalogStore.describe(CatalogError.invalid(rule: "text.markup",
+                                                                     path: "trackers[1].<b>x</b> https://x.example/?q=1"))
+        #expect(text.hasPrefix("invalid text.markup at trackers[1].") && !text.contains("<") && !text.contains("/"))
+        #expect(!text.contains(":") && TrackerCatalogStore.clean(String(repeating: "a", count: 200)).count == 80)
+    }
+
+    @Test func aClockThatWentBackDoesntHoldTheCheckBack() async {
+        let (store, content, clock, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} }
+        content.script([.success(.notModified)])
+        await store.refreshIfDue()
+        #expect(!store.isDue(at: clock.now()))
+        #expect(store.isDue(at: clock.now().addingTimeInterval(-3_600))) // "checked" an hour from now: stale
+    }
+
+    @Test func aForcedReloadMakesItsOwnAttempt() async {
+        let (store, content, _, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} }
+        content.script([.success(.notModified), .success(.notModified)])
+        let check = Task { await store.refreshIfDue() }
+        await Task.yield() // the check is in flight
+        await store.refreshIfDue(force: true)
+        await check.value
+        #expect(content.requests.count == 2)
+    }
+
+    @Test func anotherAccountStartsFromTheBundledCopy() async throws {
+        let (store, content, _, env) = catalogStore()
+        defer { withExtendedLifetime(env) {} }
+        content.script([.success(.fetched(try catalogBody(version: version(days: 1)), etag: "e1"))])
+        await store.refreshIfDue()
+        #expect(store.current.version == version(days: 1))
+        env.persistence.wipe()
+        store.accountChanged()
+        #expect(store.current == .bundled && store.checkedAt == nil && store.lastFailure == nil)
+    }
+}
+
+@Suite("Demo data's flags stay demo's")
+@MainActor
+struct DemoFlagsTests {
+    private let demoConfig = RemoteConfig(flags: [FeatureFlag.devicesSetup.rawValue: true], evaluatedAt: .now,
+                                          ttlSec: 21_600, privacyPolicyVersion: nil, privacyPolicyUrl: nil)
+
+    @Test func demoOnFetchDemoOffTheFlagIsOff() async {
+        let store = TrainStore(inMemory: true)
+        let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
+        let flags = FlagStore(store: store, defaults: defaults, account: "a", demo: true)
+        let config = demoConfig
+        await FeatureFlags(flags: flags, clock: TestClock()) { config }.refresh(force: true)
+        #expect(flags.isOn(.devicesSetup))
+
+        flags.setDemo(false)
+
+        #expect(!flags.isOn(.devicesSetup) && flags.source(of: .devicesSetup) == .compiled)
+        #expect(store.document(FlagStore.Cached.self, key: FlagStore.cacheKey("a")) == nil)
+        #expect(!FlagStore(store: store, defaults: defaults, account: "a").isOn(.devicesSetup)) // relaunched as "a"
+        flags.setDemo(true)
+        #expect(flags.isOn(.devicesSetup)) // demo's own cache
+    }
+
+    @Test func anAnswerAskedForInDemoModeIsDroppedAfterIt() {
+        let flags = FlagStore(store: TrainStore(inMemory: true),
+                              defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard,
+                              account: "a", demo: true)
+        let asked = flags.generation
+        flags.setDemo(false)
+        flags.apply(demoConfig, fetchedAt: .now, generation: asked)
+        #expect(!flags.isOn(.devicesSetup))
+    }
+}
+
+@Suite("Tracker setup: Today, tiles, glyphs")
+@MainActor
+struct TrackerSetupScreensTests {
+    @Test func todaysNightHintLooksAtWhatYouWear() {
+        let env = AppEnvironment.test(flags: [.devicesSetup: true])
+        let store = TrackerSelectionStore(env: env)
+        let garmin = SourceFreshness(source: "Connect", bundleID: "com.garmin.connect.mobile", newest: .now)
+        let oura = SourceFreshness(source: "Oura", bundleID: "com.ouraring.oura", newest: .now)
+        let phone = SourceFreshness(source: "Tim's iPhone", bundleID: "com.apple.health.3F0A", newest: .now,
+                                    deviceModel: "iPhone")
+        let unknown = SourceFreshness(source: "Sleep Cycle", bundleID: "com.lexwarelabs.goodmorning", newest: .now)
+        let all = [garmin, oura, phone, unknown]
+        #expect(store.worn(all) == all) // nothing chosen: every source
+
+        store.set(["garmin"])
+        #expect(store.worn(all) == [garmin, phone])
+        store.set(["garmin", "other"])
+        #expect(store.worn(all) == [garmin, phone, unknown]) // Other: what no tracker claims
+        (env.flags as? StaticFlags)?.overrides[.devicesSetup] = false
+        #expect(store.worn(all) == all)
+    }
+
+    @Test func nothingChosenReadsNoCatalog() {
+        let store = TrackerSelectionStore(env: .test())
+        #expect(store.trackers.isEmpty && store.selection == nil)
+    }
+
+    @Test func tileNamesNeverBreakMidWord() {
+        let names = TrackerCatalog.bundled.trackers.map(\.title)
+        #expect(TrackerPickerGrid.fitsTwoColumns(names, width: 1_000, size: .large))
+        #expect(!TrackerPickerGrid.fitsTwoColumns(names, width: 200, size: .large)) // a narrow screen: one column
+        #expect(!TrackerPickerGrid.fitsTwoColumns(names, width: 1_000, size: .accessibility1))
+        #expect(TrackerPickerGrid.widestWord(["Ultrahuman"], size: .xxxLarge) > TrackerPickerGrid.widestWord(["Ultrahuman"], size: .large))
+    }
+
+    @Test func applesGlyphsOnlyForApplesDevicesByTheirIds() throws {
+        let catalog = TrackerCatalog.bundled
+        #expect(catalog.tracker("apple_watch")?.symbol == "applewatch" && catalog.tracker("iphone")?.symbol == "iphone")
+        #expect(catalog.trackers.filter { !["apple_watch", "iphone"].contains($0.id) }
+            .allSatisfy { !["applewatch", "iphone"].contains($0.symbol) })
+        let g = try #require(catalog.tracker("garmin"))
+        let phoneShaped = Tracker(id: "pocket_band", name: "Pocket", form: .phone, appName: "Pocket", integration: .vendorApp,
+                                  identity: .none, appStoreID: nil, capabilities: g.capabilities, notes: [:], setup: g.setup,
+                                  habits: g.habits, limits: g.limits, help: nil, checked: g.checked)
+        #expect(phoneShaped.symbol != "iphone" && !phoneShaped.isJustIPhone)
+        #expect(RyftFeatures.line(for: phoneShaped)?.text.contains("watch or ring") == false)
     }
 }
