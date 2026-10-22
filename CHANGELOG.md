@@ -39,8 +39,9 @@ Store "What's New".
   Sleep → Bedtime, the widget), reminds you to wind down, and can wake you with a real alarm
   (iOS 26). The next morning, Sleep shows how close the night came to the plan.
 - Profile → Report a problem: write to RYFT from the app, optionally with diagnostics (app version,
-  device, the last requests and the sync status, never health values). Saved and sent later when
-  you're offline.
+  device, the last requests, per-area load times and request durations, and the sync status, never
+  health values). Saved and sent later when you're offline.
+- From Today's error card, Details → Send to RYFT opens Report a problem with what failed.
 
 ### Changed
 - Your baseline sleep need and maximum heart rate can be changed where you see them: in

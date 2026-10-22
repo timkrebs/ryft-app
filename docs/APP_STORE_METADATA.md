@@ -158,8 +158,12 @@ Must match `PrivacyInfo.xcprivacy` and the code (security-privacy-reviewer check
 | Identifiers → User ID | Yes | Yes | No | App Functionality |
 | Identifiers → Device ID (install ID sent with sync) | Yes | Yes | No | App Functionality |
 | User Content → Other (workout notes, journal answers, workout logs, feedback text) | Yes | Yes | No | App Functionality |
-| Diagnostics → Other Diagnostic Data (Report a problem → "Include diagnostics": app version, device, iOS, locale, the last 20 requests without query strings, sync phase and counts with day-precision dates, gates, flags) | Yes, when the user sends a report with diagnostics on (the default) | Yes | No | App Functionality |
+| Diagnostics → Other Diagnostic Data (Report a problem → "Include diagnostics": app version, device, iOS, locale, the last 20 requests without query strings and with their durations, per area (Today, History, Profile …) the last load time and the last error's status, code and request ID, sync phase and counts with day-precision dates, gates, flags) | Yes, when the user sends a report with diagnostics on (the default) | Yes | No | App Functionality |
 | Diagnostics → Crash Data | No | — | — | — |
+
+Request durations are declared as Other Diagnostic Data, not Performance Data: they are network-diagnostic timings
+that support reads next to a request's status and ID, while Apple's Performance Data means app performance such as
+launch time, hang rate or energy use.
 
 "Data Used to Track You": **none**. If any row changes, update the label and the privacy policy together.
 
