@@ -159,6 +159,7 @@ final class TodayViewModel {
         f.lastNight = lastNightRaw
         f.freshness = freshness
         f.scoringSince = sync.scoringSince(pendingDays: state.syncStatus?.pendingDays ?? [])
+        f.statusReadAt = sync.statusReadAt
         if let scenario = state.todayScenario { f = scenario.apply(to: f) }
         // Names for the sources on screen (§5), resolved once per set of sources and catalog version; nothing
         // to name before HealthKit answered (the first frame).
@@ -199,6 +200,28 @@ final class TodayViewModel {
     /// Last night from Apple Health beside the pending gauge (raw totals, not a score); not while
     /// waiting for sleep, when no night has arrived.
     var rawNight: RawNight? { content.rawNight }
+
+    /// When nothing else will ask the platform after the slow threshold (a start from a status read, after a
+    /// relaunch or another device's upload; a wait that gave up before it), one GET /v1/me/sync at the
+    /// threshold decides between "Scoring…" and "Taking longer than usual". A one-shot per start, not a loop:
+    /// Today runs it per start (`.task(id:)`), so a new start, its end or another account cancels it.
+    func confirmSlowScoring() async {
+        let f = facts
+        guard let since = f.scoringSince, f.phase != .awaitingScores else { return }
+        let due = since.addingTimeInterval(TodayStates.slowThreshold(f.status?.expectedWithinSec ?? f.expectedScoringSec))
+        if let read = f.statusReadAt, read >= due { return }
+        let wait = due.timeIntervalSince(env.clock.now())
+        if wait > 0 {
+            do { try await env.clock.sleep(for: .milliseconds(Int((wait * 1000).rounded(.up)))) } catch { return }
+        }
+        guard !Task.isCancelled, sync.scoringSince(pendingDays: state.syncStatus?.pendingDays ?? []) == since else { return }
+        await coordinator.refreshStatus()
+    }
+
+    /// What `confirmSlowScoring` is scheduled for: the start, and whether a waiting coordinator asks instead.
+    var slowScoringCheck: [Double] {
+        [sync.scoringWaitStart?.timeIntervalSince1970 ?? -1, sync.phase == .awaitingScores ? 1 : 0]
+    }
 
     /// Reloads `lastNightRaw` and `freshness` when a sync ends or the day is fetched again.
     var healthFactsKey: Date? { sync.engineState.updatedAt ?? state.lastUpdated }
@@ -458,6 +481,8 @@ struct TodaySyncFacts: Equatable {
     /// When scoring began: the current wait's start (`SyncService.scoringWaitStart`) while `.awaitingScores`;
     /// after the wait gave up, the same start while the platform's latest `pending_days` still holds days; else nil.
     var scoringSince: Date?
+    /// When the latest GET /v1/me/sync answered (`SyncService.statusReadAt`): slow needs one after the threshold.
+    var statusReadAt: Date?
 
     /// The sources Today names: the freshest per source and last night's.
     var sourceRefs: Set<SourceRef> {
@@ -874,16 +899,26 @@ enum TodayStates {
         return NightGap(name: app.name, kind: app.kind, storeURL: app.appStoreURL, newest: newest.newest)
     }
 
-    /// Scoring has taken longer than max(60 s, 3 × `expected_within_sec`) since it began (design.md §6.3):
-    /// by 3 × the coordinator has asked at least twice; the floor keeps a tiny estimate from flipping the line.
+    /// Scoring has taken longer than max(60 s, 3 × `expected_within_sec`) since it began (design.md §6.3), on
+    /// the platform's word: a status read after that threshold still lists the days. Until it lands the line
+    /// says "Scoring…" (by 3 × a waiting coordinator has asked twice; otherwise Today asks once,
+    /// `TodayViewModel.confirmSlowScoring`). The floor keeps a tiny estimate from flipping the line.
     static func scoringSlow(_ f: TodaySyncFacts) -> Bool {
-        scoringSlow(since: f.scoringSince, expected: f.status?.expectedWithinSec ?? f.expectedScoringSec, now: f.now)
+        let listed = f.status.map { !$0.pendingDays.isEmpty } ?? false
+        return scoringSlow(since: f.scoringSince, expected: f.status?.expectedWithinSec ?? f.expectedScoringSec, now: f.now,
+                           checkedAt: listed ? f.statusReadAt : nil)
     }
 
-    static func scoringSlow(since: Date?, expected: Int?, now: Date) -> Bool {
-        guard let since else { return false }
-        let seconds = Double(expected ?? SyncCoordinator.defaultExpectedScoring)
-        return now.timeIntervalSince(since) > max(minimumSlowScoring, 3 * seconds)
+    /// `checkedAt`: a status read that still lists the pending days, if there was one.
+    static func scoringSlow(since: Date?, expected: Int?, now: Date, checkedAt: Date?) -> Bool {
+        guard let since, let checkedAt else { return false }
+        let due = since.addingTimeInterval(slowThreshold(expected))
+        return now > due && checkedAt >= due
+    }
+
+    /// max(60 s, 3 × the estimate; API.md's 30 s without one).
+    static func slowThreshold(_ expected: Int?) -> TimeInterval {
+        max(minimumSlowScoring, 3 * Double(expected ?? SyncCoordinator.defaultExpectedScoring))
     }
 
     /// The floor under "Taking longer than usual".
@@ -1120,6 +1155,7 @@ enum TodayScenario: String, CaseIterable {
             f.status = Self.status(now: now, .pending)
             f.phase = .awaitingScores
             f.scoringSince = now.addingTimeInterval(-10 * 60)
+            f.statusReadAt = now.addingTimeInterval(-20) // the platform still listed the night 20 s ago
             let wake = Calendar.current.date(bySettingHour: 6, minute: 52, second: 0, of: now) ?? now
             f.lastNight = RawNight(asleepMin: 437, bedtime: wake.addingTimeInterval(-8 * 3_600 + 25 * 60), wake: wake,
                                    source: "Connect", bundleID: "com.garmin.connect.mobile")

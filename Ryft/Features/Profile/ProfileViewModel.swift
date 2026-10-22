@@ -352,7 +352,9 @@ final class SyncDetailsModel {
 
     /// The same rule as Today's "Taking longer than usual" (`TodayStates.scoringSlow`).
     var scoringIsSlow: Bool {
-        TodayStates.scoringSlow(since: scoringSince, expected: expectedScoringSec, now: env.clock.now())
+        let listed = !(state.syncStatus?.pendingDays.isEmpty ?? true)
+        return TodayStates.scoringSlow(since: scoringSince, expected: expectedScoringSec, now: env.clock.now(),
+                                       checkedAt: listed ? sync.statusReadAt : nil)
     }
 
     var backlogText: String {
