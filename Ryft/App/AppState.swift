@@ -241,11 +241,16 @@ final class AppState {
 
     // MARK: staleness and the error card
 
-    /// What the read pipeline knows per resource; today's `fetchedAt` is the current day's row's
-    /// (exact across midnight and relaunches).
+    /// What the read pipeline knows per resource. Today's `fetchedAt` is the current day's row's
+    /// (exact across midnight and relaunches); history's is the later of the record's and the
+    /// store's newest past score, so a cache from before the record isn't "never loaded".
     var resourceStates: [ReadResource: ResourceState] {
         var states = env.reads.states
         states[.today, default: ResourceState()].fetchedAt = repository.detailFetchedAt(todayKey)
+        if let stored = repository.newestPastScoreFetchedAt(before: todayKey) {
+            let recorded = states[.history]?.fetchedAt
+            states[.history, default: ResourceState()].fetchedAt = max(recorded ?? stored, stored)
+        }
         return states
     }
 

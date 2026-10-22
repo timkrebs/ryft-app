@@ -114,6 +114,12 @@ actor RequestBudget {
     private var queue: [Ticket] = []
     private var parked: [UUID: CheckedContinuation<Void, Error>] = [:]
     private var nextOrder = 0
+    /// After a `429` from either limiter (per user, or the edge's per IP): no new start before this,
+    /// for any resource, pull and Try again included.
+    private(set) var notBefore: Date?
+
+    /// The longest a `429`'s `Retry-After` holds every start back.
+    static let maxHoldBack: Duration = .seconds(30)
 
     init(clock: AppClock, maxInFlight: Int = 3, maxStarts: Int = 5, window: Duration = .seconds(1)) {
         self.clock = clock
@@ -144,6 +150,11 @@ actor RequestBudget {
                 continue
             }
             let now = clock.now()
+            if let notBefore, now < notBefore {
+                let wait = notBefore.timeIntervalSince(now)
+                try await clock.sleep(for: .milliseconds(max(1, Int((wait * 1000).rounded(.up)))))
+                continue
+            }
             starts.removeAll { now.timeIntervalSince($0) >= window.timeInterval }
             if starts.count < maxStarts {
                 inFlight += 1
@@ -160,6 +171,14 @@ actor RequestBudget {
     func release() {
         inFlight = max(0, inFlight - 1)
         wakeAll()
+    }
+
+    /// The platform said `429`: hold every new start back for its `Retry-After` (a `429` without
+    /// one counts as 1 s), at most `maxHoldBack`. A later, longer hold extends it.
+    func holdBack(seconds: Int) {
+        let hold = min(Duration.seconds(max(1, seconds)), Self.maxHoldBack)
+        let until = clock.now().addingTimeInterval(hold.timeInterval)
+        if notBefore.map({ until > $0 }) ?? true { notBefore = until }
     }
 
     private func park(_ id: UUID) async throws {

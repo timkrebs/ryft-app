@@ -189,6 +189,17 @@ final class Repository {
         return dayRow(key)?.detailFetchedAt
     }
 
+    /// When the newest past day's score in the store was fetched: the history's age, also for a
+    /// cache older than the read record (the first launch of a build with `ReadScheduler`). Today's
+    /// row is left out, so a fresh today can't hide a history that keeps failing.
+    func newestPastScoreFetchedAt(before todayKey: String) -> Date? {
+        touch(.days)
+        var d = FetchDescriptor<CachedDay>(predicate: #Predicate { $0.day != todayKey && $0.scoreFetchedAt != nil },
+                                           sortBy: [SortDescriptor(\.scoreFetchedAt, order: .reverse)])
+        d.fetchLimit = 1
+        return (try? context.fetch(d))?.first?.scoreFetchedAt
+    }
+
     // MARK: freshness
 
     private func fresh(_ fetchedAt: Date?, ttl: TimeInterval) -> Bool {
@@ -1078,6 +1089,8 @@ final class ReadScheduler {
             case .failure(let error):
                 let kind = FailureKind.of(error)
                 if kind == .cancelled || Task.isCancelled { throw CancellationError() }
+                // The rate limits are per user and per IP, not per resource: every read waits.
+                if (error as? APIError)?.status == 429 { await budget.holdBack(seconds: RetryPolicy.retryAfter(error) ?? 1) }
                 attempt += 1
                 if let wait = policy.delay(before: attempt, after: error, random: random) {
                     // The slot is free while waiting; the retry takes a new one.
