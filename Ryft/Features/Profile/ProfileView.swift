@@ -1807,7 +1807,7 @@ private struct DevicesRowLabel: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: "applewatch")
+            Image(systemName: "watch.analog")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Theme.textSecondary)
                 .accessibilityHidden(true)
@@ -1922,12 +1922,16 @@ struct DevicesAndSyncView: View {
 
     // MARK: Apple Health access
 
+    /// RYFT's own read permission: its status, then the catalog's route in the Health app next to "Open Health".
     private var health: some View {
         ProfileSection(title: "Apple Health access") {
             StatRow(title: "Apple Health", value: model.healthStatusText)
+            if model.canAskForHealth {
+                PrimaryButton(title: "Allow access", style: .secondary) { await model.requestHealthAccess() }
+            }
             let steps = model.healthAccessSteps
-            if !steps.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 10) {
+                if !steps.isEmpty {
                     Text("To check what RYFT may read:")
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textSecondary)
@@ -1935,11 +1939,9 @@ struct DevicesAndSyncView: View {
                         NumberedStep(number: index + 1, verbatim: step, total: steps.count)
                     }
                 }
+                PrimaryButton(title: "Open Health", style: .secondary) { HealthLinks.open(with: openURL) }
+                    .accessibilityIdentifier("devices.openHealth")
             }
-            if model.canAskForHealth {
-                PrimaryButton(title: "Allow access", style: .secondary) { await model.requestHealthAccess() }
-            }
-            PrimaryButton(title: "Open Health permissions", style: .secondary) { HealthLinks.open(with: openURL) }
         }
     }
 
@@ -2040,7 +2042,7 @@ struct TrackerDetailView: View {
 
     var body: some View {
         ScrollView {
-            TrackerSetupCard(tracker: tracker, seen: model.seenTrackers.contains(tracker.id),
+            TrackerSetupCard(tracker: tracker,
                              later: TrackerSelectionStore.needsSetup(tracker) ? { model.selection.markLater(tracker.id) } : nil,
                              addTracker: tracker.form == .phone ? {
                                  dismiss()

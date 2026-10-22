@@ -948,7 +948,8 @@ struct ReportProblemTests {
                                                                    .today: ResourceState(lastError: error("fail-1"))])
         #expect(withResources == ["ctx-1", "fail-1", "fail-2", "res-1"])
         let d = try #require(post.diagnostics)
-        #expect(Set(d.keys) == FeedbackPayload.keys)
+        // `trackers` only with `devices.setup` on (DevicesAndDiagnosticsTests).
+        #expect(Set(d.keys) == FeedbackPayload.keys.subtracting(["trackers"]))
         #expect(d["sync"] == Self.syncText)
         #expect(d["gates"] == "consent_required" && d["locale"] == "de_DE")
         #expect(d["flags"] == "push.enabled=1,sync.gzip=0")
@@ -1571,7 +1572,8 @@ struct ReportProblemTests {
         let post = profile.report.payload()
         let d = try #require(post.diagnostics)
 
-        #expect(Set(d.keys) == FeedbackPayload.keys)
+        // `trackers` only with `devices.setup` on (DevicesAndDiagnosticsTests).
+        #expect(Set(d.keys) == FeedbackPayload.keys.subtracting(["trackers"]))
         let templates: [String: [Regex<Substring>]] = [
             "requests": [/(?:GET|POST|PUT|PATCH|DELETE) \/[^ ?#]* \d{3} [a-z_-]+ \S+ \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z(?: \d+ms)?/],
             "resources": [/[a-zA-Z]+ (?:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z|-) (?:[A-Za-z0-9]+|-) (?:[a-z_]+|-) \S+/],
@@ -2059,8 +2061,8 @@ final class WebContentStub: URLProtocol {
 
     static var requests: [URLRequest] { lock.withLock { seen } }
 
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
         guard let url = request.url else { return }
@@ -2278,7 +2280,11 @@ struct RyftFeaturesTests {
                             identity: garmin.identity, appStoreID: nil, capabilities: caps, notes: [:], setup: garmin.setup,
                             habits: garmin.habits, limits: garmin.limits, help: nil, checked: garmin.checked)
         let line = try #require(RyftFeatures.line(for: blind))
-        #expect(line.text == "Strain needs heart rate, which Garmin Connect doesn't share · Sleep needs sleep, which Garmin Connect doesn't share · Recovery and Readiness need \(Self.list(["sleep", "resting heart rate"])), which Garmin Connect doesn't share")
+        #expect(line.text == [
+            "Strain needs heart rate, which Garmin Connect doesn't share",
+            "Sleep needs sleep, which Garmin Connect doesn't share",
+            "Recovery and Readiness need \(Self.list(["sleep", "resting heart rate"])), which Garmin Connect doesn't share",
+        ].joined(separator: " · "))
         #expect(!line.text.contains("✗"))
     }
 
@@ -2324,7 +2330,6 @@ struct DevicesAndDiagnosticsTests {
         #expect(model.sources.map(\.known) == [true, true, false]) // Apple's own devices aren't "unknown"
         let kinds = ["heart rate", "sleep", "steps"].formatted(.list(type: .and))
         #expect(model.sources.first?.kinds == "H" + kinds.dropFirst())
-        #expect(model.seenTrackers == ["garmin"])
     }
 
     @Test func profileSummary() {

@@ -58,6 +58,17 @@
         }
       }
     },
+    "%@ in the App Store" : {
+      "comment" : "Setup card button: the app's App Store page (it says Open there when installed). The argument is the app, e.g. Garmin Connect.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ im App Store"
+          }
+        }
+      }
+    },
     "%@ need %@, which %@ doesn't share" : {
       "comment" : "Setup card's features line: features (several), the signals they need, the app that doesn't share them.",
       "localizations" : {
@@ -1534,17 +1545,6 @@
         }
       }
     },
-    "Get %@" : {
-      "comment" : "Setup card button: the app's App Store page, when its data hasn't arrived yet. The argument is the app, e.g. Garmin Connect.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ laden"
-          }
-        }
-      }
-    },
     "Get by" : {
       "localizations" : {
         "de" : {
@@ -2287,17 +2287,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nur du, und der Betreiber von RYFT, wenn etwas repariert werden muss."
-          }
-        }
-      }
-    },
-    "Open %@ in the App Store" : {
-      "comment" : "Setup card button when the app's data was seen in Apple Health. The argument is the app.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ im App Store öffnen"
           }
         }
       }

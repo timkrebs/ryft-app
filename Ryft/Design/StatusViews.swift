@@ -693,8 +693,6 @@ struct SetupCard: View {
 /// links are the vendor's allowlisted guide and the App Store page built from digits (ADR 0002).
 struct TrackerSetupCard: View {
     let tracker: Tracker
-    /// The tracker's app has written to Apple Health: "Open … in the App Store" instead of "Get …".
-    var seen = false
     /// In a list of several (onboarding): the header opens and closes the card.
     var expanded: Binding<Bool>?
     /// "Show me again later"; nil: no such button.
@@ -954,19 +952,12 @@ struct TrackerSetupCard: View {
 
     @ViewBuilder private var buttons: some View {
         if tracker.integration == .vendorApp, let store = tracker.appStoreURL {
-            VStack(alignment: .leading, spacing: 6) {
-                let app = tracker.appTitle
-                PrimaryButton(verbatim: seen ? String(localized: "Open \(app) in the App Store") : String(localized: "Get \(app)"),
-                              style: .secondary) {
-                    openURL(store)
-                }
-                .accessibilityHint(Text("Opens the App Store."))
-                .accessibilityIdentifier("tracker.open")
-                Text("Opens the App Store.")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textTertiary)
-                    .accessibilityHidden(true)
+            // The App Store page, which says "Open" itself when the app is installed: no URL schemes (ADR 0002).
+            PrimaryButton(verbatim: String(localized: "\(tracker.appTitle) in the App Store"), style: .secondary) {
+                openURL(store)
             }
+            .accessibilityHint(Text("Opens the App Store."))
+            .accessibilityIdentifier("tracker.open")
         }
         if let addTracker {
             PrimaryButton(title: "Add a tracker", style: .secondary) { addTracker() }
@@ -1035,7 +1026,6 @@ extension Tracker {
 /// Setup cards on the preview catalog (guide text included), one canvas per variant.
 private struct TrackerCardsPreview: View {
     let ids: [String]
-    var seen = false
     var checked: String?
     /// Several cards as onboarding shows them: the first open, the rest collapsed.
     var collapsible = false
@@ -1045,7 +1035,7 @@ private struct TrackerCardsPreview: View {
         VStack(spacing: 12) {
             ForEach(ids, id: \.self) { id in
                 let tracker = MockData.tracker(id, checked: checked)
-                TrackerSetupCard(tracker: tracker, seen: seen,
+                TrackerSetupCard(tracker: tracker,
                                  expanded: collapsible ? Binding(get: { (open ?? ids.first) == id },
                                                                  set: { open = $0 ? id : nil }) : nil,
                                  later: tracker.form == .phone ? nil : {},
@@ -1100,13 +1090,8 @@ private struct TrackerCardsPreview: View {
     SchemePair { TrackerCardsPreview(ids: ["apple_watch"]) }
 }
 
-#Preview("Tracker card · Open variants", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        VStack(spacing: 12) {
-            TrackerCardsPreview(ids: ["oura"], seen: true)
-            TrackerCardsPreview(ids: ["oura"], seen: false)
-        }
-    }
+#Preview("Tracker card · Oura", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["oura"]) }
 }
 
 /// One step of a numbered run ("1  Open the app's settings."): setup cards and their fixes.

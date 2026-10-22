@@ -1486,9 +1486,6 @@ final class DevicesViewModel {
         }
     }
 
-    /// Trackers whose app has written to Apple Health: their store button says "Open … in the App Store".
-    var seenTrackers: Set<String> { catalog.seen(in: state.user?.sources ?? []) }
-
     func lastSeenText(_ row: SourceRow) -> String {
         String(localized: "Last data \(SyncLine.dataTime(row.lastSeen, now: env.clock.now()))")
     }
@@ -1709,10 +1706,13 @@ extension TrackerSignal {
 }
 
 extension Tracker {
-    /// The tile's glyph (ui.md §2.2): the form factor only, never a logo.
+    /// The tracker's glyph, the one mapping every tracker view uses (tiles, cards, rows, the sync check): the
+    /// form factor only, never a logo, and an Apple silhouette only for the Apple Watch itself.
     var symbol: String {
+        if id == "apple_watch" { return "applewatch" }
         switch form {
-        case .watch, .band: return "applewatch"
+        case .watch: return "watch.analog"
+        case .band: return "figure.run.circle"
         case .ring: return "circle.circle"
         case .phone: return "iphone"
         case .other: return "ellipsis.circle"
@@ -1721,14 +1721,6 @@ extension Tracker {
 
     /// The app named in sentences: "Garmin Connect", or the tracker's own name.
     var appTitle: String { appName ?? name }
-}
-
-extension TrackerCatalog {
-    /// The trackers whose app has written to Apple Health, as the platform lists the sources (`User.sources`):
-    /// by bundle ID, so Apple's own devices (no device model there) never count.
-    func seen(in sources: [UserSource]) -> Set<String> {
-        Set(sources.compactMap { match(SourceRef(name: $0.name, bundleID: $0.bundleId, deviceModel: nil))?.id })
-    }
 }
 
 extension Localized {

@@ -65,7 +65,7 @@ final class DevicesUITests: XCTestCase {
 
         let store = app.buttons["tracker.open"]
         for _ in 0..<4 where !store.exists { app.swipeUp() }
-        XCTAssertTrue(store.exists && store.label == "Get Garmin Connect", "the App Store button: \(store.label)")
+        XCTAssertTrue(store.exists && store.label == "Garmin Connect in the App Store", "the App Store button: \(store.label)")
         XCTAssertTrue(app.buttons["trackerSetup.done"].exists && app.buttons["trackerSetup.later"].exists)
     }
 

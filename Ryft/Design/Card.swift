@@ -249,12 +249,12 @@ private struct SelectableTileStates: View {
     var body: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
-                SelectableTile(symbol: "applewatch", title: "Garmin", isSelected: false) {}
+                SelectableTile(symbol: "watch.analog", title: "Garmin", isSelected: false) {}
                 SelectableTile(symbol: "circle.circle", title: "Oura", isSelected: true) {}
             }
             HStack(spacing: 10) {
-                SelectableTile(symbol: "applewatch", title: "Samsung Galaxy Watch", isSelected: false) {}
-                SelectableTile(symbol: "applewatch", title: "Amazfit (Zepp)", isSelected: true) {}
+                SelectableTile(symbol: "watch.analog", title: "Samsung Galaxy Watch", isSelected: false) {}
+                SelectableTile(symbol: "watch.analog", title: "Amazfit (Zepp)", isSelected: true) {}
             }
             SelectableTile(symbol: "iphone", title: "Just my iPhone", isSelected: false, hint: "Clears your other choices") {}
         }

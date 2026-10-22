@@ -487,7 +487,8 @@ enum DebugScreen: String {
     /// Today's refresh Details sheet (503, 3 failures) with "Send to RYFT".
     case refreshDetailsSend = "refresh-details-send"
     /// "What do you wear?", the setup screen after Apple Health, Profile → Devices & sync, and one tracker's card
-    /// (`-RyftTrackers garmin,oura` picks, `-RyftTracker fitbit` the card, `-RyftCatalog preview` adds guide text).
+    /// (`-RyftTrackers garmin,oura` picks, `-RyftTracker fitbit` the card, `-RyftCatalog preview` adds guide text,
+    /// `-RyftScrollBottom YES` starts at the end).
     case wear, trackerSetup = "tracker-setup", devices, trackerCard = "tracker-card"
 
     static var requested: DebugScreen? {
@@ -632,6 +633,8 @@ private struct DebugDevices: View {
                 }
             }
         }
+        // `-RyftScrollBottom YES`: the end of a long card (its store button) for a capture.
+        .defaultScrollAnchor(UserDefaults.standard.bool(forKey: "RyftScrollBottom") ? .bottom : .top)
         .task {
             if UserDefaults.standard.string(forKey: "RyftCatalog") == "preview" {
                 env.catalogStore.stage(MockData.trackerCatalog)

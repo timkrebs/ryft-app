@@ -832,9 +832,6 @@ extension OnboardingCoordinator {
         trackerSetupDone = true
         defaults.set(true, forKey: key("trackerSetupDone"))
     }
-
-    /// Trackers whose app already wrote to Apple Health (the platform's `User.sources`).
-    var seenTrackers: Set<String> { env.trackerCatalog.seen(in: user?.sources ?? []) }
 }
 
 /// The pinned bar of a long onboarding screen (ui.md §2.4): the main button above "not now", on Graphite or
@@ -914,7 +911,7 @@ struct TrackerPickerView: View {
     }
 
     var body: some View {
-        OnboardingScreen(symbol: "applewatch.and.arrow.forward",
+        OnboardingScreen(symbol: "watch.analog",
                          title: "What do you wear?",
                          text: "Pick your watch, band or ring. RYFT then shows how to get its data into Apple Health.") {
             TrackerPickerGrid(catalog: env.trackerCatalog, picked: $picked)
@@ -946,17 +943,16 @@ struct TrackerSetupStepView: View {
 
     var body: some View {
         let trackers = model.setupTrackers
-        let seen = model.seenTrackers
         OnboardingScreen(symbol: "checklist",
                          title: trackers.count > 1 ? "Set up your trackers" : "Set up your tracker",
                          text: "A few minutes now saves a silent week of missing data.") {
             VStack(spacing: 12) {
                 ForEach(trackers) { tracker in
                     if trackers.count == 1 {
-                        TrackerSetupCard(tracker: tracker, seen: seen.contains(tracker.id))
+                        TrackerSetupCard(tracker: tracker)
                     } else {
                         // `open` nil: the first card; "": none.
-                        TrackerSetupCard(tracker: tracker, seen: seen.contains(tracker.id),
+                        TrackerSetupCard(tracker: tracker,
                                          expanded: Binding(get: { (open ?? trackers.first?.id) == tracker.id },
                                                            set: { open = $0 ? tracker.id : "" }),
                                          later: {
