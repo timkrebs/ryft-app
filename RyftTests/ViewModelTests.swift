@@ -489,6 +489,482 @@ struct TodayStatesTests {
     }
 }
 
+// MARK: - Today: the night not in Apple Health, slow scoring (tracker setup T1)
+
+/// design.md §6: `nightGap` as a table, `scoringSlow`, the line's new branches and the hint's kinds, from the
+/// facts alone; then `SyncService`'s wait start and the view model's names.
+@Suite("Today: night not in Apple Health, slow scoring")
+@MainActor
+struct TodayNightAndScoringTests {
+    private let base = Date(timeIntervalSince1970: 1_792_400_000)
+
+    private func at(_ hour: Int, _ minute: Int = 0, daysAgo: Int = 0) -> Date {
+        let day = Calendar.current.date(byAdding: .day, value: -daysAgo, to: base) ?? base
+        return Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: day) ?? day
+    }
+
+    private func connect(_ newest: Date) -> SourceFreshness {
+        SourceFreshness(source: "Connect", bundleID: "com.garmin.connect.mobile", newest: newest)
+    }
+
+    private func watch(_ newest: Date) -> SourceFreshness {
+        SourceFreshness(source: "Tim's Apple Watch", bundleID: "com.apple.health.4B1C2D3E", newest: newest, deviceModel: "Watch")
+    }
+
+    private func phone(_ newest: Date) -> SourceFreshness {
+        SourceFreshness(source: "Tim's iPhone", bundleID: "com.apple.health.3F0A9B8C", newest: newest, deviceModel: "iPhone")
+    }
+
+    private func status(_ state: ScoringState, now: Date, pending: [String]? = nil, latestSleep: Date? = nil,
+                        expected: Int = 20) -> SyncStatus {
+        let key = DayFormat.string(from: now)
+        return SyncStatus(gate: nil, lastSyncAt: now, lastSyncDevice: "iPhone", latest: latestSleep.map { ["sleep": $0] } ?? [:],
+                          today: TodayState(day: key, state: state, scoredAt: nil, modelVersion: "2026.10.1"),
+                          pendingDays: pending ?? (state == .pending ? [key] : []), expectedWithinSec: expected,
+                          resyncRequestedAt: nil)
+    }
+
+    /// 09:12 by default: the platform waits for sleep, Garmin Connect has been quiet since 23:24, the day
+    /// before is scored. The names come from the bundled catalog, as the view model resolves them.
+    private func facts(now: Date? = nil, _ change: (inout TodaySyncFacts) -> Void = { _ in }) -> TodaySyncFacts {
+        let now = now ?? at(9, 12)
+        var f = TodaySyncFacts(now: now)
+        f.engine.backfillDone = true
+        f.hasScoredDay = true
+        f.lastUpdated = now.addingTimeInterval(-120)
+        f.prior = [DailyScore(day: DayFormat.string(from: DayFormat.shift(now, days: -1)), readiness: 76, state: .balanced,
+                              baselineDays: 30, calibrating: false, computedAt: now.addingTimeInterval(-86_400), scoringState: .scored)]
+        f.status = status(.waitingForSleep, now: now)
+        f.statusReadAt = now // the platform's latest word, just read
+        f.freshness = [connect(at(23, 24, daysAgo: 1))]
+        change(&f)
+        f.sourceApps = SourceApp.resolve(f.sourceRefs, in: .bundled)
+        return f
+    }
+
+    private func content(_ f: TodaySyncFacts) -> TodayContent {
+        let p = TodayPresentation.decide(f.scores)
+        return TodayContent(facts: f, presentation: p, hero: TodayStates.hero(f, presentation: p), hasDataSource: true,
+                            readinessWeek: [], detailSleepMin: nil)
+    }
+
+    private let garminStore = URL(string: "https://apps.apple.com/app/id583446403")
+
+    // MARK: the night hint
+
+    @Test func theNightGapNamesTheAppToOpen() throws {
+        let f = facts()
+        let gap = try #require(TodayStates.nightGap(f))
+        #expect(gap == NightGap(name: "Garmin Connect", kind: .app, storeURL: garminStore, newest: at(23, 24, daysAgo: 1)))
+        let hint = try #require(TodayStates.watchHint(f))
+        #expect(hint.isNight && hint.source == "Garmin Connect" && hint.opensApp && hint.storeURL == garminStore)
+        #expect(hint.systemImage == "moon.zzz")
+        #expect(hint.text(now: f.now)
+                == String(localized: "Your night hasn't reached Apple Health yet. Open \("Garmin Connect") to sync it."))
+        let time = at(23, 24, daysAgo: 1).formatted(.dateTime.weekday(.abbreviated).hour().minute())
+        #expect(hint.caption() == String(localized: "Last data from \("Garmin Connect"): \(time)"))
+        #expect(hint.storeTitle == String(localized: "\("Garmin Connect") in the App Store"))
+        // The screen's locale, not the phone's: 24-hour German, 12-hour US.
+        let de = Locale(identifier: "de_DE"), us = Locale(identifier: "en_US")
+        #expect(hint.caption(locale: de)?.contains(at(23, 24, daysAgo: 1).formatted(Date.FormatStyle(locale: de).hour().minute())) == true)
+        #expect(hint.caption(locale: de)?.contains("23:24") == true && hint.caption(locale: us)?.contains("11:24") == true)
+    }
+
+    @Test func onlyFromEightUntilThree() {
+        #expect(TodayStates.nightGap(facts(now: at(7, 59))) == nil)
+        #expect(TodayStates.nightGap(facts(now: at(8, 0))) != nil)
+        #expect(TodayStates.nightGap(facts(now: at(14, 59))) != nil)
+        #expect(TodayStates.nightGap(facts(now: at(15, 0))) == nil)
+    }
+
+    @Test func anyNightEvidenceAfterFourCancelsIt() {
+        // The tracker wrote after 04:00: it synced.
+        #expect(TodayStates.nightGap(facts { $0.freshness = [connect(at(4, 1))] }) == nil)
+        #expect(TodayStates.nightGap(facts { $0.freshness = [connect(at(4, 0))] }) != nil) // at 04:00, not after
+        // The platform's newest sleep is after it (another device, or a record HealthKit didn't list here).
+        #expect(TodayStates.nightGap(facts { $0.status = status(.waitingForSleep, now: $0.now, latestSleep: at(6, 50)) }) == nil)
+        #expect(TodayStates.nightGap(facts {
+            $0.status = status(.waitingForSleep, now: $0.now, latestSleep: at(23, 0, daysAgo: 1))
+        }) != nil)
+    }
+
+    @Test func theIPhonesInBedSleepIsNotTheNight() {
+        // The sleep schedule's in-bed record at 07:05 doesn't cancel Garmin's missing night.
+        let f = facts { $0.freshness = [connect(at(23, 24, daysAgo: 1)), phone(at(7, 5))] }
+        #expect(TodayStates.nightGap(f)?.name == "Garmin Connect")
+        // The iPhone alone, or nothing: no tracker to wait for.
+        #expect(TodayStates.nightGap(facts { $0.freshness = [phone(at(1, 0))] }) == nil)
+        #expect(TodayStates.nightGap(facts { $0.freshness = [] }) == nil)
+        // An Apple-prefixed source without a device model isn't known to be the phone: a candidate.
+        let unknown = SourceFreshness(source: "Device", bundleID: "com.apple.health.77AA", newest: at(7, 5))
+        #expect(TodayStates.nightGap(facts { $0.freshness = [connect(at(23, 24, daysAgo: 1)), unknown] }) == nil)
+    }
+
+    @Test func theWatchIsACandidateWithItsOwnSentence() throws {
+        let f = facts { $0.freshness = [watch(at(22, 10, daysAgo: 1)), connect(at(20, 0, daysAgo: 1))] }
+        let gap = try #require(TodayStates.nightGap(f))
+        #expect(gap.kind == .appleDevice && gap.name == "Tim's Apple Watch" && gap.storeURL == nil)
+        let hint = try #require(TodayStates.watchHint(f))
+        #expect(!hint.opensApp)
+        #expect(hint.text(now: f.now) == String(
+            localized: "Your night hasn't reached Apple Health yet. Keep your Apple Watch near your iPhone so it syncs."))
+        // A watch worn this morning: its heart rate is the evidence.
+        #expect(TodayStates.nightGap(facts { $0.freshness = [watch(at(9, 0)), connect(at(20, 0, daysAgo: 1))] }) == nil)
+    }
+
+    @Test func anUnknownSourceKeepsItsNameAndGetsNoButton() throws {
+        let diary = SourceFreshness(source: "Sleep Diary", bundleID: "com.example.sleep", newest: at(23, 0, daysAgo: 1))
+        let hint = try #require(TodayStates.watchHint(facts { $0.freshness = [diary] }))
+        #expect(hint.isNight && hint.source == "Sleep Diary" && !hint.opensApp)
+        #expect(hint.text(now: at(9, 12)) == String(localized: "Your night hasn't reached Apple Health yet."))
+    }
+
+    @Test func notWhenTheNightIsScoredOrBeingScoredOrNoOneCanAct() {
+        // Scored: the night arrived.
+        #expect(TodayStates.nightGap(facts {
+            $0.today = DailyScore(day: DayFormat.string(from: $0.now), readiness: 72, state: .balanced, baselineDays: 30,
+                                  calibrating: false, computedAt: $0.now, scoringState: .scored)
+            $0.status = status(.scored, now: $0.now)
+        }) == nil)
+        // Uploaded and pending: the gauge says it's being scored (D2's exclusivity).
+        #expect(TodayStates.nightGap(facts { $0.status = status(.pending, now: $0.now) }) == nil)
+        // Offline (noise), the first import, a locked phone, an account that doesn't sync.
+        #expect(TodayStates.nightGap(facts { $0.online = false }) == nil)
+        #expect(TodayStates.nightGap(facts { $0.engine.backfillDone = false }) == nil)
+        #expect(TodayStates.nightGap(facts { $0.waitingForUnlock = true }) == nil)
+        #expect(TodayStates.nightGap(facts { $0.syncs = false }) == nil)
+    }
+
+    @Test func outsideTheMorningTheQuietHintUsesTheDisplayName() throws {
+        let f = facts(now: at(16, 0)) { $0.freshness = [connect(at(1, 0))] }
+        let hint = try #require(TodayStates.watchHint(f))
+        #expect(!hint.isNight && hint.source == "Garmin Connect" && hint.storeURL == garminStore && hint.caption() == nil)
+        #expect(hint.systemImage == "antenna.radiowaves.left.and.right") // Apple's watch glyph is the Apple Watch's
+        #expect(hint.text(now: f.now) == String(
+            localized: "Nothing new from \("Garmin Connect") since \(Fmt.time(at(1, 0))). Open the \("Garmin Connect") app to sync it to Apple Health."))
+        // Without a name (the map is the facts builder's), HealthKit's.
+        var plain = f
+        plain.sourceApps = [:]
+        #expect(TodayStates.watchHint(plain)?.source == "Connect")
+        #expect(TodayStates.watchHint(plain)?.opensApp == false)
+    }
+
+    // MARK: the line
+
+    @Test func neverScoringBesideANightGap() {
+        // The iPhone's steps were uploaded and are being scored; the night hasn't arrived.
+        let f = facts { $0.phase = .awaitingScores }
+        #expect(TodayStates.nightGap(f) != nil)
+        #expect(TodayStates.line(f) == .upToDate(f.lastUpdated, demo: false))
+        // After 15:00: newer data is being scored, not the night the gauge still waits for.
+        #expect(TodayStates.line(facts(now: at(15, 30)) { $0.phase = .awaitingScores }) == .scoring(night: false))
+        // What's truer still wins over the gap's line.
+        #expect(TodayStates.line(facts { $0.phase = .awaitingScores; $0.activity = .reading(.sleep) }) == .reading(.sleep))
+        #expect(TodayStates.line(facts { $0.phase = .refreshing }) == .updating)
+        #expect(TodayStates.line(facts { $0.syncFailed = true }) == .paused)
+    }
+
+    @Test func slowAfterThreeTimesTheEstimateWithAFloor() {
+        func slow(_ seconds: TimeInterval, expected: Int?) -> Bool {
+            let now = at(10, 0).addingTimeInterval(seconds)
+            return TodayStates.scoringSlow(since: at(10, 0), expected: expected, now: now, checkedAt: now)
+        }
+        #expect(!slow(60, expected: 5) && slow(61, expected: 5)) // the 60 s floor
+        #expect(!slow(90, expected: 30) && slow(91, expected: 30)) // 3 × 30 s
+        #expect(!slow(300, expected: 100) && slow(301, expected: 100))
+        #expect(!slow(90, expected: nil) && slow(91, expected: nil)) // no estimate yet: API.md's 30 s
+        #expect(!TodayStates.scoringSlow(since: nil, expected: 20, now: at(12, 0), checkedAt: at(12, 0)))
+        // Only on the platform's word after the threshold: no read since, or one before it, isn't enough.
+        #expect(!TodayStates.scoringSlow(since: at(10, 0), expected: 20, now: at(12, 0), checkedAt: nil))
+        #expect(!TodayStates.scoringSlow(since: at(10, 0), expected: 20, now: at(12, 0), checkedAt: at(10, 0).addingTimeInterval(59)))
+        #expect(TodayStates.scoringSlow(since: at(10, 0), expected: 20, now: at(12, 0), checkedAt: at(10, 1)))
+        #expect(SyncLine.scoringSlow.text(now: .now) == String(localized: "Taking longer than usual · Details"))
+        #expect(SyncLine.scoringSlow.systemImage == "clock" && !SyncLine.scoringSlow.isActive)
+    }
+
+    @Test func theLineTurnsSlowDuringTheWaitAndStaysAfterTheCutOff() {
+        // The night is being scored (20 s expected): 30 s in, scoring; past 60 s, slow.
+        var f = facts(now: at(10, 0)) {
+            $0.status = status(.pending, now: $0.now)
+            $0.phase = .awaitingScores
+            $0.scoringSince = $0.now.addingTimeInterval(-30)
+        }
+        #expect(TodayStates.line(f) == .scoring(night: true))
+        f.scoringSince = f.now.addingTimeInterval(-61)
+        #expect(TodayStates.line(f) == .scoringSlow)
+        // Until a read after the threshold lists the night, still "Scoring".
+        f.statusReadAt = f.now.addingTimeInterval(-30)
+        #expect(TodayStates.line(f) == .scoring(night: true))
+        f.statusReadAt = f.now
+        // The coordinator gave up at 300 s and is idle; the platform still lists the day: slow, not "Up to date".
+        f.phase = .idle
+        f.scoringSince = f.now.addingTimeInterval(-400)
+        #expect(TodayStates.line(f) == .scoringSlow)
+        // A later read that no longer lists it: not slow, whatever the clock says.
+        f.status = status(.scored, now: f.now)
+        #expect(!TodayStates.scoringSlow(f))
+        // No start (cleared by the platform's word): the shipped line.
+        f.scoringSince = nil
+        #expect(TodayStates.line(f) == .scoring(night: true))
+
+        // Newer data than the night (today scored): "Scoring your latest data", then slow, also after the wait.
+        let scored = DailyScore(day: DayFormat.string(from: at(16, 0)), readiness: 72, state: .balanced, baselineDays: 30,
+                                calibrating: false, computedAt: at(9, 0), scoringState: .scored)
+        var day = facts(now: at(16, 0)) {
+            $0.today = scored
+            $0.status = status(.scored, now: $0.now, pending: [DayFormat.string(from: $0.now)])
+            $0.phase = .awaitingScores
+            $0.scoringSince = $0.now.addingTimeInterval(-20)
+        }
+        #expect(TodayStates.line(day) == .scoring(night: false))
+        day.scoringSince = day.now.addingTimeInterval(-120)
+        #expect(TodayStates.line(day) == .scoringSlow)
+        day.phase = .done
+        #expect(TodayStates.line(day) == .scoringSlow)
+        // The error card and a stale read still win.
+        #expect(TodayStates.line(day, card: .today) == .issue(.today))
+    }
+
+    @Test func thePendingGaugeSaysWhatsTrue() {
+        // Waiting for sleep with a night gap: row C as shipped; the hint card under it names the app.
+        let gap = content(facts())
+        #expect(gap.pendingTitle == String(localized: "Waiting for last night's sleep"))
+        #expect(gap.pendingDetail.isEmpty) // the hint card says it, once
+        #expect(!gap.pendingIsStatic && gap.watchHint?.isNight == true)
+        #expect(gap.sentence == String(localized: "Yesterday's readiness, until last night is scored."))
+        // Without the hint (after 15:00), the gauge's own line again.
+        #expect(content(facts(now: at(15, 30))).pendingDetail == String(localized: "It's scored as soon as Apple Health has it."))
+        // Scoring in time: the shipped words.
+        let onTime = content(facts { $0.status = status(.pending, now: $0.now); $0.scoringSince = $0.now.addingTimeInterval(-10) })
+        #expect(onTime.pendingTitle == String(localized: "Scoring your night…"))
+        #expect(onTime.pendingDetail == String(localized: "Usually ready within 20 s.") && !onTime.pendingIsStatic)
+        // Slow: no promise, no breathing.
+        let slow = content(facts { $0.status = status(.pending, now: $0.now); $0.scoringSince = $0.now.addingTimeInterval(-120) })
+        #expect(slow.pendingTitle == String(localized: "Still scoring your night"))
+        #expect(slow.pendingDetail == String(localized: "Your data is safe. RYFT will keep trying.") && slow.pendingIsStatic)
+        // Last night's source by its display name.
+        let night = content(facts {
+            $0.status = status(.pending, now: $0.now)
+            $0.lastNight = RawNight(asleepMin: 430, bedtime: at(23, 0, daysAgo: 1), wake: at(6, 50), source: "Connect",
+                                    bundleID: "com.garmin.connect.mobile")
+        })
+        #expect(night.rawNight?.source == "Connect" && night.rawNightSource == "Garmin Connect")
+    }
+
+    // MARK: through SyncService and the view model
+
+    @Test func theWaitsStartStaysOnlyWhileThePlatformSaysPending() {
+        let (env, _, clock) = makeState(now: at(10, 0))
+        let sync = SyncService(env: env)
+        sync.advance(to: .reading)
+        sync.advance(to: .awaitingScores)
+        #expect(sync.scoringWaitStart == at(10, 0))
+        #expect(sync.scoringSince(pendingDays: []) == at(10, 0)) // during the wait, whatever was said before
+        // Scored before the cut-off (a push, or GET /v1/me/sync): gone.
+        clock.advance(by: .seconds(40))
+        sync.advance(to: .refreshing)
+        #expect(sync.scoringWaitStart == nil)
+
+        // A wait that ran into the cut-off keeps its start while the platform lists pending days.
+        sync.advance(to: .done)
+        sync.advance(to: .reading)
+        sync.advance(to: .awaitingScores)
+        let start = clock.now()
+        clock.advance(by: SyncCoordinator.maximumScoringWait)
+        sync.advance(to: .refreshing)
+        sync.advance(to: .done)
+        #expect(sync.scoringSince(pendingDays: ["2026-10-18"]) == start)
+        #expect(sync.scoringSince(pendingDays: []) == nil)
+        // The platform's word, nothing pending: cleared for good.
+        sync.receive(status(.scored, now: clock.now()))
+        #expect(sync.scoringWaitStart == nil && sync.scoringSince(pendingDays: ["2026-10-18"]) == nil)
+
+        // A silent push's refresh (the platform scored a day) clears it too; so does another account.
+        sync.advance(to: .reading)
+        sync.advance(to: .awaitingScores)
+        clock.advance(by: SyncCoordinator.maximumScoringWait)
+        sync.advance(to: .refreshing)
+        sync.advance(to: .done)
+        #expect(sync.scoringWaitStart != nil)
+        sync.receive(status(.pending, now: clock.now())) // still pending: kept
+        #expect(sync.scoringWaitStart != nil)
+        sync.advance(to: .refreshing)
+        #expect(sync.scoringWaitStart == nil)
+        sync.advance(to: .done)
+        sync.advance(to: .reading)
+        sync.advance(to: .awaitingScores)
+        sync.accountChanged()
+        #expect(sync.scoringWaitStart == nil)
+    }
+
+    @Test func theIPhonesInBedSleepOnThePlatformIsNotTheNightEither() {
+        // The iPhone's in-bed record at 07:05, here and as the platform's newest sleep: still no night.
+        func withLatest(_ latest: Date, phone: Date?) -> NightGap? {
+            TodayStates.nightGap(facts {
+                $0.freshness = [connect(at(23, 24, daysAgo: 1))] + [phone.map(phone(_:))].compactMap { $0 }
+                $0.status = status(.waitingForSleep, now: $0.now, latestSleep: latest)
+            })
+        }
+        #expect(withLatest(at(7, 5), phone: at(7, 5)) != nil)
+        #expect(withLatest(at(7, 5).addingTimeInterval(45), phone: at(7, 5)) != nil) // within a minute
+        #expect(withLatest(at(7, 0), phone: at(7, 5)) != nil)                         // older than the phone's
+        // Newer than anything the phone wrote, or no phone at all: another source's night.
+        #expect(withLatest(at(7, 30), phone: at(7, 5)) == nil)
+        #expect(withLatest(at(7, 5), phone: nil) == nil)
+    }
+
+    @Test func theQuietHintNeverNamesThePhoneAndHidesOffline() throws {
+        let afternoon = at(16, 0)
+        // The iPhone's in-bed record from 01:00 is no watch gone quiet.
+        #expect(TodayStates.watchHint(facts(now: afternoon) { $0.freshness = [phone(at(1, 0))] }) == nil)
+        let both = try #require(TodayStates.watchHint(facts(now: afternoon) { $0.freshness = [phone(at(15, 0)), connect(at(1, 0))] }))
+        #expect(both.source == "Garmin Connect")
+        // Offline it's noise.
+        #expect(TodayStates.watchHint(facts(now: afternoon) { $0.freshness = [connect(at(1, 0))]; $0.online = false }) == nil)
+        // The Apple Watch keeps its own glyph.
+        let watchHint = try #require(TodayStates.watchHint(facts(now: afternoon) { $0.freshness = [watch(at(1, 0))] }))
+        #expect(watchHint.systemImage == "applewatch.radiowaves.left.and.right" && !watchHint.opensApp)
+    }
+
+    @Test func aWaitThatEndsEarlyForgetsItsStart() {
+        let (env, _, clock) = makeState(now: at(10, 0))
+        let sync = SyncService(env: env)
+        // Cancelled (background, sign-out) or failed before the cut-off: no start left to call slow hours later.
+        for end in [SyncPhase.idle, .failed] {
+            sync.advance(to: .reading)
+            sync.advance(to: .awaitingScores)
+            clock.advance(by: .seconds(30))
+            sync.advance(to: end)
+            #expect(sync.scoringWaitStart == nil, "\(end)")
+            #expect(sync.scoringSince(pendingDays: ["2026-10-18"]) == nil)
+        }
+        // A wait that ran into the cut-off keeps it, also when it then ends cancelled.
+        sync.advance(to: .reading)
+        sync.advance(to: .awaitingScores)
+        let start = clock.now()
+        clock.advance(by: SyncCoordinator.maximumScoringWait)
+        sync.advance(to: .idle)
+        #expect(sync.scoringWaitStart == start)
+        // A run that uploads nothing doesn't touch it: GET /v1/me/sync decides.
+        sync.advance(to: .reading)
+        sync.advance(to: .refreshing)
+        #expect(sync.scoringWaitStart == start)
+    }
+
+    @Test func statusReadsStartAndClearTheClockButNeverMidWait() {
+        let (env, _, clock) = makeState(now: at(10, 0))
+        let sync = SyncService(env: env)
+        // Days pending that nobody here waits for (a relaunch, another device): timed from now, on this clock.
+        sync.receive(status(.pending, now: clock.now()))
+        #expect(sync.scoringWaitStart == at(10, 0) && sync.statusReadAt == at(10, 0))
+        clock.advance(by: .seconds(30))
+        sync.receive(status(.pending, now: clock.now()))
+        #expect(sync.scoringWaitStart == at(10, 0)) // the first sighting stays
+        #expect(sync.statusReadAt == at(10, 0).addingTimeInterval(30)) // every read is recorded
+        // During a wait an empty answer can predate the upload: the wait's start stays.
+        sync.advance(to: .reading)
+        sync.advance(to: .awaitingScores)
+        let start = clock.now()
+        sync.receive(status(.scored, now: clock.now()))
+        #expect(sync.scoringWaitStart == start && sync.scoringSince(pendingDays: []) == start)
+        // Outside a wait it clears.
+        clock.advance(by: SyncCoordinator.maximumScoringWait)
+        sync.advance(to: .refreshing)
+        sync.advance(to: .done)
+        sync.receive(status(.scored, now: clock.now()))
+        #expect(sync.scoringWaitStart == nil)
+        sync.accountChanged()
+        #expect(sync.statusReadAt == nil)
+    }
+
+    @Test func theFactsTimeTheWaitAndTheGaugeStopsBreathing() {
+        let now = at(10, 0)
+        let (_, state, clock) = makeState(now: now)
+        let sync = SyncService(env: state.env)
+        let vm = TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        state.syncStatus = status(.pending, now: now)
+        state.history = [DailyScore(day: DayFormat.string(from: DayFormat.shift(now, days: -1)), readiness: 76, state: .balanced,
+                                    baselineDays: 30, calibrating: false, computedAt: now.addingTimeInterval(-86_400),
+                                    scoringState: .scored)]
+        #expect(vm.facts.scoringSince == nil)
+        sync.advance(to: .reading)
+        sync.advance(to: .awaitingScores)
+        #expect(vm.facts.scoringSince == now)
+        #expect(vm.content.pendingIsStatic == false && vm.syncLine.isScoring)
+        // Past the threshold, before the platform said anything since: still scoring, still breathing.
+        clock.advance(by: .seconds(61))
+        #expect(!vm.content.pendingIsStatic && vm.syncLine == .scoring(night: true))
+        // The coordinator's poll still lists the night: static, "Still scoring your night", line 5b.
+        sync.receive(status(.pending, now: clock.now()))
+        #expect(vm.content.pendingIsStatic && vm.content.pendingTitle == String(localized: "Still scoring your night"))
+        #expect(vm.syncLine == .scoringSlow)
+    }
+
+    /// A start from a status read (the app opened after a background upload, no wait, no poll) and no silent push.
+    private func firstSight(scoredBeforeTheThreshold: Bool) async -> (TodayViewModel, SyncService, MockPlatformAPI, TestClock) {
+        let now = at(7, 0)
+        let api = MockPlatformAPI()
+        let (_, state, clock) = makeState(api: api, now: now)
+        let sync = SyncService(env: state.env)
+        let pipeline = coordinator(state, sync)
+        let vm = TodayViewModel(state: state, sync: sync, coordinator: pipeline, apiStatus: APIStatus())
+        let today = DayFormat.string(from: now)
+        api.scoringToday = TodayState(day: today, state: .pending, scoredAt: nil, modelVersion: "2026.10.1")
+        api.pendingDays = [today]
+        await pipeline.refreshStatus() // app active's read: today pending, timed from now
+        #expect(sync.scoringWaitStart == now && vm.facts.scoringSince == now)
+        if scoredBeforeTheThreshold {
+            clock.advance(by: .seconds(10)) // scored at 07:00:10; nobody tells this phone
+            api.scoringToday = TodayState(day: today, state: .scored, scoredAt: clock.now(), modelVersion: "2026.10.1")
+            api.pendingDays = []
+        }
+        // The one read at the threshold (60 s for API.md's 20 s estimate): asleep until then.
+        let check = Task { await vm.confirmSlowScoring() }
+        let deadline = Date().addingTimeInterval(5)
+        while clock.pendingSleeps == 0, Date() < deadline { await Task.yield() }
+        #expect(clock.pendingSleeps == 1)
+        #expect(vm.syncLine != .scoringSlow) // before it, never slow
+        clock.advance(by: .seconds(scoredBeforeTheThreshold ? 51 : 61))
+        await check.value
+        return (vm, sync, api, clock)
+    }
+
+    @Test func aFirstSightStartScoredMeanwhileIsClearedByTheOneReadAndNeverSlow() async {
+        let (vm, sync, api, clock) = await firstSight(scoredBeforeTheThreshold: true)
+        #expect(api.calls.filter { $0 == "syncStatus" }.count == 2) // app active's, and exactly one more
+        #expect(sync.scoringWaitStart == nil && vm.facts.scoringSince == nil)
+        clock.advance(by: .seconds(600))
+        #expect(vm.syncLine != .scoringSlow && !TodayStates.scoringSlow(vm.facts))
+        await vm.confirmSlowScoring() // nothing left to confirm: no further read
+        #expect(api.calls.filter { $0 == "syncStatus" }.count == 2)
+    }
+
+    @Test func aFirstSightStartStillPendingAfterTheOneReadIsSlow() async {
+        let (vm, _, api, _) = await firstSight(scoredBeforeTheThreshold: false)
+        #expect(api.calls.filter { $0 == "syncStatus" }.count == 2)
+        #expect(TodayStates.scoringSlow(vm.facts))
+        // Decided: running it again asks nothing more.
+        await vm.confirmSlowScoring()
+        #expect(api.calls.filter { $0 == "syncStatus" }.count == 2)
+    }
+
+    @Test func theViewModelNamesSourcesFromTheCatalog() async {
+        let health = MockHealthStore()
+        let now = Date()
+        health.freshness = [SourceFreshness(source: "Connect", bundleID: "com.garmin.connect.mobile", newest: now.addingTimeInterval(-3_600))]
+        health.night = RawNight(asleepMin: 400, bedtime: now.addingTimeInterval(-30_000), wake: now.addingTimeInterval(-3_000),
+                                source: "Connect", bundleID: "com.garmin.connect.mobile")
+        let (_, state, _) = makeState(health: health, now: now)
+        let sync = SyncService(env: state.env)
+        let vm = TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        #expect(vm.facts.sourceApps.isEmpty) // nothing to name before HealthKit answered
+        await vm.loadHealthFacts()
+        let apps = vm.facts.sourceApps
+        #expect(apps[health.freshness[0].ref] == SourceApp(name: "Garmin Connect", kind: .app, appStoreURL: garminStore))
+        #expect(apps[health.night!.ref]?.name == "Garmin Connect")
+    }
+}
+
 // MARK: - Today: one decision for gauge, tiles and note (T2)
 
 /// `TodayPresentation.decide` as design.md §7's table, row by row (ui.md's letter in brackets),
@@ -926,6 +1402,33 @@ struct SyncDetailsTests {
 
         #expect(health.recentReads == before + 1)
         #expect(!sync.engineState.recentRequested)
+    }
+
+    @Test func theScoringRowSaysSinceWhenAndWhetherItsSlow() {
+        let (_, state, clock) = makeState()
+        let sync = SyncService(env: state.env)
+        let model = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        #expect(model.scoringText == String(localized: "Nothing waiting") && !model.scoringIsSlow)
+        #expect(model.diagnostics.contains("scoring since - · expected 30 s · slow false"))
+
+        sync.advance(to: .reading)
+        sync.advance(to: .awaitingScores)
+        let start = clock.now()
+        state.syncStatus = SyncStatus(gate: nil, lastSyncAt: start, lastSyncDevice: "iPhone", latest: [:],
+                                      today: TodayState(day: DayFormat.string(from: start), state: .pending, scoredAt: nil,
+                                                        modelVersion: "2026.10.1"),
+                                      pendingDays: [DayFormat.string(from: start)], expectedWithinSec: 20, resyncRequestedAt: nil)
+        #expect(model.scoringText == String(localized: "Waiting since \(Fmt.time(start)) · usually \(20) s"))
+        #expect(!model.scoringIsSlow)
+        clock.advance(by: .seconds(61))
+        #expect(!model.scoringIsSlow) // not before a read after the threshold
+        sync.receive(state.syncStatus!)
+        #expect(model.scoringIsSlow)
+        #expect(model.diagnostics.contains("scoring since \(start.ISO8601Format()) · expected 20 s · slow true"))
+
+        // The platform lists days this app isn't timing: it says so instead of "Nothing waiting".
+        sync.accountChanged()
+        #expect(model.scoringText == String(localized: "Pending: \(DayFormat.string(from: start))"))
     }
 }
 

@@ -158,9 +158,24 @@ final class TodayViewModel {
         f.expectedScoringSec = sync.lastScoring?.expectedWithinSec
         f.lastNight = lastNightRaw
         f.freshness = freshness
+        f.scoringSince = sync.scoringSince(pendingDays: state.syncStatus?.pendingDays ?? [])
+        f.statusReadAt = sync.statusReadAt
         if let scenario = state.todayScenario { f = scenario.apply(to: f) }
+        // Names for the sources on screen (§5), resolved once per set of sources and catalog version; nothing
+        // to name before HealthKit answered (the first frame).
+        let refs = f.sourceRefs
+        if !refs.isEmpty {
+            let catalog = env.trackerCatalog
+            if sourceApps.refs != refs || sourceApps.version != catalog.version {
+                sourceApps = (refs, catalog.version, SourceApp.resolve(refs, in: catalog))
+            }
+            f.sourceApps = sourceApps.apps
+        }
         return f
     }
+
+    /// The last names resolved (`facts`), and for which sources and catalog.
+    @ObservationIgnored private var sourceApps: (refs: Set<SourceRef>, version: String, apps: [SourceRef: SourceApp]) = ([], "", [:])
 
     var hero: TodayHero { TodayStates.hero(facts) }
     /// Gauge, tiles and note, decided once from the same facts (`TodayPresentation.decide`).
@@ -186,6 +201,28 @@ final class TodayViewModel {
     /// waiting for sleep, when no night has arrived.
     var rawNight: RawNight? { content.rawNight }
 
+    /// When nothing else will ask the platform after the slow threshold (a start from a status read, after a
+    /// relaunch or another device's upload; a wait that gave up before it), one GET /v1/me/sync at the
+    /// threshold decides between "Scoring…" and "Taking longer than usual". A one-shot per start, not a loop:
+    /// Today runs it per start (`.task(id:)`), so a new start, its end or another account cancels it.
+    func confirmSlowScoring() async {
+        let f = facts
+        guard let since = f.scoringSince, f.phase != .awaitingScores else { return }
+        let due = since.addingTimeInterval(TodayStates.slowThreshold(f.status?.expectedWithinSec ?? f.expectedScoringSec))
+        if let read = f.statusReadAt, read >= due { return }
+        let wait = due.timeIntervalSince(env.clock.now())
+        if wait > 0 {
+            do { try await env.clock.sleep(for: .milliseconds(Int((wait * 1000).rounded(.up)))) } catch { return }
+        }
+        guard !Task.isCancelled, sync.scoringSince(pendingDays: state.syncStatus?.pendingDays ?? []) == since else { return }
+        await coordinator.refreshStatus()
+    }
+
+    /// What `confirmSlowScoring` is scheduled for: the start, and whether a waiting coordinator asks instead.
+    var slowScoringCheck: [Double] {
+        [sync.scoringWaitStart?.timeIntervalSince1970 ?? -1, sync.phase == .awaitingScores ? 1 : 0]
+    }
+
     /// Reloads `lastNightRaw` and `freshness` when a sync ends or the day is fetched again.
     var healthFactsKey: Date? { sync.engineState.updatedAt ?? state.lastUpdated }
 
@@ -195,8 +232,12 @@ final class TodayViewModel {
         guard !state.isDemo, env.auth.isSignedIn, env.health.isAvailable else { return }
         let health = env.health
         let now = env.clock.now()
-        lastNightRaw = try? await health.lastNight(before: now)
-        freshness = (try? await health.newestRecords(since: now.addingTimeInterval(-TodayStates.freshnessWindow))) ?? []
+        let night = try? await health.lastNight(before: now)
+        let sources = (try? await health.newestRecords(since: now.addingTimeInterval(-TodayStates.freshnessWindow))) ?? []
+        // The catalog's first parse off the main actor, before the facts name these sources.
+        if night != nil || !sources.isEmpty { _ = await TrackerCatalog.loadBundled() }
+        lastNightRaw = night
+        freshness = sources
     }
 
     /// The status line's tap: the gate's screen, else Sync details (nothing while waiting for the unlock).
@@ -282,9 +323,12 @@ struct TodayContent {
         let p = presentation
         switch p.gauge {
         case .pending(let night):
-            if night.waitingForSleep { return String(localized: "Last night hasn't reached RYFT yet.") }
-            // The gauge and the line say it's scoring; this says what the dimmed number is, and from which day.
-            guard night.previousReadiness != nil else { return String(localized: "Your night is being scored.") }
+            // The gauge and the line say what's happening to the night (the hint card where it is); this says
+            // what the dimmed number is, and from which day.
+            guard night.previousReadiness != nil else {
+                return night.waitingForSleep ? String(localized: "Last night hasn't reached RYFT yet.")
+                    : String(localized: "Your night is being scored.")
+            }
             if let day = night.previousDay,
                !Calendar.current.isDate(day, inSameDayAs: DayFormat.shift(facts.now, days: -1)) {
                 // A gap day before last night (a night without the watch): its date, as the gauge and tiles have it.
@@ -370,6 +414,34 @@ struct TodayContent {
     /// The import's slim row under the header, once a day is scored and the backfill goes on.
     var importRow: ImportProgress? { TodayStates.importRow(facts) }
     var watchHint: WatchSyncHint? { TodayStates.watchHint(facts) }
+
+    /// Last night's source by its display name ("Garmin Connect", not "Connect").
+    var rawNightSource: String? {
+        rawNight.map { facts.sourceApps[$0.ref]?.name ?? $0.source }
+    }
+
+    /// The pending gauge's title: "Still scoring your night" once scoring is slow (the line says "Taking
+    /// longer than usual"; ui.md §6.4, review).
+    var pendingTitle: String {
+        guard case .pending(let night) = hero else { return "" }
+        if pendingIsStatic { return String(localized: "Still scoring your night") }
+        return night.title
+    }
+
+    /// The pending gauge's line: reassurance once scoring is slow, else the shipped one; none while the
+    /// night hint is on screen, which says where the night is (one statement, not three).
+    var pendingDetail: String {
+        guard case .pending(let night) = hero else { return "" }
+        if night.waitingForSleep, TodayStates.nightGap(facts) != nil { return "" }
+        if pendingIsStatic { return String(localized: "Your data is safe. RYFT will keep trying.") }
+        return night.detail
+    }
+
+    /// Slow scoring: the outline stops breathing, nothing implies progress.
+    var pendingIsStatic: Bool {
+        guard case .pending(let night) = hero, !night.waitingForSleep else { return false }
+        return TodayStates.scoringSlow(facts)
+    }
 }
 
 // MARK: - in-between states (what's true while data is on its way)
@@ -403,6 +475,19 @@ struct TodaySyncFacts: Equatable {
     var expectedScoringSec: Int?
     var lastNight: RawNight?
     var freshness: [SourceFreshness] = []
+    /// The display names of the sources above (design.md §5), resolved by the facts builder from the
+    /// tracker catalog; tests set them directly. A source without an entry keeps HealthKit's name.
+    var sourceApps: [SourceRef: SourceApp] = [:]
+    /// When scoring began: the current wait's start (`SyncService.scoringWaitStart`) while `.awaitingScores`;
+    /// after the wait gave up, the same start while the platform's latest `pending_days` still holds days; else nil.
+    var scoringSince: Date?
+    /// When the latest GET /v1/me/sync answered (`SyncService.statusReadAt`): slow needs one after the threshold.
+    var statusReadAt: Date?
+
+    /// The sources Today names: the freshest per source and last night's.
+    var sourceRefs: Set<SourceRef> {
+        Set(freshness.map(\.ref) + [lastNight?.ref].compactMap { $0 })
+    }
 
     /// What the day's numbers are decided from (`TodayPresentation.decide`).
     var scores: TodayScoreFacts {
@@ -492,6 +577,9 @@ enum SyncLine: Equatable {
     case uploading(records: Int)
     /// Waiting for the platform: last night (`night`) or newer data.
     case scoring(night: Bool)
+    /// Scoring has taken over max(60 s, 3 × `expected_within_sec`): "Taking longer than usual · Details"
+    /// (state 5b). Not progress, so no pulse; the tap opens Sync details.
+    case scoringSlow
     case updating
     /// Idle, and what's on screen is older than its threshold after a refresh that didn't succeed
     /// (`RefreshPolicy.staleSince`): "Showing data from 14:05 · Try again".
@@ -511,6 +599,7 @@ enum SyncLine: Equatable {
         case .reading: return "heart.text.square"
         case .uploading: return "arrow.up.circle"
         case .scoring: return "waveform.path.ecg"
+        case .scoringSlow: return "clock"
         case .updating: return "arrow.triangle.2.circlepath"
         case .stale: return "clock"
         case .issue: return "exclamationmark.circle"
@@ -537,6 +626,7 @@ enum SyncLine: Equatable {
         case .uploading(let records): return String(localized: "Uploading \(records.formatted()) readings")
         case .scoring(night: true): return String(localized: "Scoring your night")
         case .scoring(night: false): return String(localized: "Scoring your latest data")
+        case .scoringSlow: return String(localized: "Taking longer than usual · Details")
         case .updating: return String(localized: "Updating…")
         case .stale(let since): return String(localized: "Showing data from \(Self.dataTime(since, now: now))")
         case .issue(_, signedOut: true): return String(localized: "You're signed out · Details")
@@ -567,21 +657,110 @@ enum SyncLine: Equatable {
     }
 }
 
-/// "Nothing new from Garmin Connect since 23:40": the source's own name, from HealthKit.
+/// "Nothing new from Garmin Connect since 23:40" (a quiet source), or in the morning "Your night hasn't
+/// reached Apple Health yet" (`TodayStates.nightGap`). Never both. The source by its display name (§5).
 struct WatchSyncHint: Equatable {
+    enum Kind: Equatable { case quiet, night(NightGap) }
+
     let source: String
     let since: Date
     /// An app that syncs to Apple Health only while it runs (open it); else an Apple device.
     let isApp: Bool
+    var kind: Kind = .quiet
+    /// The app's App Store page ("Garmin Connect in the App Store"), which shows Open when it's installed.
+    var storeURL: URL?
 
-    func text(now: Date, calendar: Calendar = .current) -> String {
-        let time = calendar.isDate(since, inSameDayAs: now) ? Fmt.time(since)
-            : since.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+    var isNight: Bool { if case .night = kind { return true } else { return false } }
+
+    /// The sentence, its time in the screen's locale ("23:24" in German, the user's 12/24-hour setting in the app).
+    func text(now: Date, locale: Locale = .autoupdatingCurrent, calendar: Calendar = .current) -> String {
+        if case .night(let gap) = kind {
+            switch gap.kind {
+            case .app:
+                return String(localized: "Your night hasn't reached Apple Health yet. Open \(gap.name) to sync it.")
+            case .appleDevice:
+                return String(localized: "Your night hasn't reached Apple Health yet. Keep your Apple Watch near your iPhone so it syncs.")
+            case .unknown:
+                return String(localized: "Your night hasn't reached Apple Health yet.")
+            }
+        }
+        let time = calendar.isDate(since, inSameDayAs: now) ? Fmt.time(since, locale: locale) : Self.dayAndTime(since, locale: locale)
         if isApp {
             return String(localized: "Nothing new from \(source) since \(time). Open the \(source) app to sync it to Apple Health.")
         }
         return String(localized: "Nothing new from \(source) since \(time). Wear it and keep it near your iPhone so it syncs.")
     }
+
+    /// The night's data age, a real time with its day: "Last data from Garmin Connect: Wed 23:24".
+    func caption(locale: Locale = .autoupdatingCurrent) -> String? {
+        guard isNight else { return nil }
+        return String(localized: "Last data from \(source): \(Self.dayAndTime(since, locale: locale))")
+    }
+
+    /// "Wed 23:24", in `locale`.
+    static func dayAndTime(_ date: Date, locale: Locale) -> String {
+        date.formatted(Date.FormatStyle(locale: locale).weekday(.abbreviated).hour().minute())
+    }
+
+    /// The App Store page button: only an app's, and only with a store page.
+    var opensApp: Bool { isApp && storeURL != nil }
+
+    /// "Garmin Connect in the App Store": true whether or not the app is installed (the page shows Open).
+    var storeTitle: String { String(localized: "\(source) in the App Store") }
+
+    /// The night's moon; for a quiet source a generic one, the watch glyph only for an Apple device (Apple's
+    /// product glyphs are for Apple's products).
+    var systemImage: String {
+        if isNight { return "moon.zzz" }
+        return isApp ? "antenna.radiowaves.left.and.right" : "applewatch.radiowaves.left.and.right"
+    }
+}
+
+extension WatchSyncHint {
+    init(night gap: NightGap) {
+        self.init(source: gap.name, since: gap.newest, isApp: gap.kind == .app, kind: .night(gap), storeURL: gap.storeURL)
+    }
+}
+
+/// A source as Today names it (design.md §5): the tracker catalog's display name, what kind of source it
+/// is, and the app's store page.
+struct SourceApp: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        /// A vendor app that writes to Apple Health while it runs ("Open Garmin Connect").
+        case app
+        /// An Apple device (the watch): nothing to open.
+        case appleDevice
+        /// A source the catalog doesn't know: HealthKit's name.
+        case unknown
+    }
+
+    let name: String
+    let kind: Kind
+    let appStoreURL: URL?
+
+    static func resolve(_ source: SourceRef, in catalog: TrackerCatalog) -> SourceApp {
+        let tracker = catalog.match(source)
+        let kind: Kind
+        switch tracker?.integration {
+        case .vendorApp?: kind = .app
+        case .appleBuiltin?: kind = .appleDevice
+        default: kind = .unknown
+        }
+        return SourceApp(name: catalog.displayName(source), kind: kind, appStoreURL: kind == .app ? tracker?.appStoreURL : nil)
+    }
+
+    static func resolve(_ sources: Set<SourceRef>, in catalog: TrackerCatalog) -> [SourceRef: SourceApp] {
+        Dictionary(uniqueKeysWithValues: sources.map { ($0, resolve($0, in: catalog)) })
+    }
+}
+
+/// The night hasn't reached Apple Health (`TodayStates.nightGap`): the quiet source with the newest record,
+/// by its display name.
+struct NightGap: Equatable, Sendable {
+    let name: String
+    let kind: SourceApp.Kind
+    let storeURL: URL?
+    let newest: Date
 }
 
 /// Which in-between state wins, from the facts alone (tested in `TodayStatesTests`).
@@ -659,27 +838,91 @@ enum TodayStates {
         case .uploading(_, let records): return .uploading(records: records)
         case nil: break
         }
+        // "Scoring your night" only for a night the platform has; a gauge waiting for it isn't being scored.
         let night: Bool
-        if case .pending = hero(f) { night = true } else { night = false }
-        if f.phase == .awaitingScores { return .scoring(night: night) }
+        if case .pending(let p) = hero(f), !p.waitingForSleep { night = true } else { night = false }
+        // "Scoring" is about data RYFT uploaded: never beside a night that hasn't reached Apple Health.
+        let gap = nightGap(f)
+        if f.phase == .awaitingScores, gap == nil { return scoringSlow(f) ? .scoringSlow : .scoring(night: night) }
         if f.phase == .refreshing || f.isLoading { return .updating }
         if let card { return .issue(card, signedOut: signedOut) }
         if let since = staleSince { return .stale(since: since) }
         if f.syncFailed { return .paused }
-        if case .pending(let p) = hero(f), !p.waitingForSleep { return .scoring(night: true) }
+        if case .pending(let p) = hero(f), !p.waitingForSleep { return scoringSlow(f) ? .scoringSlow : .scoring(night: true) }
+        // The wait gave up while the platform still lists pending days: never a silent "Up to date".
+        if gap == nil, scoringSlow(f) { return .scoringSlow }
         return .upToDate(f.lastUpdated, demo: f.isDemo)
     }
 
-    /// The freshest source of heart rate (or sleep) has been quiet for over 6 h in the
-    /// morning (05–12) or 12 h otherwise.
+    /// In the morning, the night that hasn't reached Apple Health (`nightGap`); otherwise the freshest
+    /// source of heart rate or sleep quiet for over 6 h in the morning (05–12) or 12 h otherwise. By the
+    /// source's display name.
     static func watchHint(_ f: TodaySyncFacts, calendar: Calendar = .current) -> WatchSyncHint? {
-        guard f.syncs, !f.waitingForUnlock, !isImporting(f),
-              let newest = f.freshness.max(by: { $0.newest < $1.newest }) else { return nil }
+        if let gap = nightGap(f, calendar: calendar) { return WatchSyncHint(night: gap) }
+        // Offline a stale-source hint is noise; the iPhone is never "your watch" (its in-bed sleep is listed too).
+        guard f.syncs, f.online, !f.waitingForUnlock, !isImporting(f),
+              let newest = f.freshness.filter({ !$0.isPhone }).max(by: { $0.newest < $1.newest }) else { return nil }
         let morning = (5..<12).contains(calendar.component(.hour, from: f.now))
         let quiet: TimeInterval = (morning ? 6 : 12) * 3_600
         guard f.now.timeIntervalSince(newest.newest) > quiet else { return nil }
-        return WatchSyncHint(source: newest.source, since: newest.newest, isApp: newest.isApp)
+        let app = f.sourceApps[newest.ref]
+        return WatchSyncHint(source: app?.name ?? newest.source, since: newest.newest, isApp: newest.isApp,
+                             storeURL: app?.appStoreURL)
     }
+
+    /// The morning window for the night hint (the brief's example; Bedtime & wake's time is a follow-up).
+    enum NightCheck {
+        /// A record after 04:00 is the night's evidence.
+        static let cutoff = 4
+        /// The hint shows from 08:00 until 15:00.
+        static let from = 8
+        static let until = 15
+    }
+
+    /// The night hasn't reached Apple Health (design.md §6.2, ui.md §6.1 T1): in the morning, while the
+    /// platform waits for sleep (row C, nothing uploaded), no watch or tracker app has written anything after
+    /// 04:00 and the platform's newest sleep isn't after it either. The iPhone's own in-bed sleep isn't the
+    /// night. Names the quiet source with the newest record. Online only: offline it's noise.
+    static func nightGap(_ f: TodaySyncFacts, calendar: Calendar = .current) -> NightGap? {
+        guard f.syncs, f.online, !isImporting(f), !f.waitingForUnlock else { return nil }
+        guard (NightCheck.from..<NightCheck.until).contains(calendar.component(.hour, from: f.now)),
+              let cutoff = calendar.date(bySettingHour: NightCheck.cutoff, minute: 0, second: 0, of: f.now) else { return nil }
+        // Exclusive with scoring: once a night is uploaded (pending) or scored, the gauge says so.
+        guard case .pending(let night) = hero(f), night.waitingForSleep else { return nil }
+        guard let newest = f.freshness.filter({ !$0.isPhone }).max(by: { $0.newest < $1.newest }),
+              newest.newest <= cutoff else { return nil }
+        // The platform's newest sleep, unless it's this iPhone's in-bed record (the platform takes the newest of
+        // every source): within a minute of the phone's own newest record, or older than it.
+        if let sleep = f.status?.latest["sleep"], sleep > cutoff,
+           !f.freshness.contains(where: { $0.isPhone && $0.newest >= sleep.addingTimeInterval(-60) }) { return nil }
+        let app = f.sourceApps[newest.ref] ?? SourceApp(name: newest.source, kind: .unknown, appStoreURL: nil)
+        return NightGap(name: app.name, kind: app.kind, storeURL: app.appStoreURL, newest: newest.newest)
+    }
+
+    /// Scoring has taken longer than max(60 s, 3 × `expected_within_sec`) since it began (design.md §6.3), on
+    /// the platform's word: a status read after that threshold still lists the days. Until it lands the line
+    /// says "Scoring…" (by 3 × a waiting coordinator has asked twice; otherwise Today asks once,
+    /// `TodayViewModel.confirmSlowScoring`). The floor keeps a tiny estimate from flipping the line.
+    static func scoringSlow(_ f: TodaySyncFacts) -> Bool {
+        let listed = f.status.map { !$0.pendingDays.isEmpty } ?? false
+        return scoringSlow(since: f.scoringSince, expected: f.status?.expectedWithinSec ?? f.expectedScoringSec, now: f.now,
+                           checkedAt: listed ? f.statusReadAt : nil)
+    }
+
+    /// `checkedAt`: a status read that still lists the pending days, if there was one.
+    static func scoringSlow(since: Date?, expected: Int?, now: Date, checkedAt: Date?) -> Bool {
+        guard let since, let checkedAt else { return false }
+        let due = since.addingTimeInterval(slowThreshold(expected))
+        return now > due && checkedAt >= due
+    }
+
+    /// max(60 s, 3 × the estimate; API.md's 30 s without one).
+    static func slowThreshold(_ expected: Int?) -> TimeInterval {
+        max(minimumSlowScoring, 3 * Double(expected ?? SyncCoordinator.defaultExpectedScoring))
+    }
+
+    /// The floor under "Taking longer than usual".
+    static let minimumSlowScoring: TimeInterval = 60
 }
 
 // MARK: - one decision for gauge, tiles and note
@@ -846,6 +1089,9 @@ enum TodayScenario: String, CaseIterable {
     /// Row B with a long history that has no HRV or resting HR (a phone-only account): the platform's
     /// readiness with the note; the same without a readiness, the baselines counting heart-rate nights.
     case needsVitals, needsVitalsBaselines
+    /// 09:12, Garmin Connect quiet since 23:24 and the platform waiting for sleep: the night hint (T1).
+    /// The night being scored for 10 minutes against an estimate of 20 s: "Taking longer than usual" (5b).
+    case nightGap, scoringSlow
 
     func apply(to base: TodaySyncFacts) -> TodaySyncFacts {
         var f = base
@@ -879,8 +1125,40 @@ enum TodayScenario: String, CaseIterable {
         case .watch:
             f.syncs = true
             f.engine.backfillDone = true
-            f.freshness = [SourceFreshness(source: "Garmin Connect", bundleID: "com.garmin.connect.mobile",
+            // HealthKit's name for Garmin Connect is "Connect"; Today shows the catalog's.
+            f.freshness = [SourceFreshness(source: "Connect", bundleID: "com.garmin.connect.mobile",
                                            newest: now.addingTimeInterval(-14 * 3_600))]
+        case .nightGap:
+            let morning = Calendar.current.date(bySettingHour: 9, minute: 12, second: 0, of: now) ?? now
+            let yesterday = DayFormat.shift(morning, days: -1)
+            f.now = morning
+            f.syncs = true
+            f.engine.backfillDone = true
+            f.hasScoredDay = true
+            f.today = nil
+            f.prior = Self.prior(now: morning)
+            f.status = Self.status(now: morning, .waitingForSleep)
+            f.lastNight = nil
+            f.freshness = [
+                SourceFreshness(source: "Connect", bundleID: "com.garmin.connect.mobile",
+                                newest: Calendar.current.date(bySettingHour: 23, minute: 24, second: 0, of: yesterday) ?? yesterday),
+                // The iPhone's sleep schedule writes in-bed time: not the night.
+                SourceFreshness(source: "Tim's iPhone", bundleID: "com.apple.health.3F0A9B8C", newest: morning.addingTimeInterval(-2 * 3_600),
+                                deviceModel: "iPhone"),
+            ]
+        case .scoringSlow:
+            f.syncs = true
+            f.engine.backfillDone = true
+            f.hasScoredDay = true
+            f.today = nil
+            f.prior = Self.prior(now: now)
+            f.status = Self.status(now: now, .pending)
+            f.phase = .awaitingScores
+            f.scoringSince = now.addingTimeInterval(-10 * 60)
+            f.statusReadAt = now.addingTimeInterval(-20) // the platform still listed the night 20 s ago
+            let wake = Calendar.current.date(bySettingHour: 6, minute: 52, second: 0, of: now) ?? now
+            f.lastNight = RawNight(asleepMin: 437, bedtime: wake.addingTimeInterval(-8 * 3_600 + 25 * 60), wake: wake,
+                                   source: "Connect", bundleID: "com.garmin.connect.mobile")
         case .recalculating, .recalculatingYesterday, .needsVitals, .needsVitalsBaselines:
             f.engine.backfillDone = true
             f.hasScoredDay = true
