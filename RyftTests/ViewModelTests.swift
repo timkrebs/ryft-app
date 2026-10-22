@@ -1403,23 +1403,41 @@ struct RefreshAllOrNothingTests {
     @Test(arguments: [("me", FaultInjection.Fault.timeout), ("days", .unavailable), ("me", .tooManyRequests)])
     func oneFailingReadShowsNoCard(route: String, fault: FaultInjection.Fault) async {
         let api = MockPlatformAPI()
-        let (vm, state, _) = model(api)
+        let (vm, state, clock) = model(api)
         await state.refresh()                  // everything cached and current
         api.faults[route] = .init(fault)
 
-        await vm.refresh()                     // pull to refresh
+        await vm.refresh()                     // pull to refresh: returns after today and the sync status
+        await finishPull(state, clock)         // me and history come in phase 3
 
+        #expect(api.count(route) >= 2)         // it did fail, and was retried
         #expect(state.lastUpdated != nil)      // the day itself loaded fine
         #expect(vm.status == nil, "got \(String(describing: vm.status))")
+    }
+
+    /// Phase 3 to its end, moving the test clock through retries and the rate-limit hold-back.
+    private func finishPull(_ state: AppState, _ clock: TestClock) async {
+        guard let phases = state.pullPhases else { return }
+        let done = PullDone()
+        let waiter = Task {
+            await phases.value
+            done.value = true
+        }
+        for _ in 0..<120 where !done.value {
+            clock.advance(by: .seconds(1))
+            try? await Task.sleep(for: .milliseconds(2))
+        }
+        await waiter.value
     }
 
     /// A failing `/v1/days/{day}` with a cached copy is swallowed by the repository (and counted).
     @Test func aFailingDayWithACachedCopyIsSwallowed() async {
         let api = MockPlatformAPI()
-        let (vm, state, _) = model(api)
+        let (vm, state, clock) = model(api)
         await state.refresh()
         api.faults["day"] = .init(.timeout)
         await vm.refresh()
+        await finishPull(state, clock)
         #expect(vm.status == nil)
     }
 
@@ -1524,3 +1542,9 @@ struct RefreshAllOrNothingTests {
     }
 }
 #endif
+
+/// Set once the awaited work has ended (main actor).
+@MainActor
+private final class PullDone {
+    var value = false
+}

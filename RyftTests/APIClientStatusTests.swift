@@ -432,8 +432,8 @@ extension APIClientStatusTests {
 
 /// Never answers, so a test can cancel the task that waits for it.
 final class HangingURLProtocol: URLProtocol {
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {}
     override func stopLoading() {}
 }
@@ -499,8 +499,8 @@ extension APIClientStatusTests {
 
 /// Fails every request as a timeout would.
 final class TimingOutURLProtocol: URLProtocol {
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.timedOut)) }
     override func stopLoading() {}
 }
@@ -584,5 +584,73 @@ struct RetryPolicyTests {
                              APIError.http(403, "", code: .consentRequired)] {
             #expect(p.delay(before: 1, after: error, random: top) == nil, "\(error)")
         }
+    }
+}
+
+/// Ends every request as a cancelled task's does.
+final class CancellingURLProtocol: URLProtocol {
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.cancelled)) }
+    override func stopLoading() {}
+}
+
+/// Answers 200 with a request ID and a body no model decodes from.
+final class UnreadableAnswerURLProtocol: URLProtocol {
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+                                       headerFields: ["X-Request-ID": "rid-200"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(#"{"unexpected":true}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+@Suite("APIClient: cancellation, unreadable answers, redaction")
+struct APIClientReviewFixTests {
+    private func client(_ protocolClass: URLProtocol.Type, _ status: APIStatus) -> APIClient {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [protocolClass]
+        return APIClient(session: URLSession(configuration: config), tokens: FakeTokens(), sleep: { _ in },
+                         baseURL: URL(string: "https://api.test")!, status: status)
+    }
+
+    /// Nit 10: a cancelled request isn't a warning and takes none of the report's 20 slots.
+    @Test func aCancelledRequestTakesNoSlot() async {
+        let status = await APIStatus()
+        await #expect(throws: CancellationError.self) {
+            _ = try await client(CancellingURLProtocol.self, status).data("GET", path: "/v1/me", body: Optional<Int>.none)
+        }
+        #expect(await status.requests.isEmpty)
+        #expect(await status.failures.isEmpty)
+        #expect(await status.cancelledCount == 1)
+    }
+
+    /// Nit 9: a 200 this build can't decode keeps its status and request ID (not retried: `.other`).
+    @Test func anUnreadableAnswerKeepsItsStatusAndRequestID() async {
+        let status = await APIStatus()
+        do {
+            _ = try await client(UnreadableAnswerURLProtocol.self, status).me()
+            Issue.record("expected a decoding failure")
+        } catch {
+            let api = error as? APIError
+            #expect(api?.status == 200 && api?.requestID == "rid-200")
+            #expect(FailureKind.of(error) == .other)
+            let recorded = ResourceError(error, kind: FailureKind.of(error), attempts: 1, at: .now)
+            #expect(recorded.status == 200 && recorded.requestID == "rid-200")
+        }
+    }
+
+    /// Security should-fix 2: no query, no IDs; day segments stay.
+    @Test func pathsAreRedacted() {
+        #expect(redactedPath("/v1/sleep/plan?wake=06:30") == "/v1/sleep/plan")
+        #expect(redactedPath("/v1/devices/3F2504E0-4F89-41D3-9A0C-0305E82C3301/push") == "/v1/devices/{id}/push")
+        #expect(redactedPath("/v1/sessions/3f2504e0-4f89-41d3-9a0c-0305e82c3301/complete") == "/v1/sessions/{id}/complete")
+        #expect(redactedPath("/v1/days/2026-10-21") == "/v1/days/2026-10-21")
+        #expect(redactedPath("/v1/days?from=2026-07-24&to=2026-10-21") == "/v1/days")
+        #expect(redactedPath("/v1/me#x") == "/v1/me")
     }
 }
