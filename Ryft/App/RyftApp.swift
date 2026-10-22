@@ -646,8 +646,9 @@ private struct DebugDevices: View {
         // `-RyftScrollBottom YES`: the end of a long card (its store button) for a capture.
         .defaultScrollAnchor(UserDefaults.standard.bool(forKey: "RyftScrollBottom") ? .bottom : .top)
         .task {
-            // The demo choice is an Apple Watch, which needs no setup: the setup screen shows two that do.
-            if screen == .trackerSetup, UserDefaults.standard.string(forKey: "RyftTrackers") == nil {
+            // The demo choice is an Apple Watch, which needs no setup: the setup screen shows two that do. A real
+            // account shows its own choice (or `-RyftTrackers`), nothing staged.
+            if env.isDemo, screen == .trackerSetup, UserDefaults.standard.string(forKey: "RyftTrackers") == nil {
                 screens.devices.stage(["garmin", "oura"])
             }
             ready = true

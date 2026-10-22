@@ -1973,15 +1973,20 @@ final class TrackerSelectionStore {
     /// The signed-in account's, as stored.
     private var live: TrackerSelection?
     private var demo: TrackerSelection
+    /// Previews and screenshot runs on a real account (`stage`): shown, never saved.
+    private var staged: [String]?
+    /// `-RyftTrackers` (Debug): shown over a real account's choice for the launch, never saved.
+    private let launch: [String]?
 
-    init(env: AppEnvironment) {
+    init(env: AppEnvironment, launch: [String]? = TrackerSelectionStore.launchTrackers) {
         self.env = env
+        self.launch = launch
         var ids = Self.demoTrackers
         #if DEBUG
         // `-RyftSyncCheck <scenario>`: the trackers the scenario's check reads.
         if let scenario = SyncCheckScenario.requested { ids = scenario.trackers }
-        if let picked = Self.launchTrackers { ids = picked }
         #endif
+        if let launch { ids = launch }
         demo = TrackerSelection(account: "demo", trackers: ids, updatedAt: .distantPast)
         accountChanged()
     }
@@ -1990,26 +1995,36 @@ final class TrackerSelectionStore {
     var selection: TrackerSelection? {
         if env.isDemo { return demo }
         guard let account = env.auth.accountID else { return nil }
-        let stored = live?.account == account ? live : nil
-        #if DEBUG
-        // `-RyftTrackers garmin,oura` on a real account (device tests): this choice for the launch, in memory,
-        // over the stored one; what was marked set up or later stays.
-        if let ids = Self.launchTrackers {
+        // A staged or (Debug) `-RyftTrackers` choice on a real account shows over the stored one, in memory only;
+        // what was marked set up or later stays the stored one's.
+        if let ids = shown {
             return TrackerSelection(account: account, trackers: ids, updatedAt: stored?.updatedAt ?? .distantPast,
                                     setUp: stored?.setUp ?? [], later: stored?.later ?? [])
         }
-        #endif
         return stored
     }
 
-    #if DEBUG
-    /// `-RyftTrackers garmin,oura`: the demo choice, and a real account's for the launch.
-    static var launchTrackers: [String]? {
+    /// What's stored for the signed-in account (demo data's own in demo mode): the only choice that marks and
+    /// saves touch, so a staged or launch choice never becomes the account's.
+    private var stored: TrackerSelection? {
+        if env.isDemo { return demo }
+        guard let account = env.auth.accountID, let live, live.account == account else { return nil }
+        return live
+    }
+
+    private var shown: [String]? { staged ?? launch }
+
+    /// `-RyftTrackers garmin,oura` (Debug builds; nil in Release): the demo choice, and a real account's for the
+    /// launch.
+    nonisolated static var launchTrackers: [String]? {
+        #if DEBUG
         UserDefaults.standard.string(forKey: "RyftTrackers").map {
             $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         }
+        #else
+        nil
+        #endif
     }
-    #endif
 
     /// The catalog's trackers that were picked, in picker order (a remote copy may have dropped one). Nothing
     /// chosen: nothing read (the catalog may not be decoded yet at launch).
@@ -2038,6 +2053,7 @@ final class TrackerSelectionStore {
     /// trackers no longer worn are forgotten.
     func set(_ ids: [String]) {
         let picked = Self.normalized(ids, catalog: env.trackerCatalog)
+        staged = nil // a real choice replaces a staged one
         mutate { s in
             s.trackers = picked
             s.setUp.removeAll { !picked.contains($0) }
@@ -2045,8 +2061,9 @@ final class TrackerSelectionStore {
         }
     }
 
+    /// Only for a tracker in the stored choice (a staged one stays unmarked).
     func markSetUp(_ id: String) {
-        guard trackers.contains(id) else { return }
+        guard stored?.trackers.contains(id) == true else { return }
         mutate { s in
             s.later.removeAll { $0 == id }
             if !s.setUp.contains(id) { s.setUp.append(id) }
@@ -2054,7 +2071,7 @@ final class TrackerSelectionStore {
     }
 
     func markLater(_ id: String) {
-        guard trackers.contains(id) else { return }
+        guard stored?.trackers.contains(id) == true else { return }
         mutate { s in
             s.setUp.removeAll { $0 == id }
             if !s.later.contains(id) { s.later.append(id) }
@@ -2065,6 +2082,7 @@ final class TrackerSelectionStore {
 
     /// Signed in, out, or as someone else: that account's answer, or none.
     func accountChanged() {
+        staged = nil
         guard let account = env.auth.accountID,
               let saved = env.persistence.document(TrackerSelection.self, key: Self.documentKey), saved.account == account
         else {
@@ -2074,10 +2092,14 @@ final class TrackerSelectionStore {
         live = saved
     }
 
-    /// Previews and screenshot runs: this choice, in memory.
+    /// Previews and screenshot runs: this choice, in memory. Demo data's becomes demo's own; a real account's is only
+    /// shown, never saved or marked.
     func stage(_ ids: [String]) {
-        demo.trackers = ids
-        live = env.auth.accountID.map { TrackerSelection(account: $0, trackers: ids, updatedAt: env.clock.now()) }
+        if env.isDemo {
+            demo.trackers = ids
+        } else {
+            staged = ids
+        }
     }
 
     private func mutate(_ change: (inout TrackerSelection) -> Void) {
@@ -2088,8 +2110,8 @@ final class TrackerSelectionStore {
             return
         }
         guard let account = env.auth.accountID else { return }
-        // From what's stored, not a Debug launch choice (that one stays in memory).
-        var s = (live?.account == account ? live : nil) ?? TrackerSelection(account: account, trackers: [], updatedAt: now)
+        // From what's stored, never a staged or launch choice (those stay in memory).
+        var s = stored ?? TrackerSelection(account: account, trackers: [], updatedAt: now)
         change(&s)
         s.updatedAt = now
         live = s

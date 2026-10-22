@@ -1312,6 +1312,31 @@ struct SyncCheckTests {
         #expect(devices.status(of: oura) == String(localized: "Set up later"))
     }
 
+    /// A Debug build on the user's iPhone: a staged choice (`-RyftScreen tracker-setup`) or a launch one
+    /// (`-RyftTrackers`) is shown, but Done and "Show me again later" never store it as the account's.
+    @Test(arguments: [false, true])
+    func aStagedOrLaunchChoiceNeverBecomesTheAccounts(launch: Bool) throws {
+        let env = AppEnvironment.test(clock: TestClock(now: now), flags: [.devicesSetup: true])
+        let devices = TrackerSelectionStore(env: env, launch: launch ? ["garmin", "oura"] : nil)
+        if !launch { devices.stage(["garmin", "oura"]) }
+        let onboarding = OnboardingCoordinator(state: AppState(env: env), apiStatus: APIStatus(), devices: devices) {}
+        #expect(devices.trackers == ["garmin", "oura"] && onboarding.setupTrackers.map(\.id) == ["garmin", "oura"])
+        onboarding.finishTrackerSetup(later: false)
+        devices.markLater("oura")
+        #expect(env.persistence.document(TrackerSelection.self, key: TrackerSelectionStore.documentKey) == nil)
+        // With a stored choice, only its own trackers are marked.
+        devices.set(["garmin"])
+        if !launch { devices.stage(["garmin", "oura"]) }
+        onboarding.finishTrackerSetup(later: true)
+        let saved = try #require(env.persistence.document(TrackerSelection.self, key: TrackerSelectionStore.documentKey))
+        #expect(saved.trackers == ["garmin"] && saved.later == ["garmin"] && saved.setUp.isEmpty)
+        // Without a launch choice the account shows what it stored.
+        if !launch {
+            devices.accountChanged()
+            #expect(devices.trackers == ["garmin"])
+        }
+    }
+
     @Test func ryftsOwnWorkoutsNeverCount() async throws {
         let own = SourceRef(name: "RYFT", bundleID: Bundle.main.bundleIdentifier, deviceModel: nil)
         let store = MockHealthStore()
