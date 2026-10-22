@@ -352,18 +352,44 @@ struct ProfileView: View {
 
     private var data: some View {
         ProfileSection(title: "Data") {
+            // `devices.setup`: what you wear, each tracker's setup and what Apple Health has seen.
+            if model.devices.isEnabled {
+                NavigationLink {
+                    DevicesAndSyncView(model: model.devices)
+                } label: {
+                    DevicesRowLabel(summary: model.devices.summary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("profile.devices")
+                Divider().overlay(Theme.separator)
+            }
             StatRow(title: "Apple Health", value: model.healthStatusText,
                     valueColor: model.healthNeedsAttention ? Theme.warning : Theme.textPrimary)
             HStack(spacing: 10) {
                 if model.canAskForHealth {
                     PrimaryButton(title: "Allow access", style: .secondary) { await model.requestHealthAccess() }
                 }
-                PrimaryButton(title: "Open Health permissions", style: .secondary) { HealthLinks.open(with: openURL) }
+                if model.devices.isEnabled {
+                    PrimaryButton(title: "Open Health", style: .secondary) { HealthLinks.open(with: openURL) }
+                } else {
+                    PrimaryButton(title: "Open Health permissions", style: .secondary) { HealthLinks.open(with: openURL) }
+                }
             }
-            Text("Garmin Connect must write to Apple Health (Garmin Connect → More → Settings → Apple Health), and RYFT must be allowed to read it (Health → Sharing → Apps → RYFT).")
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
+            // With `devices.setup` the path to RYFT's permission comes from the catalog, and Devices & sync has each
+            // tracker's own steps.
+            if model.devices.isEnabled {
+                if !model.devices.healthAccessSteps.isEmpty {
+                    Text(verbatim: model.devices.healthAccessSteps.joined(separator: " "))
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                Text("Garmin Connect must write to Apple Health (Garmin Connect → More → Settings → Apple Health), and RYFT must be allowed to read it (Health → Sharing → Apps → RYFT).")
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             // On only while iOS still allows it; otherwise where to allow it.
             Toggle(isOn: Binding(get: { WorkoutHealthExport.shared.isWriting },
                                  set: { on in
@@ -535,7 +561,9 @@ struct ProfileView: View {
             }
             .buttonStyle(.plain)
             Divider().overlay(Theme.separator)
-            LinkRow(title: "Garmin Connect and Apple Health", url: URL(string: "https://support.garmin.com/?q=apple%20health"))
+            if !model.devices.isEnabled {
+                LinkRow(title: "Garmin Connect and Apple Health", url: URL(string: "https://support.garmin.com/?q=apple%20health"))
+            }
             LinkRow(title: "Apple Health privacy", url: URL(string: "https://www.apple.com/legal/privacy/data/en/health-app/"))
         }
     }
@@ -1152,12 +1180,28 @@ private struct LinkRow: View {
 struct PrimaryButton: View {
     enum Style { case primary, secondary, destructive }
 
-    let title: LocalizedStringKey
+    let title: Text
     var style: Style = .primary
     var busy = false
     let action: () async -> Void
 
     @Environment(\.isEnabled) private var isEnabled
+
+    init(title: LocalizedStringKey, style: Style = .primary, busy: Bool = false, action: @escaping () async -> Void) {
+        self.init(text: Text(title), style: style, busy: busy, action: action)
+    }
+
+    /// A title that holds outside text (a tracker's app name from the catalog): never parsed as a key or Markdown.
+    init(verbatim title: String, style: Style = .primary, busy: Bool = false, action: @escaping () async -> Void) {
+        self.init(text: Text(verbatim: title), style: style, busy: busy, action: action)
+    }
+
+    private init(text: Text, style: Style, busy: Bool, action: @escaping () async -> Void) {
+        title = text
+        self.style = style
+        self.busy = busy
+        self.action = action
+    }
 
     var body: some View {
         Button {
@@ -1167,7 +1211,7 @@ struct PrimaryButton: View {
                 if busy {
                     ProgressView().controlSize(.small).tint(foreground)
                 } else {
-                    Text(title)
+                    title
                         .font(.ryft(.callout))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
@@ -1596,6 +1640,9 @@ struct ReportProblemView: View {
             String(localized: "Sync state: phase, queue and backlog, and per data type the number of records and days and the date of the newest record"),
             String(localized: "Account gates and feature flags"),
         ]
+        if model.includesTrackers {
+            rows.append(String(localized: "What you wear, as RYFT's tracker ids (no device names)"))
+        }
         if context { rows.append(String(localized: "From Details: what failed, its status, error code and request ID")) }
         return rows
     }
@@ -1763,4 +1810,375 @@ private let previewMessage = "Today said calibrating after a full week of nights
     .frame(maxHeight: .infinity)
     .background(Theme.background)
     .preferredColorScheme(.light)
+}
+
+// MARK: - devices & sync
+
+/// Profile → Data's first row while `devices.setup` is on: "Devices & sync", and what's chosen.
+private struct DevicesRowLabel: View {
+    let summary: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Theme.textSecondary)
+                .accessibilityHidden(true)
+            SettingRowLabel(title: "Devices & sync", value: summary)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Profile → Data → Devices & sync (ui.md §4): what you wear and each tracker's card, Check sync (T3), what Apple
+/// Health has seen, RYFT's own Health access, and Sync details for support.
+struct DevicesAndSyncView: View {
+    let model: DevicesViewModel
+    @Environment(ScreenModels.self) private var screens
+    @Environment(\.openURL) private var openURL
+    @State private var editing = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Metrics.sectionSpacing) {
+                trackers
+                checkSync
+                seen
+                health
+                syncDetails
+            }
+            .padding(.horizontal, Theme.Metrics.screenPadding)
+            .padding(.vertical, 16)
+        }
+        .scrollIndicators(.hidden)
+        .background(Theme.background.ignoresSafeArea())
+        .navigationTitle(Text("Devices & sync"))
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await model.appeared() }
+        .sheet(isPresented: $editing) { TrackerPickerSheet(model: model) }
+    }
+
+    // MARK: your trackers
+
+    private var trackers: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Your trackers").ryftLabelStyle()
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility3)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                if !model.trackers.isEmpty {
+                    Button("Edit") { editing = true }
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .accessibilityLabel(Text("Edit trackers"))
+                        .accessibilityIdentifier("devices.edit")
+                }
+            }
+            Card {
+                VStack(alignment: .leading, spacing: 14) {
+                    if model.trackers.isEmpty {
+                        Text("Tell RYFT what you wear to see how to set up your data.")
+                            .font(.ryft(.callout))
+                            .foregroundStyle(Theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        PrimaryButton(title: "Choose", style: .secondary) { editing = true }
+                            .accessibilityIdentifier("devices.choose")
+                    } else {
+                        ForEach(Array(model.trackers.enumerated()), id: \.element.id) { index, tracker in
+                            if index > 0 { Divider().overlay(Theme.separator) }
+                            NavigationLink {
+                                TrackerDetailView(tracker: tracker, model: model) { editing = true }
+                            } label: {
+                                TrackerRowLabel(tracker: tracker, status: model.status(of: tracker))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint(Text("Opens setup and details"))
+                            .accessibilityIdentifier("devices.row.\(tracker.id)")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: check sync
+
+    /// T3 wires Check sync here (design.md §4.7, ui.md §4.2 item 2): a section with the screen's one Teal
+    /// button, pushing the check, and "Last checked …" under it.
+    @ViewBuilder private var checkSync: some View {
+        EmptyView()
+    }
+
+    // MARK: seen in Apple Health
+
+    private var seen: some View {
+        ProfileSection(title: "Seen in Apple Health") {
+            let rows = model.sources
+            if rows.isEmpty {
+                Text("No data from other apps yet.")
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                if index > 0 { Divider().overlay(Theme.separator) }
+                SourceRowView(row: row, lastSeen: model.lastSeenText(row))
+            }
+            Text("Apps and devices that sent data to RYFT in the last 30 days.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityIdentifier("devices.seen")
+    }
+
+    // MARK: Apple Health access
+
+    /// RYFT's own read permission: its status, then the catalog's route in the Health app next to "Open Health".
+    private var health: some View {
+        ProfileSection(title: "Apple Health access") {
+            StatRow(title: "Apple Health", value: model.healthStatusText)
+            if model.canAskForHealth {
+                PrimaryButton(title: "Allow access", style: .secondary) { await model.requestHealthAccess() }
+            }
+            let steps = model.healthAccessSteps
+            VStack(alignment: .leading, spacing: 10) {
+                if !steps.isEmpty {
+                    Text("To check what RYFT may read:")
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textSecondary)
+                    ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                        NumberedStep(number: index + 1, verbatim: step, total: steps.count)
+                    }
+                }
+                PrimaryButton(title: "Open Health", style: .secondary) { HealthLinks.open(with: openURL) }
+                    .accessibilityIdentifier("devices.openHealth")
+            }
+        }
+    }
+
+    // MARK: sync details
+
+    private var syncDetails: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            NavigationLink {
+                SyncDetailsView(model: screens.profile.syncDetails)
+            } label: {
+                Label("Sync details", systemImage: "list.bullet.rectangle")
+                    .font(.ryft(.body))
+                    .foregroundStyle(Theme.accent)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            }
+            .accessibilityHint(Text("For support: requests and streams."))
+            .accessibilityIdentifier("devices.syncDetails")
+            Text("For support: requests and streams.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textTertiary)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+/// A chosen tracker: its glyph and name, and how its setup stands.
+private struct TrackerRowLabel: View {
+    let tracker: Tracker
+    let status: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: tracker.symbol)
+                .font(.system(size: 20, weight: .regular))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: 26)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: tracker.title)
+                    .font(.ryft(.body))
+                    .foregroundStyle(Theme.textPrimary)
+                Text(verbatim: status)
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.textTertiary)
+                .accessibilityHidden(true)
+        }
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: tracker.title))
+        .accessibilityValue(Text(verbatim: status))
+    }
+}
+
+/// A source the platform saw: RYFT's name for it, what it sent, when; one RYFT doesn't know is still read.
+private struct SourceRowView: View {
+    let row: DevicesViewModel.SourceRow
+    let lastSeen: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(verbatim: row.name)
+                .font(.ryft(.callout))
+                .foregroundStyle(row.known ? Theme.textPrimary : Theme.textSecondary)
+            Text(verbatim: row.kinds)
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textSecondary)
+            Text(verbatim: lastSeen)
+                .font(.ryft(.caption))
+                .monospacedDigit()
+                .foregroundStyle(Theme.textTertiary)
+            if !row.known {
+                Text("Not a tracker RYFT knows. It still counts.")
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("devices.source")
+    }
+}
+
+/// One tracker's card, pushed from Devices & sync.
+struct TrackerDetailView: View {
+    let tracker: Tracker
+    let model: DevicesViewModel
+    /// Just my iPhone: "Add a tracker" opens the picker.
+    let addTracker: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ScrollView {
+            TrackerSetupCard(tracker: tracker,
+                             later: TrackerSelectionStore.needsSetup(tracker) ? { model.selection.markLater(tracker.id) } : nil,
+                             addTracker: tracker.isJustIPhone ? {
+                                 dismiss()
+                                 addTracker()
+                             } : nil)
+                .padding(.horizontal, Theme.Metrics.screenPadding)
+                .padding(.vertical, 16)
+        }
+        .scrollIndicators(.hidden)
+        .background(Theme.background.ignoresSafeArea())
+        .navigationTitle(Text(verbatim: tracker.cardTitle))
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// "What do you wear?" from Devices & sync: the same tiles; Done saves, Cancel leaves the choice as it was.
+struct TrackerPickerSheet: View {
+    let model: DevicesViewModel
+    @State private var picked: [String]
+    @Environment(\.dismiss) private var dismiss
+
+    init(model: DevicesViewModel) {
+        self.model = model
+        _picked = State(initialValue: model.selection.trackers)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Pick your watch, band or ring. RYFT then shows how to get its data into Apple Health.")
+                        .font(.ryft(.body))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    TrackerPickerGrid(catalog: model.catalog, picked: $picked)
+                    Text("RYFT only uses this to show you setup steps and to check that your data arrives.")
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(Theme.Metrics.screenPadding)
+            }
+            .background(Theme.background.ignoresSafeArea())
+            .navigationTitle(Text("What do you wear?"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) { SheetTitle(text: "What do you wear?") }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        model.save(picked)
+                        dismiss()
+                    }
+                    .accessibilityIdentifier("wear.done")
+                }
+            }
+        }
+    }
+}
+
+/// Devices & sync on mock data: the bundled catalog, a choice, and `User.sources`
+/// with a source RYFT doesn't know.
+@MainActor
+private func devicesPreview(_ picked: [String], scheme: ColorScheme = .dark, de: Bool = false,
+                            size: DynamicTypeSize = .large, later: [String] = []) -> some View {
+    let state = AppState.preview(flags: [.devicesSetup: true])
+    if var user = state.user {
+        let now = Date.now
+        user.sources = [
+            UserSource(name: "Connect", bundleId: "com.garmin.connect.mobile", kinds: [.hr, .sleep, .steps, .workout],
+                       lastSeen: now.addingTimeInterval(-1_200)),
+            UserSource(name: "Oura", bundleId: "com.ouraring.oura", kinds: [.hr, .sleep, .resp, .workout],
+                       lastSeen: now.addingTimeInterval(-26_000)),
+            UserSource(name: "Tim's iPhone", bundleId: "com.apple.health.3F0A", kinds: [.steps],
+                       lastSeen: now.addingTimeInterval(-600)),
+            UserSource(name: "Sleep Cycle", bundleId: "com.lexwarelabs.goodmorning", kinds: [.sleep],
+                       lastSeen: now.addingTimeInterval(-90_000)),
+        ]
+        state.user = user
+    }
+    let model = DevicesViewModel(state: state, selection: TrackerSelectionStore(env: state.env))
+    model.selection.stage(picked)
+    later.forEach(model.selection.markLater)
+    return NavigationStack { DevicesAndSyncView(model: model) }
+        .previewEnvironment(state, scheme: scheme)
+        .environment(\.locale, Locale(identifier: de ? "de" : "en"))
+        .dynamicTypeSize(size)
+}
+
+#Preview("Devices & sync · two trackers · dark") { devicesPreview(["garmin", "oura"], later: ["oura"]) }
+#Preview("Devices & sync · two trackers · light") { devicesPreview(["garmin", "oura"], scheme: .light, later: ["oura"]) }
+#Preview("Devices & sync · two trackers · de") { devicesPreview(["garmin", "oura"], de: true) }
+#Preview("Devices & sync · none chosen · dark") { devicesPreview([]) }
+#Preview("Devices & sync · none chosen · light") { devicesPreview([], scheme: .light) }
+#Preview("Devices & sync · AX3") { devicesPreview(["garmin"], size: .accessibility3) }
+
+/// A tracker's card or the picker sheet from Devices & sync, on mock data.
+@MainActor
+private func devicesScreenPreview(_ scheme: ColorScheme, sheet: Bool = false) -> some View {
+    let state = AppState.preview(flags: [.devicesSetup: true])
+    let model = DevicesViewModel(state: state, selection: TrackerSelectionStore(env: state.env))
+    model.selection.stage(["garmin", "oura"])
+    return Group {
+        if sheet {
+            TrackerPickerSheet(model: model)
+        } else {
+            NavigationStack { TrackerDetailView(tracker: MockData.tracker("garmin"), model: model) {} }
+        }
+    }
+    .previewEnvironment(state, scheme: scheme)
+}
+
+#Preview("Tracker detail · dark") { devicesScreenPreview(.dark) }
+#Preview("Tracker detail · light") { devicesScreenPreview(.light) }
+#Preview("Tracker picker sheet · dark") { devicesScreenPreview(.dark, sheet: true) }
+#Preview("Tracker picker sheet · light") { devicesScreenPreview(.light, sheet: true) }
+
+#Preview("Profile · Data row · dark") {
+    ProfileView().previewEnvironment(AppState.preview(flags: [.devicesSetup: true]))
+}
+
+#Preview("Profile · Data row · light") {
+    ProfileView().previewEnvironment(AppState.preview(flags: [.devicesSetup: true]), scheme: .light)
 }
