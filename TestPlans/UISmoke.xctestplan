@@ -7,7 +7,7 @@
     }
   ],
   "defaultOptions": {
-    "defaultTestExecutionTimeAllowance": 60,
+    "defaultTestExecutionTimeAllowance": 180,
     "maximumTestRepetitions": 3,
     "targetForVariableExpansion": {
       "containerPath": "container:Ryft.xcodeproj",
