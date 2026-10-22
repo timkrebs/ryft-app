@@ -332,9 +332,10 @@ extension SyncLine {
 // MARK: - refresh issue (the calm error card and its Details)
 
 /// What "Send to RYFT" opens on the Details sheet's stack: Report a problem, pre-filled with the
-/// resource, the status and the request ID. Set on the root view by Report a problem's owner;
+/// resource, the status, the error's code and the request ID. Set on the root view (`RootView`);
 /// without it the button hides.
-typealias ReportProblemDestination = @MainActor (_ resource: String, _ status: String, _ requestID: String?) -> AnyView
+typealias ReportProblemDestination = @MainActor (_ resource: String, _ status: String, _ code: String?,
+                                                 _ requestID: String?) -> AnyView
 
 private struct ReportProblemDestinationKey: EnvironmentKey {
     static var defaultValue: ReportProblemDestination? { nil }
@@ -459,7 +460,8 @@ struct RefreshDetailsSheet: View {
         VStack(spacing: 10) {
             if let reportProblem {
                 NavigationLink {
-                    reportProblem(issue.resourceName, issue.statusText ?? issue.error.statusText, issue.error.requestID)
+                    reportProblem(issue.resourceName, issue.statusText ?? issue.error.statusText, issue.error.code,
+                                  issue.error.requestID)
                 } label: {
                     Text("Send to RYFT")
                         .font(.ryft(.callout))
@@ -468,9 +470,11 @@ struct RefreshDetailsSheet: View {
                         .background(Theme.accent, in: Capsule())
                 }
                 .buttonStyle(PressableButtonStyle())
+                .accessibilityIdentifier("refreshDetails.send")
             }
             PrimaryButton(title: copied ? "Copied" : "Copy details", style: .secondary) {
-                UIPasteboard.general.string = issue.copyText
+                // On this iPhone only, and not for long (`LocalPasteboard`).
+                LocalPasteboard.copy(issue.copyText)
                 copied = true
             }
             if reportProblem != nil {
@@ -796,7 +800,7 @@ private enum PreviewIssue {
 
 #Preview("Details sheet · with ID · dark") {
     RefreshDetailsSheet(issue: PreviewIssue.make(.busy))
-        .environment(\.reportProblemDestination) { _, _, _ in AnyView(Text(verbatim: "Report a problem")) }
+        .environment(\.reportProblemDestination) { _, _, _, _ in AnyView(Text(verbatim: "Report a problem")) }
         .preferredColorScheme(.dark)
 }
 
