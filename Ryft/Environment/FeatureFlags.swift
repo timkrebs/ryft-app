@@ -21,6 +21,8 @@ final class FlagStore: FeatureFlagProvider {
                                   demo: Settings.shared.demoMode)
 
     static let overridesKey = "flags.overrides"
+    /// Debug launch argument: flags turned on for one launch.
+    static let launchFlagsKey = "RyftFlags"
     /// Until the platform said otherwise (API.md: `ttl_sec` 21600).
     static let defaultTTL: TimeInterval = 6 * 3600
 
@@ -57,6 +59,10 @@ final class FlagStore: FeatureFlagProvider {
         #if DEBUG
         let saved = defaults.dictionary(forKey: Self.overridesKey) as? [String: Bool] ?? [:]
         overrides = Dictionary(uniqueKeysWithValues: saved.compactMap { k, v in FeatureFlag(rawValue: k).map { ($0, v) } })
+        // `-RyftFlags devices.setup,sync.gzip`: these on for this launch (device tests), over the saved overrides.
+        for name in (defaults.string(forKey: Self.launchFlagsKey) ?? "").split(separator: ",") {
+            if let flag = FeatureFlag(rawValue: name.trimmingCharacters(in: .whitespaces)) { overrides[flag] = true }
+        }
         #endif
     }
 

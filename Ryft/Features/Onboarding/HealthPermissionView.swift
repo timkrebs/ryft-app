@@ -968,8 +968,8 @@ struct TrackerSetupStepView: View {
     let model: OnboardingCoordinator
     /// The open card in a list of several.
     @State private var open: String?
-    /// Check sync was tapped: its result opens below the cards.
-    @State private var checking = false
+    /// Check sync was tapped: its result opens below the cards (open from the start for a `-RyftSyncCheck` run).
+    @State private var checking = SyncCheckScenario.requested != nil
     @Environment(\.appEnvironment) private var env
 
     var body: some View {

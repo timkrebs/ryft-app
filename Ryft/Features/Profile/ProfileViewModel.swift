@@ -1980,9 +1980,7 @@ final class TrackerSelectionStore {
         #if DEBUG
         // `-RyftSyncCheck <scenario>`: the trackers the scenario's check reads.
         if let scenario = SyncCheckScenario.requested { ids = scenario.trackers }
-        if let picked = UserDefaults.standard.string(forKey: "RyftTrackers") {
-            ids = picked.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-        }
+        if let picked = Self.launchTrackers { ids = picked }
         #endif
         demo = TrackerSelection(account: "demo", trackers: ids, updatedAt: .distantPast)
         accountChanged()
@@ -1991,9 +1989,27 @@ final class TrackerSelectionStore {
     /// nil: nothing chosen (the step was skipped, or another account's answer).
     var selection: TrackerSelection? {
         if env.isDemo { return demo }
-        guard let live, live.account == env.auth.accountID else { return nil }
-        return live
+        guard let account = env.auth.accountID else { return nil }
+        let stored = live?.account == account ? live : nil
+        #if DEBUG
+        // `-RyftTrackers garmin,oura` on a real account (device tests): this choice for the launch, in memory,
+        // over the stored one; what was marked set up or later stays.
+        if let ids = Self.launchTrackers {
+            return TrackerSelection(account: account, trackers: ids, updatedAt: stored?.updatedAt ?? .distantPast,
+                                    setUp: stored?.setUp ?? [], later: stored?.later ?? [])
+        }
+        #endif
+        return stored
     }
+
+    #if DEBUG
+    /// `-RyftTrackers garmin,oura`: the demo choice, and a real account's for the launch.
+    static var launchTrackers: [String]? {
+        UserDefaults.standard.string(forKey: "RyftTrackers").map {
+            $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        }
+    }
+    #endif
 
     /// The catalog's trackers that were picked, in picker order (a remote copy may have dropped one). Nothing
     /// chosen: nothing read (the catalog may not be decoded yet at launch).
@@ -2072,7 +2088,8 @@ final class TrackerSelectionStore {
             return
         }
         guard let account = env.auth.accountID else { return }
-        var s = selection ?? TrackerSelection(account: account, trackers: [], updatedAt: now)
+        // From what's stored, not a Debug launch choice (that one stays in memory).
+        var s = (live?.account == account ? live : nil) ?? TrackerSelection(account: account, trackers: [], updatedAt: now)
         change(&s)
         s.updatedAt = now
         live = s
