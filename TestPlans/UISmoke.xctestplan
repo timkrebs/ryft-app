@@ -25,7 +25,8 @@
         "NotificationsUITests",
         "RefreshResilienceUITests",
         "DevicesUITests",
-        "SyncCheckUITests"
+        "SyncCheckUITests",
+        "CalibrationNoteUITests"
       ],
       "target": {
         "containerPath": "container:Ryft.xcodeproj",

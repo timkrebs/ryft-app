@@ -31,6 +31,7 @@ let types: [String: (Data) throws -> Void] = [
     "NotificationPrefs": { _ = try decoder.decode(NotificationPrefs.self, from: $0) },
     "PushPayload": { _ = try decoder.decode(PushPayload.self, from: $0) },
     "DailyScore": { _ = try decoder.decode(DailyScore.self, from: $0) },
+    "[DailyScore]": { _ = try decoder.decode([DailyScore].self, from: $0) },
     "SleepDetail": { _ = try decoder.decode(SleepDetail.self, from: $0) },
     "DayStrain": { _ = try decoder.decode(DayStrain.self, from: $0) },
     "SleepRange": { _ = try decoder.decode(SleepRange.self, from: $0) },

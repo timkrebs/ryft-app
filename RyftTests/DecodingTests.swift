@@ -295,7 +295,7 @@ struct TrackerCatalogTests {
         let decoded = try TrackerCatalog.decode(Data(TrackerCatalog.bundledJSON.utf8), now: .now)
         #expect(decoded == TrackerCatalog.bundled)
         let c = TrackerCatalog.bundled
-        #expect(c.version == "2026-10-22.3")
+        #expect(c.version == "2026-10-23.1")
         #expect(c.trackers.map(\.id) == ["apple_watch", "garmin", "oura", "polar", "suunto", "coros", "withings", "amazfit",
                                          "ultrahuman", "fitbit", "samsung_galaxy_watch", "other", "iphone"])
         let garmin = try #require(c.tracker("garmin"))

@@ -26,6 +26,28 @@
         }
       }
     },
+    "%@ doesn't share %@ with Apple Health." : {
+      "comment" : "Under Today's gauge: the app doesn't write it to Apple Health. Args: app (Garmin Connect), one signal (HRV).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ sendet %2$@ nicht an Apple Health."
+          }
+        }
+      }
+    },
+    "%@ doesn't share HRV or resting heart rate with Apple Health." : {
+      "comment" : "Under Today's gauge: the app writes neither to Apple Health. The argument is the app, e.g. Oura.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ sendet weder HRV noch Ruhepuls an Apple Health."
+          }
+        }
+      }
+    },
     "%@ doesn't write to Apple Health, so nothing it records can reach RYFT. Your iPhone's own step count still does." : {
       "comment" : "Setup card of a tracker that writes nothing to Apple Health. The argument is its name.",
       "localizations" : {
@@ -890,6 +912,28 @@
         }
       }
     },
+    "An iPhone on its own doesn't record %@." : {
+      "comment" : "Note under Today's gauge for “Just my iPhone”. The argument is one signal, e.g. “HRV”.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein iPhone allein erfasst %@ nicht."
+          }
+        }
+      }
+    },
+    "An iPhone on its own doesn't record HRV or resting heart rate." : {
+      "comment" : "Note under Today's gauge for “Just my iPhone”: neither signal reaches RYFT.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein iPhone allein erfasst weder HRV noch Ruhepuls."
+          }
+        }
+      }
+    },
     "App version and build" : {
       "localizations" : {
         "de" : {
@@ -1164,6 +1208,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Atemfrequenz"
+          }
+        }
+      }
+    },
+    "calibration.signal.hrv" : {
+      "comment" : "Heart-rate variability inside a sentence on Today, e.g. “No HRV has reached RYFT from your nights.”",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HRV"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "HRV"
+          }
+        }
+      }
+    },
+    "calibration.signal.restingHR" : {
+      "comment" : "Resting heart rate inside a sentence on Today, e.g. “Oura doesn't share HRV or resting heart rate with Apple Health.”",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ruhepuls"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "resting heart rate"
           }
         }
       }
@@ -1999,6 +2079,17 @@
         }
       }
     },
+    "How to set up %@" : {
+      "comment" : "Link under Today's gauge: opens the tracker's setup card. The argument is its app, e.g. Garmin Connect.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "So richtest du %@ ein"
+          }
+        }
+      }
+    },
     "HTTP status" : {
       "localizations" : {
         "de" : {
@@ -2336,6 +2427,39 @@
         }
       }
     },
+    "Learning your baselines: %lld of %lld nights." : {
+      "comment" : "Note under Today's gauge while the baselines fill. Arguments: nights so far, nights needed (7).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Ausgangswerte entstehen: %1$lld von %2$lld Nächten."
+          }
+        }
+      }
+    },
+    "Learning your HRV baseline: %lld of %lld nights." : {
+      "comment" : "Note under Today's gauge while the HRV baseline fills. Arguments: nights so far, nights needed (7).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein HRV-Ausgangswert entsteht: %1$lld von %2$lld Nächten."
+          }
+        }
+      }
+    },
+    "Learning your resting heart rate baseline: %lld of %lld nights." : {
+      "comment" : "Note under Today's gauge while the resting heart rate baseline fills. Arguments: nights so far, nights needed (7).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Ruhepuls-Ausgangswert entsteht: %1$lld von %2$lld Nächten."
+          }
+        }
+      }
+    },
     "Let %@ write to Apple Health. Profile → Devices & sync shows how." : {
       "comment" : "Setup card on Today, step 1, with the chosen tracker's app.",
       "localizations" : {
@@ -2407,6 +2531,28 @@
         }
       },
       "comment" : "Profile → Data → Devices & sync: a tracker row's status under its name, from the last Check sync: a signal it should send didn't arrive (the check shows the fix)."
+    },
+    "No %@ has reached RYFT from your nights." : {
+      "comment" : "Under Today's gauge: no such signal in the baseline window. The argument is one signal, e.g. “HRV”.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus deinen Nächten sind keine Werte für %@ bei RYFT angekommen."
+          }
+        }
+      }
+    },
+    "No HRV or resting heart rate has reached RYFT from your nights." : {
+      "comment" : "Under Today's gauge: neither signal is in the baseline window.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus deinen Nächten sind weder HRV- noch Ruhepuls-Werte bei RYFT angekommen."
+          }
+        }
+      }
     },
     "No data from other apps yet." : {
       "comment" : "Seen in Apple Health without sources.",
@@ -3135,6 +3281,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bereitschaft ebenso"
+          }
+        }
+      }
+    },
+    "Readiness from the signals that reached RYFT." : {
+      "comment" : "Today's sentence: a baseline can't fill (no HRV or resting HR), readiness is from the signals that arrived.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bereitschaft aus den Signalen, die RYFT erreicht haben."
           }
         }
       }

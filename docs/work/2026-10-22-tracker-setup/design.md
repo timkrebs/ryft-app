@@ -777,6 +777,177 @@ return .upToDate(f.lastUpdated, demo: f.isDemo)
 
 ## 7. Calibration honesty (T4)
 
+### §7 rev. 2: the published contract (2026-10-23)
+
+**This section supersedes §7.1–§7.4 and ui.md §8.1–§8.2 where they conflict.**
+- **Shipped** (API.md → `DailyScore`, `#### calibrating_reason`, changelog 2026-10-22):
+  - `calibrating_reason`: `short_history` | `no_hrv` | `no_rhr` | null.
+  - H = `baseline_hrv_days` and R = `baseline_rhr_days`, with `baseline_days = min(H, R)`.
+- **Not shipped:** `recovery_inputs`, `rhr_source` and `hrv_baseline_days`.
+- **`calibrating` is still `min(H, R) < 7`.** A Garmin account stays calibrating with `no_hrv` and never "jumps to 7/7".
+- **Dropped:** §7.1's fields, §7.2's `newModel`, §7.3's 3-day rule, §7.4's `RecoveryBasis`. §7.5 holds: before the
+  deploy every row is `null` (path L), so T4 can merge first. Swift: `calibratingReason`, `baselineHrvDays`, `baselineRhrDays`.
+
+#### 1. Today's decision table
+
+Rows E and C are decided first and don't change: a reason never turns an unscored or pending day into row B. A scored day
+with `calibrating == false` is row A, whatever its reason says. Otherwise the first matching row wins:
+
+| # | `calibrating_reason` | `prior.count`, readiness | Row | Gauge | Tiles | Note | Sentence | Widget (`make` unchanged) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| L | null on a calibrating row: legacy, a rollback, or cached before the field | any | D / B, as today | as today (`vitals`) | as today | `.recalculating` / `.needsVitals` / nil | as today | as today |
+| S1 | `short_history` | < 7, or no readiness | B | `.baselines(nights: baselineDays)` | today, `calibrating: true` | nil | "Your baselines are still forming." | `calibrating`, n of 7 (it moves) |
+| S2 | `short_history` | ≥ 7, with readiness | B | `.readiness(r)` | today | `.learning(CalibrationProgress)` | the same | `score` |
+| N1 | `no_hrv` / `no_rhr` | any, with readiness | B | `.readiness(r)` | today | `.blocked(CalibrationBlocker)` | **new:** "Readiness from the signals that reached RYFT." | `score` |
+| N2 | `no_hrv` / `no_rhr` | any, no readiness | B | `.readiness(nil)`: the empty gauge, "—" | today | `.blocked(…)` | "No readiness yet today. It appears once last night has synced." | `waitingForSleep`, the previous readiness dimmed |
+
+**Signals each note names:**
+- **Blocked:** `no_hrv` names `[.hrv]`, plus `.restingHR` when R == 0, API.md's "second gap" (rule 2 means the day then
+  has no `rhr`). `no_rhr` names `[.restingHR]`; rules 2–3 guarantee H ≥ 1.
+- **Learning:** `nights = baselineDays`. It names `.hrv` if H < 7 and `.restingHR` if R < 7, and nothing if either is nil.
+
+**Decisions:**
+- **"N of 7" appears only in S1 and L** (API.md). N1 and N2 show no counter, in the app or in the widget.
+- **What replaces `vitals`:** the reason, H and R. `prior.count` only picks counter or readiness for `short_history`; for
+  `no_*` the platform's `W ≥ 7` wins, so a short cache (T0's case) can't bring "0 of 7" back.
+- **Row D is L-only.** With a stated reason, a cache showing ≥ 7 `vitals` nights is stale, not a recalculation (recompute
+  rebuilds oldest first). `vitals`, `.recalculating`, `.needsVitals`, `countsHeartRateNights` serve only L (Lead's calls, 4).
+- **No blocked `BaselineGauge` mode (ui.md §8.2), no new `Gauge` or `TodayHero` case.** A `no_*` day without a readiness
+  has no night (recovery averages whatever inputs exist, sleep included). "Needs HRV" on the gauge would blame HRV for the
+  missing night; the empty gauge with the night sentence is true, the note names the block, `make` already maps it.
+- **The delta and the band word stay in row A only** (Lead's calls, 3).
+
+#### 2. Naming the missing signal and the tracker
+
+`CalibrationBlocker.resolve(signals, trackers:, devicesSetup:)` is pure. `trackers` holds the chosen catalog entries, and
+is `[]` while `devices.setup` is off. The first matching row wins:
+
+| # | Condition | `Source` | Note (en) | Link (a sheet with "Done") |
+| --- | --- | --- | --- | --- |
+| 1 | `devices.setup` off | `.unknown` | "No HRV has reached RYFT from your nights." | none |
+| 2 | a chosen tracker's catalog says `yes` / `partial` for a missing signal | `.unexpected` | the same | **Check sync** → `TrackerCheckView` |
+| 3 | exactly one tracker chosen, `.vendorApp`, catalog `no` for **every** missing signal | `.notShared(app:)` | "Garmin Connect doesn't share HRV with Apple Health." | **How to set up Garmin Connect** → `TrackerDetailView` |
+| 4 | the choice is `["iphone"]` | `.phoneOnly` | "An iPhone on its own doesn't record HRV or resting heart rate." | **Devices & sync** → `DevicesAndSyncView` |
+| 5 | otherwise: nothing chosen, several, `unverified`, no vendor app (Samsung, Other) | `.unknown` | the generic note | **Devices & sync** |
+
+- **The app's name is `Tracker.appTitle`,** used as a data source only. Several trackers that all say `no` stay generic.
+- **With the flag off,** the note claims only what the platform said: no such signal in the window or on the day.
+- **Garmin** has HRV `no` and resting HR `yes`, so example 3 → rule 3 and example 6 → rule 2. A chosen Apple Watch is
+  always rule 2.
+
+#### 3. Recovery / Readiness detail: out of T4's scope
+
+- **No detail screens exist,** and Insights' cards show ranges, not a day.
+- **Without `recovery_inputs`, what Recovery used is unknowable:** a baseline under 7 nights is scored against a population
+  spread (SCORING.md → Calibrating), so H = 1–6 may still feed it. The one known fact, "the day had no HRV", is Today's
+  note already; a second copy is state in two places. "Based on …" follows `recovery_inputs` (`API_REQUESTS.md` §1).
+
+#### 4. Copy direction (en; localization-editor finalises en + de)
+
+| Where | en | Key |
+| --- | --- | --- |
+| N1 sentence (`ReadinessCopy`) | Readiness from the signals that reached RYFT. | new |
+| note, rules 3 · 4 · 1/2/5 | %1$@ doesn't share %2$@ with Apple Health. · An iPhone on its own doesn't record %@. · No %@ has reached RYFT from your nights. | new |
+| signal names in those, `.list(type: .or)` | HRV · resting heart rate | new in-sentence keys (Check sync's "Resting heart rate" is a title) |
+| S2 note | Learning your HRV baseline: %lld of %lld nights. · … your resting heart rate baseline … · Learning your baselines: %lld of %lld nights. | new |
+| link | How to set up %@ | new ("Check sync", "Devices & sync", "Done" are reused) |
+| reused | "Your baselines are still forming." (S1, S2) · "No readiness yet today. It appears once last night has synced." (N2) | existing |
+| L only | "Recalculating your baselines" · "Baselines need heart-rate variability … with your watch." · "Learning your baseline — %lld nights to go." (never for `no_*`) | unchanged |
+
+German may want "weder … noch" for two signals; the editor may split the note keys into one- and two-signal forms.
+
+#### 5. Frozen interface (ios-developer)
+
+`Ryft/` is still a classic group on this branch (#39 isn't on `main`), so T4 adds no files.
+
+```swift
+// TodayViewModel.swift, MARK "one decision for gauge, tiles and note", before TodayScoreFacts:
+enum CalibrationSignal: String, Equatable, Sendable { case hrv, restingHR }
+enum CalibrationLink: Hashable, Identifiable, Sendable {
+    case setup(trackerID: String, app: String), checkSync, devices
+    var id: Self { self }
+    var title: String                          // "How to set up %@" · "Check sync" · "Devices & sync"
+}
+struct CalibrationBlocker: Equatable, Sendable {
+    enum Source: Equatable, Sendable { case notShared(app: String), phoneOnly, unexpected, unknown }
+    let signals: [CalibrationSignal]; let source: Source
+    let link: CalibrationLink?                 // nil while devices.setup is off
+    static func resolve(_ signals: [CalibrationSignal], trackers: [Tracker], devicesSetup: Bool) -> CalibrationBlocker
+    var text: String
+}
+struct CalibrationProgress: Equatable, Sendable { let nights: Int; let signals: [CalibrationSignal]; var text: String }
+extension DailyScore {                          // here, not in Models.swift (the keeper's)
+    var waitingEndsCalibration: Bool { calibratingReason != .noHrv && calibratingReason != .noRhr }
+    var missingSignals: [CalibrationSignal]; var fillingSignals: [CalibrationSignal]   // §1 "Signals each note names"
+}
+// TodayPresentation.Note += case learning(CalibrationProgress), case blocked(CalibrationBlocker); var link: CalibrationLink?
+// TodayScoreFacts and TodaySyncFacts += var trackers: [Tracker] = [], var devicesSetup = false
+```
+
+| Change | Where (anchors at 02a3403) |
+| --- | --- |
+| `pick`: after C, `guard today.calibrating else { A }`, then `switch today.calibratingReason`; `nil` runs today's D/B code verbatim | `TodayViewModel.swift:1017` |
+| `facts` sets `devicesSetup` (the flag) and `trackers` (the chosen catalog entries while it's on). `scores` passes both on; `widgetFacts` keeps the defaults | `:141`, `:497` |
+| `sentence`: `.learning` joins `.needsVitals`; `.blocked` falls through to `ReadinessCopy` | `:345` |
+| `ReadinessCopy.sentence(score:)`: a scored, calibrating row with `!waitingEndsCalibration` gets the N1/N2 sentence, never `nightsToGo` | `ReadinessCopy.swift:34` |
+| `GaugeNoteLink(title:action:)`: `callout`, `Theme.accent`, `chevron.right`, at least 44 pt, its own VoiceOver element. `GaugeNote` is unchanged | `MetricGauge.swift`, after `GaugeNote` |
+| The link sits under the note, outside the note's `accessibilityHidden`. `@State calibrationLink` drives `.sheet(item:)` over `screens.profile.devices` / `screens.devices` | `TodayView.swift:159–176` |
+| `TodayScenario`: `blockedHRV` (ex 3, r 74, `[garmin]`, flag on), `blockedNoNight` (the same, no r), `learningHRV` (ex 4, 30 days); previews in dark, light, de and AX3 | `:1086`, `TodayView.swift` |
+
+**Must not change:** `ReadinessSnapshot` (both copies) and `make`, `Repository.widgetFacts` / `publishWidget`,
+`RyftWidgets/`, `Gauge`, `Row`, `TodayHero`, `BaselineGauge`, `nightsToGo`, `MockData.calibratingScore`; the
+refresh-resilience tests (`ViewModelTests:1220–1333`, `RepositoryTests.gaugeAndTilesComeFromTheSameRow`,
+`ReadinessCopyTests`, `TodayStatesUITests`) build rows without a reason, so they run path L unchanged.
+
+#### 6. Tests (test-engineer)
+
+**`decide`, table-driven over API.md's examples** (decode them from `RyftTests/Fixtures/daily_score_calibrating_reasons.json`,
+then add `readiness` and `hrv_ms` / `rhr` as each example's prose says, `scored`, and Garmin with the flag on):
+
+| Case | today | `prior` | Expect |
+| --- | --- | --- | --- |
+| ex 1 | H 3, R 5, bd 3, `short_history`, r 80 | 3 · 30 · 30 without r | S1 `.baselines(3)` · S2 `.learning(3, [.hrv, .restingHR])`, no delta · S1 |
+| ex 2 | 0/0/0, `short_history`, no r | 0 | S1 `.baselines(0)`, not E |
+| ex 3 | H 0, R 24, `no_hrv`, r 74 | 30 without HRV · 3 · 30 with vitals | N1 `.blocked([.hrv], .notShared("Garmin Connect"), .setup)` in all three |
+| ex 3, no night | r nil | 30 | N2, widget `waitingForSleep`, "No readiness yet…" |
+| ex 4 / ex 5 | first HRV / resting-HR morning, `short_history`, r 78 | 30 | S2 `.learning(0, [.hrv])` / `.learning(0, [.restingHR])` |
+| ex 6 | H 28, R 0, `no_rhr`, r 70 | 30 | N1 `.unexpected`, `.checkSync` |
+| ex 7 | 0/0/0, `no_hrv`, r 60, `[iphone]` | 30 | N1 `[.hrv, .restingHR]`, `.phoneOnly`, `.devices` |
+| ex 8 | 12/19, not calibrating | 30 | A with delta |
+| legacy | calibrating, reason/H/R nil, bd 0 | 30 vitals · 30 none · 3 | D · B `needsVitals` · B short, verbatim |
+| guards | `calibrating: false` + `no_hrv` → A · `pending` + `no_hrv` without r → C · placeholder → C/E | | |
+
+**`resolve`** (via `MockData.tracker`; the flag is on unless the row says otherwise):
+
+| Signals | Trackers | Source | Link |
+| --- | --- | --- | --- |
+| hrv | garmin, flag off | `.unknown` | none |
+| hrv | nothing chosen | `.unknown` | `.devices` |
+| hrv | garmin · fitbit | `.notShared("Garmin Connect")` · `.notShared("Google Health")` | `.setup` |
+| hrv, rhr | oura | `.notShared("Oura")` | `.setup` |
+| hrv, rhr · rhr | garmin | `.unexpected` | `.checkSync` |
+| hrv | apple_watch · garmin + apple_watch · amazfit (`partial`) | `.unexpected` | `.checkSync` |
+| hrv | garmin + oura · suunto (`unverified`) · samsung_galaxy_watch | `.unknown` | `.devices` |
+| hrv | iphone | `.phoneOnly` | `.devices` |
+
+**Invariants:** every N row gives `make(...)?.kind != .calibrating`; `ReadinessCopy` never says "nights to go" for
+`no_*`; `.blocked` text has no digit; the de strings are complete.
+
+**UI test:** `-RyftScenario blockedHRV` shows `today.gaugeNote` naming Garmin Connect. Its link opens
+`tracker.card.garmin`, and Done closes it. VoiceOver reads the note in the gauge's value and the link as its own button.
+
+#### 7. Lead's calls and platform requests
+
+1. **The detail note is deferred (§3).** Update plan T4's criteria.
+2. **ui.md §8.2's blocked gauge isn't built (§1).** Tell D2.
+3. **Garmin users stay `state: calibrating` for good:** no band sentence, no "vs 7 d", though their resting-HR and sleep
+   baselines are personal. Platform request: band `state` from readiness on `no_*` rows, or say why not. Until then the
+   app follows `state`.
+4. **Deleting path L** (row D, `needsVitals`, `vitals`, `countsHeartRateNights`) waits until the platform confirms every
+   row was rescored after the deploy.
+5. **The brief's "jump to 7/7" won't happen.** CHANGELOG and TestFlight notes: "Today now says why it's still
+   calibrating".
+
 ### 7.1 Decoding (`Models.swift`, once API.md has the fields)
 
 ```swift

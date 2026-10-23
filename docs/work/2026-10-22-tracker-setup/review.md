@@ -415,3 +415,66 @@ account. Screenshots stay local, not in the repo.
   before the status read instead of keeping it in flight), not product code, and #33 doesn't make it worse. → Its own
   `test:` PR from main.
 
+
+## T4: honest calibration against the published contract (2026-10-23)
+
+The platform published `calibrating_reason` (`short_history` | `no_hrv` | `no_rhr`), `baseline_hrv_days` and
+`baseline_rhr_days` on 2026-10-22, but not `hrv_baseline_days` or `recovery_inputs`. So design.md §7 rev. 2 (architect)
+replaced the T4 design.
+
+**Commits and gates:**
+
+| Commit | What | Gate |
+| --- | --- | --- |
+| 887610d | Contract mirror (api-contract-keeper). An unknown reason decodes as nil; the fixtures come from API.md's 8 examples | contract check ok |
+| 1c7232b | design.md §7 rev. 2, the plan's T4 criteria, a ui.md §8 erratum, API_REQUESTS Tracker setup §5 | — |
+| a1dba95 | Today: the N1/N2 note names the missing signal and the tracker app; S2 learning note; legacy path L verbatim (ios-developer) | Unit 873 |
+| be6e329 → 9d4dd87 | Strings review kept the German drafts. The commit re-serialised the whole catalog (18 k lines) with a wrong trailer, so the lead restored the file byte for byte | lint |
+| 9ddf4b8 | test-engineer: 68 unit cases over every decision-table row, 4 UI tests; 7 mutations proved them | Unit, UI 11/11 |
+| 7af4563 | Review fixes | Unit 884, UI 11/11 |
+
+**code-reviewer (a1dba95): nothing blocking.** It confirmed:
+- path L is byte-equivalent to the old code;
+- the widget can't show a counter for `no_*`;
+- the fixture equals `extract.py` output.
+
+**Findings → decisions:**
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| 1 | #39 must merge before T4 | Done (f0b6a95); `main` merged into T4 |
+| 2 | `facts` read the tracker catalog (about 44 KB of JSON on first use) on every body | Lazy: read only for `no_*` rows with a selection; pinned by a test |
+| 3 | The Recovery tile's band word was hidden in S2/N1/N2 | **Lead:** the tile keeps it, as under the legacy needs-vitals row; only the gauge's band word is hidden. Otherwise every Garmin user loses it for good |
+| 4 | `detailSleepMin` was keyed on the scenario | Keyed on the row. Accepted trade-off: the demo-only `blockedNoNight` scenario shows the mock night's sleep |
+| 5 | German two-signal note ("sendet HRV oder Ruhepuls nicht") | Dedicated "weder … noch" keys when both signals are missing; `blockedOura` scenario |
+| 6 | `linkCheck` kept alive after the sheet closes | Cleared on dismiss |
+| 7 | A stale test comment | Fixed |
+| 8 | German previews show English model strings | Known; German is checked with simulator screenshots |
+
+**Deferred (plan T4):**
+- the Recovery/Readiness detail note, which needs `recovery_inputs` (API_REQUESTS Tracker setup §1);
+- ui.md §8.2's blocked gauge mode, which isn't built.
+
+**Platform request filed:** Tracker setup §5. A `no_hrv` account (Garmin) never leaves calibrating under the published rule.
+
+**Device check, 2026-10-23 (the user's iPhone 16 Pro, iOS 27.0.1, his Garmin account; Debug build of 7af4563):**
+- **First launch:** the cached row predated the fields, so Today ran path L ("Baselines need heart-rate variability … with your
+  watch").
+- **After the refresh:** the platform's row says `no_hrv`, and Today shows N1 as designed:
+  - readiness 93 with no band word under the gauge, no counter;
+  - "Readiness from the signals that reached RYFT.";
+  - the Recovery tile keeps "High";
+  - the generic note "No HRV has reached RYFT from your nights." with no link, because `devices.setup` is off.
+- **With `-RyftFlags devices.setup -RyftTrackers garmin`** (Debug arguments, nothing persisted): "Garmin Connect doesn't
+  share HRV with Apple Health." and the link "How to set up Garmin Connect ›".
+- RYFT was relaunched without arguments afterwards. The screenshots stayed local.
+
+**ui-validator (7af4563):** no blockers. Checked 6 scenarios × dark/light × en/de × default/AX3, plus the accessibility tree.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| 1 | Note and link ran together at AX3 | 55200aa: scaled inset inside the 44 pt link; default pixel-identical |
+| 2 | The N2 hero "It appears once last night has synced" next to the HRV note | **Lead:** kept. It's about readiness, which does appear once the night arrives; the note covers HRV |
+| 3 | The info icon was pinned left at AX sizes | 55200aa: inline with the first line at accessibility sizes only |
+| 4 | German tracker card said "exportiert … zu Apple Health" | 55200aa: "sendet … an Apple Health"; tracker catalog 2026-10-23.1 |
+| 5, 6 | Status-line crossfade at launch (demo); Journal card breaks words at AX3 | Not T4's (they predate it) → STATUS follow-ups |

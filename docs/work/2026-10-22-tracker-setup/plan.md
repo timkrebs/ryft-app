@@ -65,12 +65,20 @@ Strings for every ticket: localization-editor (en + de, brand guard green). Revi
 - **Permission wording:** only what HealthKit can know; read permission isn't observable (D1 defines the rule).
 - **Tests:** a Garmin-like `MockHealthStore` (no HRV) → HRV expected ✗, HR ✓, sleep ✓. A demo scenario drives a UI test.
 
-**T4: honest calibration and recovery inputs** (after the platform)
-- **Decoding:** `DailyScore.hrv_baseline_days` (int?) and `recovery_inputs` ([string], tolerant of unknowns), each with a fixture
-  test from the `API.md` example.
-- **Detail text:** without `hrv` in `recovery_inputs`, Recovery/Readiness detail says it's based on resting heart rate, sleep
-  (and breathing rate), with a link to the tracker's card.
-- **No stuck counter:** a counter is never shown when it can't move; the missing signal is named instead.
+**T4: honest calibration** (after the platform). Revised 2026-10-23 for the published contract (design.md §7 rev. 2).
+The platform shipped `calibrating_reason`, `baseline_hrv_days` and `baseline_rhr_days`, not `hrv_baseline_days` or `recovery_inputs`.
+- **Decoding:** the three fields, with an unknown reason decoding as nil. Fixture tests cover API.md's `DailyScore` example
+  and its 8 `calibrating_reason` examples. Done in 887610d.
+- **No stuck counter:**
+  - "N of 7" appears only for `short_history`, and for legacy rows without a reason.
+  - `no_hrv` / `no_rhr` show the readiness, or the empty gauge, with a note that names the missing signal and, where the
+    catalog knows, the tracker app, linking to the tracker's card, Check sync or Devices & sync. The link only appears while
+    `devices.setup` is on.
+  - The widget never shows a counter for them.
+- **Legacy rows** (reason null on a calibrating row) behave exactly as before. The refresh-resilience tests are unchanged.
+- **Deferred to a follow-up** (lead, 2026-10-23):
+  - Recovery/Readiness detail text: it needs `recovery_inputs`, which is still open in API_REQUESTS.
+  - ui.md §8.2's blocked gauge mode: not built; see design.md §7 rev. 2 §1.
 
 **T5: docs**
 - `docs/STATUS.md` → Incidents (from T0); `docs/API_REQUESTS.md` (`User.trackers` via `PATCH /v1/me`, `trackers.json` on the
