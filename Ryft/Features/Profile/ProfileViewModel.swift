@@ -458,7 +458,9 @@ final class SyncDetailsModel {
     var resources: [ResourceRow] {
         let states = state.resourceStates
         return ReadResource.allCases.compactMap { r in
-            r.displayName.map { ResourceRow(resource: r, name: $0, state: states[r] ?? ResourceState()) }
+            // My Day's read is listed once My Day shows.
+            guard r != .activities || env.flags.isOn(.todayMyDay) else { return nil }
+            return r.displayName.map { ResourceRow(resource: r, name: $0, state: states[r] ?? ResourceState()) }
         }
     }
 

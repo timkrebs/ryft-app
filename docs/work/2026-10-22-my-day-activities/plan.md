@@ -99,7 +99,7 @@ Every ticket gets the localization-editor (en + de) and test-engineer. Reviews p
      signs in again. They are wiped if another account signs in. An explicit sign-out with unconfirmed activities asks
      first.
   5. **Voice cues per km:** a follow-up PR (they need the Audio background mode); not in this release.
-  6. **Live BLE heart rate:** a follow-up PR behind `activity.liveHR`; the recording screen says "Heart rate is added
+  6. **Live BLE heart rate:** a follow-up PR behind `activity.live_hr`; the recording screen says "Heart rate is added
      after your tracker syncs."
   7. **Intents and the Control Center "Start run":** open the pre-start screen, so GPS settles first.
   8. **Catalogue calls:** accepted (rowing without GPS, padel → tennis in Health, ski touring → cross-country skiing).

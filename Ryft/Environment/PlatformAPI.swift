@@ -1,9 +1,10 @@
 import Foundation
 
 /// The whole platform surface (`../plattform/docs/API.md`): what screens read
-/// (`RyftDataSource`), Train (`TrainDataSource`), and the calls services make.
+/// (`RyftDataSource`), Train (`TrainDataSource`), activities (`ActivitiesAPI`, a draft
+/// until the contract is published), and the calls services make.
 /// `APIClient` is the live implementation, `MockPlatformAPI` the in-memory one.
-protocol PlatformAPI: RyftDataSource, TrainDataSource {
+protocol PlatformAPI: RyftDataSource, TrainDataSource, ActivitiesAPI {
     /// `POST /v1/sync`; the body is a `SyncRequest`, encoded by `SyncEngine` off the main actor,
     /// gzipped when `contentEncoding` is `"gzip"`.
     func sync(encoded body: Data, contentEncoding: String?) async throws -> SyncResponse
@@ -130,8 +131,9 @@ extension APIClient: PlatformAPI {
 }
 
 /// The platform in memory: screens read `MockDataSource`, Train runs on
-/// `MockTrainSource`, and every service call is recorded. Tests script failures
-/// with `failure` (thrown by every call until cleared) or `failNext`.
+/// `MockTrainSource`, activities on `activitySource`, and every service call is
+/// recorded. Tests script failures with `failure` (thrown by every call until
+/// cleared) or `failNext`.
 final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     private let lock = NSLock()
     private let screens: RyftDataSource
@@ -141,10 +143,20 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     /// Thrown once by the next call.
     var failNext: Error?
     var syncResponse = SyncResponse(samples: 0, sleep: 0, workouts: 0, daysTouched: [])
-    /// Demo data shows the tracker setup (`devices.setup`), which ships dark for accounts.
-    var remoteConfig = RemoteConfig(flags: [FeatureFlag.devicesSetup.rawValue: true], evaluatedAt: .now, ttlSec: 21_600,
+    /// Demo data shows the features that ship dark for accounts: the tracker setup (`devices.setup`), My Day and
+    /// activities.
+    var remoteConfig = RemoteConfig(flags: MockPlatformAPI.demoFlags, evaluatedAt: .now, ttlSec: 21_600,
                                     privacyPolicyVersion: MockData.policyVersion,
                                     privacyPolicyUrl: "https://ryftapp.de/privacy")
+    static let demoFlags: [String: Bool] = {
+        var on: [FeatureFlag] = [.devicesSetup, .todayMyDay, .activitiesManual]
+        #if DEBUG
+        // Never in a Release demo before the release PR that adds the location background mode and turns
+        // recording on (design.md §8.5, §10 → Flags): App Review can open demo data.
+        on += [.activitiesRecording, .activityLiveHR]
+        #endif
+        return Dictionary(uniqueKeysWithValues: on.map { ($0.rawValue, true) })
+    }()
     var prefs = NotificationPrefs.allOn
 
     // The account behind the Beta gates; `me()` reports it, the gates follow it.
@@ -170,8 +182,14 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     private(set) var planWakes: [String] = []
     /// Scripts `GET /v1/sleep/plan` (tests); the mock plan otherwise.
     var planFor: (@Sendable (String) -> SleepPlan)?
-    /// The mock plan's "now": `wake` resolves to its next occurrence after it, as on the server.
-    var now: @Sendable () -> Date = { .now }
+    /// The mock plan's "now": `wake` resolves to its next occurrence after it, as on the server. The activities
+    /// follow it too.
+    var now: @Sendable () -> Date = { .now } {
+        didSet { activitySource.now = now }
+    }
+    /// Activities and manual sleep (`ActivitiesAPI`): empty and scored at once by default (tests); the demo
+    /// graphs pass `MockActivitiesSource.demoSource()`.
+    let activitySource: MockActivitiesSource
     private(set) var mePatches: [UserPatch] = []
 
     private(set) var calls: [String] = []
@@ -179,9 +197,11 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     private(set) var pushRegistrations: [PushRegistration] = []
     private(set) var appleCodes: [String] = []
 
-    init(screens: RyftDataSource = MockDataSource.shared, train: TrainDataSource = MockTrainSource.shared) {
+    init(screens: RyftDataSource = MockDataSource.shared, train: TrainDataSource = MockTrainSource.shared,
+         activities: MockActivitiesSource = MockActivitiesSource()) {
         self.screens = screens
         self.train = train
+        activitySource = activities
         #if DEBUG
         faults = FaultInjection.parse(UserDefaults.standard.string(forKey: "RyftFault"))
         #endif
@@ -526,6 +546,29 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         try enter("completeSession"); return try await train.completeSession(id: id, body)
     }
     func deleteSession(id: UUID) async throws { try enter("deleteSession"); try await train.deleteSession(id: id) }
+
+    // MARK: activities (draft)
+
+    var publishesActivities: Bool { activitySource.publishesActivities }
+
+    func putActivity(_ a: SportActivity) async throws -> SportActivity {
+        try enter("putActivity"); return try await activitySource.putActivity(a)
+    }
+    func activities(from: Date, to: Date) async throws -> [SportActivity] {
+        try enter("activities"); return try await activitySource.activities(from: from, to: to)
+    }
+    func activity(id: UUID) async throws -> SportActivity {
+        try enter("activity"); return try await activitySource.activity(id: id)
+    }
+    func deleteActivity(id: UUID) async throws {
+        try enter("deleteActivity"); try await activitySource.deleteActivity(id: id)
+    }
+    func putManualSleep(day: String, _ body: ManualSleepPut) async throws {
+        try enter("putManualSleep"); try await activitySource.putManualSleep(day: day, body)
+    }
+    func deleteManualSleep(day: String) async throws {
+        try enter("deleteManualSleep"); try await activitySource.deleteManualSleep(day: day)
+    }
 }
 
 #if DEBUG
@@ -600,6 +643,8 @@ enum FaultInjection {
         "/v1/sync": "sync", "/v1/behaviors": "behaviors", "/v1/journal/{day}": "journal",
         "/v1/behaviors/impact": "behaviorImpact", "/v1/plans": "plans", "/v1/plans/today": "planToday",
         "/v1/exercises": "exercises", "/v1/sleep": "sleep",
+        // Activities (draft): the list, an activity's PUT (the upload), a manual sleep's PUT.
+        "/v1/activities": "activities", "/v1/activities/{id}": "putActivity", "/v1/sleep/manual/{day}": "putManualSleep",
     ]
 
     static func parse(_ spec: String?) -> [String: Rule] {
