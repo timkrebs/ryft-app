@@ -228,7 +228,8 @@ final class ProfileViewModel {
         exportError = nil
         defer { exporting = false }
         do {
-            let archive = try await DataExport.archive(source: state.source, train: env.api)
+            let archive = try await DataExport.archive(source: state.source, train: env.api,
+                                                       rememberedMatches: ImportMappingStore(env: env).records())
             exported = ExportedFile(url: try DataExport.write(archive))
         } catch where error.isCancellation {
             return
