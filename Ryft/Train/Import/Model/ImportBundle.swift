@@ -102,8 +102,9 @@ struct ImportBundle: Equatable, Sendable {
 
     /// Another file's bundle added to this one. Plans are appended as they are. A session whose start key is already
     /// here (the same workout in two picked files) is kept once, with `.duplicateInFiles` at the dropped copy's line;
-    /// the occurrences are counted, so two workouts that share a start in one file both survive.
-    func merging(_ other: ImportBundle) -> ImportBundle {
+    /// the occurrences are counted, so two workouts that share a start in one file both survive. Warnings stay sorted
+    /// and capped at `maxWarnings`; the rest are counted in `suppressedWarnings`.
+    func merging(_ other: ImportBundle, maxWarnings: Int = ImportLimits.standard.maxWarnings) -> ImportBundle {
         var remaining: [String: Int] = [:]
         for session in sessions { remaining[session.start.key, default: 0] += 1 }
         var merged = self
@@ -121,6 +122,7 @@ struct ImportBundle: Equatable, Sendable {
         merged.warnings = ImportWarning.sorted(warnings + other.warnings + dropped)
         merged.suppressedWarnings += other.suppressedWarnings
         merged.lineCount += other.lineCount
+        merged.capWarnings(at: maxWarnings)
         return merged
     }
 }
@@ -130,6 +132,8 @@ struct ImportedPlan: Equatable, Sendable {
     /// `N weeks` from the header; nil when the file names none.
     var weeks: Int?
     var startDate: LocalDate?
+    /// File order. A day number written twice in one plan stays (nothing is dropped) with `.duplicateDay`; ids that
+    /// key on the day number must tell the two apart.
     var days: [ImportedDay]
     var source: SourceLine
 }
@@ -146,6 +150,7 @@ struct ImportedPlanExercise: Equatable, Sendable {
     var order: Int
     var name: String
     var equipment: String?
+    /// As written (up to 1 000). The platform's plans take 1–20 sets; I5's builder clamps.
     var sets: Int
     var targetReps: ClosedRange<Int>?
 }
@@ -204,7 +209,10 @@ enum ImportedLoad: Equatable, Sendable {
 
 /// Whole-file refusals. Everything smaller is an `ImportWarning`.
 enum ImportError: Error, Equatable, Sendable {
+    /// One file over `maxFileBytes`, or the picked files together over `maxTotalBytes`.
     case tooLarge(bytes: Int)
+    /// More files than `maxFiles` (ui.md P7).
+    case tooManyFiles(count: Int)
     case unsupportedEncoding
     case notRecognised
     case mixedFormats
@@ -214,12 +222,16 @@ enum ImportError: Error, Equatable, Sendable {
 /// Caps that keep any input bounded. Tests shrink them.
 struct ImportLimits: Sendable {
     var maxFileBytes = 8 << 20
+    /// The picker's cap (ui.md P7).
+    var maxFiles = 6
+    var maxTotalBytes = 6 * (8 << 20)
     var maxLineBytes = 4_096
     var maxSessions = 10_000
     var maxPlans = 50
-    /// Per block: days in a plan, exercises in a plan day, exercises in a session.
-    var maxExercisesPerBlock = 200
-    var maxSetsPerExercise = 200
+    /// Per block: days in a plan, exercises in a plan day, exercises in a session. 50 is the platform's limit for a
+    /// session (API.md → Sessions: 50 exercises, 50 sets per exercise), so nothing kept is refused there.
+    var maxExercisesPerBlock = 50
+    var maxSetsPerExercise = 50
     var maxWarnings = 200
 
     static let standard = ImportLimits()

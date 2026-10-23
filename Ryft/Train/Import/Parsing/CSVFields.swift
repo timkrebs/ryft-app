@@ -1,12 +1,15 @@
 import Foundation
 
 /// A line split at `;` (design §3, file hygiene). Keeps at most `CSVFields.maxFields` fields; `hasMore` says a
-/// further non-empty one followed. Trailing empty fields (a trailing `;`) are dropped; fields are trimmed.
+/// further non-empty one followed. Trailing empty fields (a trailing `;`) are dropped; fields are trimmed and hold no
+/// control or format characters except tab.
 struct CSVLine: Equatable, Sendable {
     var fields: [String]
     /// Per field: it was written in double quotes.
     var quoted: [Bool]
     var hasMore: Bool
+    /// Bytes the split looked at: the measure of its work (`ParseStats.visited`).
+    var visited = 0
 
     var count: Int { fields.count }
     var isEmpty: Bool { fields.isEmpty && !hasMore }
@@ -14,6 +17,11 @@ struct CSVLine: Equatable, Sendable {
     /// The field at `index`, or nil past the end.
     func field(_ index: Int) -> String? {
         index >= 0 && index < fields.count ? fields[index] : nil
+    }
+
+    /// The field at `index` was written in double quotes.
+    func isQuoted(_ index: Int) -> Bool {
+        index >= 0 && index < quoted.count ? quoted[index] : false
     }
 }
 
@@ -31,6 +39,7 @@ enum CSVFields {
         var fields: [String] = []
         var quoted: [Bool] = []
         var hasMore = false
+        var visited = 0
         var i = 0
         while true {
             var j = i
@@ -67,9 +76,8 @@ enum CSVFields {
                     j += 1
                 }
             }
-            // The bytes are a valid line cut at ASCII `;` and `"`, so decoding can't fail.
-            // swiftlint:disable:next optional_data_string_conversion
-            let text = String(decoding: value, as: UTF8.self).trimmingCharacters(in: .whitespaces)
+            visited += j - i + 1
+            let text = cleaned(value, visited: &visited)
             if fields.count < maxFields {
                 fields.append(text)
                 quoted.append(isQuoted)
@@ -85,11 +93,42 @@ enum CSVFields {
             fields.removeLast()
             quoted.removeLast()
         }
-        return CSVLine(fields: fields, quoted: quoted, hasMore: hasMore)
+        return CSVLine(fields: fields, quoted: quoted, hasMore: hasMore, visited: visited)
     }
 
-    /// A field's parts at the inner separator ` · ` (U+00B7 with spaces), trimmed.
+    /// A field's parts at the inner separator ` · ` (U+00B7 with whitespace on both sides, a no-break space too),
+    /// trimmed. A bare `A·B` stays one part.
     static func parts(_ field: String) -> [String] {
-        field.components(separatedBy: " \u{00B7} ").map { $0.trimmingCharacters(in: .whitespaces) }
+        var parts: [String] = []
+        var start = field.startIndex
+        var index = field.startIndex
+        var previousIsWhitespace = false
+        while index < field.endIndex {
+            let character = field[index]
+            let next = field.index(after: index)
+            if character == "\u{00B7}", previousIsWhitespace, next < field.endIndex, field[next].isWhitespace {
+                parts.append(field[start..<index].trimmingCharacters(in: .whitespaces))
+                start = next
+            }
+            previousIsWhitespace = character.isWhitespace
+            index = next
+        }
+        parts.append(field[start...].trimmingCharacters(in: .whitespaces))
+        return parts
+    }
+
+    /// The field's text, trimmed, without control (Cc) or format (Cf) characters other than tab: no NUL, no U+001F
+    /// (the id separator, ADR 0007), no bidi overrides or zero-width characters reach names, mapping or ids.
+    private static func cleaned(_ value: [UInt8], visited: inout Int) -> String {
+        // The bytes are a valid line cut at ASCII `;` and `"`, so decoding can't fail.
+        // swiftlint:disable:next optional_data_string_conversion
+        var text = String(decoding: value, as: UTF8.self)
+        if value.contains(where: { ($0 < 0x20 && $0 != 0x09) || $0 >= 0x7F }) {
+            visited += value.count
+            text.unicodeScalars.removeAll { scalar in
+                scalar != "\t" && [.control, .format].contains(scalar.properties.generalCategory)
+            }
+        }
+        return text.trimmingCharacters(in: .whitespaces)
     }
 }

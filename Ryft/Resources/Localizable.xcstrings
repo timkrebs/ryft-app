@@ -4576,6 +4576,17 @@
         }
       }
     },
+    "This file isn't saved as UTF-8: RYFT read it as Western (Windows Latin 1)" : {
+      "comment" : "Import note, after \"Line 1\": a spreadsheet-saved CSV in an older encoding.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Datei ist nicht als UTF-8 gespeichert: RYFT hat sie als Westeuropäisch (Windows Latin 1) gelesen"
+          }
+        }
+      }
+    },
     "This iPhone synced another RYFT account until %@, one you logged in to with email. If that was you, log out and log in with email. You can then add Sign in with Apple to it in Profile." : {
       "localizations" : {
         "de" : {
@@ -4665,6 +4676,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Diese Nacht wurde bewertet, bevor RYFT den Bedarf aufgeschlüsselt hat."
+          }
+        }
+      }
+    },
+    "This plan has this day number twice: check its days after the import" : {
+      "comment" : "Import warning, after \"Line N\": a plan day number used a second time.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Plan hat diese Tagesnummer zweimal: Prüfe seine Tage nach dem Import"
           }
         }
       }

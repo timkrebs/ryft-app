@@ -31,8 +31,18 @@ struct ImportTimeResolverTests {
         Case(zone: "America/New_York", local: "2026-11-01 01:30", utc: "2026-11-01T05:30:00Z", note: .repeatedLocalTime),
         Case(zone: "America/New_York", local: "2026-11-01 00:59", utc: "2026-11-01T04:59:00Z", note: nil),
         Case(zone: "America/New_York", local: "2026-11-01 02:00", utc: "2026-11-01T07:00:00Z", note: nil),
-        // A day whose midnight didn't exist (DST began at 00:00).
+        // Australia/Lord_Howe changes by 30 minutes: spring 2026-10-04 (02:00 → 02:30), autumn 2026-04-05 (02:00 → 01:30).
+        // A gap moves forward by its own length (here 30 minutes), never by a day.
+        Case(zone: "Australia/Lord_Howe", local: "2026-10-04 02:15", utc: "2026-10-03T15:45:00Z", note: .nonexistentLocalTime),
+        Case(zone: "Australia/Lord_Howe", local: "2026-10-04 02:30", utc: "2026-10-03T15:30:00Z", note: nil),
+        Case(zone: "Australia/Lord_Howe", local: "2026-04-05 01:45", utc: "2026-04-04T14:45:00Z", note: .repeatedLocalTime),
+        Case(zone: "Australia/Lord_Howe", local: "2026-04-05 01:29", utc: "2026-04-04T14:29:00Z", note: nil),
+        Case(zone: "Australia/Lord_Howe", local: "2026-04-05 02:00", utc: "2026-04-04T15:30:00Z", note: nil),
+        // A day whose midnight didn't exist (DST began at 00:00), and a fold across midnight (DST ended at 01:00).
         Case(zone: "America/Sao_Paulo", local: "2018-11-04 00:30", utc: "2018-11-04T03:30:00Z", note: .nonexistentLocalTime),
+        Case(zone: "America/Havana", local: "2026-11-01 00:30", utc: "2026-11-01T04:30:00Z", note: .repeatedLocalTime),
+        // A whole day skipped (Samoa crossed the date line): the time moves forward by the 24-hour gap.
+        Case(zone: "Pacific/Apia", local: "2011-12-30 10:00", utc: "2011-12-30T20:00:00Z", note: .nonexistentLocalTime),
         Case(zone: "UTC", local: "2026-03-29 02:30", utc: "2026-03-29T02:30:00Z", note: nil),
     ]
 
@@ -41,7 +51,7 @@ struct ImportTimeResolverTests {
         let zone = try #require(TimeZone(identifier: c.zone))
         let time = try Self.localTime(c.local)
         let expected = try #require(ISO8601DateFormatter().date(from: c.utc))
-        let resolution = try #require(ImportTimeResolver(zone: zone).resolve(time))
+        let resolution = ImportTimeResolver(zone: zone).resolve(time)
         #expect(resolution.instant == expected)
         #expect(resolution.note == c.note)
     }
@@ -60,8 +70,15 @@ struct ImportTimeResolverTests {
         let berlin = try #require(TimeZone(identifier: "Europe/Berlin"))
         let resolver = ImportTimeResolver(zone: berlin)
         let sessions = try ImportFixture.parse("ap-workouts-edge").sessions
-        #expect(sessions.prefix(2).map { resolver.resolve($0.start)?.note } == [.nonexistentLocalTime, .repeatedLocalTime])
-        #expect(sessions.dropFirst(2).map { resolver.resolve($0.start)?.note } == [nil, nil])
+        #expect(sessions.prefix(2).map { resolver.resolve($0.start).note } == [.nonexistentLocalTime, .repeatedLocalTime])
+        #expect(sessions.dropFirst(2).map { resolver.resolve($0.start).note } == [nil, nil])
+    }
+
+    @Test func daysFromTheCivilDate() {
+        #expect(ImportTimeResolver.daysFromCivil(year: 1970, month: 1, day: 1) == 0)
+        #expect(ImportTimeResolver.daysFromCivil(year: 2000, month: 3, day: 1) == 11_017)
+        #expect(ImportTimeResolver.daysFromCivil(year: 1900, month: 1, day: 1) == -25_567)
+        #expect(ImportTimeResolver.daysFromCivil(year: 2024, month: 2, day: 29) == 19_782)
     }
 
     @Test func keysStayWallClock() throws {

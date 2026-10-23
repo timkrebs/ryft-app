@@ -136,7 +136,25 @@ struct LineReaderTests {
     @Test func innerParts() {
         #expect(CSVFields.parts("Upper · Day 1 · Week 2") == ["Upper", "Day 1", "Week 2"])
         #expect(CSVFields.parts("A·B") == ["A·B"])
+        #expect(CSVFields.parts("A ·B") == ["A ·B"])
         #expect(CSVFields.parts("Push-Ups · Bodyweight") == ["Push-Ups", "Bodyweight"])
+        #expect(CSVFields.parts("A\u{00A0}·\u{00A0}B\t·  C") == ["A", "B", "C"])
         #expect(CSVFields.parts("") == [""])
+        #expect(CSVFields.parts(" · ") == ["", ""])
+    }
+
+    @Test func controlAndFormatCharactersAreStripped() {
+        let line = CSVFields.split("\"a\u{0}b\u{1F}c\u{202E}d\u{FEFF}\";\"tab\there\";x\u{7F}y")
+        #expect(line.fields == ["abcd", "tab\there", "xy"])
+        #expect(CSVFields.split("\"\u{200B}\";1").fields == ["", "1"])
+        #expect(CSVFields.split("Bankdrücken · Langhantel").fields == ["Bankdrücken · Langhantel"])
+    }
+
+    @Test func theSplitCountsTheBytesItVisits() {
+        #expect(CSVFields.split("").visited == 1)
+        #expect(CSVFields.split("1;60;10").visited == 8) // every byte once, plus the line end
+        let wide = String(repeating: ";", count: 4_000)
+        let visited = CSVFields.split(wide).visited
+        #expect(visited >= 4_000 && visited <= 8_002)
     }
 }

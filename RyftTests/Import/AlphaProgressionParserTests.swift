@@ -227,6 +227,135 @@ struct AlphaProgressionParserTests {
         #expect(plank.sets.isEmpty)
     }
 
+    @Test func theFirstFullPlanRunWins() throws {
+        let bundle = try ImportFixture.parse(text: """
+        "Legs · Day 2 · Day 1 · Week 3 · Base block";"2026-01-05 10:00";"30 min"
+        "A · Day 1 · Week 2 · Day 3 · Week 4 · P";"2026-01-06 10:00";"30 min"
+        "Arms · Day 3 · Standalone workout";"2026-01-07 10:00";"30 min"
+        "B · Day 1 · Week 2";"2026-01-08 10:00";"30 min"
+        "C · Day 4 · Week 1 · Standalone workout";"2026-01-09 10:00";"30 min"
+        """)
+        #expect(bundle.warnings.isEmpty)
+        // A full `Day · Week · plan` run beats an earlier day without a week.
+        #expect(bundle.sessions.first?.plan == PlanRef(planName: "Base block", dayNumber: 1, weekNumber: 3))
+        #expect(bundle.sessions.first?.title == "Legs · Day 2")
+        // The first full run, not the last.
+        #expect(bundle.sessions.dropFirst().first?.plan == PlanRef(planName: "Day 3 · Week 4 · P", dayNumber: 1, weekNumber: 2))
+        // A standalone workout stays standalone, whatever days it names.
+        #expect(bundle.sessions.map(\.plan) == [PlanRef(planName: "Base block", dayNumber: 1, weekNumber: 3),
+                                                PlanRef(planName: "Day 3 · Week 4 · P", dayNumber: 1, weekNumber: 2),
+                                                nil, nil, nil])
+        #expect(bundle.sessions.map(\.title) == ["Legs · Day 2", "A", "Arms · Day 3", "B · Day 1 · Week 2", "C · Day 4 · Week 1"])
+    }
+
+    @Test func aWorkoutTitledWithANumberIsNotASetRow() throws {
+        let bundle = try ImportFixture.parse(text: """
+        "Push · Standalone workout";"2026-02-14 5:10 pm";"42 min"
+        "1. Floor Press · Barbell · 8 reps"
+        #;KG;REPS
+        1;60;8
+        "5";"2026-02-13 5:10 pm";"42 min"
+        "1. Hammer Curl · Dumbbells · 10 reps"
+        #;KG;REPS
+        1;10;10
+        6;2026-02-12 7:00;30 min
+        """)
+        #expect(bundle.warnings.isEmpty)
+        #expect(bundle.sessions.map(\.title) == ["Push", "5", "6"])
+        #expect(bundle.sessions.map(\.exercises.count) == [1, 1, 0])
+    }
+
+    @Test func wideRowsKeepTheirOrdinalAndAreNotSets() throws {
+        let bundle = try ImportFixture.parse(text: """
+        "A · Standalone workout";"2026-01-05 10:00";"30 min"
+        "1. Floor Press · Barbell · 8 reps"
+        #;KG;REPS
+        1;60;8;9
+        2;62,5;8
+        3;65
+        4;65;6
+        """)
+        // A row with another number of columns is no set; its place still counts, because ordinals feed set ids.
+        #expect(bundle.sessions.first?.exercise(0)?.sets == [.kg(1, 62.5, 8), .kg(3, 65, 6)])
+        #expect(bundle.warningList == ["4 unrecognisedLine", "6 unrecognisedLine"])
+    }
+
+    @Test func aDateWithoutATimeButWithADurationIsAWorkout() throws {
+        let bundle = try ImportFixture.parse(text: """
+        "Push";"2026-01-05";"30 min"
+        "1. Floor Press · Barbell · 8 reps"
+        #;KG;REPS
+        1;60;8
+        "Base · 6 weeks";2026-01-05
+        """)
+        // Its time can't be read, so the block is skipped; it never becomes a plan.
+        #expect(bundle.sessions.isEmpty)
+        #expect(bundle.plans.map(\.name) == ["Base"])
+        #expect(bundle.warningList == ["1 unreadableDate"])
+    }
+
+    @Test func noBreakSpacesSeparateLikeSpaces() throws {
+        let text = "\"H\u{00A0}·\u{00A0}Standalone workout\";\"2026-02-14\u{00A0}5:10\u{202F}pm\";\"42\u{00A0}min\"\n"
+            + "\"1.\u{00A0}Floor Press · Barbell · 8\u{00A0}reps\"\n#;KG;REPS\n1;60;8"
+        let bundle = try ImportFixture.parse(text: text)
+        #expect(bundle.warnings.isEmpty)
+        let session = try #require(bundle.sessions.first)
+        #expect(session.title == "H")
+        #expect(session.plan == nil)
+        #expect(session.start.key == "2026-02-14T17:10")
+        #expect(session.durationMinutes == 42)
+        #expect(session.exercise(0)?.name == "Floor Press")
+        #expect(session.exercise(0)?.targetReps == 8...8)
+    }
+
+    @Test func controlAndFormatCharactersNeverReachNames() throws {
+        let text = "\"Up\u{202E}per\u{200B} · Standalone workout\";\"2026-01-05 10:00\";\"30 min\"\n"
+            + "\"1. Floor\u{001F} Press · Bar\u{2066}bell\u{2069} · 8 reps\"\n#;KG;REPS\n1;60;8\n"
+            + "\"Base\u{00AD} · 6 weeks\";2026-01-05\n\"Day 1 · Up\u{0007}per\"\n\"1. Front\tSquat · Barbell\";\"3 sets\";\"5 reps\""
+        let bundle = try ImportFixture.parse(text: text)
+        let session = try #require(bundle.sessions.first)
+        #expect(session.title == "Upper")
+        #expect(session.exercise(0)?.name == "Floor Press")
+        #expect(session.exercise(0)?.equipment == "Barbell")
+        #expect(bundle.plans.first?.name == "Base")
+        #expect(bundle.plans.first?.days.first?.name == "Upper")
+        #expect(bundle.plans.first?.days.first?.exercises.first?.name == "Front\tSquat") // a tab stays
+        let names = bundle.sessions.flatMap { [$0.title] + $0.exercises.map(\.name) }
+        let hasControl = names.contains { $0.unicodeScalars.contains { $0.properties.generalCategory == .format } }
+        #expect(!hasControl)
+    }
+
+    @Test func aDayNumberTwiceInOnePlanIsKeptAndWarned() throws {
+        let bundle = try ImportFixture.parse(text: """
+        "Base · 6 weeks";2026-01-05
+        "Day 1 · Upper"
+        "1. Overhead Press · Barbell";"3 sets";"8 reps"
+        "Day 1 · Lower"
+        "1. Front Squat · Barbell";"3 sets";"5 reps"
+        "Day 2 · Pull"
+        """)
+        #expect(bundle.plans.first?.days.map(\.number) == [1, 1, 2])
+        #expect(bundle.warningList == ["4 duplicateDay"])
+    }
+
+    @Test func aWindows1252ExportReadsLikeItsUTF8Twin() throws {
+        let utf8 = try ImportFixture.data("ap-workouts-de")
+        let text = try #require(String(bytes: utf8, encoding: .utf8))
+        let legacy = try #require(text.data(using: .windowsCP1252))
+        #expect(String(bytes: legacy, encoding: .utf8) == nil) // the umlauts are single bytes now
+        let expected = try AlphaProgressionFormat().parse(utf8, limits: .standard)
+        let parsed = try AlphaProgressionFormat().parse(legacy, limits: .standard)
+        #expect(parsed.plans == expected.plans)
+        #expect(parsed.sessions == expected.sessions)
+        #expect(parsed.warnings == [ImportWarning(at: SourceLine(file: 0, line: 1), kind: .legacyEncoding)])
+        #expect(parsed.sessions.first?.title == "Oberkörper")
+        // With a UTF-8 BOM the file says what it is: bad bytes then decode lossily, line by line.
+        let marked = try AlphaProgressionFormat().parse(Data([0xEF, 0xBB, 0xBF]) + legacy, limits: .standard)
+        let kinds = Set(marked.warnings.map(\.kind))
+        #expect(kinds.contains(.invalidText))
+        #expect(!kinds.contains(.legacyEncoding))
+    }
+
     // MARK: Invariance
 
     @Test func newerExportAddsOneSession() throws {

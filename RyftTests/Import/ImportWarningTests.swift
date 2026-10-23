@@ -33,7 +33,7 @@ struct ImportWarningTests {
     @Test func notesAreTheKindsUiMdNames() {
         let notes = ImportFixture.allKinds.filter(\.isNote).map(\.name)
         #expect(notes == ["missingTableHeader.kg", "missingTableHeader.lb", "meridiemConflict", "duplicateInFiles",
-                          "limitReached", "nonexistentLocalTime", "repeatedLocalTime", "durationAssumed",
+                          "limitReached", "legacyEncoding", "nonexistentLocalTime", "repeatedLocalTime", "durationAssumed",
                           "overPlatformLimit", "assistedLoad"])
     }
 
