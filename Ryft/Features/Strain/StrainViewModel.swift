@@ -16,22 +16,8 @@ final class StrainViewModel {
     private(set) var isLoading = false
     private(set) var error: String?
 
-    /// One day of the week strip.
-    struct StripDay: Identifiable, Equatable {
-        let date: Date
-        let strain: Double?
-        let isSelected: Bool
-        /// Scored, pending or no data (`DailyScore.scoringState`).
-        var marker: DayMarker.Kind? = nil
-        var id: Date { date }
-        var initial: String { date.formatted(.dateTime.weekday(.narrow)) }
-        var name: String { date.formatted(.dateTime.weekday(.wide)) }
-        var shortValue: String { strain.map { String(Int($0.rounded())) } ?? Fmt.placeholder }
-        var spokenValue: String {
-            let value = String(localized: "Strain \(Fmt.strain(strain))")
-            return marker?.spoken.map { "\(value), \($0)" } ?? value
-        }
-    }
+    /// One day of the week strip (`DateStrip`, shared with My Day).
+    typealias StripDay = DateStrip.Day
 
     init(state: AppState, store: TrainStore) {
         self.state = state
@@ -61,12 +47,7 @@ final class StrainViewModel {
     }
 
     var week: [StripDay] {
-        (0..<7).reversed().map { offset in
-            let day = DayFormat.shift(today, days: -offset)
-            let score = state.score(for: day)
-            return StripDay(date: day, strain: score?.strain, isSelected: calendar.isDate(day, inSameDayAs: date),
-                            marker: DayMarker.kind(for: score))
-        }
+        DateStrip.week(endingAt: today, selected: date) { state.score(for: $0) }
     }
 
     /// `DayDetail.strain`, else the score.
@@ -94,8 +75,20 @@ final class StrainViewModel {
         }
     }
 
+    /// The list is My Day's rows without the night (`today.myDay`, ADR 0006): RYFT's activities show too.
+    var showsMyDayList: Bool { state.env.flags.isOn(.todayMyDay) }
+
+    /// The day's rows as My Day builds them, without the sleep rows (behind `today.myDay`).
+    var dayItems: [MyDayItem] {
+        MyDayAssembler.items(.cached(day: date, state: state, store: store), catalog: state.env.trackerCatalog,
+                             now: state.env.clock.now(), includingSleep: false)
+    }
+
+    /// The workout behind one of `dayItems`.
+    func workout(_ id: UUID) -> Workout? { detail?.workouts.first { $0.id == id } }
+
     /// The day's workouts, each merged with its logged session (`session_id`),
-    /// then sessions without a workout yet (e.g. still syncing).
+    /// then sessions without a workout yet (e.g. still syncing). The list without `today.myDay`.
     var activities: [ActivityItem] {
         let start = calendar.startOfDay(for: date)
         let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start
@@ -115,14 +108,22 @@ final class StrainViewModel {
         date = calendar.startOfDay(for: day)
     }
 
+    private func refreshActivities() async {
+        guard showsMyDayList else { return }
+        _ = try? await state.repository.refreshActivities(DayFormat.string(from: date))
+    }
+
     /// Revalidates the selected day (no request when it's cached and fresh).
     func load() async {
         error = nil
         guard state.hasDataSource else { return }
         isLoading = detail == nil
         defer { isLoading = false }
+        // My Day's list needs the day's activities as well, side by side (cached and fresh: nothing is sent).
+        async let activities: Void = refreshActivities()
         do {
             _ = try await state.dayDetail(for: date)
+            await activities
         } catch where error.isCancellation {
             // `.task(id:)` restarted (another day, new data): the next load says what's true.
             return

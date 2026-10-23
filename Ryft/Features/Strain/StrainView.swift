@@ -9,8 +9,6 @@ struct StrainView: View {
     /// `-RyftOpenWorkout YES` pushes the first workout once (screenshots).
     @State private var autoOpen = UserDefaults.standard.bool(forKey: "RyftOpenWorkout")
 
-    static let maxStrain = 21.0
-
     private var model: StrainViewModel { screens.strain }
 
     var body: some View {
@@ -60,34 +58,7 @@ struct StrainView: View {
     // MARK: sections
 
     private var weekStrip: some View {
-        HStack(spacing: 0) {
-            ForEach(model.week) { day in
-                Button {
-                    model.select(day.date)
-                } label: {
-                    VStack(spacing: 6) {
-                        Text(day.initial)
-                            .font(.ryft(.caption))
-                            .foregroundStyle(day.isSelected ? Theme.textPrimary : Theme.textTertiary)
-                        ScoreRing(progress: day.strain.map { $0 / Self.maxStrain }, size: 36, lineWidth: 3,
-                                  color: Theme.metricStrain,
-                                  accessibilityLabel: Text(day.name), accessibilityValue: Text(day.spokenValue)) {
-                            Text(day.shortValue)
-                                .font(.ryftNumber(size: 11))
-                                .foregroundStyle(Theme.textPrimary)
-                        }
-                        DayMarker(kind: day.marker)
-                    }
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity)
-                    .background(day.isSelected ? Theme.surface : .clear,
-                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(day.isSelected ? .isSelected : [])
-            }
-        }
+        DateStrip(days: model.week) { model.select($0) }
     }
 
     /// Day strain on the 0–21 scale, ticks at 10 / 14 / 18, against the 7 days before.
@@ -128,7 +99,9 @@ struct StrainView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Activities").ryftLabelStyle()
             let items = model.activities
-            if items.isEmpty {
+            if model.showsMyDayList {
+                myDayList
+            } else if items.isEmpty {
                 if let error = model.error {
                     InlineMessage(message: error, retry: { await model.load() })
                 } else if model.isLoading {
@@ -151,6 +124,48 @@ struct StrainView: View {
                 }
             }
         }
+    }
+
+    /// `today.myDay`: My Day's rows without the night (ADR 0006), RYFT's activities among them. Activities open
+    /// nothing until A2's detail exists.
+    @ViewBuilder
+    private var myDayList: some View {
+        let items = model.dayItems
+        if items.isEmpty {
+            if let error = model.error {
+                InlineMessage(message: error, retry: { await model.load() })
+            } else if model.isLoading {
+                ProgressView().tint(Theme.accent).frame(maxWidth: .infinity)
+            } else {
+                InlineMessage(message: String(localized: "No workouts recorded on this day."),
+                              systemImage: "figure.walk")
+                if model.hasNoHealthData { HealthAccessHint() }
+            }
+        } else {
+            ForEach(items) { item in
+                switch item.kind {
+                case .workout(let id):
+                    if let w = model.workout(id) {
+                        NavigationLink(value: w) { row(item) }
+                            .buttonStyle(PressableButtonStyle())
+                            .accessibilityHint(Text("Opens the workout", comment: "VoiceOver: a My Day row opens the workout's detail."))
+                            .accessibilityIdentifier("strain.row.\(item.id)")
+                    }
+                case .session(let id):
+                    NavigationLink(value: TrainRoute.session(id)) { row(item) }
+                        .buttonStyle(PressableButtonStyle())
+                        .accessibilityHint(Text("Opens the session", comment: "VoiceOver: a My Day row opens the Train session."))
+                        .accessibilityIdentifier("strain.row.\(item.id)")
+                case .activity, .sleep, .missingSleep:
+                    MyDayRow(item: item, style: .tile, showsLoad: true)
+                        .accessibilityIdentifier("strain.row.\(item.id)")
+                }
+            }
+        }
+    }
+
+    private func row(_ item: MyDayItem) -> some View {
+        MyDayRow(item: item, style: .tile, showsChevron: true, showsLoad: true)
     }
 }
 

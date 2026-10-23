@@ -28,6 +28,8 @@ final class ScreenModels {
     let onboarding: OnboardingCoordinator
     /// What the user wears (`devices.setup`): onboarding, Today, Profile → Devices & sync.
     let devices: TrackerSelectionStore
+    /// My Day (`today.myDay`): the card on Today and its full screen.
+    let myDay: MyDayViewModel
     private let state: AppState
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, store: TrainStore, library: TrainLibrary,
@@ -49,6 +51,7 @@ final class ScreenModels {
                                onboarding: onboarding, devices: devices)
         sleep = SleepViewModel(state: state)
         strain = StrainViewModel(state: state, store: store)
+        myDay = MyDayViewModel(state: state, store: store) { [today] in TodayStates.nightGap(today.facts) != nil }
         insights = InsightsViewModel(state: state, journal: journal)
         router = DeepLinkRouter(state: state, sleep: sleep, strain: strain, insights: insights, onboarding: onboarding)
         let env = state.env

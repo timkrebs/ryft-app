@@ -121,6 +121,17 @@
         }
       }
     },
+    "%@ to %@" : {
+      "comment" : "VoiceOver: a time range.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bis %@"
+          }
+        }
+      }
+    },
     "%@ · %lld %%" : {
       "localizations" : {
         "de" : {
@@ -221,12 +232,64 @@
         }
       }
     },
+    "%@–now" : {
+      "comment" : "My Day row: a recording that is still running, from its start.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@–jetzt"
+          }
+        }
+      }
+    },
     "%lld / 4000" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld / 4000"
+          }
+        }
+      }
+    },
+    "%lld activities" : {
+      "comment" : "My Day: how many workouts and activities a day has.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Aktivität"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Aktivitäten"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld activity"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld activities"
+                }
+              }
+            }
           }
         }
       }
@@ -804,6 +867,28 @@
         }
       }
     },
+    "Add to your day" : {
+      "comment" : "VoiceOver: My Day's plus menu.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zu deinem Tag hinzufügen"
+          }
+        }
+      }
+    },
+    "Added by you" : {
+      "comment" : "Source badge: typed in by the user.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Von dir hinzugefügt"
+          }
+        }
+      }
+    },
     "Adding Sign in with Apple isn't switched on for RYFT yet. Try again later." : {
       "localizations" : {
         "de" : {
@@ -886,6 +971,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eine Idee"
+          }
+        }
+      }
+    },
+    "Anything your tracker syncs later will appear here." : {
+      "comment" : "My Day: under 'Nothing recorded on this day'.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was dein Tracker später synchronisiert, erscheint hier."
           }
         }
       }
@@ -1437,6 +1533,17 @@
         }
       }
     },
+    "Couldn't load My Day." : {
+      "comment" : "My Day: nothing cached and the read failed.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mein Tag konnte nicht geladen werden."
+          }
+        }
+      }
+    },
     "Couldn't save your report. Copy it and try again later." : {
       "localizations" : {
         "de" : {
@@ -1831,6 +1938,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "stattdessen von %@"
+          }
+        }
+      }
+    },
+    "from %@, still recording" : {
+      "comment" : "VoiceOver: a recording in progress.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ab %@, Aufzeichnung läuft"
           }
         }
       }
@@ -2377,6 +2495,17 @@
         }
       }
     },
+    "Loading My Day" : {
+      "comment" : "VoiceOver: My Day's outline rows while nothing is cached.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mein Tag wird geladen"
+          }
+        }
+      }
+    },
     "Looks at the last 48 hours in Apple Health. The check uploads nothing." : {
       "localizations" : {
         "de" : {
@@ -2393,6 +2522,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Maximale Herzfrequenz"
+          }
+        }
+      }
+    },
+    "My Day" : {
+      "comment" : "The card and screen with the day's sleep, workouts and activities.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mein Tag"
+          }
+        }
+      }
+    },
+    "My Day, %@" : {
+      "comment" : "VoiceOver: the My Day card's title and its date.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mein Tag, %@"
           }
         }
       }
@@ -2459,6 +2610,17 @@
         }
       }
     },
+    "No heart rate" : {
+      "comment" : "My Day row: scored, but there was no heart rate for the time.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Herzfrequenz"
+          }
+        }
+      }
+    },
     "No heart rate yet. With a strength workout on your watch too, it arrives once the watch syncs." : {
       "localizations" : {
         "de" : {
@@ -2515,6 +2677,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Keine Antwort"
+          }
+        }
+      }
+    },
+    "No sleep recorded" : {
+      "comment" : "My Day row: no sleep for last night.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kein Schlaf erfasst"
           }
         }
       }
@@ -2716,6 +2889,17 @@
         }
       }
     },
+    "Not uploaded" : {
+      "comment" : "My Day row: the upload failed; the data is still on the iPhone.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht hochgeladen"
+          }
+        }
+      }
+    },
     "Nothing from this iPhone in the last 2 days. Carry it with you for a while, then tap Check again." : {
       "localizations" : {
         "de" : {
@@ -2777,6 +2961,17 @@
         }
       }
     },
+    "Nothing recorded on this day" : {
+      "comment" : "My Day: a past day without sleep, workouts or activities.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An diesem Tag wurde nichts erfasst"
+          }
+        }
+      }
+    },
     "Nothing sent yet" : {
       "localizations" : {
         "de" : {
@@ -2794,6 +2989,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nichts ausstehend"
+          }
+        }
+      }
+    },
+    "Nothing yet today" : {
+      "comment" : "My Day card: no workouts or activities today.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Heute noch nichts"
           }
         }
       }
@@ -2896,6 +3102,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Öffnet die Bearbeitung"
+          }
+        }
+      }
+    },
+    "Opens the list" : {
+      "comment" : "VoiceOver: the My Day card's title opens the full screen.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet die Liste"
+          }
+        }
+      }
+    },
+    "Opens the session" : {
+      "comment" : "VoiceOver: a My Day row opens the Train session.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet die Einheit"
           }
         }
       }
@@ -3328,6 +3556,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Workout fortsetzen"
+          }
+        }
+      }
+    },
+    "Retry" : {
+      "comment" : "My Day: send a failed upload again.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erneut versuchen"
           }
         }
       }
@@ -3845,6 +4084,17 @@
         }
       }
     },
+    "Show all %lld" : {
+      "comment" : "My Day card: opens the full list of the day's items.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle %lld anzeigen"
+          }
+        }
+      }
+    },
     "Show me again later" : {
       "comment" : "Button: put a tracker's setup off; it stays in Profile → Devices & sync.",
       "localizations" : {
@@ -3922,6 +4172,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zeigt Daten von %@"
+          }
+        }
+      }
+    },
+    "Showing the list from %@" : {
+      "comment" : "My Day: the list is the last one loaded; the time it was loaded.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Liste von %@"
           }
         }
       }
@@ -4088,6 +4349,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Etwas funktioniert nicht"
+          }
+        }
+      }
+    },
+    "Source: %@" : {
+      "comment" : "VoiceOver: where a My Day row came from.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quelle: %@"
+          }
+        }
+      }
+    },
+    "Sources: %@" : {
+      "comment" : "VoiceOver: where a My Day row came from.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quellen: %@"
+          }
+        }
+      }
+    },
+    "Sources: %@, merged" : {
+      "comment" : "VoiceOver: an activity the platform combined with a tracker's workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quellen: %@, zusammengeführt"
           }
         }
       }
@@ -4618,6 +4912,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Belastung und Herzfrequenzzonen werden daran gemessen. Wenn du deine aus einem Test kennst, leg sie hier fest."
+          }
+        }
+      }
+    },
+    "Strain pending" : {
+      "comment" : "My Day row: at RYFT, strain not scored yet.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Belastung ausstehend"
           }
         }
       }

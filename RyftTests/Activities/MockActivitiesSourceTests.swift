@@ -100,14 +100,17 @@ struct MockActivitiesSourceTests {
         }
     }
 
-    /// Demo data: one RYFT run merged with today's mock tracker run, already scored.
+    /// Demo data: one RYFT run merged with today's mock tracker run, already scored; beside it today's other
+    /// demo rows (mobility without heart rate, yoga still pending), none of them merged.
     @Test func theDemoRunIsMergedWithTodaysTrackerRun() async throws {
         let workout = try #require(MockData.todayDetail.workouts.first { $0.activity == "running" })
         let api = MockPlatformAPI()
         let today = Calendar.current.startOfDay(for: .now)
         let list = try await api.activities(from: today, to: today.addingTimeInterval(86_400))
-        let run = try #require(list.first)
-        #expect(list.count == 1)
+        let run = try #require(list.first { $0.mergedWith != nil })
+        #expect(list.filter { $0.mergedWith != nil }.count == 1)
+        #expect(list.map(\.sport) == [.mobility, .running, .yoga])
+        #expect(list.first { $0.sport == .yoga }?.scoringState == "pending")
         #expect(run.origin == .recorded && run.sport == .running && run.mergedWith == workout.id)
         #expect(run.start == workout.start && run.end == workout.end && run.strain == workout.strain)
         #expect(run.scoringState == "scored" && run.strainSource == .heartRate && run.hrSource == workout.source)

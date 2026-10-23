@@ -260,6 +260,12 @@ final class AppState {
                 group.addTask { _ = try? await self.repository.refreshDay(date, mode: since) }
             }
             group.addTask { try? await self.repository.refreshHistory(from: from, to: now, mode: since) }
+            // My Day: the touched days' activities too (a tracker's workout arriving can merge with one).
+            if env.flags.isOn(.todayMyDay) {
+                for key in Set(touched) {
+                    group.addTask { _ = try? await self.repository.refreshActivities(key, mode: since) }
+                }
+            }
         }
         try Task.checkCancellation()
     }

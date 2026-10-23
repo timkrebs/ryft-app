@@ -49,6 +49,7 @@ struct TodayView: View {
                             }
                             .transition(.opacity)
                         }
+                        if screens.myDay.isEnabled { MyDayCard(model: screens.myDay) }
                         if screens.journal.isLive {
                             JournalCard(store: screens.journal) { showsJournal = true }
                         }
@@ -745,4 +746,22 @@ private enum PreviewHint {
 #Preview("Today · taking longer · de") {
     TodayView().previewEnvironment(.preview(scenario: .scoringSlow))
         .environment(\.locale, Locale(identifier: "de"))
+}
+
+// MARK: My Day (today.myDay): between the scores and Journal, Train and Trends (ui.md §14.4)
+
+#Preview("Today · My Day") {
+    TodayView().previewEnvironment(.preview(flags: [.todayMyDay: true]))
+}
+
+#Preview("Today · My Day · light") {
+    TodayView().previewEnvironment(.preview(flags: [.todayMyDay: true]), scheme: .light)
+}
+
+#Preview("Today · My Day · watch hasn't synced") {
+    TodayView().previewEnvironment(.preview(flags: [.todayMyDay: true], scenario: .watch))
+}
+
+#Preview("Today · My Day · watch hasn't synced · light") {
+    TodayView().previewEnvironment(.preview(flags: [.todayMyDay: true], scenario: .watch), scheme: .light)
 }
