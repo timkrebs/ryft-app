@@ -29,7 +29,8 @@ first one decides how the app reads My Day.
 | R15 | How far back a manual activity may start (the app allows 14 days), and `notes` ≤ 500 counted in characters or bytes. |
 | R16 | `route` and `hr_samples` appear **only** in `GET /v1/activities/{id}` (and R14's export), never in `GET /v1/activities?from&to`, the day detail, `GET /v1/my-day` or `PUT` answers. |
 | R17 | A final `401` for an account deleted on the web carries a distinct `code` (e.g. `account_deleted`), so the app deletes parked activities at once instead of after 30 days (§8.4). |
-| — | Naming only: API.md `Activity` is `SportActivity` in the app (ActivityKit owns `Activity`). |
+| R18 | `GET /v1/activities?from&to`: the parameters as RFC 3339 instants with offset, matched `[from, to)` on `start`, so the app asks for one local day (the phone's midnight to midnight, as it does against the fake). If the platform prefers `YYYY-MM-DD` like `GET /v1/days`, say which time zone decides an activity's day (`GET /v1/me` → `tz`?). Either way, an activity across midnight belongs to the day it starts on. (A1, 2026-10-23) |
+| — | Naming only: API.md `Activity` is `SportActivity` in the app (ActivityKit owns `Activity`), and `strain_source: "none"` is `StrainSource.noSource` (a case called `none` would read as `Optional.none`). |
 
 ## Train (open, 2026-10-19)
 

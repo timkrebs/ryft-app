@@ -40,6 +40,9 @@ final class AppEnvironment {
     lazy var reads = ReadScheduler(env: self)
     /// The tracker catalog: bundled, or the newest valid copy from ryftapp.de (`trackerCatalog`).
     lazy var catalogStore = TrackerCatalogStore(env: self)
+    /// Activities and manual sleep on this iPhone until the platform confirms them, scoped to the account
+    /// (`persistence`'s store; demo data's own in memory).
+    lazy var activities = ActivityStore(env: self)
     /// Fixed for previews (on) and tests (off); live follows the Demo data switch.
     private let demoOverride: Bool?
 
@@ -102,6 +105,8 @@ final class AppEnvironment {
                      auth: AuthService? = nil, flags: [FeatureFlag: Bool] = [:],
                      online: Bool = true, content: MockContentSource = MockContentSource()) -> AppEnvironment {
         api.now = { clock.now() }
+        // Scored at once: a test that wants the wait sets its own delay and advances the clock.
+        api.activitySource.scoreDelay = 0
         let env = AppEnvironment(
             settings: .shared, health: health, liveAPI: api, demoAPI: api, auth: auth ?? .preview(),
             persistence: TrainStore(inMemory: true), clock: clock, notifier: notifier ?? MockNotifier(),

@@ -12,6 +12,8 @@ import UserNotifications
 protocol Persistence: AnyObject {
     var container: ModelContainer { get }
     var context: ModelContext { get }
+    /// On disk; false when the store lives in memory only (a recording wouldn't survive the app closing).
+    var isDurable: Bool { get }
     func save()
     /// Everything the signed-in user left behind (sign-out, account switch).
     func wipe()
@@ -121,6 +123,15 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
     /// "What do you wear?", the setup cards, Profile → Devices & sync, the sync check and the tracker
     /// catalog's download. Dark until the platform turns it on (design.md §3.3).
     case devicesSetup = "devices.setup"
+    /// My Day on Today: the card, the full view, Strain's list (design.md §10). On after A1's UI review.
+    case todayMyDay = "today.myDay"
+    /// Add activity, Add sleep, edit and delete. On once the platform's Activities contract is live (C1).
+    case activitiesManual = "activities.manual"
+    /// Start activity (GPS), pre-start, the intents. On only in the release PR that adds the location
+    /// background mode (design.md §8.5).
+    case activitiesRecording = "activities.recording"
+    /// Connect heart-rate sensor (Bluetooth), a follow-up PR.
+    case activityLiveHR = "activity.liveHR"
 
     var id: String { rawValue }
 
@@ -129,6 +140,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .trainEnabled, .sleepPlanner: return true
         case .todayRedesign, .coachEnabled, .pushEnabled, .physiologyCard, .syncGzip, .devicesSetup: return false
+        case .todayMyDay, .activitiesManual, .activitiesRecording, .activityLiveHR: return false
         }
     }
 }

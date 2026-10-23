@@ -3,8 +3,9 @@ import SwiftData
 import OSLog
 
 /// The app's SwiftData container: Train's sessions being logged, its offline
-/// library and upload outbox, and (`ReadModels.swift`) every platform read model
-/// the Repository caches. On disk in the app, in memory for tests, previews and
+/// library and upload outbox, (`ReadModels.swift`) every platform read model
+/// the Repository caches, and (`LocalActivity.swift`) the activities and manual
+/// sleep not yet confirmed. On disk in the app, in memory for tests, previews and
 /// demo data. Everything runs on the main context; documents are small.
 @MainActor
 final class TrainStore {
@@ -12,10 +13,12 @@ final class TrainStore {
 
     static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "train")
     static let schema = Schema([LocalSession.self, LocalSessionExercise.self, LocalSet.self,
-                                CachedExercise.self, CachedPlan.self, PendingTrainOp.self] + readModels)
+                                CachedExercise.self, CachedPlan.self, PendingTrainOp.self] + readModels + activityModels)
 
     let container: ModelContainer
     var context: ModelContext { container.mainContext }
+    /// On disk. False in memory: asked for (tests, previews, demo data), or the file couldn't be opened.
+    let isDurable: Bool
 
     init(inMemory: Bool = false) {
         // In memory, each instance gets its own name, so tests and previews never share a store.
@@ -23,10 +26,12 @@ final class TrainStore {
                                         isStoredInMemoryOnly: inMemory)
         do {
             container = try ModelContainer(for: Self.schema, configurations: config)
+            isDurable = !inMemory
         } catch {
             // A store that can't be opened must not keep the app from launching.
             Self.log.error("Train store unavailable, using memory: \(error.localizedDescription, privacy: .public)")
             let memory = ModelConfiguration("TrainFallback", schema: Self.schema, isStoredInMemoryOnly: true)
+            isDurable = false
             do {
                 container = try ModelContainer(for: Self.schema, configurations: memory)
             } catch {
@@ -180,6 +185,11 @@ final class TrainStore {
         try? context.delete(model: CachedSleepRange.self)
         try? context.delete(model: CachedWorkout.self)
         try? context.delete(model: CachedDocument.self)
+        // Activities: chunks have no relationship to their row (batch deletes skip cascades), so every chunk goes
+        // explicitly, orphans included. A2 keeps an expired session's unconfirmed rows (design.md §8.4).
+        try? context.delete(model: ActivityTrackChunk.self)
+        try? context.delete(model: LocalActivity.self)
+        try? context.delete(model: LocalManualSleep.self)
         save()
     }
 }
