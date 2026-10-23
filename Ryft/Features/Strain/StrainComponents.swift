@@ -16,7 +16,7 @@ enum ActivityStyle {
         }
     }
 
-    /// My Day's name for a workout (and Strain's list behind `today.myDay`): the catalogue's, so a tracker's run
+    /// My Day's name for a workout (and Strain's list behind `today.my_day`): the catalogue's, so a tracker's run
     /// and a RYFT run read the same; "Workout" for a tracker's unspecified one. `name(for:)` keeps the shipped
     /// names until the flag goes.
     static func title(for activity: String) -> String {

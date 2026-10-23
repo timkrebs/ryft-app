@@ -18,10 +18,8 @@ struct MyDayView: View {
             .navigationDestination(item: $workout) { WorkoutDetailView(workout: $0) }
             .navigationDestination(item: $session) { SessionDetailView(sessionID: $0).trainDestinations() }
             .task(id: TaskKey(day: day, refreshed: state.lastUpdated)) { await model.load(day) }
-            .refreshable {
-                await screens.pullToRefresh()
-                await model.load(model.date, force: true)
-            }
+            // Today: the app's pull, the activities beside it; a past day: its reads, the spinner capped.
+            .refreshable { await model.refresh(model.date) { await screens.pullToRefresh() } }
     }
 
     private struct TaskKey: Equatable {
@@ -98,7 +96,7 @@ struct MyDayPage: View {
     /// "Today" / "Wed, 21 Oct", then "3 activities · 1h 52m · 14.8 km" and the day's strain once scored.
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(verbatim: Fmt.dayTitle(content.day))
+            Text(verbatim: content.title ?? Fmt.dayTitle(content.day))
                 .font(.ryft(.title))
                 .foregroundStyle(Theme.textPrimary)
                 .accessibilityAddTraits(.isHeader)
@@ -142,10 +140,10 @@ struct MyDayPage: View {
 
     @ViewBuilder
     private func tile(_ item: MyDayItem) -> some View {
-        if item.kind.opensDetail {
+        if item.opensDetail {
             Button { actions.open(item) } label: { MyDayRow(item: item, style: .tile, showsChevron: true) }
                 .buttonStyle(PressableButtonStyle())
-                .accessibilityHint(item.kind.hint ?? Text(verbatim: ""))
+                .accessibilityHint(item.hint ?? Text(verbatim: ""))
                 .accessibilityIdentifier("myday.view.row.\(item.id)")
         } else {
             MyDayRow(item: item, style: .tile)

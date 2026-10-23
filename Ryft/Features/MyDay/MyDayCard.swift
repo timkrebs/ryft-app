@@ -55,7 +55,8 @@ struct MyDayCard: View {
         })
     }
 
-    /// Sleep → the Sleep tab on that night; a workout → its detail; a session → Train's. Activities wait for A2.
+    /// Sleep → the Sleep tab on that night; a workout → its detail; a session → Train's; a merged activity → its
+    /// tracker's workout until A2's activity detail exists. Other activities open nothing yet.
     static func open(_ item: MyDayItem, on day: Date, model: MyDayViewModel, router: DeepLinkRouter,
                      workout: (Workout) -> Void, session: (UUID) -> Void) {
         switch item.kind {
@@ -65,7 +66,9 @@ struct MyDayCard: View {
             if let w = model.workout(id, on: day) { workout(w) }
         case .session(let id):
             session(id)
-        case .activity, .missingSleep:
+        case .activity:
+            if let id = item.mergedWorkout, let w = model.workout(id, on: day) { workout(w) }
+        case .missingSleep:
             break
         }
     }
@@ -179,10 +182,10 @@ struct MyDayCardBody: View {
 
     @ViewBuilder
     private func row(_ item: MyDayItem) -> some View {
-        if item.kind.opensDetail {
+        if item.opensDetail {
             Button { actions.open(item) } label: { MyDayRow(item: item) }
                 .buttonStyle(PressableButtonStyle())
-                .accessibilityHint(item.kind.hint ?? Text(verbatim: ""))
+                .accessibilityHint(item.hint ?? Text(verbatim: ""))
                 .accessibilityIdentifier("myday.row.\(item.id)")
         } else {
             MyDayRow(item: item)
@@ -209,14 +212,15 @@ struct MyDayCardBody: View {
     }
 }
 
-extension MyDayItem.Kind {
+extension MyDayItem {
     /// VoiceOver: what tapping the row does; nil for rows that open nothing.
     var hint: Text? {
-        switch self {
+        guard opensDetail else { return nil }
+        switch kind {
         case .sleep: return Text("Opens Sleep")
-        case .workout: return Text("Opens the workout", comment: "VoiceOver: a My Day row opens the workout's detail.")
+        case .workout, .activity: return Text("Opens the workout", comment: "VoiceOver: a My Day row opens the workout's detail.")
         case .session: return Text("Opens the session", comment: "VoiceOver: a My Day row opens the Train session.")
-        case .activity, .missingSleep: return nil
+        case .missingSleep: return nil
         }
     }
 }

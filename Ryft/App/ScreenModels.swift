@@ -28,7 +28,7 @@ final class ScreenModels {
     let onboarding: OnboardingCoordinator
     /// What the user wears (`devices.setup`): onboarding, Today, Profile → Devices & sync.
     let devices: TrackerSelectionStore
-    /// My Day (`today.myDay`): the card on Today and its full screen.
+    /// My Day (`today.my_day`): the card on Today and its full screen.
     let myDay: MyDayViewModel
     private let state: AppState
 

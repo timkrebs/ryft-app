@@ -748,7 +748,7 @@ private enum PreviewHint {
         .environment(\.locale, Locale(identifier: "de"))
 }
 
-// MARK: My Day (today.myDay): between the scores and Journal, Train and Trends (ui.md §14.4)
+// MARK: My Day (today.my_day): between the scores and Journal, Train and Trends (ui.md §14.4)
 
 #Preview("Today · My Day") {
     TodayView().previewEnvironment(.preview(flags: [.todayMyDay: true]))

@@ -365,3 +365,64 @@ struct MyDayStrainFlagTests {
         #expect(!vm.dayItems.contains { $0.kind.isSleep }, "Strain's list has no night")
     }
 }
+
+// MARK: - review fixes
+
+@Suite("My Day view model: flag, pull to refresh, touched days, names")
+@MainActor
+struct MyDayReviewFixTests {
+    @Test func withTheFlagOffLoadAsksForNoActivities() async {
+        let g = Graph(flags: [:])
+        await g.vm.load(g.today)
+        #expect(g.api.count("activities") == 0)
+        #expect(g.api.count("day") == 1)
+    }
+
+    @Test func pullToRefreshOnTodayLeavesTodaysReadToTheAppsPullAndAsksForTheActivities() async {
+        let g = Graph()
+        await g.vm.load(g.today)
+        var pulled = 0
+
+        await g.vm.refresh(g.today) { pulled += 1 }
+
+        #expect(pulled == 1)
+        #expect(g.api.count("day") == 1, "today's detail isn't asked a second time")
+        // The activities are asked beside the pull, not waited for.
+        for _ in 0..<200 where g.api.count("activities") < 2 { await Task.yield() }
+        #expect(g.api.count("activities") == 2)
+    }
+
+    @Test func pullToRefreshOnAPastDayAsksForItsReadsAgainAndNotTheAppsPull() async {
+        let g = Graph()
+        let yesterday = DayFormat.shift(g.today, days: -1)
+        await g.vm.load(yesterday)
+
+        await g.vm.refresh(yesterday) { Issue.record("a past day doesn't run the app's pull") }
+
+        #expect(g.api.count("day") == 2)
+        #expect(g.api.count("activities") == 2)
+    }
+
+    @Test func touchedDaysRefreshTheirActivitiesOnlyInsideTheWeek() async throws {
+        let g = Graph()
+        let inside = DayFormat.string(from: DayFormat.shift(g.today, days: -2))
+        let outside = DayFormat.string(from: DayFormat.shift(g.today, days: -30))
+
+        try await g.state.refreshDays([inside, outside])
+
+        #expect(g.api.count("activities") == 1)
+    }
+
+    @Test func touchedDaysRefreshNoActivitiesWithTheFlagOff() async throws {
+        let g = Graph(flags: [:])
+        try await g.state.refreshDays([DayFormat.string(from: g.today)])
+        #expect(g.api.count("activities") == 0)
+    }
+
+    @Test func trackersAreNamedOnlyOnceTheCatalogIsParsedOffTheMainActor() async {
+        let g = Graph()
+        #expect(!g.vm.namesTrackers, "the first frame names nothing by the catalog")
+        await g.vm.load(g.today)
+        #expect(g.vm.namesTrackers, "MockData's today has workouts to name")
+    }
+}

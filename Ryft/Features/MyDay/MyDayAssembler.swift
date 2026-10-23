@@ -73,6 +73,9 @@ struct MyDayItem: Identifiable, Equatable {
     let editable: Bool
     /// Train's muscular load (a session, or a workout logged in Train): Strain shows it next to the strain.
     var load: Double?
+    /// The tracker's workout a merged activity hides (cached for the day): the row opens its detail until A2's
+    /// activity detail exists.
+    var mergedWorkout: UUID?
     /// A recording in progress: no end yet ("07:12–now").
     var isRecording = false
 
@@ -80,6 +83,16 @@ struct MyDayItem: Identifiable, Equatable {
     var isMerged: Bool {
         if case .activity = kind { return sources.count > 1 }
         return false
+    }
+
+    /// The row opens something: the night (Sleep), a workout, a session, a merged activity (its tracker's
+    /// workout). Other activities open once A2's detail exists; a missing night has nothing to open yet.
+    var opensDetail: Bool {
+        switch kind {
+        case .sleep, .workout, .session: return true
+        case .activity: return mergedWorkout != nil
+        case .missingSleep: return false
+        }
     }
 }
 
@@ -140,9 +153,10 @@ enum MyDayAssembler {
                 continue
             }
             let upload = input.uploads[local.id] ?? local.storedUploadState
-            // An edit that moved the activity to another day hides it here until the platform confirms it.
+            // The account's row starts on another day (an edit moved it, confirmed or not): the platform's copy
+            // cached for this day is out of date.
             guard DayFormat.string(from: local.start) == input.day else {
-                if local.needsUpload { activities[local.id] = nil }
+                activities[local.id] = nil
                 continue
             }
             if local.needsUpload {
@@ -205,7 +219,8 @@ enum MyDayAssembler {
         let span = max(0, a.end.timeIntervalSince(a.start))
         return MyDayItem(id: "activity.\(a.id.uuidString)", kind: .activity(a.id), symbol: a.sport.symbol,
                          title: a.sport.name, start: a.start, end: a.end, duration: a.movingSec > 0 ? a.movingSec : span,
-                         distanceM: a.distanceM, strain: strain(a), sources: sources, upload: upload, editable: true)
+                         distanceM: a.distanceM, strain: strain(a), sources: sources, upload: upload, editable: true,
+                         mergedWorkout: workout?.id)
     }
 
     private static func recording(_ r: LocalActivitySnapshot, now: Date) -> MyDayItem {
@@ -250,14 +265,29 @@ enum MyDayAssembler {
         let ref = SourceRef(name: w.source, bundleID: w.sourceBundleId, deviceModel: nil)
         let name = catalog.displayName(ref)
         guard !name.isEmpty else { return .tracker(name: appleHealth, symbol: appleHealthSymbol) }
-        // The glyph only: a source without a bundle ID that carries a tracker app's exact name ("Garmin Connect")
+        // The glyph only: a source without a bundle ID that carries a vendor app's exact name ("Garmin Connect")
         // gets that tracker's form factor. Identity stays the catalog's match.
-        let tracker = catalog.match(ref)
-            ?? catalog.trackers.first { $0.appTitle.caseInsensitiveCompare(name) == .orderedSame }
+        let tracker = catalog.match(ref) ?? catalog.trackers.first {
+            $0.integration == .vendorApp && $0.appTitle.caseInsensitiveCompare(name) == .orderedSame
+        }
         return .tracker(name: name, symbol: tracker?.symbol ?? "ellipsis.circle")
     }
 
     // MARK: sleep
+
+    /// A manual night and the platform's are the same within this (seconds).
+    static let sameNight: TimeInterval = 60
+
+    /// The day can say "No sleep recorded": the platform scored it (not the placeholder of a day it hasn't, nor one
+    /// it is still scoring or waiting for the night of) and has no night for it, not even one without times.
+    /// T1's night gap suppresses the row on top (`MyDayInput.nightGap`).
+    static func mayMissNight(_ detail: DayDetail) -> Bool {
+        guard detail.sleep == nil, detail.score.standing != .unscored else { return false }
+        switch detail.score.scoringState {
+        case .pending?, .waitingForSleep?: return false
+        case .scored?, .stale?, nil: return true
+        }
+    }
 
     /// Rule 5. A pending manual night wins until confirmed (as an activity edit does); a deleted one hides the
     /// platform's copy of it. Without any night, and with the day loaded, "No sleep recorded", unless the
@@ -270,8 +300,13 @@ enum MyDayAssembler {
             return (start, end, s.totalMin.map { Double($0) * 60 })
         }
         let local = input.localSleep
-        // The platform's night is the one the user added: same times (until R11 says so itself).
-        let serverIsManual = local.map { l in server.map { $0.start == l.bed && $0.end == l.wake } ?? false } ?? false
+        // The platform's night is the one the user added: the same times within a minute (the wire's ISO 8601
+        // drops sub-seconds), until R11 says so itself.
+        let serverIsManual = local.map { l in
+            server.map {
+                abs($0.start.timeIntervalSince(l.bed)) <= sameNight && abs($0.end.timeIntervalSince(l.wake)) <= sameNight
+            } ?? false
+        } ?? false
 
         if let local, !local.isTombstone, local.needsUpload || server == nil {
             return MyDayItem(id: "sleep.\(input.day)", kind: .sleep(day: input.day), symbol: "bed.double.fill",
@@ -289,8 +324,7 @@ enum MyDayAssembler {
                              sources: [manual ? .addedByYou : .tracker(name: appleHealth, symbol: appleHealthSymbol)],
                              upload: manual ? .confirmed : nil, editable: manual)
         }
-        // A night the platform has without times isn't a missing one.
-        guard detail != nil, detail?.sleep == nil, !input.nightGap else { return nil }
+        guard let detail, mayMissNight(detail), !input.nightGap else { return nil }
         let dayStart = DayFormat.date(from: input.day) ?? .distantPast
         return MyDayItem(id: "nosleep.\(input.day)", kind: .missingSleep(day: input.day), symbol: "bed.double",
                          title: String(localized: "No sleep recorded"), start: dayStart, end: dayStart, duration: 0,

@@ -75,20 +75,24 @@ final class StrainViewModel {
         }
     }
 
-    /// The list is My Day's rows without the night (`today.myDay`, ADR 0006): RYFT's activities show too.
+    /// The list is My Day's rows without the night (`today.my_day`, ADR 0006): RYFT's activities show too.
     var showsMyDayList: Bool { state.env.flags.isOn(.todayMyDay) }
+    /// The tracker catalog was parsed off the main actor (`load`): until then the list shows HealthKit's source
+    /// names (as `MyDayViewModel.namesTrackers`).
+    private(set) var namesTrackers = false
 
-    /// The day's rows as My Day builds them, without the sleep rows (behind `today.myDay`).
+    /// The day's rows as My Day builds them, without the sleep rows (behind `today.my_day`).
     var dayItems: [MyDayItem] {
-        MyDayAssembler.items(.cached(day: date, state: state, store: store), catalog: state.env.trackerCatalog,
-                             now: state.env.clock.now(), includingSleep: false)
+        let input = MyDayInput.cached(day: date, state: state, store: store, includingSleep: false)
+        return MyDayAssembler.items(input, catalog: input.catalog(state.env, ready: namesTrackers),
+                                    now: state.env.clock.now(), includingSleep: false)
     }
 
     /// The workout behind one of `dayItems`.
     func workout(_ id: UUID) -> Workout? { detail?.workouts.first { $0.id == id } }
 
     /// The day's workouts, each merged with its logged session (`session_id`),
-    /// then sessions without a workout yet (e.g. still syncing). The list without `today.myDay`.
+    /// then sessions without a workout yet (e.g. still syncing). The list without `today.my_day`.
     var activities: [ActivityItem] {
         let start = calendar.startOfDay(for: date)
         let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start
@@ -113,6 +117,13 @@ final class StrainViewModel {
         _ = try? await state.repository.refreshActivities(DayFormat.string(from: date))
     }
 
+    /// My Day's list has workouts to name: the catalog's first parse off the main actor, then names by it.
+    private func nameTrackers() async {
+        guard showsMyDayList, !namesTrackers, detail?.workouts.isEmpty == false else { return }
+        _ = await TrackerCatalog.loadBundled()
+        namesTrackers = true
+    }
+
     /// Revalidates the selected day (no request when it's cached and fresh).
     func load() async {
         error = nil
@@ -124,6 +135,7 @@ final class StrainViewModel {
         do {
             _ = try await state.dayDetail(for: date)
             await activities
+            await nameTrackers()
         } catch where error.isCancellation {
             // `.task(id:)` restarted (another day, new data): the next load says what's true.
             return

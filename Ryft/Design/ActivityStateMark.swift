@@ -5,24 +5,30 @@ import SwiftUI
 /// on, and VoiceOver always speaks it.
 struct ActivityStateMark: View {
     enum State: Equatable {
-        /// R1: on this iPhone, not at RYFT yet.
-        case uploading
+        /// R1: on this iPhone, not at RYFT yet. `lastStrain`: an edit of a scored activity keeps the platform's
+        /// last strain beside the mark until the edit is confirmed (design.md §2.5 rule 4).
+        case uploading(lastStrain: Double?)
         /// R2: at RYFT, heart rate may still arrive.
         case strainPending
         /// R3.
         case scored(Double)
-        /// R4: retries ran out or the platform refused it.
-        case failed
+        /// R4: retries ran out or the platform refused it; `lastStrain` as for `uploading`.
+        case failed(lastStrain: Double?)
         /// R5: scored without heart rate for the time.
         case noHeartRate
         /// Sleep, a recording in progress: no mark.
         case none
 
-        /// What the row's item says: the upload first (it isn't at RYFT yet), then the strain.
+        /// What the row's item says: the upload state first (it isn't at RYFT yet), with the platform's last
+        /// strain beside it; then the strain.
         init(_ item: MyDayItem) {
+            var last: Double? {
+                if case .scored(let value) = item.strain { return value }
+                return nil
+            }
             switch item.upload {
-            case .pending?: self = .uploading
-            case .failed?: self = .failed
+            case .pending?: self = .uploading(lastStrain: last)
+            case .failed?: self = .failed(lastStrain: last)
             case .confirmed?, nil:
                 if item.isRecording {
                     self = .none
@@ -37,7 +43,7 @@ struct ActivityStateMark: View {
             }
         }
 
-        /// The state's word, as shown and spoken; nil without a mark.
+        /// The state's word, as shown; nil without a mark.
         var word: String? {
             switch self {
             case .uploading: return String(localized: "Uploading")
@@ -47,6 +53,25 @@ struct ActivityStateMark: View {
             case .noHeartRate: return String(localized: "No heart rate", comment: "My Day row: scored, but there was no heart rate for the time.")
             case .none: return nil
             }
+        }
+
+        /// The platform's last strain shown beside an upload mark.
+        var lastStrain: Double? {
+            switch self {
+            case .uploading(let value), .failed(let value): return value
+            default: return nil
+            }
+        }
+
+        /// As spoken: the word, then the last strain beside it ("Uploading, Strain 10.6").
+        var spoken: String? {
+            guard let word else { return nil }
+            return lastStrain.map { "\(word), \(String(localized: "Strain \(Fmt.strain($0))"))" } ?? word
+        }
+
+        var isFailed: Bool {
+            if case .failed = self { return true }
+            return false
         }
 
         /// Which glyph, for the cross-fade between them (not their values).
@@ -75,16 +100,19 @@ struct ActivityStateMark: View {
 
     var body: some View {
         VStack(alignment: wordVisible ? .leading : .trailing, spacing: 4) {
-            glyph
-                .transition(.opacity)
-                .id(state.kind)
-            if wordVisible, let word = state.word, state != .failed, !isScored {
+            HStack(spacing: 8) {
+                glyph
+                if let last = state.lastStrain { StrainPill(strain: last) }
+            }
+            .transition(.opacity)
+            .id(state.kind)
+            if wordVisible, let word = state.word, !state.isFailed, !isScored {
                 Text(word)
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if state == .failed {
+            if state.isFailed {
                 failedLine
             }
         }
@@ -104,7 +132,7 @@ struct ActivityStateMark: View {
             Image(systemName: "icloud.and.arrow.up")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(Theme.textSecondary)
-                .accessibilityLabel(Text("Uploading"))
+                .accessibilityLabel(Text(state.spoken ?? ""))
         case .strainPending:
             Circle()
                 .strokeBorder(Theme.textTertiary, lineWidth: 1.5)
@@ -151,30 +179,32 @@ struct ActivityStateMark: View {
 }
 
 #Preview("State marks", traits: .sizeThatFitsLayout) {
-    let states: [ActivityStateMark.State] = [.uploading, .strainPending, .scored(8.4), .failed, .noHeartRate]
+    let states: [ActivityStateMark.State] = [.uploading(lastStrain: nil), .uploading(lastStrain: 10.6), .strainPending,
+                                             .scored(8.4), .failed(lastStrain: nil), .failed(lastStrain: 7.2), .noHeartRate]
     SchemePair {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(Array(states.enumerated()), id: \.offset) { _, state in
                 HStack {
-                    Text(state.word ?? "").font(.ryft(.callout)).foregroundStyle(Theme.textSecondary)
+                    Text(state.spoken ?? "").font(.ryft(.callout)).foregroundStyle(Theme.textSecondary)
                     Spacer()
-                    ActivityStateMark(state: state, retry: state == .failed ? {} : nil)
+                    ActivityStateMark(state: state, retry: state.isFailed ? {} : nil)
                 }
             }
             Divider()
             ForEach(Array(states.enumerated()), id: \.offset) { _, state in
-                ActivityStateMark(state: state, showsWord: true, retry: state == .failed ? {} : nil)
+                ActivityStateMark(state: state, showsWord: true, retry: state.isFailed ? {} : nil)
             }
         }
     }
 }
 
 #Preview("State marks · AX3", traits: .sizeThatFitsLayout) {
-    let states: [ActivityStateMark.State] = [.uploading, .strainPending, .scored(8.4), .failed, .noHeartRate]
+    let states: [ActivityStateMark.State] = [.uploading(lastStrain: 10.6), .strainPending, .scored(8.4),
+                                             .failed(lastStrain: nil), .noHeartRate]
     SchemePair {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(Array(states.enumerated()), id: \.offset) { _, state in
-                ActivityStateMark(state: state, retry: state == .failed ? {} : nil)
+                ActivityStateMark(state: state, retry: state.isFailed ? {} : nil)
             }
         }
     }

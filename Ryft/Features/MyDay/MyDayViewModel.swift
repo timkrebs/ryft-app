@@ -3,7 +3,7 @@ import Observation
 
 /// My Day: the card on Today (always today) and the full screen with its week strip (design.md §7). Reads come
 /// only from caches (the day detail, the day's activities, this iPhone's activities and sessions); `load`
-/// revalidates through the Repository. Behind `today.myDay`.
+/// revalidates through the Repository. Behind `today.my_day`.
 @MainActor
 @Observable
 final class MyDayViewModel {
@@ -16,6 +16,9 @@ final class MyDayViewModel {
     var date: Date
     /// Days whose load failed with nothing cached: an error instead of the skeleton.
     private(set) var failed: Set<String> = []
+    /// The tracker catalog was parsed off the main actor (`load`): rows name trackers by it from then on, and by
+    /// HealthKit's raw source names before (ui.md §2.3), so Today's first frame never parses it.
+    private(set) var namesTrackers = false
 
     init(state: AppState, store: TrainStore, nightGap: @escaping @MainActor () -> Bool = { false }) {
         self.state = state
@@ -28,7 +31,7 @@ final class MyDayViewModel {
     private var calendar: Calendar { .current }
     var today: Date { calendar.startOfDay(for: env.clock.now()) }
 
-    /// The card, the full screen and Strain's list (`today.myDay`, dark until the UI review).
+    /// The card, the full screen and Strain's list (`today.my_day`, dark until the UI review).
     var isEnabled: Bool { env.flags.isOn(.todayMyDay) }
     /// "Start strength workout" in the ＋ menu follows `train.enabled`; it's the menu's only entry until A2 and A4.
     var showsTrain: Bool { env.flags.isOn(.trainEnabled) }
@@ -37,7 +40,8 @@ final class MyDayViewModel {
 
     /// The day's rows as cached, oldest first (the night first).
     func items(for day: Date) -> [MyDayItem] {
-        MyDayAssembler.items(input(for: day), catalog: env.trackerCatalog, now: env.clock.now())
+        let input = input(for: day)
+        return MyDayAssembler.items(input, catalog: input.catalog(env, ready: namesTrackers), now: env.clock.now())
     }
 
     func input(for day: Date) -> MyDayInput {
@@ -53,14 +57,16 @@ final class MyDayViewModel {
         let day = calendar.startOfDay(for: day)
         let key = DayFormat.string(from: day)
         let items = items(for: day)
-        let cached = state.cachedDayDetail(for: day) != nil || state.repository.activitiesFetchedAt(day: key) != nil
+        let detail = state.cachedDayDetail(for: day)
+        let cached = detail != nil || state.repository.activitiesFetchedAt(day: key) != nil
         let phase: MyDayContent.Phase = cached || !items.isEmpty ? .ready : failed.contains(key) ? .failed : .loading
         let isToday = calendar.isDate(day, inSameDayAs: today)
         let stale = phase == .ready ? staleSince(key, isToday: isToday) : nil
-        let score = state.cachedDayDetail(for: day)?.score ?? state.score(for: day)
+        let score = detail?.score ?? state.score(for: day)
         return MyDayContent(day: day, isToday: isToday, phase: phase, items: items, staleSince: stale,
                             offersRetry: stale.map { env.clock.now().timeIntervalSince($0) > MyDayContent.retryAfter } ?? false,
-                            dayStrain: DayMarker.kind(for: score) == .scored ? score?.strain : nil)
+                            dayStrain: DayMarker.kind(for: score) == .scored ? score?.strain : nil,
+                            title: Fmt.dayTitle(day, today: today))
     }
 
     /// The full screen's week strip: today and the six days before, the selected one highlighted.
@@ -77,22 +83,22 @@ final class MyDayViewModel {
         state.cachedDayDetail(for: day)?.workouts.first { $0.id == id }
     }
 
-    /// The list is older than the platform's word: offline, or the day's or the activities' last read failed.
-    /// The older of the two fetch times; nil when fresh or nothing was ever fetched.
+    /// The list is older than the platform's word: offline, or the day's or the activities' last read failed
+    /// (`AppState.failingDayReads`, stored: other reads don't re-render the card). The older of the two fetch
+    /// times; nil when fresh or nothing was ever fetched.
+    /// Per resource, not per day: the read record keeps one state per resource (`ReadScheduler.states`), so a
+    /// failed read of another day's activities marks this day's list too until a read of them succeeds again.
     private func staleSince(_ key: String, isToday: Bool) -> Date? {
-        _ = env.reads.revision
         let online = env.isDemo || env.connectivity.isOnline
-        let states = env.reads.states
-        let failing = [isToday ? ReadResource.today : .day, .activities]
-            .contains { (states[$0]?.consecutiveFailures ?? 0) > 0 }
-        guard !online || failing else { return nil }
+        let failing = state.failingDayReads
+        guard !online || failing.contains(isToday ? .today : .day) || failing.contains(.activities) else { return nil }
         return [state.repository.detailFetchedAt(key), state.repository.activitiesFetchedAt(day: key)].compactMap { $0 }.min()
     }
 
     // MARK: loads
 
-    /// Revalidates a day: its detail (Today's own read for today: fresh, so no request) and its activities, side
-    /// by side. Cached and fresh → nothing is sent; `force` (pull to refresh, Try again) asks now.
+    /// Revalidates a day: its detail (Today's own read for today: fresh, so no request) and, behind the flag, its
+    /// activities, side by side. Cached and fresh → nothing is sent; `force` (Try again) asks now.
     func load(_ day: Date, force: Bool = false) async {
         guard state.hasDataSource else { return }
         let day = calendar.startOfDay(for: day)
@@ -104,6 +110,40 @@ final class MyDayViewModel {
         let loaded = await detail
         await activities
         if !loaded, state.cachedDayDetail(for: day) == nil { failed.insert(key) }
+        // Workouts to name: the catalog's first parse off the main actor, then the rows name trackers by it.
+        if !namesTrackers, state.cachedDayDetail(for: day)?.workouts.isEmpty == false {
+            _ = await TrackerCatalog.loadBundled()
+            namesTrackers = true
+        }
+    }
+
+    /// Pull to refresh on the full screen.
+    /// - Today: the app's pull (`pullToday`: the upload, today's read and status, its spinner capped at
+    ///   `AppState.spinnerCap`), with the day's activities asked beside it and not waited for. Today's detail
+    ///   isn't asked a second time.
+    /// - A past day: its detail and activities; the spinner waits for them at most `AppState.spinnerCap`, and
+    ///   the reads go on after it.
+    func refresh(_ day: Date, pullToday: @MainActor () async -> Void) async {
+        let day = calendar.startOfDay(for: day)
+        if calendar.isDate(day, inSameDayAs: today) {
+            let key = DayFormat.string(from: day)
+            Task { await self.loadActivities(key, mode: .latest, userInitiated: true) }
+            await pullToday()
+            return
+        }
+        let (done, finish) = AsyncStream<Void>.makeStream()
+        Task {
+            await self.load(day, force: true)
+            finish.finish()
+        }
+        let clock = env.clock
+        // Iterating the stream stops on cancellation (`Task.value` wouldn't), so the cap can end the wait.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { for await _ in done {} }
+            group.addTask { try? await clock.sleep(for: AppState.spinnerCap) }
+            await group.next()
+            group.cancelAll()
+        }
     }
 
     /// False when the read failed (a cancellation isn't a failure: the next load says what's true).
@@ -116,8 +156,9 @@ final class MyDayViewModel {
         }
     }
 
-    /// A failure keeps what's cached; the read record says it failed (the stale caption).
+    /// Behind `today.my_day` only. A failure keeps what's cached; the read record says it failed (the stale caption).
     private func loadActivities(_ key: String, mode: ReadMode, userInitiated: Bool) async {
+        guard isEnabled else { return }
         _ = try? await state.repository.refreshActivities(key, mode: mode, userInitiated: userInitiated)
     }
 }
@@ -147,6 +188,8 @@ struct MyDayContent: Equatable {
     var offersRetry = false
     /// The day's strain once it's scored (the full screen's header).
     var dayStrain: Double?
+    /// "Today", "Yesterday", "Wed 21 Oct" against the environment's clock (`Fmt.dayTitle`); nil: against `.now`.
+    var title: String?
 
     /// No workout, session or activity (the night may be there): "Nothing yet today" (ui.md §2.1 M2).
     var hasNoActivities: Bool { !items.contains { !$0.kind.isSleep } }
@@ -181,10 +224,11 @@ struct MyDayContent: Equatable {
 }
 
 extension MyDayInput {
-    /// A day as cached: the detail, the platform's activities, this iPhone's activities, sessions and manual
-    /// night. My Day and Strain's list read the same.
+    /// A day as cached: the detail, the platform's activities, this iPhone's activities, sessions and (with the
+    /// night) manual sleep. My Day and Strain's list read the same. Fetches only the day's local rows and the
+    /// rows of the day's platform activities, wherever those start now.
     @MainActor
-    static func cached(day: Date, state: AppState, store: TrainStore,
+    static func cached(day: Date, state: AppState, store: TrainStore, includingSleep: Bool = true,
                        nightGap: @MainActor () -> Bool = { false }) -> MyDayInput {
         let calendar = Calendar.current
         let start = calendar.startOfDay(for: day)
@@ -194,16 +238,32 @@ extension MyDayInput {
         let detail = state.cachedDayDetail(for: start)
         let server = state.repository.activities(day: key)
         var local = activities.snapshots(onDay: key)
-        if !server.isEmpty {
-            // An edit that moved one of the day's activities elsewhere still hides the platform's copy here.
-            let ids = Set(local.map(\.id))
-            let serverIDs = Set(server.map(\.id))
-            local += activities.unconfirmed().filter { serverIDs.contains($0.id) && !ids.contains($0.id) }
-        }
-        let sleep = activities.manualSleep(onDay: key)
+        // The day's platform activities whose row on this iPhone starts on another day now (rule 4).
+        let onDay = Set(local.map(\.id))
+        local += activities.snapshots(ids: server.map(\.id).filter { !onDay.contains($0) })
+        let sleep = includingSleep ? activities.manualSleep(onDay: key) : nil
         let sessions = store.completedSessions(from: start, to: end).map(\.summary)
-        let missing = detail != nil && detail?.sleep == nil && sleep == nil
+        let missing = includingSleep && sleep == nil && detail.map(MyDayAssembler.mayMissNight) == true
         return MyDayInput(day: key, server: .dayDetail(detail, activities: server), local: local,
                           localSessions: sessions, localSleep: sleep, nightGap: missing && nightGap())
     }
+
+    /// A row needs a tracker's name: the day has workouts (a merged activity names its workout's tracker).
+    var namesTrackers: Bool {
+        switch server {
+        case .dayDetail(let detail, _): return !(detail?.workouts.isEmpty ?? true)
+        }
+    }
+
+    /// The catalog to name trackers by: the environment's once it's parsed (`ready`) and there is one to name;
+    /// otherwise none, and the rows show HealthKit's source names (ui.md §2.3).
+    @MainActor
+    func catalog(_ env: AppEnvironment, ready: Bool) -> TrackerCatalog {
+        namesTrackers && ready ? env.trackerCatalog : .unnamed
+    }
+}
+
+extension TrackerCatalog {
+    /// No trackers: every source keeps its own name (before the catalog is parsed).
+    static let unnamed = TrackerCatalog(version: "unnamed", trackers: [], healthAccess: Localized(en: [], de: []))
 }

@@ -128,7 +128,7 @@ struct MyDayRow: View {
                 .formatted(.measurement(width: .wide, usage: .road, numberFormatStyle: .number.precision(.fractionLength(1)))
                     .locale(locale)))
         }
-        if let word = ActivityStateMark.State(item).word { parts.append(word) }
+        if let word = ActivityStateMark.State(item).spoken { parts.append(word) }
         if showsLoad, let load = item.load { parts.append(String(localized: "Muscular load \(Fmt.load(load))")) }
         let sources = SourceBadges.spoken(item.sources, merged: item.isMerged)
         if !sources.isEmpty { parts.append(sources) }
@@ -151,14 +151,6 @@ extension MyDayItem.Kind {
         return false
     }
 
-    /// The row opens something: sleep (Sleep), a workout, a session. Activities open once A2's detail exists;
-    /// a missing night has nothing to open yet (Add sleep is A2's).
-    var opensDetail: Bool {
-        switch self {
-        case .sleep, .workout, .session: return true
-        case .missingSleep, .activity: return false
-        }
-    }
 }
 
 #Preview("My Day rows", traits: .sizeThatFitsLayout) {
@@ -172,7 +164,7 @@ extension MyDayItem.Kind {
 #Preview("My Day rows · tiles", traits: .sizeThatFitsLayout) {
     SchemePair {
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(MockMyDay.gallery) { MyDayRow(item: $0, style: .tile, showsChevron: $0.kind.opensDetail, showsLoad: true) }
+            ForEach(MockMyDay.gallery) { MyDayRow(item: $0, style: .tile, showsChevron: $0.opensDetail, showsLoad: true) }
         }
     }
 }

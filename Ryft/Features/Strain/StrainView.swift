@@ -98,36 +98,44 @@ struct StrainView: View {
     private var activities: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Activities").ryftLabelStyle()
-            let items = model.activities
             if model.showsMyDayList {
                 myDayList
-            } else if items.isEmpty {
-                if let error = model.error {
-                    InlineMessage(message: error, retry: { await model.load() })
-                } else if model.isLoading {
-                    ProgressView().tint(Theme.accent).frame(maxWidth: .infinity)
-                } else {
-                    InlineMessage(message: String(localized: "No workouts recorded on this day."),
-                                  systemImage: "figure.walk")
-                    if model.hasNoHealthData { HealthAccessHint() }
-                }
             } else {
-                ForEach(items) { item in
-                    switch item {
-                    case .workout(let w, let session):
-                        NavigationLink(value: w) { ActivityRow(workout: w, session: session) }
-                            .buttonStyle(PressableButtonStyle())
-                    case .session(let s):
-                        NavigationLink(value: TrainRoute.session(s.id)) { SessionActivityRow(session: s) }
-                            .buttonStyle(PressableButtonStyle())
-                    }
+                workoutList
+            }
+        }
+    }
+
+    /// The list without `today.my_day`: workouts merged with their logged sessions (`model.activities`).
+    @ViewBuilder
+    private var workoutList: some View {
+        let items = model.activities
+        if items.isEmpty {
+            if let error = model.error {
+                InlineMessage(message: error, retry: { await model.load() })
+            } else if model.isLoading {
+                ProgressView().tint(Theme.accent).frame(maxWidth: .infinity)
+            } else {
+                InlineMessage(message: String(localized: "No workouts recorded on this day."),
+                              systemImage: "figure.walk")
+                if model.hasNoHealthData { HealthAccessHint() }
+            }
+        } else {
+            ForEach(items) { item in
+                switch item {
+                case .workout(let w, let session):
+                    NavigationLink(value: w) { ActivityRow(workout: w, session: session) }
+                        .buttonStyle(PressableButtonStyle())
+                case .session(let s):
+                    NavigationLink(value: TrainRoute.session(s.id)) { SessionActivityRow(session: s) }
+                        .buttonStyle(PressableButtonStyle())
                 }
             }
         }
     }
 
-    /// `today.myDay`: My Day's rows without the night (ADR 0006), RYFT's activities among them. Activities open
-    /// nothing until A2's detail exists.
+    /// `today.my_day`: My Day's rows without the night (ADR 0006), RYFT's activities among them. A merged activity
+    /// opens its tracker's workout; other activities open nothing until A2's detail exists.
     @ViewBuilder
     private var myDayList: some View {
         let items = model.dayItems
@@ -156,7 +164,17 @@ struct StrainView: View {
                         .buttonStyle(PressableButtonStyle())
                         .accessibilityHint(Text("Opens the session", comment: "VoiceOver: a My Day row opens the Train session."))
                         .accessibilityIdentifier("strain.row.\(item.id)")
-                case .activity, .sleep, .missingSleep:
+                case .activity:
+                    if let id = item.mergedWorkout, let w = model.workout(id) {
+                        NavigationLink(value: w) { row(item) }
+                            .buttonStyle(PressableButtonStyle())
+                            .accessibilityHint(Text("Opens the workout", comment: "VoiceOver: a My Day row opens the workout's detail."))
+                            .accessibilityIdentifier("strain.row.\(item.id)")
+                    } else {
+                        MyDayRow(item: item, style: .tile, showsLoad: true)
+                            .accessibilityIdentifier("strain.row.\(item.id)")
+                    }
+                case .sleep, .missingSleep:
                     MyDayRow(item: item, style: .tile, showsLoad: true)
                         .accessibilityIdentifier("strain.row.\(item.id)")
                 }
@@ -175,4 +193,12 @@ struct StrainView: View {
 
 #Preview("Strain · light") {
     StrainView().previewEnvironment(scheme: .light)
+}
+
+#Preview("Strain · My Day list (today.my_day)") {
+    StrainView().previewEnvironment(.preview(flags: [.todayMyDay: true]))
+}
+
+#Preview("Strain · My Day list (today.my_day) · light") {
+    StrainView().previewEnvironment(.preview(flags: [.todayMyDay: true]), scheme: .light)
 }

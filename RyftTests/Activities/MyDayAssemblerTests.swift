@@ -178,6 +178,22 @@ struct MyDayMergedRowTests {
         #expect(row.strain == .scored(10.6))                        // the activity's, not the workout's 10.1
     }
 
+    @Test func aMergedRowOpensItsWorkoutAndAnUnmergedActivityOpensNothingYet() throws {
+        let w = workout(10, from: at(7))
+        let merged = activity(1, .running, from: at(7), strain: 10.6, mergedWith: w.id)
+        let alone = activity(2, .yoga, origin: .manual, from: at(13), strain: 4)
+        let list = rows(input(detail(workouts: [w]), activities: [merged, alone]))
+        let row = try item(activityID(1), in: list)
+        #expect(row.mergedWorkout == w.id)
+        #expect(row.opensDetail)
+        let other = try item(activityID(2), in: list)
+        #expect(other.mergedWorkout == nil)
+        #expect(!other.opensDetail)
+        // A merge whose workout isn't cached for the day has nothing to open.
+        let uncached = try item(activityID(1), in: rows(input(detail(), activities: [merged])))
+        #expect(uncached.mergedWorkout == nil && !uncached.opensDetail)
+    }
+
     @Test func aMergeIsOnlyWhatThePlatformSaidNeverPredicted() throws {
         // Same window, same sport; no `merged_with`: both rows stay (ADR 0006, the client never predicts a merge).
         let a = activity(1, .running, from: at(7), minutes: 40)
@@ -218,6 +234,11 @@ struct MyDayMergedRowTests {
     func theOwnBadgeFollowsTheOriginAndGPS(_ c: OwnBadge) throws {
         let list = rows(input(detail(), activities: [activity(1, c.sport, origin: c.origin, from: at(8))]))
         #expect(try item(activityID(1), in: list).sources == [c.expected])
+    }
+
+    @Test func aRecordingWithoutGPSHasANeutralRYFTGlyphNotARunner() {
+        #expect(MyDayItem.Source.ryftRecorded(indoor: true).glyph == "record.circle")
+        #expect(MyDayItem.Source.ryftRecorded(indoor: false).glyph == "location.fill")
     }
 }
 
@@ -361,6 +382,26 @@ struct MyDayOverlayTests {
         #expect(try item(activityID(1), in: new).strain == .pending)
     }
 
+    @Test func aConfirmedRowOnAnotherDayHidesTheServerCopyOnTheOldDayToo() throws {
+        // The platform confirmed the move; this day's cached list is older than that and still has it.
+        let server = activity(1, .yoga, origin: .manual, from: at(13), strain: 4)
+        let moved = local(1, from: at(13, on: nextDay), revision: 2, confirmed: 2)
+        #expect(rows(input(detail(), activities: [server], local: [moved])).filter { !$0.kind.isSleep }.isEmpty)
+        // On its new day it shows (the platform's list there doesn't have it yet).
+        let new = rows(input(detail(on: nextDay), local: [moved], day: nextDay))
+        #expect(try item(activityID(1), in: new).upload == .confirmed)
+    }
+
+    @Test func anEditOfAScoredActivityKeepsItsStrainBesideTheUploadMark() throws {
+        let server = activity(1, .yoga, origin: .manual, from: at(13), strain: 6.2, source: .heartRate, scoring: "scored")
+        let edit = local(1, from: at(13), revision: 2, confirmed: 1, notes: "Longer")
+        let row = try item(activityID(1), in: rows(input(detail(), activities: [server], local: [edit])))
+        #expect(ActivityStateMark.State(row) == .uploading(lastStrain: 6.2))
+        // Not on the platform yet: the upload mark alone.
+        let fresh = try item(activityID(2), in: rows(input(detail(), local: [local(2, from: at(15))])))
+        #expect(ActivityStateMark.State(fresh) == .uploading(lastStrain: nil))
+    }
+
     @Test func aRecordingInProgressIsARowWithNoStrainEndingNow() throws {
         let recording = local(1, .running, origin: .recorded, from: at(17, 30), revision: 0, phase: "recording")
         let row = try item(activityID(1), in: rows(input(detail(), local: [recording])))
@@ -419,19 +460,15 @@ struct MyDaySleepTests {
         #expect(ids(rows(input(detail(workouts: [workout(1, from: at(7))]), nightGap: true))) == [workoutID(1)])
     }
 
-    // The corrected rule (review): the missing night is only for a scored day. These two fail on the current
-    // code and are wrapped so they pass now and fail once the fix lands; ios-developer then removes the wrapper.
+    // The missing night is only for a day the platform scored (review): not its placeholder for an unscored day,
+    // nor one it is still scoring or waiting for the night of.
     @Test func anUnscoredDayHasNoNoSleepRow() {
-        withKnownIssue("missing-night rule, fixed in the review batch") {
-            #expect(rows(input(detail(scored: false))).isEmpty)
-        }
+        #expect(rows(input(detail(scored: false))).isEmpty)
     }
 
     @Test(arguments: [ScoringState.pending, .waitingForSleep])
     func aDayThePlatformIsStillScoringHasNoNoSleepRow(_ state: ScoringState) {
-        withKnownIssue("missing-night rule, fixed in the review batch") {
-            #expect(rows(input(detail(scoring: state))).isEmpty)
-        }
+        #expect(rows(input(detail(scoring: state))).isEmpty)
     }
 
     @Test(arguments: [ScoringState.scored, .stale])
@@ -486,6 +523,19 @@ struct MyDaySleepTests {
         let sleep = try item("sleep.\(day)", in: rows(input(detail(sleep: night(from: bed, to: wake)), sleep: typed)))
         #expect(sleep.sources == [.tracker(name: "Apple Health", symbol: MyDayAssembler.appleHealthSymbol)])
         #expect(!sleep.editable)
+    }
+
+    @Test func aConfirmedManualNightMatchesThePlatformsWithinAMinute() throws {
+        // ISO 8601 on the wire drops sub-seconds: the platform's copy is off by a fraction.
+        let typed = manualSleep(bed: at(22, 30, on: previousDay).addingTimeInterval(0.4), wake: at(6, 15).addingTimeInterval(59),
+                                revision: 1, confirmed: 1)
+        let echo = night(from: at(22, 30, on: previousDay), to: at(6, 15))
+        let sleep = try item("sleep.\(day)", in: rows(input(detail(sleep: echo), sleep: typed)))
+        #expect(sleep.sources == [.addedByYou])
+        // Two minutes off is another night: the tracker's.
+        let other = manualSleep(bed: at(22, 30, on: previousDay), wake: at(6, 17), revision: 1, confirmed: 1)
+        let trackers = try item("sleep.\(day)", in: rows(input(detail(sleep: echo), sleep: other)))
+        #expect(trackers.sources == [.tracker(name: "Apple Health", symbol: MyDayAssembler.appleHealthSymbol)])
     }
 
     @Test func aDeletedManualNightHidesThePlatformsCopyOfIt() {
@@ -581,6 +631,16 @@ struct MyDayOrderTests {
             guard case .tracker(let name, _) = source else { Issue.record("not a tracker badge: \(source)"); return }
             #expect(name == c.name)
         }
+    }
+
+    @Test func onlyAVendorAppsExactNameBorrowsItsTrackersGlyph() throws {
+        // An Apple device's tracker has no app of its own: a source named like it keeps the unknown glyph.
+        let apple = try #require(catalog.trackers.first { $0.integration == .appleBuiltin })
+        let list = rows(input(detail(workouts: [workout(1, from: at(7), source: apple.appTitle, bundle: nil)])))
+        let source = try #require(try item(workoutID(1), in: list).sources.first)
+        guard case .tracker(_, let symbol) = source else { Issue.record("not a tracker badge: \(source)"); return }
+        try #require(catalog.match(SourceRef(name: apple.appTitle, bundleID: nil, deviceModel: nil)) == nil)
+        #expect(symbol == "ellipsis.circle")
     }
 
     @Test func theCatalogNamesTheTrackerOnAMergedRowToo() throws {

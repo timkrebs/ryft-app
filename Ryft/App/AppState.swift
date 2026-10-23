@@ -114,6 +114,12 @@ final class AppState {
     /// `refreshIssue` and `staleSince` evaluate it against the time, without SwiftData in `body`.
     private(set) var refreshInputs: [ReadResource: ResourceState] = [:]
 
+    /// My Day's stale caption: which of the day reads (today, a past day, activities) failed last. Stored and
+    /// replaced only when different, like `refreshInputs`: a journal's, config's or Train's read doesn't
+    /// re-render the card.
+    private(set) var failingDayReads: Set<ReadResource> = []
+    private static let dayReads: [ReadResource] = [.today, .day, .activities]
+
     /// The read record or the days changed: recompute what Today shows from them, once, and publish
     /// only what differs (a read that started changes nothing but `isLoading`).
     private func readsChanged(_ change: ReadScheduler.Change) {
@@ -122,6 +128,9 @@ final class AppState {
         guard change == .record else { return }
         let inputs = RefreshPolicy.inputs(resourceStates)
         if inputs != refreshInputs { refreshInputs = inputs }
+        let states = env.reads.states
+        let failing = Set(Self.dayReads.filter { (states[$0]?.consecutiveFailures ?? 0) > 0 })
+        if failing != failingDayReads { failingDayReads = failing }
     }
 
     /// Pull to refresh: phases 2 and 3 of the last pull (tests await them).
@@ -260,9 +269,11 @@ final class AppState {
                 group.addTask { _ = try? await self.repository.refreshDay(date, mode: since) }
             }
             group.addTask { try? await self.repository.refreshHistory(from: from, to: now, mode: since) }
-            // My Day: the touched days' activities too (a tracker's workout arriving can merge with one).
+            // My Day: the touched days' activities too (a tracker's workout arriving can merge with one), only
+            // the strip's week: a resync can touch 90 days.
             if env.flags.isOn(.todayMyDay) {
-                for key in Set(touched) {
+                let week = Set(DayFormat.days(endingAt: now, count: DateStrip.length))
+                for key in Set(touched) where week.contains(key) {
                     group.addTask { _ = try? await self.repository.refreshActivities(key, mode: since) }
                 }
             }

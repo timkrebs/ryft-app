@@ -53,7 +53,8 @@ extension MyDayItem.Source {
 
     var glyph: String {
         switch self {
-        case .ryftRecorded(let indoor): return indoor ? "figure.run" : "location.fill"
+        // Without GPS (an indoor run, yoga…) a neutral "recorded" mark: the row's icon already shows the sport.
+        case .ryftRecorded(let indoor): return indoor ? "record.circle" : "location.fill"
         case .ryftManual, .addedByYou: return "pencil"
         case .tracker(_, let symbol): return symbol
         case .train: return "dumbbell.fill"

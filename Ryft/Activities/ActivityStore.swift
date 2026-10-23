@@ -78,6 +78,15 @@ final class ActivityStore {
         return fetch(d).map(\.snapshot)
     }
 
+    /// The account's activities among `ids`, in no particular order: one fetch, only those rows (My Day: where a
+    /// day's platform rows are on this iPhone, wherever they start now).
+    func snapshots(ids: [UUID]) -> [LocalActivitySnapshot] {
+        _ = revision
+        guard let account, !ids.isEmpty else { return [] }
+        let d = FetchDescriptor<LocalActivity>(predicate: #Predicate { ids.contains($0.id) && $0.account == account })
+        return fetch(d).map(\.snapshot)
+    }
+
     /// One of the account's activities.
     func snapshot(id: UUID) -> LocalActivitySnapshot? {
         _ = revision
