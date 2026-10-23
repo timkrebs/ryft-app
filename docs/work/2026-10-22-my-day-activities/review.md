@@ -113,3 +113,71 @@ The security-privacy sign-off for trimming and sealing comes with A3b, where the
   - "Charts: Custom UnitPoint values are not supported in AxisValueLabel's anchor property";
   - "onChange(of: SyncLine) action tried to update multiple times per frame".
 - **No screenshots:** the Phone/InCallService UI was running, so the session paused per the device rules.
+
+## A1 part 2: My Day card and view (d8f114d → e64716b)
+
+**Gates at e64716b:**
+- strict build clean;
+- Unit 1,368;
+- UISmoke 30;
+- `make lint`.
+
+**Commits:**
+
+| Commit | What |
+| --- | --- |
+| d8f114d | My Day card and full view, `DateStrip` extracted from Strain, `SourceBadge`, `ActivityStateMark`, Strain's list on the assembler (behind `today.my_day`) |
+| 140f74d | Strings reviewed |
+| 6a899c1 | test-engineer: assembler, view model and UI tests (~99 cases, 6 UI tests in UISmoke) |
+| 784bc97 | Review fixes |
+| e64716b | Final fixes |
+
+### code-reviewer (d8f114d): 1 blocking, 7 should-fix
+
+| # | Finding | Result |
+| --- | --- | --- |
+| 1 | **Blocking:** "No sleep recorded" appeared on every day the platform hadn't scored yet (placeholder `sleep: null`), next to "Waiting for last night's sleep" | Only on scored days that aren't pending or waiting for sleep; `nightGap` stays a suppressor |
+| 2 | Re-render on every finished read (`reads.revision`), and SwiftData fetches per render | Stored `AppState.failingDayReads`; `snapshots(ids:)` |
+| 3 | Tracker catalog parsed on the main actor in Today's first frame | Loaded off-main; raw names until then |
+| 4 | Pull to refresh broke the 3 s spinner cap and asked for today twice | Today: the app's pull plus activities, not awaited. Past days: capped, and the app's pull too |
+| 5 | Merged rows led nowhere | `MyDayItem.mergedWorkout` opens the tracker's workout (lead-approved interface addition) |
+| 6 | Manual night matched by exact time | ±60 s |
+| 7 | A moved activity showed on both days once confirmed | Hidden on the old day whenever the local row is elsewhere |
+| 8 | One activities read per touched day | Only within the 7-day strip |
+
+**Re-verification (784bc97):** all fixed. Two new items:
+- A: the shared "Uploading" key changed Today's first-import step in German → its own key `myday.state.uploading`; "Hochladen" restored for the step.
+- B: a past-day pull no longer synced → it runs the app's pull too.
+
+### ui-validator (784bc97): no blockers
+
+| Finding | Result |
+| --- | --- |
+| Source badge truncated mid-word at AX5 | Wraps to 2 lines |
+| "·" and durations broke across lines | No-break joins (`MyDayText.join`) |
+| The pinned strip took about a quarter of the screen at AX3 | Capped at xxxLarge |
+| Trailing marks misaligned | The chevron column is always reserved |
+| German hints machine-translated | Reviewed, with translator comments |
+| Journal and Strain AX3 issues | Not A1's; they predate it |
+
+### performance-profiler (784bc97): ship
+- **Launch:** 462 / 455 / 463 ms (flag on / flag off / `main`), within noise.
+- **Rendering:** no render storm; a 50-activity day builds in 2 ms; linear.
+- **Memory:** no leak.
+- **Hot spot (`DateParsing.rfc3339`):** about 95 µs per cached date (older code, multiplied by My Day's re-decodes) → its own PR, `perf: fast date parsing for cached reads` (#45).
+- **Note:** new Train sessions didn't refresh the card → it now observes `TrainSyncService.sessionsMark`.
+
+### Device: the user's iPhone, his real account (Debug, `-RyftFlags today.my_day`)
+- **Today:** last night's sleep, 8h 08m (matches the Today tile), the real 7-day strain strip, "Nothing yet today".
+  The "0.0" pill sat alone on its own line → it moves to the title row on days without activities (e64716b).
+- **Tue 2026-10-20:** one Garmin run listed about 6× ("6 activities · 54.3 km"); day strain correct at 20.1.
+  - The debugger found the platform holds about 6 distinct workout ids. Every layer keys on the HealthKit UUID, so Apple Health most
+    likely holds 6 copies written by Garmin Connect. Not an app bug.
+  - Pending: the user checks Apple Health; then a platform request (same source, same times → one workout).
+  - App hardening: a repeated workout id is never two rows.
+- **Schema upgrade check:** passed (above). It found the orphaned pre-App-Group store, fixed in `fix: remove the store left behind by the App Group move`.
+
+### Carried forward
+- **Before the flag turns on:** sport names "Running" vs workout detail "Run".
+- **German 24 h leading zeros (`Fmt.time`):** a device check.
+- **Possible flake:** `MyDayUITests.testEveryRowHasAVoiceOverSentenceWithItsSources` uses a `descendants(matching: .any)` query that timed out once locally (it passed on retry).
