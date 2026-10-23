@@ -25,6 +25,55 @@ struct AutoPauseTests {
         #expect(abs(replay.pipeline.movingTime(at: end) - (replay.pipeline.elapsedTime(at: end) - paused)) < 1e-6)
     }
 
+    /// ui.md G3: the shown time never steps back. From the first slow fix the clock holds; the confirmed pause is
+    /// backdated to exactly that moment, and auto-resume steps it forward by its 3 s.
+    @Test func theClockNeverStepsBackAtTheTrafficLight() throws {
+        let road = try TrackFixture.load("road-5k")
+        let replay = TrackReplay(road, .gps(.run, barometer: false))
+        let shown = replay.trace.map(\.shownMovingSec)
+        for (a, b) in zip(shown, shown.dropFirst()) { #expect(b >= a - 1e-9) }
+        let entered = try #require(replay.autoPauses.first), light = try #require(road.stops.first)
+        // It also holds, rightly, at the start (speed 0 until the filter converges) and at the finish stop.
+        let atTheLight = replay.trace.filter { $0.held && abs($0.time.timeIntervalSince(light.start)) < 60 }
+        #expect(!atTheLight.isEmpty, "the clock held before the auto-pause confirmed")
+        #expect(atTheLight.allSatisfy { $0.time >= entered && $0.time < entered.addingTimeInterval(11) })
+    }
+
+    /// A manual pause while an auto-pause is pending starts at the pending moment, where the clock already holds.
+    @Test func aManualPauseWhilePendingStartsThere() throws {
+        let fixes = SyntheticTrack.fixes([Segment(seconds: 60, speed: 3), Segment(seconds: 30, speed: 0)])
+        var p = TrackPipeline(configuration: .gps(.run, barometer: false))
+        p.start(at: SyntheticTrack.t0)
+        _ = SyntheticTrack.run(&p, Array(fixes[0 ... 67]))
+        let now = fixes[67].timestamp
+        let pending = try #require(p.pendingAutoPause(at: now))
+        let shown = p.snapshot(at: now).movingSec
+        #expect(p.state == .recording && p.snapshot(at: now).movingAnchor == nil)
+        p.pause(at: now)
+        #expect(p.pauses == [PauseInterval(kind: .manual, start: pending)])
+        #expect(p.snapshot(at: now.addingTimeInterval(5)).movingSec == shown)
+    }
+
+    /// A split crossed while slowing down, inside the 10 s the auto-pause is then backdated over: its duration is
+    /// revised to moving time (`splits` and the checkpoint; the `.split` event carried the first value). A sport
+    /// with a 2 m/s threshold, so the crossing happens at 1.5 m/s, below it.
+    @Test func aSplitInsideABackdatedPauseIsRevised() throws {
+        let segments = [Segment(seconds: 330, speed: 3), Segment(seconds: 30, speed: 1.5)]
+        let fixes = SyntheticTrack.fixes(segments)
+        let profile = TrackProfile(maxSpeed: 9, sigmaA: 1.5, autoPauseThreshold: 2, autoPauseDefault: true,
+                                   elevation: .none, paceStyle: .pace)
+        var p = TrackPipeline(configuration: .gps(profile, barometer: false))
+        p.start(at: SyntheticTrack.t0)
+        let events = SyntheticTrack.run(&p, fixes)
+        let emitted = try #require(events.compactMap { if case let .split(s) = $0 { s } else { nil } }.first)
+        let entered = try #require(events.compactMap { if case let .autoPaused(since) = $0 { since } else { nil } }.first)
+        #expect(entered < emitted.end, "the pause is backdated over the crossing")
+        let revised = try #require(p.splits.first)
+        #expect(revised.durationSec < emitted.durationSec)
+        #expect(abs(revised.durationSec - p.movingTime(at: revised.end)) < 1e-9)
+        #expect(p.checkpoint?.splits.first == revised)
+    }
+
     @Test func offMeansNeverAutoPaused() throws {
         let road = try TrackFixture.load("road-5k")
         let replay = TrackReplay(road, .gps(.run, autoPause: false, barometer: false))

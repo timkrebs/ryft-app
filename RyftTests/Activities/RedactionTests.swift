@@ -35,6 +35,34 @@ struct RedactionTests {
         #expect(String(describing: Self.point) == "routePoint(±4 m)")
     }
 
+    /// The logging-safe path must never trap: NaN and ±∞ accuracy render as "?".
+    @Test(arguments: [Double.nan, .infinity, -.infinity, 1e300])
+    func descriptionsSurviveNonFiniteAccuracy(_ accuracy: Double) {
+        let fix = LocationFix(timestamp: .now, latitude: 52.47, longitude: 13.4, horizontalAccuracy: accuracy)
+        let point = RoutePoint(time: .now, latitude: 52.47, longitude: 13.4, horizontalAccuracy: accuracy, altitude: nil)
+        #expect(String(describing: fix) == "fix(±? m)")
+        #expect(String(describing: point) == "routePoint(±? m)")
+    }
+
+    /// The tangent plane's east scale (N·cos φ) gives its anchor's latitude back exactly, so the plane, the filter
+    /// and the pipeline holding them render nothing of it either.
+    @Test func filterPlaneAndPipelineRenderNoLocation() {
+        var p = TrackPipeline(configuration: .gps(.run, barometer: false))
+        p.start(at: SyntheticTrack.t0)
+        _ = SyntheticTrack.run(&p, SyntheticTrack.fixes([SyntheticTrack.Segment(seconds: 5, speed: 3)]))
+        let plane = LocalTangentPlane(anchor: SyntheticTrack.origin)
+        var kalman = KalmanTrack(tuning: KalmanTrack.Tuning(sigmaA: 1.5))
+        _ = kalman.update(Self.fix)
+        let values: [Any] = [plane, kalman, p]
+        for value in values {
+            for text in Self.renderings(value) {
+                for digits in ["52.47", "13.40", "52,47", "13,40"] {
+                    #expect(!text.contains(digits), "\(type(of: value)) rendered \(digits)")
+                }
+            }
+        }
+    }
+
     @Test func mirrorsHaveNoChildren() {
         #expect(Mirror(reflecting: Self.fix).children.isEmpty)
         #expect(Mirror(reflecting: Self.point).children.isEmpty)

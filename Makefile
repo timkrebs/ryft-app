@@ -33,12 +33,14 @@ screenshots:
 strings: build
 	python3 scripts/sync-strings.py --derived-data $(DERIVED)
 
-# String catalogs complete in English and German, nothing stale; the bundled tracker catalog current.
+# String catalogs complete in English and German, nothing stale; the bundled tracker catalog current; the GPS
+# fixture tracks match scripts/make-tracks.py.
 lint: check-entitlements
 	python3 scripts/lint-strings.py
 	python3 scripts/check-shared-types.py
 	python3 scripts/trackers.py --self-test
 	python3 scripts/trackers.py --check
+	python3 scripts/make-tracks.py --check
 
 # The tracker catalog's bundled copy: Content/trackers.json into its generated region at the end of
 # Ryft/Health/HealthKitManager+Status.swift (ADR 0002). Run after editing the JSON.

@@ -134,11 +134,12 @@ struct TrackSnapshot: Sendable, Equatable {
 /// The location pipeline (design §3.3, ADR 0003): gates, the Kalman filter, distance, gaps, rolling pace, splits
 /// and auto-pause, plus elevation (§3.4) and pedometer distance (§3.5).
 ///
-/// Distance integrates the filter's ground speed between accepted fixes while recording and moving (≥ 0.3 m/s, not
-/// flagged stationary); gaps over 10 s are bridged by the straight line when the implied speed is plausible
-/// (`Tuning.distanceFromVelocity` explains why not position steps). Auto-pause is backdated: it starts when the
-/// user stopped and ends when they moved again, so the 10 s and 3 s confirmations are neither moving time nor lost
-/// distance.
+/// Distance integrates the filter's ground speed between accepted fixes while recording and moving (above the
+/// sport's dead-band, not flagged stationary); gaps over 10 s are bridged by the straight line when the implied speed
+/// is plausible (`Tuning.distanceFromVelocity` explains why not position steps). After the filter (re)starts or
+/// resets its velocity, the first 10 s settle as a whole at their end (`Tuning.settleWindow`). Auto-pause is
+/// backdated: it starts when the user stopped and ends when they moved again, so the 10 s and 3 s confirmations are
+/// neither moving time nor lost distance, and the snapshot's clock holds while one is pending.
 ///
 /// A pure value type: the recorder actor owns one and feeds it fixes, altitude and pedometer samples and its
 /// control calls with their times. It reads no clock, so tests drive it with fixture arrays on the fixes' own
@@ -165,7 +166,14 @@ struct TrackPipeline: Sendable {
         var maxAccuracy = 25.0
         var staleAfter: TimeInterval = 10
         var minSpeedGateInterval: TimeInterval = 1
+        /// The floor of the moving gate, m/s (design §3.3 step 4).
         var minMovingSpeed = 0.3
+        /// The still-phone dead-band, the backstop behind Core Location's stationary flag: a step counts only from
+        /// this share of the sport's auto-pause threshold, between `minMovingSpeed` and `maxDeadBand`. A drifting
+        /// fix on a still phone reads as slow motion; runners and riders are never that slow, walkers and hikers can
+        /// be, so their sports keep the floor and rely on the flag.
+        var deadBandShareOfAutoPause = 0.5
+        var maxDeadBand = 0.5
         var gapAfter: TimeInterval = 10
         var paceWindow: TimeInterval = 30
         var paceMinDistance = 20.0
@@ -184,13 +192,19 @@ struct TrackPipeline: Sendable {
         /// filtered positions (ADR 0003 as written). Gaps are bridged by the straight line either way. On the
         /// fixtures, position steps read 1–4 % long under canopy: measurement jitter reaches the position through the
         /// filter's position gain, and a lagging estimate overshoots a hairpin and comes back, which a position sum
-        /// counts twice. The velocity state takes far less jitter and doesn't double back. Its cost: lag at an
-        /// acceleration isn't recovered (about 5–10 m at a standing start, 3 m after a stop).
+        /// counts twice. The velocity state takes far less jitter and doesn't double back. Its lag behind an
+        /// acceleration is covered by the settle window (a start) and the auto-resume position steps (after a stop).
         var distanceFromVelocity = true
-        /// After the filter (re)starts, its velocity resets, or the user moves off from an auto-pause, distance comes
-        /// from position steps for this long: they recover the lag of a converging velocity, which integrating the
-        /// velocity would lose (a standing or flying start, a tunnel exit).
+        /// After the user moves off from an auto-pause, distance comes from position steps for this long: the filter
+        /// is settled, and the steps recover its velocity's lag behind the acceleration, which integrating the
+        /// velocity would lose.
         var positionStepsAfterRestart: TimeInterval = 10
+        /// After the filter starts or restarts (Start, a resume after a kill, a real jump), the first fix may be tens
+        /// of metres off and the filter's way back from it isn't distance. So nothing accrues for this long; then the
+        /// window's distance is a robust (Theil–Sen) line through its fixes: a flying start keeps its speed, one bad
+        /// fix tilts nothing. With fewer than `settleMinFixes` fixes it waits up to 3× as long.
+        var settleWindow: TimeInterval = 10
+        var settleMinFixes = 4
 
         static let standard = Tuning()
     }
@@ -232,8 +246,9 @@ struct TrackPipeline: Sendable {
         var splits: [TrackSplit]
         var splitStartMovingSec: Double
         var splitStartAscentM: Double
-        var ascentM: Double
-        var descentM: Double
+        /// Nil until an altitude was counted.
+        var ascentM: Double?
+        var descentM: Double?
         var laps: [TrackLap]
         var lapStartDistanceM: Double
         var lastSampleTime: Date?
@@ -254,6 +269,15 @@ struct TrackPipeline: Sendable {
         let distance: Double
     }
 
+    /// The fixes since the filter (re)started, held until the settle window ends. Memory only, never checkpointed.
+    private struct Settling: Sendable {
+        let since: Date
+        var fixes: [(time: Date, coordinate: Coordinate, isStationary: Bool)]
+        /// The filtered track's length over the window, from `lastFiltered`.
+        var path: Double = 0
+        var lastFiltered: Coordinate?
+    }
+
     private struct PedometerReading: Sendable {
         let time: Date
         let distance: Double
@@ -266,10 +290,9 @@ struct TrackPipeline: Sendable {
     private(set) var state: State = .ready
     private(set) var start: Date?
     private(set) var finishedAt: Date?
-    private(set) var pauses: [PauseInterval] = [] {
-        didSet { pausedBefore = Self.prefixSums(pauses) }
-    }
-    /// `pausedBefore[i]`: the total length of `pauses[0 ..< i]` (all closed; only the last pause can be open).
+    /// Sorted and disjoint; only the last can be open. Changed only through `openPause` and `closeOpenPause`.
+    private(set) var pauses: [PauseInterval] = []
+    /// `pausedBefore[i]`: the total length of `pauses[0 ..< i]`, kept as pauses open and close (O(1) each).
     private var pausedBefore: [Double] = [0]
     private(set) var distanceM: Double = 0
     private(set) var splits: [TrackSplit] = []
@@ -286,6 +309,8 @@ struct TrackPipeline: Sendable {
     private var stepFrom: (position: Coordinate, time: Date, speed: Double)?
     /// Until this time, distance comes from position steps (`Tuning.positionStepsAfterRestart`).
     private var positionStepsUntil: Date?
+    /// Set while the filter settles after a (re)start (`Tuning.settleWindow`).
+    private var settling: Settling?
 
     private var splitStartMoving: Double = 0
     private var splitStartAscent: Double = 0
@@ -312,7 +337,6 @@ struct TrackPipeline: Sendable {
     init(configuration: Configuration, restoring saved: Resume, interruptedAt: Date) {
         self.init(configuration: configuration)
         start = saved.start
-        pauses = saved.pauses
         distanceM = saved.distanceM
         splits = saved.splits
         splitStartMoving = saved.splitStartMovingSec
@@ -322,19 +346,20 @@ struct TrackPipeline: Sendable {
         diagnostics = saved.diagnostics
         elevation = ElevationFusion(mode: configuration.elevation, ascentM: saved.ascentM, descentM: saved.descentM)
         elevation.setCounting(false)
+        pauses = saved.pauses
+        pausedBefore = Self.prefixSums(pauses)
         if let distance = saved.pedometerDistanceM, let steps = saved.pedometerSteps {
             pedometer = PedometerReading(time: saved.lastSampleTime ?? interruptedAt, distance: distance, steps: steps)
         }
         let resumeFrom = max(interruptedAt, saved.start)
-        if let last = pauses.indices.last, pauses[last].end == nil {
-            if pauses[last].kind != .manual {
-                pauses[last].end = max(pauses[last].start, resumeFrom)
-                pauses.append(PauseInterval(kind: .interruption, start: resumeFrom))
+        if let last = pauses.last, last.end == nil {
+            if last.kind != .manual {
+                closeOpenPause(at: resumeFrom)
+                openPause(.interruption, at: resumeFrom)
             }
         } else {
-            pauses.append(PauseInterval(kind: .interruption, start: resumeFrom))
+            openPause(.interruption, at: resumeFrom)
         }
-        pausedBefore = Self.prefixSums(pauses)
         state = .paused
         latestSeen = resumeFrom
     }
@@ -345,6 +370,17 @@ struct TrackPipeline: Sendable {
     var descentM: Double? { elevation.descent }
     var altitudeM: Double? { elevation.altitudeM }
     var steps: Int? { pedometer?.steps }
+    /// Samples held besides the output (splits, laps, pauses): bounded by time windows, never by the recording's
+    /// length. Every input touches only these, plus an O(log pauses) search: O(1) per input. For the cost test.
+    var retainedSampleCount: Int {
+        paceSamples.count + pending.count + (settling?.fixes.count ?? 0) + elevation.retainedSampleCount
+    }
+    /// The speed a step needs to count: the dead-band for this sport (`Tuning.deadBandShareOfAutoPause`).
+    var movingSpeed: Double {
+        let share = tuning.deadBandShareOfAutoPause * (configuration.profile.autoPauseThreshold ?? 0)
+        return max(tuning.minMovingSpeed, min(tuning.maxDeadBand, share))
+    }
+
     private var autoPauseEnabled: Bool {
         guard configuration.autoPause else { return false }
         switch configuration.distance {
@@ -354,12 +390,12 @@ struct TrackPipeline: Sendable {
         }
     }
 
-    /// The checkpoint state; nil before Start.
-    var resume: Resume? {
+    /// The checkpoint state (part of `RecordingHeader`); nil before Start.
+    var checkpoint: Resume? {
         guard let start else { return nil }
         return Resume(start: start, pauses: pauses, distanceM: distanceM, splits: splits,
                       splitStartMovingSec: splitStartMoving, splitStartAscentM: splitStartAscent,
-                      ascentM: elevation.ascentM, descentM: elevation.descentM, laps: laps,
+                      ascentM: elevation.ascent, descentM: elevation.descent, laps: laps,
                       lapStartDistanceM: lapStartDistance, lastSampleTime: lastAccepted?.time ?? pedometer?.time,
                       pedometerDistanceM: pedometer?.distance, pedometerSteps: pedometer?.steps,
                       diagnostics: diagnostics)
@@ -417,8 +453,9 @@ struct TrackPipeline: Sendable {
     }
 
     func averagePace(at time: Date) -> Double? {
-        guard distanceM >= tuning.paceMinDistance else { return nil }
-        return movingTime(at: time) / distanceM * 1000
+        let moving = movingTime(at: time)
+        guard distanceM >= tuning.paceMinDistance, moving > 0 else { return nil }
+        return moving / distanceM * 1000
     }
 
     func gpsQuality(at time: Date) -> GPSQuality {
@@ -428,15 +465,34 @@ struct TrackPipeline: Sendable {
         return last.accuracy <= tuning.goodAccuracy ? .good : .fair
     }
 
+    /// When an auto-pause is pending: the first slow, stationary or step-less input that hasn't been confirmed or
+    /// denied yet. Nil when auto-pause is off, not recording, or the GPS turned weak meanwhile.
+    func pendingAutoPause(at time: Date) -> Date? {
+        guard state == .recording, autoPauseEnabled else { return nil }
+        switch configuration.distance {
+        case .gps:
+            guard gpsQuality(at: time) != .weak else { return nil }
+            return [slowSince, stationarySince].compactMap { $0 }.min()
+        case .pedometer:
+            guard let since = lastStepping, time.timeIntervalSince(since) >= tuning.autoResumeAfter else { return nil }
+            return since
+        case .none:
+            return nil
+        }
+    }
+
+    /// The screen's values. While an auto-pause is pending the clock holds at its start (no moving anchor), so a
+    /// confirmed auto-pause, backdated to that moment, never moves the shown time back (design §3.3, ui.md G3).
     func snapshot(at time: Date) -> TrackSnapshot {
-        let moving = movingTime(at: time)
+        let held = pendingAutoPause(at: time)
+        let moving = movingTime(at: held ?? time)
         let average = averagePace(at: time)
         return TrackSnapshot(
             state: state, movingSec: moving, elapsedSec: elapsedTime(at: time), distanceM: distanceM,
             currentPace: currentPace, averagePace: average, currentSpeed: currentSpeed,
-            averageSpeed: average.map { 1000 / $0 }, ascentM: ascentM, descentM: descentM, altitudeM: altitudeM,
+            averageSpeed: average.flatMap { $0 > 0 ? 1000 / $0 : nil }, ascentM: ascentM, descentM: descentM, altitudeM: altitudeM,
             steps: steps, lastSplit: splits.last, gps: gpsQuality(at: time),
-            movingAnchor: state == .recording ? time.addingTimeInterval(-moving) : nil
+            movingAnchor: state == .recording && held == nil ? time.addingTimeInterval(-moving) : nil
         )
     }
 
@@ -449,6 +505,11 @@ struct TrackPipeline: Sendable {
         start = time
         state = .recording
         elevation.setCounting(true)
+        // Counts begin at Start, and nothing is bridged from a fix before it ("Start anyway" after a silent GPS).
+        diagnostics = PipelineDiagnostics()
+        stepFrom = nil
+        // A filter still settling from the warm-up settles on the fixes after Start only.
+        if settling != nil { settling = Settling(since: time, fixes: [], lastFiltered: kalman.position) }
         paceSamples = [PaceSample(time: time, moving: 0, distance: 0)]
         lastStepping = time
         if configuration.distance == .pedometer { pedometer = PedometerReading(time: time, distance: 0, steps: 0) }
@@ -460,10 +521,15 @@ struct TrackPipeline: Sendable {
         observe(time)
         switch state {
         case .recording:
-            pauses.append(PauseInterval(kind: .manual, start: max(time, start ?? time)))
+            var events: [PipelineEvent] = []
+            settle(&events)
+            // While an auto-pause is pending the clock already holds at its start: the pause starts there too.
+            let from = max(pendingAutoPause(at: time) ?? time, pauses.last?.end ?? .distantPast, start ?? .distantPast)
+            openPause(.manual, at: from)
+            if from < time { reviseAfterBackdating(from: from) }
         case .autoPaused:
             closeOpenPause(at: time)
-            pauses.append(PauseInterval(kind: .manual, start: time))
+            openPause(.manual, at: time)
         case .ready, .paused, .finished:
             return
         }
@@ -506,6 +572,9 @@ struct TrackPipeline: Sendable {
             return []
         }
         observe(time)
+        var events: [PipelineEvent] = []
+        if state == .recording { settle(&events) }
+        settling = nil
         let end = max(time, start)
         closeOpenPause(at: end)
         finishedAt = end
@@ -513,9 +582,9 @@ struct TrackPipeline: Sendable {
         elevation.setCounting(false)
         pending = []
         let partial = distanceM - Double(splits.count) * tuning.splitDistance
-        guard partial >= tuning.minPartialSplitFraction * tuning.splitDistance else { return [] }
-        let split = makeSplit(distance: partial, at: end)
-        return [.split(split)]
+        guard partial >= tuning.minPartialSplitFraction * tuning.splitDistance else { return events }
+        events.append(.split(makeSplit(distance: partial, at: end)))
+        return events
     }
 
     /// Time passing without input: auto-pause when Core Location said "stationary" (it then stops sending fixes)
@@ -552,53 +621,65 @@ struct TrackPipeline: Sendable {
     mutating func ingest(_ fix: LocationFix) -> [PipelineEvent] {
         guard configuration.distance == .gps, state != .finished else { return [] }
         let t = fix.timestamp
-        let stale = latestSeen.map { t < $0.addingTimeInterval(-tuning.staleAfter) } ?? false
-        observe(t)
-        lastReportedAccuracy = fix.horizontalAccuracy
+        if fix.horizontalAccuracy.isFinite, fix.horizontalAccuracy >= 0 { lastReportedAccuracy = fix.horizontalAccuracy }
 
-        // 1 Pre-gate.
+        // 1 Pre-gate. Only a fix that passes it moves the staleness clock: one bad timestamp can't age the rest.
         guard fix.horizontalAccuracy >= 0, fix.horizontalAccuracy <= tuning.maxAccuracy,
               fix.latitude.isFinite, fix.longitude.isFinite, abs(fix.latitude) <= 90
         else { return reject(.accuracy) }
         if let last = lastAccepted, t <= last.time { return reject(.outOfOrder) }
-        if stale { return reject(.stale) }
+        if let latestSeen, t < latestSeen.addingTimeInterval(-tuning.staleAfter) { return reject(.stale) }
+        observe(t)
+        var implausibleJump = false
 
         // 2 Speed gate, from the last filtered position.
         if let maxSpeed = configuration.profile.maxSpeed, let from = kalman.position, let since = kalman.lastTime,
            let last = lastAccepted {
             let dt = max(t.timeIntervalSince(since), tuning.minSpeedGateInterval)
             let reach = Geodesy.distance(from, fix.coordinate) - fix.horizontalAccuracy - last.accuracy
-            if reach / dt > maxSpeed { return reject(.implausible) }
+            if reach / dt > maxSpeed {
+                // The gate ages open as Δt grows; counting its rejections toward the re-init keeps a sustained
+                // multipath offset from being accepted later with a kick to the velocity (design §3.3 step 3).
+                guard kalman.rejectedElsewhere(fix) == .reinitialised else { return reject(.implausible) }
+                implausibleJump = true
+            }
         }
 
         // 3 Filter.
         var events: [PipelineEvent] = []
         let previousFixTime = kalman.lastTime
-        let outcome = kalman.update(fix)
+        let outcome: KalmanTrack.Outcome = implausibleJump ? .reinitialised : kalman.update(fix)
         switch outcome {
         case .rejected:
             return reject(.innovation)
         case .reinitialised:
             diagnostics.reinitialisations += 1
             events.append(.reinitialised)
-            positionStepsUntil = t.addingTimeInterval(tuning.positionStepsAfterRestart)
+            beginSettling(with: fix)
         case .initialised:
-            positionStepsUntil = t.addingTimeInterval(tuning.positionStepsAfterRestart)
+            beginSettling(with: fix)
         case .updated:
-            if let previousFixTime, t.timeIntervalSince(previousFixTime) > kalman.tuning.velocityResetAfter {
-                positionStepsUntil = t.addingTimeInterval(tuning.positionStepsAfterRestart)
-            }
+            settling?.fixes.append((t, fix.coordinate, fix.isStationary))
+        }
+        if let here = kalman.position, settling != nil {
+            if let previous = settling?.lastFiltered { settling?.path += Geodesy.distance(previous, here) }
+            settling?.lastFiltered = here
         }
         diagnostics.fixesAccepted += 1
         lastAccepted = (t, fix.horizontalAccuracy, fix.isStationary)
         elevation.add(fix: fix)
         guard let position = kalman.position else { return events }
         let groundSpeed = kalman.groundSpeed
-        defer { stepFrom = (position, t, groundSpeed) }
+        defer { stepFrom = settling == nil ? (position, t, groundSpeed) : nil }
 
-        // 4–5 Distance and gaps.
+        // 4–5 Distance and gaps. While the filter settles, nothing accrues until its window ends.
         var step: Step?
-        if outcome == .updated, let from = stepFrom {
+        if let window = settling, t.timeIntervalSince(window.since) >= tuning.settleWindow,
+           window.fixes.count >= tuning.settleMinFixes || t.timeIntervalSince(window.since) >= 3 * tuning.settleWindow
+           || window.fixes.count >= 64 {
+            step = settledStep(window)
+            settling = nil
+        } else if outcome == .updated, settling == nil, let from = stepFrom {
             let dt = t.timeIntervalSince(from.time)
             diagnostics.longestGapSec = max(diagnostics.longestGapSec, dt)
             var length: Double
@@ -609,18 +690,27 @@ struct TrackPipeline: Sendable {
                 let bridged = implied <= (configuration.profile.maxSpeed ?? .infinity)
                 if bridged { diagnostics.gapsBridged += 1 } else { diagnostics.gapsNotBridged += 1 }
                 events.append(.gap(seconds: dt, bridged: bridged))
-                counts = bridged && implied >= tuning.minMovingSpeed
+                counts = bridged && implied >= movingSpeed
             } else if tuning.distanceFromVelocity, t > positionStepsUntil ?? .distantPast {
                 let mean = (from.speed + groundSpeed) / 2
                 length = mean * dt
-                counts = mean >= tuning.minMovingSpeed
+                counts = mean >= movingSpeed
             } else {
                 length = Geodesy.distance(from.position, position)
-                counts = kalman.speed >= tuning.minMovingSpeed
+                counts = kalman.speed >= movingSpeed
             }
             // Core Location says the phone isn't moving: nothing accrues, even with auto-pause off.
             if fix.isStationary { counts = false }
             step = Step(from: from.time, to: t, distance: counts ? length : 0)
+            // After a gap long enough to reset the velocity, the gap is bridged above and the next seconds settle
+            // like a start: the velocity converges again, and the position came mostly from this one fix.
+            if let previousFixTime, t.timeIntervalSince(previousFixTime) > kalman.tuning.velocityResetAfter {
+                beginSettling(with: fix)
+            }
+        } else if outcome == .updated, settling == nil, stepFrom == nil, let previousFixTime,
+                  t.timeIntervalSince(previousFixTime) > kalman.tuning.velocityResetAfter {
+            // The same without a step to bridge (the first fix after Start or a resume, after a silent GPS).
+            beginSettling(with: fix)
         }
         guard state != .ready else { return events }
 
@@ -629,7 +719,7 @@ struct TrackPipeline: Sendable {
         let threshold = configuration.profile.autoPauseThreshold ?? 0
         switch state {
         case .recording:
-            if let step, step.distance > 0, t > (start ?? t) { accrue(step, &events) }
+            if let step, let counted = clipped(step) { accrue(counted, &events) }
             recordPaceSample(at: t)
             if autoPauseEnabled {
                 slowSince = speed < threshold ? (slowSince ?? t) : nil
@@ -659,8 +749,11 @@ struct TrackPipeline: Sendable {
         }
 
         let altitude = elevation.altitudeM
-        events.append(.route(RoutePoint(time: t, latitude: position.latitude, longitude: position.longitude,
-                                        horizontalAccuracy: kalman.positionSigma, altitude: altitude)))
+        // Where the user went while paused isn't the activity's route (design §3.3, ADR 0005).
+        if state == .recording {
+            events.append(.route(RoutePoint(time: t, latitude: position.latitude, longitude: position.longitude,
+                                            horizontalAccuracy: kalman.positionSigma, altitude: altitude)))
+        }
         events.append(.profile(ProfilePoint(time: t, distanceM: distanceM, altitudeM: altitude, speedMps: groundSpeed)))
         return events
     }
@@ -720,8 +813,8 @@ struct TrackPipeline: Sendable {
         var sums = [0.0]
         sums.reserveCapacity(pauses.count + 1)
         for pause in pauses {
-            let length = pause.end.map { max(0, $0.timeIntervalSince(pause.start)) } ?? 0
-            sums.append(sums[sums.count - 1] + length)
+            guard let end = pause.end else { break }
+            sums.append(sums[sums.count - 1] + max(0, end.timeIntervalSince(pause.start)))
         }
         return sums
     }
@@ -742,9 +835,89 @@ struct TrackPipeline: Sendable {
         pending = []
     }
 
+    private mutating func openPause(_ kind: PauseInterval.Kind, at time: Date) {
+        pauses.append(PauseInterval(kind: kind, start: time))
+    }
+
     private mutating func closeOpenPause(at time: Date) {
         guard let last = pauses.indices.last, pauses[last].end == nil else { return }
-        pauses[last].end = max(time, pauses[last].start)
+        let end = max(time, pauses[last].start)
+        pauses[last].end = end
+        pausedBefore.append(pausedBefore[pausedBefore.count - 1] + end.timeIntervalSince(pauses[last].start))
+    }
+
+    /// A pause just opened at `from`, before now: what was computed since then without it is revised. The pace
+    /// window's moving times, and the duration of a split crossed in between (its `.split` event carried the
+    /// provisional value; `splits` and the checkpoint hold the revised one).
+    private mutating func reviseAfterBackdating(from: Date) {
+        let moving = movingTime(at: from)
+        for i in paceSamples.indices where paceSamples[i].time > from {
+            paceSamples[i].moving = min(paceSamples[i].moving, moving)
+        }
+        guard let start, let last = splits.indices.last, splits[last].end > from else { return }
+        for i in splits.indices where splits[i].end > from {
+            let previous = i > 0 ? splits[i - 1].end : start
+            let s = splits[i]
+            splits[i] = TrackSplit(index: s.index, distanceM: s.distanceM,
+                                   durationSec: movingTime(at: s.end) - movingTime(at: previous), ascentM: s.ascentM,
+                                   end: s.end)
+        }
+        splitStartMoving = movingTime(at: splits[last].end)
+    }
+
+    /// Starts a settle window at this fix (`Tuning.settleWindow`): a (re)initialised filter, or a reset velocity.
+    private mutating func beginSettling(with fix: LocationFix) {
+        settling = Settling(since: fix.timestamp, fixes: [(fix.timestamp, fix.coordinate, fix.isStationary)],
+                            lastFiltered: kalman.position)
+        positionStepsUntil = nil
+    }
+
+    /// The distance of a settle window: the shorter of a Theil–Sen line through its fixes (the median of the pairwise
+    /// velocities per axis, over the window's span) and the filtered track's length. They fail in opposite
+    /// directions: a coarse first fix lengthens the track as the filter walks back from it, and one bad fix can't tilt
+    /// a median; an acceleration (a standing start) lengthens the line, and the track follows it. Nil with fewer than
+    /// three fixes.
+    private func settledStep(_ window: Settling) -> Step? {
+        let fixes = window.fixes
+        guard fixes.count >= 3, let first = fixes.first, let last = fixes.last, last.time > first.time else { return nil }
+        let plane = LocalTangentPlane(anchor: first.coordinate)
+        let points = fixes.map { (t: $0.time.timeIntervalSince(first.time), d: plane.project($0.coordinate)) }
+        var east: [Double] = [], north: [Double] = []
+        east.reserveCapacity(points.count * (points.count - 1) / 2)
+        north.reserveCapacity(points.count * (points.count - 1) / 2)
+        for i in points.indices {
+            for j in points.indices where j > i {
+                let dt = points[j].t - points[i].t
+                guard dt > 0 else { continue }
+                east.append((points[j].d.east - points[i].d.east) / dt)
+                north.append((points[j].d.north - points[i].d.north) / dt)
+            }
+        }
+        guard !east.isEmpty else { return nil }
+        let speed = Displacement(east: ElevationFusion.median(east), north: ElevationFusion.median(north)).length
+        let still = fixes.filter(\.isStationary).count * 2 > fixes.count
+        let moving = speed >= movingSpeed && !still
+        let line = speed * last.time.timeIntervalSince(first.time)
+        return Step(from: first.time, to: last.time, distance: moving ? min(line, window.path) : 0)
+    }
+
+    /// Ends a settle window early (Pause, Finish): its fixes so far count if there are enough of them.
+    private mutating func settle(_ events: inout [PipelineEvent]) {
+        guard let window = settling else { return }
+        settling = nil
+        if state == .recording, let step = settledStep(window), let counted = clipped(step) {
+            accrue(counted, &events)
+        }
+    }
+
+    /// The part of a step after the last Start or resume: a fix delivered late never counts time before them.
+    private func clipped(_ step: Step) -> Step? {
+        guard step.distance > 0, let start else { return nil }
+        let from = max(start, pauses.last?.end ?? start)
+        guard step.to > from else { return nil }
+        guard step.from < from else { return step }
+        let span = step.to.timeIntervalSince(step.from)
+        return Step(from: from, to: step.to, distance: step.distance * step.to.timeIntervalSince(from) / span)
     }
 
     /// Adds a step's distance and emits every split it crosses, interpolating the crossing time along the step.
@@ -783,14 +956,11 @@ struct TrackPipeline: Sendable {
     /// Enters auto-pause, backdated to when the user stopped: the slow seconds aren't moving time.
     private mutating func enterAutoPause(since: Date, _ events: inout [PipelineEvent]) {
         let from = max(since, pauses.last?.end ?? since, start ?? since)
-        pauses.append(PauseInterval(kind: .auto, start: from))
+        openPause(.auto, at: from)
         state = .autoPaused
         elevation.setCounting(false)
         diagnostics.autoPauses += 1
-        let moving = movingTime(at: from)
-        for i in paceSamples.indices where paceSamples[i].time > from {
-            paceSamples[i].moving = min(paceSamples[i].moving, moving)
-        }
+        reviseAfterBackdating(from: from)
         resetMotion()
         events.append(.autoPaused(since: from))
     }

@@ -11,7 +11,7 @@ import Foundation
 /// - Δt over 15 s resets the velocity variance before predicting, so the next fix sets the velocity again.
 ///
 /// Pure and `Sendable`; a few dozen floating-point operations and no allocation per fix.
-struct KalmanTrack: Sendable {
+struct KalmanTrack: Sendable, LocationRedacting {
     struct Tuning: Sendable, Equatable {
         /// White-acceleration noise, m/s² (the sport's σa).
         var sigmaA: Double
@@ -76,8 +76,6 @@ struct KalmanTrack: Sendable {
         self.tuning = tuning
     }
 
-    var isInitialised: Bool { plane != nil }
-
     /// The filtered position at `lastTime`.
     var position: Coordinate? {
         plane?.unproject(Displacement(east: east.p, north: north.p))
@@ -104,13 +102,16 @@ struct KalmanTrack: Sendable {
     /// The one-sigma position uncertainty, metres (the larger axis).
     var positionSigma: Double { max(east.pp, north.pp).squareRoot() }
 
-    /// Forgets everything: the next fix initialises (a resume after a kill, design §3.9).
-    mutating func reset() {
-        plane = nil
-        east = Axis()
-        north = Axis()
-        lastTime = nil
-        consecutiveRejections = 0
+    /// Never renders its state: the plane's anchor and the positions in it give the location back (design §8.3).
+    var description: String { "kalman(±\(LocationFix.metres(positionSigma)) m)" }
+
+    /// A fix another gate rejected (the pipeline's speed gate). It counts toward the re-initialisation like an
+    /// innovation rejection: three in a row, by either gate, restart the filter at the third fix.
+    mutating func rejectedElsewhere(_ fix: LocationFix) -> Outcome {
+        consecutiveRejections += 1
+        guard consecutiveRejections >= tuning.reinitialiseAfter else { return .rejected(sigmas: .infinity) }
+        initialise(at: fix, variance: pow(max(fix.horizontalAccuracy, tuning.minMeasurementSigma), 2))
+        return .reinitialised
     }
 
     mutating func update(_ fix: LocationFix) -> Outcome {

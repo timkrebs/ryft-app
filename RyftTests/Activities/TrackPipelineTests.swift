@@ -3,8 +3,8 @@ import Testing
 @testable import Ryft
 
 /// The pipeline on the fixture tracks (design §11.1, §11.2) and its gates, pauses, restore and pedometer mode.
-/// Measured on the committed fixtures: road-5k +0.31 %, trail-switchbacks −0.28 % (raw fixes +10.5 %), stationary
-/// 1.7 m.
+/// Measured on the committed fixtures: road-5k +0.31 %, trail-switchbacks −0.34 % (raw fixes +10.5 %), stationary
+/// 0.0 m (auto-pause on or off, flag or not).
 @Suite("Track pipeline")
 struct TrackPipelineTests {
     typealias Segment = SyntheticTrack.Segment
@@ -117,25 +117,52 @@ struct TrackPipelineTests {
         #expect(p.ingest(fixes[9]) == [.rejected(.outOfOrder)])
         // Received 12 s after it was taken: Core Location handed over a cached fix.
         #expect(p.ingest(fixes[11], receivedAt: fixes[11].timestamp.addingTimeInterval(12)) == [.rejected(.stale)])
-        // More than 10 s behind a newer fix the gate dropped.
-        let late = LocationFix(timestamp: fixes[30].timestamp, latitude: fixes[30].latitude,
-                               longitude: fixes[30].longitude, horizontalAccuracy: 40)
-        #expect(p.ingest(late) == [.rejected(.accuracy)])
+        // An invalid fix doesn't move the staleness clock, even dated far ahead.
+        let invalid = LocationFix(timestamp: fixes[39].timestamp.addingTimeInterval(100), latitude: fixes[39].latitude,
+                                  longitude: fixes[39].longitude, horizontalAccuracy: -1)
+        #expect(p.ingest(invalid) == [.rejected(.accuracy)])
+        #expect(p.ingest(fixes[14]).contains { if case .route = $0 { true } else { false } })
+        // More than 10 s behind a newer valid fix (here one the speed gate dropped) is stale.
+        let jump = Geodesy.destination(from: fixes[30].coordinate, bearing: 0, distance: 500)
+        #expect(p.ingest(LocationFix(timestamp: fixes[30].timestamp, latitude: jump.latitude, longitude: jump.longitude,
+                                     horizontalAccuracy: 5)) == [.rejected(.implausible)])
         #expect(p.ingest(fixes[15]) == [.rejected(.stale)])
         #expect(p.ingest(fixes[25]).contains { if case .route = $0 { true } else { false } })
         #expect(p.diagnostics.rejectedOutOfOrder == 2 && p.diagnostics.rejectedStale == 2)
     }
 
-    /// 16 m/s is implausible for a run (max 9 m/s) and fine for a ride (max 25 m/s).
+    /// 16 m/s is implausible for a run (max 9 m/s) and fine for a ride (max 25 m/s). Speed-gate rejections count
+    /// toward the re-init, so the run restarts at every third fix and never settles: it records nothing.
     @Test func speedGateUsesTheProfile() {
         let fast = SyntheticTrack.fixes([Segment(seconds: 30, speed: 16)], accuracy: 3)
         var run = Self.started(.gps(.run, barometer: false))
         var bike = Self.started(.gps(.bike, barometer: false))
         _ = SyntheticTrack.run(&run, fast)
         _ = SyntheticTrack.run(&bike, fast)
-        #expect(run.diagnostics.rejectedImplausible == 30 && run.diagnostics.fixesAccepted == 1)
+        #expect(run.diagnostics.rejectedImplausible == 20 && run.diagnostics.reinitialisations == 10)
+        #expect(run.distanceM == 0)
         #expect(bike.diagnostics.rejected == 0)
-        #expect(abs(bike.distanceM - 480) < 2)
+        #expect(abs(bike.distanceM - 480) < 2, "\(bike.distanceM) m")
+    }
+
+    /// A 60 m multipath offset held for 15 s (design §3.3 step 3): three rejections by either gate re-initialise
+    /// at the offset, and three more on the way back. Counting only the innovation gate let the aged-open speed
+    /// gate accept the offset with a kick to the velocity: +75 m.
+    @Test func sustainedMultipathCostsLittle() {
+        var p = Self.started(.gps(.run, autoPause: false, barometer: false))
+        let offset = Displacement(east: -52, north: 30)
+        for fix in SyntheticTrack.fixes([Segment(seconds: 300, speed: 3)]) {
+            let i = Int(fix.timestamp.timeIntervalSince(SyntheticTrack.t0))
+            guard (100 ..< 115).contains(i) else {
+                _ = p.ingest(fix)
+                continue
+            }
+            let c = LocalTangentPlane(anchor: fix.coordinate).unproject(offset)
+            _ = p.ingest(LocationFix(timestamp: fix.timestamp, latitude: c.latitude, longitude: c.longitude,
+                                     horizontalAccuracy: 10))
+        }
+        #expect(p.diagnostics.reinitialisations == 2)
+        #expect(p.distanceM - 900 > -25 && p.distanceM - 900 < 5, "\(p.distanceM - 900) m")
     }
 
     // MARK: Lifecycle
@@ -145,7 +172,7 @@ struct TrackPipelineTests {
         let fixes = SyntheticTrack.fixes([Segment(seconds: 60, speed: 3)], accuracy: 8)
         let warm = fixes.prefix(20).flatMap { p.ingest($0) }
         #expect(warm.isEmpty)
-        #expect(p.state == .ready && p.distanceM == 0 && p.resume == nil)
+        #expect(p.state == .ready && p.distanceM == 0 && p.checkpoint == nil)
         #expect(p.gpsQuality(at: fixes[19].timestamp) == .good)
         #expect(p.lastReportedAccuracy == 8)
         p.start(at: fixes[20].timestamp)
@@ -153,22 +180,95 @@ struct TrackPipelineTests {
         #expect(abs(p.distanceM - 120) < 1.5, "\(p.distanceM) m")
     }
 
-    /// A noiseless run at full speed from the first fix: the position steps after the filter starts recover the
-    /// converging velocity's lag, which integrating the velocity alone would lose.
-    @Test func flyingStartLosesNothing() {
-        let segments = [Segment(seconds: 400, speed: 3)]
-        for accuracy in [5.0, 25.0] {
-            let fixes = SyntheticTrack.fixes(segments, accuracy: accuracy)
-            var p = Self.started(.gps(.run, autoPause: false, barometer: false))
-            _ = SyntheticTrack.run(&p, fixes)
-            #expect(abs(p.distanceM - 1200) < 2.5, "accuracy \(accuracy): \(p.distanceM) m")
+    /// The first 10 s after Start settle on the shorter of a robust line and the filtered track: a flying start
+    /// keeps its speed while the velocity converges, and a standing start isn't lengthened by the line.
+    @Test(arguments: [5.0, 25.0])
+    func flyingAndStandingStartsLoseNothing(accuracy: Double) {
+        let flying = SyntheticTrack.fixes([Segment(seconds: 400, speed: 3)], accuracy: accuracy)
+        var p = Self.started(.gps(.run, autoPause: false, barometer: false))
+        _ = SyntheticTrack.run(&p, flying)
+        #expect(abs(p.distanceM - 1200) < 2.5, "flying: \(p.distanceM) m")
+        let standing = [Segment(seconds: 1, speed: 1), Segment(seconds: 1, speed: 2), Segment(seconds: 398, speed: 3)]
+        var q = Self.started(.gps(.run, autoPause: false, barometer: false))
+        _ = SyntheticTrack.run(&q, SyntheticTrack.fixes(standing, accuracy: accuracy))
+        #expect(abs(q.distanceM - SyntheticTrack.distance(standing)) < 2.5, "standing: \(q.distanceM) m")
+    }
 
-            var tuning = TrackPipeline.Tuning.standard
-            tuning.positionStepsAfterRestart = 0
-            var velocityOnly = Self.started(.gps(.run, autoPause: false, barometer: false, tuning: tuning))
-            _ = SyntheticTrack.run(&velocityOnly, fixes)
-            #expect(velocityOnly.distanceM < p.distanceM - 2, "accuracy \(accuracy)")
+    /// The first fix 20 or 40 m off (reported ±25 m), the next ones good: the filter's way back to the truth isn't
+    /// distance (review: +20 m and +42 m for a still phone before the settle window).
+    @Test(arguments: [(20.0, 0.0), (40.0, 0.0), (20.0, 3.0), (40.0, 3.0)])
+    func aCoarseFirstFixAddsNothing(offBy metres: Double, speed: Double) {
+        for autoPause in [false, true] {
+            var fixes = SyntheticTrack.fixes([Segment(seconds: 120, speed: speed)])
+            let off = LocalTangentPlane(anchor: fixes[0].coordinate)
+                .unproject(Displacement(east: -metres / 2, north: metres * 0.866))
+            fixes[0] = LocationFix(timestamp: fixes[0].timestamp, latitude: off.latitude, longitude: off.longitude,
+                                   horizontalAccuracy: 25)
+            var p = Self.started(.gps(.run, autoPause: autoPause, barometer: false))
+            _ = SyntheticTrack.run(&p, fixes)
+            #expect(abs(p.distanceM - speed * 120) < 1.5, "auto-pause \(autoPause): \(p.distanceM) m")
         }
+    }
+
+    /// "Start anyway" after 50 s without fixes: nothing is bridged from the last fix before Start.
+    @Test func startBridgesNothingFromBefore() {
+        var p = TrackPipeline(configuration: .gps(.run, autoPause: false, barometer: false))
+        _ = SyntheticTrack.run(&p, SyntheticTrack.fixes([Segment(seconds: 9, speed: 0)]))
+        let start = SyntheticTrack.t0.addingTimeInterval(60)
+        p.start(at: start)
+        // The runner walked 50 m meanwhile, then runs 300 m from Start.
+        let away = Geodesy.destination(from: SyntheticTrack.origin, bearing: 60, distance: 53)
+        _ = SyntheticTrack.run(&p, SyntheticTrack.fixes([Segment(seconds: 99, speed: 3)],
+                                                      start: start.addingTimeInterval(1), from: away))
+        #expect(abs(p.distanceM - 297) < 2, "\(p.distanceM) m")
+    }
+
+    @Test func diagnosticsCountFromStart() {
+        var p = TrackPipeline(configuration: .gps(.run, barometer: false))
+        let fixes = SyntheticTrack.fixes([Segment(seconds: 20, speed: 3)])
+        _ = SyntheticTrack.run(&p, Array(fixes[0 ... 9]))
+        _ = p.ingest(LocationFix(timestamp: fixes[10].timestamp, latitude: fixes[10].latitude,
+                                 longitude: fixes[10].longitude, horizontalAccuracy: 40))
+        #expect(p.diagnostics.fixesAccepted == 10 && p.diagnostics.rejectedAccuracy == 1)
+        p.start(at: fixes[10].timestamp)
+        #expect(p.diagnostics == PipelineDiagnostics())
+        _ = SyntheticTrack.run(&p, Array(fixes[11...]))
+        #expect(p.diagnostics.fixesAccepted == 10 && p.diagnostics.rejected == 0)
+    }
+
+    /// Route points only while recording (design §3.3): not before Start, not paused, not auto-paused.
+    @Test func routePointsOnlyWhileRecording() {
+        let segments = [Segment(seconds: 60, speed: 3), Segment(seconds: 40, speed: 0), Segment(seconds: 40, speed: 3)]
+        let fixes = SyntheticTrack.fixes(segments)
+        var p = TrackPipeline(configuration: .gps(.run, barometer: false))
+        func routes(_ events: [PipelineEvent]) -> Int { events.filter { if case .route = $0 { true } else { false } }.count }
+        func profiles(_ events: [PipelineEvent]) -> Int { events.filter { if case .profile = $0 { true } else { false } }.count }
+        #expect(routes(SyntheticTrack.run(&p, Array(fixes[0 ... 4]))) == 0)
+        p.start(at: fixes[5].timestamp)
+        var routed = 0, profiled = 0
+        for fix in fixes[5 ... 130] {
+            let events = p.ingest(fix)
+            if p.state != .recording { #expect(routes(events) == 0, "state \(p.state)") }
+            routed += routes(events)
+            profiled += profiles(events)
+        }
+        #expect(p.pauses.count == 1 && p.pauses[0].kind == .auto)
+        #expect(routed < profiled)
+        p.pause(at: fixes[130].timestamp)
+        let events = SyntheticTrack.run(&p, Array(fixes[131 ... 140]))
+        #expect(routes(events) == 0 && profiles(events) == 10)
+    }
+
+    /// The design's position sum (`distanceFromVelocity = false`) stays available for D1's comparison.
+    @Test func positionStepsStillWork() throws {
+        var tuning = TrackPipeline.Tuning.standard
+        tuning.distanceFromVelocity = false
+        let road = try TrackFixture.load("road-5k")
+        let replay = TrackReplay(road, .gps(.run, barometer: false, tuning: tuning))
+        #expect(abs(replay.distanceError(road)) < 0.02, "error \(replay.distanceError(road) * 100) %")
+        var p = Self.started(.gps(.run, autoPause: false, barometer: false, tuning: tuning))
+        _ = SyntheticTrack.run(&p, SyntheticTrack.fixes([Segment(seconds: 400, speed: 3)]))
+        #expect(abs(p.distanceM - 1200) < 1.5, "\(p.distanceM) m")
     }
 
     @Test func manualPauseExcludesDistanceAndTime() {
@@ -263,7 +363,7 @@ struct TrackPipelineTests {
         _ = SyntheticTrack.run(&p, fixes)
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
-        let resume = try #require(p.resume)
+        let resume = try #require(p.checkpoint)
         let json = try #require(String(bytes: encoder.encode(resume), encoding: .utf8))
         for key in ["latitude", "longitude", "coordinate", "anchor", "position", "lat", "lon"] {
             #expect(!json.lowercased().contains("\"\(key)\""), "key \(key)")
@@ -277,7 +377,7 @@ struct TrackPipelineTests {
         let before = SyntheticTrack.fixes([Segment(seconds: 400, speed: 3)])
         var p = Self.started(.gps(.run, autoPause: false, barometer: false))
         _ = SyntheticTrack.run(&p, before)
-        let checkpoint = try #require(p.resume)
+        let checkpoint = try #require(p.checkpoint)
         let data = try JSONEncoder().encode(checkpoint)
         let decoded = try JSONDecoder().decode(TrackPipeline.Resume.self, from: data)
         #expect(decoded == checkpoint)
@@ -300,12 +400,54 @@ struct TrackPipelineTests {
         #expect(restored.splits.map(\.index) == [1, 2])
     }
 
+    /// Resumed after a kill, standing still, with a coarse first fix: still nothing (review: +31 m before).
+    @Test func aCoarseFixAfterARestoreAddsNothing() throws {
+        var p = Self.started(.gps(.run, autoPause: false, barometer: false))
+        _ = SyntheticTrack.run(&p, SyntheticTrack.fixes([Segment(seconds: 300, speed: 3)]))
+        let killedAt = SyntheticTrack.t0.addingTimeInterval(300), back = killedAt.addingTimeInterval(60)
+        var restored = TrackPipeline(configuration: .gps(.run, autoPause: false, barometer: false),
+                                     restoring: try #require(p.checkpoint), interruptedAt: killedAt)
+        restored.resume(at: back)
+        let here = Geodesy.destination(from: SyntheticTrack.origin, bearing: 60, distance: 1000)
+        var still = SyntheticTrack.fixes([Segment(seconds: 120, speed: 0)], start: back.addingTimeInterval(1), from: here)
+        let off = LocalTangentPlane(anchor: here).unproject(Displacement(east: 26, north: 15))
+        still[0] = LocationFix(timestamp: still[0].timestamp, latitude: off.latitude, longitude: off.longitude,
+                               horizontalAccuracy: 25)
+        _ = SyntheticTrack.run(&restored, still)
+        #expect(abs(restored.distanceM - p.distanceM) < 0.5, "+\(restored.distanceM - p.distanceM) m")
+    }
+
+    /// A fix taken before Resume but delivered after it counts only from Resume on.
+    @Test func aLateFixCountsFromResumeOnly() {
+        let fixes = SyntheticTrack.fixes([Segment(seconds: 150, speed: 3)])
+        var p = Self.started(.gps(.run, autoPause: false, barometer: false))
+        _ = SyntheticTrack.run(&p, Array(fixes[0 ... 60]))
+        p.pause(at: fixes[60].timestamp)
+        p.resume(at: fixes[90].timestamp)
+        _ = p.ingest(fixes[80])
+        _ = SyntheticTrack.run(&p, Array(fixes[91...]))
+        #expect(abs(p.distanceM - 360) < 3, "\(p.distanceM) m")
+    }
+
+    /// With distance and no moving time (paused since Start), there is no average pace, never an infinite speed.
+    @Test func averagesNeedMovingTime() {
+        var p = Self.started(.gps(.run, autoPause: false, barometer: false))
+        _ = SyntheticTrack.run(&p, SyntheticTrack.fixes([Segment(seconds: 60, speed: 3)]))
+        guard var checkpoint = p.checkpoint else { return }
+        checkpoint.pauses = []
+        let restored = TrackPipeline(configuration: .gps(.run, barometer: false), restoring: checkpoint,
+                                     interruptedAt: SyntheticTrack.t0)
+        let s = restored.snapshot(at: SyntheticTrack.t0.addingTimeInterval(90))
+        #expect(s.distanceM > 100 && s.movingSec == 0)
+        #expect(s.averagePace == nil && s.averageSpeed == nil)
+    }
+
     @Test func restoreKeepsAManualPause() throws {
         let fixes = SyntheticTrack.fixes([Segment(seconds: 100, speed: 3)])
         var p = Self.started(.gps(.run, barometer: false))
         _ = SyntheticTrack.run(&p, fixes)
         p.pause(at: fixes[100].timestamp)
-        let restored = TrackPipeline(configuration: .gps(.run, barometer: false), restoring: try #require(p.resume),
+        let restored = TrackPipeline(configuration: .gps(.run, barometer: false), restoring: try #require(p.checkpoint),
                                      interruptedAt: fixes[100].timestamp.addingTimeInterval(20))
         #expect(restored.state == .paused)
         #expect(restored.pauses.count == 1 && restored.pauses[0].kind == .manual && restored.pauses[0].end == nil)
@@ -349,7 +491,7 @@ struct TrackPipelineTests {
     @Test func pedometerRestoreIsLossless() throws {
         var p = Self.started(.indoor(.indoorRun, autoPause: false, pedometer: true))
         _ = p.ingest(Self.pedometer(100, steps: 300, metres: 250))
-        let restored0 = try #require(p.resume)
+        let restored0 = try #require(p.checkpoint)
         var restored = TrackPipeline(configuration: .indoor(.indoorRun, autoPause: false, pedometer: true),
                                      restoring: restored0, interruptedAt: SyntheticTrack.t0.addingTimeInterval(100))
         restored.resume(at: SyntheticTrack.t0.addingTimeInterval(400))
@@ -359,25 +501,59 @@ struct TrackPipelineTests {
 
     // MARK: Cost
 
-    /// Every step is O(1) amortised (O(log pauses) for moving time). Bounded against the algorithmic failure, not
-    /// against this Mac: 8× the fixes must cost well under 24× the time (quadratic would be 64×).
-    @Test func costIsLinearInRecordingLength() {
-        func stopAndGo(_ n: Int) -> [LocationFix] {
-            // 280 s at 3 m/s, then a 20 s stop: an auto-pause every 5 min.
-            let block = [Segment(seconds: 280, speed: 3), Segment(seconds: 20, speed: 0)]
-            return SyntheticTrack.fixes(Array(repeating: block, count: n / 300 + 1).flatMap { $0 }).prefix(n).map { $0 }
+    /// Every input touches only time-bounded buffers plus an O(log pauses) search, so a long recording costs the
+    /// same per fix as a short one. Structural, not a stopwatch: 90 min of stop-and-go (an auto-pause every 5 min,
+    /// barometer and GPS altitude at 1 Hz; every buffer's window is at most 5 min) hold no more samples in the last
+    /// half hour than in the first.
+    @Test func memoryStaysBoundedOverHours() {
+        let block = [Segment(seconds: 280, speed: 3), Segment(seconds: 20, speed: 0)]
+        let fixes = SyntheticTrack.fixes(Array(repeating: block, count: 18).flatMap { $0 }).map {
+            LocationFix(timestamp: $0.timestamp, latitude: $0.latitude, longitude: $0.longitude, altitude: 40,
+                        horizontalAccuracy: 5, verticalAccuracy: 5)
         }
-        func cost(_ fixes: [LocationFix]) -> Duration {
-            ContinuousClock().measure {
-                var p = Self.started(.gps(.run, barometer: false))
-                for fix in fixes { _ = p.ingest(fix) }
-                #expect(p.diagnostics.autoPauses > 0)
-            }
+        var p = Self.started(.gps(.run, barometer: true))
+        var firstHalfHour = 0, lastHalfHour = 0
+        for (i, fix) in fixes.enumerated() {
+            p.ingest(AltitudeSample(timestamp: fix.timestamp, relativeAltitude: 0.1 * sin(Double(i))))
+            _ = p.ingest(fix)
+            if i < 1800 { firstHalfHour = max(firstHalfHour, p.retainedSampleCount) }
+            if i >= fixes.count - 1800 { lastHalfHour = max(lastHalfHour, p.retainedSampleCount) }
         }
-        // Runs of tens of milliseconds, best of several, so a busy runner's hiccup doesn't decide the ratio.
-        let small = stopAndGo(4000), large = stopAndGo(32000)
-        let smallCost = (0 ..< 3).map { _ in cost(small) }.min() ?? .zero
-        let largeCost = (0 ..< 2).map { _ in cost(large) }.min() ?? .zero
-        #expect(largeCost / smallCost < 24, "8× the fixes cost \(largeCost / smallCost)×")
+        #expect(p.diagnostics.autoPauses == 18 && p.pauses.count == 18)
+        #expect(lastHalfHour <= firstHalfHour + 2, "first \(firstHalfHour), last \(lastHalfHour)")
+        #expect(lastHalfHour < 450)
+    }
+
+    // MARK: A still phone (design §3.3 step 4)
+
+    /// The still fixture: 10 min, error level 5 → 30 → 5 m, flagged isStationary after 15 s (as liveUpdates does).
+    @Test func stillPhoneWithAutoPauseOffAddsNothing() throws {
+        let still = try TrackFixture.load("stationary")
+        #expect(still.fixes.map(\.horizontalAccuracy).max() == 30 && still.fixes.map(\.horizontalAccuracy).min() == 5)
+        let flagged = TrackReplay(still, .gps(.run, autoPause: false, barometer: false))
+        #expect(flagged.pipeline.distanceM < 1, "\(flagged.pipeline.distanceM) m")
+    }
+
+    /// Without the flag the dead-band is the backstop: 0.5 m/s for a run. Measured: 0.0 m here; over 5 seeds each,
+    /// at most 4.7 m at the fixture's 300 s error correlation, 18 m at 60 s, 70 m at 30 s.
+    @Test func stillPhoneWithoutTheFlagStaysUnderTheDeadBand() throws {
+        let still = try TrackFixture.load("stationary")
+        let unflagged = TrackFixture(name: still.name, start: still.start, truth: still.truth, expected: still.expected,
+                                     faults: still.faults, fixes: still.fixes.map {
+                                         LocationFix(timestamp: $0.timestamp, latitude: $0.latitude, longitude: $0.longitude,
+                                                     altitude: $0.altitude, horizontalAccuracy: $0.horizontalAccuracy,
+                                                     verticalAccuracy: $0.verticalAccuracy)
+                                     }, altimeter: still.altimeter)
+        let replay = TrackReplay(unflagged, .gps(.run, autoPause: false, barometer: false))
+        #expect(replay.pipeline.distanceM < 5, "\(replay.pipeline.distanceM) m")
+    }
+
+    /// Half the sport's auto-pause threshold, between 0.3 and 0.5 m/s: slow sports keep the floor.
+    @Test func deadBandFollowsTheSport() {
+        #expect(TrackPipeline(configuration: .gps(.run, barometer: false)).movingSpeed == 0.5)
+        #expect(TrackPipeline(configuration: .gps(.bike, barometer: false)).movingSpeed == 0.5)
+        #expect(TrackPipeline(configuration: .gps(.trail, barometer: false)).movingSpeed == 0.4)
+        #expect(TrackPipeline(configuration: .gps(.walk, barometer: false)).movingSpeed == 0.3)
+        #expect(TrackPipeline(configuration: .gps(.hike, barometer: false)).movingSpeed == 0.3)
     }
 }

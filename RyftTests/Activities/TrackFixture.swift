@@ -84,8 +84,8 @@ struct TrackReplay {
     /// The events of each fix, by fix index.
     private(set) var events: [[PipelineEvent]] = []
     private(set) var finishEvents: [PipelineEvent] = []
-    /// After each fix: its time, the distance so far and the current pace.
-    private(set) var trace: [(time: Date, distance: Double, pace: Double?)] = []
+    /// After each fix: its time, the distance so far, the current pace, and the clock a screen shows.
+    private(set) var trace: [(time: Date, distance: Double, pace: Double?, shownMovingSec: Double, held: Bool)] = []
 
     init(_ fixture: TrackFixture, _ configuration: TrackPipeline.Configuration) {
         pipeline = TrackPipeline(configuration: configuration)
@@ -98,7 +98,9 @@ struct TrackReplay {
                 next += 1
             }
             events.append(pipeline.ingest(fix))
-            trace.append((fix.timestamp, pipeline.distanceM, pipeline.currentPace))
+            let snapshot = pipeline.snapshot(at: fix.timestamp)
+            trace.append((fix.timestamp, pipeline.distanceM, pipeline.currentPace, snapshot.movingSec,
+                          snapshot.state == .recording && snapshot.movingAnchor == nil))
         }
         finishEvents = pipeline.finish(at: last.timestamp)
     }

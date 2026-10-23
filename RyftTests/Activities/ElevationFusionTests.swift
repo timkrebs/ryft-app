@@ -40,6 +40,20 @@ struct ElevationFusionTests {
         #expect(none.altitudeM == nil && none.ascent == nil && none.descent == nil)
     }
 
+    /// Unknown until an altitude was counted, never a false 0 (splits mustn't send `ascent_m: 0`).
+    @Test func ascentIsNilUntilAnAltitudeIsCounted() {
+        var e = ElevationFusion(mode: .barometric)
+        #expect(e.ascent == nil && e.descent == nil)
+        e.setCounting(false)
+        e.add(AltitudeSample(timestamp: Self.t0, relativeAltitude: 3))
+        #expect(e.ascent == nil, "followed while paused, not counted")
+        e.setCounting(true)
+        e.add(AltitudeSample(timestamp: Self.t0, relativeAltitude: 3))
+        #expect(e.ascent == 0 && e.descent == 0)
+        #expect(ElevationFusion(mode: .gps, ascentM: nil, descentM: nil).ascent == nil)
+        #expect(ElevationFusion(mode: .gps, ascentM: 12, descentM: 3).ascent == 12)
+    }
+
     @Test func hysteresisIgnoresNoiseAndKeepsTheWholeClimb() {
         var counter = HysteresisCounter(threshold: 2)
         var up = 0.0, down = 0.0

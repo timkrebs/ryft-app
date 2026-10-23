@@ -28,6 +28,8 @@ struct ElevationFusion: Sendable {
     let tuning: Tuning
     private(set) var ascentM: Double = 0
     private(set) var descentM: Double = 0
+    /// Whether any altitude was counted yet: until then ascent and descent are unknown (nil), not 0.
+    private(set) var hasCounted = false
     /// Whether changes are counted (recording) or only followed (paused).
     private(set) var isCounting = true
 
@@ -39,11 +41,13 @@ struct ElevationFusion: Sendable {
     /// The median of `offsetSamples`, kept as they change (read once per fix).
     private(set) var offset: Double?
 
-    init(mode: Mode, tuning: Tuning = Tuning(), ascentM: Double = 0, descentM: Double = 0) {
+    /// `ascentM` and `descentM` restore a checkpoint's totals; nil means none were counted.
+    init(mode: Mode, tuning: Tuning = Tuning(), ascentM: Double? = nil, descentM: Double? = nil) {
         self.mode = mode
         self.tuning = tuning
-        self.ascentM = ascentM
-        self.descentM = descentM
+        self.ascentM = ascentM ?? 0
+        self.descentM = descentM ?? 0
+        hasCounted = ascentM != nil || descentM != nil
         counter = HysteresisCounter(threshold: mode == .gps ? tuning.gpsHysteresis : tuning.barometricHysteresis)
     }
 
@@ -58,9 +62,12 @@ struct ElevationFusion: Sendable {
         }
     }
 
-    /// Ascent for the record: nil when the mode has no elevation.
-    var ascent: Double? { mode == .none ? nil : ascentM }
-    var descent: Double? { mode == .none ? nil : descentM }
+    /// Ascent for the record: nil without elevation or before the first counted altitude (never a false 0).
+    var ascent: Double? { mode == .none || !hasCounted ? nil : ascentM }
+    var descent: Double? { mode == .none || !hasCounted ? nil : descentM }
+
+    /// Samples held: the offset window (5 min) and the GPS median (5). For the pipeline's bounded-memory test.
+    var retainedSampleCount: Int { offsetSamples.count + gpsWindow.count }
 
     mutating func setCounting(_ counting: Bool) {
         guard counting != isCounting else { return }
@@ -102,6 +109,7 @@ struct ElevationFusion: Sendable {
     private mutating func feed(_ value: Double) {
         let change = counter.add(value)
         guard isCounting else { return }
+        hasCounted = true
         ascentM += change.ascent
         descentM += change.descent
     }

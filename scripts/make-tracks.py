@@ -4,14 +4,19 @@
 Stdlib only, seeded, deterministic: the same command writes the same bytes. The tracks are synthetic paths at
 public places, so they contain no one's real location.
 
-    python3 scripts/make-tracks.py            # writes RyftTests/Fixtures/Tracks/*.json and *.gpx
-    python3 scripts/make-tracks.py --check    # fails when a committed file differs from what the script writes
+    python3 scripts/make-tracks.py                    # writes RyftTests/Fixtures/Tracks/*.json
+    python3 scripts/make-tracks.py --check            # fails when a committed file differs (part of make lint)
+    python3 scripts/make-tracks.py --gpx build/tracks # also writes the fixes as .gpx waypoints, for simulator
+                                                      # playback (Xcode's Simulate Location, gpx-play.sh); not committed
+
+The output doesn't depend on the Python version: sums of floats use math.fsum, and written values are rounded.
 
 Tracks:
 - road-5k: 5.000 km at 3.0 m/s, gentle curves, a 20 s traffic light, a 25 s tunnel gap, 2 outliers; open sky.
 - trail-switchbacks: 8.0 km, 12 hairpins of radius 15 m, +400/-400 m, canopy, 30 bad fixes, 3 multipath jumps
   (2 fixes each), a 45 s gap; with barometer samples.
-- stationary: 10 min on a table, accuracy 5-30 m.
+- stationary: 10 min on a table; the error level sweeps 5 -> 30 -> 5 m, and fixes are flagged isStationary from
+  15 s on, as liveUpdates does once it has settled.
 
 Ground truth. The path is integrated from its curvature in 5 cm steps on the WGS84 ellipsoid (meridional and
 prime-vertical radii at the current latitude), so its length is the integrated arc length. The JSON carries the
@@ -104,7 +109,7 @@ class Path:
 
     def __init__(self, pieces):
         self.pieces = pieces
-        self.length = sum(p[0] for p in pieces)
+        self.length = math.fsum(p[0] for p in pieces)
 
     def curvature(self, s):
         start = 0.0
@@ -181,12 +186,12 @@ def simulate(path, speed_at, stops, lat0, lon0, heading0, alt_at, rest_end=0.0, 
 
 
 def ascent_descent(values):
-    up = sum(max(0.0, b - a) for a, b in zip(values, values[1:]))
-    down = sum(max(0.0, a - b) for a, b in zip(values, values[1:]))
+    up = math.fsum(max(0.0, b - a) for a, b in zip(values, values[1:]))
+    down = math.fsum(max(0.0, a - b) for a, b in zip(values, values[1:]))
     return up, down
 
 
-def make_fixes(rng, truth, regime_at, gaps, outliers, multipath):
+def make_fixes(rng, truth, regime_at, gaps, outliers, multipath, level_at=None, stationary_from=None):
     """Noisy fixes for each truth sample, with the faults applied. Returns (fixes, fault indices)."""
     slow = [GaussMarkov(rng, 1) for _ in range(3)]
     fast = [GaussMarkov(rng, 2) for _ in range(3)]
@@ -199,6 +204,8 @@ def make_fixes(rng, truth, regime_at, gaps, outliers, multipath):
         (lo, hi), w, jitter = REGIMES[regime_at(s)]
         tau = min(STILL_S, max(RECEIVER_SMOOTHING_S, DECORRELATION_M / max(v, 1e-3)))
         level = lo + (hi - lo) / (1 + math.exp(-1.5 * acc_process.step(1.0, 2 * tau)))
+        if level_at is not None:
+            level = level_at(t)
         vlevel = level * (0.5 + 0.5 / (1 + math.exp(-1.5 * vfactor.step(1.0, 2 * tau))))
         sigmas = (level / 2, level / 2, vlevel / 2)
         acc = min(hi, max(lo, level * math.exp(rng.gauss(0, 0.2))))
@@ -227,8 +234,9 @@ def make_fixes(rng, truth, regime_at, gaps, outliers, multipath):
         else:
             jump = None
         flat, flon = offset(lat, lon, east, north)
+        still = 1 if stationary_from is not None and t >= stationary_from else 0
         fixes.append([round(t, 3), round(flat, 8), round(flon, 8), round(alt + up, 2), round(acc, 2),
-                      round(vacc, 2), 0])
+                      round(vacc, 2), still])
     return fixes, faults
 
 
@@ -241,7 +249,7 @@ def road_5k():
     pieces = [(350, 0), (200 * math.pi / 3, -60), (520, 0), (300 * math.pi / 2, 90), (900, 0),
               (250 * math.radians(75), -75), (500, 0), (400 * math.pi / 6, -30), (420, 0),
               (220 * math.radians(80), 80)]
-    pieces.append((5000 - sum(p[0] for p in pieces), 0))
+    pieces.append((5000 - math.fsum(p[0] for p in pieces), 0))
     path = Path(pieces)
 
     def alt_at(s):
@@ -262,7 +270,7 @@ def road_5k():
         "fixes": fixes,
         "faults": {**faults, "gaps": [[round(EPOCH + g0, 3), 25.0] for g0, _ in gaps]},
         "truth": {
-            "distance_m": path.length,
+            "distance_m": round(path.length, 6),
             "ascent_m": round(up, 2),
             "descent_m": round(down, 2),
             "split_times": kilometre_crossings(crossings),
@@ -320,7 +328,7 @@ def trail_switchbacks():
         "altimeter": baro,
         "faults": {**faults, "gaps": [[round(EPOCH + g0, 3), 45.0] for g0, _ in gaps]},
         "truth": {
-            "distance_m": path.length,
+            "distance_m": round(path.length, 6),
             "ascent_m": round(up, 2),
             "descent_m": round(down, 2),
             "split_times": kilometre_crossings(crossings),
@@ -333,7 +341,14 @@ def trail_switchbacks():
 def stationary():
     rng = random.Random(600)
     truth = [(float(t), 52.4750, 13.4050, 41.0, 0.0, 0.0) for t in range(600)]
-    fixes, faults = make_fixes(rng, truth, lambda s: "table", [], [], [])
+
+    def level_at(t):
+        # 5 m at the start and end, 30 m after 5 min: the whole range a phone indoors reports.
+        return 5 + 25 * (0.5 - 0.5 * math.cos(2 * math.pi * t / 600))
+
+    # liveUpdates flags isStationary once it has settled (here after 15 s); the fixes keep coming, so a test can
+    # also clear the flag and see the filter alone.
+    fixes, faults = make_fixes(rng, truth, lambda s: "table", [], [], [], level_at=level_at, stationary_from=15.0)
     return {
         "name": "stationary",
         "profile": "run",
@@ -397,12 +412,18 @@ def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     parser.add_argument("--out", default=os.path.join(root, "RyftTests", "Fixtures", "Tracks"))
     parser.add_argument("--check", action="store_true", help="compare with the files on disk instead of writing")
+    parser.add_argument("--gpx", metavar="DIR", help="also write .gpx files there (git-ignored, e.g. build/tracks)")
     args = parser.parse_args()
-    files = {}
+    files, gpx = {}, {}
     for make in (road_5k, trail_switchbacks, stationary):
         track = finish(make())
         files[f"{track['name']}.json"] = to_json(track)
-        files[f"{track['name']}.gpx"] = to_gpx(track)
+        gpx[f"{track['name']}.gpx"] = to_gpx(track)
+    if args.gpx and not args.check:
+        os.makedirs(args.gpx, exist_ok=True)
+        for name, text in gpx.items():
+            with open(os.path.join(args.gpx, name), "w", encoding="utf-8") as f:
+                f.write(text)
     stale = []
     for name, text in files.items():
         path = os.path.join(args.out, name)

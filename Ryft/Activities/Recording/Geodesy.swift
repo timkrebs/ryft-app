@@ -162,10 +162,13 @@ enum Geodesy {
 /// East and north metres around an anchor: WGS84 meridional and prime-vertical radii at the anchor's latitude
 /// (ADR 0003). The mapping is linear, so `unproject(project(c)) == c` up to rounding; distances are measured
 /// geodesically on the unprojected coordinates, never in the plane.
-struct LocalTangentPlane: Sendable, Equatable {
+struct LocalTangentPlane: Sendable, Equatable, LocationRedacting {
     let anchor: Coordinate
     private let metresPerRadianNorth: Double
     private let metresPerRadianEast: Double
+
+    /// Never renders: the anchor, and even the east scale (N·cos φ), give the latitude back (design §8.3).
+    var description: String { "tangentPlane" }
 
     init(anchor: Coordinate) {
         self.anchor = anchor

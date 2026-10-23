@@ -121,12 +121,18 @@ struct KalmanTrackTests {
         #expect(abs(k.groundSpeed - 3) < 0.01)
     }
 
-    @Test func resetForgetsEverything() {
+    /// Rejections by the pipeline's speed gate count toward the re-init like innovation rejections (design §3.3).
+    @Test func eitherGateCountsTowardTheReinit() throws {
         var k = Self.filter()
-        for i in 0 ... 5 { _ = k.update(Self.fix(Double(i), along: 3.0 * Double(i))) }
-        k.reset()
-        #expect(!k.isInitialised && k.position == nil && k.lastTime == nil)
-        #expect(k.update(Self.fix(100, along: 900)) == .initialised)
+        for i in 0 ... 20 { _ = k.update(Self.fix(Double(i), along: 3.0 * Double(i))) }
+        let jump = Displacement(east: 300, north: -50)
+        #expect(k.rejectedElsewhere(Self.fix(21, along: 63, offset: jump)) != .reinitialised)
+        #expect(k.update(Self.fix(22, along: 66, offset: jump)) != .updated)
+        let third = Self.fix(23, along: 69, offset: jump)
+        #expect(k.rejectedElsewhere(third) == .reinitialised)
+        let position = try #require(k.position)
+        #expect(Geodesy.distance(position, third.coordinate) < 0.001)
+        #expect(k.consecutiveRejections == 0)
     }
 }
 

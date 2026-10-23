@@ -25,7 +25,7 @@ struct SplitsTests {
             #expect(abs(split.end.timeIntervalSince(expected)) < 0.1, "split \(split.index)")
             #expect(abs(split.durationSec - 1000 / 3) < 0.1)
             #expect(split.distanceM == 1000)
-            #expect(split.ascentM == 0) // GPS elevation, no altitude in these fixes
+            #expect(split.ascentM == nil) // GPS elevation, but no altitude in these fixes: unknown, not 0
         }
         // Finish adds the partial last split with its real distance.
         let last = splits[3]

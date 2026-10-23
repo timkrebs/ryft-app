@@ -37,7 +37,12 @@ struct LocationFix: Sendable, Equatable {
 }
 
 extension LocationFix: LocationRedacting {
-    var description: String { "fix(±\(Int(horizontalAccuracy)) m)" }
+    var description: String { "fix(±\(Self.metres(horizontalAccuracy)) m)" }
+
+    /// Whole metres for a redacted description; "?" for NaN or ±∞, which `Int(_:)` would trap on.
+    static func metres(_ value: Double) -> String {
+        value.isFinite && abs(value) < 1e15 ? String(Int(value.rounded())) : "?"
+    }
 }
 
 /// A barometric altitude reading: metres relative to where the altimeter started (`CMAltimeter`).

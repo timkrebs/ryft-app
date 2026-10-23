@@ -39,5 +39,5 @@ struct RoutePoint: Sendable, Equatable {
 }
 
 extension RoutePoint: LocationRedacting {
-    var description: String { "routePoint(±\(Int(horizontalAccuracy)) m)" }
+    var description: String { "routePoint(±\(LocationFix.metres(horizontalAccuracy)) m)" }
 }
