@@ -33,10 +33,11 @@ struct ImportedExerciseSourceTests {
     @Test func oneRowPerKeyInFirstSeenOrder() throws {
         let bundle = try ImportFixture.parse(text: Self.text)
         let sources = normalizer.sources(in: bundle)
-        // "bench press · Langhantel" is "Bench Press · Barbell" again: one row.
+        // Case and spacing don't make a new row; another spelling of the equipment does (the key is frozen, ADR 0007).
         #expect(sources.map(\.key) == [SourceExerciseKey(name: "bench press", equipment: "barbell"),
                                         SourceExerciseKey(name: "dips", equipment: "bodyweight"),
-                                        SourceExerciseKey(name: "assisted pull up", equipment: "machine")])
+                                        SourceExerciseKey(name: "assisted pull up", equipment: "machine"),
+                                        SourceExerciseKey(name: "bench press", equipment: "langhantel")])
         // The first spelling, as written.
         #expect(sources.first?.name == "Bench Press")
         #expect(sources.first?.equipment == "Barbell")

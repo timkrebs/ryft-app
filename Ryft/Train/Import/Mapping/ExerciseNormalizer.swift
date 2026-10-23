@@ -1,14 +1,14 @@
 import Foundation
 
 /// What a source exercise is **remembered and derived** by (design §4, ADR 0007): the custom-exercise id and the
-/// `ImportMapping` row both come from it. It is frozen and doesn't depend on the alias vocabulary's synonyms, plurals
-/// or stop words, so editing `exercise-aliases.json` never changes an id. **Changing `SourceExerciseKey.fold` or the
-/// equipment rule below is a breaking id change** (every earlier import's custom exercises and remembered choices
-/// would no longer be found); `SourceExerciseKeyGoldenTests` pins both.
+/// `ImportMapping` row both come from it. It is frozen and doesn't depend on the alias vocabulary at all (equipment
+/// words, synonyms, plurals, stop words), so editing `exercise-aliases.json` never changes an id. **Changing
+/// `SourceExerciseKey.fold` is a breaking id change** (every earlier import's custom exercises and remembered choices
+/// would no longer be found); `SourceExerciseKeyGoldenTests` pins it.
 ///
 /// - `name`: `fold(name)`, the name as the file wrote it.
-/// - `equipment`: the canonical id (`barbell`, `ez_bar`, …) when the file's equipment field names known equipment,
-///   else `fold(field)`; "" without a field.
+/// - `equipment`: `fold(field)`, the equipment field as the file wrote it; "" without a field or with an empty one.
+///   Matching reads it through the vocabulary (`ExerciseNormalizer.matchKey`); the key never does.
 struct SourceExerciseKey: Hashable, Codable, Sendable {
     let name: String
     let equipment: String
@@ -99,15 +99,9 @@ struct ExerciseNormalizer: Sendable {
 
     // MARK: Keys
 
-    /// The frozen key of a name and an equipment field as a file writes them (`SourceExerciseKey`). The vocabulary
-    /// only decides whether the field names known equipment.
+    /// The frozen key of a name and an equipment field as a file writes them (`SourceExerciseKey`). No vocabulary.
     func key(name: String, equipment: String?) -> SourceExerciseKey {
-        let field: String
-        switch equipmentField(equipment) {
-        case let .known(id): field = id
-        case .unknown, .none: field = SourceExerciseKey.fold(equipment ?? "")
-        }
-        return SourceExerciseKey(name: SourceExerciseKey.fold(name), equipment: field)
+        SourceExerciseKey(name: SourceExerciseKey.fold(name), equipment: SourceExerciseKey.fold(equipment ?? ""))
     }
 
     /// The match key of a stored key: the same as for the raw name and field it came from.

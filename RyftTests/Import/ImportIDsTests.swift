@@ -34,16 +34,18 @@ struct ImportIDsTests {
             == "94f03e81-1189-5884-9f8e-40e2453fb53c")
     }
 
-    /// The same name, in any case, spacing or punctuation, with the same equipment: one id, again and again.
-    /// Accounts, sources and equipment keep ids apart, and so does a different wording (the key is the file's name,
-    /// not the matcher's reading of it).
+    /// The same name and equipment field, in any case, spacing or punctuation: one id, again and again. Accounts,
+    /// sources and equipment keep ids apart, and so does a different wording or another spelling of the same
+    /// equipment (the key is the file's text, never the matcher's reading of it).
     @Test func derivedIDsAreStable() {
         let normalizer = ExerciseAliases.bundled.normalizer
         func id(_ name: String, _ equipment: String?, account: String = "demo", source: ImportFormatID = .alphaProgression) -> UUID {
             ImportCustomExercise.id(account: account, source: source, key: normalizer.key(name: name, equipment: equipment))
         }
         let bench = id("Bench Press", "Barbell")
-        #expect(id("bench-press", "Langhantel") == bench)
+        #expect(id("bench-press", "BARBELL") == bench)
+        #expect(id("Bench Press", "Langhantel") != bench)
+        #expect(id("Bench Press", "Barbells") != bench)
         #expect(id("  BENCH  PRESS ", "barbell") == bench)
         #expect(id("Bench Press", "Barbell") == bench)
         #expect(id("Bench Press", "Barbell", account: "other") != bench)
@@ -53,17 +55,18 @@ struct ImportIDsTests {
         #expect(id("Bench Presses", "Barbell") != bench)
     }
 
-    /// Editing the alias vocabulary (synonyms, plurals, alias names) never moves an id: a file's custom exercises and
-    /// remembered choices stay found after an app update.
+    /// Editing the alias vocabulary (equipment words, synonyms, plurals, alias names) never moves an id: a file's
+    /// custom exercises and remembered choices stay found after an app update.
     @Test func idsDontDependOnTheVocabulary() throws {
         let bare = ExerciseAliases.fallback.normalizer
         let full = ExerciseAliases.bundled.normalizer
+        var moved: [String] = []
         for (name, equipment) in try ExerciseNormalizerTests.fixturePairs() {
             let a = ImportCustomExercise.id(account: "demo", source: .alphaProgression, key: bare.key(name: name, equipment: equipment))
             let b = ImportCustomExercise.id(account: "demo", source: .alphaProgression, key: full.key(name: name, equipment: equipment))
-            // Only equipment the bare vocabulary doesn't know (its words are the kinds' own names) may differ.
-            if full.equipmentField(equipment) == bare.equipmentField(equipment) { #expect(a == b, "\(name)") }
+            if a != b { moved.append(name) }
         }
+        #expect(moved == [])
     }
 
     @Test func version5AndVariant() {

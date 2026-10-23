@@ -5,11 +5,12 @@ import Testing
 private final class GoldenToken {}
 
 /// **Changing what this pins is a breaking id change (ADR 0007).** `SourceExerciseKey` derives every imported custom
-/// exercise's id and every remembered choice; a different key for the same file means duplicate custom exercises and
-/// forgotten matches for everyone who imported before. `Fixtures/Import/source-keys.golden.json` holds the key of every
-/// alias name, built-in name and synthetic-fixture exercise, and of every equipment spelling in the alias file (its
-/// folds were checked against an independent implementation when it was written). If a change here is intended, it
-/// needs an ADR amendment and a migration of stored keys, not a regenerated golden file.
+/// exercise's id and every remembered choice, and it is `SourceExerciseKey.fold` of the file's name and of its equipment
+/// field, nothing else: no alias vocabulary, so editing `exercise-aliases.json` never changes a pinned key (a new alias
+/// name only needs pinning, `everyNameIsPinned`). Only a change to `fold` itself does, and that would mean duplicate
+/// custom exercises and forgotten matches for everyone who imported before. `Fixtures/Import/source-keys.golden.json` holds the key of every alias name, built-in name, synthetic-fixture
+/// exercise and equipment spelling (checked against an independent implementation of `fold` when written). If a change
+/// here is intended, it needs an ADR amendment and a migration of stored keys, not a regenerated golden file.
 @Suite("Source exercise key: golden")
 struct SourceExerciseKeyGoldenTests {
     struct Golden: Decodable {

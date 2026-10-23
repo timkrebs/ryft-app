@@ -136,15 +136,17 @@ struct ExerciseNormalizerTests {
 
     // MARK: The stored key
 
-    /// The frozen rule (ADR 0007): no synonyms, plurals, stop words, sorting or diacritic folding; the vocabulary
-    /// only maps a known equipment field to its id.
+    /// The frozen rule (ADR 0007): no vocabulary at all, so no equipment ids, synonyms, plurals, stop words, sorting
+    /// or diacritic folding. Name and equipment field are each `SourceExerciseKey.fold`ed.
     static let keyCases: [Case] = [
         Case("Bench Press", "Barbell", "bench press", "barbell"),
-        Case("bench-press", "Langhantel", "bench press", "barbell"),
-        Case("  BENCH   PRESS ", "barbell", "bench press", "barbell"),
+        Case("bench-press", "Langhantel", "bench press", "langhantel"),
+        Case("  BENCH   PRESS ", "BARBELL", "bench press", "barbell"),
         Case("Pullups", nil, "pullups", ""),
         Case("Row Bent Over", nil, "row bent over", ""),
-        Case("Bankdrücken", "Kurzhantel", "bankdrücken", "dumbbell"),
+        Case("Bankdrücken", "Kurzhantel", "bankdrücken", "kurzhantel"),
+        Case("Curl", "Dumbbells", "curl", "dumbbells"),
+        Case("Squat", "Smith-Machine", "squat", "smith machine"),
         Case("Straße", nil, "straße", ""),
         Case("Farmer's Walk", nil, "farmers walk", ""),
         Case("Farmer´s Walk", nil, "farmers walk", ""),
@@ -153,7 +155,7 @@ struct ExerciseNormalizerTests {
         Case("\u{202E}Curl\u{202C}", nil, "curl", ""),
         Case("Ｂench　Ｐress", nil, "bench press", ""),
         Case("Dumbbell Curl", nil, "dumbbell curl", ""),
-        Case("Curl", "Cable - Straight Bar", "curl", "cable"),
+        Case("Curl", "Cable - Straight Bar", "curl", "cable straight bar"),
         Case("Pull-Up", "Resistance Tube", "pull up", "resistance tube"),
         Case("Lunge", "  Weighted  ", "lunge", "weighted"),
         Case("Curl", "", "curl", ""),
@@ -166,13 +168,20 @@ struct ExerciseNormalizerTests {
         #expect(key == SourceExerciseKey(name: c.keyName, equipment: c.keyEquipment))
     }
 
-    /// The stored key doesn't depend on synonyms, stop words or alias names: a vocabulary without any gives the same.
+    /// The stored key doesn't depend on the vocabulary: one without equipment words, synonyms or aliases gives the
+    /// same key for every name and every equipment spelling.
     @Test func storedKeysIgnoreTheVocabulary() throws {
         let bare = ExerciseAliases.fallback.normalizer
         let full = ExerciseAliases.bundled.normalizer
-        for name in try Self.allNames() {
-            #expect(bare.key(name: name, equipment: "Barbell") == full.key(name: name, equipment: "Barbell"), "\(name)")
+        let file = try MappingFixture.shippedFile()
+        var pairs = try Self.allNames().map { ($0, String?.none) }
+        pairs += try Self.fixturePairs()
+        for (id, phrases) in file.equipment { pairs += ([id] + phrases).map { ("x", Optional($0)) } }
+        var differ: [String] = []
+        for (name, equipment) in pairs where bare.key(name: name, equipment: equipment) != full.key(name: name, equipment: equipment) {
+            differ.append("\(name) · \(equipment ?? "–")")
         }
+        #expect(differ == [])
     }
 
     /// Matching a stored key is matching the file's name and field: the key loses nothing matching reads.
