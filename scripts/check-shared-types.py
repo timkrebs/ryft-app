@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""The app and the widget extension can't share a source file (`Ryft/` is a classic group), so a
-few types exist twice and must stay identical: what one target encodes, the other decodes.
+"""The app and the widget extension don't share a source file (that needs a second target membership, set in
+Xcode by the user), so a few types exist twice and must stay identical: what one target encodes, the other decodes.
 
 - `RestTimerAttributes`: the whole struct (ActivityKit matches it by name and Codable shape).
 - `OpenWorkoutIntent`: its `static let` declarations (the system performs the app's copy).
