@@ -38,6 +38,8 @@ struct MetricGauge: View {
     var showsMark = false
     /// Read after the value, e.g. a `GaugeNote` shown under the gauge ("Recalculating your baselines").
     var accessibilityNote: String?
+    /// The band word under the dial (and in VoiceOver); off where a note takes its line. The arc keeps its colour.
+    var showsBand = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown: Double = 0
@@ -54,6 +56,8 @@ struct MetricGauge: View {
     }
 
     private var band: (label: String, color: Color)? { value.flatMap { spec.band?($0) } }
+    /// The band word, where it's shown.
+    private var bandLabel: String? { showsBand ? band?.label : nil }
     private var arcColor: Color {
         // Readiness and recovery colour by band (semantic trio); others keep the metric colour.
         guard spec.polarity != .neutral, let band else { return spec.color }
@@ -69,7 +73,7 @@ struct MetricGauge: View {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 6) {
                         bandText
-                        if band != nil, delta != nil {
+                        if bandLabel != nil, delta != nil {
                             Text("·").font(.ryft(.caption)).foregroundStyle(Theme.textTertiary)
                         }
                         DeltaLabel(spec: spec, delta: delta, reference: deltaReference)
@@ -101,8 +105,8 @@ struct MetricGauge: View {
 
     @ViewBuilder
     private var bandText: some View {
-        if let band {
-            Text(band.label)
+        if let bandLabel {
+            Text(bandLabel)
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -176,9 +180,10 @@ struct MetricGauge: View {
     }
 
     private var spokenValue: String {
-        guard let value else { return String(localized: "No data") }
+        // The note too when there's no number: the line under an empty gauge says why.
+        guard let value else { return accessibilityNote.map { "\(String(localized: "No data")). \($0)" } ?? String(localized: "No data") }
         var parts = [String(localized: "\(spec.number(value)) of \(spec.number(scale.upperBound))")]
-        if let band { parts.append(band.label) }
+        if let bandLabel { parts.append(bandLabel) }
         if let delta { parts.append(DeltaLabel.spoken(delta, spec: spec, reference: deltaReference)) }
         let spoken = parts.joined(separator: ", ")
         return accessibilityNote.map { "\(spoken). \($0)" } ?? spoken
@@ -365,19 +370,64 @@ struct GaugeNote: View {
     let text: String
     let systemImage: String
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: systemImage)
-                .accessibilityHidden(true)
-            Text(text)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+        Group {
+            if typeSize.isAccessibilitySize {
+                // Wrapped over several lines, the symbol leads the first one and the paragraph is centred as a whole,
+                // instead of sitting at the edge beside short centred lines. A figure space doesn't break.
+                (Text(Image(systemName: systemImage)) + Text(verbatim: "\u{2007}") + Text(text))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(Text(text))
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: systemImage)
+                        .accessibilityHidden(true)
+                    Text(text)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
         .font(.ryft(.caption))
         .foregroundStyle(Theme.textSecondary)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// The way to a fix under a `GaugeNote` (design.md §7 rev. 2 §5): "How to set up Garmin Connect ›" in `callout`
+/// and `Theme.accent`, centred and wrapping, at least 44 pt tall, its own VoiceOver button. It opens a sheet;
+/// nothing on it moves.
+struct GaugeNoteLink: View {
+    let title: String
+    let action: () -> Void
+
+    /// Above and below the title, scaled with the text: at large sizes the title outgrows the 44 pt minimum, which
+    /// then no longer leaves room between the note and the link. At the default size the minimum still decides.
+    @ScaledMetric(relativeTo: .callout) private var inset: CGFloat = 6
+
+    var body: some View {
+        Button(action: action) {
+            // One text, so the chevron follows the last word when the title wraps (German at AX3).
+            (Text(title) + Text(verbatim: "\u{00A0}") + Text(Image(systemName: "chevron.right")).font(.ryft(.caption)))
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.accent)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12)
+                .padding(.vertical, inset)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        // No press motion: the plain style only dims the label.
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
+        .accessibilityLabel(Text(title))
     }
 }
 
@@ -456,6 +506,29 @@ struct GaugeNote: View {
     }
     .environment(\.locale, Locale(identifier: "de"))
     .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+/// N1 under the gauge (design.md §7 rev. 2): Garmin chosen, no HRV in the window. The band word gives the note its
+/// line; the link opens Garmin Connect's card.
+@MainActor
+private func blockedNotePreview() -> some View {
+    let blocker = CalibrationBlocker.resolve([.hrv], trackers: [MockData.tracker("garmin")], devicesSetup: true)
+    return VStack(spacing: 8) {
+        MetricGauge(spec: .readiness, value: 74, size: .large, title: String(localized: "Overall readiness"),
+                    showsMark: true, accessibilityNote: blocker.text, showsBand: false)
+        GaugeNote(text: blocker.text, systemImage: "info.circle")
+        if let link = blocker.link { GaugeNoteLink(title: link.title) {} }
+    }
+}
+
+#Preview("Gauge note · link", traits: .sizeThatFitsLayout) {
+    SchemePair { blockedNotePreview() }
+}
+
+#Preview("Gauge note · link · de · AX3", traits: .sizeThatFitsLayout) {
+    SchemePair { blockedNotePreview() }
+        .environment(\.locale, Locale(identifier: "de"))
+        .environment(\.dynamicTypeSize, .accessibility3)
 }
 
 #Preview("MetricGauge · large caption · de · AX3", traits: .sizeThatFitsLayout) {

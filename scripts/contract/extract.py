@@ -24,6 +24,7 @@ MAP = [
     ("`PATCH /v1/me/notifications`", "NotificationPrefs", 0),
     ("### Push notifications", "PushPayload", 0),
     ("`GET /v1/days?from", "DailyScore", 0),
+    ("`calibrating_reason`", "[DailyScore]", 0),  # one fragment per line, see FRAGMENTS
     ("`GET /v1/days/{day}`", "SleepDetail", 1),
     ("`GET /v1/days/{day}`", "DayStrain", 2),
     ("`GET /v1/sleep?range", "SleepRange", 0),
@@ -40,6 +41,10 @@ MAP = [
     ("`GET /v1/journal/{day}`", "JournalDay", 0),
     ("`GET /v1/behaviors/impact`", "BehaviorImpacts", 0),
 ]
+
+# Headings whose block is one JSON object per line, each a partial row ("the changed fields only").
+# They become a list of rows with the required `day` added, so the app decodes them as DailyScore.
+FRAGMENTS = {"`calibrating_reason`": '"2026-10-22"'}
 
 UUID = "00000000-0000-4000-8000-000000000000"
 STAMP = "2026-10-19T00:00:00Z"
@@ -80,6 +85,10 @@ def main() -> int:
             failed += 1
             continue
         body = resolve(clean(found[index]), known)
+        if needle in FRAGMENTS:
+            rows_ = [json.loads(line) for line in body.splitlines() if line.strip()]
+            body = json.dumps([{"day": json.loads(FRAGMENTS[needle]), **r} for r in rows_], indent=2)
+            typ = "[DailyScore]"
         name = re.sub(r"[\[\]]", "", typ) + ("-list" if typ.startswith("[") else "")
         try:
             json.loads(body)
@@ -90,7 +99,8 @@ def main() -> int:
         (out / f"{name}.json").write_text(body)
         value = json.loads(body)
         element = value[0] if typ.startswith("[") and value else value
-        known[typ.strip("[]")] = json.dumps(element)
+        if needle not in FRAGMENTS:  # fragments are not a type's full example
+            known[typ.strip("[]")] = json.dumps(element)
         rows.append((typ, name, "decode", needle))
     with open(out / "manifest.tsv", "w") as f:
         for r in rows:
