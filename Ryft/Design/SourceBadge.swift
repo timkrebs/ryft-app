@@ -9,6 +9,7 @@ struct SourceBadge: View {
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         HStack(spacing: 6) {
@@ -16,11 +17,13 @@ struct SourceBadge: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Theme.textTertiary)
                 .accessibilityHidden(true)
+            // One line, middle-truncated; from the accessibility sizes on up to two lines, never cut in the middle.
             Text(verbatim: title)
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textSecondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+                .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
+                .truncationMode(typeSize.isAccessibilitySize ? .tail : .middle)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
@@ -125,13 +128,17 @@ struct FlowLayout: Layout {
         var height: CGFloat = 0
     }
 
-    /// Greedy lines; a subview wider than the line gets the line to itself, capped to its width (it truncates).
+    /// Greedy lines; a subview wider than the line gets the line to itself, measured at the line's width (it
+    /// wraps or truncates there).
     private func arrange(_ maxWidth: CGFloat, _ subviews: Subviews) -> [Row] {
         var rows: [Row] = []
         var row = Row()
         for (index, subview) in subviews.enumerated() {
             var size = subview.sizeThatFits(.unspecified)
-            size.width = min(size.width, maxWidth)
+            if size.width > maxWidth {
+                size = subview.sizeThatFits(ProposedViewSize(width: maxWidth, height: nil))
+                size.width = min(size.width, maxWidth)
+            }
             let needed = row.indices.isEmpty ? size.width : row.width + spacing + size.width
             if !row.indices.isEmpty, needed > maxWidth {
                 rows.append(row)

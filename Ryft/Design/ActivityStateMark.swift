@@ -46,7 +46,9 @@ struct ActivityStateMark: View {
         /// The state's word, as shown; nil without a mark.
         var word: String? {
             switch self {
-            case .uploading: return String(localized: "Uploading")
+            // Its own key: Today's first-import step "Uploading" reads differently in German.
+            case .uploading: return String(localized: "myday.state.uploading", defaultValue: "Uploading",
+                                           comment: "My Day row: saved on this iPhone, not at RYFT yet (the upload is queued).")
             case .strainPending: return String(localized: "Strain pending", comment: "My Day row: at RYFT, strain not scored yet.")
             case .scored(let value): return String(localized: "Strain \(Fmt.strain(value))")
             case .failed: return String(localized: "Not uploaded", comment: "My Day row: the upload failed; the data is still on the iPhone.")

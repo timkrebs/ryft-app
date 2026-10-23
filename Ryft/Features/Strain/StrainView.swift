@@ -156,7 +156,7 @@ struct StrainView: View {
                     if let w = model.workout(id) {
                         NavigationLink(value: w) { row(item) }
                             .buttonStyle(PressableButtonStyle())
-                            .accessibilityHint(Text("Opens the workout", comment: "VoiceOver: a My Day row opens the workout's detail."))
+                            .accessibilityHint(Text("Opens the workout", comment: "VoiceOver hint: the row opens the workout's detail."))
                             .accessibilityIdentifier("strain.row.\(item.id)")
                     }
                 case .session(let id):
@@ -168,7 +168,7 @@ struct StrainView: View {
                     if let id = item.mergedWorkout, let w = model.workout(id) {
                         NavigationLink(value: w) { row(item) }
                             .buttonStyle(PressableButtonStyle())
-                            .accessibilityHint(Text("Opens the workout", comment: "VoiceOver: a My Day row opens the workout's detail."))
+                            .accessibilityHint(Text("Opens the workout", comment: "VoiceOver hint: the row opens the workout's detail."))
                             .accessibilityIdentifier("strain.row.\(item.id)")
                     } else {
                         MyDayRow(item: item, style: .tile, showsLoad: true)

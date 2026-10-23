@@ -12,7 +12,7 @@ struct MyDayRow: View {
 
     let item: MyDayItem
     var style: Style = .card
-    /// A chevron at the trailing edge (tile style, rows that open a detail).
+    /// A chevron at the trailing edge (tile style, rows that open a detail); other tiles keep its column empty.
     var showsChevron = false
     /// Train's muscular load beside the strain (Strain's list).
     var showsLoad = false
@@ -55,11 +55,13 @@ struct MyDayRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if !isLarge { trailing.frame(minWidth: 44, alignment: .trailing) }
-            if showsChevron {
+            // Tiles keep the chevron's column on every row, so marks and pills line up whether a row opens or not.
+            if style == .tile {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Theme.textTertiary)
                     .frame(minHeight: 28)
+                    .opacity(showsChevron ? 1 : 0)
                     .accessibilityHidden(true)
             }
         }
@@ -110,7 +112,7 @@ struct MyDayRow: View {
         var parts = [range]
         if item.duration >= 60 { parts.append(Fmt.duration(seconds: item.duration)) }
         if let m = item.distanceM, m > 0 { parts.append(Fmt.distance(meters: m)) }
-        return parts.joined(separator: " · ")
+        return MyDayText.join(parts)
     }
 
     /// One VoiceOver sentence, in the order the row shows it (ui.md §2.7): "Running, 6:40 AM to 7:32 AM,
@@ -141,6 +143,19 @@ struct MyDayRow: View {
         f.unitsStyle = .full
         f.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute]
         return f.string(from: (seconds / 60).rounded() * 60) ?? Fmt.duration(seconds: seconds)
+    }
+}
+
+/// My Day's one-line facts ("07:12–07:48 · 52m · 8.4 km") break only between parts: never inside a duration
+/// ("1h 08m") or a distance, and the bullet trails its line instead of starting the next.
+enum MyDayText {
+    static func join(_ parts: [String]) -> String {
+        parts.map(keepTogether).joined(separator: "\u{00A0}· ")
+    }
+
+    /// Spaces become no-break spaces.
+    static func keepTogether(_ part: String) -> String {
+        part.replacingOccurrences(of: " ", with: "\u{00A0}")
     }
 }
 

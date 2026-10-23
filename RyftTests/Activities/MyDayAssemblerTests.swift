@@ -772,6 +772,24 @@ struct MyDayDayTests {
         }
     }
 
+    @Test func aWorkoutIdListedTwiceIsOneRow() {
+        // Distinct ids stay distinct rows (the platform decides duplicates); one id never makes two rows.
+        let w = workout(10, from: at(7))
+        let twin = workout(11, from: at(7))
+        let list = rows(input(detail(workouts: [w, w, twin])))
+        #expect(ids(list.filter { !$0.kind.isSleep }) == [workoutID(10), workoutID(11)])
+    }
+
+    @Test func aRowsFactsBreakOnlyBetweenPartsAndTheBulletTrailsItsLine() throws {
+        let w = workout(10, from: at(7), minutes: 68, distanceM: 11_700)
+        let facts = MyDayRow.detail(try item(workoutID(10), in: rows(input(detail(workouts: [w])))))
+        let parts = facts.components(separatedBy: "\u{00A0}· ")
+        #expect(parts.count == 3, "\(facts)")
+        // The only breakable space is the one after each bullet.
+        #expect(parts.allSatisfy { !$0.contains(" ") }, "\(facts)")
+        #expect(MyDayText.join(["1h 08m", "11.7 km"]) == "1h\u{00A0}08m\u{00A0}· 11.7\u{00A0}km")
+    }
+
     @Test func aMergedActivityListedTwiceStillHidesItsWorkoutOnce() {
         let a = activity(1, .running, from: at(7), mergedWith: uuid(10))
         let list = rows(input(detail(workouts: [workout(10, from: at(7))]), activities: [a, a]))

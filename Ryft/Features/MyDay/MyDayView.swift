@@ -11,9 +11,15 @@ struct MyDayView: View {
     @State private var workout: Workout?
     @State private var session: UUID?
 
+    /// The selected day's content; a session finished meanwhile shows at once (`TrainSyncService.sessionsMark`).
+    private var content: MyDayContent {
+        _ = coordinator.sync.sessionsMark
+        return model.content(for: model.date)
+    }
+
     var body: some View {
         let day = model.date
-        MyDayPage(content: model.content(for: day), week: model.week, showsAdd: model.showsTrain, actions: actions,
+        MyDayPage(content: content, week: model.week, showsAdd: model.showsTrain, actions: actions,
                   select: { model.select($0) })
             .navigationDestination(item: $workout) { WorkoutDetailView(workout: $0) }
             .navigationDestination(item: $session) { SessionDetailView(sessionID: $0).trainDestinations() }
@@ -69,7 +75,10 @@ struct MyDayPage: View {
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: content.day)
         .scrollIndicators(.hidden)
         .safeAreaInset(edge: .top, spacing: 0) {
+            // Pinned: capped at xxxLarge so it doesn't take a quarter of the screen at AX sizes (the rings are fixed;
+            // VoiceOver reads each day's name and strain).
             DateStrip(days: week, select: select)
+                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                 .padding(.horizontal, Theme.Metrics.screenPadding)
                 .padding(.vertical, 6)
                 .background(Theme.background)
@@ -93,22 +102,27 @@ struct MyDayPage: View {
         .accessibilityIdentifier("myday.view")
     }
 
-    /// "Today" / "Wed, 21 Oct", then "3 activities · 1h 52m · 14.8 km" and the day's strain once scored.
+    /// "Today" / "Wed, 21 Oct", then "3 activities · 1h 52m · 14.8 km" and the day's strain once scored. Without
+    /// activities the strain sits on the title's row (never alone on a line of its own).
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(verbatim: content.title ?? Fmt.dayTitle(content.day))
-                .font(.ryft(.title))
-                .foregroundStyle(Theme.textPrimary)
-                .accessibilityAddTraits(.isHeader)
-            if content.summary != nil || content.dayStrain != nil {
+            HStack(alignment: .center, spacing: 10) {
+                Text(verbatim: content.title ?? Fmt.dayTitle(content.day))
+                    .font(.ryft(.title))
+                    .foregroundStyle(Theme.textPrimary)
+                    .accessibilityAddTraits(.isHeader)
+                if content.summary == nil, let strain = content.dayStrain {
+                    Spacer(minLength: 0)
+                    StrainPill(strain: strain)
+                }
+            }
+            if let summary = content.summary {
                 HStack(alignment: .center, spacing: 10) {
-                    if let summary = content.summary {
-                        Text(verbatim: summary)
-                            .font(.ryft(.callout))
-                            .monospacedDigit()
-                            .foregroundStyle(Theme.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    Text(verbatim: summary)
+                        .font(.ryft(.callout))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     if let strain = content.dayStrain { StrainPill(strain: strain) }
                 }

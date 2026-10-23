@@ -191,7 +191,10 @@ enum MyDayAssembler {
         // Rule 3: a workout and its Train session are one row; sessions without a workout follow.
         let sessions = TrainLibrary.merged(local: input.localSessions, remote: detail?.strain?.sessions ?? [])
         var linked = Set<UUID>()
-        for w in workouts where !merged.contains(w.id) {
+        // One row per workout id: a list that repeats an id must not repeat a row (or a `ForEach` id). Workouts
+        // with distinct ids stay distinct rows, whatever their times or source: that's the platform's call.
+        var seen = Set<UUID>()
+        for w in workouts where !merged.contains(w.id) && seen.insert(w.id).inserted {
             let session = sessions.first { $0.id == w.sessionId || $0.workoutId == w.id }
             if let session { linked.insert(session.id) }
             items.append(item(w, session: session, catalog: catalog))

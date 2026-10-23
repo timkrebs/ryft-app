@@ -117,20 +117,30 @@ final class MyDayViewModel {
         }
     }
 
-    /// Pull to refresh on the full screen.
-    /// - Today: the app's pull (`pullToday`: the upload, today's read and status, its spinner capped at
-    ///   `AppState.spinnerCap`), with the day's activities asked beside it and not waited for. Today's detail
-    ///   isn't asked a second time.
-    /// - A past day: its detail and activities; the spinner waits for them at most `AppState.spinnerCap`, and
-    ///   the reads go on after it.
-    func refresh(_ day: Date, pullToday: @MainActor () async -> Void) async {
+    /// The activities read a pull on today started beside the app's pull (tests await it).
+    @ObservationIgnored private(set) var pullActivities: Task<Void, Never>?
+
+    /// Pull to refresh on the full screen. The app's pull runs either way (`pullToday`: the upload, today's read
+    /// and status; its spinner capped at `AppState.spinnerCap`).
+    /// - Today: the day's activities are asked beside it and not waited for; today's detail isn't asked a second
+    ///   time.
+    /// - A past day: its detail and activities too, side by side with the app's pull; the spinner waits for them
+    ///   at most `AppState.spinnerCap` (the reads go on after it), so the whole pull stays within the cap.
+    func refresh(_ day: Date, pullToday: @escaping @MainActor () async -> Void) async {
         let day = calendar.startOfDay(for: day)
         if calendar.isDate(day, inSameDayAs: today) {
             let key = DayFormat.string(from: day)
-            Task { await self.loadActivities(key, mode: .latest, userInitiated: true) }
+            pullActivities = Task { await self.loadActivities(key, mode: .latest, userInitiated: true) }
             await pullToday()
             return
         }
+        async let pulled: Void = pullToday()
+        async let reads: Void = loadCapped(day)
+        _ = await (pulled, reads)
+    }
+
+    /// A past day's forced load, waited for at most `AppState.spinnerCap`.
+    private func loadCapped(_ day: Date) async {
         let (done, finish) = AsyncStream<Void>.makeStream()
         Task {
             await self.load(day, force: true)
@@ -219,7 +229,7 @@ struct MyDayContent: Equatable {
         if duration >= 60 { parts.append(Fmt.duration(seconds: duration)) }
         let distance = list.compactMap(\.distanceM).reduce(0, +)
         if distance > 0 { parts.append(Fmt.distance(meters: distance)) }
-        return parts.joined(separator: " · ")
+        return MyDayText.join(parts)
     }
 }
 

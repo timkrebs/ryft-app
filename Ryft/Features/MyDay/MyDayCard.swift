@@ -1,5 +1,16 @@
 import SwiftUI
 
+extension TrainSyncService {
+    /// What changes when a session is finished or discarded (the outbox's count) and when the platform answers a
+    /// finish (`lastCompletion`). `TrainStore` isn't observable, so My Day reads this to show a new session at once.
+    struct SessionsMark: Equatable {
+        let pending: Int
+        let completed: UUID?
+    }
+
+    var sessionsMark: SessionsMark { SessionsMark(pending: pendingCount, completed: lastCompletion?.id) }
+}
+
 /// What a My Day row, header or button does; the live card and screen fill it, previews leave it empty.
 struct MyDayActions {
     /// The full screen (the card's title, expand and "Show all").
@@ -26,8 +37,15 @@ struct MyDayCard: View {
     /// `-RyftOpenMyDay <days back>` opens the full screen once on that day (Debug, screenshots and UI tests).
     @State private var autoOpen = MyDayCard.requestedDaysBack
 
+    /// Today's content. Train's sessions are in a store SwiftUI doesn't observe: reading the sync's mark here
+    /// re-renders the card when one finishes.
+    private var content: MyDayContent {
+        _ = coordinator.sync.sessionsMark
+        return model.card
+    }
+
     var body: some View {
-        MyDayCardBody(content: model.card, showsAdd: model.showsTrain, actions: actions)
+        MyDayCardBody(content: content, showsAdd: model.showsTrain, actions: actions)
             .navigationDestination(isPresented: $showsDay) { MyDayView(model: model) }
             .navigationDestination(item: $workout) { WorkoutDetailView(workout: $0) }
             .navigationDestination(item: $session) { SessionDetailView(sessionID: $0).trainDestinations() }
@@ -218,7 +236,7 @@ extension MyDayItem {
         guard opensDetail else { return nil }
         switch kind {
         case .sleep: return Text("Opens Sleep")
-        case .workout, .activity: return Text("Opens the workout", comment: "VoiceOver: a My Day row opens the workout's detail.")
+        case .workout, .activity: return Text("Opens the workout", comment: "VoiceOver hint: the row opens the workout's detail.")
         case .session: return Text("Opens the session", comment: "VoiceOver: a My Day row opens the Train session.")
         case .missingSleep: return nil
         }

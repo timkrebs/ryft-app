@@ -387,20 +387,43 @@ struct MyDayReviewFixTests {
 
         #expect(pulled == 1)
         #expect(g.api.count("day") == 1, "today's detail isn't asked a second time")
-        // The activities are asked beside the pull, not waited for.
-        for _ in 0..<200 where g.api.count("activities") < 2 { await Task.yield() }
+        // The activities are asked beside the pull, not waited for: the read the pull started.
+        await g.vm.pullActivities?.value
         #expect(g.api.count("activities") == 2)
     }
 
-    @Test func pullToRefreshOnAPastDayAsksForItsReadsAgainAndNotTheAppsPull() async {
+    @Test func pullToRefreshOnAPastDayRunsTheAppsPullAndAsksForItsReadsAgain() async {
         let g = Graph()
         let yesterday = DayFormat.shift(g.today, days: -1)
         await g.vm.load(yesterday)
+        var pulled = 0
 
-        await g.vm.refresh(yesterday) { Issue.record("a past day doesn't run the app's pull") }
+        await g.vm.refresh(yesterday) { pulled += 1 }
 
+        #expect(pulled == 1, "a pull on a past day syncs too")
         #expect(g.api.count("day") == 2)
         #expect(g.api.count("activities") == 2)
+    }
+
+    @Test func anActivityMovedToAnotherDayLeavesTheOldDaysPlatformCopyOut() throws {
+        let g = Graph()
+        let yesterday = DayFormat.shift(g.today, days: -1)
+        let start = Calendar.current.date(bySettingHour: 7, minute: 0, second: 0, of: yesterday) ?? yesterday
+        let draft = ActivityDraft(sport: .yoga, start: start, end: start.addingTimeInterval(1_800))
+        let saved = try #require(g.env.activities.save(manual: draft))
+        // The platform has it on yesterday (cached there); then the user moves it to today on this iPhone.
+        g.state.repository.store(activities: [saved.activity], day: DayFormat.string(from: yesterday))
+        let moved = ActivityDraft(sport: .yoga, start: start.addingTimeInterval(86_400),
+                                  end: start.addingTimeInterval(86_400 + 1_800))
+        #expect(g.env.activities.update(saved.id, moved) != nil)
+
+        let old = MyDayInput.cached(day: yesterday, state: g.state, store: g.store)
+        #expect(old.local.map(\.id) == [saved.id], "found by the platform list's id, though it starts today")
+        let rows = MyDayAssembler.items(old, catalog: .unnamed, now: g.clock.now())
+        #expect(!rows.contains { $0.kind == .activity(saved.id) }, "no row on the old day")
+        let new = MyDayAssembler.items(.cached(day: g.today, state: g.state, store: g.store), catalog: .unnamed,
+                                       now: g.clock.now())
+        #expect(new.filter { $0.kind == .activity(saved.id) }.count == 1, "one row, on the new day")
     }
 
     @Test func touchedDaysRefreshTheirActivitiesOnlyInsideTheWeek() async throws {
@@ -417,6 +440,20 @@ struct MyDayReviewFixTests {
         let g = Graph(flags: [:])
         try await g.state.refreshDays([DayFormat.string(from: g.today)])
         #expect(g.api.count("activities") == 0)
+    }
+
+    @Test func finishingASessionMovesTheMarkMyDayObservesAndTheDayListsIt() async {
+        let g = Graph()
+        let sync = TrainSyncService(store: g.store, remote: { MockPlatformAPI() }, monitorsNetwork: false)
+        let before = sync.sessionsMark
+        let session = SessionFactory.empty(in: g.store)
+        session.title = "Upper A"
+
+        _ = await sync.finish(session)
+
+        #expect(sync.sessionsMark != before, "the card re-renders")
+        let input = MyDayInput.cached(day: g.today, state: g.state, store: g.store)
+        #expect(input.localSessions.contains { $0.id == session.id })
     }
 
     @Test func trackersAreNamedOnlyOnceTheCatalogIsParsedOffTheMainActor() async {
