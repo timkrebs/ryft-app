@@ -15,3 +15,5 @@ docs/screenshots/*-tmp.png
 Config/*.xcconfig
 !Config/Production.xcconfig
 __pycache__/
+# Real training exports for local import tests: personal data, never committed (fixtures are synthetic).
+local-samples/
