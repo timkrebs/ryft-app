@@ -29,6 +29,12 @@ first one decides how the app reads My Day.
 | R15 | How far back a manual activity may start (the app allows 14 days), and `notes` ≤ 500 counted in characters or bytes. |
 | R16 | `route` and `hr_samples` appear **only** in `GET /v1/activities/{id}` (and R14's export), never in `GET /v1/activities?from&to`, the day detail, `GET /v1/my-day` or `PUT` answers. |
 | R17 | A final `401` for an account deleted on the web carries a distinct `code` (e.g. `account_deleted`), so the app deletes parked activities at once instead of after 30 days (§8.4). |
+| R20 | **Splits: the index base and what a split covers.** The app numbers splits from 1: the first kilometre is `index: 1`. Please state the platform's convention, with an example. Please also confirm:
+  - `distance_m` is 1000, except for the last split, which may be partial and carries its real distance.
+  - A remainder under 50 m at the end isn't sent as a split. So the splits' `distance_m` can sum to up to 50 m less than the activity's `distance_m`, and their `duration_sec` to less than `moving_sec`. The platform accepts that.
+  - `duration_sec` is moving time within the split, pauses excluded.
+  - `ascent_m` is null when the activity has no elevation.
+  (A3a, 2026-10-23) |
 | — | Naming only: API.md `Activity` is `SportActivity` in the app (ActivityKit owns `Activity`). |
 
 ## Train (open, 2026-10-19)

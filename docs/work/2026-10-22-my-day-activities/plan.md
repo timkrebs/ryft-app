@@ -132,4 +132,16 @@ Every ticket gets the localization-editor (en + de) and test-engineer. Reviews p
     foreground launch always asks; Resume under 6 h, same day.
   - The policy also needs the 30-day limits (unsent routes, parked data) and "Apple Health copies stay after account
     deletion".
+- **A3 is split into two PRs (lead, 2026-10-23):**
+  - **A3a** `activities: track pipeline`: the pure pipeline (Kalman, geodesy, splits, auto-pause, elevation, codec, fixtures). It doesn't depend on A1, so it ran in parallel with A1.
+  - **A3b** `activities: recorder, checkpoints and vault`: the `ActivityRecorder` actor, live sources, checkpoints, sealing and trimming. It comes after A1's core merges. security-privacy signs off A3b (trimming and sealing at checkpoint).
+- **A3a's acceptance (architect, ADR 0003 Amendment 1, design §11.1 rev. 2026-10-23):**
+  - Distance comes from the filter's speed.
+  - The still-phone guard has two layers: `isStationary`, then a dead-band.
+  - The re-init counts both gates.
+  - Split and pace bounds are physics-limited and replace "±2 s against ground truth".
+  - The fixtures use drifting noise.
+  - The auto-pause clock holds; the displayed moving time never decreases (ui.md G3).
+  - Route points are emitted only while recording.
+  - GPX files aren't committed; they're generated on demand.
 
