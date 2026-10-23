@@ -370,13 +370,26 @@ struct GaugeNote: View {
     let text: String
     let systemImage: String
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: systemImage)
-                .accessibilityHidden(true)
-            Text(text)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+        Group {
+            if typeSize.isAccessibilitySize {
+                // Wrapped over several lines, the symbol leads the first one and the paragraph is centred as a whole,
+                // instead of sitting at the edge beside short centred lines. A figure space doesn't break.
+                (Text(Image(systemName: systemImage)) + Text(verbatim: "\u{2007}") + Text(text))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(Text(text))
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: systemImage)
+                        .accessibilityHidden(true)
+                    Text(text)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
         .font(.ryft(.caption))
         .foregroundStyle(Theme.textSecondary)
@@ -393,6 +406,10 @@ struct GaugeNoteLink: View {
     let title: String
     let action: () -> Void
 
+    /// Above and below the title, scaled with the text: at large sizes the title outgrows the 44 pt minimum, which
+    /// then no longer leaves room between the note and the link. At the default size the minimum still decides.
+    @ScaledMetric(relativeTo: .callout) private var inset: CGFloat = 6
+
     var body: some View {
         Button(action: action) {
             // One text, so the chevron follows the last word when the title wraps (German at AX3).
@@ -402,6 +419,7 @@ struct GaugeNoteLink: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12)
+                .padding(.vertical, inset)
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
         }
