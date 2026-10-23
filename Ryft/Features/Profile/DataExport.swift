@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 import UIKit
 
@@ -48,7 +49,11 @@ enum DataExport {
         return ws.filter { seen.insert($0.id).inserted }
     }
 
-    /// Writes the archive to a temporary file named `RYFT-export-YYYY-MM-DD.json`.
+    static let filePrefix = "RYFT-export-"
+    private static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "export")
+
+    /// Writes the archive to a temporary file named `RYFT-export-YYYY-MM-DD.json`. It goes when the share sheet
+    /// closes, at sign-out and at the next launch (`removeFiles`).
     static func write(_ archive: Archive) throws -> URL {
         // Its own encoder: the shared one is used by requests concurrently.
         let encoder = JSONEncoder()
@@ -57,18 +62,47 @@ enum DataExport {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(archive)
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("RYFT-export-\(DayFormat.string(from: archive.exportedAt)).json")
+            .appendingPathComponent("\(filePrefix)\(DayFormat.string(from: archive.exportedAt)).json")
         try data.write(to: url, options: [.atomic, .completeFileProtection])
         return url
+    }
+
+    /// Removes every export file in `folder`: all of an account's data shouldn't outlive the share sheet, the
+    /// account on this iPhone, or a crash before either. Returns how many went.
+    @discardableResult
+    static func removeFiles(in folder: URL = FileManager.default.temporaryDirectory) -> Int {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        var removed = 0
+        for name in names where name.hasPrefix(filePrefix) && name.hasSuffix(".json") {
+            do {
+                try FileManager.default.removeItem(at: folder.appendingPathComponent(name))
+                removed += 1
+            } catch {
+                let e = error as NSError
+                log.error("Removing an export file failed: \(e.domain, privacy: .public) \(e.code, privacy: .public)")
+            }
+        }
+        if removed > 0 { log.info("Removed \(removed, privacy: .public) export files") }
+        return removed
+    }
+
+    /// At launch, off the main actor: what an earlier run left.
+    @concurrent
+    static func removeLeftoverFiles() async {
+        removeFiles()
     }
 }
 
 /// The system share sheet for a file.
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
+    /// After the chosen activity is done with the items, or the sheet was closed.
+    var completion: (() -> Void)?
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
+        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        controller.completionWithItemsHandler = { [completion] _, _, _, _ in completion?() }
+        return controller
     }
 
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}

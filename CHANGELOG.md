@@ -86,3 +86,5 @@ Store "What's New".
 - Today no longer shows calibration ("Baselines · 0 of 7") while your scores exist: the gauge,
   tiles and widget tell one story, a night that isn't scored yet shows the last scored day dimmed
   with its date, and a change that's under 2 % reads "Steady" instead of a dash.
+- Old copies of local data from before the widget update are removed, so signing out or deleting
+  your account clears everything on the iPhone.

@@ -4,8 +4,8 @@ import OSLog
 
 /// The app's SwiftData container: Train's sessions being logged, its offline
 /// library and upload outbox, and (`ReadModels.swift`) every platform read model
-/// the Repository caches. On disk in the app, in memory for tests, previews and
-/// demo data. Everything runs on the main context; documents are small.
+/// the Repository caches. On disk in the App Group container (`init`), in memory for
+/// tests, previews and demo data. Everything runs on the main context; documents are small.
 @MainActor
 final class TrainStore {
     static let shared = TrainStore()
@@ -19,8 +19,15 @@ final class TrainStore {
 
     init(inMemory: Bool = false) {
         // In memory, each instance gets its own name, so tests and previews never share a store.
+        //
+        // On disk the store lives in the App Group container: the app has the `group.dev.timkrebs.ryft` entitlement,
+        // so `.automatic` resolves to `<group>/Library/Application Support/Train.store`. Builds from before the
+        // entitlement wrote the same name into the app container, which `OrphanedStoreCleanup` deletes at launch.
+        // A move to `groupContainer: .none` resolves to exactly that old path: it must delete (or deliberately migrate)
+        // whatever is there before the container opens, or it reopens an earlier account's read models and pending
+        // uploads, which sign-out never wiped.
         let config = ModelConfiguration(inMemory ? "Train-\(UUID().uuidString)" : "Train", schema: Self.schema,
-                                        isStoredInMemoryOnly: inMemory)
+                                        isStoredInMemoryOnly: inMemory, groupContainer: .automatic)
         do {
             container = try ModelContainer(for: Self.schema, configurations: config)
         } catch {
@@ -34,6 +41,11 @@ final class TrainStore {
             }
         }
         context.autosaveEnabled = true
+    }
+
+    /// The open store's file; `nil` in memory (tests, previews, and the fallback when the file couldn't open).
+    var storeURL: URL? {
+        container.configurations.first { !$0.isStoredInMemoryOnly }?.url
     }
 
     func save() {

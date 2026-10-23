@@ -103,8 +103,12 @@ Garmin Connect after 08:00).
 - **T4 `fix: honest calibration and recovery inputs`:** waits for the platform's `hrv_baseline_days` / `recovery_inputs`.
   Until then the features line says "Readiness needs HRV" for Garmin (`RyftFeatures.baselinesWithoutHRV`, off).
 - **The night window** uses fixed 04:00 / 08:00 / 15:00. It could use the Bedtime & wake time instead.
-- **The SwiftData store is in the App Group container** (`TrainStore.swift:22`, `.automatic`), so the widget can read it. Move it
-  to `groupContainer: .none` with a one-time move (also needed by activities, privacy review S1).
+- **The SwiftData store is in the App Group container** (`TrainStore.init`, `.automatic`), so the widget can read it. Move it
+  to `groupContainer: .none` with a one-time move (also needed by activities, privacy review S1). **Rule:** `.none` resolves to
+  the app container's `Library/Application Support/Train.store`, the path of the copy builds before the App Group left
+  behind (an earlier account's read models and pending uploads). Since `fix: remove the store left behind by the App Group
+  move` (O1) `OrphanedStoreCleanup` deletes that copy once at launch, only when it provably isn't the live store. The move
+  must still delete (or deliberately migrate) whatever is at that path before the container opens there.
 - **Older onboarding keys** (`firstRunDone`, `aboutYouDone`, `hintSeen`) keep a deleted account's id in defaults.
 - **The catalog crash-guard hashing and marker** run on main after the first frame (a few ms). Move them into one
   `@concurrent` helper.
