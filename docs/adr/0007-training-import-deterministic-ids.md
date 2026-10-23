@@ -75,10 +75,15 @@ second custom exercise and splitting its history.
    Default_Ignorable_Code_Point, and the apostrophes U+0027, U+0060, U+00B4, U+02B9, U+02BB, U+02BC, U+02BD, U+2018,
    U+2019, U+201B, U+2032 and U+FF07.
 2. NFKC.
-3. Unicode default lowercase mapping, with no locale. No diacritic folding; ß stays ß.
-4. Each run of scalars that aren't letters, marks or numbers (L*, M*, N*) becomes one U+0020, after dropping step 1's set
-   again. No leading or trailing space.
+3. Each scalar becomes its own full lowercase mapping (UnicodeData plus SpecialCasing's unconditional mappings), with no
+   context and no locale: no Final_Sigma ("ΟΔΟΣ" → "οδοσ"), "İ" → "i̇". No diacritic folding; ß stays ß.
+4. Step 1's drop set is dropped again first (steps 2 and 3 can produce it: U+0149 → U+02BC n). Then each run of scalars
+   that aren't letters, marks or numbers (L*, M*, N*) becomes one U+0020. No leading or trailing space. The result is
+   idempotent: `fold(fold(x)) == fold(x)`.
 5. No sorting, no deduplication, no length cap.
+
+`scripts/import-fold-check.py` implements these steps a second time, with the Unicode tables written out (White_Space,
+Default_Ignorable_Code_Point, the apostrophes), and checks the golden file in `make lint`.
 
 The id recipe is unchanged:
 - custom exercise = UUIDv5(account namespace, `exercise␟<source>␟<key.name>␟<key.equipment>`);

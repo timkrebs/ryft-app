@@ -7,8 +7,8 @@ platform's built-in exercise library (`backend/internal/db/seed/exercises.json` 
     python3 scripts/builtin-exercises.py            # --check: the snapshot still equals the seed (make lint)
     python3 scripts/builtin-exercises.py --write    # regenerate the snapshot from the seed
 
-The platform checkout is read only. Without one (CI, a worktree elsewhere) the check is skipped quietly; pass
-`--platform DIR` or set RYFT_PLATFORM_DIR to point at it.
+The platform checkout is read only. Without one at the default place (CI, a worktree elsewhere) the check is skipped
+quietly; `--platform DIR` or RYFT_PLATFORM_DIR points at one, and then it must be there (exit 2 otherwise).
 """
 import argparse
 import json
@@ -54,14 +54,19 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="the snapshot still equals the seed (the default)")
     mode.add_argument("--write", action="store_true", help="regenerate the snapshot from the seed")
-    parser.add_argument("--platform", default=os.environ.get("RYFT_PLATFORM_DIR", os.path.join(ROOT, "..", "plattform")))
+    parser.add_argument("--platform", help="the platform checkout (default: RYFT_PLATFORM_DIR, else ../plattform)")
     args = parser.parse_args()
+    explicit = args.platform or os.environ.get("RYFT_PLATFORM_DIR")
+    platform = explicit or os.path.join(ROOT, "..", "plattform")
 
     # The id recipe itself, against the example in API.md.
     assert str(uuid.uuid5(NAMESPACE, "exercise:back-squat")) == "053b5627-084e-5417-a033-a6602d812f86"
 
-    seed_path = os.path.join(args.platform, SEED)
+    seed_path = os.path.join(platform, SEED)
     if not os.path.isfile(seed_path):
+        if explicit:
+            print(f"Built-in exercises: {platform} is not a platform checkout (no {SEED}).")
+            return 2
         print("Built-in exercises: no platform checkout, check skipped.")
         return 0
     with open(seed_path, encoding="utf-8") as f:

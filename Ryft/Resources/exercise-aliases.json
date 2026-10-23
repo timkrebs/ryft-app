@@ -26,6 +26,12 @@
     "band": [],
     "assisted": ["machine"]
   },
+  "refines": {
+    "ez_bar": "barbell",
+    "trap_bar": "barbell",
+    "smith_machine": "machine",
+    "assisted": "machine"
+  },
   "synonyms": {
     "pullup": "pull up",
     "pushup": "push up",

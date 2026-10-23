@@ -195,6 +195,7 @@ struct ExerciseAliasesTests {
         ])
         file.kinds["barbell"] = ["barbell", "spaceship"]
         file.kinds["cable"] = nil
+        file.refines = ["smith_machine": "machine", "band": "hoverboard", "barbell": "barbell"]
         let aliases = ExerciseAliases(file: file)
         #expect(aliases.issues.conflictingKeys == 1)
         #expect(aliases.issues.invalidSlugs == 1)
@@ -203,6 +204,8 @@ struct ExerciseAliasesTests {
         #expect(aliases.issues.emptyPhrases == 1)
         #expect(aliases.issues.unknownKinds == 1)
         #expect(aliases.issues.missingKinds == 1)
+        #expect(aliases.issues.invalidRefinements == 2)
+        #expect(aliases.normalizer.isMoreSpecific("smith_machine", than: "machine"))
         // The clash is dropped for both slugs; the rest of those entries stays.
         #expect(aliases.index[ExerciseAliases.Key(name: "bench flat", equipment: nil)] == nil)
         #expect(aliases.index[ExerciseAliases.Key(name: "flachbank", equipment: nil)] == "bench-press")

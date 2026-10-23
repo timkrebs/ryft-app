@@ -2,8 +2,9 @@ import Foundation
 import Testing
 @testable import Ryft
 
-/// ADR 0007's recipe. The vectors were computed independently (Python's `uuid.uuid5`); a change to the namespace, the
-/// separator, the field order or the key normalisation fails here, and would duplicate every earlier import.
+/// ADR 0007's recipe from a key to an id. The vectors were computed independently (Python's `uuid.uuid5`); a change to
+/// the namespace, the separator or the field order fails here, and would duplicate every earlier import. The key itself
+/// (`SourceExerciseKey.fold`) is pinned by `SourceExerciseKeyGoldenTests` and `scripts/import-fold-check.py`.
 @Suite("Import ids")
 struct ImportIDsTests {
     @Test func rfc9562Vector() throws {

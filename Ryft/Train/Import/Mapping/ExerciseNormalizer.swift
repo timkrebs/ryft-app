@@ -13,13 +13,17 @@ struct SourceExerciseKey: Hashable, Codable, Sendable {
     let name: String
     let equipment: String
 
-    /// The frozen text rule, in this order:
-    /// 1. on the raw scalars: whitespace becomes a space; controls, format characters (Cc, Cf) and default-ignorable
-    ///    scalars (soft hyphen, zero-width and bidi marks, BOM, variation selectors) and apostrophes
-    ///    (`' ‘ ’ ‛ ʹ ʻ ʼ ʽ ´ ′ ` ＇`) are dropped;
-    /// 2. NFKC;
-    /// 3. lowercase (Unicode default mapping, no locale);
-    /// 4. every character that isn't a letter, mark or digit becomes a space; runs of spaces collapse; trimmed.
+    /// The frozen text rule (ADR 0007, Amendment 1), in this order:
+    /// 1. On the raw scalars: White_Space becomes U+0020; scalars of category Cc or Cf, Default_Ignorable_Code_Point
+    ///    scalars and `apostrophes` are dropped.
+    /// 2. NFKC.
+    /// 3. Each scalar becomes its full lowercase mapping (UnicodeData plus SpecialCasing's unconditional mappings),
+    ///    with no context and no locale: no Final_Sigma ("ΟΔΟΣ" → "οδοσ"), "İ" → "i̇", "ẞ" → "ß".
+    /// 4. Step 1's drop set is dropped again (steps 2 and 3 can produce it: U+0149 → U+02BC n), then each run of scalars
+    ///    that aren't letters, marks or numbers (L*, M*, N*) becomes one U+0020, never leading or trailing.
+    ///
+    /// Idempotent. `scripts/import-fold-check.py` implements it again with explicit Unicode tables and checks the
+    /// golden file (`make lint`).
     static func fold(_ text: String) -> String {
         var cleaned = String.UnicodeScalarView()
         for scalar in text.unicodeScalars {
@@ -29,22 +33,37 @@ struct SourceExerciseKey: Hashable, Codable, Sendable {
                 cleaned.append(scalar)
             }
         }
-        let lowered = String(cleaned).precomposedStringWithCompatibilityMapping.lowercased()
+        var lowered = String.UnicodeScalarView()
+        for scalar in String(cleaned).precomposedStringWithCompatibilityMapping.unicodeScalars {
+            lowered.append(contentsOf: scalar.properties.lowercaseMapping.unicodeScalars)
+        }
         var out = String.UnicodeScalarView()
         var pendingSpace = false
-        for scalar in lowered.unicodeScalars {
-            if CharacterSet.alphanumerics.contains(scalar) {
+        for scalar in lowered where !isDropped(scalar) {
+            if isLetterMarkOrNumber(scalar) {
                 if pendingSpace, !out.isEmpty { out.append(" ") }
                 pendingSpace = false
                 out.append(scalar)
-            } else if !isDropped(scalar) {
+            } else {
                 pendingSpace = true
             }
         }
         return String(out)
     }
 
-    /// Dropped without a trace (step 1; again after NFKC, which can produce some).
+    /// General category L*, M* or N*.
+    static func isLetterMarkOrNumber(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.properties.generalCategory {
+        case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter,
+             .nonspacingMark, .spacingMark, .enclosingMark,
+             .decimalNumber, .letterNumber, .otherNumber:
+            true
+        default:
+            false
+        }
+    }
+
+    /// Dropped without a trace (step 1, and again in step 4).
     static func isDropped(_ scalar: Unicode.Scalar) -> Bool {
         if apostrophes.contains(scalar) { return true }
         switch scalar.properties.generalCategory {
@@ -80,18 +99,18 @@ struct ExerciseNormalizer: Sendable {
     /// Equipment phrases (after synonyms) to a canonical id.
     private let equipmentPhrases: [[String]: String]
     private let longestEquipmentPhrase: Int
-    /// Equipment id → the library kinds it allows, to tell the more specific of two (`matchKey`).
-    private let kinds: [String: Set<ExerciseKind>]
+    /// Equipment id → the broader id it refines (`trap_bar` → `barbell`), to tell the more specific of two (`matchKey`).
+    private let refinements: [String: String]
     /// The canonical ids, for telling known equipment from free text.
     let equipmentIDs: Set<String>
 
     /// Names longer than this are cut for matching. No exercise name needs more words, and it bounds every loop.
     static let maxTokens = 32
 
-    init(synonyms: [[String]: [String]], equipmentPhrases: [[String]: String], kinds: [String: [ExerciseKind]] = [:]) {
+    init(synonyms: [[String]: [String]], equipmentPhrases: [[String]: String], refinements: [String: String] = [:]) {
         self.synonyms = synonyms
         self.equipmentPhrases = equipmentPhrases
-        self.kinds = kinds.mapValues(Set.init)
+        self.refinements = refinements
         longestSynonym = synonyms.keys.map(\.count).max() ?? 0
         longestEquipmentPhrase = equipmentPhrases.keys.map(\.count).max() ?? 0
         equipmentIDs = Set(equipmentPhrases.values)
@@ -110,9 +129,10 @@ struct ExerciseNormalizer: Sendable {
     }
 
     /// Equipment for matching, from the field and the words of the name:
-    /// - both name known equipment and they differ: the more specific (`isMoreSpecific`: "Trap Bar Deadlift · Barbell"
-    ///   is trap bar, "Cable Crossover · Machine" is cable); when neither is, the field's, and the name keeps its
-    ///   equipment words, so a contradiction ("Dumbbell Curl · Barbell") never matches exactly;
+    /// - both name known equipment and they differ: the refinement, when one refines the other (`isMoreSpecific`:
+    ///   "Trap Bar Deadlift · Barbell" is trap bar). Otherwise it's a contradiction ("Dumbbell Curl · Barbell", and
+    ///   "Crunch Machine · Cable": a cable station isn't a kind of machine here): the field's equipment, and the name
+    ///   keeps its equipment words, so it never matches exactly and comes back as a check;
     /// - otherwise known equipment in the field, then in the name, then the field's unknown text.
     func matchKey(name: String, equipment: String?) -> MatchKey {
         let tokens = applySynonyms(Self.baseTokens(name))
@@ -158,12 +178,11 @@ struct ExerciseNormalizer: Sendable {
     /// `equipment` is one of the alias file's ids (so the equipment filter applies).
     func isKnown(equipment: String) -> Bool { equipmentIDs.contains(equipment) }
 
-    /// `a` names a narrower kind of equipment than `b`: it allows fewer library kinds (Smith machine or cable within
-    /// machine), or the same ones while `b` is a kind's own name (trap bar or EZ bar within barbell).
+    /// `a` is a kind of `b` by the alias file's explicit refinements (trap bar and EZ bar of barbell; Smith machine and
+    /// assisted of machine). The kinds lists aren't used: they are widened for the filter (machine allows cable
+    /// stations), and a cable exercise isn't a machine exercise.
     func isMoreSpecific(_ a: String, than b: String) -> Bool {
-        guard let small = kinds[a], let large = kinds[b] else { return false }
-        if small != large { return small.isSubset(of: large) }
-        return ExerciseKind(rawValue: a) == nil && ExerciseKind(rawValue: b) != nil
+        refinements[a] == b
     }
 
     // MARK: Steps

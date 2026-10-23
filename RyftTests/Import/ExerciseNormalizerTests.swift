@@ -64,12 +64,13 @@ struct ExerciseNormalizerTests {
         Case("Squat", "Smith Machine", "squat", "smith_machine"),
         Case("Smith Machine Squat", nil, "squat", "smith_machine"),
         Case("Curl", "Cable - Straight Bar", "curl", "cable"),
-        // Field and name disagree: the more specific wins, from either side.
+        // Field and name disagree: a refinement wins, from either side.
         Case("Smith Machine Squat", "Machine", "squat", "smith_machine"),
-        Case("Cable Fly", "Machine", "fly", "cable"),
-        Case("Machine Fly", "Cable", "fly", "cable"),
-        // Neither is more specific: the field's, and the name keeps its equipment words.
+        // Anything else is a contradiction: the field's, and the name keeps its equipment words. Cable isn't a kind
+        // of machine, even though machine allows cable stations.
         Case("Dumbbell Curl", "Barbell", "curl dumbbell", "barbell"),
+        Case("Cable Fly", "Machine", "cable fly", "machine"),
+        Case("Machine Fly", "Cable", "fly machine", "cable"),
         // Unknown equipment keeps its normalised text; a known word in the name wins over it.
         Case("Pull-Up", "Resistance Tube", "pull up", "resistance tube"),
         Case("Dumbbell Lunge", "Weighted", "lunge", "dumbbell"),
@@ -95,9 +96,16 @@ struct ExerciseNormalizerTests {
         #expect(normalizer.matchKey(name: "EZ Bar Curl", equipment: "Barbell") == MatchKey(name: "curl", equipment: "ez_bar"))
         #expect(normalizer.matchKey(name: "Assisted Dip", equipment: "Machine") == MatchKey(name: "dip", equipment: "assisted"))
         #expect(normalizer.isMoreSpecific("trap_bar", than: "barbell"))
+        #expect(normalizer.isMoreSpecific("ez_bar", than: "barbell"))
+        #expect(normalizer.isMoreSpecific("smith_machine", than: "machine"))
+        #expect(normalizer.isMoreSpecific("assisted", than: "machine"))
         #expect(!normalizer.isMoreSpecific("barbell", than: "trap_bar"))
         #expect(!normalizer.isMoreSpecific("ez_bar", than: "trap_bar"))
         #expect(!normalizer.isMoreSpecific("dumbbell", than: "barbell"))
+        // Machine allows cable stations for the filter; a cable exercise still isn't a machine one.
+        #expect(!normalizer.isMoreSpecific("cable", than: "machine"))
+        #expect(!normalizer.isMoreSpecific("machine", than: "cable"))
+        #expect(normalizer.matchKey(name: "Crunch Machine", equipment: "Cable") == MatchKey(name: "crunch machine", equipment: "cable"))
     }
 
     @Test func singularIsIdempotent() {
@@ -160,6 +168,11 @@ struct ExerciseNormalizerTests {
         Case("Lunge", "  Weighted  ", "lunge", "weighted"),
         Case("Curl", "", "curl", ""),
         Case("", nil, "", ""),
+        // The rule's own clauses (the golden file pins more).
+        Case("ΟΔΟΣ", nil, "οδοσ", ""),
+        Case("Rock\u{149}Roll", nil, "rocknroll", ""),
+        Case("Bench\u{1F}Press", nil, "benchpress", ""),
+        Case("Bench\u{85}Press", nil, "bench press", ""),
     ]
 
     @Test(arguments: keyCases)
@@ -198,6 +211,30 @@ struct ExerciseNormalizerTests {
             if direct != stored { differ.append("\(name) · \(equipment ?? "–")") }
         }
         #expect(differ == [])
+    }
+
+    /// `fold(fold(x)) == fold(x)` for every assigned scalar of the BMP and a stride through the rest, alone and
+    /// between letters (the harness checks all 0x10FFFF in three contexts).
+    @Test func foldIsIdempotent() {
+        var codes = Array(0...0xFFFF)
+        codes += Array(stride(from: 0x10000, through: 0x10FFFF, by: 7))
+        codes += Array(0xE0000...0xE01EF)
+        var bad: [String] = []
+        var checked = 0
+        for code in codes {
+            guard let scalar = Unicode.Scalar(UInt32(code)) else { continue }
+            switch scalar.properties.generalCategory {
+            case .unassigned, .surrogate, .privateUse: continue
+            default: break
+            }
+            for text in ["a\(Character(scalar))b", String(Character(scalar))] {
+                checked += 1
+                let once = SourceExerciseKey.fold(text)
+                if SourceExerciseKey.fold(once) != once { bad.append(String(format: "U+%04X", code)) }
+            }
+        }
+        #expect(checked > 100_000)
+        #expect(bad == [])
     }
 
     @Test func storedKeysAreIdempotent() throws {

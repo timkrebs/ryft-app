@@ -307,7 +307,7 @@ struct ExerciseMatcherTests {
         LibraryCase(name: "SZ-Curl", equipment: "Langhantel", accepted: "ez-bar-curl"),
         LibraryCase(name: "Curl", equipment: "EZ Bar", accepted: "ez-bar-curl"),
         LibraryCase(name: "Squat", equipment: "Smith Machine", accepted: "smith-machine-squat"),
-        LibraryCase(name: "Cable Crossover", equipment: "Machine", accepted: "cable-fly"),
+        LibraryCase(name: "Barbell Curl", equipment: "EZ Bar", accepted: "ez-bar-curl"),
         LibraryCase(name: "Assisted Dip", equipment: "Machine", accepted: "assisted-dip"),
         LibraryCase(name: "Deadlift", equipment: "Barbell", accepted: "deadlift"),
         LibraryCase(name: "Curl", equipment: "Barbell", accepted: "barbell-curl"),
@@ -317,6 +317,13 @@ struct ExerciseMatcherTests {
         LibraryCase(name: "Smith Machine Squat", equipment: "Barbell", accepted: nil),
         LibraryCase(name: "Dumbbell Curl", equipment: "Barbell", accepted: nil),
         LibraryCase(name: "Squat", equipment: "Machine", accepted: nil),
+        // A machine exercise is never its cable version, nor the reverse (re-review N1).
+        LibraryCase(name: "Crunch machine", equipment: "Cable", accepted: nil),
+        LibraryCase(name: "Lateral raise machine", equipment: "Cable", accepted: nil),
+        LibraryCase(name: "Glute kickback machine", equipment: "Cable", accepted: nil),
+        LibraryCase(name: "Machine row", equipment: "Cable", accepted: nil),
+        LibraryCase(name: "Cable Crossover", equipment: "Machine", accepted: nil),
+        LibraryCase(name: "Cable Curl", equipment: "Machine", accepted: nil),
     ]
 
     @Test(arguments: libraryCases)

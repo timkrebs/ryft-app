@@ -49,6 +49,7 @@ enum MappingFixture {
             kinds: ["barbell": ["barbell"], "dumbbell": ["dumbbell"], "cable": ["cable"],
                     "machine": ["machine", "cable", "cardio"], "smith_machine": ["machine"],
                     "bodyweight": ["bodyweight"], "band": []],
+            refines: ["smith_machine": "machine"],
             synonyms: synonyms,
             aliases: aliases)
     }

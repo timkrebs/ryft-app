@@ -12,6 +12,9 @@ struct ExerciseAliases: Sendable {
         var equipment: [String: [String]]
         /// Canonical id → the `ExerciseKind`s it allows, the custom-exercise kind first. `[]` allows none.
         var kinds: [String: [String]]
+        /// Equipment id → the broader id it is a kind of (`"trap_bar": "barbell"`). When a file's field and name name
+        /// different equipment, only a refinement wins; anything else is a contradiction. Optional in the file.
+        var refines: [String: String]?
         /// Phrase → replacement, applied before equipment words are taken out.
         var synonyms: [String: String]
         var aliases: [Entry]
@@ -41,10 +44,11 @@ struct ExerciseAliases: Sendable {
         var conflictingKeys = 0
         var missingLanguage = 0
         var invalidSlugs = 0
+        var invalidRefinements = 0
 
         var total: Int {
             unknownEquipment + unknownKinds + missingKinds + emptyPhrases + conflictingPhrases + conflictingKeys
-                + missingLanguage + invalidSlugs
+                + missingLanguage + invalidSlugs + invalidRefinements
         }
     }
 
@@ -128,7 +132,16 @@ struct ExerciseAliases: Sendable {
             }
             kinds[id] = list
         }
-        let normalizer = ExerciseNormalizer(synonyms: synonyms, equipmentPhrases: phrases, kinds: kinds)
+        // Refinements between known equipment only, and never in a cycle of two.
+        var refinements: [String: String] = [:]
+        for (narrow, broad) in (file.refines ?? [:]).sorted(by: { $0.key < $1.key }) {
+            guard narrow != broad, kinds[narrow] != nil, kinds[broad] != nil, file.refines?[broad] != narrow else {
+                issues.invalidRefinements += 1
+                continue
+            }
+            refinements[narrow] = broad
+        }
+        let normalizer = ExerciseNormalizer(synonyms: synonyms, equipmentPhrases: phrases, refinements: refinements)
 
         // Alias names. A key that two slugs claim is dropped: an alias must never be a guess.
         var index: [Key: String] = [:]
@@ -195,7 +208,8 @@ struct ExerciseAliases: Sendable {
         let ids = ExerciseKind.allCases.filter { $0 != .cardio }.map(\.rawValue)
         let pairs = ids.map { ($0, [$0]) }
         return ExerciseAliases(file: File(version: ExerciseAliases.version, equipment: Dictionary(uniqueKeysWithValues: pairs),
-                                          kinds: Dictionary(uniqueKeysWithValues: pairs), synonyms: [:], aliases: []))
+                                          kinds: Dictionary(uniqueKeysWithValues: pairs), refines: nil, synonyms: [:],
+                                          aliases: []))
     }()
 
     static let resourceName = "exercise-aliases"

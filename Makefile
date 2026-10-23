@@ -35,7 +35,7 @@ strings: build
 
 # String catalogs complete in English and German, nothing stale; the bundled tracker catalog current; the GPS
 # fixture tracks match scripts/make-tracks.py; the built-in exercise snapshot matches the platform's seed (only
-# where ../plattform is checked out).
+# where ../plattform is checked out); the import's source-key golden file agrees with an independent fold (ADR 0007).
 lint: check-entitlements
 	python3 scripts/lint-strings.py
 	python3 scripts/check-shared-types.py
@@ -43,6 +43,7 @@ lint: check-entitlements
 	python3 scripts/trackers.py --check
 	python3 scripts/make-tracks.py --check
 	python3 scripts/builtin-exercises.py --check
+	python3 scripts/import-fold-check.py
 
 # The tracker catalog's bundled copy: Content/trackers.json into its generated region at the end of
 # Ryft/Health/HealthKitManager+Status.swift (ADR 0002). Run after editing the JSON.

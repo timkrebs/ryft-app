@@ -8,9 +8,13 @@ private final class GoldenToken {}
 /// exercise's id and every remembered choice, and it is `SourceExerciseKey.fold` of the file's name and of its equipment
 /// field, nothing else: no alias vocabulary, so editing `exercise-aliases.json` never changes a pinned key (a new alias
 /// name only needs pinning, `everyNameIsPinned`). Only a change to `fold` itself does, and that would mean duplicate
-/// custom exercises and forgotten matches for everyone who imported before. `Fixtures/Import/source-keys.golden.json` holds the key of every alias name, built-in name, synthetic-fixture
-/// exercise and equipment spelling (checked against an independent implementation of `fold` when written). If a change
-/// here is intended, it needs an ADR amendment and a migration of stored keys, not a regenerated golden file.
+/// custom exercises and forgotten matches for everyone who imported before.
+///
+/// `Fixtures/Import/source-keys.golden.json` holds the key of every alias name, built-in name, synthetic-fixture exercise
+/// and equipment spelling, and of the rule's tricky clauses (separators, invisible and compatibility characters,
+/// apostrophes, Σ, İ, ẞ). `scripts/import-fold-check.py`, an independent implementation, checks the same file in
+/// `make lint`. If a change here is intended, it needs an ADR amendment and a migration of stored keys, not a
+/// regenerated golden file.
 @Suite("Source exercise key: golden")
 struct SourceExerciseKeyGoldenTests {
     struct Golden: Decodable {
