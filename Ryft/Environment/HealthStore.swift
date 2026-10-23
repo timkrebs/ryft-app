@@ -1,5 +1,6 @@
 import Foundation
 import HealthKit
+import os
 
 /// One anchored stream HealthKit is drained by: a quantity type, sleep or workouts.
 enum HealthStream: Hashable, Sendable {
@@ -42,7 +43,21 @@ struct RawNight: Equatable, Sendable {
     let asleepMin: Int
     let bedtime: Date
     let wake: Date
+    /// As HealthKit names the source ("Connect"); Today shows its display name (`TodayContent.rawNightSource`).
     let source: String
+    /// Its first segment's `sourceBundleId`, for the display name.
+    let bundleID: String?
+
+    init(asleepMin: Int, bedtime: Date, wake: Date, source: String, bundleID: String? = nil) {
+        self.asleepMin = asleepMin
+        self.bedtime = bedtime
+        self.wake = wake
+        self.source = source
+        self.bundleID = bundleID
+    }
+
+    /// The source as the tracker catalog matches it (a night carries no device model).
+    var ref: SourceRef { SourceRef(name: source, bundleID: bundleID, deviceModel: nil) }
 
     /// The source that recorded the most sleep: its asleep stages summed, from its first
     /// segment (in bed included) to its last. `nil` without any sleep.
@@ -52,7 +67,8 @@ struct RawNight: Equatable, Sendable {
             let minutes = list.filter { asleep.contains($0.stage) }
                 .reduce(0.0) { $0 + $1.end.timeIntervalSince($1.start) } / 60
             guard minutes >= 1, let bed = list.map(\.start).min(), let wake = list.map(\.end).max() else { return nil }
-            return RawNight(asleepMin: Int(minutes.rounded()), bedtime: bed, wake: wake, source: source)
+            return RawNight(asleepMin: Int(minutes.rounded()), bedtime: bed, wake: wake, source: source,
+                            bundleID: list.min { $0.start < $1.start }?.sourceBundleId)
         }
         return nights.max { ($0.asleepMin, $0.source) < ($1.asleepMin, $1.source) }
     }
@@ -66,14 +82,59 @@ struct RawNight: Equatable, Sendable {
 
 /// The newest record one source wrote to Apple Health, for "your watch hasn't synced".
 struct SourceFreshness: Equatable, Sendable {
-    /// As HealthKit names it ("Garmin Connect", "Tim's Apple Watch").
+    /// As HealthKit names it ("Connect", "Tim's Apple Watch"); Today shows the display name.
     let source: String
     /// `com.apple.health.…` for an Apple device; the writing app's otherwise.
     let bundleID: String?
     let newest: Date
+    /// The newest sample's device ("Watch", "iPhone"; `SourceRef.deviceModel(model:productType:)`).
+    let deviceModel: String?
+
+    init(source: String, bundleID: String?, newest: Date, deviceModel: String? = nil) {
+        self.source = source
+        self.bundleID = bundleID
+        self.newest = newest
+        self.deviceModel = deviceModel
+    }
+
+    var ref: SourceRef { SourceRef(name: source, bundleID: bundleID, deviceModel: deviceModel) }
 
     /// An app that syncs to Apple Health only while it runs, unlike Apple's own devices.
     var isApp: Bool { !(bundleID ?? "").hasPrefix("com.apple.health") }
+
+    /// This iPhone itself (its sleep schedule writes in-bed time): never the night's evidence.
+    var isPhone: Bool {
+        (bundleID ?? "").lowercased().hasPrefix("com.apple.health.") && deviceModel?.lowercased() == "iphone"
+    }
+
+    /// One entry per source from heart rate's and sleep's: the newer record, and a device model from
+    /// either (the iPhone writes no heart rate, an app may write sleep only).
+    static func newestPerSource(_ lists: [[SourceFreshness]]) -> [SourceFreshness] {
+        var newest: [String: SourceFreshness] = [:]
+        var order: [String] = []
+        for entry in lists.joined() {
+            let key = entry.bundleID ?? "name:" + entry.source
+            guard let current = newest[key] else {
+                newest[key] = entry
+                order.append(key)
+                continue
+            }
+            let later = entry.newest > current.newest ? entry : current
+            newest[key] = SourceFreshness(source: later.source, bundleID: later.bundleID, newest: later.newest,
+                                          deviceModel: later.deviceModel ?? current.deviceModel ?? entry.deviceModel)
+        }
+        return order.compactMap { newest[$0] }
+    }
+}
+
+/// The newest record of one type from one source, for Check sync (design.md §4.1). Never persisted.
+struct SourceSample: Equatable, Sendable {
+    let stream: HealthStream
+    let source: SourceRef
+    /// Its end date.
+    let newest: Date
+    /// Sleep only: that source's newest night holds core, deep or REM (`HealthProbe.newestNightHasStages`).
+    var hasStages: Bool?
 }
 
 /// One page of new records, with the opaque anchor that marks its end. The caller
@@ -132,9 +193,15 @@ protocol HealthStore: AnyObject {
     /// Last night's sleep as Apple Health has it (`RawNight.from`), since 18:00 the evening
     /// before `now`; `nil` without any.
     func lastNight(before now: Date) async throws -> RawNight?
-    /// The newest heart-rate record per source since `since` (sleep when no source wrote
-    /// heart rate): iPhones write no heart rate, so these are the watches and their apps.
+    /// The newest heart-rate or sleep record per source since `since`, whichever is newer, with its
+    /// device: the watches, their apps, and the iPhone's in-bed sleep (`SourceFreshness.isPhone`).
     func newestRecords(since: Date) async throws -> [SourceFreshness]
+    /// Check sync: the newest record per type and source since `since`, RYFT's own records left out. Types RYFT
+    /// may not read come back empty, exactly like types nobody wrote. Called from `HealthProbe`, off the main actor.
+    func newestSamples(of streams: [HealthStream], since: Date) async throws -> [SourceSample]
+    /// The types RYFT sees at least one record of, from any source but RYFT, ever: proof that reading is
+    /// allowed. Absence proves nothing (iOS never says a read is denied).
+    func visibleTypes(_ streams: [HealthStream]) async throws -> Set<HealthStream>
     /// Asks to write workouts (and nothing else) to Apple Health; `true` when allowed.
     func requestWorkoutWriteAccess() async throws -> Bool
     /// Whether RYFT may write workouts (iOS says so for writing, never for reading).
@@ -222,13 +289,18 @@ extension HealthKitManager: HealthStore {
                                             sortDescriptors: [SortDescriptor(\.startDate)])
         let samples = try await query.result(for: store)
         return RawNight.from(samples.compactMap { s in
-            Self.sleepStage(s.value).map { SleepSegment(start: s.startDate, end: s.endDate, stage: $0, source: Self.sourceName(s)) }
+            Self.sleepStage(s.value).map {
+                SleepSegment(start: s.startDate, end: s.endDate, stage: $0, source: Self.sourceName(s), sourceBundleId: Self.sourceBundleID(s))
+            }
         })
     }
 
+    /// Heart rate and sleep per source, the newer of the two: an app that wrote last night's sleep but
+    /// no heart rate since (or the other way round) still counts.
     func newestRecords(since: Date) async throws -> [SourceFreshness] {
         let heartRate = try await newestRecords(of: HKQuantityType(.heartRate), since: since)
-        return heartRate.isEmpty ? try await newestRecords(of: sleepType, since: since) : heartRate
+        let sleep = try await newestRecords(of: sleepType, since: since)
+        return SourceFreshness.newestPerSource([heartRate, sleep])
     }
 
     /// One query for the type's sources, then the newest record of each (a handful).
@@ -249,10 +321,106 @@ extension HealthKitManager: HealthStore {
                 })
             }
             if let latest {
-                newest.append(SourceFreshness(source: source.name, bundleID: source.bundleIdentifier, newest: latest.endDate))
+                let model = SourceRef.deviceModel(model: latest.device?.model, productType: latest.sourceRevision.productType)
+                newest.append(SourceFreshness(source: source.name, bundleID: source.bundleIdentifier, newest: latest.endDate,
+                                              deviceModel: model))
             }
         }
         return newest
+    }
+
+    // MARK: check sync (design.md §4.1, §10: a handful of small queries, never in the background)
+
+    /// Per type (concurrently): one source query, then per source (one after the other) its newest record,
+    /// whose device names an Apple device. For sleep the newest 200 segments, whose newest night says whether
+    /// there are stages. RYFT's own source is skipped: its strength workouts say nothing about a tracker. (By bundle
+    /// ID: `HKSource.default()` raises an exception in an unsigned build.)
+    func newestSamples(of streams: [HealthStream], since: Date) async throws -> [SourceSample] {
+        let store = store
+        let types = streams.compactMap { stream in sampleType(stream).map { (stream, $0) } }
+        return try await withThrowingTaskGroup(of: [SourceSample].self) { group in
+            for (stream, type) in types {
+                group.addTask {
+                    try await Self.newestSamples(store: store, stream: stream, type: type, since: since)
+                }
+            }
+            var all: [SourceSample] = []
+            for try await found in group { all += found }
+            return all
+        }
+    }
+
+    /// One limit-1 query per type, unsorted, any time. RYFT can always read what it wrote, so a record of RYFT's
+    /// own (a strength workout) proves nothing: then the type's sources decide.
+    func visibleTypes(_ streams: [HealthStream]) async throws -> Set<HealthStream> {
+        let store = store
+        let types = streams.compactMap { stream in sampleType(stream).map { (stream, $0) } }
+        return try await withThrowingTaskGroup(of: HealthStream?.self) { group in
+            for (stream, type) in types {
+                group.addTask {
+                    let first = try await Self.samples(store: store, type: type, predicate: nil, limit: 1,
+                                                       newestFirst: false).first
+                    let readable = try await HealthProbe.readable(firstRecordFrom: first?.sourceRevision.source.bundleIdentifier) {
+                        try await Self.sources(store: store, type: type, predicate: nil).map(\.bundleIdentifier)
+                    }
+                    return readable ? stream : nil
+                }
+            }
+            var visible = Set<HealthStream>()
+            for try await stream in group { if let stream { visible.insert(stream) } }
+            return visible
+        }
+    }
+
+    private func sampleType(_ stream: HealthStream) -> HKSampleType? {
+        switch stream {
+        case .quantity(let type): return quantities.first { $0.type == type }?.hkType
+        case .sleep: return sleepType
+        case .workouts: return workoutType
+        }
+    }
+
+    private static func newestSamples(store: HKHealthStore, stream: HealthStream, type: HKSampleType,
+                                      since: Date) async throws -> [SourceSample] {
+        let window = HKQuery.predicateForSamples(withStart: since, end: nil, options: [])
+        var found: [SourceSample] = []
+        for source in try await sources(store: store, type: type, predicate: window)
+        where !HealthProbe.isRYFT(bundleID: source.bundleIdentifier) {
+            let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [window, HKQuery.predicateForObjects(from: source)])
+            let records = try await samples(store: store, type: type, predicate: predicate, limit: stream == .sleep ? 200 : 1)
+            guard let latest = records.first else { continue }
+            MainThread.assertOff("Check sync")
+            let model = SourceRef.deviceModel(model: latest.device?.model, productType: latest.sourceRevision.productType)
+            let ref = SourceRef(name: source.name, bundleID: source.bundleIdentifier.isEmpty ? nil : source.bundleIdentifier,
+                                deviceModel: model)
+            var sample = SourceSample(stream: stream, source: ref, newest: latest.endDate)
+            if stream == .sleep {
+                sample.hasStages = HealthProbe.newestNightHasStages(records.compactMap { record in
+                    guard let segment = record as? HKCategorySample, let stage = sleepStage(segment.value) else { return nil }
+                    return SleepSegment(start: segment.startDate, end: segment.endDate, stage: stage, source: source.name)
+                })
+            }
+            found.append(sample)
+        }
+        return found
+    }
+
+    private static func sources(store: HKHealthStore, type: HKSampleType, predicate: NSPredicate?) async throws -> Set<HKSource> {
+        try await withCheckedThrowingContinuation { continuation in
+            store.execute(HKSourceQuery(sampleType: type, samplePredicate: predicate) { _, sources, error in
+                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: sources ?? []) }
+            })
+        }
+    }
+
+    private static func samples(store: HKHealthStore, type: HKSampleType, predicate: NSPredicate?, limit: Int,
+                                newestFirst: Bool = true) async throws -> [HKSample] {
+        let sort = newestFirst ? [NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)] : nil
+        return try await withCheckedThrowingContinuation { continuation in
+            store.execute(HKSampleQuery(sampleType: type, predicate: predicate, limit: limit, sortDescriptors: sort) { _, samples, error in
+                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: samples ?? []) }
+            })
+        }
     }
 
     func requestWorkoutWriteAccess() async throws -> Bool {
@@ -502,6 +670,44 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
     }
     func newestRecords(since: Date) async throws -> [SourceFreshness] { freshness.filter { $0.newest >= since } }
 
+    /// Check sync: every source's newest record per type as HealthKit would hand them out (RYFT's own
+    /// included: `HealthProbe` drops them), and the types readable at all (`garminLike`).
+    var samples: [SourceSample] {
+        get { locked { _samples } }
+        set { locked { _samples = newValue } }
+    }
+    var visible: Set<HealthStream> {
+        get { locked { _visible } }
+        set { locked { _visible = newValue } }
+    }
+    /// Check sync's reads (`newestSamples`, `visibleTypes`); those on the main thread count in `readsOnMainThread`.
+    var probeReads: Int { locked { _probeReads } }
+    private var _samples: [SourceSample] = []
+    private var _visible: Set<HealthStream> = []
+    private var _probeReads = 0
+
+    func newestSamples(of streams: [HealthStream], since: Date) async throws -> [SourceSample] {
+        let onMain = MainThread.isCurrent
+        return try locked {
+            try probe(onMain: onMain)
+            return _samples.filter { streams.contains($0.stream) && $0.newest >= since }
+        }
+    }
+
+    func visibleTypes(_ streams: [HealthStream]) async throws -> Set<HealthStream> {
+        let onMain = MainThread.isCurrent
+        return try locked {
+            try probe(onMain: onMain)
+            return _visible.intersection(streams)
+        }
+    }
+
+    private func probe(onMain: Bool) throws {
+        _probeReads += 1
+        if onMain { _readsOnMainThread += 1 }
+        if let e = _nextError { _nextError = nil; throw e }
+    }
+
     private func read(_ limit: Int, onMain: Bool) throws {
         if onMain { _readsOnMainThread += 1 }
         _limits.append(limit)
@@ -516,6 +722,73 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
 
     private static func anchor(_ index: Int) -> Data { Data("\(index)".utf8) }
     private static func index(_ anchor: Data) -> Int? { Int(String(decoding: anchor, as: UTF8.self)) }
+}
+
+/// Check sync's reads, off the main actor the way `SyncEngine` runs page reads (design.md §4.1). Only the user
+/// starts it, in the foreground: never at launch, in the background or from a BG task.
+actor HealthProbe {
+    private let health: HealthStore
+
+    init(health: HealthStore) {
+        self.health = health
+    }
+
+    /// The newest record per type and source since `since`, and the types readable at all. RYFT's own records
+    /// are dropped here too, whatever the store returned: they'd pass for an unknown tracker.
+    func run(_ streams: [HealthStream], since: Date) async throws -> (samples: [SourceSample], visible: Set<HealthStream>) {
+        let signposter = Signposts.sync
+        let check = signposter.beginInterval("check", id: signposter.makeSignpostID(), "\(streams.count) types")
+        defer { signposter.endInterval("check", check) }
+        MainThread.assertOff("Check sync")
+        let newest = signposter.beginInterval("check-newest", id: signposter.makeSignpostID())
+        let samples = try await health.newestSamples(of: streams, since: since)
+        signposter.endInterval("check-newest", newest, "\(samples.count) sources")
+        let readable = signposter.beginInterval("check-visible", id: signposter.makeSignpostID())
+        let visible = try await health.visibleTypes(streams)
+        signposter.endInterval("check-visible", readable, "\(visible.count) visible")
+        return (samples.filter { !Self.isRYFT($0.source) }, visible)
+    }
+
+    /// A signal arrived that the catalog says the tracker doesn't share: the catalog is out of date. Ids only.
+    nonisolated static func logDrift(tracker: String, signals: [TrackerSignal]) {
+        guard !signals.isEmpty else { return }
+        log.notice("catalog drift: \(tracker, privacy: .private) shares \(signals.map(\.rawValue).joined(separator: ","), privacy: .public)")
+    }
+
+    /// Whether a type proves that RYFT may read it (design.md §4.5): no record, no; another source's record, yes. RYFT
+    /// can always read what it wrote, so when the first record is RYFT's own, the type's sources decide (asked only
+    /// then).
+    nonisolated static func readable(firstRecordFrom source: String?,
+                                     sources: () async throws -> [String]) async rethrows -> Bool {
+        guard let source else { return false }
+        if !isRYFT(bundleID: source) { return true }
+        return try await sources().contains { !isRYFT(bundleID: $0) }
+    }
+
+    /// Whether one source's newest night holds core, deep or REM: from the segment that ends last, back through every
+    /// segment that ends within 3 h of the night's start so far. An older night with stages doesn't count.
+    nonisolated static func newestNightHasStages(_ segments: [SleepSegment]) -> Bool {
+        let latestFirst = segments.sorted { $0.end > $1.end }
+        guard var start = latestFirst.first?.start else { return false }
+        let staged: Set<SleepStage> = [.core, .deep, .rem]
+        var found = false
+        for segment in latestFirst {
+            guard segment.end >= start.addingTimeInterval(-3 * 3_600) else { break }
+            start = min(start, segment.start)
+            found = found || staged.contains(segment.stage)
+        }
+        return found
+    }
+
+    private static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "check")
+
+    /// RYFT itself (or one of its extensions), by bundle ID.
+    nonisolated static func isRYFT(_ source: SourceRef) -> Bool { isRYFT(bundleID: source.bundleID) }
+
+    nonisolated static func isRYFT(bundleID: String?) -> Bool {
+        guard let id = bundleID?.lowercased(), let own = Bundle.main.bundleIdentifier?.lowercased() else { return false }
+        return id == own || id.hasPrefix(own + ".")
+    }
 }
 
 /// Whether the caller runs on the main thread, from async code too (`Thread.isMainThread`

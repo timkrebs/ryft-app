@@ -42,6 +42,14 @@ Store "What's New".
   device, the last requests, per-area load times and request durations, and the sync status, never
   health values). Saved and sent later when you're offline.
 - From Today's error card, Details → Send to RYFT opens Report a problem with what failed.
+- Tell RYFT what you wear: "What do you wear?" in onboarding and Profile → Data → Devices & sync
+  show, per tracker, what reaches RYFT through Apple Health and what that means for Strain, Sleep,
+  Recovery and Readiness, how to set it up and keep it flowing, and what Apple Health has seen.
+  Ships dark behind the remote flag `devices.setup` until it's turned on.
+- Check sync shows whether your tracker's data arrives in Apple Health, signal by signal over the last 48
+  hours: what arrived and when, what your tracker doesn't share (that's normal), and the fix for what should
+  arrive and doesn't. The check uploads nothing. Report a problem includes the check's result codes when you
+  include diagnostics.
 
 ### Changed
 - Your baseline sleep need and maximum heart rate can be changed where you see them: in
@@ -62,6 +70,9 @@ Store "What's New".
   "Sync last 3 days again" and "Copy diagnostics" for support.
 
 ### Fixed
+- Today names your tracker's app as you know it ("Garmin Connect", not Apple Health's "Connect"). In
+  the morning it says when your night hasn't reached Apple Health yet, with the app to open, instead
+  of "Scoring your latest data"; scoring that takes longer than usual says so, with Details.
 - Refreshing no longer shows an error when one part of your data is briefly unavailable: each
   part loads on its own, short outages are retried quietly, and Today says how old its data is
   ("Showing data from 14:05") only when it stays out of date.

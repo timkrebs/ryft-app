@@ -183,6 +183,50 @@ behind `sleep.planner`.
    - **Proposal:** `GET /v1/sleep/plan?wake=HH:MM&day=YYYY-MM-DD` (the wake's day), and
      optionally `tz=` (IANA) to plan in the phone's time zone.
 
+## Tracker setup (open, 2026-10-22)
+
+From TestFlight feedback on 1.0.0 (`20261021.141128`, the same tester as Refresh resilience §1): "The Baseline counter is
+not moving after 1 day." The tester wears a Garmin. App brief: `CLAUDE_FOLLOWUP_TRACKER_SETUP.md`; platform brief:
+`../plattform/CLAUDE_FOLLOWUP_BASELINE_WITHOUT_HRV.md`. The vendor facts below are from
+`docs/work/2026-10-22-tracker-setup/trackers-research.md`, checked 2026-10-22.
+
+1. **Count baseline nights from resting heart rate, as the platform brief plans. That is enough for Garmin, which does
+   write resting heart rate.** *(Corrected 2026-10-22 after a check on a real iPhone. The first version of this
+   request said Garmin writes none.)*
+   - **What the device shows.** On the user's iPhone 16 Pro (iOS 27.0.1), Apple Health has **daily resting-heart-rate
+     samples from Garmin Connect, stamped 00:00**, plus heart rate, sleep with stages, steps and workouts. There is **no
+     HRV**, no respiration and no SpO₂.
+     - Garmin's FAQ omits resting heart rate from its list
+       (<https://support.garmin.com/en-US/?faq=lK5FPB9iPF5PXFkIpFlFPA>), but the device data beats the FAQ.
+     - So `rhrBase.N` fills for Garmin users and only `lnHRVBase.N` stays 0. The brief's change (baseline nights from
+       resting HR; HRV counted on its own as `hrv_baseline_days`; calibrating only on HRV when there is an HRV source)
+       gets this tester to 7/7.
+   - **Daily samples stamped 00:00.** Garmin's resting HR is one value per calendar day, not a night measurement. Please
+     check that `e.last(… SampleRestingHR, dayStart, dayEnd)` (`compute.go:166`) attributes it to the intended day.
+   - **A fallback, lower priority.** Oura's export list has no HRV and no resting HR
+     (<https://support.ouraring.com/hc/en-us/articles/360025438734-Apple-Health-Integration>; not yet checked on a device).
+     For trackers that really write no resting HR, derive a night's resting HR from heart-rate samples in the main sleep
+     (method chosen by the scoring-scientist, documented in `SCORING.md`), and say so in `recovery_inputs` (e.g.
+     `rhr_source: "tracker" | "derived"`). Apple Watch numbers must not change.
+   - **Also:** build the planned Insights sentence "Recovery uses resting heart rate, sleep and breathing rate" from the
+     actual inputs. Garmin shares no breathing rate.
+2. **`User.trackers: [string]` via `PATCH /v1/me`:** what the user says they wear, the ids from `trackers.json`
+   (`apple_watch`, `garmin`, `oura`, …, `other`, `iphone`), validated against a closed set. Shown in
+   `GET /v1/admin/users` and `beta_report.sh`. The app stores the choice locally until this exists.
+3. **Serve `https://ryftapp.de/trackers.json`** from `web/` (`web/content/trackers/`), cached with an `ETag`. The
+   draft content and its schema are in `docs/work/2026-10-22-tracker-setup/trackers.draft.json` and
+   `trackers-research.md` (en; de follows). Every entry carries `help_url` and `checked`. Optionally render
+   `/setup/<tracker>` pages from the same file. The brand rule applies.
+4. **Supersedes Refresh resilience §2** (`calibrating_reason`) once `hrv_baseline_days` and `recovery_inputs` are in
+   `API.md`.
+
+**Corrections to the evidence commands in the brief (from the debugger, T0):**
+- `scripts/user.sh <id>` prints `with HRV N` (`days_with_hrv_14d`) and the newest record per kind, not
+  `User.sources`. Use `scripts/beta_report.sh` for source kinds.
+- No operator route serves `GET /v1/days` for another user. Use the read-only SQL in
+  `docs/work/2026-10-22-tracker-setup/t0.md`.
+- The kind `hr` also covers resting HR, so the sources alone can't prove resting HR arrives.
+
 ## Refresh resilience (open, 2026-10-21)
 
 From TestFlight feedback on 1.0.0 (`20261021.141128`). The account has about 90 days of history. Today showed
