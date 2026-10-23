@@ -145,3 +145,19 @@ Every ticket gets the localization-editor (en + de) and test-engineer. Reviews p
   - Route points are emitted only while recording.
   - GPX files aren't committed; they're generated on demand.
 
+- **A3a.2, a follow-up PR before A3b (lead, 2026-10-23):** the speed-gate re-init cost (code re-review N2).
+  - **The cost:** counting speed-gate rejections toward the re-init stops sustained multipath (+75 → −18 m). But short
+    3–6-fix ghosts now cost −18 to −27 m. A legitimate stretch above `maxSpeed + 2σ` (a cycling descent above 33 m/s) is
+    recorded as 0 m, silently.
+  - **Fix:** ios-architect designs the guard first:
+    - a shadow filter restored when the next fixes fit it;
+    - a bridge after a chain of speed-gate re-inits, at most `maxSpeed`, which still rejects trains;
+    - a `speedGateReinits` counter and a `.tooFast(since:)` event, so 0 m is never silent;
+    - possibly a higher cycling limit.
+
+    sync-engineer then implements it.
+  - **Accepted trade-offs:**
+    - a U-turn inside the settle window loses up to ~18 m of ~30 m (N4);
+    - about 2.6 m extra per traffic-light stop after a stationary pause (N5).
+- **A3b adds `rebasePedometer(_:)`** (paused only: it moves the baseline and counts nothing), for the restore path's
+  "neither" case (design §3.9). Approved as an addition to the pipeline API.
