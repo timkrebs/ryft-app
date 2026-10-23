@@ -284,3 +284,69 @@ struct BetaMirrorDecodingTests {
         #expect(Set(bare.keys) == ["message", "request_ids"])
     }
 }
+
+// MARK: - API.md 2026-10-22: calibrating_reason, baseline_hrv_days, baseline_rhr_days
+// (Swift Testing; in this file because a new test file needs a project-file entry until RyftTests is synchronized.)
+
+/// Fixtures come from `scripts/contract/extract.py` (the `DailyScore` example and the eight fragments).
+@Suite("Calibrating reason on DailyScore")
+struct CalibratingReasonTests {
+    private func decode(_ json: String) throws -> DailyScore {
+        try APIClient.jsonDecoder.decode(DailyScore.self, from: Data(json.utf8))
+    }
+
+    @Test func exampleRow() throws {
+        let row = try Fixture.decode(DailyScore.self, "daily_score")
+        #expect(row.baselineDays == 30 && row.baselineHrvDays == 30 && row.baselineRhrDays == 30)
+        #expect(!row.calibrating && row.calibratingReason == nil)
+    }
+
+    /// (days, hrv days, rhr days, calibrating, reason), in the order of API.md's eight examples.
+    private static let expected: [(Int, Int, Int, Bool, CalibratingReason?)] = [
+        (3, 3, 5, true, .shortHistory), (0, 0, 0, true, .shortHistory), (0, 0, 24, true, .noHrv),
+        (0, 0, 24, true, .shortHistory), (0, 28, 0, true, .shortHistory), (0, 28, 0, true, .noRhr),
+        (0, 0, 0, true, .noHrv), (12, 12, 19, false, nil),
+    ]
+
+    @Test func allEightExamples() throws {
+        let rows = try Fixture.decode([DailyScore].self, "daily_score_calibrating_reasons")
+        #expect(rows.count == Self.expected.count)
+        for (row, e) in zip(rows, Self.expected) {
+            #expect(row.baselineDays == e.0 && row.baselineHrvDays == e.1 && row.baselineRhrDays == e.2)
+            #expect(row.calibrating == e.3 && row.calibratingReason == e.4)
+        }
+    }
+
+    @Test func unknownReasonDecodesAsNilAndKeepsTheRow() throws {
+        let row = try decode(#"{"day":"2026-10-22","baseline_days":2,"baseline_hrv_days":2,"baseline_rhr_days":2,"calibrating":true,"calibrating_reason":"something_new"}"#)
+        #expect(row.calibratingReason == nil && row.calibrating && row.baselineDays == 2 && row.baselineHrvDays == 2)
+    }
+
+    @Test func absentAndNullFieldsAreUnknown() throws {
+        let legacy = try decode(#"{"day":"2026-10-22","baseline_days":3,"calibrating":true}"#)
+        #expect(legacy.baselineHrvDays == nil && legacy.baselineRhrDays == nil && legacy.calibratingReason == nil)
+        let nulls = try decode(#"{"day":"2026-10-22","baseline_days":0,"baseline_hrv_days":null,"baseline_rhr_days":null,"calibrating":false,"calibrating_reason":null}"#)
+        #expect(nulls.baselineHrvDays == nil && nulls.baselineRhrDays == nil && nulls.calibratingReason == nil)
+    }
+
+    @Test func storageRoundTripKeepsThem() throws {
+        let row = DailyScore(day: "2026-10-22", baselineDays: 0, calibrating: true,
+                             baselineHrvDays: 0, baselineRhrDays: 24, calibratingReason: .noHrv)
+        let back = try #require(WireCoding.decode(DailyScore.self, WireCoding.encode(row)))
+        #expect(back == row && back.calibratingReason == .noHrv && back.baselineRhrDays == 24)
+        for e in try Fixture.decode([DailyScore].self, "daily_score_calibrating_reasons") {
+            let again = try #require(WireCoding.decode(DailyScore.self, WireCoding.encode(e)))
+            #expect(again.calibratingReason == e.calibratingReason && again.baselineHrvDays == e.baselineHrvDays)
+        }
+    }
+
+    @MainActor @Test func readModelRoundTrip() throws {
+        let env = AppEnvironment.test()
+        let repo = Repository(env: env)
+        let score = DailyScore(day: "2026-10-22", readiness: 70, baselineDays: 0, calibrating: true, computedAt: env.clock.now(),
+                               scoringState: .scored, baselineHrvDays: 28, baselineRhrDays: 0, calibratingReason: .noRhr)
+        repo.store(scores: [score])
+        let got = try #require(repo.score("2026-10-22"))
+        #expect(got.calibratingReason == .noRhr && got.baselineHrvDays == 28 && got.baselineRhrDays == 0)
+    }
+}
