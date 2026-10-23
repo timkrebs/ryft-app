@@ -2,7 +2,8 @@ import XCTest
 @testable import Ryft
 
 /// Baselines for the two hot paths that grow with history: decoding a quarter of day
-/// details (Trends, the 90-day backfill) and building one full upload page.
+/// details (Trends, the 90-day backfill) and building one full upload page; and for the
+/// cached reads views decode on the main actor (`DateParsing.canonical`'s reason).
 /// XCTest because XCTMetric has no Swift Testing equivalent; runs in the `Full` test
 /// plan only (nightly), never on pull requests (docs/CI.md → Test plans).
 final class PerformanceTests: XCTestCase {
@@ -30,6 +31,40 @@ final class PerformanceTests: XCTestCase {
                 XCTFail("\(error)")
             }
         }
+    }
+
+    /// The read-model cache's shape: what `Repository` stores (`WireCoding`, `.iso8601`, whole seconds)
+    /// and a view decodes after any write of its kind.
+    private func cached(_ value: some Encodable) throws -> Data {
+        try APIClient.jsonEncoder.encode(value)
+    }
+
+    /// 100 decodes per iteration, so the block is long enough to time.
+    private func measureDecoding<T: Decodable>(_ type: T.Type, from body: Data) {
+        let options = XCTMeasureOptions()
+        options.iterationCount = 10
+        measure(metrics: [XCTClockMetric()], options: options) {
+            do {
+                for _ in 0..<100 {
+                    _ = try APIClient.jsonDecoder.decode(T.self, from: body)
+                }
+            } catch {
+                XCTFail("\(error)")
+            }
+        }
+    }
+
+    /// `Repository.day`: the `GET /v1/days/{day}` fixture as the cache holds it (17 dates).
+    func testDecodingACachedDayDetail() throws {
+        let body = try cached(Fixture.decode(DayDetail.self, "day_detail"))
+        measureDecoding(DayDetail.self, from: body)
+    }
+
+    /// A day's list as the cache holds it: 50 workouts (100 dates).
+    func testDecodingFiftyCachedWorkouts() throws {
+        let workouts = try Fixture.decode([Workout].self, "workouts")
+        let body = try cached((0..<50).map { workouts[$0 % workouts.count] })
+        measureDecoding([Workout].self, from: body)
     }
 
     /// A full page (`HealthKitManager.pageSize`, 20 000 records) as SyncService
