@@ -141,7 +141,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     /// Thrown once by the next call.
     var failNext: Error?
     var syncResponse = SyncResponse(samples: 0, sleep: 0, workouts: 0, daysTouched: [])
-    var remoteConfig = RemoteConfig(flags: [:], evaluatedAt: .now, ttlSec: 21_600,
+    /// Demo data shows the tracker setup (`devices.setup`), which ships dark for accounts.
+    var remoteConfig = RemoteConfig(flags: [FeatureFlag.devicesSetup.rawValue: true], evaluatedAt: .now, ttlSec: 21_600,
                                     privacyPolicyVersion: MockData.policyVersion,
                                     privacyPolicyUrl: "https://ryftapp.de/privacy")
     var prefs = NotificationPrefs.allOn

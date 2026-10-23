@@ -667,9 +667,163 @@ struct DayMarker: View {
     }
 }
 
+/// One signal in Check sync (ui.md §5.2): glyph, name and result, every state with its own symbol and words,
+/// never colour alone. Not tappable. At accessibility sizes the result goes under the name.
+struct CheckRow: View {
+    enum Kind: Equatable {
+        case waiting, checking
+        /// Arrived: the one accent.
+        case ok
+        /// Not shared by the tracker: a neutral fact, never red or amber.
+        case expected
+        /// Not seen yet, or from another tracker: nothing promised.
+        case neutral
+        /// A nightly signal last seen before last night.
+        case late
+        /// Should arrive and doesn't: amber, with the fix under it.
+        case fix
+
+        var symbol: String {
+            switch self {
+            case .waiting: return "circle"
+            case .checking: return "circle.dotted"
+            case .ok: return "checkmark.circle.fill"
+            case .expected: return "minus.circle"
+            case .neutral: return "circle.dashed"
+            case .late: return "clock"
+            case .fix: return "exclamationmark.circle"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .ok: return Theme.accent
+            case .fix: return Theme.warning
+            case .checking, .late: return Theme.textSecondary
+            case .waiting, .expected, .neutral: return Theme.textTertiary
+            }
+        }
+    }
+
+    let name: String
+    let result: String
+    let kind: Kind
+    /// VoiceOver's value ("Arriving, last 07:42"); the result when nil.
+    var spoken: String?
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 20 pt glyphs in a 24 pt column at the default size, growing with the text.
+    @ScaledMetric(relativeTo: .callout) private var glyphSize: CGFloat = 17
+    @ScaledMetric(relativeTo: .callout) private var glyphWidth: CGFloat = 24
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: kind.symbol)
+                .font(.system(size: glyphSize, weight: .regular))
+                .foregroundStyle(kind.color)
+                .frame(width: glyphWidth)
+                // The status line's pulse while checking; static under Reduce Motion ("checking…" says it).
+                .symbolEffect(.pulse, options: .repeating, isActive: kind == .checking && !reduceMotion)
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 2) {
+                    nameText
+                    resultText
+                }
+            } else {
+                nameText
+                Spacer(minLength: 8)
+                resultText.multilineTextAlignment(.trailing)
+            }
+        }
+        .frame(minHeight: 44)
+        .animation(Theme.Motion.respecting(reduceMotion), value: kind)
+        .animation(Theme.Motion.respecting(reduceMotion), value: result)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: name))
+        .accessibilityValue(Text(verbatim: spoken ?? result))
+    }
+
+    private var nameText: some View {
+        Text(verbatim: name)
+            .font(.ryft(.callout))
+            .foregroundStyle(Theme.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var resultText: some View {
+        Text(verbatim: result)
+            .font(.ryft(.callout))
+            .monospacedDigit()
+            .foregroundStyle(Theme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .contentTransition(.opacity)
+    }
+}
+
+extension CheckRow.Kind {
+    /// A check's row: arrived is the one accent, an expected gap neutral, only an unexpected one amber.
+    init(_ check: SignalCheck) {
+        switch check {
+        case .waiting: self = .waiting
+        case .checking: self = .checking
+        case .arrived: self = .ok
+        case .notLastNight: self = .late
+        case .notShared: self = .expected
+        case .notSeenYet, .elsewhere: self = .neutral
+        case .missing: self = .fix
+        }
+    }
+}
+
+#Preview("Check row · states", traits: .sizeThatFitsLayout) {
+    SchemePair { CheckRowPreview() }
+}
+
+#Preview("Check row · de · AX3", traits: .sizeThatFitsLayout) {
+    CheckRowPreview()
+        .padding(20)
+        .frame(width: 390)
+        .background(Theme.background)
+        .environment(\.locale, Locale(identifier: "de_DE"))
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+/// Every kind once, worded in the preview's locale (`TrackerCheckText`).
+private struct CheckRowPreview: View {
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        let text = TrackerCheckText(locale: locale)
+        let now = Date.now
+        let rows: [(TrackerSignal, SignalCheck)] = [
+            (.heartRate, .arrived(now.addingTimeInterval(-1_200))), (.hrv, .notShared), (.sleep, .arrived(now)),
+            (.sleepStages, .notSeenYet), (.restingHR, .missing(visible: true)),
+            (.respiratoryRate, .notLastNight(lastSeen: now.addingTimeInterval(-34 * 3_600))),
+            (.workouts, .checking), (.steps, .waiting),
+        ]
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(rows, id: \.0) { signal, check in
+                CheckRow(name: text.name(signal), result: text.result(check, signal: signal, app: "Garmin Connect", now: now),
+                         kind: CheckRow.Kind(check))
+            }
+        }
+    }
+}
+
 /// Setup card for the unconfigured state.
 struct SetupCard: View {
     var action: () -> Void
+
+    @Environment(\.appEnvironment) private var env
+    @Environment(ScreenModels.self) private var screens: ScreenModels?
+
+    /// With `devices.setup` on, step 1 names the first chosen tracker with an app of its own ("Garmin Connect"),
+    /// or no vendor; off, it reads as it always did.
+    private var app: String? {
+        guard env.flags.isOn(.devicesSetup), let devices = screens?.devices else { return nil }
+        return devices.trackers.compactMap(env.trackerCatalog.tracker).first { $0.integration == .vendorApp }?.appTitle
+    }
 
     var body: some View {
         Card {
@@ -681,9 +835,17 @@ struct SetupCard: View {
                     .font(.ryft(.title))
                     .foregroundStyle(Theme.textPrimary)
                 VStack(alignment: .leading, spacing: 10) {
-                    SetupStep(number: 1, text: "Let Garmin Connect write to Apple Health (Garmin Connect → More → Settings → Apple Health).")
-                    SetupStep(number: 2, text: "Allow RYFT to read Health data when asked.")
-                    SetupStep(number: 3, text: "Check your RYFT server URL in Profile.")
+                    if !env.flags.isOn(.devicesSetup) {
+                        NumberedStep(number: 1, text: "Let Garmin Connect write to Apple Health (Garmin Connect → More → Settings → Apple Health).",
+                                     total: 3)
+                    } else if let app {
+                        NumberedStep(number: 1, verbatim: String(localized: "Let \(app) write to Apple Health. Profile → Devices & sync shows how."),
+                                     total: 3)
+                    } else {
+                        NumberedStep(number: 1, text: "Let your watch or ring app write to Apple Health.", total: 3)
+                    }
+                    NumberedStep(number: 2, text: "Allow RYFT to read Health data when asked.", total: 3)
+                    NumberedStep(number: 3, text: "Check your RYFT server URL in Profile.", total: 3)
                 }
                 Button(action: action) {
                     Text("Open Profile")
@@ -700,9 +862,452 @@ struct SetupCard: View {
     }
 }
 
-private struct SetupStep: View {
+/// One tracker's setup card (ui.md §3): what reaches RYFT and what that means for its features, how to set the
+/// tracker up, how to keep it flowing, and the store button. Catalog text is plain (`Text(verbatim:)`); the only
+/// links are the vendor's allowlisted guide and the App Store page built from digits (ADR 0002).
+struct TrackerSetupCard: View {
+    let tracker: Tracker
+    /// In a list of several (onboarding): the header opens and closes the card.
+    var expanded: Binding<Bool>?
+    /// "Show me again later"; nil: no such button.
+    var later: (() -> Void)?
+    /// Just my iPhone: "Add a tracker".
+    var addTracker: (() -> Void)?
+
+    @Environment(\.locale) private var locale
+    @Environment(\.openURL) private var openURL
+    @Environment(\.appEnvironment) private var env
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var guide: GuidePage?
+
+    /// A guide older than this says its steps may have changed (ui.md C6).
+    static let staleAfterDays = 180
+
+    private var isOpen: Bool { expanded?.wrappedValue ?? true }
+    private var features: RyftFeatures.Line? { RyftFeatures.line(for: tracker) }
+    private var steps: [String] { tracker.setup.value(in: locale) }
+    private var habits: [String] { tracker.habits.value(in: locale) }
+    /// A tracker that writes nothing already says so in the app's own words: its lines about RYFT go.
+    private var limits: [String] {
+        let all = tracker.limits.value(in: locale)
+        return tracker.integration == .none ? all.filter { !$0.contains("RYFT") } : all
+    }
+
+    var body: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 18) {
+                if let expanded {
+                    disclosure(expanded)
+                } else {
+                    header
+                }
+                if isOpen { content }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("tracker.card.\(tracker.id)")
+        .sheet(item: $guide) { SafariView(url: $0.url).ignoresSafeArea() }
+    }
+
+    // MARK: header
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: tracker.symbol)
+                .font(.system(size: 22, weight: .regular))
+                .foregroundStyle(Theme.textSecondary)
+                .accessibilityHidden(true)
+            Text(verbatim: tracker.cardTitle)
+                .font(.ryft(.headline))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+        }
+    }
+
+    /// The collapsed card's row (ui.md §3.1): the whole row toggles, with the one-line verdict.
+    private func disclosure(_ expanded: Binding<Bool>) -> some View {
+        Button {
+            withAnimation(Theme.Motion.respecting(reduceMotion)) { expanded.wrappedValue.toggle() }
+        } label: {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: tracker.symbol)
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(Theme.textSecondary)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: tracker.cardTitle)
+                        .font(.ryft(.headline))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text(verbatim: RyftFeatures.verdict(for: tracker))
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: reduceMotion && expanded.wrappedValue ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.textTertiary)
+                    .rotationEffect(.degrees(!reduceMotion && expanded.wrappedValue ? 180 : 0))
+                    .accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "\(tracker.cardTitle), \(RyftFeatures.verdict(for: tracker))"))
+        .accessibilityValue(expanded.wrappedValue ? Text("Expanded") : Text("Collapsed"))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("tracker.header.\(tracker.id)")
+    }
+
+    // MARK: content
+
+    @ViewBuilder private var content: some View {
+        if let features {
+            Text(verbatim: features.text)
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityLabel(Text(verbatim: features.spoken))
+                .accessibilityIdentifier("tracker.features")
+        }
+        switch tracker.integration {
+        case .none: honestLimit
+        case .unknown: otherTracker
+        case .appleBuiltin, .vendorApp: capabilities
+        }
+        if tracker.integration == .none {
+            // Nothing to set up: only the vendor's own page.
+            if let help = tracker.help { guideRow(help) }
+        } else if !steps.isEmpty || tracker.help != nil {
+            setUp
+        }
+        if !habits.isEmpty { bullets("Keep it flowing", habits) }
+        if !limits.isEmpty { bullets("Good to know", limits) }
+        if tracker.isJustIPhone {
+            Text("You can add a tracker any time. RYFT will show how to connect it.")
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        buttons
+    }
+
+    /// "What reaches RYFT": one row per signal, sleep stages as Sleep's detail.
+    private var capabilities: some View {
+        section("What reaches RYFT") {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(TrackerSignal.rows.enumerated()), id: \.element) { index, signal in
+                    if index > 0 { Divider().overlay(Theme.separator) }
+                    CapabilityRow(title: signal.title, spokenTitle: signal.spoken, state: state(of: signal),
+                                  detail: detail(of: signal))
+                        .accessibilityIdentifier("tracker.capability.\(signal.rawValue)")
+                }
+            }
+        }
+    }
+
+    /// A tracker that writes nothing to Apple Health (ui.md C2): a fact, not a fault, and what stays empty.
+    private var honestLimit: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Theme.textSecondary)
+                    .padding(.top, 1)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 8) {
+                    // Catalog text only ever as an argument, shown verbatim (ADR 0002).
+                    Text(verbatim: String(localized: "RYFT can't read \(tracker.name) data on iPhone today."))
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text(verbatim: String(localized: "\(tracker.name) doesn't write to Apple Health, so nothing it records can reach RYFT. Your iPhone's own step count still does."))
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("tracker.limit")
+            section("What stays empty") {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach([TrackerSignal.heartRate, .hrv, .restingHR, .sleep, .respiratoryRate, .spo2], id: \.self) { signal in
+                        CapabilityRow(title: signal.title, spokenTitle: signal.spoken, state: .notAvailable)
+                        Divider().overlay(Theme.separator)
+                    }
+                    CapabilityRow(title: TrackerSignal.steps.title, state: .partial, word: String(localized: "From your iPhone"))
+                }
+            }
+        }
+    }
+
+    /// "Other" (ui.md C4): no promises, the check shows what arrives.
+    private var otherTracker: some View {
+        Text("RYFT reads whatever your tracker saves to Apple Health. What arrives depends on the tracker, so the check shows exactly what it is.")
+            .font(.ryft(.callout))
+            .foregroundStyle(Theme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// "Set it up": one numbered run, then the vendor's guide and when it was checked.
+    private var setUp: some View {
+        section("Set it up") {
+            VStack(alignment: .leading, spacing: 10) {
+                if let app = tracker.appName, tracker.integration == .vendorApp, !steps.isEmpty {
+                    Text(verbatim: String(localized: "In \(app)"))
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                    NumberedStep(number: index + 1, verbatim: step, total: steps.count)
+                }
+                if let help = tracker.help {
+                    guideRow(help)
+                }
+            }
+        }
+    }
+
+    private func guideRow(_ url: URL) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Button {
+                guide = GuidePage(url: url)
+            } label: {
+                HStack {
+                    guideTitle
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textPrimary)
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.textTertiary)
+                        .accessibilityHidden(true)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(.isLink)
+            .accessibilityValue(checkedText.map { Text(verbatim: $0) } ?? Text(verbatim: ""))
+            .accessibilityIdentifier("tracker.guide")
+            if let checkedText {
+                Text(verbatim: checkedText)
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    /// The page's maker: the vendor's (a tracker app, or one that writes nothing), Apple's for its own devices.
+    private var guideTitle: Text {
+        switch tracker.integration {
+        case .vendorApp, .none: return Text("Vendor guide")
+        case .appleBuiltin: return Text("Apple's guide")
+        case .unknown: return Text("Guide")
+        }
+    }
+
+    /// "Checked 22 Oct 2026", or with "Steps may have changed." once it's older than 180 days.
+    private var checkedText: String? {
+        guard let day = DayFormat.date(from: tracker.checked) else { return nil }
+        let date = day.formatted(.dateTime.day().month(.abbreviated).year().locale(locale))
+        let age = env.clock.now().timeIntervalSince(day)
+        return age > Double(Self.staleAfterDays) * 86_400
+            ? String(localized: "Checked \(date). Steps may have changed.")
+            : String(localized: "Checked \(date)")
+    }
+
+    private func bullets(_ title: LocalizedStringKey, _ items: [String]) -> some View {
+        section(title) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Image(systemName: "circle.fill")
+                            .font(.system(size: 4))
+                            .foregroundStyle(Theme.textTertiary)
+                            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+                            .accessibilityHidden(true)
+                        Text(verbatim: item)
+                            .font(.ryft(.callout))
+                            .foregroundStyle(Theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var buttons: some View {
+        if tracker.integration == .vendorApp, let store = tracker.appStoreURL {
+            // The App Store page, which says "Open" itself when the app is installed: no URL schemes (ADR 0002).
+            PrimaryButton(verbatim: String(localized: "\(tracker.appTitle) in the App Store"), style: .secondary) {
+                openURL(store)
+            }
+            .accessibilityHint(Text("Opens the App Store."))
+            .accessibilityIdentifier("tracker.open")
+        }
+        if let addTracker {
+            PrimaryButton(title: "Add a tracker", style: .secondary) { addTracker() }
+                .accessibilityIdentifier("tracker.add")
+        }
+        if let later {
+            // Not the screen's "Show me again later": this one puts off this tracker only.
+            Button(action: later) { Text(verbatim: String(localized: "Set up \(tracker.cardTitle) later")) }
+                .font(.ryft(.body))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .accessibilityIdentifier("tracker.later")
+        }
+    }
+
+    // MARK: rows
+
+    private func state(of signal: TrackerSignal) -> CapabilityState {
+        let state = CapabilityState(tracker.capabilities[signal] ?? .unverified)
+        // The iPhone alone doesn't "keep" anything from RYFT: those signals aren't there at all.
+        return tracker.isJustIPhone && state == .no ? .notAvailable : state
+    }
+
+    /// The catalog's reason, or for Sleep whether its stages arrive.
+    private func detail(of signal: TrackerSignal) -> String? {
+        if let note = tracker.notes[signal] { return note.value(in: locale) }
+        guard signal == .sleep, let sleep = tracker.capabilities[.sleep], sleep == .yes || sleep == .partial else { return nil }
+        switch tracker.capabilities[.sleepStages] ?? .unverified {
+        case .yes: return String(localized: "With sleep stages")
+        case .partial: return String(localized: "Sleep stages in part")
+        case .no: return String(localized: "No sleep stages")
+        case .unverified: return String(localized: "Sleep stages not confirmed")
+        }
+    }
+
+    /// A hairline, a label (capped at AX3, like `ProfileSection`), then the content.
+    private func section<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Divider().overlay(Theme.separator)
+            Text(title).ryftLabelStyle()
+                .dynamicTypeSize(...DynamicTypeSize.accessibility3)
+                .accessibilityAddTraits(.isHeader)
+            content()
+        }
+    }
+
+    private struct GuidePage: Identifiable {
+        let url: URL
+        var id: String { url.absoluteString }
+    }
+}
+
+extension Tracker {
+    /// The picker's name: the two RYFT itself names are localized ("Just my iPhone", "Other").
+    var title: String {
+        switch id {
+        case TrackerSelectionStore.iPhone: return String(localized: "Just my iPhone")
+        case "other": return String(localized: "Other")
+        default: return name
+        }
+    }
+
+    /// The card's heading: "Other tracker" for Other.
+    var cardTitle: String { integration == .unknown ? String(localized: "Other tracker") : title }
+}
+
+/// Setup cards on the bundled catalog, one canvas per variant.
+private struct TrackerCardsPreview: View {
+    let ids: [String]
+    var checked: String?
+    /// Several cards as onboarding shows them: the first open, the rest collapsed.
+    var collapsible = false
+    @State private var open: String?
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ForEach(ids, id: \.self) { id in
+                let tracker = MockData.tracker(id, checked: checked)
+                TrackerSetupCard(tracker: tracker,
+                                 expanded: collapsible ? Binding(get: { (open ?? ids.first) == id },
+                                                                 set: { open = $0 ? id : nil }) : nil,
+                                 later: tracker.isJustIPhone ? nil : {},
+                                 addTracker: tracker.isJustIPhone ? {} : nil)
+            }
+        }
+        .environment(\.appEnvironment, .preview())
+    }
+}
+
+#Preview("Tracker card · Garmin", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["garmin"]) }
+}
+
+#Preview("Tracker card · Garmin · de · AX3", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["garmin"]) }
+        .environment(\.locale, Locale(identifier: "de"))
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Tracker card · collapsed list", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["garmin", "oura"], collapsible: true) }
+}
+
+#Preview("Tracker card · guide stale", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["garmin"], checked: "2026-03-03") }
+}
+
+#Preview("Tracker card · Fitbit", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["fitbit"]) }
+}
+
+#Preview("Tracker card · Samsung", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["samsung_galaxy_watch"]) }
+}
+
+#Preview("Tracker card · Samsung · de · AX3", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["samsung_galaxy_watch"]) }
+        .environment(\.locale, Locale(identifier: "de"))
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Tracker card · Just my iPhone", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["iphone"]) }
+}
+
+#Preview("Tracker card · Other", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["other"]) }
+}
+
+#Preview("Tracker card · Apple Watch", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["apple_watch"]) }
+}
+
+#Preview("Tracker card · Oura", traits: .sizeThatFitsLayout) {
+    SchemePair { TrackerCardsPreview(ids: ["oura"]) }
+}
+
+/// One step of a numbered run ("1  Open the app's settings."): setup cards and their fixes.
+/// Catalog text goes in verbatim, never as Markdown.
+struct NumberedStep: View {
     let number: Int
-    let text: LocalizedStringKey
+    let text: Text
+    /// VoiceOver says "Step 1 of 4" when the run's length is known.
+    var total: Int?
+    /// The number's circle grows with the text (18 pt at the default size).
+    @ScaledMetric(relativeTo: .caption) private var badge: CGFloat = 18
+
+    init(number: Int, text: LocalizedStringKey, total: Int? = nil) {
+        self.number = number
+        self.text = Text(text)
+        self.total = total
+    }
+
+    init(number: Int, verbatim: String, total: Int? = nil) {
+        self.number = number
+        text = Text(verbatim: verbatim)
+        self.total = total
+    }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -710,13 +1315,15 @@ private struct SetupStep: View {
                 .font(.ryft(.caption))
                 .monospacedDigit()
                 .foregroundStyle(Theme.accent)
-                .frame(width: 18, height: 18)
+                .frame(width: badge, height: badge)
                 .background(Theme.accent.opacity(0.14), in: Circle())
-            Text(text)
+            text
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(total.map { Text("Step \(number) of \($0)") + Text(verbatim: ", ") + text } ?? text)
     }
 }
 

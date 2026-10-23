@@ -19,3 +19,12 @@ A test that times out is **not** retried by `retryOnFailure`; xcodebuild moves o
 on `main` timed out too, and the starved baseline reached 60.7 s. Verdict: runner. #30 raised UISmoke and Full to 180 s.
 
 **How to apply:** before blaming a PR for a red UI smoke, or before calling it "infra", do steps 1–2. See [[integration-branch]].
+
+**Check the device first.** On 2026-10-22 the runner image's final Xcode 27.1 brought an iOS 27.1 runtime with only
+"iPhone Duo". `scripts/ci-simulator.sh` silently picked it, the tabs became a side strip, and UI smoke failed on every
+PR. Look at the xcresult's UI hierarchy (window size) and at the `ci-simulator:` log line (#35 added it) before blaming
+code or timing.
+
+**Timing asserts in unit tests:** 45 ms locally became more than 1 s on a CI runner (2026-10-22, the hostile-catalog test on
+#33). Bound against the algorithmic failure you're guarding (e.g. quadratic → seconds), never against "fast" on this Mac.
+Don't brief implementers with "well under 100 ms".

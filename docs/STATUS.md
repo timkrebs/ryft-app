@@ -1,6 +1,38 @@
-# Status — 2026-10-21
+# Status — 2026-10-22
 
 ## Incidents
+
+### 2026-10-22 — "The Baseline counter is not moving after 1 day" (TestFlight 1.0.0 `20261021.141128`, Garmin tester)
+
+The report: on iPhone17,1 with iOS 27.0.1, at 10:38, Today showed "Learning your baseline — 7 nights to go" and the gauge
+"Baselines 0 / 7" a day after the previous report, with recovery 74 %, sleep 6 h 28 m, "Scoring your latest data", and
+"Nothing new from Connect since Wed 11:24 PM. Open the Connect app to sync it to Apple Health." The tester wears a Garmin and
+has about 90 days of history. Same device and build as 2026-10-21 (`main` at `1eb5192`), before #28.
+
+Causes (debugger, code only; the account's data is still to be read, see the evidence request in `docs/work/2026-10-22-tracker-setup/t0.md`):
+1. **The counter can't move without HRV.** The platform's `baseline_days` is `min(HRV nights, resting-HR nights)` among the
+   30 scored days before (`scoring/compute.go:355`), and `calibrating` is true while either has fewer than 7
+   (`algorithms.go:170`). An account whose sources write no `hrv_sdnn` has 0 HRV nights forever, however much
+   history it has, while recovery and readiness are still computed from the rest. Documented in `API.md` (`baseline_days`).
+   Platform behaviour, not an app bug. Whether Garmin Connect writes HRV to Apple Health is the vendor-facts ticket; the
+   evidence request settles it for this account.
+2. **The app showed that row as a stuck counter.** `1eb5192` shows `baseline_days` as "0 / 7" whenever the day is calibrating.
+   Since #28, main shows the platform's readiness with "Baselines need heart-rate variability and resting heart rate
+   from nights with your watch." for a long history without those nights (`TodayPresentation.decide`, row B), covered by
+   `TodayPresentationTests` (row4B …). The note still says "your watch", which is wrong when the watch simply writes no
+   HRV to Apple Health. → tracker-setup tickets.
+3. **"Connect" is HealthKit's source name.** The stale-source hint prints `HKSource.name` unchanged; the app has the bundle ID
+   (`com.garmin.connect.mobile`) and no display-name table. → tracker-setup tickets.
+4. **"Scoring your latest data" wasn't stuck.** It is the local `awaitingScores` phase: it follows an upload that sent
+   something (the iPhone's steps count), and ends when `/v1/me/sync` stops listing the day, or after 300 s. The hint looks
+   at heart rate only, so both can be true at once. The wording reads as if it were the tracker's data.
+
+Device evidence (2026-10-22 evening, the user's iPhone 16 Pro with iOS 27.0.1 and Garmin Connect, Check sync in a Debug build):
+Apple Health holds heart rate, **daily resting heart rate (00:00)**, sleep with stages, steps and workouts from Garmin
+Connect, and **no HRV**, breathing rate or SpO₂. So cause 1 is HRV alone, and the platform brief's change (baseline nights
+from resting HR, HRV tracked on its own) is enough to unstick Garmin users. Garmin's FAQ omits resting HR; the device beats
+the FAQ (`docs/work/2026-10-22-tracker-setup/review.md` → Device session).
+
 
 ### 2026-10-21 — "Couldn't refresh" and "Baselines 0 of 7" beside a scored day (TestFlight 1.0.0 `20261021.141128`)
 
@@ -26,6 +58,57 @@ Root causes (debugger, tests on `debug/refresh-repro`, cherry-picked into the fi
    `API_REQUESTS.md` → Refresh resilience §1–2.
 4. **"— vs 7 d" wasn't missing data.** It was a flat delta (< 2 %) drawn as a dash. → T2: "Steady vs 7 d".
 5. **The tester couldn't send diagnostics.** `POST /v1/feedback` had no caller. → T3, Profile → Report a problem.
+
+## Tracker setup (`CLAUDE_FOLLOWUP_TRACKER_SETUP.md`): honest names, the night hint, what you wear, Check sync
+
+Plan, design, UI spec, vendor research, review log and the device session: `docs/work/2026-10-22-tracker-setup/`.
+ADR 0002: the tracker catalog, bundled and remote, and untrusted.
+
+| PR | What | Verified |
+| --- | --- | --- |
+| #33 `fix: source names and the night-not-synced state` | the tracker catalog (13 trackers, en + de guides, generated into Swift, a hostile-content validator); "Garmin Connect" instead of "Connect"; "Your night hasn't reached Apple Health yet" instead of "Scoring…"; "Taking longer than usual" only after a fresh status read | **merged** 750c504 · simulator: unit 774+, `TodayStatesUITests`; CI green |
+| #34 `feat: tracker setup and devices & sync` | "What do you wear?" in onboarding, setup cards, Profile → Data → Devices & sync, the remote `trackers.json` (ETag, crash guard, flag off → bundled), the selection per account; Demo data no longer writes demo flags into the real account | **merged** 69e5235 · simulator: unit 835, `DevicesUITests`; device: Devices & sync with real sources |
+| #36 `feat: sync check` | Check sync: newest sample per signal in 48 h from your tracker's sources; "not shared · that's normal" vs "should arrive"; honest permission wording; wired into Devices & sync and the setup step | **merged** 62c445b · simulator: unit 866, UISmoke 20; **device: Garmin "5 of 5", iPhone matched by `HKDevice.model`** |
+| #37 `test: …slow status read is in flight…` | the flaky `PullToRefreshTests` race (a test fake), 6/6 after the fix | CI green |
+| #32 `docs: tracker setup` | this section, Incidents, `API_REQUESTS.md` → Tracker setup, notes | — |
+| #35 `ci: UI tests run on an iPhone 17 Pro…` | the runner's iOS 27.1 runtime only has "iPhone Duo"; the CI script now picks the newest runtime that has the wanted phone | **merged** 58b696c |
+
+**Dark launch:** #34 and #36 sit behind the remote flag `devices.setup` (off). #33's changes are live: names, the night hint
+and slow scoring.
+
+**Device-verified** (the user's iPhone 16 Pro, iOS 27.0.1, Debug build, flag on for one launch only):
+- friendly source names;
+- Garmin Connect's real signals in Check sync;
+- iPhone matching by device model.
+
+**Still open on a device:** Apple Watch matching (no watch available), and the morning night hint (open RYFT before
+Garmin Connect after 08:00).
+
+**Follow-ups:**
+- **T4 `fix: honest calibration and recovery inputs`:** waits for the platform's `hrv_baseline_days` / `recovery_inputs`.
+  Until then the features line says "Readiness needs HRV" for Garmin (`RyftFeatures.baselinesWithoutHRV`, off).
+- **The night window** uses fixed 04:00 / 08:00 / 15:00. It could use the Bedtime & wake time instead.
+- **The SwiftData store is in the App Group container** (`TrainStore.swift:22`, `.automatic`), so the widget can read it. Move it
+  to `groupContainer: .none` with a one-time move (also needed by activities, privacy review S1).
+- **Older onboarding keys** (`firstRunDone`, `aboutYouDone`, `hintSeen`) keep a deleted account's id in defaults.
+- **The catalog crash-guard hashing and marker** run on main after the first frame (a few ms). Move them into one
+  `@concurrent` helper.
+- **RYFT on an iPhone Duo:** the tabs become a side strip. Check the layout and the UI-test queries.
+- **The `.claude/hooks/pre-edit-guard.sh` message** calls `Ryft/` and `RyftTests/` synchronized folders; they're classic
+  groups until the user converts them.
+- **`docs/RELEASING.md`** is referenced by CLAUDE.md and CHANGELOG but doesn't exist.
+- **Two older mentions of the denylisted brand** in this file's earlier sections (the brand guard pattern finds them).
+  The platform already cleaned its internal docs; do the same here.
+
+**Needs the user:**
+1. **The platform session:**
+   - the brief `CLAUDE_FOLLOWUP_BASELINE_WITHOUT_HRV.md` plus `API_REQUESTS.md` → Tracker setup (§1 corrected: Garmin has
+     resting HR);
+   - `User.trackers`;
+   - `trackers.json` on ryftapp.de.
+2. **ryftapp.de/privacy:** problem reports include tracker ids and Check sync result codes; the daily catalog download (no
+   account data); the tracker choice stays on the phone; vendor guides open vendor sites.
+3. **Turn `devices.setup` on** only after the platform deploy, the morning device check, and the TestFlight notes below.
 
 ## Refresh resilience (`CLAUDE_FOLLOWUP_REFRESH_RESILIENCE.md`), stability, no new features
 

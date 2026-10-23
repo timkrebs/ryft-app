@@ -3,6 +3,34 @@
 What the iOS app needs that `../plattform/docs/API.md` does not (yet) provide.
 The platform agent owns the contract; the app never invents fields silently.
 
+## Activities and My Day (open, 2026-10-22)
+
+For `CLAUDE_FOLLOWUP_MY_DAY_ACTIVITIES.md` (app) and `../plattform/CLAUDE_FOLLOWUP_ACTIVITIES.md` (platform). The app builds
+against an in-memory fake until `API.md` → Activities is published, and mirrors it then in its own contract PR. These are
+the questions and additions from the app's design note (`docs/work/2026-10-22-my-day-activities/design.md` §13). The
+first one decides how the app reads My Day.
+
+| # | Request |
+| --- | --- |
+| R1 | **My Day read.** Prefer extending `GET /v1/days/{day}` (additive): `activities: [Activity]` (no route, no `hr_samples`), `merged_with`, and the sleep fields in R11. Today's existing read and refresh paths then carry My Day with no new resource. If `GET /v1/my-day/{day}` is chosen instead, the app needs per item: `type`, `id`, `start`, `end`, `sport` or `activity`, `title`, `distance_m`, `strain`, `scoring_state`, `sources: [{name, bundle_id?}]`, `origin`, and `merged: [{type, id}]`. |
+| R2 | `scoring_state` values for activities (`pending`, `scored`, …) and when `strain_source: none` is final. |
+| R3 | After `PUT /v1/activities/{id}` or `/v1/sleep/manual/{day}`: the response carries `days_touched` and `scoring.expected_within_sec` (as `POST /v1/sync`), and the day is in `GET /v1/me/sync` `pending_days` until rescored. Is the silent push sent for it? |
+| R4 | Route encoding: polyline precision (5 or 6) and max points. The app sends latitude and longitude only (simplified ≥ 3 m), never altitude or timestamps. |
+| R5 | Route segments: `route` as an array of polylines (privacy-zone gaps), or a documented separator. |
+| R6 | `GET /v1/activities/{id}`: `hr` and `zone_min` for the window (like `WorkoutDetail`) when the platform has heart rate, so the detail screen shows the curve for unmerged activities. |
+| R7 | Laps (the lap button) aren't in the contract: local and Apple Health only for now. Add `laps?` if wanted. |
+| R8 | `hr_source` as `{name, bundle_id}` (or a tracker id), so the app shows the catalogue's display name. |
+| R9 | A downsampled `profile?` (t, distance, altitude) for charts on other devices. Otherwise charts come from splits there. |
+| R10 | The sport families of the merge rule, published, so Apple Health's overlap rule (§5) matches. |
+| R11 | `SleepDetail.origin` (`manual` / `tracker`) and its source (`name`, `bundle_id`), for "added by you" and the source badge. The manual sleep's day convention (wake day?), its validation, and tracker-wins behaviour in examples. |
+| R12 | `PUT` semantics: the response body (the stored `Activity`?), `200` vs `201`, conflicts by `client_updated_at`? `DELETE` idempotent (`404` = gone)? |
+| R13 | `hr_samples` size: 1 Hz for 2 h is about 7 200 entries, near the 256 KiB cap. Accept 5 s means (the app's plan), or a compact `{start, interval_sec, bpm: []}`. |
+| R14 | Export: `GET /v1/activities?from&to&include=route` (or the export endpoint) so "Export my data" includes routes without one GET per activity. |
+| R15 | How far back a manual activity may start (the app allows 14 days), and `notes` ≤ 500 counted in characters or bytes. |
+| R16 | `route` and `hr_samples` appear **only** in `GET /v1/activities/{id}` (and R14's export), never in `GET /v1/activities?from&to`, the day detail, `GET /v1/my-day` or `PUT` answers. |
+| R17 | A final `401` for an account deleted on the web carries a distinct `code` (e.g. `account_deleted`), so the app deletes parked activities at once instead of after 30 days (§8.4). |
+| — | Naming only: API.md `Activity` is `SportActivity` in the app (ActivityKit owns `Activity`). |
+
 ## Train (open, 2026-10-19)
 
 The app now mirrors `API.md` → Train and its Swift block. Two divergences are
@@ -154,6 +182,50 @@ behind `sleep.planner`.
    answer is for another time zone and the app shows no plan.
    - **Proposal:** `GET /v1/sleep/plan?wake=HH:MM&day=YYYY-MM-DD` (the wake's day), and
      optionally `tz=` (IANA) to plan in the phone's time zone.
+
+## Tracker setup (open, 2026-10-22)
+
+From TestFlight feedback on 1.0.0 (`20261021.141128`, the same tester as Refresh resilience §1): "The Baseline counter is
+not moving after 1 day." The tester wears a Garmin. App brief: `CLAUDE_FOLLOWUP_TRACKER_SETUP.md`; platform brief:
+`../plattform/CLAUDE_FOLLOWUP_BASELINE_WITHOUT_HRV.md`. The vendor facts below are from
+`docs/work/2026-10-22-tracker-setup/trackers-research.md`, checked 2026-10-22.
+
+1. **Count baseline nights from resting heart rate, as the platform brief plans. That is enough for Garmin, which does
+   write resting heart rate.** *(Corrected 2026-10-22 after a check on a real iPhone. The first version of this
+   request said Garmin writes none.)*
+   - **What the device shows.** On the user's iPhone 16 Pro (iOS 27.0.1), Apple Health has **daily resting-heart-rate
+     samples from Garmin Connect, stamped 00:00**, plus heart rate, sleep with stages, steps and workouts. There is **no
+     HRV**, no respiration and no SpO₂.
+     - Garmin's FAQ omits resting heart rate from its list
+       (<https://support.garmin.com/en-US/?faq=lK5FPB9iPF5PXFkIpFlFPA>), but the device data beats the FAQ.
+     - So `rhrBase.N` fills for Garmin users and only `lnHRVBase.N` stays 0. The brief's change (baseline nights from
+       resting HR; HRV counted on its own as `hrv_baseline_days`; calibrating only on HRV when there is an HRV source)
+       gets this tester to 7/7.
+   - **Daily samples stamped 00:00.** Garmin's resting HR is one value per calendar day, not a night measurement. Please
+     check that `e.last(… SampleRestingHR, dayStart, dayEnd)` (`compute.go:166`) attributes it to the intended day.
+   - **A fallback, lower priority.** Oura's export list has no HRV and no resting HR
+     (<https://support.ouraring.com/hc/en-us/articles/360025438734-Apple-Health-Integration>; not yet checked on a device).
+     For trackers that really write no resting HR, derive a night's resting HR from heart-rate samples in the main sleep
+     (method chosen by the scoring-scientist, documented in `SCORING.md`), and say so in `recovery_inputs` (e.g.
+     `rhr_source: "tracker" | "derived"`). Apple Watch numbers must not change.
+   - **Also:** build the planned Insights sentence "Recovery uses resting heart rate, sleep and breathing rate" from the
+     actual inputs. Garmin shares no breathing rate.
+2. **`User.trackers: [string]` via `PATCH /v1/me`:** what the user says they wear, the ids from `trackers.json`
+   (`apple_watch`, `garmin`, `oura`, …, `other`, `iphone`), validated against a closed set. Shown in
+   `GET /v1/admin/users` and `beta_report.sh`. The app stores the choice locally until this exists.
+3. **Serve `https://ryftapp.de/trackers.json`** from `web/` (`web/content/trackers/`), cached with an `ETag`. The
+   draft content and its schema are in `docs/work/2026-10-22-tracker-setup/trackers.draft.json` and
+   `trackers-research.md` (en; de follows). Every entry carries `help_url` and `checked`. Optionally render
+   `/setup/<tracker>` pages from the same file. The brand rule applies.
+4. **Supersedes Refresh resilience §2** (`calibrating_reason`) once `hrv_baseline_days` and `recovery_inputs` are in
+   `API.md`.
+
+**Corrections to the evidence commands in the brief (from the debugger, T0):**
+- `scripts/user.sh <id>` prints `with HRV N` (`days_with_hrv_14d`) and the newest record per kind, not
+  `User.sources`. Use `scripts/beta_report.sh` for source kinds.
+- No operator route serves `GET /v1/days` for another user. Use the read-only SQL in
+  `docs/work/2026-10-22-tracker-setup/t0.md`.
+- The kind `hr` also covers resting HR, so the sources alone can't prove resting HR arrives.
 
 ## Refresh resilience (open, 2026-10-21)
 

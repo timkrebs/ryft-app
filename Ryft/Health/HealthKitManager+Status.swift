@@ -266,8 +266,8 @@ enum CatalogError: Error, Equatable {
 }
 
 extension AppEnvironment {
-    /// The catalog every screen reads. T1: `.bundled`. T2 replaces the body with `catalogStore.current`.
-    var trackerCatalog: TrackerCatalog { .bundled }
+    /// The catalog every screen reads: the bundled copy, or the newest valid one from ryftapp.de.
+    var trackerCatalog: TrackerCatalog { catalogStore.current }
 }
 
 /// JSON as it came, its types kept (a bool is no number), so every rule can name the exact path.
