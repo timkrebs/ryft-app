@@ -34,21 +34,36 @@ struct ImportIDsTests {
             == "94f03e81-1189-5884-9f8e-40e2453fb53c")
     }
 
-    /// The same spelling, any spelling of the same key, again and again: one id. Accounts, sources and equipment
-    /// keep them apart.
+    /// The same name, in any case, spacing or punctuation, with the same equipment: one id, again and again.
+    /// Accounts, sources and equipment keep ids apart, and so does a different wording (the key is the file's name,
+    /// not the matcher's reading of it).
     @Test func derivedIDsAreStable() {
         let normalizer = ExerciseAliases.bundled.normalizer
-        let a = normalizer.key(name: "Bench Press", equipment: "Barbell")
-        let b = normalizer.key(name: "bench-press", equipment: "Langhantel")
-        let c = normalizer.key(name: "Press, Bench (Barbell)", equipment: nil)
-        let id = ImportCustomExercise.id(account: "demo", source: .alphaProgression, key: a)
-        #expect(ImportCustomExercise.id(account: "demo", source: .alphaProgression, key: b) == id)
-        #expect(ImportCustomExercise.id(account: "demo", source: .alphaProgression, key: c) == id)
-        #expect(ImportCustomExercise.id(account: "demo", source: .alphaProgression, key: a) == id)
-        #expect(ImportCustomExercise.id(account: "other", source: .alphaProgression, key: a) != id)
-        #expect(ImportCustomExercise.id(account: "demo", source: ImportFormatID(rawValue: "other_app"), key: a) != id)
-        let dumbbell = normalizer.key(name: "Bench Press", equipment: "Dumbbell")
-        #expect(ImportCustomExercise.id(account: "demo", source: .alphaProgression, key: dumbbell) != id)
+        func id(_ name: String, _ equipment: String?, account: String = "demo", source: ImportFormatID = .alphaProgression) -> UUID {
+            ImportCustomExercise.id(account: account, source: source, key: normalizer.key(name: name, equipment: equipment))
+        }
+        let bench = id("Bench Press", "Barbell")
+        #expect(id("bench-press", "Langhantel") == bench)
+        #expect(id("  BENCH  PRESS ", "barbell") == bench)
+        #expect(id("Bench Press", "Barbell") == bench)
+        #expect(id("Bench Press", "Barbell", account: "other") != bench)
+        #expect(id("Bench Press", "Barbell", source: ImportFormatID(rawValue: "other_app")) != bench)
+        #expect(id("Bench Press", "Dumbbell") != bench)
+        #expect(id("Press, Bench", "Barbell") != bench)
+        #expect(id("Bench Presses", "Barbell") != bench)
+    }
+
+    /// Editing the alias vocabulary (synonyms, plurals, alias names) never moves an id: a file's custom exercises and
+    /// remembered choices stay found after an app update.
+    @Test func idsDontDependOnTheVocabulary() throws {
+        let bare = ExerciseAliases.fallback.normalizer
+        let full = ExerciseAliases.bundled.normalizer
+        for (name, equipment) in try ExerciseNormalizerTests.fixturePairs() {
+            let a = ImportCustomExercise.id(account: "demo", source: .alphaProgression, key: bare.key(name: name, equipment: equipment))
+            let b = ImportCustomExercise.id(account: "demo", source: .alphaProgression, key: full.key(name: name, equipment: equipment))
+            // Only equipment the bare vocabulary doesn't know (its words are the kinds' own names) may differ.
+            if full.equipmentField(equipment) == bare.equipmentField(equipment) { #expect(a == b, "\(name)") }
+        }
     }
 
     @Test func version5AndVariant() {

@@ -33,7 +33,10 @@ struct ImportedExerciseSourceTests {
     @Test func oneRowPerKeyInFirstSeenOrder() throws {
         let bundle = try ImportFixture.parse(text: Self.text)
         let sources = normalizer.sources(in: bundle)
-        #expect(sources.map(\.key.name) == ["bench press", "dip", "pull up"])
+        // "bench press · Langhantel" is "Bench Press · Barbell" again: one row.
+        #expect(sources.map(\.key) == [SourceExerciseKey(name: "bench press", equipment: "barbell"),
+                                        SourceExerciseKey(name: "dips", equipment: "bodyweight"),
+                                        SourceExerciseKey(name: "assisted pull up", equipment: "machine")])
         // The first spelling, as written.
         #expect(sources.first?.name == "Bench Press")
         #expect(sources.first?.equipment == "Barbell")
@@ -44,12 +47,12 @@ struct ImportedExerciseSourceTests {
     @Test func plusLoadsAndAssistance() throws {
         let bundle = try ImportFixture.parse(text: Self.text)
         let sources = normalizer.sources(in: bundle)
-        let dips = try #require(sources.first { $0.key.name == "dip" })
+        let dips = try #require(sources.first { $0.key.name == "dips" })
         #expect(dips.plusLoads == PlusLoadSummary(kilograms: [80, 82, 80]))
         #expect(dips.plusLoads?.mostCommonKg == 80)
         #expect(dips.plusLoads?.isUniform == false)
         #expect(!dips.hasAssistedSets)
-        let pullUp = try #require(sources.first { $0.key.name == "pull up" })
+        let pullUp = try #require(sources.first { $0.key.name == "assisted pull up" })
         #expect(pullUp.hasAssistedSets)
         #expect(pullUp.plusLoads == nil)
     }

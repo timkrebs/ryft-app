@@ -86,9 +86,8 @@ struct ExerciseAliasesTests {
         var owners: [ExerciseAliases.Key: Set<String>] = [:]
         for entry in file.aliases {
             for name in (entry.en ?? []) + (entry.de ?? []) {
-                let parsed = normalizer.analyse(name)
-                let key = ExerciseAliases.Key(name: ExerciseNormalizer.joined(parsed.tokens),
-                                              equipment: entry.equipment ?? parsed.equipment)
+                let match = normalizer.matchKey(name: name, equipment: entry.equipment)
+                let key = ExerciseAliases.Key(name: match.name, equipment: match.equipment.isEmpty ? nil : match.equipment)
                 owners[key, default: []].insert(entry.slug)
             }
         }
@@ -122,12 +121,47 @@ struct ExerciseAliasesTests {
         let library = try MappingFixture.builtins()
         for exercise in library {
             for name in Set([exercise.nameEn, exercise.nameDe]) {
-                let key = normalizer.key(name: name, equipment: nil)
+                let key = normalizer.matchKey(name: name, equipment: nil)
                 owners["\(key.name)|\(key.equipment)|\(exercise.kind.rawValue)", default: []].insert(exercise.slug)
             }
         }
         let shared = owners.filter { $0.value.count > 1 }.map(\.key)
         #expect(shared == [])
+    }
+
+    /// Every built-in name with every equipment id, and with none: the exact and alias tiers never have two built-ins
+    /// to choose between, so a tie-break never decides which built-in a file's exercise becomes.
+    @Test func neverTwoBuiltInsInOneTier() throws {
+        let aliases = ExerciseAliases.bundled
+        let library = try MappingFixture.builtins()
+        let matcher = ExerciseMatcher(library: library, aliases: aliases, remembered: [:])
+        var equipment: [String?] = aliases.kinds.keys.sorted().map { Optional($0) }
+        equipment.append(nil)
+        var doubles: [String] = []
+        var pairs = 0
+        for exercise in library {
+            for name in Set([exercise.nameEn, exercise.nameDe]).sorted() {
+                for field in equipment {
+                    let key = aliases.normalizer.matchKey(name: name, equipment: field)
+                    pairs += 1
+                    let exact = matcher.exactCandidates(key).count, alias = matcher.aliasCandidates(key).count
+                    if exact > 1 || alias > 1 { doubles.append("\(name) · \(field ?? "–")") }
+                }
+            }
+        }
+        #expect(pairs > 3_000)
+        #expect(doubles == [])
+    }
+
+    /// The snapshot's ids are the platform's: uuid5(the platform's namespace, "exercise:<slug>")
+    /// (`backend/internal/train/train.go`). `scripts/builtin-exercises.py` checks the rest against the seed.
+    @Test func builtInIDsAreThePlatforms() throws {
+        let namespace = try #require(UUID(uuidString: "1c7e3b9a-5d2f-4e8b-9a61-3f0d2c4b7e15"))
+        let library = try MappingFixture.builtins()
+        let wrong = library.filter { $0.id != ImportIDs.v5(namespace: namespace, name: "exercise:\($0.slug)") }.map(\.slug)
+        #expect(library.count == 173)
+        #expect(wrong == [])
+        #expect(library.first { $0.slug == "back-squat" }?.id.uuidString.lowercased() == "053b5627-084e-5417-a033-a6602d812f86")
     }
 
     // MARK: Validation and fallback

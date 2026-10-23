@@ -145,10 +145,28 @@ struct ImportMappingStoreTests {
         #expect(match.exerciseID == Self.exerciseB)
     }
 
-    /// The app's store: demo mode is its own account.
+    /// The app's store: the signed-in account, or demo mode's own.
     @Test func environmentAccount() {
         let env = AppEnvironment.test()
         let mappings = ImportMappingStore(env: env)
         #expect(mappings.account == env.auth.accountID)
+        #expect(mappings.account != nil)
+        let demo = AppEnvironment.preview()
+        #expect(demo.isDemo)
+        #expect(ImportMappingStore(env: demo).account == ImportMappingStore.demoAccount)
+    }
+
+    @Test func forgetDemoKeepsOtherAccounts() {
+        let demo = ImportMappingStore(persistence: persistence) { ImportMappingStore.demoAccount }
+        demo.remember([Self.bench: RememberedMatch(exerciseID: Self.exerciseA, bodyweight: nil)],
+                      source: .alphaProgression, account: ImportMappingStore.demoAccount, at: date)
+        store.remember([Self.dips: RememberedMatch(exerciseID: Self.exerciseB, bodyweight: nil)],
+                       source: .alphaProgression, account: "account-a", at: date)
+        ImportMappingStore.forgetDemo(in: persistence)
+        #expect(!demo.hasEntries)
+        #expect(store.remembered(source: .alphaProgression)[Self.dips]?.exerciseID == Self.exerciseB)
+        // Nothing to forget: nothing happens.
+        ImportMappingStore.forgetDemo(in: persistence)
+        #expect(store.hasEntries)
     }
 }

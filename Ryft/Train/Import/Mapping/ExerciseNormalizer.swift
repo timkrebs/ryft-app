@@ -1,19 +1,78 @@
 import Foundation
 
-/// What a source exercise is matched and remembered by (design §4), and part of the derived custom-exercise id
-/// (ADR 0007): never change how it is built once it has shipped.
+/// What a source exercise is **remembered and derived** by (design §4, ADR 0007): the custom-exercise id and the
+/// `ImportMapping` row both come from it. It is frozen and doesn't depend on the alias vocabulary's synonyms, plurals
+/// or stop words, so editing `exercise-aliases.json` never changes an id. **Changing `SourceExerciseKey.fold` or the
+/// equipment rule below is a breaking id change** (every earlier import's custom exercises and remembered choices
+/// would no longer be found); `SourceExerciseKeyGoldenTests` pins both.
 ///
-/// - `name`: the name's tokens without equipment words, sorted and unique, joined by a space.
-/// - `equipment`: a canonical id from the alias file (`barbell`, `ez_bar`, …); the normalised text when the file names
-///   equipment RYFT doesn't know; "" when it names none.
+/// - `name`: `fold(name)`, the name as the file wrote it.
+/// - `equipment`: the canonical id (`barbell`, `ez_bar`, …) when the file's equipment field names known equipment,
+///   else `fold(field)`; "" without a field.
 struct SourceExerciseKey: Hashable, Codable, Sendable {
     let name: String
     let equipment: String
+
+    /// The frozen text rule, in this order:
+    /// 1. on the raw scalars: whitespace becomes a space; controls, format characters (Cc, Cf) and default-ignorable
+    ///    scalars (soft hyphen, zero-width and bidi marks, BOM, variation selectors) and apostrophes
+    ///    (`' ‘ ’ ‛ ʹ ʻ ʼ ʽ ´ ′ ` ＇`) are dropped;
+    /// 2. NFKC;
+    /// 3. lowercase (Unicode default mapping, no locale);
+    /// 4. every character that isn't a letter, mark or digit becomes a space; runs of spaces collapse; trimmed.
+    static func fold(_ text: String) -> String {
+        var cleaned = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            if scalar.properties.isWhitespace {
+                cleaned.append(" ")
+            } else if !isDropped(scalar) {
+                cleaned.append(scalar)
+            }
+        }
+        let lowered = String(cleaned).precomposedStringWithCompatibilityMapping.lowercased()
+        var out = String.UnicodeScalarView()
+        var pendingSpace = false
+        for scalar in lowered.unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) {
+                if pendingSpace, !out.isEmpty { out.append(" ") }
+                pendingSpace = false
+                out.append(scalar)
+            } else if !isDropped(scalar) {
+                pendingSpace = true
+            }
+        }
+        return String(out)
+    }
+
+    /// Dropped without a trace (step 1; again after NFKC, which can produce some).
+    static func isDropped(_ scalar: Unicode.Scalar) -> Bool {
+        if apostrophes.contains(scalar) { return true }
+        switch scalar.properties.generalCategory {
+        case .control, .format: return true
+        default: return scalar.properties.isDefaultIgnorableCodePoint
+        }
+    }
+
+    static let apostrophes: Set<Unicode.Scalar> = [
+        "'", "`", "\u{00B4}", "\u{02B9}", "\u{02BB}", "\u{02BC}", "\u{02BD}", "\u{2018}", "\u{2019}", "\u{201B}",
+        "\u{2032}", "\u{FF07}",
+    ]
+
+    /// The name for display when the file's own can't be used (`ImportCustomExercise.name`): words capitalised.
+    var displayName: String { name.capitalized(with: Locale(identifier: "en_US_POSIX")) }
 }
 
-/// One normalisation for source names, library names and aliases (design §4): fold the text, split it into words,
-/// drop stop words, make English plurals singular, apply the alias file's synonyms, then take equipment words out of
-/// the name. Pure and deterministic.
+/// The key the matcher compares (design §4), never stored: the vocabulary may change it at any time.
+struct MatchKey: Hashable, Sendable {
+    /// The name's tokens without equipment words, sorted and unique, joined by a space.
+    let name: String
+    /// A canonical equipment id, the normalised text of equipment RYFT doesn't know, or "".
+    let equipment: String
+}
+
+/// Normalisation for matching (design §4): the frozen fold of `SourceExerciseKey`, then diacritics folded, `ß` → `ss`,
+/// stop words dropped, English plurals made singular, the alias file's synonyms applied and equipment words taken out
+/// of the name. Matching a raw name and matching its `SourceExerciseKey` give the same result. Pure, deterministic.
 struct ExerciseNormalizer: Sendable {
     /// Token sequences to their replacements, both already through `baseTokens`.
     private let synonyms: [[String]: [String]]
@@ -21,15 +80,18 @@ struct ExerciseNormalizer: Sendable {
     /// Equipment phrases (after synonyms) to a canonical id.
     private let equipmentPhrases: [[String]: String]
     private let longestEquipmentPhrase: Int
+    /// Equipment id → the library kinds it allows, to tell the more specific of two (`matchKey`).
+    private let kinds: [String: Set<ExerciseKind>]
     /// The canonical ids, for telling known equipment from free text.
     let equipmentIDs: Set<String>
 
-    /// Names longer than this are cut. No exercise name needs more words, and it bounds every loop.
+    /// Names longer than this are cut for matching. No exercise name needs more words, and it bounds every loop.
     static let maxTokens = 32
 
-    init(synonyms: [[String]: [String]], equipmentPhrases: [[String]: String]) {
+    init(synonyms: [[String]: [String]], equipmentPhrases: [[String]: String], kinds: [String: [ExerciseKind]] = [:]) {
         self.synonyms = synonyms
         self.equipmentPhrases = equipmentPhrases
+        self.kinds = kinds.mapValues(Set.init)
         longestSynonym = synonyms.keys.map(\.count).max() ?? 0
         longestEquipmentPhrase = equipmentPhrases.keys.map(\.count).max() ?? 0
         equipmentIDs = Set(equipmentPhrases.values)
@@ -37,16 +99,43 @@ struct ExerciseNormalizer: Sendable {
 
     // MARK: Keys
 
-    /// The key of a name and an equipment field as a file writes them. Known equipment in the field wins, then known
-    /// equipment named in the name ("Dumbbell Curl"), then the field's unknown text.
+    /// The frozen key of a name and an equipment field as a file writes them (`SourceExerciseKey`). The vocabulary
+    /// only decides whether the field names known equipment.
     func key(name: String, equipment: String?) -> SourceExerciseKey {
-        let parsed = analyse(name)
-        let resolved = switch equipmentField(equipment) {
-        case let .known(id): id
-        case let .unknown(text): parsed.equipment ?? text
-        case .none: parsed.equipment ?? ""
+        let field: String
+        switch equipmentField(equipment) {
+        case let .known(id): field = id
+        case .unknown, .none: field = SourceExerciseKey.fold(equipment ?? "")
         }
-        return SourceExerciseKey(name: Self.joined(parsed.tokens), equipment: resolved)
+        return SourceExerciseKey(name: SourceExerciseKey.fold(name), equipment: field)
+    }
+
+    /// The match key of a stored key: the same as for the raw name and field it came from.
+    func matchKey(_ key: SourceExerciseKey) -> MatchKey {
+        matchKey(name: key.name, equipment: key.equipment.isEmpty ? nil : key.equipment)
+    }
+
+    /// Equipment for matching, from the field and the words of the name:
+    /// - both name known equipment and they differ: the more specific (`isMoreSpecific`: "Trap Bar Deadlift · Barbell"
+    ///   is trap bar, "Cable Crossover · Machine" is cable); when neither is, the field's, and the name keeps its
+    ///   equipment words, so a contradiction ("Dumbbell Curl · Barbell") never matches exactly;
+    /// - otherwise known equipment in the field, then in the name, then the field's unknown text.
+    func matchKey(name: String, equipment: String?) -> MatchKey {
+        let tokens = applySynonyms(Self.baseTokens(name))
+        let (rest, found) = extractEquipment(tokens)
+        let inName = found.first
+        let stripped = Self.sortedUnique(rest.isEmpty ? tokens : rest)
+        switch equipmentField(equipment) {
+        case let .known(field):
+            guard let inName, inName != field else { return MatchKey(name: Self.joined(stripped), equipment: field) }
+            if isMoreSpecific(inName, than: field) { return MatchKey(name: Self.joined(stripped), equipment: inName) }
+            if isMoreSpecific(field, than: inName) { return MatchKey(name: Self.joined(stripped), equipment: field) }
+            return MatchKey(name: Self.joined(Self.sortedUnique(tokens)), equipment: field)
+        case let .unknown(text):
+            return MatchKey(name: Self.joined(stripped), equipment: inName ?? text)
+        case .none:
+            return MatchKey(name: Self.joined(stripped), equipment: inName ?? "")
+        }
     }
 
     /// A name's tokens without equipment words (sorted, unique) and the first equipment it names. A name made only of
@@ -72,36 +161,30 @@ struct ExerciseNormalizer: Sendable {
         return .unknown(Self.joined(Self.sortedUnique(tokens)))
     }
 
-    /// `key.equipment` is one of the alias file's ids (so the equipment filter applies).
+    /// `equipment` is one of the alias file's ids (so the equipment filter applies).
     func isKnown(equipment: String) -> Bool { equipmentIDs.contains(equipment) }
+
+    /// `a` names a narrower kind of equipment than `b`: it allows fewer library kinds (Smith machine or cable within
+    /// machine), or the same ones while `b` is a kind's own name (trap bar or EZ bar within barbell).
+    func isMoreSpecific(_ a: String, than b: String) -> Bool {
+        guard let small = kinds[a], let large = kinds[b] else { return false }
+        if small != large { return small.isSubset(of: large) }
+        return ExerciseKind(rawValue: a) == nil && ExerciseKind(rawValue: b) != nil
+    }
 
     // MARK: Steps
 
-    /// NFKC, case and diacritics folded, `ß` → `ss`.
+    /// `SourceExerciseKey.fold`, then diacritics folded and `ß` → `ss`.
     static func fold(_ text: String) -> String {
-        text.precomposedStringWithCompatibilityMapping
+        SourceExerciseKey.fold(text)
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
             .replacingOccurrences(of: "ß", with: "ss")
             .lowercased()
     }
 
-    /// Folded words: apostrophes are dropped ("Farmer's" → "farmers"), every other character that isn't a letter or
-    /// a digit separates words (`-`, `/`, `·`, brackets, `&`, `+`, …).
+    /// Folded words, at most `maxTokens`.
     static func words(_ text: String) -> [String] {
-        var words: [String] = []
-        var current = String.UnicodeScalarView()
-        for scalar in fold(text).unicodeScalars {
-            if apostrophes.contains(scalar) { continue }
-            if CharacterSet.alphanumerics.contains(scalar) {
-                current.append(scalar)
-            } else if !current.isEmpty {
-                words.append(String(current))
-                current = String.UnicodeScalarView()
-                if words.count >= maxTokens { return words }
-            }
-        }
-        if !current.isEmpty { words.append(String(current)) }
-        return words
+        Array(fold(text).split(separator: " ").prefix(maxTokens).map(String.init))
     }
 
     /// Words without stop words, plurals made singular. Synonyms and equipment come after.
@@ -125,8 +208,6 @@ struct ExerciseNormalizer: Sendable {
         "with", "the", "a", "an", "on", "of", "and",
         "mit", "am", "an", "der", "die", "das", "und", "im", "zum",
     ])
-
-    private static let apostrophes: Set<Unicode.Scalar> = ["'", "\u{2019}", "\u{2018}", "`", "\u{00B4}", "\u{02BC}"]
 
     static func sortedUnique(_ tokens: [String]) -> [String] { Array(Set(tokens)).sorted() }
 

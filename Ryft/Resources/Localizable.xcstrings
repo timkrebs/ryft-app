@@ -2097,6 +2097,17 @@
         }
       }
     },
+    "Imported exercise" : {
+      "comment" : "Training import: the name of a new custom exercise when the file's name can't be used.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importierte Übung"
+          }
+        }
+      }
+    },
     "Imported through %@ · %lld of %lld days" : {
       "localizations" : {
         "de" : {

@@ -110,7 +110,6 @@ struct ExerciseAliases: Sendable {
             }
         }
         for tokens in conflicted { phrases[tokens] = nil }
-        let normalizer = ExerciseNormalizer(synonyms: synonyms, equipmentPhrases: phrases)
 
         var kinds: [String: [ExerciseKind]] = [:]
         for id in file.equipment.keys {
@@ -129,6 +128,7 @@ struct ExerciseAliases: Sendable {
             }
             kinds[id] = list
         }
+        let normalizer = ExerciseNormalizer(synonyms: synonyms, equipmentPhrases: phrases, kinds: kinds)
 
         // Alias names. A key that two slugs claim is dropped: an alias must never be a guess.
         var index: [Key: String] = [:]
@@ -147,13 +147,13 @@ struct ExerciseAliases: Sendable {
             if en.isEmpty || de.isEmpty { issues.missingLanguage += 1 }
             var used = false
             for name in en + de {
-                let parsed = normalizer.analyse(name)
-                guard !parsed.tokens.isEmpty else {
+                // Keyed as a file's exercise with this name and equipment field would be.
+                let match = normalizer.matchKey(name: name, equipment: entry.equipment)
+                guard !match.name.isEmpty else {
                     issues.emptyPhrases += 1
                     continue
                 }
-                // The entry's equipment wins over an equipment word in the name.
-                let key = Key(name: ExerciseNormalizer.joined(parsed.tokens), equipment: entry.equipment ?? parsed.equipment)
+                let key = Key(name: match.name, equipment: match.equipment.isEmpty ? nil : match.equipment)
                 if let owner = index[key], owner != entry.slug {
                     clashes.insert(key)
                     issues.conflictingKeys += 1

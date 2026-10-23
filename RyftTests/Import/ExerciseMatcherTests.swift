@@ -120,6 +120,19 @@ struct ExerciseMatcherTests {
         #expect(ids == [Self.cableCurl.id])
     }
 
+    /// An alias for one equipment suggests nothing for another, even where that equipment's filter would let the
+    /// exercise through (machine allows cable stations; this name is only a cable one).
+    @Test func aliasesForOtherEquipmentSuggestNothing() {
+        let aliases = MappingFixture.vocabulary(aliases: [
+            .init(slug: "lat-pulldown", equipment: "cable", en: ["wide pull"], de: ["Breitzug"]),
+        ])
+        let matcher = ExerciseMatcher(library: Self.library, aliases: aliases, remembered: [:])
+        #expect(matcher.match(name: "Wide Pull", equipment: "Cable").exerciseID == Self.pulldown.id)
+        let machine = matcher.match(name: "Wide Pull", equipment: "Machine")
+        #expect(machine.exerciseID == nil)
+        #expect(machine.alternatives == [])
+    }
+
     @Test func machineAllowsCableStations() {
         let match = Self.matcher().match(name: "Lat Pulldown", equipment: "Machine")
         #expect(match.exerciseID == Self.pulldown.id)
@@ -195,6 +208,9 @@ struct ExerciseMatcherTests {
         let twinA = MappingFixture.exercise(43, "Bench press", kind: .barbell)
         let byName = Self.matcher([Self.bench, upper]).match(name: "bench press", equipment: "barbell")
         #expect(byName.exerciseID == upper.id) // "P" sorts before "p"
+        // Two built-ins fit: the order picks the suggestion, never the answer.
+        #expect(byName.tier == .fuzzy)
+        #expect(byName.needsReview)
         let byID = Self.matcher([twinA, Self.bench]).match(name: "bench press", equipment: "barbell")
         #expect(byID.exerciseID == Self.bench.id) // same name: the smaller id
         #expect(byID.alternatives == [twinA.id])
@@ -266,6 +282,83 @@ struct ExerciseMatcherTests {
         let m = Self.matcher()
         let keys = ["Bench Press", "Curl", "Squat"].map { m.key(name: $0, equipment: nil) }
         #expect(m.match(keys) == keys.map { m.match(key: $0) })
+    }
+
+    // MARK: The built-in library
+
+    struct LibraryCase: CustomTestStringConvertible, Sendable {
+        let name: String
+        let equipment: String?
+        /// The slug accepted without a tap; nil: must need a tap.
+        let accepted: String?
+        var testDescription: String { "\(name) · \(equipment ?? "–")" }
+    }
+
+    /// A specific built-in wins over the generic one, from the field or the name, in either direction; a contradiction
+    /// is never accepted (code review of I3).
+    static let libraryCases = [
+        LibraryCase(name: "Trap Bar Deadlift", equipment: "Trap Bar", accepted: "trap-bar-deadlift"),
+        LibraryCase(name: "Deadlift", equipment: "Trap Bar", accepted: "trap-bar-deadlift"),
+        LibraryCase(name: "Hex Bar Deadlift", equipment: nil, accepted: "trap-bar-deadlift"),
+        LibraryCase(name: "Kreuzheben", equipment: "Trap Bar", accepted: "trap-bar-deadlift"),
+        LibraryCase(name: "Trap Bar Deadlift", equipment: "Barbell", accepted: "trap-bar-deadlift"),
+        LibraryCase(name: "Barbell Deadlift", equipment: "Trap Bar", accepted: "trap-bar-deadlift"),
+        LibraryCase(name: "EZ Bar Curl", equipment: "Barbell", accepted: "ez-bar-curl"),
+        LibraryCase(name: "SZ-Curl", equipment: "Langhantel", accepted: "ez-bar-curl"),
+        LibraryCase(name: "Curl", equipment: "EZ Bar", accepted: "ez-bar-curl"),
+        LibraryCase(name: "Squat", equipment: "Smith Machine", accepted: "smith-machine-squat"),
+        LibraryCase(name: "Cable Crossover", equipment: "Machine", accepted: "cable-fly"),
+        LibraryCase(name: "Assisted Dip", equipment: "Machine", accepted: "assisted-dip"),
+        LibraryCase(name: "Deadlift", equipment: "Barbell", accepted: "deadlift"),
+        LibraryCase(name: "Curl", equipment: "Barbell", accepted: "barbell-curl"),
+        LibraryCase(name: "Lat Pulldown", equipment: "Machine", accepted: "lat-pulldown"),
+        LibraryCase(name: "Farmer´s Walk", equipment: nil, accepted: "farmers-walk"),
+        LibraryCase(name: "Bank\u{AD}drücken", equipment: "Langhantel", accepted: "bench-press"),
+        LibraryCase(name: "Smith Machine Squat", equipment: "Barbell", accepted: nil),
+        LibraryCase(name: "Dumbbell Curl", equipment: "Barbell", accepted: nil),
+        LibraryCase(name: "Squat", equipment: "Machine", accepted: nil),
+    ]
+
+    @Test(arguments: libraryCases)
+    func builtInLibrary(_ c: LibraryCase) throws {
+        let library = try MappingFixture.builtins()
+        let match = ExerciseMatcher(library: library, aliases: ExerciseAliases.bundled, remembered: [:])
+            .match(name: c.name, equipment: c.equipment)
+        let slug = library.first { $0.id == match.exerciseID }?.slug
+        if let accepted = c.accepted {
+            #expect(slug == accepted)
+            #expect(!match.needsReview)
+        } else {
+            #expect(match.needsReview)
+        }
+    }
+
+    @Test func apostrophesAndInvisibleCharactersDontMatter() throws {
+        let library = try MappingFixture.builtins()
+        let matcher = ExerciseMatcher(library: library, aliases: ExerciseAliases.bundled, remembered: [:])
+        let acute = matcher.match(name: "Farmer´s Walk", equipment: nil)
+        let plain = matcher.match(name: "Farmer's Walk", equipment: nil)
+        #expect(acute.tier == .exact)
+        #expect(acute == plain)
+        #expect(matcher.match(name: "Bank\u{AD}drücken", equipment: nil).exerciseID
+            == matcher.match(name: "Bankdrücken", equipment: nil).exerciseID)
+    }
+
+    /// The library comes in the phone's language (`name`); ties never depend on it.
+    @Test func tiesDontDependOnTheLanguage() throws {
+        let english = try MappingFixture.builtins()
+        let german = english.map { exercise in
+            var copy = exercise
+            copy.name = exercise.nameDe
+            return copy
+        }
+        let a = ExerciseMatcher(library: english, aliases: ExerciseAliases.bundled, remembered: [:])
+        let b = ExerciseMatcher(library: german, aliases: ExerciseAliases.bundled, remembered: [:])
+        let specs: [(String, String?)] = [("Curl", nil), ("Row", nil), ("Bench Press", nil), ("Leg Curl", "Machine"),
+                                          ("Squat", "Machine"), ("Shoulder Press", nil), ("Bicep Curl", nil), ("Fly", nil)]
+        for (name, equipment) in specs {
+            #expect(a.match(name: name, equipment: equipment) == b.match(name: name, equipment: equipment), "\(name)")
+        }
     }
 
     // MARK: The synthetic fixtures

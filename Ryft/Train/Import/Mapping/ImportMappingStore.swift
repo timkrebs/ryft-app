@@ -16,7 +16,19 @@ final class ImportMappingStore {
     }
 
     convenience init(env: AppEnvironment) {
-        self.init(persistence: env.persistence) { env.isDemo ? "demo" : env.auth.accountID }
+        self.init(persistence: env.persistence) { env.isDemo ? Self.demoAccount : env.auth.accountID }
+    }
+
+    /// Demo mode's own account: its choices are never a real account's.
+    static let demoAccount = "demo"
+
+    /// Demo mode turned off: what was matched in demo goes (privacy review S2). The signed-in account's stay.
+    static func forgetDemo(in persistence: Persistence) {
+        let demo = demoAccount
+        let rows = (try? persistence.context.fetch(FetchDescriptor<ImportMapping>(predicate: #Predicate { $0.account == demo }))) ?? []
+        guard !rows.isEmpty else { return }
+        for row in rows { persistence.context.delete(row) }
+        persistence.save()
     }
 
     /// The account the store reads and writes now; nil when signed out.
@@ -30,6 +42,9 @@ final class ImportMappingStore {
 
     /// Upserts the choices of a confirmed import. `account` is the one the flow started with: when it is no longer
     /// the signed-in one, nothing is written. Returns whether the choices were saved.
+    ///
+    /// For I4: a "new" row is remembered too, as its custom exercise's derived id (`ImportCustomExercise.id`), so the
+    /// next import matches it as `.remembered` once the exercise is in the library.
     @discardableResult
     func remember(_ choices: [SourceExerciseKey: RememberedMatch], source: ImportFormatID, account: String,
                   at date: Date) -> Bool {

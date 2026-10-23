@@ -2,6 +2,8 @@ import Foundation
 
 /// How one source exercise maps to the library (design §4).
 struct ExerciseMatch: Equatable, Sendable {
+    /// The frozen key: what the user's choice is remembered by (`ImportMappingStore`) and a "new" row's id is
+    /// derived from (`ImportCustomExercise.id`).
     let key: SourceExerciseKey
     /// nil: nothing fits, the row offers a new custom exercise.
     let exerciseID: UUID?
@@ -18,16 +20,20 @@ struct ExerciseMatch: Equatable, Sendable {
     /// A fuzzy suggestion is never accepted without a tap, whatever its score; no match needs a new exercise.
     var needsReview: Bool { tier == .fuzzy || exerciseID == nil }
 
-    /// A check row's words: "Likely match" when true, else "Possible match".
+    /// A check row's words: "Likely match" when true, else "Possible match". For I4: the bulk action "Accept N
+    /// likely matches" (ui.md 7.1) takes the check rows where this is true; it never accepts anything on its own.
     var isLikely: Bool { confidence >= ExerciseMatcher.likelyThreshold }
 }
 
 /// Matches source exercises to the library (design §4). Pure, `Sendable` and deterministic: the first tier that hits
-/// wins (remembered → exact → alias → fuzzy), and ties break by score, then custom before built-in, then name, then id.
+/// wins (remembered → exact → alias → fuzzy), and ties break by score, then custom before built-in, then the English
+/// name, slug and id (never the request language's name, so the result doesn't depend on the phone's language).
 ///
 /// **The equipment filter is hard.** A key with known equipment only reaches exercises whose `kind` that equipment
-/// allows (`ExerciseAliases.kinds`); unknown or missing equipment means no filter and confidence × 0.8. An exact or
-/// alias name that fits several exercises when the equipment is unknown is a guess, so it comes back as `.fuzzy`.
+/// allows (`ExerciseAliases.kinds`); unknown or missing equipment means no filter and confidence × 0.8. Within the
+/// filter, names for the key's own equipment win over names without equipment ("Deadlift · Trap Bar" is the trap-bar
+/// deadlift, not the deadlift). An exact or alias name that still fits several exercises is a guess, so it comes back
+/// as `.fuzzy`, unless the equipment is known and exactly one of them is the user's own exercise.
 struct ExerciseMatcher: Sendable {
     static let fuzzyThreshold = 0.5
     static let likelyThreshold = 0.7
@@ -53,7 +59,9 @@ struct ExerciseMatcher: Sendable {
     private struct Candidate: Hashable, Sendable {
         let id: UUID
         let isCustom: Bool
-        let name: String
+        /// The tie-breaks: the same in every language.
+        let nameEn: String
+        let slug: String
         let kind: ExerciseKind
     }
 
@@ -93,7 +101,8 @@ struct ExerciseMatcher: Sendable {
         }
         for exercise in library where !exercise.archived && !ids.contains(exercise.id) {
             ids.insert(exercise.id)
-            let candidate = Candidate(id: exercise.id, isCustom: exercise.isCustom, name: exercise.name, kind: exercise.kind)
+            let candidate = Candidate(id: exercise.id, isCustom: exercise.isCustom, nameEn: exercise.nameEn,
+                                      slug: exercise.slug, kind: exercise.kind)
             if !exercise.isCustom, !exercise.slug.isEmpty, bySlug[exercise.slug] == nil { bySlug[exercise.slug] = candidate }
             for name in Set([exercise.name, exercise.nameEn, exercise.nameDe]).sorted() {
                 let parsed = normalizer.analyse(name)
@@ -121,6 +130,9 @@ struct ExerciseMatcher: Sendable {
         fuzzyIndex = fuzzy
         self.remembered = remembered
         unknownAliasSlugs = unknown.count
+        if !unknown.isEmpty {
+            ImportLog.logger.notice("Exercise aliases: \(unknown.count) slugs not in the library, ignored")
+        }
     }
 
     // MARK: Matching
@@ -141,19 +153,20 @@ struct ExerciseMatcher: Sendable {
     }
 
     func match(key: SourceExerciseKey) -> ExerciseMatch {
-        let allowed = aliases.allowedKinds(for: key.equipment)
+        let match = normalizer.matchKey(key)
+        let allowed = aliases.allowedKinds(for: match.equipment)
         let factor = allowed == nil ? Self.unknownEquipmentFactor : 1
-        let ranked = rankedByTokens(key, allowed: allowed)
+        let ranked = rankedByTokens(match, allowed: allowed)
 
         if let id = remembered[key], library.contains(id) {
             return ExerciseMatch(key: key, exerciseID: id, tier: .remembered, confidence: 1,
                                  alternatives: alternatives(ranked.map(\.candidate), excluding: id))
         }
-        if let found = decide(exactHits(key, allowed: allowed), tier: .exact, base: Self.exactConfidence,
+        if let found = decide(exactHits(match, allowed: allowed), tier: .exact, base: Self.exactConfidence,
                               factor: factor, ranked: ranked, key: key) {
             return found
         }
-        if let found = decide(aliasHits(key, allowed: allowed), tier: .alias, base: Self.aliasConfidence,
+        if let found = decide(aliasHits(match, allowed: allowed), tier: .alias, base: Self.aliasConfidence,
                               factor: factor, ranked: ranked, key: key) {
             return found
         }
@@ -166,20 +179,22 @@ struct ExerciseMatcher: Sendable {
 
     // MARK: Tiers
 
-    /// Library names equal to the key's name. Known equipment: the kind passes and the name names no other equipment.
-    /// Unknown equipment: only names that name no equipment ("Bench Press" is "Bench press", not "Dumbbell bench press").
-    private func exactHits(_ key: SourceExerciseKey, allowed: [ExerciseKind]?) -> [Candidate] {
+    /// Library names equal to the key's name. Known equipment: the kind passes, and names for that equipment win over
+    /// names without equipment; a name for other equipment never fits. Unknown equipment: only names that name no
+    /// equipment ("Bench Press" is "Bench press", not "Dumbbell bench press").
+    private func exactHits(_ key: MatchKey, allowed: [ExerciseKind]?) -> [Candidate] {
         let named = exactIndex[key.name] ?? []
-        let hits = named.filter { entry in
-            guard let allowed else { return entry.equipment == nil }
-            return allowed.contains(entry.candidate.kind) && (entry.equipment == nil || entry.equipment == key.equipment)
+        guard let allowed else { return unique(named.filter { $0.equipment == nil }.map(\.candidate)) }
+        let passes = named.filter {
+            allowed.contains($0.candidate.kind) && ($0.equipment == nil || $0.equipment == key.equipment)
         }
-        return unique(hits.map(\.candidate))
+        let specific = passes.filter { $0.equipment == key.equipment }
+        return unique((specific.isEmpty ? passes : specific).map(\.candidate))
     }
 
     /// Alias names equal to the key's name: for its equipment first, then for any equipment; the kind must pass.
     /// Unknown equipment: only aliases for any equipment.
-    private func aliasHits(_ key: SourceExerciseKey, allowed: [ExerciseKind]?) -> [Candidate] {
+    private func aliasHits(_ key: MatchKey, allowed: [ExerciseKind]?) -> [Candidate] {
         let named = aliasIndex[key.name] ?? []
         guard let allowed else { return unique(named.filter { $0.equipment == nil }.map(\.candidate)) }
         let passes = named.filter { allowed.contains($0.candidate.kind) }
@@ -192,13 +207,15 @@ struct ExerciseMatcher: Sendable {
         let sorted = hits.sorted(by: Self.precedes)
         guard let first = sorted.first else { return nil }
         let others = alternatives(Array(sorted.dropFirst()) + ranked.map(\.candidate), excluding: first.id)
-        let ambiguous = sorted.count > 1 && factor < 1
+        // Several fit: only the user's own exercise, with known equipment, is picked without a tap.
+        let ownPick = factor == 1 && sorted.filter(\.isCustom).count == 1
+        let ambiguous = sorted.count > 1 && !ownPick
         return ExerciseMatch(key: key, exerciseID: first.id, tier: ambiguous ? .fuzzy : tier, confidence: base * factor,
                              alternatives: others)
     }
 
     /// Token Dice `2|A∩B| / (|A|+|B|)` ≥ 0.5 over the exercises the filter allows, each by its best name.
-    private func rankedByTokens(_ key: SourceExerciseKey, allowed: [ExerciseKind]?) -> [Scored] {
+    private func rankedByTokens(_ key: MatchKey, allowed: [ExerciseKind]?) -> [Scored] {
         let tokens = Set(key.name.split(separator: " ").map(String.init))
         guard !tokens.isEmpty else { return [] }
         var shared: [Int: (name: FuzzyName, common: Int)] = [:]
@@ -220,11 +237,24 @@ struct ExerciseMatcher: Sendable {
         }
     }
 
-    /// Custom before built-in, then name, then id: the order for equal scores.
+    /// Custom before built-in, then the English name, slug and id: the order for equal scores.
     private static func precedes(_ x: Candidate, _ y: Candidate) -> Bool {
         if x.isCustom != y.isCustom { return x.isCustom }
-        if x.name != y.name { return x.name < y.name }
+        if x.nameEn != y.nameEn { return x.nameEn < y.nameEn }
+        if x.slug != y.slug { return x.slug < y.slug }
         return x.id.uuidString < y.id.uuidString
+    }
+
+    // MARK: For tests
+
+    /// The exercises the exact tier would choose between, before any tie-break.
+    func exactCandidates(_ key: MatchKey) -> [UUID] {
+        exactHits(key, allowed: aliases.allowedKinds(for: key.equipment)).map(\.id)
+    }
+
+    /// The same for the alias tier.
+    func aliasCandidates(_ key: MatchKey) -> [UUID] {
+        aliasHits(key, allowed: aliases.allowedKinds(for: key.equipment)).map(\.id)
     }
 
     private func alternatives(_ candidates: [Candidate], excluding id: UUID) -> [UUID] {
