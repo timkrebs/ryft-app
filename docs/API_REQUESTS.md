@@ -226,6 +226,12 @@ not moving after 1 day." The tester wears a Garmin. App brief: `CLAUDE_FOLLOWUP_
      - So `rhrBase.N` fills for Garmin users and only `lnHRVBase.N` stays 0. The brief's change (baseline nights from
        resting HR; HRV counted on its own as `hrv_baseline_days`; calibrating only on HRV when there is an HRV source)
        gets this tester to 7/7.
+   - **Answered in part, 2026-10-22.** API.md now has `DailyScore.calibrating_reason` (`short_history` | `no_hrv` |
+     `no_rhr`), `baseline_hrv_days` and `baseline_rhr_days` (`baseline_days = min(...)`), see
+     [`calibrating_reason`](../../plattform/docs/API.md#calibrating_reason). The app mirrors them in `Models.swift`
+     (`DailyScore.calibratingReason`, `baselineHrvDays`, `baselineRhrDays`). These names replace the draft's
+     `hrv_baseline_days`. **Still open, as a smaller request:** `recovery_inputs` (which inputs Recovery actually used,
+     e.g. `rhr_source`), which the Insights sentence needs. It was not provided and the app invents nothing for it.
    - **Daily samples stamped 00:00.** Garmin's resting HR is one value per calendar day, not a night measurement. Please
      check that `e.last(… SampleRestingHR, dayStart, dayEnd)` (`compute.go:166`) attributes it to the intended day.
    - **A fallback, lower priority.** Oura's export list has no HRV and no resting HR
@@ -242,8 +248,18 @@ not moving after 1 day." The tester wears a Garmin. App brief: `CLAUDE_FOLLOWUP_
    draft content and its schema are in `docs/work/2026-10-22-tracker-setup/trackers.draft.json` and
    `trackers-research.md` (en; de follows). Every entry carries `help_url` and `checked`. Optionally render
    `/setup/<tracker>` pages from the same file. The brand rule applies.
-4. **Supersedes Refresh resilience §2** (`calibrating_reason`) once `hrv_baseline_days` and `recovery_inputs` are in
-   `API.md`.
+4. **Supersedes Refresh resilience §2** (`calibrating_reason`). Done on 2026-10-22: `calibrating_reason`,
+   `baseline_hrv_days` and `baseline_rhr_days` are in `API.md`; only `recovery_inputs` stays open (§1).
+
+5. **(New 2026-10-23) A Garmin account never leaves calibrating.**
+   - **What happens.** The published contract keeps `calibrating = min(H, R) < 7`. A source that writes no HRV (Garmin, verified
+     on a device) gives `no_hrv` with H = 0 forever. So `state` stays `calibrating` for good: no band, and no "vs 7 d" delta
+     on Today. That holds even though the account's resting-HR and sleep baselines are personal after 7 nights.
+   - **Why it matters.** The brief that started this (§1, "gets this tester to 7/7") isn't met. The app now explains the
+     state honestly (design.md §7 rev. 2), but it can't end it.
+   - **Ask.** On a `no_hrv` row with R ≥ 7, end calibration (`calibrating: false`, `state` banded from readiness), with
+     `calibrating_reason` kept or a new field saying HRV is absent. If that's not the plan, document why `no_hrv` must stay
+     calibrating, so the app copy can say so.
 
 **Corrections to the evidence commands in the brief (from the debugger, T0):**
 - `scripts/user.sh <id>` prints `with HRV N` (`days_with_hrv_14d`) and the newest record per kind, not
@@ -269,7 +285,8 @@ platform's row is the root of it (`STATUS.md` → Incidents).
      `hrv_baseline_ms`, `rhr_baseline` from 2026-07-24 to 2026-10-21). If the earlier rows have their baselines, rescore
      oldest-first after a merge or backfill, so no day is scored before the 30 days it depends on. Rescore every row
      still at the 0006 default.
-2. **Why a day is calibrating.** Today the app can't tell "history is short" from "no HRV or resting HR at
+2. **Superseded 2026-10-22 (answered by API.md: `calibrating_reason`, `baseline_hrv_days`, `baseline_rhr_days`; see
+   Tracker setup §1 and §4).** Why a day is calibrating. Today the app can't tell "history is short" from "no HRV or resting HR at
    night" (phone-only, or a watch that doesn't write HRV to Apple Health). The second never ends by waiting.
    - **Proposal:** `DailyScore.calibrating_reason: "short_history" | "no_hrv" | "no_rhr" | null`, and optionally
      `baseline_hrv_days` / `baseline_rhr_days` (the two N's whose minimum is `baseline_days`). Until then the app
