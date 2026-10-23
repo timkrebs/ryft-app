@@ -4675,7 +4675,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Diese Uhrzeit gab es in deiner Zeitzone nicht, daher nimmt RYFT die nächste gültige"
+            "value" : "Diese Uhrzeit gab es in deiner Zeitzone nicht, daher nimmt RYFT die nächste gültige Uhrzeit"
           }
         }
       }
@@ -4686,7 +4686,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Diese Uhrzeit gab es in deiner Zeitzone zweimal, daher nimmt RYFT die erste"
+            "value" : "Diese Uhrzeit gab es in deiner Zeitzone zweimal, daher nimmt RYFT die erste Uhrzeit"
           }
         }
       }
