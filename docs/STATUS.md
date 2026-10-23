@@ -1,4 +1,4 @@
-# Status — 2026-10-22
+# Status — 2026-10-23
 
 ## Incidents
 
@@ -59,6 +59,21 @@ Root causes (debugger, tests on `debug/refresh-repro`, cherry-picked into the fi
 4. **"— vs 7 d" wasn't missing data.** It was a flat delta (< 2 %) drawn as a dash. → T2: "Steady vs 7 d".
 5. **The tester couldn't send diagnostics.** `POST /v1/feedback` had no caller. → T3, Profile → Report a problem.
 
+## Synchronized folders (2026-10-23, #39)
+
+You converted `Ryft/` and `RyftTests/` in Xcode (Convert to Folder), so all four source folders are now synchronized and
+new types can get their own files. That unblocks the activities work (U1 in `docs/work/2026-10-22-my-day-activities/design.md`).
+- **Verified locally against `main` (02a3403).**
+  - Both trees compile the same sources: 129 app and 26 unit-test Swift files.
+  - `Ryft.app` holds the same 67 files, and its `Info.plist` is identical.
+  - Zero warnings with `RYFT_STRICT_WARNINGS=YES`; `make lint` passes.
+  - Xcode excluded `Info.plist` and `Resources/Fonts/.gitkeep`; `Ryft.entitlements` isn't copied.
+- **Follow-ups it unblocks:**
+  - The tracker catalog as a JSON resource instead of the generated literal (ADR 0002).
+  - The Siri phrases' `AppShortcuts.xcstrings`.
+  - Files shared by the app and the widget. This needs a target membership set in Xcode; after that,
+    `scripts/check-shared-types.py` can shrink.
+
 ## Tracker setup (`CLAUDE_FOLLOWUP_TRACKER_SETUP.md`): honest names, the night hint, what you wear, Check sync
 
 Plan, design, UI spec, vendor research, review log and the device session: `docs/work/2026-10-22-tracker-setup/`.
@@ -94,8 +109,6 @@ Garmin Connect after 08:00).
 - **The catalog crash-guard hashing and marker** run on main after the first frame (a few ms). Move them into one
   `@concurrent` helper.
 - **RYFT on an iPhone Duo:** the tabs become a side strip. Check the layout and the UI-test queries.
-- **The `.claude/hooks/pre-edit-guard.sh` message** calls `Ryft/` and `RyftTests/` synchronized folders; they're classic
-  groups until the user converts them.
 - **`docs/RELEASING.md`** is referenced by CLAUDE.md and CHANGELOG but doesn't exist.
 - **Two older mentions of the denylisted brand** in this file's earlier sections (the brand guard pattern finds them).
   The platform already cleaned its internal docs; do the same here.
@@ -252,8 +265,8 @@ line, the platform requests, Time Sensitive (optional), Convert to Folder, devic
   cold start); "Hey Siri, start a RYFT workout"; Settings → Action Button → Shortcut → RYFT;
   Control Center → + → RYFT → Start workout (does it open the app into the session?); the Live
   Activity on the Lock Screen and in the Dynamic Island during a session.
-- **Not localised yet:** the Siri phrases need `AppShortcuts.xcstrings`, a new file in `Ryft/`
-  (a classic group): after "Convert to Folder" (Needs you) a session can add it.
+- **Not localised yet:** the Siri phrases need `AppShortcuts.xcstrings`, a new file in `Ryft/`.
+  A session can add it now that `Ryft/` is a synchronized folder (#39).
 
 ## Beta feedback 1: save strength workouts to Apple Health (§3, opt-in)
 
@@ -564,11 +577,7 @@ examples), strict build, `make lint`, `make style`. Screens captured in the simu
 - Once this is on TestFlight: both gates `on` on the platform (its `STATUS.md` →
   Accounts and sync, step 6).
 - `ryftapp.de/support` is named in the account-hint sheet; it has to exist.
-- **`Ryft/` and `RyftTests/` are classic groups, not synchronized folders** (only
-  `RyftWidgets/` and `RyftUITests/` are). New files there need the project file, which
-  sessions don't edit, so this work went into existing files. In Xcode: select the
-  `Ryft` group → right-click → **Convert to Folder**, the same for `RyftTests`, commit
-  the project. Later work can then split files.
+- ~~`Ryft/` and `RyftTests/` to synchronized folders~~ — done 2026-10-23 (#39).
 - `Package.resolved` on `main` doesn't match the package requirements (dependabot's
   swift-crypto 5.0.1; the resolver picks 4.5.2 and adds swift-issue-reporting). CI
   resolves on its own; open the project in Xcode once and commit what it writes.
