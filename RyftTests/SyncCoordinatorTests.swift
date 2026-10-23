@@ -1184,12 +1184,14 @@ struct RequestBudgetTests {
 @MainActor
 private final class SlowUploadSteps: SyncSteps {
     let live: LiveSyncSteps
+    let state: AppState
     let clock: TestClock
     var uploadDuration: Duration
     var statusDuration: Duration = .zero
 
     init(state: AppState, clock: TestClock, uploadDuration: Duration) {
         live = LiveSyncSteps(state: state, sync: SyncService(env: state.env), apiStatus: APIStatus())
+        self.state = state
         self.clock = clock
         self.uploadDuration = uploadDuration
     }
@@ -1204,8 +1206,15 @@ private final class SlowUploadSteps: SyncSteps {
     func stopAfterCurrentPage() async {}
     var expectedScoringSeconds: Int? { nil }
     func syncStatus() async throws -> SyncStatus {
-        if statusDuration > .zero { try await clock.sleep(for: statusDuration) }
-        return try await live.syncStatus()
+        guard statusDuration > .zero else { return try await live.syncStatus() }
+        // A slow status read is a read *in flight* (what Today's "Updating…" watches), not a sleep before it.
+        let clock = clock, wait = statusDuration, state = state
+        let status = try await state.env.reads.run(ReadKey(.syncStatus), userInitiated: true) {
+            try await clock.sleep(for: wait)
+            return try await state.env.api.syncStatus()
+        }
+        guard let status else { throw ReadScheduler.NotSent() }
+        return status
     }
     func refreshDays(_ days: [String]) async throws { try await live.refreshDays(days) }
     func refreshTrends() async throws { try await live.refreshTrends() }
