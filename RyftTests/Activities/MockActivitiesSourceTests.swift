@@ -103,9 +103,12 @@ struct MockActivitiesSourceTests {
     /// Demo data: one RYFT run merged with today's mock tracker run, already scored; beside it today's other
     /// demo rows (mobility without heart rate, yoga still pending), none of them merged.
     @Test func theDemoRunIsMergedWithTodaysTrackerRun() async throws {
-        let workout = try #require(MockData.todayDetail.workouts.first { $0.activity == "running" })
-        let api = MockPlatformAPI()
-        let today = Calendar.current.startOfDay(for: .now)
+        // One instant for MockData's today and the platform's (no midnight between two `.now`s).
+        let clock = TestClock(now: Date())
+        let workout = try #require(MockData.detail(for: clock.now()).workouts.first { $0.activity == "running" })
+        let api = MockPlatformAPI(activities: .demoSource())
+        api.now = { clock.now() }
+        let today = Calendar.current.startOfDay(for: clock.now())
         let list = try await api.activities(from: today, to: today.addingTimeInterval(86_400))
         let run = try #require(list.first { $0.mergedWith != nil })
         #expect(list.filter { $0.mergedWith != nil }.count == 1)
@@ -138,8 +141,42 @@ struct MockActivitiesSourceTests {
         #endif
     }
 
+    /// R19: a `PUT` without route or samples keeps the stored ones; a `null` clears an editable field.
+    @Test func aPutKeepsWhatItLeavesOutAndClearsItsNulls() async throws {
+        let clock = TestClock()
+        let source = MockActivitiesSource(now: { clock.now() })
+        var a = Self.run(start: clock.now().addingTimeInterval(-3_600), route: true)
+        _ = try await source.putActivity(a)
+        a.route = nil
+        a.hrSamples = nil
+        a.notes = nil
+        a.perceivedEffort = nil
+        _ = try await source.putActivity(a)
+        let stored = try await source.activity(id: a.id)
+        #expect(stored.route == "_p~iF~ps|U_ulLnnqC" && stored.hrSamples?.count == 1)
+        #expect(stored.notes == nil && stored.perceivedEffort == nil && stored.distanceM == 8_000)
+    }
+
+    @Test func resetGoesBackToTheSeed() async throws {
+        let clock = TestClock()
+        let seeded = Self.run(start: clock.now().addingTimeInterval(-7_200))
+        let source = MockActivitiesSource(now: { clock.now() }, seed: { _ in [seeded] })
+        let added = try await source.putActivity(Self.run(start: clock.now().addingTimeInterval(-3_600)))
+        try await source.putManualSleep(day: "2026-10-19", ManualSleepPut(bed: clock.now().addingTimeInterval(-9 * 3_600),
+                                                                          wake: clock.now().addingTimeInterval(-3_600)))
+        #expect(try await source.activities(from: .distantPast, to: .distantFuture).count == 2)
+        source.reset()
+        #expect(try await source.activities(from: .distantPast, to: .distantFuture).map(\.id) == [seeded.id])
+        await #expect(throws: APIError.self) { try await source.activity(id: added.id) }
+        #expect(source.puts.isEmpty && source.manualSleep(day: "2026-10-19") == nil)
+        // Tests start empty unless they ask for the demo.
+        #expect(try await MockPlatformAPI().activities(from: .distantPast, to: .distantFuture).isEmpty)
+    }
+
     @Test func theLiveClientSendsNothingBeforeTheContract() async {
         let client = APIClient.shared
+        #expect(!client.publishesActivities)
+        #expect(MockPlatformAPI().publishesActivities)
         await #expect(throws: ActivitiesError.notPublished) {
             try await client.putActivity(Self.run(start: .now.addingTimeInterval(-3_600)))
         }
@@ -159,14 +196,27 @@ struct ActivityFlagTests {
     private let flags: [FeatureFlag] = [.todayMyDay, .activitiesManual, .activitiesRecording, .activityLiveHR]
 
     @Test func theFourFlagsAreDarkUnlessTheDemoPlatformTurnsThemOn() {
-        #expect(flags.map(\.rawValue) == ["today.myDay", "activities.manual", "activities.recording", "activity.liveHR"])
+        #expect(flags.map(\.rawValue) == ["today.my_day", "activities.manual", "activities.recording", "activity.live_hr"])
+        // Recording and live heart rate only in a Debug demo, before the release PR (design.md §8.5).
+        #if DEBUG
+        let demoOn: Set<FeatureFlag> = [.todayMyDay, .activitiesManual, .activitiesRecording, .activityLiveHR]
+        #else
+        let demoOn: Set<FeatureFlag> = [.todayMyDay, .activitiesManual]
+        #endif
         for flag in flags {
             #expect(!flag.compiledDefault)
             #expect(!StaticFlags().isOn(flag))
-            #expect(MockPlatformAPI.demoFlags[flag.rawValue] == true)
-            #expect(MockPlatformAPI().remoteConfig.flags[flag.rawValue] == true)
+            #expect((MockPlatformAPI.demoFlags[flag.rawValue] == true) == demoOn.contains(flag))
+            #expect(MockPlatformAPI().remoteConfig.flags[flag.rawValue] == MockPlatformAPI.demoFlags[flag.rawValue])
         }
         #expect(MockPlatformAPI.demoFlags[FeatureFlag.devicesSetup.rawValue] == true)
+    }
+
+    /// The platform refuses any other key (`PUT /v1/admin/flags` answers 422): a flag the app reads must be one
+    /// it can be set to.
+    @Test(arguments: FeatureFlag.allCases)
+    func everyFlagKeyIsOneThePlatformAccepts(_ flag: FeatureFlag) {
+        #expect(flag.rawValue.wholeMatch(of: /[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+/) != nil, "\(flag.rawValue)")
     }
 
     /// Profile → Sync details → Loaded data: "Activities" appears with My Day, not while it's dark.

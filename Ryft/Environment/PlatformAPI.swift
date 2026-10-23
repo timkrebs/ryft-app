@@ -148,9 +148,15 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     var remoteConfig = RemoteConfig(flags: MockPlatformAPI.demoFlags, evaluatedAt: .now, ttlSec: 21_600,
                                     privacyPolicyVersion: MockData.policyVersion,
                                     privacyPolicyUrl: "https://ryftapp.de/privacy")
-    static let demoFlags: [String: Bool] = Dictionary(uniqueKeysWithValues: [
-        FeatureFlag.devicesSetup, .todayMyDay, .activitiesManual, .activitiesRecording, .activityLiveHR,
-    ].map { ($0.rawValue, true) })
+    static let demoFlags: [String: Bool] = {
+        var on: [FeatureFlag] = [.devicesSetup, .todayMyDay, .activitiesManual]
+        #if DEBUG
+        // Never in a Release demo before the release PR that adds the location background mode and turns
+        // recording on (design.md §8.5, §10 → Flags): App Review can open demo data.
+        on += [.activitiesRecording, .activityLiveHR]
+        #endif
+        return Dictionary(uniqueKeysWithValues: on.map { ($0.rawValue, true) })
+    }()
     var prefs = NotificationPrefs.allOn
 
     // The account behind the Beta gates; `me()` reports it, the gates follow it.
@@ -181,8 +187,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     var now: @Sendable () -> Date = { .now } {
         didSet { activitySource.now = now }
     }
-    /// Activities and manual sleep (`ActivitiesAPI`): demo's merged run, scored 15 s after a `PUT`
-    /// (`AppEnvironment.test` makes that 0).
+    /// Activities and manual sleep (`ActivitiesAPI`): empty and scored at once by default (tests); the demo
+    /// graphs pass `MockActivitiesSource.demoSource()`.
     let activitySource: MockActivitiesSource
     private(set) var mePatches: [UserPatch] = []
 
@@ -192,7 +198,7 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     private(set) var appleCodes: [String] = []
 
     init(screens: RyftDataSource = MockDataSource.shared, train: TrainDataSource = MockTrainSource.shared,
-         activities: MockActivitiesSource = MockActivitiesSource(scoreDelay: 15, seed: { MockActivitiesSource.demo() })) {
+         activities: MockActivitiesSource = MockActivitiesSource()) {
         self.screens = screens
         self.train = train
         activitySource = activities
@@ -538,6 +544,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     func deleteSession(id: UUID) async throws { try enter("deleteSession"); try await train.deleteSession(id: id) }
 
     // MARK: activities (draft)
+
+    var publishesActivities: Bool { activitySource.publishesActivities }
 
     func putActivity(_ a: SportActivity) async throws -> SportActivity {
         try enter("putActivity"); return try await activitySource.putActivity(a)

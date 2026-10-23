@@ -3,6 +3,9 @@ import Foundation
 /// API.md → Activities (a draft of the platform brief until C1): activities the user recorded or added, and
 /// manual sleep. Every write is idempotent by the app's id or the day, so a retry never creates a second one.
 protocol ActivitiesAPI {
+    /// The platform serves these endpoints. False before the contract is published (C1): reads show what's on
+    /// the phone without asking, and nothing is recorded as fetched or failed.
+    var publishesActivities: Bool { get }
     /// `PUT /v1/activities/{id}`: create or replace, the whole document (`SportActivityPut`). Answers the stored
     /// activity with `scoring_state`; `422` when it breaks the rules (end after start, ≤ 24 h, not in the future).
     func putActivity(_ a: SportActivity) async throws -> SportActivity
@@ -28,6 +31,7 @@ enum ActivitiesError: Error, Equatable, Sendable {
 /// The live client before C1: every call throws `ActivitiesError.notPublished` without a request. The flags keep
 /// the features dark meanwhile. C1 (api-contract-keeper) replaces this with `Networking/APIClient+Activities.swift`.
 extension APIClient: ActivitiesAPI {
+    var publishesActivities: Bool { false }
     func putActivity(_ a: SportActivity) async throws -> SportActivity { throw ActivitiesError.notPublished }
     func activities(from: Date, to: Date) async throws -> [SportActivity] { throw ActivitiesError.notPublished }
     func activity(id: UUID) async throws -> SportActivity { throw ActivitiesError.notPublished }

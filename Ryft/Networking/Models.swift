@@ -2168,7 +2168,11 @@ struct ActivitySplit: Codable, Hashable, Sendable {
 
 /// API.md → Activities `Activity` (renamed: ActivityKit owns `Activity`). The app picks the `id`, so a `PUT`
 /// is idempotent. The platform sets the fields after `clientUpdatedAt`; `SportActivityPut` is the body that
-/// leaves them out. This type's own encoding keeps them: it's what the read model caches.
+/// leaves them out.
+///
+/// This type's own encoding is what the read model caches: it keeps the platform's fields and never writes
+/// `route` or `hr_samples` (ADR 0006, review S5), whichever path caches it. Decoding reads them, for the detail
+/// screen's memory. Its descriptions and mirror leave out the route, the samples and the notes (design.md §8.3).
 struct SportActivity: Codable, Hashable, Identifiable, Sendable {
     let id: UUID
     var sport: Sport
@@ -2184,9 +2188,9 @@ struct SportActivity: Codable, Hashable, Identifiable, Sendable {
     /// At most 500 characters.
     var notes: String?
     var splits: [ActivitySplit]?
-    /// Encoded polyline, trimmed on the device; only with the route opt-in. Never cached (`withoutRouteOrHeartRate`).
+    /// Encoded polyline, trimmed on the device; only with the route opt-in. Never encoded but by `SportActivityPut`.
     var route: String?
-    /// Live heart rate from a Bluetooth sensor. Never cached.
+    /// Live heart rate from a Bluetooth sensor. Never encoded but by `SportActivityPut`.
     var hrSamples: [HRPoint]?
     var clientUpdatedAt: Date
     // Set by the platform, never sent.
@@ -2256,8 +2260,32 @@ struct SportActivity: Codable, Hashable, Identifiable, Sendable {
         scoringState = try c.decodeIfPresent(String.self, forKey: .scoringState)
     }
 
+    /// Everything but `route` and `hr_samples`: the cached copy.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(sport, forKey: .sport)
+        try c.encode(origin, forKey: .origin)
+        try c.encode(start, forKey: .start)
+        try c.encode(end, forKey: .end)
+        try c.encode(movingSec, forKey: .movingSec)
+        try c.encodeIfPresent(distanceM, forKey: .distanceM)
+        try c.encodeIfPresent(ascentM, forKey: .ascentM)
+        try c.encodeIfPresent(descentM, forKey: .descentM)
+        try c.encodeIfPresent(perceivedEffort, forKey: .perceivedEffort)
+        try c.encodeIfPresent(notes, forKey: .notes)
+        try c.encodeIfPresent(splits, forKey: .splits)
+        try c.encode(clientUpdatedAt, forKey: .clientUpdatedAt)
+        try c.encodeIfPresent(strain, forKey: .strain)
+        try c.encodeIfPresent(strainSource, forKey: .strainSource)
+        try c.encodeIfPresent(hrSource, forKey: .hrSource)
+        try c.encodeIfPresent(mergedWith, forKey: .mergedWith)
+        try c.encodeIfPresent(scoringState, forKey: .scoringState)
+    }
+
     /// What list and day reads keep (API request R16): no route and no heart-rate samples. The detail screen
-    /// fetches a route on demand and holds it in memory only (ADR 0005, 0006).
+    /// fetches a route on demand and holds it in memory only (ADR 0005, 0006). The encoding drops both anyway;
+    /// this keeps them out of values held in memory too.
     var withoutRouteOrHeartRate: SportActivity {
         var copy = self
         copy.route = nil
@@ -2266,7 +2294,36 @@ struct SportActivity: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
-/// The body of `PUT /v1/activities/{id}`: the activity without the fields the platform sets.
+extension SportActivity: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    /// Times, totals and the platform's fields; of the route, the samples and the notes only whether they're
+    /// there. `print`, interpolation, `dump`, `debugPrint` and the debugger show this (design.md §8.3).
+    var description: String {
+        var parts = ["\(id.uuidString)", sport.rawValue, origin.rawValue, start.ISO8601Format(), "\(Int(movingSec)) s"]
+        if let distanceM { parts.append("\(Int(distanceM)) m") }
+        if let strain { parts.append("strain \(strain)") }
+        if let scoringState { parts.append(scoringState) }
+        if route != nil { parts.append("route") }
+        if let hrSamples { parts.append("\(hrSamples.count) hr samples") }
+        if let notes { parts.append("notes \(notes.count) chars") }
+        return "SportActivity(\(parts.joined(separator: ", ")))"
+    }
+
+    var debugDescription: String { description }
+
+    var customMirror: Mirror {
+        Mirror(self, children: ["id": id, "sport": sport, "origin": origin, "start": start, "end": end,
+                                "movingSec": movingSec, "distanceM": distanceM as Any, "ascentM": ascentM as Any,
+                                "descentM": descentM as Any, "perceivedEffort": perceivedEffort as Any,
+                                "splits": splits as Any, "clientUpdatedAt": clientUpdatedAt, "strain": strain as Any,
+                                "strainSource": strainSource as Any, "hrSource": hrSource as Any,
+                                "mergedWith": mergedWith as Any, "scoringState": scoringState as Any],
+               displayStyle: .struct)
+    }
+}
+
+/// The body of `PUT /v1/activities/{id}`: the activity without the fields the platform sets. A field the
+/// user can clear goes as `null` when it's empty, so the platform clears it; `route`, `hr_samples` and
+/// `splits` are left out when there are none, so the platform keeps what it has (API request R19).
 struct SportActivityPut: Encodable, Sendable {
     let activity: SportActivity
 
@@ -2285,11 +2342,13 @@ struct SportActivityPut: Encodable, Sendable {
         try c.encode(a.start, forKey: .start)
         try c.encode(a.end, forKey: .end)
         try c.encode(a.movingSec, forKey: .movingSec)
-        try c.encodeIfPresent(a.distanceM, forKey: .distanceM)
-        try c.encodeIfPresent(a.ascentM, forKey: .ascentM)
-        try c.encodeIfPresent(a.descentM, forKey: .descentM)
-        try c.encodeIfPresent(a.perceivedEffort, forKey: .perceivedEffort)
-        try c.encodeIfPresent(a.notes, forKey: .notes)
+        // Editable: an empty one is sent as null.
+        try c.encode(a.distanceM, forKey: .distanceM)
+        try c.encode(a.ascentM, forKey: .ascentM)
+        try c.encode(a.descentM, forKey: .descentM)
+        try c.encode(a.perceivedEffort, forKey: .perceivedEffort)
+        try c.encode(a.notes, forKey: .notes)
+        // Measured or sent once: left out when there are none.
         try c.encodeIfPresent(a.splits, forKey: .splits)
         try c.encodeIfPresent(a.route, forKey: .route)
         try c.encodeIfPresent(a.hrSamples, forKey: .hrSamples)

@@ -308,6 +308,9 @@ final class AppState {
         pullPhases?.cancel()
         env.reads.reset()
         if isDemo { repository.clear() } else { repository.invalidate() }
+        // Activities typed in demo mode, on the phone and on the demo platform, go with the account or the switch.
+        env.activities.accountChanged()
+        (env.demoAPI as? MockPlatformAPI)?.activitySource.reset()
         readsChanged(.record)
     }
 

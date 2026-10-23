@@ -539,7 +539,7 @@ Safe-area padding `screenPadding` 20. Top to bottom:
 **Interruptions** (phone call): the recording continues; no UI.
 
 ### 5.4 Heart rate
-- **G7 live (flag `activity.liveHR`):** a separate full-width row between time and grid (the status row also shows `heart.fill` + bpm): "HEART RATE" label, value `ryftNumber(size: 40)` `monospacedDigit`, unit "bpm" and the zone word ("Zone 3") with the shipped zone colour dot AND text `caption` (colour not alone). Sensor name `caption` `textTertiary`: "Polar H10" (the BLE device name; it's the user's device).
+- **G7 live (flag `activity.live_hr`):** a separate full-width row between time and grid (the status row also shows `heart.fill` + bpm): "HEART RATE" label, value `ryftNumber(size: 40)` `monospacedDigit`, unit "bpm" and the zone word ("Zone 3") with the shipped zone colour dot AND text `caption` (colour not alone). Sensor name `caption` `textTertiary`: "Polar H10" (the BLE device name; it's the user's device).
 - **G8 not live (default):** a calm line under the grid, `callout` `textSecondary`, `heart` glyph: "Heart rate is added after your tracker syncs." Hidden once HR arrives through the platform (not during recording).
 - **G9 sensor lost:** line "Heart rate sensor disconnected. Reconnecting…" (`callout`, `exclamationmark.circle` warning); after 30 s reads "Heart rate sensor disconnected. Heart rate is added after your tracker syncs."
 - The flag off: only G8 is ever shown.
@@ -802,7 +802,7 @@ A new section **Activities** in Profile, between Notifications and Data (`Profil
 | Audio cues | Toggle + sub-picker "Every kilometre" (locale: mile) | off | "Audio cues" / "Speaks your distance, time and pace at each kilometre." | "Sprachansagen" / "Sagt bei jedem Kilometer Distanz, Zeit und Tempo an." |
 | Record route by default | Toggle, set by the first-Start question (4.1a); until then shown as "Not chosen yet" and not a toggle | not chosen (no default) | "Record route by default" / "You can change it for each activity." | "Route standardmäßig aufzeichnen" / "Das kannst du für jede Aktivität ändern." |
 | Privacy zones | chevron row, value "2 places" | none | "Privacy zones" / "Hide where you start and finish." | "Privatzonen" / "Verberge, wo du startest und aufhörst." |
-| Heart-rate sensor | chevron row, value name/"Not connected" (flag `activity.liveHR`; hidden when off) | none | "Heart-rate sensor" / "Show live heart rate while you record." | "Herzfrequenz-Sensor" / "Zeigt die Herzfrequenz live beim Aufzeichnen." |
+| Heart-rate sensor | chevron row, value name/"Not connected" (flag `activity.live_hr`; hidden when off) | none | "Heart-rate sensor" / "Show live heart rate while you record." | "Herzfrequenz-Sensor" / "Zeigt die Herzfrequenz live beim Aufzeichnen." |
 | Save to Apple Health | follows the existing workouts opt-in (shown only if on) | — | "Save activities to Apple Health" | "Aktivitäten in Apple Health sichern" |
 
 Audio cues sub-settings: **Language** follows the app language (en/de), no picker; the phrase: en "Kilometre 3. Time 16 minutes 42. Pace 5 minutes 34 per kilometre."

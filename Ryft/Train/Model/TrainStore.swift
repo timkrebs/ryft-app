@@ -29,7 +29,9 @@ final class TrainStore {
             isDurable = !inMemory
         } catch {
             // A store that can't be opened must not keep the app from launching.
-            Self.log.error("Train store unavailable, using memory: \(error.localizedDescription, privacy: .public)")
+            // Domain and code only: a store error's description can quote values.
+            let e = error as NSError
+            Self.log.error("Train store unavailable, using memory: \(e.domain, privacy: .public) \(e.code, privacy: .public)")
             let memory = ModelConfiguration("TrainFallback", schema: Self.schema, isStoredInMemoryOnly: true)
             isDurable = false
             do {

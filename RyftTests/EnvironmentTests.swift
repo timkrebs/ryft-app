@@ -2157,8 +2157,8 @@ struct ReportProblemTests {
                      /queue running (?:true|false) · queued (?:true|false) · backlog \d+ B/,
                      /stream [A-Za-z0-9_]+ · \d+ rec · \d+ days · newest (?:\d{4}-\d{2}-\d{2}|-)/],
             "gates": [/-|[a-z_]+(?:,[a-z_]+)*/],
-            // The flags' own keys (`today.myDay`): identifiers, never free text.
-            "flags": [/[a-zA-Z.]+=[01](?:,[a-zA-Z.]+=[01])*/],
+            // The flags' keys as the platform accepts them (`FeatureFlag`): identifiers, never free text.
+            "flags": [/[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+=[01](?:,[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+=[01])*/],
             "locale": [/[A-Za-z0-9_@=-]+/],
             "report_context": [/[^·\n]+ · [^·\n]+ · \S+/],
             "trackers": [/-|[a-z][a-z0-9_]*(?:,[a-z][a-z0-9_]*)*/],

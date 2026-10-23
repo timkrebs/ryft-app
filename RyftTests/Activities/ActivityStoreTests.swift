@@ -320,6 +320,22 @@ struct ActivityStoreAccountTests {
         #expect(h.store.snapshot(id: a.id) == nil && h.store.manualSleep(onDay: h.day(-1)) == nil)
     }
 
+    /// One night per account and day: another account's row for the same day is a second row, not overwritten
+    /// (privacy S-1).
+    @Test func twoAccountsCanEachHaveTheSameNight() {
+        let h = Harness()
+        h.insertSleep(day: h.day(), account: "account-a")
+        h.insertSleep(day: h.day(), account: "account-b")
+        #expect(h.count(LocalManualSleep.self) == 2)
+        #expect(h.store.manualSleep(onDay: h.day())?.day == h.day())
+        h.account = "account-b"
+        #expect(h.store.manualSleep(onDay: h.day())?.day == h.day())
+        h.store.purge(notBelongingTo: "account-b")
+        #expect(h.count(LocalManualSleep.self) == 1)
+        h.account = "account-a"
+        #expect(h.store.manualSleep(onDay: h.day()) == nil)
+    }
+
     @Test func purgeOfNobodyDeletesEverything() {
         let h = Harness()
         h.store.save(manual: h.run(7))
@@ -351,7 +367,7 @@ struct ActivityStoreAccountTests {
         h.insertChunks(for: UUID(), account: "account-a")
         h.insertSleep(day: h.day(), account: "account-a")
         h.persistence.wipe()
-        h.store.invalidate()
+        h.store.accountChanged()
         #expect(h.count(LocalActivity.self) == 0 && h.count(ActivityTrackChunk.self) == 0)
         #expect(h.count(LocalManualSleep.self) == 0)
         #expect(h.store.snapshots(onDay: h.day()).isEmpty)
@@ -381,6 +397,41 @@ struct ActivityStoreStorageTests {
         #expect(h.count(LocalActivity.self) == 1)
         h.demo = false
         #expect(h.store.snapshots(onDay: h.day()).map(\.id) == [real.id])
+    }
+
+    @Test func anAccountChangeStartsDemoDataOver() throws {
+        let h = Harness()
+        h.demo = true
+        _ = try #require(h.store.save(manual: h.run(7, notes: "A's note")))
+        let revision = h.store.revision
+        h.store.accountChanged()
+        #expect(h.store.revision > revision)
+        #expect(h.store.snapshots(onDay: h.day()).isEmpty)
+    }
+
+    /// Privacy S-3: what account A typed in demo mode, on the phone and on the demo platform, is gone when A
+    /// signs out (`AppState.reset`), before anyone else uses demo data.
+    @Test func aDemoNoteIsGoneAfterTheReset() async throws {
+        let clock = TestClock()
+        let api = MockPlatformAPI(activities: .demoSource())
+        api.now = { clock.now() }
+        let env = AppEnvironment(
+            settings: .shared, health: MockHealthStore(), liveAPI: api, demoAPI: api, auth: .preview(),
+            persistence: TrainStore(inMemory: true), clock: clock, notifier: MockNotifier(), flags: StaticFlags(),
+            connectivity: .preview(online: true),
+            defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard, demoOverride: true)
+        let state = AppState(env: env)
+        let start = clock.now().addingTimeInterval(-3_600)
+        let note = try #require(env.activities.save(manual: ActivityDraft(sport: .yoga, start: start,
+                                                                           end: start.addingTimeInterval(1_800),
+                                                                           notes: "A's private note")))
+        _ = try await api.putActivity(note.activity)
+        let day = DayFormat.string(from: start)
+        #expect(env.activities.snapshots(onDay: day).map(\.id) == [note.id])
+        state.accountChanged(from: "account-a")
+        #expect(env.activities.snapshots(onDay: day).isEmpty)
+        await #expect(throws: APIError.self) { try await api.activity(id: note.id) }
+        #expect(api.activitySource.puts.isEmpty)
     }
 
     @Test func theEnvironmentsStoreFollowsTheSignedInAccount() {
