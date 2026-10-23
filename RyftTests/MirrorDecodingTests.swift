@@ -286,7 +286,7 @@ struct BetaMirrorDecodingTests {
 }
 
 // MARK: - API.md 2026-10-22: calibrating_reason, baseline_hrv_days, baseline_rhr_days
-// (Swift Testing; in this file because a new test file needs a project-file entry until RyftTests is synchronized.)
+// (Swift Testing, beside the other contract mirrors; Today's calibration decision is in TodayCalibrationTests.swift.)
 
 /// Fixtures come from `scripts/contract/extract.py` (the `DailyScore` example and the eight fragments).
 @Suite("Calibrating reason on DailyScore")

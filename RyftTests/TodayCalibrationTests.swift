@@ -306,6 +306,18 @@ struct CalibrationBlockerResolveTests {
                 == "No HRV has reached RYFT from your nights.")
     }
 
+    /// Both signals are written out, never a formatted list, so German can say "weder … noch" (review).
+    @Test func bothSignalsAreWrittenOut() {
+        let oura = CalibrationBlocker.resolve(Self.both, trackers: [MockData.tracker("oura")], devicesSetup: true)
+        #expect(oura.text == "Oura doesn't share HRV or resting heart rate with Apple Health.")
+        #expect(CalibrationBlocker(signals: Self.both, source: .phoneOnly, link: nil).text
+                == "An iPhone on its own doesn't record HRV or resting heart rate.")
+        #expect(CalibrationBlocker(signals: Self.both, source: .unknown, link: nil).text
+                == "No HRV or resting heart rate has reached RYFT from your nights.")
+        #expect(CalibrationBlocker(signals: [.restingHR, .hrv], source: .unexpected, link: nil).text
+                == "No HRV or resting heart rate has reached RYFT from your nights.")
+    }
+
     @Test func linkTitlesSayWhereTheyGo() {
         #expect(CalibrationLink.setup(trackerID: "garmin", app: "Garmin Connect").title == "How to set up Garmin Connect")
         #expect(CalibrationLink.checkSync.title == "Check sync")
@@ -315,8 +327,9 @@ struct CalibrationBlockerResolveTests {
 
 // MARK: - the band word
 
-/// S2, N1 and N2 take the band word's place with the note: under the gauge and on the Recovery tile. Row A and
-/// path L keep it. Pinned so a change is deliberate.
+/// S2, N1 and N2 give the gauge's band word's line to the note; row A and path L keep it. The Recovery tile keeps
+/// its band word wherever it had one before T4 (lead, review: hiding it would hide it for good from every Garmin
+/// account, and the tile's tint shows the band anyway). Pinned so a change is deliberate.
 @Suite("Today: the band word under a calibration note")
 struct CalibrationBandWordTests {
     private static let now = (DayFormat.date(from: day) ?? .distantPast).addingTimeInterval(7.5 * 3_600)
@@ -353,8 +366,12 @@ struct CalibrationBandWordTests {
         let content = TodayContent(facts: f, presentation: p, hero: TodayStates.hero(f, presentation: p), hasDataSource: true,
                                    readinessWeek: [], detailSleepMin: nil)
         #expect(content.showsReadinessBand == c.keepsBand)
-        if c.today.readiness != nil, p.gauge != .baselines(nights: c.today.baselineDays) {
-            #expect((content.recoveryBand != nil) == c.keepsBand, "Recovery's band word follows the gauge's")
+        // Recovery's band word: today's recovery, not dimmed, not under the "calibrating" caption (the rule before
+        // T4), whatever the note says.
+        let tileKeepsBand = !p.tiles.isEarlierDay && !p.tiles.calibrating && c.today.recovery != nil
+        #expect((content.recoveryBand != nil) == tileKeepsBand, "the Recovery tile's band word")
+        if c.today.recovery != nil, c.today.readiness != nil, !p.tiles.calibrating {
+            #expect(content.recoveryBand != nil, "kept under S2 / N1 too")
         }
     }
 }

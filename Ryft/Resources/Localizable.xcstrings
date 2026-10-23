@@ -27,12 +27,23 @@
       }
     },
     "%@ doesn't share %@ with Apple Health." : {
-      "comment" : "Under Today's gauge: the app doesn't write these to Apple Health. Args: app (Garmin Connect), signals (HRV or …).",
+      "comment" : "Under Today's gauge: the app doesn't write it to Apple Health. Args: app (Garmin Connect), one signal (HRV).",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@ sendet %2$@ nicht an Apple Health."
+          }
+        }
+      }
+    },
+    "%@ doesn't share HRV or resting heart rate with Apple Health." : {
+      "comment" : "Under Today's gauge: the app writes neither to Apple Health. The argument is the app, e.g. Oura.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ sendet weder HRV noch Ruhepuls an Apple Health."
           }
         }
       }
@@ -902,12 +913,23 @@
       }
     },
     "An iPhone on its own doesn't record %@." : {
-      "comment" : "Note under Today's gauge for “Just my iPhone”. The argument is the signals, e.g. “HRV or resting heart rate”.",
+      "comment" : "Note under Today's gauge for “Just my iPhone”. The argument is one signal, e.g. “HRV”.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ein iPhone allein erfasst %@ nicht."
+          }
+        }
+      }
+    },
+    "An iPhone on its own doesn't record HRV or resting heart rate." : {
+      "comment" : "Note under Today's gauge for “Just my iPhone”: neither signal reaches RYFT.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein iPhone allein erfasst weder HRV noch Ruhepuls."
           }
         }
       }
@@ -2511,12 +2533,23 @@
       "comment" : "Profile → Data → Devices & sync: a tracker row's status under its name, from the last Check sync: a signal it should send didn't arrive (the check shows the fix)."
     },
     "No %@ has reached RYFT from your nights." : {
-      "comment" : "Under Today's gauge: no such signal in the baseline window. The argument is the signals (HRV or …).",
+      "comment" : "Under Today's gauge: no such signal in the baseline window. The argument is one signal, e.g. “HRV”.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aus deinen Nächten sind keine Werte für %@ bei RYFT angekommen."
+          }
+        }
+      }
+    },
+    "No HRV or resting heart rate has reached RYFT from your nights." : {
+      "comment" : "Under Today's gauge: neither signal is in the baseline window.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus deinen Nächten sind weder HRV- noch Ruhepuls-Werte bei RYFT angekommen."
           }
         }
       }

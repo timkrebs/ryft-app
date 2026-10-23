@@ -12,8 +12,8 @@ struct TodayCalibrationWiringTests {
                                             of: Date(timeIntervalSince1970: 1_792_600_000))!
     private func dayKey(_ offset: Int) -> String { DayFormat.string(from: DayFormat.shift(now, days: offset)) }
 
-    /// API.md's example 3 (`no_hrv`, H 0, R 24, readiness 74) over 30 scored days without HRV.
-    private func model(devicesSetup: Bool, trackers: [String]) -> TodayViewModel {
+    /// API.md's example 3 (`no_hrv`, H 0, R 24, readiness 74) over 30 scored days without HRV; `reason` swaps it.
+    private func model(devicesSetup: Bool, trackers: [String], reason: CalibratingReason? = .noHrv) -> TodayViewModel {
         let env = AppEnvironment.test(clock: TestClock(now: now), flags: [.devicesSetup: devicesSetup])
         let state = AppState(env: env)
         state.history = (1...30).reversed().map { offset in
@@ -22,7 +22,7 @@ struct TodayCalibrationWiringTests {
         }
         let today = DailyScore(day: dayKey(0), readiness: 74, state: .calibrating, recovery: 72, strain: 0.9, rhr: 52,
                                baselineDays: 0, calibrating: true, computedAt: now, scoringState: .scored,
-                               baselineHrvDays: 0, baselineRhrDays: 24, calibratingReason: .noHrv)
+                               baselineHrvDays: 0, baselineRhrDays: 24, calibratingReason: reason)
         state.today = DayDetail(score: today, sleep: nil, workouts: [])
         let sync = SyncService(env: env)
         return TodayViewModel(state: state, sync: sync,
@@ -41,5 +41,10 @@ struct TodayCalibrationWiringTests {
         let off = model(devicesSetup: false, trackers: ["garmin"])
         #expect(!off.facts.devicesSetup && off.facts.trackers.isEmpty)
         #expect(off.gaugeNote == .blocked(CalibrationBlocker(signals: [.hrv], source: .unknown, link: nil)))
+        // Only a row whose note names the tracker reads the choice (and the catalog): not short history, not legacy.
+        for reason in [CalibratingReason.shortHistory, nil] {
+            let other = model(devicesSetup: true, trackers: ["garmin"], reason: reason)
+            #expect(other.facts.devicesSetup && other.facts.trackers.isEmpty, "\(String(describing: reason))")
+        }
     }
 }

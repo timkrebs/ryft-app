@@ -100,17 +100,34 @@ struct CalibrationBlocker: Equatable, Sendable {
 
     /// The note under the gauge: the signals, and the app when the catalog knows it doesn't share them. No digit.
     var text: String {
-        let list = CalibrationSignal.list(signals)
+        // Both: written out, never a formatted list, so German can say "weder … noch".
+        if Set(signals) == [.hrv, .restingHR] { return bothText }
+        let signal = CalibrationSignal.list(signals)
         switch source {
         case .notShared(let app):
-            return String(localized: "\(app) doesn't share \(list) with Apple Health.",
-                          comment: "Under Today's gauge: the app doesn't write these to Apple Health. Args: app (Garmin Connect), signals (HRV or …).")
+            return String(localized: "\(app) doesn't share \(signal) with Apple Health.",
+                          comment: "Under Today's gauge: the app doesn't write it to Apple Health. Args: app (Garmin Connect), one signal (HRV).")
         case .phoneOnly:
-            return String(localized: "An iPhone on its own doesn't record \(list).",
-                          comment: "Note under Today's gauge for “Just my iPhone”. The argument is the signals, e.g. “HRV or resting heart rate”.")
+            return String(localized: "An iPhone on its own doesn't record \(signal).",
+                          comment: "Note under Today's gauge for “Just my iPhone”. The argument is one signal, e.g. “HRV”.")
         case .unexpected, .unknown:
-            return String(localized: "No \(list) has reached RYFT from your nights.",
-                          comment: "Under Today's gauge: no such signal in the baseline window. The argument is the signals (HRV or …).")
+            return String(localized: "No \(signal) has reached RYFT from your nights.",
+                          comment: "Under Today's gauge: no such signal in the baseline window. The argument is one signal, e.g. “HRV”.")
+        }
+    }
+
+    /// HRV and resting heart rate both missing.
+    private var bothText: String {
+        switch source {
+        case .notShared(let app):
+            return String(localized: "\(app) doesn't share HRV or resting heart rate with Apple Health.",
+                          comment: "Under Today's gauge: the app writes neither to Apple Health. The argument is the app, e.g. Oura.")
+        case .phoneOnly:
+            return String(localized: "An iPhone on its own doesn't record HRV or resting heart rate.",
+                          comment: "Note under Today's gauge for “Just my iPhone”: neither signal reaches RYFT.")
+        case .unexpected, .unknown:
+            return String(localized: "No HRV or resting heart rate has reached RYFT from your nights.",
+                          comment: "Under Today's gauge: neither signal is in the baseline window.")
         }
     }
 }

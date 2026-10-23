@@ -164,11 +164,16 @@ final class TodayViewModel {
         f.freshness = devices?.worn(freshness) ?? freshness
         f.scoringSince = sync.scoringSince(pendingDays: state.syncStatus?.pendingDays ?? [])
         f.statusReadAt = sync.statusReadAt
-        // What the calibration note may say about the tracker (design.md §7 rev. 2 §2): only with the flag on.
+        // What the calibration note may say about the tracker (design.md §7 rev. 2 §2): only with the flag on, and
+        // only for a row whose note names it (`no_*`). `facts` runs several times per body and on every tick, and the
+        // catalog's first read may decode the bundled copy: nothing else here should pay for it.
         f.devicesSetup = env.flags.isOn(.devicesSetup)
-        if f.devicesSetup, let devices {
-            let catalog = env.trackerCatalog
-            f.trackers = devices.trackers.compactMap(catalog.tracker)
+        if f.devicesSetup, let devices, f.today?.waitingEndsCalibration == false {
+            let ids = devices.trackers
+            if !ids.isEmpty {
+                let catalog = env.trackerCatalog
+                f.trackers = ids.compactMap(catalog.tracker)
+            }
         }
         if let scenario = state.todayScenario { f = scenario.apply(to: f) }
         // Names for the sources on screen (§5), resolved once per set of sources and catalog version; nothing
@@ -195,10 +200,10 @@ final class TodayViewModel {
     var content: TodayContent {
         let f = facts
         let p = TodayPresentation.decide(f.scores)
-        // The opened detail's night belongs to its own row: a demo scenario's row (a day without a night) isn't it.
+        // The opened detail's night belongs to its own row: only the day the detail was opened for.
         return TodayContent(facts: f, presentation: p, hero: TodayStates.hero(f, presentation: p),
                             hasDataSource: hasDataSource, readinessWeek: readinessWeek,
-                            detailSleepMin: state.todayScenario == nil ? state.today?.sleep?.totalMin : nil)
+                            detailSleepMin: state.today?.score.day == f.today?.day ? state.today?.sleep?.totalMin : nil)
     }
     /// The import's slim row under the header, once a day is scored and the backfill goes on.
     var importRow: ImportProgress? { TodayStates.importRow(facts) }
@@ -405,10 +410,10 @@ struct TodayContent {
     }
     var recovery: Int? { tiles.source?.recovery }
     var recoveryText: String { Fmt.percent(recovery) }
-    /// The band word: only for today's score, not for a dimmed or calibrating one (nor under a calibration note,
-    /// where the platform's `state` stays calibrating).
+    /// The band word: only for today's score, not for a dimmed or calibrating one. It stays under a calibration
+    /// note (S2, N1): the tile's tint shows the band anyway, and a Garmin account would otherwise never see it.
     var recoveryBand: String? {
-        guard !tiles.isEarlierDay, !tiles.calibrating, presentation.note?.isCalibration != true else { return nil }
+        guard !tiles.isEarlierDay, !tiles.calibrating else { return nil }
         return recovery.map { MetricSpec.scoreBand(Double($0)).label }
     }
     var strainText: String { Fmt.strain(tiles.source?.strain) }
@@ -1146,8 +1151,8 @@ extension TodayPresentation.Note {
         return nil
     }
 
-    /// S2 and N1/N2, decided by the row's `calibrating_reason`: the line under the gauge takes the band word's
-    /// place (the band word and the delta stay in row A; path L's rows keep theirs).
+    /// S2 and N1/N2, decided by the row's `calibrating_reason`: the line under the gauge takes the gauge's band
+    /// word's place (that band word and the delta stay in row A; path L's rows keep theirs, the Recovery tile too).
     var isCalibration: Bool {
         switch self {
         case .learning, .blocked: return true
@@ -1175,6 +1180,9 @@ enum TodayScenario: String, CaseIterable {
     /// N1, API.md's example 3: Garmin chosen (`devices.setup` on), `no_hrv` with 24 resting-HR nights, readiness
     /// 74: the note names Garmin Connect and links its card. N2: the same day without a night, so no readiness.
     case blockedHRV, blockedNoNight
+    /// N1 with both signals missing: Oura chosen, `no_hrv` with no resting-HR nights either (R 0), readiness 68
+    /// from sleep: "Oura doesn't share HRV or resting heart rate with Apple Health."
+    case blockedOura
     /// S2, example 4: the first morning with HRV after 30 days without, `short_history`, readiness 78.
     case learningHRV
 
@@ -1258,27 +1266,29 @@ enum TodayScenario: String, CaseIterable {
                 for i in f.prior.indices.suffix(2) { f.prior[i].hrvMs = 52; f.prior[i].rhr = 51 }
             }
             f.status = Self.status(now: now, .scored)
-        case .blockedHRV, .blockedNoNight, .learningHRV:
+        case .blockedHRV, .blockedNoNight, .blockedOura, .learningHRV:
             f.engine.backfillDone = true
             f.hasScoredDay = true
             let night = self != .blockedNoNight
             let learning = self == .learningHRV
-            f.today = DailyScore(day: key, readiness: night ? (learning ? 78 : 74) : nil, state: .calibrating,
-                                 recovery: night ? (learning ? 74 : 72) : nil, strain: night ? 0.9 : 0.4,
-                                 sleepActualMin: night ? 437 : nil, hrvMs: learning ? 48 : nil, rhr: night ? 52 : nil,
-                                 baselineDays: 0, calibrating: true, computedAt: now.addingTimeInterval(-3_600),
-                                 scoringState: .scored, baselineHrvDays: 0, baselineRhrDays: 24,
-                                 calibratingReason: learning ? .shortHistory : .noHrv)
-            // 30 scored days without HRV: what a Garmin account sends.
+            let oura = self == .blockedOura
+            f.today = DailyScore(day: key, readiness: night ? (learning ? 78 : oura ? 68 : 74) : nil, state: .calibrating,
+                                 recovery: night ? (learning ? 74 : oura ? 66 : 72) : nil, strain: night ? 0.9 : 0.4,
+                                 sleepActualMin: night ? 437 : nil, hrvMs: learning ? 48 : nil,
+                                 rhr: night && !oura ? 52 : nil, baselineDays: 0, calibrating: true,
+                                 computedAt: now.addingTimeInterval(-3_600), scoringState: .scored, baselineHrvDays: 0,
+                                 baselineRhrDays: oura ? 0 : 24, calibratingReason: learning ? .shortHistory : .noHrv)
+            // 30 scored days without HRV (what a Garmin account sends); without resting HR either for Oura.
             f.prior = Self.prior(now: now).suffix(30).map { d in
                 var d = d
                 d.hrvMs = nil
+                if oura { d.rhr = nil }
                 return d
             }
             f.status = Self.status(now: now, .scored)
             if !learning {
                 f.devicesSetup = true
-                f.trackers = [MockData.tracker("garmin")]
+                f.trackers = [MockData.tracker(oura ? "oura" : "garmin")]
             }
         }
         return f

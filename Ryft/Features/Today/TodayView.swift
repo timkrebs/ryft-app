@@ -92,7 +92,7 @@ struct TodayView: View {
                     SyncDetailsSheet(model: screens.profile.syncDetails)
                 }
                 // The calibration note's link: the tracker's card, Check sync or Devices & sync, with Done.
-                .sheet(item: $calibrationLink) { link in
+                .sheet(item: $calibrationLink, onDismiss: { linkCheck = nil }) { link in
                     CalibrationLinkSheet(link: link, check: linkCheck)
                 }
                 // The journal: whether it's live (M5), and yesterday's answer for the card.
@@ -738,6 +738,15 @@ struct OfflinePill: View {
 #Preview("Today · N1 blocked HRV (Garmin) · AX3") {
     TodayView().previewEnvironment(.preview(scenario: .blockedHRV))
         .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Today · N1 blocked both (Oura)") {
+    TodayView().previewEnvironment(.preview(scenario: .blockedOura))
+}
+
+#Preview("Today · N1 blocked both (Oura) · light · de") {
+    TodayView().previewEnvironment(.preview(scenario: .blockedOura), scheme: .light)
+        .environment(\.locale, Locale(identifier: "de"))
 }
 
 #Preview("Today · N2 blocked, no night") {
