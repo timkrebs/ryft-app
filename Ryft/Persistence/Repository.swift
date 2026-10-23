@@ -13,6 +13,8 @@ import os
 ///   while the new one loads.
 /// - **TTLs per entity** (`Policy`): today 5 min, past days 24 h, trends 1 h.
 ///   Browsing history never asks again for a day that is cached and fresh.
+/// - **No route at rest.** Activities are cached per day without `route` and
+///   `hr_samples` (`store(activities:day:)`, ADR 0006).
 ///
 /// Offline nothing is requested. A response that arrives after the account
 /// changed is dropped. Demo data lives in its own in-memory store, so it never
@@ -39,7 +41,7 @@ final class Repository {
     /// What a write changes. Each kind has its own revision and memo entries, so a
     /// trends write neither re-decodes the days nor re-renders a view that only shows days.
     enum Kind: String, CaseIterable {
-        case days, trends, insights, user, sleep, workouts
+        case days, trends, insights, user, sleep, workouts, activities
     }
 
     // One observed revision per kind; reads touch theirs, writes bump theirs.
@@ -49,10 +51,12 @@ final class Repository {
     private(set) var userRevision = 0
     private(set) var sleepRevision = 0
     private(set) var workoutsRevision = 0
+    private(set) var activitiesRevision = 0
 
     /// Every write so far, of any kind.
     var revision: Int {
         daysRevision + trendsRevision + insightsRevision + userRevision + sleepRevision + workoutsRevision
+            + activitiesRevision
     }
 
     /// Decoded values per kind (decoding JSON on every read would add up), until that kind changes.
@@ -107,6 +111,7 @@ final class Repository {
         case .user: _ = userRevision
         case .sleep: _ = sleepRevision
         case .workouts: _ = workoutsRevision
+        case .activities: _ = activitiesRevision
         }
     }
 
@@ -182,6 +187,30 @@ final class Repository {
             d.fetchLimit = 1
             return WireCoding.decode(WorkoutDetail.self, (try? context.fetch(d))?.first?.data)
         }
+    }
+
+    /// The platform's activities that start on `day` (`yyyy-MM-dd`), oldest first, as last fetched; empty until
+    /// then. Never with `route` or `hr_samples`.
+    func activities(day: String) -> [SportActivity] {
+        memoized(.activities, day) {
+            WireCoding.decode([SportActivity].self, activitiesDocument(day)?.data) ?? []
+        }
+    }
+
+    /// When `day`'s activities were last fetched; nil when they never were.
+    func activitiesFetchedAt(day: String) -> Date? {
+        memoized(.activities, "fetchedAt.\(day)", decoded: false) { activitiesDocument(day)?.fetchedAt }
+    }
+
+    /// `CachedDocument` key of `day`'s activities: "activities.2026-10-22".
+    nonisolated static func activitiesKey(_ day: String) -> String { "\(activitiesPrefix)\(day)" }
+    nonisolated static let activitiesPrefix = "activities."
+
+    private func activitiesDocument(_ day: String) -> CachedDocument? {
+        let key = Self.activitiesKey(day)
+        var d = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key == key })
+        d.fetchLimit = 1
+        return (try? context.fetch(d))?.first
     }
 
     /// When the day's detail was last fetched ("Updated 07:15"). Today reads it on every body
@@ -355,6 +384,29 @@ final class Repository {
         try await refreshSleepRange(kind, mode: force ? .latest : .ifStale)
     }
 
+    /// `day`'s activities (`GET /v1/activities?from&to`, the local day): cached and fresh → no request
+    /// (`.ifStale`; the day's TTLs: 5 min today, 24 h for a past day). A failure with a cached copy keeps the
+    /// copy; without one it throws. Before the contract is published (`publishesActivities`) nothing is asked,
+    /// recorded or budgeted: the cache is returned.
+    @discardableResult
+    func refreshActivities(_ day: String, mode: ReadMode = .ifStale, userInitiated: Bool = false) async throws
+        -> [SportActivity] {
+        guard let start = DayFormat.date(from: day) else { return [] }
+        guard env.api.publishesActivities else { return activities(day: day) }
+        if mode == .ifStale, isFresh(day: day, fetchedAt: activitiesFetchedAt(day: day)) { return activities(day: day) }
+        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
+        do {
+            _ = try await scheduled(ReadKey(.activities, id: day), mode: mode, userInitiated: userInitiated,
+                                    fetch: { [env] in try await env.api.activities(from: start, to: end) },
+                                    store: { [weak self] in self?.store(activities: $0, day: day) })
+            // What was stored (stripped), not the answer itself: no caller holds a route from a list read.
+            return activities(day: day)
+        } catch {
+            if activitiesFetchedAt(day: day) != nil { return activities(day: day) }
+            throw error
+        }
+    }
+
     func refreshWorkout(_ id: UUID, force: Bool = false) async throws {
         if !force {
             var d = FetchDescriptor<CachedWorkout>(predicate: #Predicate { $0.id == id })
@@ -388,6 +440,7 @@ final class Repository {
             case .user: userRevision += 1
             case .sleep: sleepRevision += 1
             case .workouts: workoutsRevision += 1
+            case .activities: activitiesRevision += 1
             }
         }
         if kinds.contains(.days) { onDaysChanged?() }
@@ -529,6 +582,67 @@ final class Repository {
         changed(.workouts)
     }
 
+    /// `day`'s activities as the platform listed them, replacing the cached ones. `route` and `hr_samples`
+    /// are dropped first: list reads are expected without them (R16), and none is kept at rest if one
+    /// arrives anyway (ADR 0006).
+    func store(activities: [SportActivity], day: String) {
+        let list = activities.map(\.withoutRouteOrHeartRate).sorted { $0.start < $1.start }
+        guard let data = WireCoding.encode(list) else { return }
+        writeActivities(data, day: day)
+        changed(.activities)
+    }
+
+    /// One activity the platform answered (a confirmed `PUT`, a detail read), into the list of the day it
+    /// starts on, without `route` and `hr_samples`. A copy cached under another day (its start was edited)
+    /// is removed there.
+    func store(activity: SportActivity) {
+        let day = DayFormat.string(from: activity.start)
+        let id = activity.id
+        removeCached(id, keeping: Self.activitiesKey(day))
+        var list = self.activities(day: day).filter { $0.id != id }
+        list.append(activity.withoutRouteOrHeartRate)
+        list.sort { $0.start < $1.start }
+        guard let data = WireCoding.encode(list) else { return }
+        // A single answer doesn't make the day's list fresh: its fetch time stays (a new row's is the past).
+        writeActivities(data, day: day, fetchedAt: activitiesFetchedAt(day: day) ?? .distantPast)
+        changed(.activities)
+    }
+
+    /// A deleted activity (the platform confirmed the `DELETE`): out of every cached day.
+    func forget(activity id: UUID) {
+        guard removeCached(id, keeping: nil) else { return }
+        changed(.activities)
+    }
+
+    /// Takes `id` out of every cached day's list but `keeping`'s. Only lists that mention it are decoded.
+    /// True when one changed.
+    @discardableResult
+    private func removeCached(_ id: UUID, keeping key: String?) -> Bool {
+        let needle = Data(id.uuidString.utf8)
+        let prefix = Self.activitiesPrefix
+        let keep = key ?? ""
+        let docs = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key.starts(with: prefix) && $0.key != keep })
+        var removed = false
+        for row in (try? context.fetch(docs)) ?? [] where row.data.range(of: needle) != nil {
+            guard let list = WireCoding.decode([SportActivity].self, row.data) else { continue }
+            let kept = list.filter { $0.id != id }
+            guard kept.count != list.count, let data = WireCoding.encode(kept) else { continue }
+            row.data = data
+            removed = true
+        }
+        return removed
+    }
+
+    private func writeActivities(_ data: Data, day: String, fetchedAt: Date? = nil) {
+        let key = Self.activitiesKey(day)
+        if let row = activitiesDocument(day) {
+            row.data = data
+            row.fetchedAt = fetchedAt ?? now
+        } else {
+            context.insert(CachedDocument(key: key, data: data, fetchedAt: fetchedAt ?? now))
+        }
+    }
+
     /// Every cached series refetches the next time it's shown (new scores came in).
     func markTrendsStale() {
         var d = FetchDescriptor<CachedTrend>()
@@ -560,7 +674,15 @@ final class Repository {
         let oldDocs = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key.starts(with: prefix) && $0.fetchedAt < month })
         removed += count(oldDocs)
         try? context.delete(model: CachedDocument.self, where: #Predicate { $0.key.starts(with: prefix) && $0.fetchedAt < month })
-        changed(.days, .trends, .workouts)
+        // Activities go with their days (keys sort by day: "activities.2025-10-22").
+        let cutoffKey = Self.activitiesKey(DayFormat.string(from: cutoffDay))
+        let activityPrefix = Self.activitiesPrefix
+        let activityDocs = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key.starts(with: activityPrefix) })
+        for row in (try? context.fetch(activityDocs)) ?? [] where row.key < cutoffKey {
+            context.delete(row)
+            removed += 1
+        }
+        changed(.days, .trends, .workouts, .activities)
         return removed
     }
 
@@ -577,7 +699,9 @@ final class Repository {
         try? context.delete(model: CachedUser.self)
         try? context.delete(model: CachedSleepRange.self)
         try? context.delete(model: CachedWorkout.self)
-        changed(.days, .trends, .insights, .user, .sleep, .workouts)
+        let activityPrefix = Self.activitiesPrefix
+        try? context.delete(model: CachedDocument.self, where: #Predicate { $0.key.starts(with: activityPrefix) })
+        changed(.days, .trends, .insights, .user, .sleep, .workouts, .activities)
     }
 
     /// Runs `body` against the account's store, whatever the Demo data switch says.
@@ -709,6 +833,7 @@ enum ReadResource: String, Codable, CaseIterable, Sendable {
     case config       // GET /v1/config
     case train        // TrainLibrary: exercises, plans, plans/today
     case sleepRange   // GET /v1/sleep
+    case activities   // GET /v1/activities?from&to, one local day (My Day)
 
     var priority: RequestBudget.Priority { self == .today || self == .syncStatus ? .high : .normal }
 
@@ -724,6 +849,7 @@ enum ReadResource: String, Codable, CaseIterable, Sendable {
         case .journal: return String(localized: "Journal")
         case .config: return String(localized: "Remote settings")
         case .train: return String(localized: "Train")
+        case .activities: return String(localized: "Activities")
         case .day, .sleepRange: return nil
         }
     }

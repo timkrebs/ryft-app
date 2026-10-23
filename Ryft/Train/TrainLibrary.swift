@@ -184,7 +184,8 @@ final class TrainLibrary {
                     remote: store.document([SessionSummary].self, key: Self.sessionsKey) ?? [])
     }
 
-    static func merged(local: [SessionSummary], remote: [SessionSummary]) -> [SessionSummary] {
+    /// Pure (My Day's assembler calls it off the main actor).
+    nonisolated static func merged(local: [SessionSummary], remote: [SessionSummary]) -> [SessionSummary] {
         let localIDs = Set(local.map(\.id))
         return (local + remote.filter { !localIDs.contains($0.id) && $0.status == .completed })
             .sorted { $0.startedAt > $1.startedAt }

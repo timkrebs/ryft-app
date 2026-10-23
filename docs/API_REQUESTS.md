@@ -48,13 +48,10 @@ first one decides how the app reads My Day.
 | R15 | How far back a manual activity may start (the app allows 14 days), and `notes` ≤ 500 counted in characters or bytes. |
 | R16 | `route` and `hr_samples` appear **only** in `GET /v1/activities/{id}` (and R14's export), never in `GET /v1/activities?from&to`, the day detail, `GET /v1/my-day` or `PUT` answers. |
 | R17 | A final `401` for an account deleted on the web carries a distinct `code` (e.g. `account_deleted`), so the app deletes parked activities at once instead of after 30 days (§8.4). |
-| R20 | **Splits: the index base and what a split covers.** The app numbers splits from 1: the first kilometre is `index: 1`. Please state the platform's convention, with an example. Please also confirm:
-  - `distance_m` is 1000, except for the last split, which may be partial and carries its real distance.
-  - A remainder under 50 m at the end isn't sent as a split. So the splits' `distance_m` can sum to up to 50 m less than the activity's `distance_m`, and their `duration_sec` to less than `moving_sec`. The platform accepts that.
-  - `duration_sec` is moving time within the split, pauses excluded.
-  - `ascent_m` is null when the activity has no elevation.
-  (A3a, 2026-10-23) |
-| — | Naming only: API.md `Activity` is `SportActivity` in the app (ActivityKit owns `Activity`). |
+| R18 | `GET /v1/activities?from&to`: the parameters as RFC 3339 instants with offset, matched `[from, to)` on `start`, so the app asks for one local day (the phone's midnight to midnight, as it does against the fake). If the platform prefers `YYYY-MM-DD` like `GET /v1/days`, say which time zone decides an activity's day (`GET /v1/me` → `tz`?). Either way, an activity across midnight belongs to the day it starts on. (A1, 2026-10-23) |
+| R19 | **`PUT /v1/activities/{id}`: missing vs `null`.** A field the body leaves out keeps what the platform stores; an explicit `null` clears it. The app relies on both: it leaves out `route` and `hr_samples` when it has none to send (an edit of effort or notes after the route went up, or a route the user withheld), and it sends `null` for an editable field the user cleared (`notes`, `perceived_effort`, `distance_m`, `ascent_m`, `descent_m`). Please document it under the endpoint with an example of each, and say how the app removes a route it already sent (Remove route, design §8.6): `"route": null`, or a dedicated call. (A1 review, 2026-10-23) |
+| R20 | **Splits: the index base and what a split covers.** The app numbers splits from 1 (the first kilometre is `index: 1`); please state the platform's convention with an example. Please confirm: `distance_m` is 1000 except for the last split, which may be partial with its real distance; a remainder under 50 m isn't sent as a split, so the splits can sum to up to 50 m less than the activity's `distance_m` (and `duration_sec` to less than `moving_sec`); `duration_sec` is moving time within the split, pauses excluded; `ascent_m` is null without elevation. (A3a, 2026-10-23) |
+| — | Naming only: API.md `Activity` is `SportActivity` in the app (ActivityKit owns `Activity`), and `strain_source: "none"` is `StrainSource.noSource` (a case called `none` would read as `Optional.none`). |
 
 ## Train (open, 2026-10-19)
 
