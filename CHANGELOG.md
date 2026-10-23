@@ -68,6 +68,9 @@ Store "What's New".
   that hasn't synced to Apple Health. Strain and Sleep mark days that aren't scored yet.
 - Profile → Data → Sync details: each stream's progress, the last requests with their IDs,
   "Sync last 3 days again" and "Copy diagnostics" for support.
+- Today now says why baselines are still forming. When your tracker doesn't share HRV or
+  resting heart rate with Apple Health, it names the signal instead of a counter that can't
+  move.
 
 ### Fixed
 - Today names your tracker's app as you know it ("Garmin Connect", not Apple Health's "Connect"). In

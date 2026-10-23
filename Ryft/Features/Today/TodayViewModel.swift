@@ -164,6 +164,12 @@ final class TodayViewModel {
         f.freshness = devices?.worn(freshness) ?? freshness
         f.scoringSince = sync.scoringSince(pendingDays: state.syncStatus?.pendingDays ?? [])
         f.statusReadAt = sync.statusReadAt
+        // What the calibration note may say about the tracker (design.md §7 rev. 2 §2): only with the flag on.
+        f.devicesSetup = env.flags.isOn(.devicesSetup)
+        if f.devicesSetup, let devices {
+            let catalog = env.trackerCatalog
+            f.trackers = devices.trackers.compactMap(catalog.tracker)
+        }
         if let scenario = state.todayScenario { f = scenario.apply(to: f) }
         // Names for the sources on screen (§5), resolved once per set of sources and catalog version; nothing
         // to name before HealthKit answered (the first frame).
@@ -189,9 +195,10 @@ final class TodayViewModel {
     var content: TodayContent {
         let f = facts
         let p = TodayPresentation.decide(f.scores)
+        // The opened detail's night belongs to its own row: a demo scenario's row (a day without a night) isn't it.
         return TodayContent(facts: f, presentation: p, hero: TodayStates.hero(f, presentation: p),
                             hasDataSource: hasDataSource, readinessWeek: readinessWeek,
-                            detailSleepMin: state.today?.sleep?.totalMin)
+                            detailSleepMin: state.todayScenario == nil ? state.today?.sleep?.totalMin : nil)
     }
     /// The import's slim row under the header, once a day is scored and the backfill goes on.
     var importRow: ImportProgress? { TodayStates.importRow(facts) }
@@ -342,8 +349,9 @@ struct TodayContent {
             return String(localized: "Yesterday's readiness, until last night is scored.")
         case .baselines:
             return String(localized: "Your baselines are still forming.")
-        case .readiness where p.note == .needsVitals:
-            // The platform's readiness while its baselines can't fill; the note under the gauge says why.
+        case .readiness where p.note == .needsVitals || p.note.map(Self.isLearning) == true:
+            // The platform's readiness while its baselines fill (S2) or can't (L); the note under the gauge says
+            // which. A blocked note (N1, N2) falls through to `ReadinessCopy`.
             return String(localized: "Your baselines are still forming.")
         case .readiness where p.row == .recalculating:
             guard p.tiles.isEarlierDay, let day = p.tiles.source?.date else {
@@ -357,11 +365,20 @@ struct TodayContent {
         }
     }
 
+    private static func isLearning(_ note: TodayPresentation.Note) -> Bool {
+        if case .learning = note { return true }
+        return false
+    }
+
     /// The gauge's number: the readiness of the day it shows, else nil.
     var readiness: Double? {
         guard case .readiness(let value) = presentation.gauge else { return nil }
         return value.map(Double.init)
     }
+
+    /// The band word under the readiness gauge: not where a calibration note takes its line (S2, N1); row A's,
+    /// and path L's rows as before.
+    var showsReadinessBand: Bool { presentation.note?.isCalibration != true }
 
     /// Only for today's settled score (row A): a calibrating or borrowed number has no fair comparison.
     var readinessDelta: MetricDelta? { presentation.showsDelta ? .vsSevenDayMean(readinessWeek) : nil }
@@ -388,9 +405,10 @@ struct TodayContent {
     }
     var recovery: Int? { tiles.source?.recovery }
     var recoveryText: String { Fmt.percent(recovery) }
-    /// The band word: only for today's score, not for a dimmed or calibrating one.
+    /// The band word: only for today's score, not for a dimmed or calibrating one (nor under a calibration note,
+    /// where the platform's `state` stays calibrating).
     var recoveryBand: String? {
-        guard !tiles.isEarlierDay, !tiles.calibrating else { return nil }
+        guard !tiles.isEarlierDay, !tiles.calibrating, presentation.note?.isCalibration != true else { return nil }
         return recovery.map { MetricSpec.scoreBand(Double($0)).label }
     }
     var strainText: String { Fmt.strain(tiles.source?.strain) }
@@ -487,6 +505,10 @@ struct TodaySyncFacts: Equatable {
     var scoringSince: Date?
     /// When the latest GET /v1/me/sync answered (`SyncService.statusReadAt`): slow needs one after the threshold.
     var statusReadAt: Date?
+    /// The chosen trackers' catalog entries while `devices.setup` is on, else none (the blocked note's names).
+    var trackers: [Tracker] = []
+    /// `devices.setup`: the blocked note may name the tracker and link to a fix.
+    var devicesSetup = false
 
     /// The sources Today names: the freshest per source and last night's.
     var sourceRefs: Set<SourceRef> {
@@ -497,7 +519,7 @@ struct TodaySyncFacts: Equatable {
     var scores: TodayScoreFacts {
         TodayScoreFacts(day: DayFormat.string(from: now), today: today, scoringState: TodayStates.todayState(self),
                         prior: prior, expectedWithinSec: status?.expectedWithinSec ?? expectedScoringSec,
-                        lastNight: lastNight)
+                        lastNight: lastNight, trackers: trackers, devicesSetup: devicesSetup)
     }
 }
 
@@ -945,6 +967,10 @@ struct TodayScoreFacts: Equatable, Sendable {
     var expectedWithinSec: Int?
     /// Last night from Apple Health, unscored (`RawNightCard`).
     var lastNight: RawNight?
+    /// The chosen trackers' catalog entries while `devices.setup` is on; `[]` for the widget, whose snapshot
+    /// has no note.
+    var trackers: [Tracker] = []
+    var devicesSetup = false
 }
 
 /// Gauge, tiles and note from one source (brief §2, ui.md §1), decided once; tested as the
@@ -978,8 +1004,13 @@ struct TodayPresentation: Equatable, Sendable {
         /// Row D: the platform says calibrating while the history has the nights a baseline needs.
         case recalculating
         /// Row B with a long history but under 7 nights with HRV and resting HR in it (lead decision 2,
-        /// amended): under today's readiness, or under the baselines counting those nights.
+        /// amended): under today's readiness, or under the baselines counting those nights. Rows without a
+        /// `calibrating_reason` only (path L), like `.recalculating`.
         case needsVitals
+        /// S2, `short_history` over a history with the nights: which baseline is still learning, n of 7.
+        case learning(CalibrationProgress)
+        /// N1 / N2, `no_hrv` / `no_rhr`: the signal that never arrived, never a count (design.md §7 rev. 2).
+        case blocked(CalibrationBlocker)
     }
 
     var row: Row
@@ -1004,8 +1035,9 @@ struct TodayPresentation: Equatable, Sendable {
     static let vitalsWindow = 30
 
     /// First match wins (design.md §7's table, ui.md's letter in brackets):
-    /// 1 (E) nothing scored, no night being scored · 2 (C) no readiness for today yet · 3 (D) the
-    /// platform says calibrating, the history has the nights · 4 (B) calibrating · 5 (A) scored.
+    /// 1 (E) nothing scored, no night being scored · 2 (C) no readiness for today yet · 5 (A) not
+    /// calibrating, whatever the reason says · then by `calibrating_reason` (§7 rev. 2 §1): none (L) runs
+    /// 3 (D) the history has the nights, 4 (B) calibrating; `short_history` is S1 / S2; `no_*` is N1 / N2.
     static func decide(_ f: TodayScoreFacts) -> TodayPresentation {
         let prior = f.prior.filter { $0.day < f.day && $0.standing != .unscored }
         let latestPrior = prior.last { $0.readiness != nil }
@@ -1015,7 +1047,6 @@ struct TodayPresentation: Equatable, Sendable {
     }
 
     private static func pick(_ f: TodayScoreFacts, prior: [DailyScore], latestPrior: DailyScore?) -> TodayPresentation {
-        let vitals = prior.suffix(vitalsWindow).count { $0.hrvMs != nil && $0.rhr != nil }
         let scoredToday = f.today.flatMap { $0.standing == .unscored ? nil : $0 }
         let scoring = f.scoringState == .pending || f.scoringState == .waitingForSleep
 
@@ -1038,8 +1069,40 @@ struct TodayPresentation: Equatable, Sendable {
         guard let today = scoredToday else {
             return TodayPresentation(row: .firstImport, gauge: .firstImport, tiles: Tiles(), note: nil) // not reached
         }
+        // 5 (A): not calibrating is settled, whatever `calibrating_reason` says.
+        guard today.calibrating else {
+            return TodayPresentation(row: .scored, gauge: .readiness(today.readiness), tiles: Tiles(source: today), note: nil)
+        }
+        switch today.calibratingReason {
+        case nil:
+            // L: no reason (a legacy row, a rollback, or a copy cached before the field): rows D and B as before.
+            return legacy(today, prior: prior, latestPrior: latestPrior)
+        case .shortHistory?:
+            // S2: the platform computed a readiness over a history that has the nights: that readiness, and the
+            // baseline still learning under it, n of 7 (it moves). The prior count only picks counter or readiness.
+            if prior.count >= DailyScore.baselineNightsRequired, let readiness = today.readiness {
+                let progress = CalibrationProgress(nights: today.baselineDays, signals: today.fillingSignals)
+                return TodayPresentation(row: .calibrating, gauge: .readiness(readiness), tiles: Tiles(source: today),
+                                         note: .learning(progress))
+            }
+            // S1: a short history, or no readiness: the baselines counting `baseline_days`.
+            return TodayPresentation(row: .calibrating, gauge: .baselines(nights: today.baselineDays),
+                                     tiles: Tiles(source: today, calibrating: true), note: nil)
+        case .noHrv?, .noRhr?:
+            // N1 / N2: waiting won't end it, so no counter, in the app or the widget. The platform's readiness, or
+            // the empty gauge when the day has none (no night: the sentence says so); the note names the signal.
+            let blocker = CalibrationBlocker.resolve(today.missingSignals, trackers: f.trackers, devicesSetup: f.devicesSetup)
+            return TodayPresentation(row: .calibrating, gauge: .readiness(today.readiness), tiles: Tiles(source: today),
+                                     note: .blocked(blocker))
+        }
+    }
+
+    /// Path L, rows D and B for a calibrating row without a reason, as they were before `calibrating_reason`.
+    /// `vitals`, `.recalculating` and `.needsVitals` serve only this path (design.md §7 rev. 2, Lead's calls 4).
+    private static func legacy(_ today: DailyScore, prior: [DailyScore], latestPrior: DailyScore?) -> TodayPresentation {
+        let vitals = prior.suffix(vitalsWindow).count { $0.hrvMs != nil && $0.rhr != nil }
         // 3 (D): the platform's flag against its own history; the latest scored day stands in.
-        if today.calibrating, vitals >= DailyScore.baselineNightsRequired {
+        if vitals >= DailyScore.baselineNightsRequired {
             let source = today.readiness != nil ? today : latestPrior
             return TodayPresentation(row: .recalculating, gauge: .readiness(source?.readiness),
                                      tiles: Tiles(source: source, isEarlierDay: today.readiness == nil),
@@ -1048,17 +1111,13 @@ struct TodayPresentation: Equatable, Sendable {
         // 4 (B), a long history without the heart-rate nights a baseline needs (a phone without a watch):
         // the platform's readiness when it computed one, else the baselines counting those nights. The
         // note says why, so the tiles don't add "calibrating" (lead decision 2, amended in review).
-        if today.calibrating, prior.count >= DailyScore.baselineNightsRequired {
+        if prior.count >= DailyScore.baselineNightsRequired {
             return TodayPresentation(row: .calibrating, gauge: today.readiness.map { .readiness($0) } ?? .baselines(nights: vitals),
                                      tiles: Tiles(source: today), note: .needsVitals)
         }
         // 4 (B), a short history: `baseline_days` of today, the latest scored day here.
-        if today.calibrating {
-            return TodayPresentation(row: .calibrating, gauge: .baselines(nights: today.baselineDays),
-                                     tiles: Tiles(source: today, calibrating: true), note: nil)
-        }
-        // 5 (A)
-        return TodayPresentation(row: .scored, gauge: .readiness(today.readiness), tiles: Tiles(source: today), note: nil)
+        return TodayPresentation(row: .calibrating, gauge: .baselines(nights: today.baselineDays),
+                                 tiles: Tiles(source: today, calibrating: true), note: nil)
     }
 }
 
@@ -1068,14 +1127,31 @@ extension TodayPresentation.Note {
         case .recalculating: return String(localized: "Recalculating your baselines")
         case .needsVitals:
             return String(localized: "Baselines need heart-rate variability and resting heart rate from nights with your watch.")
+        case .learning(let progress): return progress.text
+        case .blocked(let blocker): return blocker.text
         }
     }
 
-    /// Static: neither is progress.
+    /// Static: none of them is progress.
     var systemImage: String {
         switch self {
         case .recalculating: return "arrow.triangle.2.circlepath"
-        case .needsVitals: return "info.circle"
+        case .needsVitals, .learning, .blocked: return "info.circle"
+        }
+    }
+
+    /// The blocked note's way to a fix (a sheet over Today), only while `devices.setup` is on; the others have none.
+    var link: CalibrationLink? {
+        if case .blocked(let blocker) = self { return blocker.link }
+        return nil
+    }
+
+    /// S2 and N1/N2, decided by the row's `calibrating_reason`: the line under the gauge takes the band word's
+    /// place (the band word and the delta stay in row A; path L's rows keep theirs).
+    var isCalibration: Bool {
+        switch self {
+        case .learning, .blocked: return true
+        case .recalculating, .needsVitals: return false
         }
     }
 }
@@ -1096,6 +1172,11 @@ enum TodayScenario: String, CaseIterable {
     /// 09:12, Garmin Connect quiet since 23:24 and the platform waiting for sleep: the night hint (T1).
     /// The night being scored for 10 minutes against an estimate of 20 s: "Taking longer than usual" (5b).
     case nightGap, scoringSlow
+    /// N1, API.md's example 3: Garmin chosen (`devices.setup` on), `no_hrv` with 24 resting-HR nights, readiness
+    /// 74: the note names Garmin Connect and links its card. N2: the same day without a night, so no readiness.
+    case blockedHRV, blockedNoNight
+    /// S2, example 4: the first morning with HRV after 30 days without, `short_history`, readiness 78.
+    case learningHRV
 
     func apply(to base: TodaySyncFacts) -> TodaySyncFacts {
         var f = base
@@ -1177,6 +1258,28 @@ enum TodayScenario: String, CaseIterable {
                 for i in f.prior.indices.suffix(2) { f.prior[i].hrvMs = 52; f.prior[i].rhr = 51 }
             }
             f.status = Self.status(now: now, .scored)
+        case .blockedHRV, .blockedNoNight, .learningHRV:
+            f.engine.backfillDone = true
+            f.hasScoredDay = true
+            let night = self != .blockedNoNight
+            let learning = self == .learningHRV
+            f.today = DailyScore(day: key, readiness: night ? (learning ? 78 : 74) : nil, state: .calibrating,
+                                 recovery: night ? (learning ? 74 : 72) : nil, strain: night ? 0.9 : 0.4,
+                                 sleepActualMin: night ? 437 : nil, hrvMs: learning ? 48 : nil, rhr: night ? 52 : nil,
+                                 baselineDays: 0, calibrating: true, computedAt: now.addingTimeInterval(-3_600),
+                                 scoringState: .scored, baselineHrvDays: 0, baselineRhrDays: 24,
+                                 calibratingReason: learning ? .shortHistory : .noHrv)
+            // 30 scored days without HRV: what a Garmin account sends.
+            f.prior = Self.prior(now: now).suffix(30).map { d in
+                var d = d
+                d.hrvMs = nil
+                return d
+            }
+            f.status = Self.status(now: now, .scored)
+            if !learning {
+                f.devicesSetup = true
+                f.trackers = [MockData.tracker("garmin")]
+            }
         }
         return f
     }
