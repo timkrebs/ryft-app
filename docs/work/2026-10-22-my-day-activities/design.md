@@ -200,7 +200,7 @@ Encoding for `PUT` omits the server fields (a dedicated `encode(to:)`).
     var routeWithheld: Bool                    // the route isn't attached until the user decides (§8.2)
     var routeDroppedAt: Date?                  // unconfirmed for 30 days: the route went, the activity stayed (§8.6)
     var splitsData: Data?                      // [ActivitySplit], wire JSON
-    var pausesData: Data?                      // [DateInterval] (manual and auto), for HealthKit events and resume
+    var pausesData: Data?                      // [PauseInterval] (manual · auto · interruption), written at Save (§3.9; rev. 2026-10-23)
     var headerData: Data?                      // RecordingHeader (§3.9) while recording / interrupted
     var localRevision: Int                     // bumped by every save or edit
     var confirmedRevision: Int                 // the newest revision the platform answered 2xx to
@@ -416,26 +416,91 @@ struct ActivitySensors: Sendable {
   - `ReplayLocationSource(track:, speedup:)`: DEBUG and previews (§11.3).
   - `FakeAltitudeSource`, `FakePedometerSource`, `FakeHeartRateSource`.
 
-### 3.3 The location pipeline (`Recording/TrackPipeline.swift`, `KalmanTrack.swift`, `Geodesy.swift`; ADR 0003)
+### 3.3 The location pipeline (`Recording/TrackPipeline.swift`, `KalmanTrack.swift`, `Geodesy.swift`, `TrackPoints.swift`; ADR 0003)
 
-`struct TrackPipeline` is a **pure value type**: `mutating func ingest(_ fix: LocationFix) -> [PipelineEvent]`, plus
-`pause`, `resume`, `lap` and `finish`. The actor owns one. Unit tests drive it directly with fixture arrays, with no
-actor and no clock.
+**rev. 2026-10-23 (A3a).** Amended for what the implementation learned. A3 lands in two PRs: A3a
+(`activities: track pipeline`, the pure core) and A3b (the recorder, sources, vault and store). Rows and bullets
+marked *rev.* are new or changed:
+- distance comes from the filter's speed, with a still-phone guard and a settle window (ADR 0003, amendment 1);
+- the re-init counts both gates;
+- the split, pause and auto-pause details;
+- route points only while recording;
+- the clock holds while an auto-pause is pending;
+- the calls A3b makes.
+
+Reconciled with what A3a built (`b059151`).
+
+`struct TrackPipeline` is a **pure value type**. It imports Foundation only and is `Sendable`. It reads no clock:
+every input and control carries its time. The actor owns one. Unit tests drive it directly with fixture arrays, with
+no actor and no clock.
+- **Inputs:** `ingest(_ fix:)` (frozen), `ingest(_:receivedAt:)`, `ingest(_: AltitudeSample)`,
+  `ingest(_: PedometerSample)` and `advance(to:)`.
+- **Controls:** `start(at:)`, `pause(at:)`, `resume(at:)`, `lap(at:)` and `finish(at:)`.
+- **Reads:** `snapshot(at:)`, `movingTime(at:)` and `gpsQuality(at:)`, plus the checkpoint state `Resume` and
+  `init(configuration:restoring:interruptedAt:)` (§3.9).
+- *rev.* **Files:**
+  - `TrackPoints.swift` holds `RoutePoint`, `ProfilePoint` and `LocationRedacting`, the redaction every location type
+    shares (§8.3);
+  - `Geodesy.swift` holds `Coordinate`, `Displacement` and `LocalTangentPlane`;
+  - `TrackProfile` is A1's (`Sport.swift`). A3a carries a copy until A1 merges, then deletes it.
 
 | Step | Rule |
 | --- | --- |
-| 1 Pre-gate | Drop `horizontalAccuracy` < 0 or > 25 m. Drop timestamps not after the last accepted one, or older than 10 s. Before Start, the button activates at ≤ 20 m (or "Start anyway"). |
-| 2 Speed gate | Distance to the last accepted *filtered* position, minus the two accuracies, over Δt (≥ 1 s): if it's above `sport.maxSpeed`, reject (counted as `implausible`). |
-| 3 Filter | Constant-velocity Kalman per axis in a local tangent plane (WGS84 meridional and prime-vertical radii at the anchor latitude; re-anchored every 5 km). Measurement variance `max(hAcc, 3 m)²`; white-acceleration process noise `σa` from the catalogue. Innovation gate at 3.5σ: a rejected fix is counted; 3 rejections in a row re-initialise at the measurement (a real jump, a tunnel exit). Δt > 15 s resets the velocity variance. |
-| 4 Distance | Sum the geodesic step between consecutive filtered positions while `recording` (not paused) and the filter's speed is ≥ 0.3 m/s, so a stationary phone accrues nothing with auto-pause off. Distance is horizontal, like every GPS watch; ascent is separate. |
-| 5 Gaps | Δt > 10 s between accepted fixes *within one running process*: bridge with the straight line if the implied speed is ≤ `maxSpeed`, else don't (counted `gap`). A resume after a kill never bridges (§3.9). |
-| 6 Pace | Rolling 30 s of moving time over (t, cumulative distance): pace = Δt/Δd once Δd ≥ 20 m and ≥ 10 s of data, else none ("—"). Average pace = moving time / distance. Cycling shows speed. |
-| 7 Splits | When the distance crosses k × 1000 m, interpolate the crossing time between the two filtered points. A split is `{index, distance_m: 1000, duration_sec: moving time in it, ascent_m}`. Finish adds the partial last split with its real distance. Laps are local (§13 R7). |
-| 8 Auto-pause | If enabled: enter when the filter's speed is < the sport's threshold for 10 s of fix time, or `isStationary` for 5 s. Leave at ≥ 1.5 × threshold for 3 s. The filter keeps running while auto-paused. Manual pause and resume always work. |
+| 1 Pre-gate | Drop `horizontalAccuracy` < 0 or > 25 m, and non-finite coordinates (counted `accuracy`). Drop timestamps not after the last accepted one (`outOfOrder`), or more than 10 s older than the newest time seen (`stale`). *rev.:* The recorder passes `receivedAt:` from its clock, so a cached fix that arrives late is stale. Only receipt times and fixes that pass the accuracy gate move "the newest time seen": one bad timestamp can't age the rest. Before Start, fixes warm the filter and the GPS indicator and record nothing. The button activates at ≤ 20 m (or "Start anyway"). |
+| 2 Speed gate | Distance to the last accepted *filtered* position, minus the two accuracies, over Δt (≥ 1 s): if it's above `sport.maxSpeed`, reject (counted as `implausible`). *rev.:* The gate ages open: Δt keeps growing while fixes are rejected, so it holds back a jump for only about (jump − accuracies) / `maxSpeed` seconds. Its rejections count toward step 3's re-init. |
+| 3 Filter | Constant-velocity Kalman per axis in a local tangent plane (WGS84 meridional and prime-vertical radii at the anchor latitude; re-anchored every 5 km). Measurement variance `max(hAcc, 3 m)²`; white-acceleration process noise `σa` from the catalogue. Innovation gate at 3.5σ. *rev.:* **Three rejections in a row, by the speed gate or the innovation gate,** re-initialise at the third fix (a real jump, a tunnel exit, sustained multipath). The jump adds no distance. Accuracy, stale and out-of-order rejections neither count nor break the run. A settle window follows (step 4). On a 60 m, 15 s multipath offset: +75.4 m with only innovation rejections counting, −18.0 m with both. Side effect: movement steadily faster than `maxSpeed` (a "run" at 16 m/s) re-initialises every third fix and records 0 m. That's intended for implausible speeds; *the lead adjusts this if a legitimate profile can exceed its `maxSpeed`*. Δt > 15 s resets the velocity variance. |
+| 4 Distance | *rev.:* The trapezoid of the filter's **ground speed** between consecutive accepted fixes, while `recording`. **A still phone adds nothing, in two layers, also with auto-pause off.** (1) A fix Core Location flags `isStationary` adds no distance. (2) A dead-band is the backstop: a step counts only when the mean of the two speeds is at least half the sport's auto-pause threshold, clamped to 0.3–0.5 m/s (run, bike and ski 0.5; trail 0.4; walk and hike 0.3, which rely on the flag). **A settle window after the filter (re)initialises or resets its velocity:** nothing accrues for 10 s (up to 30 s with fewer than 4 fixes). Then the window counts the shorter of a Theil–Sen line through its raw fixes and the filtered track's length; a coarse first fix lengthens the track, an acceleration lengthens the line. A coarse first fix (20–40 m off) now adds 0.0 m instead of up to +42 m. The cost: the first 10 s of distance appears at the window's end. **Position steps** (the geodesic between filtered positions) replace the speed for 10 s only after an auto-resume, recovering the velocity's lag. Distance is horizontal, like every GPS watch; ascent is separate. `Tuning.distanceFromVelocity = false` keeps the position sum for D1 only. |
+| 5 Gaps | Δt > 10 s between accepted fixes *within one running process*: bridge with the straight line if the implied speed is ≤ `maxSpeed`, else don't (counted `gap`). A resume after a kill never bridges (§3.9). *rev.:* Nothing is bridged from a fix before Start ("Start anyway" after a silent GPS). A step is clipped to the last Start or resume, so a fix delivered late never counts time before them. |
+| 6 Pace | Rolling 30 s of moving time over (t, cumulative distance): pace = Δt/Δd once Δd ≥ 20 m and ≥ 10 s of data, else none ("—"). Average pace = moving time / distance. Cycling shows speed. *rev.:* Under canopy a 30 s window is noisy by physics. The probe measured a p95 error of 10–20 % at 2.2 m/s, against 2–4 % on an open road. D1 shows whether trail sports need a longer window. |
+| 7 Splits | When the recorded distance crosses k × 1000 m, interpolate the crossing time within the step. *rev.:* `TrackSplit` is `{index, distanceM, durationSec, ascentM, end}`. **`index` is 1-based** (R20). `durationSec` is the moving time in the split. `end` stays on the device; the other four are the wire's `ActivitySplit`. Finish adds the partial last split, with its real distance, **only from 5 % of a split (50 m)**: a shorter remainder at a round-number finish is GPS overshoot, not a split. Its distance and time stay in the totals, so the splits may sum to less than `distance_m` (R20). **A split crossed inside a pause that's backdated later** (auto-pause, or a manual pause while one was pending) is revised: its `.split` event carried a provisional duration, while `splits` and `checkpoint` hold the revised one. A3b stores splits from the checkpoint, never from the events. Laps are local (§13 R7). |
+| 8 Auto-pause | If enabled: enter when the filter's speed is below the sport's threshold for 10 s of fix time, or `isStationary` for 5 s (also when the fixes stop, through `advance(to:)`). Indoor runs enter after 10 s without new steps. Leave at ≥ 1.5 × threshold for 3 s. *rev.:* **Backdated both ways:** the pause starts when the user stopped and ends when they moved again, and the distance of the 3 s confirmation is replayed. **The clock holds while an auto-pause is pending** (below). A manual pause while one is pending starts at the pending moment. The filter keeps running while auto-paused. Manual pause and resume always work; a manual pause during an auto-pause stays manual. |
 
-- **Diagnostics.** `RecordingDiagnostics` holds counts only: fixes accepted, rejected per reason, gaps, longest gap,
-  checkpoints and their failures, snapshots, Live Activity updates, and battery level at start and end (Debug and
-  TestFlight). It's attached to Copy diagnostics for the last recording. No coordinates.
+- *rev.* **The clock while an auto-pause is pending** (ui.md G3):
+  - **The hold.** From the first slow or stationary fix (indoor runs: 3 s without new steps) until the auto-pause
+    confirms or is denied, `snapshot(at:)` returns `movingAnchor = nil` and the moving time at the pending moment. A
+    manual pause in that time starts at the pending moment too.
+  - **Confirmed:** the pause is backdated to exactly that moment, so the held value is already right.
+  - **Denied:** the clock catches up, forward.
+  - **GPS weak:** the hold ends when the GPS turns weak (no accepted fix for 10 s). The clock runs on, and a later
+    confirmation may then step it back. That's rare: a stop with no usable fix.
+  - **Why.** Without the hold, every auto-pause moved the clock back by 10 s or more (the probe: 10–15 s).
+- *rev.* **Route points only while recording:**
+  - `.route` is emitted only in `recording`. Where the user went while paused or auto-paused isn't the activity's
+    route, and the disk shouldn't learn it (ADR 0005; security-privacy reviews).
+  - `.profile` points continue; they hold no coordinate.
+  - Built in A3a (`routePointsOnlyWhileRecording`).
+- *rev.* **Who decides what:**
+  - The pipeline decides auto-pause. The recorder mirrors `.autoPaused` and `.autoResumed` into `RecordingPhase`
+    through the table (§3.1).
+  - Every other transition flows from the recorder to the pipeline.
+  - The pipeline's own `State` is never stored: the header keeps `RecordingPhase` and the `Resume`.
+- *rev.* **The calls A3b makes:**
+  - **Every fix:** `ingest(_:receivedAt: clock.now)`, in `acquiring` too, for the filter and pre-start's accuracy.
+  - **Every snapshot tick (≤ 10 s apart) and every input:** `advance(to: clock.now)`, for the stationary and
+    step-less auto-pause and for weak GPS.
+  - **Start, Pause, Resume and Lap:** `start(at:)`, `pause(at:)`, `resume(at:)` and `lap(at:)`.
+  - **Stop:** `pause(at: stopTime)`. Totals freeze. Keep going leaves the pipeline paused (§3.1), and Resume then
+    calls `resume(at:)`.
+  - **Save:** `finish(at: stopTime)`. It closes that pause with zero length and ends the partial split at the stop.
+    `finish` is terminal, so it's never called at Stop.
+  - **Interrupted:** Finish calls `finish(at: lastCheckpoint)`; Resume calls `resume(at: now)` (indoor runs: §3.9).
+  - **Pedometer after a restore:** the first live sample comes after `resume(at:)` (§3.9).
+  - **Splits:** stored from `checkpoint`, never from `.split` events (step 7).
+  - **Snapshots:** `snapshot(at: clock.now)`. The recorder adds the phase, heart rate and route tail, maps
+    `TrackSplit` to `ActivitySplit`, and converts m/s to km/h.
+  - **Naming:** the checkpoint property is `checkpoint`. It was `resume`, which read like the control `resume(at:)`.
+- **Diagnostics.**
+  - `RecordingDiagnostics` holds counts only: fixes accepted, rejected per reason, gaps, longest gap, checkpoints and
+    their failures, snapshots, Live Activity updates, and battery level at start and end (Debug and TestFlight).
+  - It's attached to Copy diagnostics for the last recording. No coordinates.
+  - *rev.:* Until D1 decides, Debug and TestFlight builds also keep three shadow distance totals: position steps,
+    Core Location's speed, and ground speed without the auto-resume position steps. They're numbers only (ADR 0003,
+    amendment 1). A3b adds them; A3a doesn't have them.
+- *rev.* **Redaction:**
+  - `LocalTangentPlane` keeps two scale factors from the anchor's latitude, and `metresPerRadianEast` (N·cos φ)
+    gives that latitude back exactly. Before A3a's fix, `dump` of the filter or the pipeline printed it.
+  - The plane and the filter now render nothing, and `RedactionTests.filterPlaneAndPipelineRenderNoLocation` dumps a
+    pipeline after a few fixes.
 
 ### 3.4 Elevation (`Recording/ElevationFusion.swift`)
 
@@ -449,6 +514,23 @@ actor and no clock.
 - **None** for indoor sports and sports without GPS.
 - **The prompt.** Motion & Fitness has no request API: starting the altimeter in `acquiring` triggers the prompt for
   a primary sport, before Start, after D2's pre-prompt line.
+- *rev. 2026-10-23 (A3a)* **Counted only while recording.**
+  - Paused, auto-paused and interrupted time add no ascent or descent.
+  - The altitude is still followed, and the barometric offset keeps learning.
+  - The count restarts from wherever the altitude is when recording resumes, so a climb during a pause adds nothing.
+  - An auto-pause stops the count when it confirms. The 10 s before that are counted; at a stop they're flat.
+- *rev.* **The altitude can be unknown.** The barometric altitude is nil until a fix with `verticalAccuracy` ≤ 10 m
+  gives the first offset, so profile points carry nil (NaN in the codec).
+- *rev.* **Ascent and descent are nil until an altitude is counted.** That's never a false 0. The first count comes
+  from the first altimeter sample while recording (barometric, on `relAlt`) or the first fix with
+  `verticalAccuracy` ≤ 15 m (GPS only). `Resume.ascentM` and `descentM`, and with them the checkpoint's, are
+  optional.
+- *rev.* **Per split:** the ascent at the crossing minus the ascent at the previous one.
+- *rev.* **After a kill** only the totals carry over (§3.9).
+- *rev.* **Open for A3b and D1: a still phone on GPS-only elevation counts false ascent.** At 5–30 m of vertical
+  noise, about 17 m of ascent in 10 min got past the 5 m hysteresis. Elevation doesn't check `isStationary`. A3b
+  decides whether a flagged fix stops the count, as it stops distance. D1's bench test (ADR 0003, amendment 1, run 4)
+  reports the ascent with the barometer off.
 
 ### 3.5 Indoor runs (`indoor_running`)
 
@@ -535,10 +617,11 @@ enum RecorderEvent: Sendable { case checkpoint(Checkpoint), split(ActivitySplit)
 ```swift
 struct Checkpoint: Sendable {
     let activityID: UUID; let seq: Int
-    let header: RecordingHeader        // phase, sport, options (without zones or key), start, pauses, moving s,
-                                       // distance, ascent/descent, splits, partial split start, last fix time,
-                                       // elevation offset, pedometer baselines, diagnostics. No coordinates: no
-                                       // Kalman anchor, no last position (a test asserts it)
+    let header: RecordingHeader        // phase, sport, options (without zones or key), and the pipeline's Resume:
+                                       // start, pauses (with kind), distance, splits, split start, ascent/descent,
+                                       // laps, last sample time, pedometer baselines, diagnostics. No coordinates:
+                                       // no Kalman anchor, no last position (a test asserts it). rev. 2026-10-23:
+                                       // no elevation offset; no moving time (derived from start and pauses)
     let profile: Data?                 // TrackCodec, since the previous checkpoint
     let route: Data?                   // TrackCodec, points inside a zone already dropped, then sealed
     let heartRate: Data?               // TrackCodec, sealed
@@ -575,6 +658,43 @@ struct Checkpoint: Sendable {
       a pause and adds no distance, with the route on or off. Distance continues from the first new fix.
     - Resume therefore needs no stored coordinate, and route chunks are never opened to resume.
     - Indoor runs re-query the pedometer (§3.5). That isn't a GPS bridge: the pedometer measured the steps.
+      *rev.:* The steps count with their time, or not at all (below).
+  - *rev. 2026-10-23 (A3a)* **What the rebuild is.**
+    - **The call.** `TrackPipeline(configuration:restoring:interruptedAt:)`, with the last checkpoint's time. It
+      starts paused:
+      - an open manual pause stays open;
+      - an open auto-pause closes at the checkpoint;
+      - from the checkpoint on, the time is an `interruption` pause until `resume(at: now)` or
+        `finish(at: lastCheckpoint)`.
+    - **No barometric offset.** `CMAltimeter`'s relative altitude starts again at 0 in the new process, so an offset
+      learned against the old one means nothing.
+      - Ascent and descent carry over (nil stays nil until something is counted, §3.4), and the hysteresis starts
+        afresh.
+      - The altitude is unknown until GPS gives a new offset (§3.4).
+      - GPS-only elevation restarts its median.
+    - **Moving time isn't stored.** It's derived from start and pauses. `LocalActivity.movingSec` is a copy for
+      lists, written from the same state.
+    - **Pauses have one owner while recording:** the header's `Resume.pauses`, with their kind (manual, auto,
+      interruption).
+      - At Save, `pausesData` is written from them as `[PauseInterval]`, kind included. Apple Health then gets
+        `.pause` and `.resume` for manual and interruption pauses, and `.motionPaused` and `.motionResumed` for auto
+        ones.
+      - A resume reads the header, never `pausesData`.
+      - §2.3 says `[DateInterval]`; the lead amends it. It's `Data`, so the schema doesn't change.
+    - **Indoor runs: the kill's distance with its time, or neither.**
+      - **The problem.** A3a's rebuild keeps the pedometer baseline and makes the kill a pause. A 20-minute kill on a
+        treadmill would add its whole distance at 0 s of moving time, so pace and split durations go wrong.
+      - **A3a's contract:** after a restore, the first pedometer sample comes after `resume(at:)`, and it counts from
+        the checkpoint's baseline.
+      - **The fix.** The recorder asks the pedometer for the gap (`total(from: lastSample, to: now)`) and decides:
+        - **Average cadence ≥ 1 step/s → both.** Call `resume(at: lastCheckpoint)`, then ingest the total. The gap
+          is moving time, and its distance counts.
+        - **Otherwise, or when the recording was paused at the kill → neither.** The baseline has to move past the
+          gap without counting, and under the contract that can't be a sample. A3b adds
+          `rebasePedometer(_ sample:)` to the pipeline: paused only, it moves the baseline and counts nothing. A3b
+          calls it, then `resume(at: now)`.
+      - The user can still correct the distance at Finish (§3.5).
+      - `pedometerRestoreIsLossless` pins the old behaviour: distance at zero time. It changes with A3b.
   - **Another account's row** found at launch (parked, or left by a crash) is never resumed. §8.4 decides its fate.
     Signed out after an expiry, a killed recording stays parked; the account's next sign-in shows it as `interrupted`.
 - **The Live Activity** gets `staleDate = now + 90 s` on each update, so a killed app's activity reads as paused
@@ -1177,6 +1297,7 @@ Ryft/Activities/                      domain, no views (like Ryft/Train/)
   Recording/
     ActivityRecorder.swift            A3  actor
     TrackPipeline.swift               A3  pure pipeline, splits, auto-pause, pace
+    TrackPoints.swift                 A3  RoutePoint, ProfilePoint, LocationRedacting (rev. 2026-10-23)
     KalmanTrack.swift  Geodesy.swift  ElevationFusion.swift  TrackCodec.swift  RecordingDiagnostics.swift   A3
     Sources.swift                     A3  protocols, value types, ActivitySensors
     RouteTrimmer.swift                A3  PrivacyZone (immutable, make/replacing), RouteTrimmer.drop/trim
@@ -1342,24 +1463,80 @@ config, `PlatformAPI.swift:144`):
 
 - **Catalogue.** Unique raw values; every case has a name, a symbol (`UIImage(systemName:)`), an HK type and a
   family. GPS sports have `maxSpeed` and `σa`. `Sport(healthKitActivity:)`. Unknown raw → `.other`.
-- **Pipeline on fixture tracks** (§11.2):
-  - distances within **±2 %** of ground truth for `road-5k` and `trail-switchbacks`;
-  - `stationary` under 20 m, auto-paused within 10 s, no split;
-  - gate counts: the trail's bad fixes and multipath jumps are rejected;
-  - the tunnel gap is bridged;
-  - splits match ground-truth crossing times ± 2 s;
-  - rolling pace on a constant-speed segment ±3 %;
-  - auto-pause enter and leave on the road's traffic light;
-  - elevation: baro ascent within ±3 m of ground truth, GPS-only within ±10 %.
-- **Kalman.** Constant velocity converges; outlier gate; re-init after 3 rejections; variable Δt.
+- **Pipeline on fixture tracks** (§11.2). *rev. 2026-10-23 (A3a):* The split and pace bounds now say what GPS can
+  deliver. Logic is checked exactly on noiseless tracks, accuracy on the fixtures. Measured as built (`b059151`).
+  - Distances within **±2 %** of ground truth for `road-5k` (+0.31 %; 20 seeds −0.10…+0.45 %) and
+    `trail-switchbacks` (−0.34 %; 20 seeds −0.95…+2.04 %).
+  - `stationary`: under 20 m, auto-paused within 10 s, no split. *rev.:* With auto-pause **off** (the walking and
+    hiking default; measured 0.0 m either way):
+    - with Core Location's flag, under 1 m;
+    - with the flag stripped, the dead-band keeps it under 5 m (5 seeds: at most 4.7 m at τ 300 s);
+    - the dead-band per sport: run and bike 0.5 m/s, trail 0.4, walk and hike 0.3.
+  - Gate counts: the trail's bad fixes and multipath jumps are rejected, and no clean fix is lost.
+  - The tunnel gap is bridged.
+  - *rev.* **Splits:**
+    - **Logic, noiseless:** crossing times and durations within 0.1 s. Durations sum to moving time and leave out
+      pauses. The partial last split appears only from 50 m.
+    - **On `road-5k`:** each split ends where the recorded distance passes k km, so
+      |crossing error + the recorded distance's error at the true crossing ÷ speed| ≤ 1.5 s. Each full split's
+      duration is within ±2 % of its true moving time. The absolute crossing error ≤ 5 s stays as a smoke bound on
+      the committed seed (20 seeds: worst 4.37 s for km 1–4).
+    - **A split crossed inside a pause that's backdated later** is revised in `splits` and `checkpoint`; its `.split`
+      event keeps the provisional duration.
+    - **Why not ±2 s against ground truth:**
+      - A crossing is early or late by the recorded distance's error divided by the speed. ±2 % at km 5 is ±100 m,
+        which is ±33 s at 3 m/s. A ±2 s bound would claim ±0.12 % there, which no GPS gives.
+      - The probe (20 seeds, open road) measured crossings −3.8…+2.8 s for km 1–4, the consistency −0.9…−0.1 s and
+        the durations −1.3…+0.8 %.
+      - km 5 is the finish. Its −4.45 s is the +0.31 % recorded distance: 15 m, about 5 s at 3 m/s.
+      - Under canopy, one split can be ±5 % off while the total holds ±2 % (probe). There's no bound there; D1
+        reports it.
+    - **Why no other definition:** a split re-measured along the filtered track would disagree with the distance the
+      user watched (ADR 0003: live = saved).
+  - *rev.* **Rolling pace:**
+    - **Noiseless:** within 0.5 % once the window holds one speed.
+    - **On `road-5k`'s constant stretch:** mean within 1 %, p95 within 3 %, and every sample within 6 %. The 6 % is
+      a guard against a broken window (a re-init inside it, for example), not an accuracy claim.
+    - **Why not every sample within 3 %:**
+      - 30 s at 3 m/s is 90 m. The open-sky along-track error over the window is about 1 m (1σ), so about 1.1 % per
+        sample, and among ~450 correlated samples some pass 3 %.
+      - The committed seed's worst sample is 3.6 %. Over the probe's 20 seeds, p95 was 2.2–4.0 % and the worst
+        3.6–6.7 %.
+      - So the bounds hold for the committed seed. `make-tracks.py --check` pins it, and `make lint` runs that.
+  - *rev.* **Auto-pause:**
+    - It enters and leaves on the road's traffic light, backdated: the pause starts within 4 s after the stop begins
+      and ends within 6 s after it ends.
+    - While an auto-pause is pending, the snapshot has no anchor, and its moving time never decreases across the
+      entry.
+    - A manual pause while one is pending starts at the pending moment.
+  - *rev.* **Route points** come only while recording: none while paused or auto-paused.
+  - *rev.* **Distance rules:**
+    - a fix flagged `isStationary` adds nothing, also with auto-pause off;
+    - a flying start loses nothing (the settle window's Theil–Sen line keeps its speed);
+    - a coarse first fix adds nothing: 20 or 40 m off, still or at 3 m/s, auto-pause on or off, within 1.5 m (it
+      was +16.9 to +42.0 m); after a restore with a 30 m-off fix, likewise (it was +30.7 m);
+    - Start bridges nothing from a fix before it, and a late fix counts only from the last Start or resume;
+    - position steps still apply after an auto-resume.
+  - Elevation: barometric ascent within ±3 m of ground truth, GPS-only within ±10 %. *rev.:* Nothing is counted while
+    paused, and split ascent follows the climb. Ascent is nil until an altitude is counted. After a restore, the
+    totals continue and the altitude is nil until GPS gives an offset. Open (A3b, §3.4): false ascent on a still
+    phone with GPS-only elevation.
+- **Kalman.** Constant velocity converges; outlier gate; re-init after 3 rejections; variable Δt. *rev.:*
+  - The 3 rejections may mix the speed gate and the innovation gate.
+  - A sustained 15 s, 60 m offset with a 10 m reported accuracy on a run re-initialises twice and costs −25…+5 m
+    (measured −18.0 m; A3a as first written: +75.4 m).
+  - Movement steadily above `maxSpeed` records nothing (the side effect in §3.3 step 3).
+  - Rides: A3b adds the fixture (§11.2) and a bound.
 - **Geodesy.** Against Vincenty reference values at 0°, 50° and 70° N.
 - **Codec.** Round trip, version byte, truncation.
 - **Recorder (actor):**
   - phase transitions refused and allowed per the table;
   - a checkpoint every 30 s on the clock and on each phase change;
   - snapshot cadence 1 s observed / 10 s not;
-  - resume from a checkpoint never bridges: the gap is a pause with no distance, route on or off; indoor
-    re-queries the pedometer;
+  - resume from a checkpoint never bridges: the gap is a pause with no distance, route on or off. *rev.:* Indoor runs
+    count the gap's pedometer distance with its time (average cadence ≥ 1 step/s) or neither, through
+    `rebasePedometer(_:)`; the first live sample comes after `resume(at:)` (§3.9);
+  - splits are stored from the checkpoint, so a revised duration wins over the event's provisional one;
   - background launch: gap ≤ 10 min → resumes; gap > 10 min → `interrupted`, the background session invalidated
     and no fix loop running;
   - foreground `interrupted`: Resume offered only for a gap < 6 h on the same day; Finish ends at the last
@@ -1372,6 +1549,8 @@ config, `PlatformAPI.swift:144`):
     reflection test over its stored properties).
   - nothing on the main thread (`MainThread.assertOff` counts with fakes, as `SyncEngineTests` do).
 - **`StateMachineTests`:** `RecordingMachine` on both engines.
+- *rev.* **`RecordingSession` (A4):** the displayed moving time never decreases across an auto-pause entry, an
+  auto-resume, or a late snapshot (ui.md G3).
 - **Store.** Checkpoint upsert and append; `activeRecording`; tombstones; compaction (30 days; raw route at
   confirm); not durable → `isDurable == false`.
 - **Accounts (B2), one test each:**
@@ -1419,7 +1598,8 @@ config, `PlatformAPI.swift:144`):
   - **B3 invariant**, property-style over 10 000 seeded zones: `distance(place, centre) ≤ radius − 100 m`, and after
     every edit (500 → 200 m, a moved place) through `replacing`; offsets are uniform over the disc (a coarse
     histogram);
-  - `print`, `debugPrint`, `dump` and interpolation of every location type are redacted;
+  - `print`, `debugPrint`, `dump` and interpolation of every location type are redacted. *rev.:* This includes
+    `LocalTangentPlane`, and a dumped pipeline shows no coordinate digits and no plane scale;
   - zones never appear in the export or payload; zones apply at send time;
   - the zone store survives an expiry (B1 regression): park, sign in again, upload → trimmed by the parked zones.
 - **Reads (S5):** `Repository.store(activities:)` and `store(activity:)` drop `route` and `hr_samples`; the detail
@@ -1442,16 +1622,32 @@ config, `PlatformAPI.swift:144`):
 Synthetic, so they're deterministic and contain **no one's real location**:
 - **Ground truth.** A known path at a public place, with its exact length and elevation profile.
 - **Sampling.** 1 Hz.
-- **Noise.** Gaussian noise of σ = accuracy / 2, with reported accuracy drawn per regime (open 4–8 m, urban 8–20 m,
-  canopy 10–30 m).
+- **Noise** (*rev. 2026-10-23, A3a:* drifting, not white). The error is σ = level / 2 per axis. The level moves
+  smoothly inside the regime's range: open 4–8 m, urban 8–20 m, canopy 10–30 m. Each fix reports that level with
+  ±20 % scatter.
+  - **The error drifts.** It's the sum of a slow Gauss–Markov process (τ 600 s), a multipath process (τ = 90 m /
+    speed, clamped to 30–300 s, so about 300 s for a still phone) and 0.3–0.7 m of white receiver jitter.
+  - **Why not white noise:**
+    - Receivers smooth their output (Doppler-aided, over about 30 s), so consecutive fixes share most of their error.
+    - White noise of σ = accuracy / 2 at 1 Hz makes every 1 s step mostly noise. No phone reports that.
+    - It also tests the wrong thing: under white noise, position steps read +17 to +125 % long and the velocity +2 to
+      +12 % (A3a review).
+  - **What the drifting model hides.** A slow drift looks like slow motion, so it's kind to fast tracks and hard on
+    slow ones. That's why D1 walks at about 1.4 m/s over a measured course and leaves a phone still, on a device
+    (ADR 0003, amendment 1).
+  - **Core Location's `isStationary` is modelled** (*rev.*): the still fixture flags its fixes from 15 s, and the
+    tests run it with the flag and with it stripped (the backstop's case).
 - **Faults.** Injected outliers (accuracy 40–80 m) and multipath jumps (60 m with a falsely good 10 m accuracy).
-- **Output.** `.json` (`LocationFix` arrays plus `ground_truth_m`, `ascent_m`, split times) and `.gpx` (for §11.3).
+- **Output.** `.json` (`LocationFix` arrays plus `ground_truth_m`, `ascent_m`, split times). *rev.:* `.gpx` (for §11.3)
+  only on demand, `make-tracks.py --gpx build/tracks`; it isn't committed, because `RyftTests/` would copy it into the
+  test bundle. `make lint` runs `make-tracks.py --check`.
 
 | Track | Content | Expectation |
 | --- | --- | --- |
 | `road-5k` | 5.000 km at 3.0 m/s, gentle curves, a 20 s traffic light, a 25 s tunnel gap, 2 outliers | distance ±2 %, 5 splits, auto-pause once |
 | `trail-switchbacks` | 8.0 km, 12 hairpins of r 15 m, +400 / −400 m, canopy noise, 30 bad fixes, 3 multipath jumps, a 45 s gap | ±2 % horizontal; ascent ±3 m (baro fixture) |
-| `stationary` | 10 min on a table, accuracy 5–30 m | < 20 m, auto-paused ≤ 10 s, no split |
+| `stationary` | 10 min on a table, accuracy 5–30 m; *rev.:* the error level sweeps 5 → 30 → 5 m, and fixes are flagged `isStationary` from 15 s, as `liveUpdates` does | < 20 m, auto-paused ≤ 10 s, no split; auto-pause off: < 1 m with the flag, < 5 m with it stripped (measured 0.0 m) |
+| *rev.* `urban-ride` (A3b, before D1) | a city ride with sustained multipath: 10–30 s offsets of 40–60 m with a falsely good accuracy | sets the ride's re-init bound (ADR 0003, amendment 1, risk 5) |
 
 After device test D1, one real track from a public course (not near home, ends trimmed) may be added as a
 regression fixture. That's the user's call.
@@ -1478,7 +1674,7 @@ All of these run from Xcode with U2 applied locally and not committed (§8.5).
 
 | # | What |
 | --- | --- |
-| D1 | A real 5 km run, phone in a pocket, screen off: distance against the tracker; splits; the Live Activity; ascent on a hilly route |
+| D1 | A real 5 km run, phone in a pocket, screen off: distance against the tracker; splits; the Live Activity; ascent on a hilly route. **Rev. 2026-10-23:** plus the runs and the decision rule in ADR 0003 → Amendment 1 (velocity vs position-step distance, a 1.4 m/s walk, a still phone in a pocket) |
 | D2 | Battery: 60 min, screen off, iPhone 17, from 100 %: ≤ 8 % (performance-profiler); background updates never stall (diagnostics: longest gap) |
 | D3 | Force-quit mid-run → "Resume your run?"; let iOS terminate it (memory pressure) → a background relaunch within 10 min resumes; after 10 min no blue indicator appears and the next launch asks (§3.9) |
 | D4 | Lock the phone during a run: checkpoints keep landing (diagnostics count; the Keychain key is readable after first unlock); Health save waits for the unlock |
