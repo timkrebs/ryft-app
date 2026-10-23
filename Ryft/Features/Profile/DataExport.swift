@@ -1,3 +1,4 @@
+import os
 import OSLog
 import SwiftUI
 import UIKit
@@ -51,6 +52,9 @@ enum DataExport {
 
     static let filePrefix = "RYFT-export-"
     private static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "export")
+    /// The export files this process wrote, by path: the launch sweep leaves them. (Not by file dates: those are a
+    /// required-reason API, and the privacy manifest declares none.)
+    private static let writtenHere = OSAllocatedUnfairLock(initialState: Set<String>())
 
     /// Writes the archive to a temporary file named `RYFT-export-YYYY-MM-DD.json` in `folder`. It goes when the
     /// share sheet is done, at an account change or sign-out, and at the next launch (`removeFiles`).
@@ -62,23 +66,21 @@ enum DataExport {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(archive)
         let url = folder.appendingPathComponent("\(filePrefix)\(DayFormat.string(from: archive.exportedAt)).json")
+        // Recorded before the file exists: a launch sweep running meanwhile never takes it.
+        writtenHere.withLock { _ = $0.insert(url.standardizedFileURL.path) }
         try data.write(to: url, options: [.atomic, .completeFileProtection])
         return url
     }
 
-    /// Removes the export files in `folder`: all of an account's data shouldn't outlive the share sheet, the account
-    /// on this iPhone, or a crash before either. With `writtenBefore`, only files older than that (the launch sweep
-    /// leaves what this run wrote). Returns how many went.
+    /// Removes the export files in `folder` but those in `kept` (paths): all of an account's data shouldn't outlive
+    /// the share sheet, the account on this iPhone, or a crash before either. Returns how many went.
     @discardableResult
-    static func removeFiles(in folder: URL = FileManager.default.temporaryDirectory, writtenBefore cutoff: Date? = nil) -> Int {
+    static func removeFiles(in folder: URL = FileManager.default.temporaryDirectory, keeping kept: Set<String> = []) -> Int {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
         var removed = 0
         for name in names where name.hasPrefix(filePrefix) && name.hasSuffix(".json") {
             let file = folder.appendingPathComponent(name)
-            if let cutoff {
-                let written = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date
-                guard let written, written < cutoff else { continue }
-            }
+            guard !kept.contains(file.standardizedFileURL.path) else { continue }
             do {
                 try FileManager.default.removeItem(at: file)
                 removed += 1
@@ -91,10 +93,10 @@ enum DataExport {
         return removed
     }
 
-    /// At launch, off the main actor: what an earlier run left (written before `launch`).
+    /// At launch, off the main actor: what earlier runs left, never a file this run wrote.
     @concurrent
-    static func removeLeftoverFiles(writtenBefore launch: Date) async {
-        removeFiles(writtenBefore: launch)
+    static func removeLeftoverFiles(in folder: URL = FileManager.default.temporaryDirectory) async {
+        removeFiles(in: folder, keeping: writtenHere.withLock { $0 })
     }
 }
 

@@ -73,10 +73,21 @@ Export files go when the share sheet is done, at an account change or sign-out, 
   store (removed, the live store untouched). An unsigned build (no App Group) deletes nothing (`noGroupContainer`).
 - A store written by the build before `cloudKitDatabase: .none` opens with it, no read-only warning, writes go through.
 
-**Needs your iPhone:** after the update, the real 2.2 MB orphan in the app container's `Library/Application Support` is gone,
-the group store is untouched, and Console (`dev.timkrebs.ryft`, `storage`) shows "Removed the store left behind by the App
-Group move: 3 files, … bytes, 0 failed". Also export once over AirDrop: the file stays until the share sheet closes, then `tmp`
-has no `RYFT-export-*.json`.
+**Device-verified** (your iPhone, iOS 27.0.1, 2026-10-23, `devicectl` file listings only: no screenshots, no data copied
+off the phone):
+- before: the orphan in the app container's `Library/Application Support`, `Train.store` 560 KB + WAL 1.6 MB from 22 Oct
+  10:38, beside the live group store from today;
+- after installing `e7246de` and one launch: the app container's Application Support is empty, the group store is intact
+  and freshly written, and `tmp` has no export files.
+
+**Still open on a device:** an export over AirDrop (the file stays until the share sheet closes, then `tmp` has no
+`RYFT-export-*.json`).
+
+**Before the TestFlight build that ships O1** (review N2): repeat the upgrader run on an iOS 17.x and an iOS 18.x simulator
+runtime (only iOS 27 is installed here). On a signed build: move the group's `Train.store` (+ wal/shm) into the app
+container, add a marker table with `sqlite3`, delete the cleanup's marker, launch once. The group store must then have the
+marker table, also when it was only in the WAL, and the app container must be empty. If any runtime doesn't copy, the
+cleanup needs a guard first (e.g. keep the old copy until the group store has the account's rows).
 
 **Testers:** TestFlight `20261021.141128` predates the App Group, so its testers keep the store in the app container. The
 next TestFlight build copies it into the group as it opens and leaves the old copy behind, as on your iPhone. Ship O1 in that

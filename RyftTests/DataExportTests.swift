@@ -44,19 +44,17 @@ struct DataExportFileTests {
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 
-    @Test func theLaunchSweepLeavesWhatThisRunWrote() throws {
+    @Test func theLaunchSweepLeavesWhatThisRunWrote() async throws {
         let folder = try makeFolder()
         defer { try? FileManager.default.removeItem(at: folder) }
-        let launched = Date.now
-        let earlier = folder.appendingPathComponent("RYFT-export-2026-10-22.json")
-        try Data("{}".utf8).write(to: earlier)
-        try FileManager.default.setAttributes([.modificationDate: launched.addingTimeInterval(-3600)], ofItemAtPath: earlier.path)
-        let now = folder.appendingPathComponent("RYFT-export-2026-10-23.json")
-        try Data("{}".utf8).write(to: now)
-        try FileManager.default.setAttributes([.modificationDate: launched.addingTimeInterval(1)], ofItemAtPath: now.path)
+        let leftover = folder.appendingPathComponent("RYFT-export-2020-01-01.json")
+        try Data("{}".utf8).write(to: leftover)
+        let mine = try DataExport.write(emptyArchive, to: folder)
 
-        #expect(DataExport.removeFiles(in: folder, writtenBefore: launched) == 1)
-        #expect(exportFiles(in: folder) == ["RYFT-export-2026-10-23.json"])
+        await DataExport.removeLeftoverFiles(in: folder)
+
+        #expect(exportFiles(in: folder) == [mine.lastPathComponent])
+        #expect(!FileManager.default.fileExists(atPath: leftover.path))
     }
 }
 
