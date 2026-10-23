@@ -136,15 +136,17 @@ struct ActivityReadModelTests {
         #expect(g.env.reads.states[.activities]?.lastError?.requestID == "req-422")
     }
 
-    /// The live client before the contract: no request, nothing stored, no failure recorded.
-    @Test func beforeTheContractTheReadIsEmptyAndNoFailure() async throws {
+    /// Before the contract (`publishesActivities` false): the cache, and nothing asked, budgeted or recorded.
+    @Test func beforeTheContractNothingIsAskedOrRecorded() async throws {
         let g = graph()
-        g.api.failNext = ActivitiesError.notPublished
-        let listed = try await g.repo.refreshActivities(g.day())
-        #expect(listed.isEmpty)
-        #expect(g.document(g.day()) == nil && g.repo.activitiesFetchedAt(day: g.day()) == nil)
-        let state = g.env.reads.states[.activities]
-        #expect(state?.lastError == nil && state?.consecutiveFailures == 0)
+        let cached = run(at: g.at(7), track: false)
+        g.repo.store(activities: [cached], day: g.day())
+        g.api.activitySource.publishesActivities = false
+        #expect(try await g.repo.refreshActivities(g.day()).map(\.id) == [cached.id])
+        #expect(try await g.repo.refreshActivities(g.day(-1), mode: .latest, userInitiated: true).isEmpty)
+        #expect(g.api.count("activities") == 0)
+        #expect(g.env.reads.states[.activities] == nil && g.env.reads.inFlight.isEmpty)
+        #expect(g.repo.activitiesFetchedAt(day: g.day(-1)) == nil)
     }
 
     @Test func offlineNothingIsAsked() async throws {
@@ -191,6 +193,26 @@ struct ActivityReadModelTests {
         #expect(g.repo.activities(day: g.day(-1)).map(\.id) == [a.id])
         // A single answer doesn't make yesterday's list fresh.
         #expect(g.repo.activitiesFetchedAt(day: g.day(-1)) == .distantPast)
+    }
+
+    /// A confirmed `DELETE` (A2): the activity leaves every cached day; another id changes nothing.
+    @Test func forgettingAnActivityRemovesItFromEveryDay() throws {
+        let g = graph()
+        let gone = run(at: g.at(7), track: false)
+        let stays = run(at: g.at(9), track: false)
+        let yesterday = run(at: g.at(18, days: -1), track: false)
+        g.repo.store(activities: [gone, stays], day: g.day())
+        g.repo.store(activities: [yesterday], day: g.day(-1))
+        let fetchedAt = g.repo.activitiesFetchedAt(day: g.day())
+        let revision = g.repo.activitiesRevision
+        g.repo.forget(activity: gone.id)
+        #expect(g.repo.activities(day: g.day()).map(\.id) == [stays.id])
+        #expect(g.repo.activities(day: g.day(-1)).map(\.id) == [yesterday.id])
+        #expect(g.repo.activitiesRevision == revision + 1)
+        // Its list stays as fresh as it was.
+        #expect(g.repo.activitiesFetchedAt(day: g.day()) == fetchedAt)
+        g.repo.forget(activity: UUID())
+        #expect(g.repo.activitiesRevision == revision + 1)
     }
 
     // MARK: housekeeping

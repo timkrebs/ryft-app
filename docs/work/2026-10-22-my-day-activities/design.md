@@ -459,7 +459,7 @@ actor and no clock.
 - **Finish lets the user correct the distance** ("Treadmill said …"). It's stored and sent as `distance_m`.
 - **Without Motion permission:** time only, plus the distance typed at Finish.
 
-### 3.6 Live heart rate (`Recording/HeartRateSensor.swift`, behind `activity.liveHR`; a follow-up PR, plan D1-6)
+### 3.6 Live heart rate (`Recording/HeartRateSensor.swift`, behind `activity.live_hr`; a follow-up PR, plan D1-6)
 
 - **Core Bluetooth, standard Heart Rate service `0x180D`, measurement `0x2A37`.** It parses the uint8/uint16 flag.
   RR intervals are ignored.
@@ -1181,7 +1181,7 @@ Ryft/Activities/                      domain, no views (like Ryft/Train/)
     Sources.swift                     A3  protocols, value types, ActivitySensors
     RouteTrimmer.swift                A3  PrivacyZone (immutable, make/replacing), RouteTrimmer.drop/trim
     LiveLocationSource.swift  LiveMotionSources.swift   A3
-    HeartRateSensor.swift             live-HR follow-up PR, behind activity.liveHR (plan decision D1-6)
+    HeartRateSensor.swift             live-HR follow-up PR, behind activity.live_hr (plan decision D1-6)
     ReplaySources.swift               A3  fixture, clocked and replay sources (DEBUG/preview/tests)
     ActivityTrackingActivity.swift    A4  ActivityTrackingAttributes (app copy), ActivityTrackingController
 Ryft/Features/MyDay/                  A1  MyDayAssembler, MyDayViewModel, MyDayCard, MyDayView, MyDayRow
@@ -1279,10 +1279,10 @@ config, `PlatformAPI.swift:144`):
 
 | Flag | Gates | On when |
 | --- | --- | --- |
-| `today.myDay` | the card, the full view, Strain's list change | A1 + ui-validator |
+| `today.my_day` | the card, the full view, Strain's list change | A1 + ui-validator |
 | `activities.manual` | Add activity, Add sleep, edit and delete | A2 + C1 + platform deployed |
 | `activities.recording` | Start activity, pre-start, intents (and the control and phrase registration, §6) | the release PR: A4 + A5 + A6 + C1 + device tests + privacy sign-off, with U2 committed in the same PR (§8.5) |
-| `activity.liveHR` | Connect heart-rate sensor | the follow-up PR, after U3 and a device test |
+| `activity.live_hr` | Connect heart-rate sensor | the follow-up PR, after U3 and a device test |
 
 **Frozen interfaces** (changes go through the lead):
 - **A1:**

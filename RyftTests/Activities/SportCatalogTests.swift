@@ -7,6 +7,9 @@ import UIKit
 /// The sport catalogue (design.md §2.1, §11.1 Catalogue).
 @Suite("Sport catalogue")
 struct SportCatalogTests {
+    /// The app's `de.lproj` (the unit tests run inside the app).
+    private static let german = Bundle.main.path(forResource: "de", ofType: "lproj").flatMap(Bundle.init(path:))
+
     @Test func everyRawValueIsTheAPIsAndUnique() {
         #expect(Sport.allCases.count == 22)
         #expect(Set(Sport.allCases.map(\.rawValue)).count == Sport.allCases.count)
@@ -20,8 +23,11 @@ struct SportCatalogTests {
     @Test(arguments: Sport.allCases)
     func everySportHasANameASymbolAHealthKitTypeAndAFamily(_ sport: Sport) {
         #expect(!sport.name.isEmpty)
-        #expect(sport.name != sport.nameKey, "\(sport.nameKey) isn't in the string catalog")
         #expect(sport.nameKey == "sport.\(sport.rawValue)")
+        // The German table the app ships has the key (English comes from the code's default value).
+        let missing = "⟨missing⟩"
+        let german = Self.german?.localizedString(forKey: sport.nameKey, value: missing, table: "Localizable")
+        #expect(german != nil && german != missing && german?.isEmpty == false, "\(sport.nameKey) has no German")
         #expect(UIImage(systemName: sport.symbol) != nil, "\(sport.symbol) isn't an SF Symbol")
         #expect(Sport.Family.allCases.contains(sport.family))
         #expect((sport.healthKitActivity == .other) == (sport == .other))

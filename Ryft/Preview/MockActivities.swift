@@ -4,7 +4,8 @@ import Foundation
 
 /// Behaves like the platform brief: `PUT` stores by id and answers `scoring_state: "pending"`; once
 /// `scoreDelay` has passed on `now`, reads return a canned strain. List and `PUT` answers carry no route or
-/// heart-rate samples (API request R16); `GET /v1/activities/{id}` does.
+/// heart-rate samples (API request R16); `GET /v1/activities/{id}` does. A `PUT` that leaves out `route`,
+/// `hr_samples` or `splits` keeps the stored ones; a `null` clears an editable field (R19).
 final class MockActivitiesSource: ActivitiesAPI, @unchecked Sendable {
     private struct Stored {
         var activity: SportActivity
@@ -14,11 +15,15 @@ final class MockActivitiesSource: ActivitiesAPI, @unchecked Sendable {
     private let lock = NSLock()
     private var storedByID: [UUID: Stored] = [:]
     private var sleeps: [String: ManualSleepPut] = [:]
+    /// What the platform holds at the start and after `reset()`, for the clock's day (`demo(on:)`).
+    private let initialSeed: (@Sendable (Date) -> [SportActivity])?
     /// Built on first use, not at launch: the live graph creates the demo platform whether or not demo data is on.
-    private var seed: (@Sendable () -> [SportActivity])?
+    private var seed: (@Sendable (Date) -> [SportActivity])?
 
     /// The platform's clock (tests: the `TestClock`).
     var now: @Sendable () -> Date
+    /// False: a platform before the contract (`ActivitiesAPI.publishesActivities`).
+    var publishesActivities = true
     /// Seconds from a `PUT` until reads report a strain (tests: 0; demo: 15).
     var scoreDelay: TimeInterval
     /// A platform that ignores R16 and sends route and samples in lists and `PUT` answers (tests).
@@ -28,12 +33,30 @@ final class MockActivitiesSource: ActivitiesAPI, @unchecked Sendable {
     private(set) var deletes: [UUID] = []
     private(set) var sleepPuts: [String: ManualSleepPut] = [:]
 
-    /// `seed`: activities the platform already holds, scored (`demo`).
+    /// `seed`: what the platform already holds, scored, for the day of `now` (`demo(on:)`). Tests start empty.
     init(now: @escaping @Sendable () -> Date = { .now }, scoreDelay: TimeInterval = 0,
-         seed: (@Sendable () -> [SportActivity])? = nil) {
+         seed: (@Sendable (Date) -> [SportActivity])? = nil) {
         self.now = now
         self.scoreDelay = scoreDelay
+        initialSeed = seed
         self.seed = seed
+    }
+
+    /// Demo data's platform (the live graph's demo and previews): `demo(on:)`, scored 15 s after a `PUT`.
+    static func demoSource() -> MockActivitiesSource {
+        MockActivitiesSource(scoreDelay: 15, seed: { MockActivitiesSource.demo(on: $0) })
+    }
+
+    /// Back to the seed: everything put, deleted or added since is gone (another account, demo switched).
+    func reset() {
+        lock.withLock {
+            storedByID = [:]
+            sleeps = [:]
+            puts = []
+            deletes = []
+            sleepPuts = [:]
+            seed = initialSeed
+        }
     }
 
     /// The stored activities; call with the lock held.
@@ -41,7 +64,7 @@ final class MockActivitiesSource: ActivitiesAPI, @unchecked Sendable {
         get {
             if let make = seed {
                 seed = nil
-                for a in make() { storedByID[a.id] = Stored(activity: a, putAt: .distantPast) }
+                for a in make(now()) { storedByID[a.id] = Stored(activity: a, putAt: .distantPast) }
             }
             return storedByID
         }
@@ -52,15 +75,20 @@ final class MockActivitiesSource: ActivitiesAPI, @unchecked Sendable {
 
     func putActivity(_ a: SportActivity) async throws -> SportActivity {
         // Only what a real PUT carries reaches the platform.
-        let received = try APIClient.jsonDecoder.decode(SportActivity.self,
-                                                        from: APIClient.jsonEncoder.encode(SportActivityPut(a)))
+        let body = try APIClient.jsonEncoder.encode(SportActivityPut(a))
+        let received = try APIClient.jsonDecoder.decode(SportActivity.self, from: body)
+        let sent = Set(((try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]).keys)
         try validate(received)
         var saved = received
         saved.scoringState = "pending"
         let answer = lock.withLock {
             puts.append(received)
-            // Kept on an update: what the platform merged it with.
-            saved.mergedWith = stored[a.id]?.activity.mergedWith
+            let previous = stored[a.id]?.activity
+            // Kept on an update: what the platform merged it with, and what the body left out (R19).
+            saved.mergedWith = previous?.mergedWith
+            if !sent.contains("route") { saved.route = previous?.route }
+            if !sent.contains("hr_samples") { saved.hrSamples = previous?.hrSamples }
+            if !sent.contains("splits") { saved.splits = previous?.splits }
             stored[a.id] = Stored(activity: saved, putAt: now())
             return saved
         }

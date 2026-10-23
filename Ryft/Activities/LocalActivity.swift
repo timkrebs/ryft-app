@@ -147,8 +147,11 @@ extension ActivityTrackChunk {
 /// "Add sleep": a night the user typed in, until the platform confirms it.
 @Model
 final class LocalManualSleep {
+    /// `"<account>|<day>"`: one night per account and day. Unique per account, so another account's row for the
+    /// same day is never overwritten in place (an insert with a taken unique key updates that row).
+    @Attribute(.unique) var key: String
     /// The wake day, `yyyy-MM-dd`.
-    @Attribute(.unique) var day: String
+    var day: String
     var account: String
     /// Set when a session expiry kept the row (§8.4), like `LocalActivity.parkedAt`.
     var parkedAt: Date?
@@ -160,6 +163,7 @@ final class LocalManualSleep {
     var lastAttemptData: Data?
 
     init(day: String, account: String, bed: Date, wake: Date, localRevision: Int = 1, confirmedRevision: Int = 0) {
+        key = Self.key(account: account, day: day)
         self.day = day
         self.account = account
         self.bed = bed
@@ -170,6 +174,8 @@ final class LocalManualSleep {
 }
 
 extension LocalManualSleep {
+    static func key(account: String, day: String) -> String { "\(account)|\(day)" }
+
     var snapshot: ManualSleepSnapshot {
         ManualSleepSnapshot(day: day, bed: bed, wake: wake, localRevision: localRevision,
                             confirmedRevision: confirmedRevision, deletedAt: deletedAt,

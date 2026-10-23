@@ -386,25 +386,19 @@ final class Repository {
 
     /// `day`'s activities (`GET /v1/activities?from&to`, the local day): cached and fresh → no request
     /// (`.ifStale`; the day's TTLs: 5 min today, 24 h for a past day). A failure with a cached copy keeps the
-    /// copy; without one it throws. Before the contract is published (`ActivitiesError.notPublished`) the
-    /// platform has none to give: nothing is stored, nothing counts as a failure, and the cache is returned.
+    /// copy; without one it throws. Before the contract is published (`publishesActivities`) nothing is asked,
+    /// recorded or budgeted: the cache is returned.
     @discardableResult
     func refreshActivities(_ day: String, mode: ReadMode = .ifStale, userInitiated: Bool = false) async throws
         -> [SportActivity] {
         guard let start = DayFormat.date(from: day) else { return [] }
+        guard env.api.publishesActivities else { return activities(day: day) }
         if mode == .ifStale, isFresh(day: day, fetchedAt: activitiesFetchedAt(day: day)) { return activities(day: day) }
         let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
         do {
-            _ = try await scheduled(
-                ReadKey(.activities, id: day), mode: mode, userInitiated: userInitiated,
-                fetch: { [env] () async throws -> [SportActivity]? in
-                    do {
-                        return try await env.api.activities(from: start, to: end)
-                    } catch ActivitiesError.notPublished {
-                        return nil
-                    }
-                },
-                store: { [weak self] in if let list = $0 { self?.store(activities: list, day: day) } })
+            _ = try await scheduled(ReadKey(.activities, id: day), mode: mode, userInitiated: userInitiated,
+                                    fetch: { [env] in try await env.api.activities(from: start, to: end) },
+                                    store: { [weak self] in self?.store(activities: $0, day: day) })
             // What was stored (stripped), not the answer itself: no caller holds a route from a list read.
             return activities(day: day)
         } catch {
@@ -604,15 +598,7 @@ final class Repository {
     func store(activity: SportActivity) {
         let day = DayFormat.string(from: activity.start)
         let id = activity.id
-        let needle = Data(id.uuidString.utf8)
-        let prefix = Self.activitiesPrefix
-        let target = Self.activitiesKey(day)
-        let others = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key.starts(with: prefix) && $0.key != target })
-        for row in (try? context.fetch(others)) ?? [] where row.data.range(of: needle) != nil {
-            guard let list = WireCoding.decode([SportActivity].self, row.data),
-                  let data = WireCoding.encode(list.filter { $0.id != id }) else { continue }
-            row.data = data
-        }
+        removeCached(id, keeping: Self.activitiesKey(day))
         var list = self.activities(day: day).filter { $0.id != id }
         list.append(activity.withoutRouteOrHeartRate)
         list.sort { $0.start < $1.start }
@@ -620,6 +606,31 @@ final class Repository {
         // A single answer doesn't make the day's list fresh: its fetch time stays (a new row's is the past).
         writeActivities(data, day: day, fetchedAt: activitiesFetchedAt(day: day) ?? .distantPast)
         changed(.activities)
+    }
+
+    /// A deleted activity (the platform confirmed the `DELETE`): out of every cached day.
+    func forget(activity id: UUID) {
+        guard removeCached(id, keeping: nil) else { return }
+        changed(.activities)
+    }
+
+    /// Takes `id` out of every cached day's list but `keeping`'s. Only lists that mention it are decoded.
+    /// True when one changed.
+    @discardableResult
+    private func removeCached(_ id: UUID, keeping key: String?) -> Bool {
+        let needle = Data(id.uuidString.utf8)
+        let prefix = Self.activitiesPrefix
+        let keep = key ?? ""
+        let docs = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key.starts(with: prefix) && $0.key != keep })
+        var removed = false
+        for row in (try? context.fetch(docs)) ?? [] where row.data.range(of: needle) != nil {
+            guard let list = WireCoding.decode([SportActivity].self, row.data) else { continue }
+            let kept = list.filter { $0.id != id }
+            guard kept.count != list.count, let data = WireCoding.encode(kept) else { continue }
+            row.data = data
+            removed = true
+        }
+        return removed
     }
 
     private func writeActivities(_ data: Data, day: String, fetchedAt: Date? = nil) {

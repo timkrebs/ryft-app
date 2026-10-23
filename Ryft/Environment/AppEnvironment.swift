@@ -74,7 +74,8 @@ final class AppEnvironment {
 
     /// The app's graph, built once at launch.
     static let live = AppEnvironment(
-        settings: .shared, health: HealthKitManager.shared, liveAPI: APIClient.shared, demoAPI: MockPlatformAPI(),
+        settings: .shared, health: HealthKitManager.shared, liveAPI: APIClient.shared,
+        demoAPI: MockPlatformAPI(activities: .demoSource()),
         auth: .shared, persistence: TrainStore.shared, clock: SystemClock(), notifier: SystemNotifier(),
         flags: FlagStore.shared, connectivity: .shared, content: WebContentSource(),
         contentDirectory: URL.applicationSupportDirectory.appendingPathComponent("Content", isDirectory: true))
@@ -88,7 +89,7 @@ final class AppEnvironment {
     static func preview(online: Bool = true, auth: AuthService? = nil,
                         flags: [FeatureFlag: Bool] = [:], coachMarks: Bool = false,
                         notifier: MockNotifier? = nil) -> AppEnvironment {
-        let api = MockPlatformAPI()
+        let api = MockPlatformAPI(activities: .demoSource())
         let defaults = UserDefaults(suiteName: "ryft.preview") ?? .standard
         // Coach marks only in the preview that asks for them.
         defaults.set(!coachMarks, forKey: CoachMarks.doneKey)
@@ -105,8 +106,6 @@ final class AppEnvironment {
                      auth: AuthService? = nil, flags: [FeatureFlag: Bool] = [:],
                      online: Bool = true, content: MockContentSource = MockContentSource()) -> AppEnvironment {
         api.now = { clock.now() }
-        // Scored at once: a test that wants the wait sets its own delay and advances the clock.
-        api.activitySource.scoreDelay = 0
         let env = AppEnvironment(
             settings: .shared, health: health, liveAPI: api, demoAPI: api, auth: auth ?? .preview(),
             persistence: TrainStore(inMemory: true), clock: clock, notifier: notifier ?? MockNotifier(),

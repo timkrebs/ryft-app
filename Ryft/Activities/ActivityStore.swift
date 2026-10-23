@@ -98,7 +98,8 @@ final class ActivityStore {
     func manualSleep(onDay day: String) -> ManualSleepSnapshot? {
         _ = revision
         guard let account else { return nil }
-        var d = FetchDescriptor<LocalManualSleep>(predicate: #Predicate { $0.day == day && $0.account == account })
+        let key = LocalManualSleep.key(account: account, day: day)
+        var d = FetchDescriptor<LocalManualSleep>(predicate: #Predicate { $0.key == key && $0.account == account })
         d.fetchLimit = 1
         return fetch(d).first?.snapshot
     }
@@ -192,6 +193,8 @@ final class ActivityStore {
     /// parked or not. Called when another account signs in, before anything reads (A2 wires
     /// `AuthService.onAccountWillChange`). Always the account's store, whatever the Demo data switch says.
     /// Returns the number of activity and sleep rows deleted.
+    /// - Important: pass the incoming account's id (`onAccountWillChange`'s `to`), never `self.account`: that's
+    ///   `"demo"` while demo data is on, and would purge the signed-in account's own unsent rows.
     @discardableResult
     func purge(notBelongingTo account: String?) -> Int {
         let context = liveStore.context
@@ -216,8 +219,11 @@ final class ActivityStore {
         return activities.count + sleeps.count
     }
 
-    /// The store changed underneath (the sign-out wipe): readers read again.
-    func invalidate() {
+    /// Another account, a sign-out or the Demo data switch (`AppState.reset`): demo data's store starts over, so
+    /// nothing typed in demo mode by one account is shown to the next, and readers read again (the sign-out wipe
+    /// changed the account's store underneath).
+    func accountChanged() {
+        demoStoreInstance = nil
         revision += 1
     }
 

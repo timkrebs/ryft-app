@@ -83,16 +83,57 @@ struct SportActivityCodingTests {
         for server in ["strain", "strain_source", "hr_source", "merged_with", "scoring_state"] {
             #expect(!keys.contains(server), "\(server)")
         }
-        // Absent optionals are left out, not sent as null.
-        var minimal = a
-        minimal.distanceM = nil
-        minimal.notes = nil
-        minimal.splits = nil
-        minimal.route = nil
-        minimal.hrSamples = nil
-        #expect(try Self.keys(SportActivityPut(minimal)) == ["id", "sport", "origin", "start", "end", "moving_sec",
-                                                              "ascent_m", "descent_m", "perceived_effort",
-                                                              "client_updated_at"])
+    }
+
+    /// R19: a cleared editable field goes as `null` (the platform clears it); no route, samples or splits are
+    /// left out (the platform keeps what it has).
+    @Test func thePutBodyClearsEditableFieldsAndKeepsTheRest() throws {
+        var cleared = try Self.decode(Self.answer)
+        cleared.distanceM = nil
+        cleared.ascentM = nil
+        cleared.descentM = nil
+        cleared.perceivedEffort = nil
+        cleared.notes = nil
+        cleared.splits = nil
+        cleared.route = nil
+        cleared.hrSamples = nil
+        let object = try #require(try JSONSerialization.jsonObject(
+            with: APIClient.jsonEncoder.encode(SportActivityPut(cleared))) as? [String: Any])
+        #expect(Set(object.keys) == ["id", "sport", "origin", "start", "end", "moving_sec", "distance_m", "ascent_m",
+                                     "descent_m", "perceived_effort", "notes", "client_updated_at"])
+        for editable in ["distance_m", "ascent_m", "descent_m", "perceived_effort", "notes"] {
+            #expect(object[editable] is NSNull, "\(editable) isn't null")
+        }
+    }
+
+    /// The type's own encoding (every cache path, R1's day detail included) never writes a route or samples,
+    /// and keeps the platform's fields.
+    @Test func theTypesOwnEncodingHasNoRouteOrSamples() throws {
+        let a = try Self.decode(Self.answer)
+        let keys = try Self.keys(a)
+        #expect(!keys.contains("route") && !keys.contains("hr_samples"))
+        #expect(keys.isSuperset(of: ["strain", "strain_source", "hr_source", "merged_with", "scoring_state", "notes",
+                                     "splits"]))
+        let json = try #require(String(bytes: APIClient.jsonEncoder.encode([a]), encoding: .utf8))
+        #expect(!json.contains("_p~iF") && !json.contains("124.5"))
+        // Decoding still reads them (the detail screen's memory).
+        #expect(a.route != nil && a.hrSamples?.count == 2)
+    }
+
+    /// design.md §8.3: printing, interpolating, dumping or debugging an activity shows no route, samples or notes.
+    @Test func descriptionsAndTheMirrorLeaveOutRouteSamplesAndNotes() throws {
+        let a = try Self.decode(Self.answer)
+        var dumped = ""
+        dump(a, to: &dumped)
+        let renderings = [a.description, a.debugDescription, "\(a)", String(reflecting: a), dumped]
+        for text in renderings {
+            #expect(!text.contains("_p~iF") && !text.contains("Foggy") && !text.contains("124.5"), "\(text)")
+        }
+        #expect(a.description.contains("trail_running") && a.description.contains("route")
+                    && a.description.contains("2 hr samples") && a.description.contains("notes 11 chars"))
+        let labels = Set(Mirror(reflecting: a).children.compactMap(\.label))
+        #expect(labels.isDisjoint(with: ["route", "hrSamples", "notes"]))
+        #expect(labels.contains("strain") && labels.contains("mergedWith"))
     }
 
     @Test func thePutBodyDecodesBackWithoutServerFields() throws {
