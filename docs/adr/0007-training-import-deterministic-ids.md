@@ -93,7 +93,7 @@ The alias vocabulary is used **only** for matching, and for a custom exercise's 
 
 **Consequences.**
 - Editing `exercise-aliases.json` can never change an id or orphan a remembered choice.
-- `RyftTests/Fixtures/Import/source-keys.golden.json` pins 1,029 keys: every alias name, built-in name, fixture name and
+- `RyftTests/Fixtures/Import/source-keys.golden.json` pins 1,065 keys: every alias name, built-in name, fixture name and
   equipment spelling. An independent Python implementation of `fold` agrees on all of them.
 - Only a change to `fold` itself is a breaking id change, and it needs a new amendment and a migration of remembered rows.
 - **Accepted cost:** two spellings of the same equipment ("Barbell" / "Langhantel") make two step-4 rows and two custom
