@@ -1,8 +1,9 @@
 import XCTest
 @testable import Ryft
 
-/// Baselines for the two hot paths that grow with history: decoding a quarter of day
-/// details (Trends, the 90-day backfill) and building one full upload page.
+/// Baselines for the hot paths that grow with history: decoding a quarter of day
+/// details (Trends, the 90-day backfill), building one full upload page, and parsing a
+/// training export at the 8 MiB cap.
 /// XCTest because XCTMetric has no Swift Testing equivalent; runs in the `Full` test
 /// plan only (nightly), never on pull requests (docs/CI.md → Test plans).
 final class PerformanceTests: XCTestCase {
@@ -50,6 +51,51 @@ final class PerformanceTests: XCTestCase {
             do {
                 let body = try APIClient.jsonEncoder.encode(request)
                 XCTAssertGreaterThan(body.count, 1_000_000)
+            } catch {
+                XCTFail("\(error)")
+            }
+        }
+    }
+
+    /// An Alpha Progression export at the 8 MiB cap: 10 000 workouts (the session cap) of one exercise and a set table.
+    func testParsingAnEightMebibyteExport() {
+        let block = "\"A \u{00B7} Standalone workout\";\"2026-01-05 10:00\";\"30 min\"\n"
+            + "\"1. Floor Press \u{00B7} Barbell \u{00B7} 8 reps\"\n#;KG;REPS\n1;60;10\n2;62,5;8\n3;-;-\n\n"
+        measureParse(of: filled(with: block)) { bundle in
+            XCTAssertEqual(bundle.sessions.count, ImportLimits.standard.maxSessions)
+        }
+    }
+
+    /// The costliest lines per byte found in review: names of 4 000 digits, titles of hundreds of parts, quote runs.
+    func testParsingAnEightMebibyteWorstCase() {
+        let dot = " \u{00B7} "
+        let lines = "\"" + String(repeating: "1", count: 4_000) + "\"\n"
+            + "\"A\(dot)" + Array(repeating: "Day 1", count: 400).joined(separator: dot) + "\";\"2026-01-05 10:00\";\"30 min\"\n"
+            + String(repeating: "\"", count: 4_000) + "\n"
+        measureParse(of: filled(with: lines)) { bundle in
+            XCTAssertGreaterThan(bundle.lineCount, 0)
+        }
+    }
+
+    private func filled(with unit: String) -> Data {
+        let bytes = Array(unit.utf8)
+        var data = Data()
+        data.reserveCapacity(ImportLimits.standard.maxFileBytes)
+        while data.count + bytes.count <= ImportLimits.standard.maxFileBytes { data.append(contentsOf: bytes) }
+        return data
+    }
+
+    /// Clock and memory per parse (compared across nightly runs, never asserted), and the work bound the fuzz test
+    /// uses: every byte and line visited a small, fixed number of times.
+    private func measureParse(of data: Data, check: (ImportBundle) -> Void) {
+        let options = XCTMeasureOptions()
+        options.iterationCount = 5
+        measure(metrics: [XCTClockMetric(), XCTMemoryMetric()], options: options) {
+            var stats = ParseStats()
+            do {
+                let bundle = try AlphaProgressionFormat().parse(data, limits: .standard, stats: &stats)
+                check(bundle)
+                XCTAssertLessThanOrEqual(stats.visited, 24 * data.count + 24 * stats.lines + 64)
             } catch {
                 XCTFail("\(error)")
             }

@@ -78,10 +78,6 @@ struct TrainImportReaderTests {
         await #expect(throws: ImportError.empty) {
             try await TrainImportReader.read([ImportFile(name: "a.csv", data: Data("\u{FEFF}\r\n \r\n".utf8))])
         }
-        // Recognised, but there is no plan and no workout in it.
-        await #expect(throws: ImportError.empty) {
-            try await TrainImportReader.read([ImportFile(name: "a.csv", data: Data("#;KG;REPS\n1;60;10".utf8))])
-        }
         await #expect(throws: ImportError.notRecognised) { try await TrainImportReader.read([headerRow]) }
         await #expect(throws: ImportError.notRecognised) { try await TrainImportReader.read([workouts, headerRow]) }
         await #expect(throws: ImportError.notRecognised) { try await TrainImportReader.read(headerRow, index: 0) }
@@ -93,6 +89,50 @@ struct TrainImportReaderTests {
         await #expect(throws: ImportError.tooLarge(bytes: workouts.data.count)) {
             try await TrainImportReader.read([workouts], limits: small)
         }
+    }
+
+    @Test func aRecognisedFileWithNothingInItIsAnEmptyBundleNotAnError() async throws {
+        // ui.md D7 ("no plan and no workouts") needs the bundle and its warnings; P6 (a blank file) stays `.empty`.
+        let nothing = ImportFile(name: "a.csv", data: Data("#;KG;REPS\n1;60;10".utf8))
+        let one = try await TrainImportReader.read(nothing, index: 2)
+        #expect(one.isEmpty)
+        #expect(one.warnings.map(\.at) == [SourceLine(file: 2, line: 1), SourceLine(file: 2, line: 2)])
+        let both = try await TrainImportReader.read([nothing, nothing])
+        #expect(both.isEmpty)
+        #expect(both.warnings.count == 4)
+        await #expect(throws: ImportError.empty) {
+            try await TrainImportReader.read(ImportFile(name: "b.csv", data: Data("\r\n".utf8)), index: 0)
+        }
+    }
+
+    @Test func thePickedFilesAreCappedInNumberAndSize() async throws {
+        let plans = try ImportFixture.file("ap-plans")
+        await #expect(throws: ImportError.tooManyFiles(count: 7)) {
+            try await TrainImportReader.read(Array(repeating: plans, count: 7))
+        }
+        let six = try await TrainImportReader.read(Array(repeating: plans, count: 6))
+        #expect(six.plans.count == 6)
+        var limits = ImportLimits.standard
+        limits.maxTotalBytes = plans.data.count * 2
+        let two = try await TrainImportReader.read([plans, plans], limits: limits)
+        #expect(two.plans.count == 2)
+        await #expect(throws: ImportError.tooLarge(bytes: plans.data.count * 3)) {
+            try await TrainImportReader.read([plans, plans, plans], limits: limits)
+        }
+    }
+
+    @Test func mergingCapsWarningsItself() throws {
+        let edge = try ImportFixture.parse("ap-workouts-edge")
+        let merged = edge.merging(edge.inFile(1), maxWarnings: 20)
+        #expect(merged.warnings.count == 20)
+        #expect(merged.warnings.count + merged.suppressedWarnings == 16 + 16 + 4)
+        #expect(merged.warnings.map(\.at) == merged.warnings.map(\.at).sorted())
+        // The default cap is the standard one.
+        var many = edge
+        many.warnings = Array(repeating: ImportWarning(at: SourceLine(file: 0, line: 1), kind: .unrecognisedLine), count: 150)
+        let capped = many.merging(many.inFile(1))
+        #expect(capped.warnings.count == ImportLimits.standard.maxWarnings)
+        #expect(capped.suppressedWarnings == 300 + 4 - ImportLimits.standard.maxWarnings)
     }
 
     @Test func cancellationStopsTheRead() async throws {

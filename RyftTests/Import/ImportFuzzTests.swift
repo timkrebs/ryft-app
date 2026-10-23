@@ -3,8 +3,8 @@ import Testing
 @testable import Ryft
 
 /// Seeded random mutations of the fixtures (design §11): the parser returns or throws `ImportError`, never anything
-/// else and never a crash; its work stays linear (counted, not timed); the same bytes give the same bundle. Each case
-/// prints its seed first, so a crash names the input that caused it.
+/// else and never a crash; its work stays linear in the bytes and lines (`ParseStats.visited`, counted, not timed);
+/// the same bytes give the same bundle. Each case prints its seed first, so a crash names the input that caused it.
 @Suite("Import fuzz")
 struct ImportFuzzTests {
     static let fixtures = ["ap-plans", "ap-workouts", "ap-workouts-de", "ap-workouts-lbs", "ap-workouts-edge", "header-row"]
@@ -56,8 +56,8 @@ struct ImportFuzzTests {
         }
         tally.parsed += 1
         let lines = bundle.lineCount
-        if stats.steps > 4 * lines + 16 {
-            Issue.record("\(label): \(stats.steps) steps for \(lines) lines")
+        if stats.visited > ImportLimitsTests.workBound(bytes: data.count, lines: stats.lines) {
+            Issue.record("\(label): \(stats.visited) visited for \(data.count) bytes, \(stats.lines) lines")
         }
         let warningLines = bundle.warnings.map(\.at.line)
         if warningLines != warningLines.sorted() || !warningLines.allSatisfy({ $0 >= 1 && $0 <= lines }) {
@@ -110,7 +110,8 @@ struct SplitMix64: RandomNumberGenerator {
 
 /// 1–8 random mutations per case: delete, duplicate, swap or join lines; truncate; insert separators, quotes, `·`,
 /// CR, NUL, invalid UTF-8 or U+FFFD; put a bad number in place of a number; flip the BOM or the line ends; add a
-/// 64 KiB line or a 4 000-byte line of separators and quotes; drop all blank lines.
+/// 64 KiB line, a 4 000-byte line of separators and quotes, a workout title of hundreds of ` · ` parts and day and
+/// week tokens, or a name of thousands of digits; drop all blank lines.
 enum FuzzMutator {
     private static let bom: [UInt8] = [0xEF, 0xBB, 0xBF]
     private static let inserts: [[UInt8]] = [[0x3B], [0x22], [0xC2, 0xB7], [0x0D], [0x00], [0xFF], [0xC3], [0xEF, 0xBF, 0xBD],
@@ -118,11 +119,12 @@ enum FuzzMutator {
     private static let numbers: [String] = ["9999999999999", "1e309", "nan", "-0", "+", ",,", "\u{0663}\u{0660}", "-",
                                             "1.234,5", "inf", "", "0", "+-1"]
     private static let noise: [UInt8] = [0x3B, 0x22, 0x31, 0x20, 0x2E, 0x2D, 0x2B]
+    private static let partWords = ["Day 1", "Week 2", "x", "Standalone workout", "9", "Tag 3"]
 
     static func mutate(_ data: Data, using rng: inout SplitMix64) -> Data {
         var bytes = [UInt8](data)
         for _ in 0..<Int.random(in: 1...8, using: &rng) {
-            bytes = apply(Int.random(in: 0..<12, using: &rng), to: bytes, using: &rng)
+            bytes = apply(Int.random(in: 0..<14, using: &rng), to: bytes, using: &rng)
         }
         return Data(bytes)
     }
@@ -165,8 +167,15 @@ enum FuzzMutator {
         case 10: // a long line of separators, quotes and digits, under the line cap
             let line = (0..<4_000).map { _ in noise[Int.random(in: 0..<noise.count, using: &rng)] }
             lines.insert(line, at: Int.random(in: 0...lines.count, using: &rng))
-        default: // drop all blank lines
+        case 11: // drop all blank lines
             lines.removeAll { $0.isEmpty || $0 == [0x0D] }
+        case 12: // a workout title of many parts, day and week tokens, under the line cap
+            let parts = (0..<350).map { _ in partWords[Int.random(in: 0..<partWords.count, using: &rng)] }
+            let line = "\"A \u{00B7} " + parts.joined(separator: " \u{00B7} ") + "\";\"2026-01-05 10:00\";\"30 min\""
+            lines.insert(Array(line.utf8), at: Int.random(in: 0...lines.count, using: &rng))
+        default: // a name of thousands of digits
+            let line = "\"" + String(repeating: "7", count: Int.random(in: 1_000...4_000, using: &rng)) + "\""
+            lines.insert(Array(line.utf8), at: Int.random(in: 0...lines.count, using: &rng))
         }
         return Array(lines.joined(separator: [0x0A]))
     }

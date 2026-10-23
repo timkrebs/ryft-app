@@ -174,12 +174,12 @@ enum ImportScan {
         case unreadable
     }
 
-    /// A date, then optionally a clock after a space, comma or `T`.
+    /// A date, then optionally a clock after whitespace (a no-break space too), a comma or `T`.
     static func dateTime(_ text: String, tokens: AlphaProgressionTokens) -> DateTime {
         let trimmed = Substring(text.trimmingCharacters(in: .whitespaces))
-        let datePart = trimmed.prefix { $0 != " " && $0 != "," && $0 != "T" }
+        let datePart = trimmed.prefix { !$0.isWhitespace && $0 != "," && $0 != "T" }
         guard let date = date(datePart) else { return .unreadable }
-        let rest = trimmed.dropFirst(datePart.count).drop { $0 == " " || $0 == "," || $0 == "T" }
+        let rest = trimmed.dropFirst(datePart.count).drop { $0.isWhitespace || $0 == "," || $0 == "T" }
         if rest.isEmpty { return .dateOnly(date) }
         guard let clock = clock(rest, tokens: tokens),
               let start = LocalDateTime(date: date, hour: clock.hour, minute: clock.minute) else { return .unreadable }

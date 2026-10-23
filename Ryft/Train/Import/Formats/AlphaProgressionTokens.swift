@@ -45,19 +45,32 @@ struct AlphaProgressionTokens: Sendable {
 
     // MARK: Matching
 
+    /// No token is longer: text around a number that is longer can't be one, so it isn't lowercased or looked up.
+    static let maxWordBytes = 40
+
     /// `N <token>` (`6 weeks`, `6weeks`): the number, if the rest is one of `tokens`.
     func count(_ part: String, _ tokens: Set<String>) -> Int? {
-        guard let (value, rest) = ImportScan.leadingInteger(Substring(part)),
+        guard let (value, rest) = ImportScan.leadingInteger(Substring(part)), rest.utf8.count <= Self.maxWordBytes,
               tokens.contains(rest.trimmingCharacters(in: .whitespaces).lowercased()) else { return nil }
         return value
     }
 
-    /// `<token> N` (`Day 1`, `Woche 4`, `Day1`): the number, if the text before it is one of `tokens`.
+    /// `<token> N` (`Day 1`, `Woche 4`, `Day1`): the number, if the text before it is one of `tokens`. Looks at no
+    /// more than 10 scalars from the end for the digits.
     func numbered(_ part: String, _ tokens: Set<String>) -> Int? {
-        let digits = part.reversed().prefix { $0.isASCII && $0.isNumber }
-        guard !digits.isEmpty, let value = ImportScan.integer(String(digits.reversed())) else { return nil }
-        let word = part.dropLast(digits.count).trimmingCharacters(in: .whitespaces).lowercased()
-        return tokens.contains(word) ? value : nil
+        let scalars = part.unicodeScalars
+        var start = scalars.endIndex
+        var digits = 0
+        while start > scalars.startIndex, digits < 10 {
+            let previous = scalars.index(before: start)
+            guard ImportScan.asciiDigit(scalars[previous]) != nil else { break }
+            start = previous
+            digits += 1
+        }
+        guard digits > 0, let value = ImportScan.integer(Substring(scalars[start...])) else { return nil }
+        let word = Substring(scalars[..<start])
+        guard word.utf8.count <= Self.maxWordBytes else { return nil }
+        return tokens.contains(word.trimmingCharacters(in: .whitespaces).lowercased()) ? value : nil
     }
 
     /// `N[-–N] <reps>`: nil when the part isn't written that way (then it belongs to a name); otherwise the range
@@ -71,7 +84,9 @@ struct AlphaProgressionTokens: Sendable {
             high = value
             rest = afterHigh
         }
-        guard reps.contains(rest.trimmingCharacters(in: .whitespaces).lowercased()) else { return nil }
+        guard rest.utf8.count <= Self.maxWordBytes, reps.contains(rest.trimmingCharacters(in: .whitespaces).lowercased()) else {
+            return nil
+        }
         guard low <= ImportScan.maxReps, high <= ImportScan.maxReps else { return .implausible }
         return .value(min(low, high)...max(low, high))
     }

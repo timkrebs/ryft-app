@@ -43,6 +43,15 @@ struct ImportDetectionTests {
         #expect(bundle?.warningList == ["3 missingTableHeader.kg"])
     }
 
+    @Test func weakNeedsTwoDottedFieldsAndASetRow() {
+        // One quoted field with ` · ` isn't enough, two are, and a set row is needed either way.
+        #expect(detect("\"Upper · Standalone workout\";\"2026-01-05 9:00 am\";\"30 min\"\n1;60;5") == .none)
+        #expect(detect("\"Upper · Standalone workout\"\n\"1. Floor Press · Barbell\"\n1;60;5") == .weak)
+        #expect(detect("\"Upper · Standalone workout\"\n\"1. Floor Press · Barbell\"") == .none)
+        // A quoted index is no set row.
+        #expect(detect("\"Upper · Standalone workout\"\n\"1. Floor Press · Barbell\"\n\"1\";60;5") == .none)
+    }
+
     @Test func nothingFamiliar() {
         #expect(detect("") == .none)
         #expect(detect("hello world\nsecond line") == .none)

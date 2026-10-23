@@ -21,6 +21,7 @@ struct AlphaProgressionFormat: TrainImportFormat {
         let head = ImportHygiene.head(of: head)
         guard !ImportHygiene.isUnsupportedEncoding(head) else { return .none }
         let reader = LineReader(head, maxLineBytes: ImportLimits.standard.maxLineBytes)
+        var classifier = AlphaProgressionClassifier(tokens: tokens)
         var sawText = false
         var sawPlanHeader = false
         var sawSetRow = false
@@ -35,7 +36,7 @@ struct AlphaProgressionFormat: TrainImportFormat {
             for (field, isQuoted) in zip(line.fields, line.quoted) where isQuoted && field.contains(" \u{00B7} ") {
                 dottedQuotedFields += 1
             }
-            switch classify(line) {
+            switch classifier.classify(line) {
             case .tableHeader(.some):
                 return .strong
             case .planHeader:
@@ -48,8 +49,11 @@ struct AlphaProgressionFormat: TrainImportFormat {
                 break
             }
         }
-        return dottedQuotedFields >= 2 && sawSetRow ? .weak : .none
+        return dottedQuotedFields >= Self.weakDottedFields && sawSetRow ? .weak : .none
     }
+
+    /// Quoted fields with ` · ` that, with a set row and no table header, make a file `.weak`.
+    static let weakDottedFields = 2
 
     /// A first line like `Date,Workout Name,Exercise Name`: at least three alphabetic comma-separated fields, no `;`.
     static func isHeaderRow(_ text: String) -> Bool {
@@ -64,145 +68,254 @@ struct AlphaProgressionFormat: TrainImportFormat {
         return try parse(data, limits: limits, stats: &stats)
     }
 
-    /// `parse` with a count of its work (lines visited plus fields split), so tests can bound it without a clock.
+    /// `parse` with a measure of its work (`ParseStats`), so tests can bound it without a clock.
     func parse(_ data: Data, limits: ImportLimits, stats: inout ParseStats) throws -> ImportBundle {
         guard data.count <= limits.maxFileBytes else { throw ImportError.tooLarge(bytes: data.count) }
         guard !ImportHygiene.isUnsupportedEncoding(data) else { throw ImportError.unsupportedEncoding }
         var folder = AlphaProgressionFolder(limits: limits)
-        let reader = LineReader(data, maxLineBytes: limits.maxLineBytes)
+        let legacy = ImportHygiene.legacyText(data)
+        if legacy != nil { folder.warn(.legacyEncoding, SourceLine(file: 0, line: 1)) }
+        let text = legacy ?? data
+        stats.visited += data.count + (legacy?.count ?? 0) // the UTF-8 check, and the transcoded copy
+        var classifier = AlphaProgressionClassifier(tokens: tokens)
+        let reader = LineReader(text, maxLineBytes: limits.maxLineBytes)
         for raw in reader {
             if raw.number % 1_024 == 0 { try Task.checkCancellation() }
-            stats.steps += 1
+            stats.lines += 1
+            stats.visited += raw.bytes.count + 1
             folder.lineCount = raw.number
             let at = SourceLine(file: 0, line: raw.number)
             if raw.isTooLong {
                 folder.warn(.lineTooLong, at)
                 continue
             }
-            let (text, isInvalid) = reader.text(of: raw)
+            let (lineText, isInvalid) = reader.text(of: raw)
+            stats.visited += raw.bytes.count
             if isInvalid { folder.warn(.invalidText, at) }
-            let line = CSVFields.split(text)
-            stats.steps += line.count
-            folder.take(classify(line), at: at)
+            let line = CSVFields.split(lineText)
+            stats.visited += line.visited
+            let kind = classifier.classify(line)
+            if case let .setRow(load, reps) = kind { stats.visited += load.utf8.count + reps.utf8.count }
+            folder.take(kind, at: at)
         }
+        stats.visited += classifier.visited
         return folder.finish(format: id)
     }
 
-    // MARK: Classification
-
-    /// What a line is, from its fields alone (design §3's table). Numbers in set rows are scanned later, when the
-    /// table's unit is known.
+    /// What a line is (`AlphaProgressionClassifier`).
     func classify(_ line: CSVLine) -> AlphaProgressionLine {
+        var classifier = AlphaProgressionClassifier(tokens: tokens)
+        return classifier.classify(line)
+    }
+}
+
+/// The work of one parse, counted instead of timed.
+struct ParseStats: Sendable {
+    var lines = 0
+    /// Bytes and characters visited: the line scan, the UTF-8 decode, the field split, and every part split, scanner
+    /// or token match over a field (charged with the field's whole length). Linear parsing keeps it under a small
+    /// multiple of the file's bytes plus its lines; anything quadratic breaks that bound in the fuzz test.
+    var visited = 0
+}
+
+/// What a line is, from its fields alone (design §3's table). Numbers in set rows are scanned later, when the table's
+/// unit is known. Counts the characters its part splits, scanners and token matches pass over (`visited`).
+struct AlphaProgressionClassifier {
+    let tokens: AlphaProgressionTokens
+    private(set) var visited = 0
+
+    private static let separator = " \u{00B7} "
+
+    init(tokens: AlphaProgressionTokens) {
+        self.tokens = tokens
+    }
+
+    mutating func classify(_ line: CSVLine) -> AlphaProgressionLine {
         guard let first = line.field(0) else { return .blank }
         if first == "#" {
-            guard line.count == 3, !line.hasMore, let unitText = line.field(1), let repsText = line.field(2),
-                  let unit = tokens.units[unitText.lowercased()],
+            let unitText = line.field(1) ?? ""
+            let repsText = line.field(2) ?? ""
+            charge(unitText)
+            charge(repsText)
+            guard line.count == 3, !line.hasMore, let unit = tokens.units[unitText.lowercased()],
                   tokens.repsHeader.contains(repsText.lowercased()) else { return .tableHeader(nil) }
             return .tableHeader(unit)
         }
-        if ImportScan.integer(first) != nil {
+        // A set row's index is unquoted, and a workout titled with a number (`"5";"2026-02-13 5:10 pm";…`) isn't one.
+        if !line.isQuoted(0), isSetIndex(first), !isDateTime(line.field(1)) {
             guard line.count == 3, !line.hasMore, let load = line.field(1), let reps = line.field(2) else { return .wideSetRow }
             return .setRow(load: load, reps: reps)
         }
         if line.count == 1 { return classifySingle(first) }
         let second = line.field(1) ?? ""
         let third = line.field(2)
-        if let (order, rest) = tokens.ordered(first), let sets = tokens.count(second, tokens.sets) {
-            let (name, equipment) = Self.nameAndEquipment(CSVFields.parts(rest))
+        if let (order, rest) = ordered(first), let sets = count(second, tokens.sets) {
+            let (name, equipment) = Self.nameAndEquipment(parts(rest))
             guard !name.isEmpty else { return .unrecognised }
-            let reps: ImportScanResult<ClosedRange<Int>> = third.map { tokens.targetReps($0) ?? .unreadable } ?? .absent
+            var reps: ImportScanResult<ClosedRange<Int>> = .absent
+            if let third { reps = targetReps(third) ?? .unreadable }
             return .planExercise(order: order, name: name, equipment: equipment, sets: sets, reps: reps)
         }
-        let duration = third.map { ImportScan.duration($0, tokens: tokens) } ?? .absent
-        switch ImportScan.dateTime(second, tokens: tokens) {
+        var duration: ImportScanResult<Int> = .absent
+        if let third { duration = scanDuration(third) }
+        switch dateTime(second) {
         case let .dateTime(start, conflict):
             return sessionHeader(first, start: start, meridiemConflict: conflict, duration: duration)
         case let .dateOnly(date):
+            // A date without a time but with a duration is a workout whose time can't be read, not a plan.
             if case .value = duration { return sessionHeader(first, start: nil, meridiemConflict: false, duration: duration) }
-            return planHeader(first, start: date, dateUnreadable: false)
+            return planHeader(parts(first), field: first, start: date, dateUnreadable: false)
         case .unreadable:
             if case .value = duration { return sessionHeader(first, start: nil, meridiemConflict: false, duration: duration) }
-            if line.count == 2, let header = planHeaderWithWeeks(first, dateUnreadable: true) { return header }
+            if line.count == 2, let header = planHeaderWithWeeks(parts(first), dateUnreadable: true) { return header }
             return .unrecognised
         }
     }
 
+    // MARK: Line shapes
+
     /// One field: a plan day, a session exercise, or a plan header without a date.
-    private func classifySingle(_ field: String) -> AlphaProgressionLine {
-        let parts = CSVFields.parts(field)
-        if let head = parts.first, let number = tokens.numbered(head, tokens.day) {
-            return .planDay(number: number, name: parts.dropFirst().joined(separator: " \u{00B7} "))
+    private mutating func classifySingle(_ field: String) -> AlphaProgressionLine {
+        let fieldParts = parts(field)
+        if let head = fieldParts.first, let number = numbered(head, tokens.day) {
+            return .planDay(number: number, name: fieldParts.dropFirst().joined(separator: Self.separator))
         }
-        if let (order, rest) = tokens.ordered(field) {
-            var parts = CSVFields.parts(rest)
+        if let (order, rest) = ordered(field) {
+            var restParts = parts(rest)
             var reps: ImportScanResult<ClosedRange<Int>> = .absent
-            if parts.count >= 2, let last = parts.last, let target = tokens.targetReps(last) {
+            if restParts.count >= 2, let last = restParts.last, let target = targetReps(last) {
                 reps = target
-                parts.removeLast()
+                restParts.removeLast()
             }
-            let (name, equipment) = Self.nameAndEquipment(parts)
+            let (name, equipment) = Self.nameAndEquipment(restParts)
             guard !name.isEmpty else { return .unrecognised }
             return .sessionExercise(order: order, name: name, equipment: equipment, reps: reps)
         }
-        if let header = planHeaderWithWeeks(field, dateUnreadable: false) {
-            return header
-        }
-        return .unrecognised
+        return planHeaderWithWeeks(fieldParts, dateUnreadable: false) ?? .unrecognised
     }
 
     /// `Name · N weeks` without a readable date: a plan header only when the weeks part is there.
-    private func planHeaderWithWeeks(_ field: String, dateUnreadable: Bool) -> AlphaProgressionLine? {
-        let parts = CSVFields.parts(field)
-        guard parts.count >= 2, let last = parts.last, tokens.count(last, tokens.weeks) != nil else { return nil }
-        return planHeader(field, start: nil, dateUnreadable: dateUnreadable)
+    private mutating func planHeaderWithWeeks(_ parts: [String], dateUnreadable: Bool) -> AlphaProgressionLine? {
+        guard parts.count >= 2, let last = parts.last, let weeks = count(last, tokens.weeks) else { return nil }
+        return .planHeader(name: parts.dropLast().joined(separator: Self.separator), weeks: weeks, start: nil,
+                           dateUnreadable: dateUnreadable)
     }
 
-    private func planHeader(_ field: String, start: LocalDate?, dateUnreadable: Bool) -> AlphaProgressionLine {
-        let parts = CSVFields.parts(field)
-        if parts.count >= 2, let last = parts.last, let weeks = tokens.count(last, tokens.weeks) {
-            return .planHeader(name: parts.dropLast().joined(separator: " \u{00B7} "), weeks: weeks, start: start,
+    private mutating func planHeader(_ parts: [String], field: String, start: LocalDate?,
+                                     dateUnreadable: Bool) -> AlphaProgressionLine {
+        if parts.count >= 2, let last = parts.last, let weeks = count(last, tokens.weeks) {
+            return .planHeader(name: parts.dropLast().joined(separator: Self.separator), weeks: weeks, start: start,
                                dateUnreadable: dateUnreadable)
         }
         return .planHeader(name: field, weeks: nil, start: start, dateUnreadable: dateUnreadable)
     }
 
-    /// `name · <day> N · <week> W · plan` (anchored on the first such run, since names may contain ` · `),
-    /// `name · <day> N · plan`, `title · <standalone>`, or a plain title.
-    private func sessionHeader(_ field: String, start: LocalDateTime?, meridiemConflict: Bool,
-                               duration: ImportScanResult<Int>) -> AlphaProgressionLine {
-        let parts = CSVFields.parts(field)
-        let separator = " \u{00B7} "
+    /// A workout's title field, in this order:
+    /// 1. `name · <day> N · <week> W · plan`, at the first such run (names may contain ` · `);
+    /// 2. without such a run, `name · <day> N · plan`, at the first day not followed by a week;
+    /// 3. `title · <standalone>`, which is never a plan workout, whatever days it names;
+    /// 4. a plain title.
+    private mutating func sessionHeader(_ field: String, start: LocalDateTime?, meridiemConflict: Bool,
+                                        duration: ImportScanResult<Int>) -> AlphaProgressionLine {
+        let fieldParts = parts(field)
+        var dayNumbers: [Int?] = []
+        var weekNumbers: [Int?] = []
+        for part in fieldParts {
+            dayNumbers.append(numbered(part, tokens.day))
+            weekNumbers.append(numbered(part, tokens.week))
+        }
+        let isStandalone = fieldParts.count >= 2 && fieldParts.last.map { isStandaloneToken($0) } == true
         var title = field
         var plan: ImportedSession.PlanRef?
-        for (index, part) in parts.enumerated().dropFirst() {
-            guard let dayNumber = tokens.numbered(part, tokens.day) else { continue }
-            let after = parts.dropFirst(index + 1)
-            if let weekPart = after.first, let week = tokens.numbered(weekPart, tokens.week) {
-                guard after.count >= 2 else { continue }
-                plan = .init(planName: after.dropFirst().joined(separator: separator), dayNumber: dayNumber, weekNumber: week)
-            } else {
-                guard !after.isEmpty else { continue }
-                plan = .init(planName: after.joined(separator: separator), dayNumber: dayNumber, weekNumber: nil)
+        if !isStandalone {
+            for index in fieldParts.indices.dropFirst() where index + 2 < fieldParts.count {
+                guard let day = dayNumbers[index], let week = weekNumbers[index + 1] else { continue }
+                plan = .init(planName: fieldParts.dropFirst(index + 2).joined(separator: Self.separator), dayNumber: day,
+                             weekNumber: week)
+                title = fieldParts.prefix(index).joined(separator: Self.separator)
+                break
             }
-            title = parts.prefix(index).joined(separator: separator)
-            break
         }
-        if plan == nil, parts.count >= 2, let last = parts.last, tokens.isStandalone(last) {
-            title = parts.dropLast().joined(separator: separator)
+        if !isStandalone, plan == nil {
+            for index in fieldParts.indices.dropFirst() where index + 1 < fieldParts.count {
+                guard let day = dayNumbers[index], weekNumbers[index + 1] == nil else { continue }
+                plan = .init(planName: fieldParts.dropFirst(index + 1).joined(separator: Self.separator), dayNumber: day,
+                             weekNumber: nil)
+                title = fieldParts.prefix(index).joined(separator: Self.separator)
+                break
+            }
+        }
+        if isStandalone {
+            title = fieldParts.dropLast().joined(separator: Self.separator)
         }
         return .sessionHeader(title: title, plan: plan, start: start, meridiemConflict: meridiemConflict, duration: duration)
     }
 
     /// The last part is the equipment when there are two or more; the rest is the name.
     private static func nameAndEquipment(_ parts: [String]) -> (name: String, equipment: String?) {
-        guard parts.count >= 2, let last = parts.last else { return (parts.joined(separator: " \u{00B7} "), nil) }
-        return (parts.dropLast().joined(separator: " \u{00B7} "), last.isEmpty ? nil : last)
+        guard parts.count >= 2, let last = parts.last else { return (parts.joined(separator: separator), nil) }
+        return (parts.dropLast().joined(separator: separator), last.isEmpty ? nil : last)
     }
-}
 
-/// Work done by one parse: lines visited plus fields split. Linear parsing keeps it at most 4 × lines.
-struct ParseStats: Sendable {
-    var steps = 0
+    // MARK: Metered scans
+
+    private mutating func charge(_ text: some StringProtocol) {
+        visited += text.utf8.count
+    }
+
+    private mutating func parts(_ field: String) -> [String] {
+        charge(field)
+        return CSVFields.parts(field)
+    }
+
+    private mutating func ordered(_ field: String) -> (order: Int, rest: String)? {
+        charge(field)
+        return tokens.ordered(field)
+    }
+
+    private mutating func count(_ part: String, _ set: Set<String>) -> Int? {
+        charge(part)
+        return tokens.count(part, set)
+    }
+
+    private mutating func numbered(_ part: String, _ set: Set<String>) -> Int? {
+        charge(part)
+        return tokens.numbered(part, set)
+    }
+
+    private mutating func targetReps(_ part: String) -> ImportScanResult<ClosedRange<Int>>? {
+        charge(part)
+        return tokens.targetReps(part)
+    }
+
+    private mutating func isStandaloneToken(_ part: String) -> Bool {
+        charge(part)
+        return tokens.isStandalone(part)
+    }
+
+    private mutating func scanDuration(_ field: String) -> ImportScanResult<Int> {
+        charge(field)
+        return ImportScan.duration(field, tokens: tokens)
+    }
+
+    private mutating func dateTime(_ field: String) -> ImportScan.DateTime {
+        charge(field)
+        return ImportScan.dateTime(field, tokens: tokens)
+    }
+
+    private mutating func isSetIndex(_ field: String) -> Bool {
+        charge(field)
+        return ImportScan.integer(field) != nil
+    }
+
+    /// Field 1 reads as a date and a time (only a field with a `:` is scanned).
+    private mutating func isDateTime(_ field: String?) -> Bool {
+        guard let field else { return false }
+        charge(field)
+        guard field.contains(":") else { return false }
+        if case .dateTime = dateTime(field) { return true }
+        return false
+    }
 }
 
 /// A classified line of an Alpha Progression file.
@@ -237,9 +350,19 @@ struct AlphaProgressionFolder {
 
     private enum Mode { case top, plan, session, skipping }
     private enum Table { case none, header(WeightUnit), assumed(WeightUnit) }
-    /// Each cap warns once per scope: plans and sessions per file, days per plan, exercises per day or session, sets
-    /// per exercise.
-    private enum Cap: Hashable { case plans, sessions, days, exercises, sets }
+    /// Each cap warns once per scope: plans and sessions per file, days per plan, exercises per day or per session,
+    /// sets per exercise. A session's caps are the platform's (`.overPlatformLimit`); the rest are the parser's own
+    /// (`.limitReached`).
+    private enum Cap: Hashable {
+        case plans, sessions, days, planExercises, sessionExercises, sets
+
+        var kind: ImportWarning.Kind {
+            switch self {
+            case .sessionExercises, .sets: .overPlatformLimit
+            case .plans, .sessions, .days, .planExercises: .limitReached
+            }
+        }
+    }
 
     private var mode = Mode.top
     private var plan: ImportedPlan?
@@ -306,12 +429,14 @@ struct AlphaProgressionFolder {
                 dropDay = true
                 return warnCap(.days, at)
             }
-            capsWarned.remove(.exercises)
+            // Both days are kept (nothing the user wrote is lost); ids keyed on the day number must tell them apart.
+            if plan?.days.contains(where: { $0.number == number }) == true { warn(.duplicateDay, at) }
+            capsWarned.remove(.planExercises)
             day = ImportedDay(number: number, name: name, exercises: [])
         case let .planExercise(order, name, equipment, sets, reps):
             guard mode != .skipping, !dropDay else { return }
             guard mode == .plan, day != nil else { return warn(.outsideBlock, at) }
-            guard (day?.exercises.count ?? 0) < limits.maxExercisesPerBlock else { return warnCap(.exercises, at) }
+            guard (day?.exercises.count ?? 0) < limits.maxExercisesPerBlock else { return warnCap(.planExercises, at) }
             guard sets <= ImportScan.maxReps else { return warn(.implausibleValue, at) }
             let targetReps = target(reps, at)
             day?.exercises.append(ImportedPlanExercise(order: order, name: name, equipment: equipment, sets: sets,
@@ -322,7 +447,7 @@ struct AlphaProgressionFolder {
             closeExercise()
             guard (session?.exercises.count ?? 0) < limits.maxExercisesPerBlock else {
                 dropRows = true
-                return warnCap(.exercises, at)
+                return warnCap(.sessionExercises, at)
             }
             exercise = ImportedSessionExercise(order: order, name: name, equipment: equipment, targetReps: target(reps, at),
                                                unit: nil, sets: [])
@@ -404,7 +529,7 @@ struct AlphaProgressionFolder {
     private mutating func warnCap(_ cap: Cap, _ at: SourceLine) {
         guard !capsWarned.contains(cap) else { return }
         capsWarned.insert(cap)
-        warn(.limitReached, at)
+        warn(cap.kind, at)
     }
 
     private mutating func closeExercise() {
@@ -430,6 +555,6 @@ struct AlphaProgressionFolder {
         if let plan { plans.append(plan) }
         plan = nil
         mode = .top
-        capsWarned.subtract([.days, .exercises])
+        capsWarned.subtract([.days, .planExercises, .sessionExercises])
     }
 }

@@ -3,14 +3,19 @@ import os
 
 /// The import flow's one entry to parsing (design §2): detect, parse and merge picked files, off the main actor.
 enum TrainImportReader {
-    /// Every file is detected before any is parsed, so a refusal costs no parse. Throws the first file's
-    /// `ImportError`, `.mixedFormats` when files come from different apps, `.empty` when nothing was found, or
-    /// `CancellationError`.
+    /// Every file is detected before any is parsed, so a refusal costs no parse. Throws `.empty` for no files,
+    /// `.tooManyFiles` or `.tooLarge` over `maxFiles` or `maxTotalBytes`, the first file's own `ImportError`,
+    /// `.mixedFormats` when files come from different apps, or `CancellationError`. Files that are recognised but hold
+    /// no plan and no workout give an empty bundle with their warnings (ui.md D7), not an error.
     @concurrent
     static func read(_ files: [ImportFile], limits: ImportLimits = .standard) async throws -> ImportBundle {
         MainThread.assertOff("Reading an import")
         let signpost = ImportLog.signposter.beginInterval("read", id: ImportLog.signposter.makeSignpostID())
         defer { ImportLog.signposter.endInterval("read", signpost) }
+        guard !files.isEmpty else { throw ImportError.empty }
+        guard files.count <= limits.maxFiles else { throw ImportError.tooManyFiles(count: files.count) }
+        let totalBytes = files.reduce(0) { $0 + $1.data.count }
+        guard totalBytes <= limits.maxTotalBytes else { throw ImportError.tooLarge(bytes: totalBytes) }
         var formats: [any TrainImportFormat] = []
         for file in files {
             formats.append(try format(of: file, limits: limits))
@@ -21,23 +26,21 @@ enum TrainImportReader {
         for (index, (file, format)) in zip(files, formats).enumerated() {
             try Task.checkCancellation()
             let bundle = try parse(file, index: index, format: format, limits: limits)
-            merged = merged?.merging(bundle) ?? bundle
+            merged = merged?.merging(bundle, maxWarnings: limits.maxWarnings) ?? bundle
         }
-        guard var bundle = merged else { throw ImportError.empty }
-        bundle.capWarnings(at: limits.maxWarnings)
-        guard !bundle.isEmpty else { throw ImportError.empty }
+        guard let bundle = merged else { throw ImportError.empty }
         log(bundle, files: files.count)
         return bundle
     }
 
     /// One file on its own, for a flow that shows a result per file (ui.md D6) and merges with
-    /// `ImportBundle.merging`. `index` is the file's place among the picked ones (`SourceLine.file`).
+    /// `ImportBundle.merging`. `index` is the file's place among the picked ones (`SourceLine.file`). A recognised
+    /// file with no plan and no workout gives an empty bundle with its warnings (D7); `.empty` is for a blank file (P6).
     @concurrent
     static func read(_ file: ImportFile, index: Int, limits: ImportLimits = .standard) async throws -> ImportBundle {
         MainThread.assertOff("Reading an import file")
         let format = try format(of: file, limits: limits)
         let bundle = try parse(file, index: index, format: format, limits: limits)
-        guard !bundle.isEmpty else { throw ImportError.empty }
         log(bundle, files: 1)
         return bundle
     }
@@ -70,8 +73,10 @@ enum TrainImportReader {
             .joined(separator: ",")
         let sets = bundle.sessions.reduce(0) { $0 + $1.exercises.reduce(0) { $0 + $1.sets.count } }
         ImportLog.logger.info("""
-        Read \(files) file(s), \(bundle.lineCount) lines: \(bundle.plans.count) plans, \(bundle.sessions.count) sessions, \
-        \(sets) sets; warnings \(bundle.warnings.count) (+\(bundle.suppressedWarnings)) \(kinds, privacy: .public)
+        Read \(files, privacy: .public) file(s), \(bundle.lineCount, privacy: .public) lines: \
+        \(bundle.plans.count, privacy: .public) plans, \(bundle.sessions.count, privacy: .public) sessions, \
+        \(sets, privacy: .public) sets; warnings \(bundle.warnings.count, privacy: .public) \
+        (+\(bundle.suppressedWarnings, privacy: .public)) \(kinds, privacy: .public)
         """)
     }
 }

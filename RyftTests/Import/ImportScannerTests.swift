@@ -94,6 +94,9 @@ struct ImportScannerTests {
         #expect(ImportScan.dateTime("2026-05-14", tokens: tokens) == .dateOnly(day))
         #expect(ImportScan.dateTime("2026-02-30 9:00 am", tokens: tokens) == .unreadable)
         #expect(ImportScan.dateTime("2026-05-14 noon", tokens: tokens) == .unreadable)
+        // Any whitespace separates the date and the time, a no-break space too (and U+202F before am/pm).
+        #expect(ImportScan.dateTime("2026-05-14\u{00A0}4:41\u{202F}pm", tokens: tokens) == .dateTime(afternoon, meridiemConflict: false))
+        #expect(ImportScan.dateTime("2026-05-14\t16:41", tokens: tokens) == .dateTime(afternoon, meridiemConflict: false))
         #expect(ImportScan.dateTime("37 min", tokens: tokens) == .unreadable)
     }
 
@@ -130,6 +133,13 @@ struct ImportScannerTests {
         #expect(tokens.numbered("Day", tokens.day) == nil)
         #expect(tokens.numbered("Day 1a", tokens.day) == nil)
         #expect(tokens.numbered("Holiday 1", tokens.day) == nil)
+        // At most 9 digits, found within 10 scalars of the end; a long word before them is no token.
+        #expect(tokens.numbered("Day 123456789", tokens.day) == 123_456_789)
+        #expect(tokens.numbered("Day 1234567890", tokens.day) == nil)
+        #expect(tokens.numbered(String(repeating: "7", count: 4_000), tokens.day) == nil)
+        #expect(tokens.numbered(String(repeating: "x", count: 41) + " 1", tokens.day) == nil)
+        #expect(tokens.count("4 " + String(repeating: "s", count: 41), tokens.sets) == nil)
+        #expect(tokens.targetReps("8 " + String(repeating: "r", count: 41)) == nil)
     }
 
     @Test func targetReps() {

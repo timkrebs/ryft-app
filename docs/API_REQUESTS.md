@@ -3,6 +3,25 @@
 What the iOS app needs that `../plattform/docs/API.md` does not (yet) provide.
 The platform agent owns the contract; the app never invents fields silently.
 
+## Training import (open, 2026-10-23)
+
+The app parses a CSV export of another training app on the device and sends structured plans and sessions to `POST /v1/train/import` (platform brief `../plattform/CLAUDE_FOLLOWUP_TRAIN_IMPORT.md`). These follow from the app's design (`docs/work/2026-10-23-train-csv-import/design.md` §13) and should be settled while the contract is written.
+
+| # | Request |
+| --- | --- |
+| T1 | **Origin belongs to the endpoint.** Every session in `POST /v1/train/import` is an import, so the request carries no per-session `origin`. `Session` and `SessionSummary` responses carry `origin` (`app` \| `import`) and `import_source` (string?), so history can label them. |
+| T2 | **No `skipped` flag is needed.** The app doesn't send sets that weren't done; it counts them on the device. If the platform wants them anyway, `completed_at: null` already means "planned, not done". |
+| T3 | **Bodyweight keeps today's convention.** For `load_type: bodyweight`, `weight_kg` is the added load and `Session.bodyweight_kg` the body weight; no `bodyweight` / `added_kg` set fields. Please confirm that `weight_kg: null` and `0` mean the same for a bodyweight set. |
+| T4 | **Assisted sets.** Files can log assistance as a negative load (`-20`). `weight_kg` is clamped to 0–500, so the app imports reps only. Is a negative added load, or an `assist_kg`, planned? |
+| T5 | **Order within a request.** Plans are stored before the same request's sessions, so `plan_day_id` / `plan_exercise_id` may point into the batch. Are these ids validated (`422` when unknown)? |
+| T6 | **Imported sessions never move an enrolment,** even with the active plan's `plan_day_id`, and send no `SESSION_SCORED` or `PR` push. |
+| T7 | **The rescore answer.** The response carries `days_touched` and `scoring.expected_within_sec`, as `SyncResponse` does. Those days stay in `GET /v1/me/sync` → `pending_days` until rescored, and the silent refresh push is sent for them. |
+| T8 | **Enrolling where the user is.** `POST /v1/plans/{id}/enroll` takes an optional `{ "started_at": timestamp?, "current_week": int?, "current_day_index": int? }` (defaults: now, 1, 0). Until then the app offers only "start today". |
+| T9 | **Limits under Conventions.** The 1 MiB body limit of `POST /v1/train/import`; ≤ 50 sessions and ≤ 5 plans per request; the status when a second import starts while one is running (`429` with `Retry-After`, please). |
+| T10 | **"Identical content"** for the no-op is compared without server fields (`updated_at`, scoring). The app derives `completed_at` and `updated_at` from the session's start and duration, so sending a session again gives `unchanged`. |
+| T11 | **Bodyweight plan targets.** API.md says `target_value` is `null` for `target_kind: bodyweight`, but the plan builder accepts an added load there (`PlanValidation.swift:70`). Which is right? The import sends `null`. |
+| T12 | **Archived custom exercises.** Does `POST /v1/exercises` with an archived custom exercise's id un-archive it? |
+
 ## Activities and My Day (open, 2026-10-22)
 
 For `CLAUDE_FOLLOWUP_MY_DAY_ACTIVITIES.md` (app) and `../plattform/CLAUDE_FOLLOWUP_ACTIVITIES.md` (platform). The app builds
@@ -29,6 +48,12 @@ first one decides how the app reads My Day.
 | R15 | How far back a manual activity may start (the app allows 14 days), and `notes` ≤ 500 counted in characters or bytes. |
 | R16 | `route` and `hr_samples` appear **only** in `GET /v1/activities/{id}` (and R14's export), never in `GET /v1/activities?from&to`, the day detail, `GET /v1/my-day` or `PUT` answers. |
 | R17 | A final `401` for an account deleted on the web carries a distinct `code` (e.g. `account_deleted`), so the app deletes parked activities at once instead of after 30 days (§8.4). |
+| R20 | **Splits: the index base and what a split covers.** The app numbers splits from 1: the first kilometre is `index: 1`. Please state the platform's convention, with an example. Please also confirm:
+  - `distance_m` is 1000, except for the last split, which may be partial and carries its real distance.
+  - A remainder under 50 m at the end isn't sent as a split. So the splits' `distance_m` can sum to up to 50 m less than the activity's `distance_m`, and their `duration_sec` to less than `moving_sec`. The platform accepts that.
+  - `duration_sec` is moving time within the split, pauses excluded.
+  - `ascent_m` is null when the activity has no elevation.
+  (A3a, 2026-10-23) |
 | — | Naming only: API.md `Activity` is `SportActivity` in the app (ActivityKit owns `Activity`). |
 
 ## Train (open, 2026-10-19)

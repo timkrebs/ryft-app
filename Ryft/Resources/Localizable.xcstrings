@@ -4576,6 +4576,17 @@
         }
       }
     },
+    "This file isn't saved as UTF-8: RYFT read it as Western (Windows Latin 1)" : {
+      "comment" : "Import note, after \"Line 1\": a spreadsheet-saved CSV in an older encoding.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Datei ist nicht als UTF-8 gespeichert: RYFT hat sie als Westeuropäisch (Windows Latin 1) gelesen"
+          }
+        }
+      }
+    },
     "This iPhone synced another RYFT account until %@, one you logged in to with email. If that was you, log out and log in with email. You can then add Sign in with Apple to it in Profile." : {
       "localizations" : {
         "de" : {
@@ -4669,13 +4680,24 @@
         }
       }
     },
+    "This plan has this day number twice: check its days after the import" : {
+      "comment" : "Import warning, after \"Line N\": a plan day number used a second time.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Plan hat diese Tagesnummer zweimal: Prüfe seine Tage nach dem Import"
+          }
+        }
+      }
+    },
     "This time didn't exist in your time zone, so RYFT used the next valid time" : {
       "comment" : "Import note, after \"Line N\": a workout on the spring clock change.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Diese Uhrzeit gab es in deiner Zeitzone nicht, daher nimmt RYFT die nächste gültige"
+            "value" : "Diese Uhrzeit gab es in deiner Zeitzone nicht, daher nimmt RYFT die nächste gültige Uhrzeit"
           }
         }
       }
@@ -4686,7 +4708,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Diese Uhrzeit gab es in deiner Zeitzone zweimal, daher nimmt RYFT die erste"
+            "value" : "Diese Uhrzeit gab es in deiner Zeitzone zweimal, daher nimmt RYFT die erste Uhrzeit"
           }
         }
       }

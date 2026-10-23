@@ -103,4 +103,14 @@ enum ImportHygiene {
     static func isBlank(_ data: Data) -> Bool {
         data.dropFirst(bomLength(data)).allSatisfy { $0 == 0x20 || $0 == 0x09 || $0 == 0x0A || $0 == 0x0D }
     }
+
+    /// A whole file without a BOM that isn't valid UTF-8 is most likely a spreadsheet's Windows-1252 save: it is read as
+    /// that, not lossily as UTF-8 (which would put U+FFFD into names). nil when the file is UTF-8 or has a UTF-8 BOM.
+    static func legacyText(_ data: Data) -> Data? {
+        guard bomLength(data) == 0, String(bytes: data, encoding: .utf8) == nil else { return nil }
+        // Windows-1252 leaves five bytes undefined; Latin-1 reads every byte (those five become C1 controls, which the
+        // field split strips).
+        let text = String(bytes: data, encoding: .windowsCP1252) ?? String(bytes: data, encoding: .isoLatin1)
+        return text.map { Data($0.utf8) }
+    }
 }

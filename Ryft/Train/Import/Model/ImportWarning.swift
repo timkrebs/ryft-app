@@ -11,6 +11,10 @@ struct ImportWarning: Equatable, Sendable {
         case unrecognisedLine, lineTooLong, invalidText, outsideBlock, missingTableHeader(assumed: WeightUnit)
         case unsupportedColumns, unreadableNumber, implausibleValue, unreadableDate, unreadableDuration
         case meridiemConflict, duplicateInFiles, limitReached
+        /// Not UTF-8 and no BOM: the whole file was read as Windows-1252 (a note on line 1).
+        case legacyEncoding
+        /// A plan names the same day number twice; both days are kept.
+        case duplicateDay
         // The builder (I5).
         case nonexistentLocalTime, repeatedLocalTime, durationAssumed, overPlatformLimit, assistedLoad
     }
@@ -43,6 +47,8 @@ extension ImportWarning.Kind {
         case .meridiemConflict: "meridiemConflict"
         case .duplicateInFiles: "duplicateInFiles"
         case .limitReached: "limitReached"
+        case .legacyEncoding: "legacyEncoding"
+        case .duplicateDay: "duplicateDay"
         case .nonexistentLocalTime: "nonexistentLocalTime"
         case .repeatedLocalTime: "repeatedLocalTime"
         case .durationAssumed: "durationAssumed"
@@ -56,10 +62,10 @@ extension ImportWarning.Kind {
     var isNote: Bool {
         switch self {
         case .missingTableHeader, .meridiemConflict, .duplicateInFiles, .nonexistentLocalTime, .repeatedLocalTime,
-             .durationAssumed, .assistedLoad, .overPlatformLimit, .limitReached:
+             .durationAssumed, .assistedLoad, .overPlatformLimit, .limitReached, .legacyEncoding:
             true
         case .unrecognisedLine, .lineTooLong, .invalidText, .outsideBlock, .unsupportedColumns, .unreadableNumber,
-             .implausibleValue, .unreadableDate, .unreadableDuration:
+             .implausibleValue, .unreadableDate, .unreadableDuration, .duplicateDay:
             false
         }
     }
@@ -101,6 +107,12 @@ extension ImportWarning.Kind {
         case .limitReached:
             LocalizedStringResource("Some items were left out: this file is over RYFT's import limits",
                                     comment: "Import warning, after \"Line N\".")
+        case .legacyEncoding:
+            LocalizedStringResource("This file isn't saved as UTF-8: RYFT read it as Western (Windows Latin 1)",
+                                    comment: "Import note, after \"Line 1\": a spreadsheet-saved CSV in an older encoding.")
+        case .duplicateDay:
+            LocalizedStringResource("This plan has this day number twice: check its days after the import",
+                                    comment: "Import warning, after \"Line N\": a plan day number used a second time.")
         case .nonexistentLocalTime:
             LocalizedStringResource("This time didn't exist in your time zone, so RYFT used the next valid time",
                                     comment: "Import note, after \"Line N\": a workout on the spring clock change.")
