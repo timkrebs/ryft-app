@@ -1,5 +1,5 @@
 - [Test waits on actors](feedback_test_waits_on_actors.md) — poll actor state, never a fixed real sleep; parallel Unit plan breaks it
-- [Classic groups](project_classic_groups.md) — Ryft/, RyftTests/ classic groups (new files not compiled); RyftUITests synchronized
+- [Synchronized folders](project_synchronized_folders.md) — all four source folders synchronized since #39; non-Swift files in Ryft/ get bundled
 - [Dev machine disk](project_dev_machine_disk.md) — shared disk near full; reuse DerivedData, no diagnostics, delete xcresults
 - [Unsigned host, simulators](project_unsigned_host_and_simulators.md) — HKSource.default() crashes unsigned builds; erase vanished sims
 - [UI smoke crash-log wait](project_ui_smoke_crashlog_wait.md) — Tear Down hang / "Failed to terminate" = XCTest crash-log wait; read the spindump
