@@ -1,7 +1,8 @@
 **/.DS_Store
 # Ryft.xcodeproj is committed: it's the source of truth (CLAUDE.md) and CI builds it.
 # Per-user state inside it stays out (xcuserdata below).
-build/
+# Anchored: on a case-insensitive Mac an unanchored `build/` also hides source folders named `Build/`.
+/build/
 DerivedData/
 xcuserdata/
 *.xcuserstate
