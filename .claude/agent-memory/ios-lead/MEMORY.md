@@ -1,3 +1,4 @@
 - [Parallel worktrees](parallel-worktrees.md) — scratchpad worktrees from origin/main, copy xcconfigs+fonts, one simulator each
 - [Integration branch](integration-branch.md) — pre-resolve multi-PR conflicts on one branch; its CI proves the combined state
 - [CI UI timeouts](ci-ui-timeouts.md) — tally + per-step breakdown before blaming a PR or the runner; timeouts aren't retried
+- [Device sessions](device-sessions.md) — user's own iPhone: start only when he says it's free; screenshot only with RYFT in front
