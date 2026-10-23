@@ -273,8 +273,9 @@ struct TrackPipeline: Sendable {
     private struct Settling: Sendable {
         let since: Date
         var fixes: [(time: Date, coordinate: Coordinate, isStationary: Bool)]
-        /// The filtered track's length over the window, from `lastFiltered`.
+        /// The filtered track's length over the window, from `firstFiltered` to `lastFiltered`.
         var path: Double = 0
+        var firstFiltered: Coordinate?
         var lastFiltered: Coordinate?
     }
 
@@ -508,20 +509,24 @@ struct TrackPipeline: Sendable {
         // Counts begin at Start, and nothing is bridged from a fix before it ("Start anyway" after a silent GPS).
         diagnostics = PipelineDiagnostics()
         stepFrom = nil
-        // A filter still settling from the warm-up settles on the fixes after Start only.
-        if settling != nil { settling = Settling(since: time, fixes: [], lastFiltered: kalman.position) }
+        // The first seconds after Start always settle, on post-Start fixes only: a warmed-up filter has the user's
+        // position, but its velocity lags a standing start (it read 0 while they waited for "Ready").
+        settling = Settling(since: time, fixes: [])
+        positionStepsUntil = nil
         paceSamples = [PaceSample(time: time, moving: 0, distance: 0)]
         lastStepping = time
         if configuration.distance == .pedometer { pedometer = PedometerReading(time: time, distance: 0, steps: 0) }
         resetMotion()
     }
 
-    /// recording or auto-paused → paused. A manual pause during auto-pause becomes manual (ui.md G3).
-    mutating func pause(at time: Date) {
+    /// recording or auto-paused → paused. A manual pause during auto-pause becomes manual (ui.md G3). Returns what
+    /// closing an open settle window produced (its distance can complete a split).
+    @discardableResult
+    mutating func pause(at time: Date) -> [PipelineEvent] {
         observe(time)
+        var events: [PipelineEvent] = []
         switch state {
         case .recording:
-            var events: [PipelineEvent] = []
             settle(&events)
             // While an auto-pause is pending the clock already holds at its start: the pause starts there too.
             let from = max(pendingAutoPause(at: time) ?? time, pauses.last?.end ?? .distantPast, start ?? .distantPast)
@@ -531,11 +536,12 @@ struct TrackPipeline: Sendable {
             closeOpenPause(at: time)
             openPause(.manual, at: time)
         case .ready, .paused, .finished:
-            return
+            return []
         }
         state = .paused
         elevation.setCounting(false)
         resetMotion()
+        return events
     }
 
     /// paused or auto-paused → recording. Distance restarts at the next fix: nothing is bridged across a pause.
@@ -664,6 +670,10 @@ struct TrackPipeline: Sendable {
         if let here = kalman.position, settling != nil {
             if let previous = settling?.lastFiltered { settling?.path += Geodesy.distance(previous, here) }
             settling?.lastFiltered = here
+            if settling?.firstFiltered == nil { settling?.firstFiltered = here }
+        }
+        if outcome == .updated, let previousFixTime {
+            diagnostics.longestGapSec = max(diagnostics.longestGapSec, t.timeIntervalSince(previousFixTime))
         }
         diagnostics.fixesAccepted += 1
         lastAccepted = (t, fix.horizontalAccuracy, fix.isStationary)
@@ -674,14 +684,20 @@ struct TrackPipeline: Sendable {
 
         // 4–5 Distance and gaps. While the filter settles, nothing accrues until its window ends.
         var step: Step?
-        if let window = settling, t.timeIntervalSince(window.since) >= tuning.settleWindow,
-           window.fixes.count >= tuning.settleMinFixes || t.timeIntervalSince(window.since) >= 3 * tuning.settleWindow
-           || window.fixes.count >= 64 {
-            step = settledStep(window)
+        if let window = settling, outcome == .updated, window.fixes.count >= 2, let previousFixTime,
+           t.timeIntervalSince(previousFixTime) > tuning.gapAfter {
+            // A gap inside the window breaks its line: the gap rule from the window's first filtered position, and
+            // a fresh window from this fix.
+            step = bridge(from: (window.firstFiltered, window.fixes[0].time), to: (position, t),
+                          gap: t.timeIntervalSince(previousFixTime), stationary: fix.isStationary, &events)
+            beginSettling(with: fix)
+        } else if let window = settling, t.timeIntervalSince(window.since) >= tuning.settleWindow,
+                  window.fixes.count >= tuning.settleMinFixes || t.timeIntervalSince(window.since) >= 3 * tuning.settleWindow
+                  || window.fixes.count >= 64 {
+            step = closedStep(window, &events)
             settling = nil
         } else if outcome == .updated, settling == nil, let from = stepFrom {
             let dt = t.timeIntervalSince(from.time)
-            diagnostics.longestGapSec = max(diagnostics.longestGapSec, dt)
             var length: Double
             var counts: Bool
             if dt > tuning.gapAfter {
@@ -868,7 +884,7 @@ struct TrackPipeline: Sendable {
     /// Starts a settle window at this fix (`Tuning.settleWindow`): a (re)initialised filter, or a reset velocity.
     private mutating func beginSettling(with fix: LocationFix) {
         settling = Settling(since: fix.timestamp, fixes: [(fix.timestamp, fix.coordinate, fix.isStationary)],
-                            lastFiltered: kalman.position)
+                            firstFiltered: kalman.position, lastFiltered: kalman.position)
         positionStepsUntil = nil
     }
 
@@ -901,13 +917,37 @@ struct TrackPipeline: Sendable {
         return Step(from: first.time, to: last.time, distance: moving ? min(line, window.path) : 0)
     }
 
-    /// Ends a settle window early (Pause, Finish): its fixes so far count if there are enough of them.
+    /// Ends a settle window early (Pause, Finish).
     private mutating func settle(_ events: inout [PipelineEvent]) {
         guard let window = settling else { return }
         settling = nil
-        if state == .recording, let step = settledStep(window), let counted = clipped(step) {
+        if state == .recording, let step = closedStep(window, &events), let counted = clipped(step) {
             accrue(counted, &events)
         }
+    }
+
+    /// A closing window's step: the settled line, or with fewer than three fixes the gap rule over the window.
+    private mutating func closedStep(_ window: Settling, _ events: inout [PipelineEvent]) -> Step? {
+        if let step = settledStep(window) { return step }
+        guard let first = window.fixes.first, let last = window.fixes.last, let to = window.lastFiltered else { return nil }
+        return bridge(from: (window.firstFiltered, first.time), to: (to, last.time),
+                      gap: last.time.timeIntervalSince(first.time), stationary: last.isStationary, &events)
+    }
+
+    /// The gap rule (design §3.3 step 5): the straight line, counted when its speed is at most the sport's maximum
+    /// and at least the dead-band. A `.gap` event when the silence was longer than `gapAfter`.
+    private mutating func bridge(from start: (position: Coordinate?, time: Date), to end: (position: Coordinate, time: Date),
+                                 gap: TimeInterval, stationary: Bool, _ events: inout [PipelineEvent]) -> Step? {
+        let span = end.time.timeIntervalSince(start.time)
+        guard let from = start.position, span > 0 else { return nil }
+        let length = Geodesy.distance(from, end.position)
+        let implied = length / span
+        let bridged = implied <= (configuration.profile.maxSpeed ?? .infinity)
+        if gap > tuning.gapAfter {
+            if bridged { diagnostics.gapsBridged += 1 } else { diagnostics.gapsNotBridged += 1 }
+            events.append(.gap(seconds: gap, bridged: bridged))
+        }
+        return Step(from: start.time, to: end.time, distance: bridged && implied >= movingSpeed && !stationary ? length : 0)
     }
 
     /// The part of a step after the last Start or resume: a fix delivered late never counts time before them.

@@ -194,6 +194,35 @@ struct TrackPipelineTests {
         #expect(abs(q.distanceM - SyntheticTrack.distance(standing)) < 2.5, "standing: \(q.distanceM) m")
     }
 
+    /// The real flow: the filter warms up for 30 s while the user waits for "Ready", then Start and a standing start.
+    /// The window opens at Start anyway, so the velocity's lag behind the acceleration isn't lost (review N3: −7, −13
+    /// and −20 m to 3, 6 and 9 m/s before; −0.1, −0.1 and −2.8 m now).
+    @Test(arguments: [3.0, 6.0, 9.0])
+    func aStandingStartAfterAWarmUpLosesLittle(to speed: Double) {
+        var p = TrackPipeline(configuration: .gps(.run, autoPause: false, barometer: false))
+        _ = SyntheticTrack.run(&p, SyntheticTrack.fixes([Segment(seconds: 29, speed: 0)]))
+        let start = SyntheticTrack.t0.addingTimeInterval(30)
+        p.start(at: start)
+        let accelerating = (1 ... Int(speed)).map { Segment(seconds: 1, speed: Double($0) - 0.5) }
+        let segments = accelerating + [Segment(seconds: 200, speed: speed)]
+        let run = SyntheticTrack.fixes(segments, start: start)
+        _ = SyntheticTrack.run(&p, Array(run.dropFirst()))
+        #expect(abs(p.distanceM - SyntheticTrack.distance(segments)) < 3.5, "\(p.distanceM - SyntheticTrack.distance(segments)) m")
+    }
+
+    /// The first fix after Start, then a long silence (no fix for 15–45 s), then fixes again: the window falls back
+    /// to the gap rule and reports the gap (review N1: −105 m and −134 m at 35 and 45 s before).
+    @Test(arguments: [15, 35, 45])
+    func aSilenceInsideTheSettleWindowIsBridged(seconds: Int) {
+        let fixes = SyntheticTrack.fixes([Segment(seconds: seconds + 200, speed: 3)])
+        var p = Self.started(.gps(.run, autoPause: false, barometer: false))
+        var events = p.ingest(fixes[0])
+        for fix in fixes[seconds...] { events += p.ingest(fix) }
+        #expect(abs(p.distanceM - 3 * Double(seconds + 200)) < 1.5, "\(p.distanceM - 3 * Double(seconds + 200)) m")
+        #expect(events.contains(.gap(seconds: Double(seconds), bridged: true)))
+        #expect(p.diagnostics.gapsBridged == 1 && p.diagnostics.longestGapSec == Double(seconds))
+    }
+
     /// The first fix 20 or 40 m off (reported ±25 m), the next ones good: the filter's way back to the truth isn't
     /// distance (review: +20 m and +42 m for a still phone before the settle window).
     @Test(arguments: [(20.0, 0.0), (40.0, 0.0), (20.0, 3.0), (40.0, 3.0)])
@@ -417,6 +446,23 @@ struct TrackPipelineTests {
         #expect(abs(restored.distanceM - p.distanceM) < 0.5, "+\(restored.distanceM - p.distanceM) m")
     }
 
+    /// Pause closes an open settle window, and the split its distance completes comes back from `pause(at:)`.
+    @Test func pauseReturnsTheSettleWindowsEvents() throws {
+        var p = Self.started(.gps(.run, autoPause: false, barometer: false))
+        _ = SyntheticTrack.run(&p, SyntheticTrack.fixes([Segment(seconds: 330, speed: 3)]))
+        let killedAt = SyntheticTrack.t0.addingTimeInterval(330), back = killedAt.addingTimeInterval(30)
+        var r = TrackPipeline(configuration: .gps(.run, autoPause: false, barometer: false),
+                              restoring: try #require(p.checkpoint), interruptedAt: killedAt)
+        r.resume(at: back)
+        let here = Geodesy.destination(from: SyntheticTrack.origin, bearing: 60, distance: 1100)
+        let open = SyntheticTrack.fixes([Segment(seconds: 8, speed: 3)], start: back.addingTimeInterval(1), from: here)
+        let before = SyntheticTrack.run(&r, open)
+        #expect(r.splits.isEmpty && !before.contains { if case .split = $0 { true } else { false } })
+        let events = r.pause(at: open[8].timestamp)
+        #expect(r.splits.count == 1)
+        #expect(events.contains(.split(try #require(r.splits.first))))
+    }
+
     /// A fix taken before Resume but delivered after it counts only from Resume on.
     @Test func aLateFixCountsFromResumeOnly() {
         let fixes = SyntheticTrack.fixes([Segment(seconds: 150, speed: 3)])
@@ -535,7 +581,8 @@ struct TrackPipelineTests {
     }
 
     /// Without the flag the dead-band is the backstop: 0.5 m/s for a run. Measured: 0.0 m here; over 5 seeds each,
-    /// at most 4.7 m at the fixture's 300 s error correlation, 18 m at 60 s, 70 m at 30 s.
+    /// at most 4.7 m at the fixture's 300 s error correlation, 18 m at 60 s, 70 m at 30 s. At the 0.3 m/s floor the
+    /// same fixture reads several metres, so the bound tests the dead-band, not the fixture.
     @Test func stillPhoneWithoutTheFlagStaysUnderTheDeadBand() throws {
         let still = try TrackFixture.load("stationary")
         let unflagged = TrackFixture(name: still.name, start: still.start, truth: still.truth, expected: still.expected,
@@ -545,7 +592,11 @@ struct TrackPipelineTests {
                                                      verticalAccuracy: $0.verticalAccuracy)
                                      }, altimeter: still.altimeter)
         let replay = TrackReplay(unflagged, .gps(.run, autoPause: false, barometer: false))
-        #expect(replay.pipeline.distanceM < 5, "\(replay.pipeline.distanceM) m")
+        #expect(replay.pipeline.distanceM < 1, "\(replay.pipeline.distanceM) m")
+        var floor = TrackPipeline.Tuning.standard
+        floor.deadBandShareOfAutoPause = 0
+        let atTheFloor = TrackReplay(unflagged, .gps(.run, autoPause: false, barometer: false, tuning: floor))
+        #expect(atTheFloor.pipeline.distanceM >= 1, "at 0.3 m/s: \(atTheFloor.pipeline.distanceM) m")
     }
 
     /// Half the sport's auto-pause threshold, between 0.3 and 0.5 m/s: slow sports keep the floor.
