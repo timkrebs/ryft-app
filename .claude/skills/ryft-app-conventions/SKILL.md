@@ -16,9 +16,11 @@ and you report the drift.
   `Design/` theme, components, `ChartStyle` · `StateMachines/` · `Preview/` mock data ·
   `Resources/` fonts, `Localizable.xcstrings`.
 - Tests: `RyftTests/` (Swift Testing + XCTest), `RyftUITests/`. Test plans `Unit`, `UISmoke`, `Full`.
-- `RyftWidgets/` and `RyftUITests/` are synchronized folders (new files need no pbxproj edit). `Ryft/` and
-  `RyftTests/` are still **classic groups**: a new `.swift` file there is not compiled, so put new types into an
-  existing file until the user converts them (Xcode → the group → Convert to Folder).
+- `Ryft/`, `RyftTests/`, `RyftWidgets/` and `RyftUITests/` are synchronized folders (all four since 2026-10-23, #39):
+  a new file belongs to its folder's target with no project-file edit, so new types get their own files. Every non-Swift
+  file in `Ryft/` is copied into the app bundle; keep notes and drafts out of it (Xcode excludes only `Info.plist` and
+  `Resources/Fonts/.gitkeep`). A file that both the app and the widget compile needs a second target membership, set in
+  Xcode (a user step); until then such types stay duplicated and `scripts/check-shared-types.py` keeps them identical.
 - Docs: `docs/STATUS.md`, `docs/ARCHITECTURE.md`, `docs/API_REQUESTS.md`, `docs/CHART_STYLE.md`,
   `docs/CI.md`, `docs/RELEASING.md`, `docs/APP_STORE.md`, `CHANGELOG.md`.
 

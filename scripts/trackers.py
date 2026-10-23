@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """The tracker catalog's bundled copy (ADR 0002, design.md §2.4).
 
-Content/trackers.json is canonical. `Ryft/` is a classic Xcode group, so instead of a JSON resource the
-app compiles the file as a string literal: the region between the GENERATED markers at the end of
-Ryft/Health/HealthKitManager+Status.swift.
+Content/trackers.json is canonical. `Ryft/` was a classic Xcode group when this was written, so instead of a JSON
+resource the app compiles the file as a string literal: the region between the GENERATED markers at the end of
+Ryft/Health/HealthKitManager+Status.swift. Since #39 `Ryft/` is a synchronized folder; ADR 0002's follow-up can make it
+a resource.
 
   python3 scripts/trackers.py --write   # (make trackers) rewrite the region from the JSON
   python3 scripts/trackers.py --check   # (make lint) fail when the region is stale or the content breaks a rule
