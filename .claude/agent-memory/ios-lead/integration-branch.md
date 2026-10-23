@@ -5,8 +5,8 @@ metadata:
   type: project
 ---
 
-When parallel PRs share files, a classic group means several PRs edit the same Swift files, plus the string catalog. Do this
-while the user hasn't merged yet:
+When parallel PRs share files (always the string catalog, often `Models.swift` or `AppEnvironment`), do this while the
+user hasn't merged yet:
 1. Make a scratch worktree from `origin/main`.
 2. Merge the PR branches into it in the planned merge order.
 3. Resolve each conflict once. Strings: the per-key merger script (keep it in the session's `tools/`). Scripts: take the union.

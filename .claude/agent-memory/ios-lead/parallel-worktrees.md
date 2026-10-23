@@ -22,5 +22,6 @@ on a busy day. Afterwards:
 **Why:** in the 2026-10-21 and 2026-10-22 sessions, three to six implementers and reviewers ran at once. This kept
 builds, DerivedData (keyed by path) and simulators apart, and left the user's checkout untouched.
 
-**How to apply:** any brief with two or more independent tickets. Because `Ryft/` is a classic group, parallel tickets
-still share files, so the plan must assign regions within a file. See [[integration-branch]].
+**How to apply:** any brief with two or more independent tickets. Since 2026-10-23 all source folders are synchronized
+(#39), so parallel tickets can own separate new files. Shared files still need regions assigned in the plan: the string
+catalog, `Models.swift`, `AppEnvironment`. See [[integration-branch]].
