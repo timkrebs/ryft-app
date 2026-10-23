@@ -226,6 +226,16 @@ not moving after 1 day." The tester wears a Garmin. App brief: `CLAUDE_FOLLOWUP_
 4. **Supersedes Refresh resilience §2** (`calibrating_reason`). Done on 2026-10-22: `calibrating_reason`,
    `baseline_hrv_days` and `baseline_rhr_days` are in `API.md`; only `recovery_inputs` stays open (§1).
 
+5. **(New 2026-10-23) A Garmin account never leaves calibrating.**
+   - **What happens.** The published contract keeps `calibrating = min(H, R) < 7`. A source that writes no HRV (Garmin, verified
+     on a device) gives `no_hrv` with H = 0 forever. So `state` stays `calibrating` for good: no band, and no "vs 7 d" delta
+     on Today. That holds even though the account's resting-HR and sleep baselines are personal after 7 nights.
+   - **Why it matters.** The brief that started this (§1, "gets this tester to 7/7") isn't met. The app now explains the
+     state honestly (design.md §7 rev. 2), but it can't end it.
+   - **Ask.** On a `no_hrv` row with R ≥ 7, end calibration (`calibrating: false`, `state` banded from readiness), with
+     `calibrating_reason` kept or a new field saying HRV is absent. If that's not the plan, document why `no_hrv` must stay
+     calibrating, so the app copy can say so.
+
 **Corrections to the evidence commands in the brief (from the debugger, T0):**
 - `scripts/user.sh <id>` prints `with HRV N` (`days_with_hrv_14d`) and the newest record per kind, not
   `User.sources`. Use `scripts/beta_report.sh` for source kinds.
