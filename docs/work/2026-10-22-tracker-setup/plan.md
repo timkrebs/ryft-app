@@ -139,3 +139,10 @@ Strings for every ticket: localization-editor (en + de, brand guard green). Revi
     after T2 merges.
   - The localization-editor translates the catalog text now, from R1's draft.
   - Conflicts are pre-resolved on an integration branch, as last time.
+
+## Where it stands (2026-10-23)
+- Merged: #35 (CI simulator, 58b696c), #33 (750c504), #34 (69e5235), #36 (62c445b). This docs PR (#32) merges next, then #37
+  (the flaky-test fix).
+- **Left:** T4 `fix: honest calibration and recovery inputs`, when the platform publishes `hrv_baseline_days` /
+  `recovery_inputs`. Then turn `devices.setup` on after the platform deploy and the morning device check.
+
