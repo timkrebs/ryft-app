@@ -34,7 +34,7 @@ extension DateParsing {
     /// `YYYY-MM-DDTHH:MM:SS[.fraction](Z|±HH:MM)`, as Go and `APIClient.jsonEncoder` write it.
     ///
     /// It exists because the cache stores dates without fractions, so each cached date first failed the
-    /// fractional formatter and then parsed with the plain one (about 95 µs), and cached reads decode on the
+    /// fractional formatter and then parsed with the plain one (about 0.1 ms), and cached reads decode on the
     /// main actor inside view bodies (2 to 6 ms for a `DayDetail`).
     ///
     /// The formatters remain the source of truth. This returns `nil` for anything it doesn't fully validate
