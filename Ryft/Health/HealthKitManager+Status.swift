@@ -793,7 +793,7 @@ extension TrackerCatalog {
     static let bundledJSON = #"""
     {
       "schema_version": 1,
-      "version": "2026-10-22.3",
+      "version": "2026-10-23.1",
       "checked": "2026-10-22",
       "status_values": [
         "yes",
@@ -1053,11 +1053,11 @@ extension TrackerCatalog {
           "capability_notes": {
             "hrv": {
               "en": "Oura doesn't export HRV to Apple Health.",
-              "de": "Oura exportiert HRV nicht zu Apple Health."
+              "de": "Oura sendet HRV nicht an Apple Health."
             },
             "resting_hr": {
               "en": "Oura doesn't export resting heart rate to Apple Health.",
-              "de": "Oura exportiert Ruhepuls nicht zu Apple Health."
+              "de": "Oura sendet Ruhepuls nicht an Apple Health."
             },
             "spo2": {
               "en": "Oura doesn't send blood oxygen to Apple Health.",

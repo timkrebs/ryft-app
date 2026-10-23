@@ -26,6 +26,7 @@
         "RefreshResilienceUITests",
         "DevicesUITests",
         "SyncCheckUITests",
+        "CalibrationNoteUITests",
         "MyDayUITests"
       ],
       "target": {

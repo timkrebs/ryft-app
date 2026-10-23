@@ -6,6 +6,7 @@ import SwiftUI
 /// `TodayViewModel`.
 struct TodayView: View {
     @Environment(ScreenModels.self) private var screens
+    @Environment(\.appEnvironment) private var env
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -15,6 +16,10 @@ struct TodayView: View {
     @State private var showsJournal = false
     /// Counts scores that landed while the night was pending: one success haptic each.
     @State private var landed = 0
+    /// The calibration note's link, open in a sheet (design.md §7 rev. 2 §2).
+    @State private var calibrationLink: CalibrationLink?
+    /// Check sync's model for that sheet: made on the tap, once, not on every redraw.
+    @State private var linkCheck: TrackerCheckModel?
 
     var body: some View {
         // The day's facts and decision, read once for the whole body.
@@ -86,6 +91,10 @@ struct TodayView: View {
                 // The status line's tap: Sync details over Today, with its own stack.
                 .sheet(isPresented: Binding(get: { model.showsSyncDetails }, set: { model.showsSyncDetails = $0 })) {
                     SyncDetailsSheet(model: screens.profile.syncDetails)
+                }
+                // The calibration note's link: the tracker's card, Check sync or Devices & sync, with Done.
+                .sheet(item: $calibrationLink, onDismiss: { linkCheck = nil }) { link in
+                    CalibrationLinkSheet(link: link, check: linkCheck)
                 }
                 // The journal: whether it's live (M5), and yesterday's answer for the card.
                 .task(id: model.lastUpdated) {
@@ -163,17 +172,14 @@ struct TodayView: View {
                     BaselineGauge(nights: nights, countsHeartRateNights: day.gaugeNote == .needsVitals)
                         .accessibilityIdentifier("today.baselineGauge")
                     // Row B over a long history without HRV: why the nights don't fill.
-                    if let note = day.gaugeNote { gaugeNote(note) }
+                    if let note = day.gaugeNote { noteBlock(note, readWithGauge: false) }
                 }
                 .padding(.vertical, 4)
             case .score:
                 VStack(spacing: 8) {
                     readinessRing(day)
                     // Rows D and B: in the band/delta line's place, read as part of the gauge.
-                    if let note = day.gaugeNote {
-                        gaugeNote(note)
-                            .accessibilityHidden(day.gaugeSpokenNote != nil)
-                    }
+                    if let note = day.gaugeNote { noteBlock(note, readWithGauge: day.gaugeSpokenNote != nil) }
                 }
                 .padding(.vertical, 4)
             }
@@ -189,14 +195,35 @@ struct TodayView: View {
     private func readinessRing(_ day: TodayContent) -> some View {
         MetricGauge(spec: .readiness, value: day.readiness, size: .large, delta: day.readinessDelta,
                     title: String(localized: "Overall readiness"), showsMark: true,
-                    accessibilityNote: day.gaugeSpokenNote)
+                    accessibilityNote: day.gaugeSpokenNote, showsBand: day.showsReadinessBand)
             .accessibilityIdentifier("today.readinessGauge")
+    }
+
+    /// The note under the gauge and, under it, its link when there is one (a blocked baseline with
+    /// `devices.setup` on). `readWithGauge`: VoiceOver hears the note in the gauge's value, so the line itself is
+    /// hidden; the link stays its own button either way.
+    private func noteBlock(_ note: TodayPresentation.Note, readWithGauge: Bool) -> some View {
+        VStack(spacing: 0) {
+            gaugeNote(note)
+                .accessibilityHidden(readWithGauge)
+            if let link = note.link {
+                GaugeNoteLink(title: link.title) { open(link) }
+                    .transition(.opacity)
+                    .accessibilityIdentifier("today.gaugeNote.link")
+            }
+        }
     }
 
     private func gaugeNote(_ note: TodayPresentation.Note) -> some View {
         GaugeNote(text: note.text, systemImage: note.systemImage)
             .transition(.opacity)
             .accessibilityIdentifier("today.gaugeNote")
+    }
+
+    /// The note's link: Check sync's model is made here, on the tap, for the sheet to keep.
+    private func open(_ link: CalibrationLink) {
+        linkCheck = link == .checkSync ? .make(env: env, trackers: screens.devices.trackers) : nil
+        calibrationLink = link
     }
 
     /// One day for all three (ui.md §1): today's, or the latest scored day dimmed with its date.
@@ -271,6 +298,47 @@ extension TodayHero {
         case .pending: return 1
         case .calibrating: return 2
         case .score: return 3
+        }
+    }
+}
+
+/// Where the calibration note's link goes (design.md §7 rev. 2 §2): the tracker's card, Check sync or Devices &
+/// sync, each with its own stack and "Done", like Sync details from the status line.
+private struct CalibrationLinkSheet: View {
+    let link: CalibrationLink
+    /// Check sync's model, made on the tap (`TodayView.open`).
+    let check: TrackerCheckModel?
+
+    @Environment(ScreenModels.self) private var screens
+    @Environment(\.appEnvironment) private var env
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            destination
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                            .accessibilityIdentifier("today.calibrationSheet.done")
+                    }
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var destination: some View {
+        switch link {
+        case .setup(let id, _):
+            // A newer catalog may have dropped the tracker: Devices & sync then.
+            if let tracker = env.trackerCatalog.tracker(id) {
+                TrackerDetailView(tracker: tracker, model: screens.profile.devices) {}
+            } else {
+                DevicesAndSyncView(model: screens.profile.devices)
+            }
+        case .checkSync:
+            if let check { TrackerCheckView(model: check) } else { DevicesAndSyncView(model: screens.profile.devices) }
+        case .devices:
+            DevicesAndSyncView(model: screens.profile.devices)
         }
     }
 }
@@ -646,6 +714,56 @@ struct OfflinePill: View {
 #Preview("Today · D recalculating, yesterday · light · de") {
     TodayView().previewEnvironment(.preview(scenario: .recalculatingYesterday), scheme: .light)
         .environment(\.locale, Locale(identifier: "de"))
+}
+
+// MARK: honest calibration (design.md §7 rev. 2): S2 learning, N1 blocked with a readiness, N2 without one
+
+#Preview("Today · N1 blocked HRV (Garmin)") {
+    TodayView().previewEnvironment(.preview(scenario: .blockedHRV))
+}
+
+#Preview("Today · N1 blocked HRV (Garmin) · light") {
+    TodayView().previewEnvironment(.preview(scenario: .blockedHRV), scheme: .light)
+}
+
+#Preview("Today · N1 blocked HRV (Garmin) · de") {
+    TodayView().previewEnvironment(.preview(scenario: .blockedHRV))
+        .environment(\.locale, Locale(identifier: "de"))
+}
+
+#Preview("Today · N1 blocked HRV (Garmin) · light · de") {
+    TodayView().previewEnvironment(.preview(scenario: .blockedHRV), scheme: .light)
+        .environment(\.locale, Locale(identifier: "de"))
+}
+
+#Preview("Today · N1 blocked HRV (Garmin) · AX3") {
+    TodayView().previewEnvironment(.preview(scenario: .blockedHRV))
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Today · N1 blocked both (Oura)") {
+    TodayView().previewEnvironment(.preview(scenario: .blockedOura))
+}
+
+#Preview("Today · N1 blocked both (Oura) · light · de") {
+    TodayView().previewEnvironment(.preview(scenario: .blockedOura), scheme: .light)
+        .environment(\.locale, Locale(identifier: "de"))
+}
+
+#Preview("Today · N2 blocked, no night") {
+    TodayView().previewEnvironment(.preview(scenario: .blockedNoNight))
+}
+
+#Preview("Today · N2 blocked, no night · light") {
+    TodayView().previewEnvironment(.preview(scenario: .blockedNoNight), scheme: .light)
+}
+
+#Preview("Today · S2 learning HRV") {
+    TodayView().previewEnvironment(.preview(scenario: .learningHRV))
+}
+
+#Preview("Today · S2 learning HRV · light") {
+    TodayView().previewEnvironment(.preview(scenario: .learningHRV), scheme: .light)
 }
 
 #Preview("Today · E first import · light") {

@@ -149,6 +149,16 @@ enum ScoringState: String, Codable, CaseIterable, Sendable {
     case stale
 }
 
+/// Why `DailyScore.calibrating` is true (API.md → `DailyScore` → `calibrating_reason`). Closed in v1.
+enum CalibratingReason: String, Codable, CaseIterable, Sendable {
+    /// Too little history (or a signal that just appeared): `7 − baseline_days` more nights end it.
+    case shortHistory = "short_history"
+    /// At least 7 days with data, none with an overnight HRV: waiting does not end it.
+    case noHrv = "no_hrv"
+    /// The same for resting heart rate.
+    case noRhr = "no_rhr"
+}
+
 struct DailyScore: Codable, Identifiable, Hashable {
     let day: String // YYYY-MM-DD
     var readiness: Int?
@@ -187,6 +197,13 @@ struct DailyScore: Codable, Identifiable, Hashable {
     var baselineDays: Int
     /// `baseline_days < 7`.
     var calibrating: Bool
+    /// The N of each baseline (`baselineDays = min(...)`), 0–30. `nil` is unknown: a never-scored day,
+    /// a row scored before the field existed, or a cached copy from before it.
+    var baselineHrvDays: Int?
+    var baselineRhrDays: Int?
+    /// Why `calibrating` is true. `nil` when not calibrating, and also "unknown" for a legacy, never-scored
+    /// or cached row (not a fourth reason). An unrecognised value decodes as `nil` too.
+    var calibratingReason: CalibratingReason?
     /// `0001-01-01T00:00:00Z` for a day that hasn't been scored yet.
     var computedAt: Date?
     /// The scoring model that computed the row (`GET /v1/model`); `nil` before versions existed.
@@ -211,8 +228,12 @@ struct DailyScore: Codable, Identifiable, Hashable {
          rhrBaseline: Double? = nil, baselineDays: Int = 0, calibrating: Bool = false, computedAt: Date? = nil,
          sleepNeedBaseMin: Int? = nil, sleepNeedStrainMin: Int? = nil, sleepNeedDebtMin: Int? = nil,
          sleepNeedNapMin: Int? = nil, napMin: Int? = nil, sleepQuality: Int? = nil, sleepConsistency: Int? = nil,
-         modelVersion: String? = nil, scoringState: ScoringState? = nil) {
+         modelVersion: String? = nil, scoringState: ScoringState? = nil,
+         baselineHrvDays: Int? = nil, baselineRhrDays: Int? = nil, calibratingReason: CalibratingReason? = nil) {
         self.day = day
+        self.baselineHrvDays = baselineHrvDays
+        self.baselineRhrDays = baselineRhrDays
+        self.calibratingReason = calibratingReason
         self.modelVersion = modelVersion
         self.scoringState = scoringState
         self.readiness = readiness
@@ -249,7 +270,8 @@ struct DailyScore: Codable, Identifiable, Hashable {
         case day, readiness, state, recovery, strain, steps, activeKcal, strengthMin, volumeKg, sleepPerformance, sleepNeedMin,
              sleepActualMin, sleepDebtMin, hrvMs, rhr, respRate, spo2, hrvBaselineMs, rhrBaseline,
              baselineDays, calibrating, computedAt, sleepNeedBaseMin, sleepNeedStrainMin, sleepNeedDebtMin,
-             sleepNeedNapMin, napMin, sleepQuality, sleepConsistency, modelVersion, scoringState
+             sleepNeedNapMin, napMin, sleepQuality, sleepConsistency, modelVersion, scoringState,
+             baselineHrvDays, baselineRhrDays, calibratingReason
     }
 
     init(from decoder: Decoder) throws {
@@ -285,6 +307,9 @@ struct DailyScore: Codable, Identifiable, Hashable {
         sleepConsistency = try c.decodeLenientInt(.sleepConsistency)
         modelVersion = try c.decodeIfPresent(String.self, forKey: .modelVersion)
         scoringState = try? c.decodeIfPresent(ScoringState.self, forKey: .scoringState)
+        baselineHrvDays = try c.decodeLenientInt(.baselineHrvDays)
+        baselineRhrDays = try c.decodeLenientInt(.baselineRhrDays)
+        calibratingReason = try? c.decodeIfPresent(CalibratingReason.self, forKey: .calibratingReason)
     }
 
     /// The server's state. `null` (an older cached payload) is read like the

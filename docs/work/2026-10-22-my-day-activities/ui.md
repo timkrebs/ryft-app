@@ -531,6 +531,28 @@ Safe-area padding `screenPadding` 20. Top to bottom:
 
 **G2 Paused (manual).** Time stops (shows the paused time, static); a state line "Paused" with `pause.fill`; the time stays `textPrimary` (contrast must stay) and gets a hairline underline 2 pt `textSecondary` under the time and the word "Paused", so the state isn't colour-only. Resume button Teal. The Live Activity shows paused (7).
 **G3 Auto-paused.** Same layout with the line "Auto-paused · you stopped moving" (`pause.circle`). The time stops. Resume is automatic when speed returns for 3 s ("Resumed" line for 2 s) or by tapping the Resume button at any time. A manual pause during auto-pause becomes manual (it won't auto-resume). Both never fire audio during the pause.
+**G3 clock** (*rev. 2026-10-23, A3a; the rule for A4; design §3.3 step 8*).
+- **Why there's a rule.** Auto-pause is backdated:
+  - it starts when you stopped, which the recorder knows only 10 s later (5 s for a phone lying still);
+  - it ends when you moved again, which the recorder is sure of only 3 s later.
+
+  The clock never shows that correction as a jump backwards.
+- **Show the snapshot.** The time is `RecorderSnapshot.movingSec`. It ticks with `Text(timerInterval:)` only while the
+  snapshot has a `movingAnchor`. The screen never works out pauses itself.
+- **The clock stops when you stop.** From the first moment the recorder sees you below the threshold, snapshots carry
+  no anchor and hold the moving time at that moment. When the auto-pause confirms, the line "Auto-paused · you stopped
+  moving" appears, and the time is already right: nothing jumps.
+- **If you weren't stopping, the clock catches up.** It steps forward a few seconds. That's most common at a standing
+  start, 1–3 s: with auto-pause on, the clock starts when you start moving, as on a watch.
+- **Auto-resume** steps the clock forward by the 3 s of confirmation, together with the "Resumed" line.
+- **Pause tapped while the clock holds:** the pause starts where the clock stopped, so the tap adds no seconds.
+- **Never backwards.** The displayed moving time never decreases during a recording. If a snapshot is lower than
+  what's on screen (a fix or pedometer sample that arrived late), the screen keeps its value until the snapshot passes
+  it. `RecordingSessionTests` checks this across an auto-pause.
+- **The rare exception.** If the GPS turns weak while the clock holds, the clock runs on. A stop confirmed after that
+  can step it back; it's a rare case, accepted.
+- **Distance** may still tick up by a few metres while the clock holds: the last slow steps.
+- **Live Activity:** L2 follows the same rule.
 **G4 GPS weak** (accuracy > 25 m for 10 s): state line `exclamationmark.circle` `Theme.warning` + `textSecondary` text "Weak GPS signal. Distance may be low." The GPS chip drops to 1 bar. When it recovers the line clears with a 250 ms cross-fade. Haptic `.warning` once, not repeated.
 **G5 GPS lost** (no fix 15 s): "No GPS signal. Time keeps counting; distance resumes when it returns." The distance keeps its last value, labelled by the state line. The single line stays; no extra hints.
 **G6 Permission revoked mid-activity:** line "Location was turned off. Distance and route stop." + **Open Settings** text button in the state line. Time continues.
