@@ -50,6 +50,8 @@ struct RyftApp: App {
 
     init() {
         LaunchSignpost.begin()
+        // Export files from before this moment are an earlier run's.
+        let launched = Date.now
         let state = AppState(env: .live)
         // The JSON response cache of earlier versions moves into SwiftData once.
         LegacyCacheMigration.runOnce(into: state.repository, train: .shared, defaults: .standard)
@@ -58,7 +60,7 @@ struct RyftApp: App {
         let liveStore = TrainStore.shared.storeURL
         Task(priority: .utility) {
             await OrphanedStoreCleanup.runOnce(live: liveStore)
-            await DataExport.removeLeftoverFiles()
+            await DataExport.removeLeftoverFiles(writtenBefore: launched)
         }
         // Launched straight into the background (a HealthKit delivery, a BG task): the
         // coordinator starts there; the scene's activation brings it to the foreground.

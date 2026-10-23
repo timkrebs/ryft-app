@@ -15,8 +15,8 @@ import OSLog
 /// without the App Group, the old copy is the account's current data until SwiftData has copied it.
 ///
 /// It's deleted only when it provably isn't the live store: the group container resolves, the open store is a file
-/// inside it, and the old files are somewhere else (by path, and by folder identity on disk). In any doubt nothing is
-/// deleted and the next launch decides again. Once nothing is left, a marker ends it.
+/// inside it, and the old files are somewhere else: by path, and separately by the folders' identities on disk, links
+/// followed. In any doubt nothing is deleted and the next launch decides again. Once nothing is left, a marker ends it.
 enum OrphanedStoreCleanup {
     /// Set once the old files are gone, or there never were any.
     static let doneKey = "cleanup.appContainerStore"
@@ -76,51 +76,110 @@ enum OrphanedStoreCleanup {
 
     struct Outcome: Equatable, Sendable {
         var decision: Decision
-        /// Files removed, and their size.
+        /// Files (and the empty support folder) removed, and their size.
         var files = 0
         var bytes: Int64 = 0
-        /// Files that couldn't be removed.
+        /// Items of the old store still there: not removable, unreadable, or a support folder with files in it.
         var failures = 0
 
         /// Nothing of the old store is left: it needn't run again.
         var finished: Bool { decision == .delete && failures == 0 }
     }
 
+    /// Core Data's folder beside a store for data kept outside it. No model has external storage, so it's at most
+    /// empty folders; with files in it, it stays (and counts as left over).
+    static let supportFolderName = ".Train_SUPPORT"
+
     /// Deletes the old store's files in `orphanFolder` when `decide` allows it and that folder isn't the open store's
-    /// folder on disk. Running it again is harmless.
-    static func run(live: URL?, orphanFolder: URL, groupContainer: URL?) -> Outcome {
+    /// folder on disk. Running it again is harmless. `identity` is a folder's identity on disk (`identity(of:)`).
+    static func run(live: URL?, orphanFolder: URL, groupContainer: URL?,
+                    identity: (URL) -> AnyHashable? = identity(of:)) -> Outcome {
         let orphan = orphanFolder.appendingPathComponent("Train.store")
         var outcome = Outcome(decision: decide(live: live, orphan: orphan, groupContainer: groupContainer))
         guard outcome.decision == .delete, let live else { return outcome }
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: orphanFolder.path) else { return outcome }
-        // Paths can be spelled differently; the folders' identities on disk can't.
-        guard let liveFolder = identity(of: live.deletingLastPathComponent()), let oldFolder = identity(of: orphanFolder),
-              !liveFolder.isEqual(oldFolder) else {
+        // A second check that doesn't depend on `decide`'s paths: the folders themselves, links followed.
+        guard let liveFolder = identity(live.deletingLastPathComponent()), let oldFolder = identity(orphanFolder),
+              liveFolder != oldFolder else {
             outcome.decision = .keep(.sameFolder)
             return outcome
         }
+
+        func failed(_ error: Error) {
+            outcome.failures += 1
+            let e = error as NSError
+            log.error("Removing an old store file failed: \(e.domain, privacy: .public) \(e.code, privacy: .public)")
+        }
+        /// The item itself (a link isn't followed); `nil` when it isn't there, or when it can't be read (a failure).
+        func attributes(_ item: URL) -> [FileAttributeKey: Any]? {
+            do {
+                return try fileManager.attributesOfItem(atPath: item.path)
+            } catch {
+                if !isMissing(error) { failed(error) }
+                return nil
+            }
+        }
+
         for name in fileNames {
             let file = orphanFolder.appendingPathComponent(name)
-            // The item itself (a link isn't followed), and nothing to do when it isn't there.
-            guard let attributes = try? fileManager.attributesOfItem(atPath: file.path) else { continue }
+            guard let found = attributes(file) else { continue }
             do {
                 try fileManager.removeItem(at: file)
                 outcome.files += 1
-                outcome.bytes += (attributes[.size] as? NSNumber)?.int64Value ?? 0
+                outcome.bytes += (found[.size] as? NSNumber)?.int64Value ?? 0
             } catch {
+                failed(error)
+            }
+        }
+
+        let support = orphanFolder.appendingPathComponent(supportFolderName, isDirectory: true)
+        if let found = attributes(support) {
+            if found[.type] as? FileAttributeType == .typeDirectory, holdsOnlyFolders(support) {
+                do {
+                    try fileManager.removeItem(at: support)
+                    outcome.files += 1
+                } catch {
+                    failed(error)
+                }
+            } else {
                 outcome.failures += 1
-                let e = error as NSError
-                log.error("Removing an old store file failed: \(e.domain, privacy: .public) \(e.code, privacy: .public)")
+                log.error("The old store's support folder holds files: kept")
             }
         }
         return outcome
     }
 
-    private static func identity(of folder: URL) -> (any NSObjectProtocol)? {
-        // A fresh URL: resource values are cached per instance.
-        let url = URL(fileURLWithPath: folder.path, isDirectory: true)
-        return (try? url.resourceValues(forKeys: [.fileResourceIdentifierKey]))?.fileResourceIdentifier
+    /// Whether `error` says the item doesn't exist (and nothing else, e.g. no permission to look).
+    static func isMissing(_ error: Error) -> Bool {
+        let e = error as NSError
+        if e.domain == NSCocoaErrorDomain, e.code == NSFileReadNoSuchFileError || e.code == NSFileNoSuchFileError { return true }
+        if e.domain == NSPOSIXErrorDomain, e.code == Int(ENOENT) { return true }
+        return (e.userInfo[NSUnderlyingErrorKey] as? NSError).map(isMissing) ?? false
+    }
+
+    /// Only (empty) folders below `folder`; a link counts as a file, and so does anything that can't be read.
+    private static func holdsOnlyFolders(_ folder: URL) -> Bool {
+        var unreadable = false
+        guard let items = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isDirectoryKey],
+                                                         errorHandler: { _, _ in
+                                                             unreadable = true
+                                                             return false
+                                                         }) else { return false }
+        for case let item as URL in items where (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory != true {
+            return false
+        }
+        return !unreadable
+    }
+
+    /// A folder's identity on disk, links followed: two spellings of one folder (a link to it, `/private/var` for
+    /// `/var`) have the same. `nil` when it can't be read.
+    static func identity(of folder: URL) -> AnyHashable? {
+        // A fresh URL (resource values are cached per instance), resolved first: a link's own identifier is the
+        // link's, not its target's.
+        let url = URL(fileURLWithPath: folder.resolvingSymlinksInPath().path, isDirectory: true)
+        let id = (try? url.resourceValues(forKeys: [.fileResourceIdentifierKey]))?.fileResourceIdentifier
+        return (id as? NSObject).map(AnyHashable.init)
     }
 
     struct Locations: Sendable {

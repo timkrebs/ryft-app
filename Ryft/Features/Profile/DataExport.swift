@@ -52,30 +52,35 @@ enum DataExport {
     static let filePrefix = "RYFT-export-"
     private static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "export")
 
-    /// Writes the archive to a temporary file named `RYFT-export-YYYY-MM-DD.json`. It goes when the share sheet
-    /// closes, at sign-out and at the next launch (`removeFiles`).
-    static func write(_ archive: Archive) throws -> URL {
+    /// Writes the archive to a temporary file named `RYFT-export-YYYY-MM-DD.json` in `folder`. It goes when the
+    /// share sheet is done, at an account change or sign-out, and at the next launch (`removeFiles`).
+    static func write(_ archive: Archive, to folder: URL = FileManager.default.temporaryDirectory) throws -> URL {
         // Its own encoder: the shared one is used by requests concurrently.
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(archive)
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("\(filePrefix)\(DayFormat.string(from: archive.exportedAt)).json")
+        let url = folder.appendingPathComponent("\(filePrefix)\(DayFormat.string(from: archive.exportedAt)).json")
         try data.write(to: url, options: [.atomic, .completeFileProtection])
         return url
     }
 
-    /// Removes every export file in `folder`: all of an account's data shouldn't outlive the share sheet, the
-    /// account on this iPhone, or a crash before either. Returns how many went.
+    /// Removes the export files in `folder`: all of an account's data shouldn't outlive the share sheet, the account
+    /// on this iPhone, or a crash before either. With `writtenBefore`, only files older than that (the launch sweep
+    /// leaves what this run wrote). Returns how many went.
     @discardableResult
-    static func removeFiles(in folder: URL = FileManager.default.temporaryDirectory) -> Int {
+    static func removeFiles(in folder: URL = FileManager.default.temporaryDirectory, writtenBefore cutoff: Date? = nil) -> Int {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
         var removed = 0
         for name in names where name.hasPrefix(filePrefix) && name.hasSuffix(".json") {
+            let file = folder.appendingPathComponent(name)
+            if let cutoff {
+                let written = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date
+                guard let written, written < cutoff else { continue }
+            }
             do {
-                try FileManager.default.removeItem(at: folder.appendingPathComponent(name))
+                try FileManager.default.removeItem(at: file)
                 removed += 1
             } catch {
                 let e = error as NSError
@@ -86,23 +91,31 @@ enum DataExport {
         return removed
     }
 
-    /// At launch, off the main actor: what an earlier run left.
+    /// At launch, off the main actor: what an earlier run left (written before `launch`).
     @concurrent
-    static func removeLeftoverFiles() async {
-        removeFiles()
+    static func removeLeftoverFiles(writtenBefore launch: Date) async {
+        removeFiles(writtenBefore: launch)
     }
 }
 
 /// The system share sheet for a file.
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
-    /// After the chosen activity is done with the items, or the sheet was closed.
+    /// After an activity finished with the items, or the sheet was closed without one (`isDone`).
     var completion: (() -> Void)?
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
         let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
-        controller.completionWithItemsHandler = { [completion] _, _, _, _ in completion?() }
+        controller.completionWithItemsHandler = { [completion] activity, completed, _, _ in
+            if Self.isDone(activity: activity, completed: completed) { completion?() }
+        }
         return controller
+    }
+
+    /// A cancelled activity (Mail → Cancel) returns to the open sheet, where another one (Save to Files) still needs
+    /// the items; the sheet's own dismissal covers the rest.
+    static func isDone(activity: UIActivity.ActivityType?, completed: Bool) -> Bool {
+        completed || activity == nil
     }
 
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}

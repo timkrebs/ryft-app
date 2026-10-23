@@ -59,6 +59,29 @@ Root causes (debugger, tests on `debug/refresh-repro`, cherry-picked into the fi
 4. **"— vs 7 d" wasn't missing data.** It was a flat delta (< 2 %) drawn as a dash. → T2: "Steady vs 7 d".
 5. **The tester couldn't send diagnostics.** `POST /v1/feedback` had no caller. → T3, Profile → Report a problem.
 
+## The store left behind by the App Group move (O1, `fix/orphaned-store`)
+
+Builds before the App Group kept `Train.store` (+ wal/shm) in the app container; sign-out never reached that copy.
+`OrphanedStoreCleanup` deletes it once at launch, after the live store opened, only when it provably isn't the live one.
+Export files go when the share sheet is done, at an account change or sign-out, and at the next launch.
+
+**Simulator-verified** (iPhone 18 Pro simulator, signed Debug build, 2026-10-23):
+- SwiftData copies an app-container store into an empty group container as it opens (md5-identical), and leaves the
+  source; that's why the cleanup runs after the store opened, never before.
+- End to end: a fresh install (store in the group, nothing to remove); an upgrader with a store only in the app container
+  (copied into the group with its data, then the app-container copy removed); an orphan with other data beside a live group
+  store (removed, the live store untouched). An unsigned build (no App Group) deletes nothing (`noGroupContainer`).
+- A store written by the build before `cloudKitDatabase: .none` opens with it, no read-only warning, writes go through.
+
+**Needs your iPhone:** after the update, the real 2.2 MB orphan in the app container's `Library/Application Support` is gone,
+the group store is untouched, and Console (`dev.timkrebs.ryft`, `storage`) shows "Removed the store left behind by the App
+Group move: 3 files, … bytes, 0 failed". Also export once over AirDrop: the file stays until the share sheet closes, then `tmp`
+has no `RYFT-export-*.json`.
+
+**Testers:** TestFlight `20261021.141128` predates the App Group, so its testers keep the store in the app container. The
+next TestFlight build copies it into the group as it opens and leaves the old copy behind, as on your iPhone. Ship O1 in that
+build (or before it): its first launch then removes the copy.
+
 ## Synchronized folders (2026-10-23, #39)
 
 You converted `Ryft/` and `RyftTests/` in Xcode (Convert to Folder), so all four source folders are now synchronized and

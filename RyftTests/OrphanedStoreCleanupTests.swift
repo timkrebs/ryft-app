@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import Ryft
 
@@ -39,6 +40,10 @@ struct OrphanedStoreDecisionTests {
         // A sibling folder whose name only starts like the group's.
         let sibling = URL(fileURLWithPath: "/var/mobile/Containers/Shared/AppGroup/6B1E2/Library/Application Support/Train.store")
         #expect(OrphanedStoreCleanup.decide(live: sibling, orphan: orphan, groupContainer: group) == .keep(.liveOutsideGroup))
+    }
+
+    @Test func theGroupContainerItselfIsntAStoreInsideIt() {
+        #expect(OrphanedStoreCleanup.decide(live: group, orphan: orphan, groupContainer: group) == .keep(.liveOutsideGroup))
     }
 
     @Test func keepsWhenTheOldPathIsInsideTheGroup() {
@@ -165,9 +170,120 @@ struct OrphanedStoreFileTests {
 
         let outcome = OrphanedStoreCleanup.run(live: c.live, orphanFolder: link, groupContainer: c.group)
 
-        #expect(outcome.decision != .delete)
-        #expect(outcome.files == 0)
+        // The paths already resolve to one file.
+        #expect(outcome == OrphanedStoreCleanup.Outcome(decision: .keep(.sameAsLive)))
         #expect(c.liveIsIntact)
+    }
+
+    @Test func aLinkedFolderHasItsTargetsIdentity() throws {
+        let c = try Containers()
+        defer { c.remove() }
+        let link = c.root.appendingPathComponent("Application/LINK", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: c.groupStoreFolder)
+
+        let target = try #require(OrphanedStoreCleanup.identity(of: c.groupStoreFolder))
+        #expect(OrphanedStoreCleanup.identity(of: link) == target)
+        #expect(OrphanedStoreCleanup.identity(of: c.appSupport) != target)
+        #expect(OrphanedStoreCleanup.identity(of: c.root.appendingPathComponent("Missing")) == nil)
+    }
+
+    @Test func deletesNothingWhenTheFoldersAreOneOnDisk() throws {
+        let c = try Containers()
+        defer { c.remove() }
+
+        // The paths differ, but the disk says it's one folder (the second check, on its own).
+        let outcome = OrphanedStoreCleanup.run(live: c.live, orphanFolder: c.appSupport, groupContainer: c.group,
+                                               identity: { _ in AnyHashable("one folder") })
+
+        #expect(outcome == OrphanedStoreCleanup.Outcome(decision: .keep(.sameFolder)))
+        #expect(c.orphanIsIntact)
+        #expect(c.liveIsIntact)
+    }
+
+    @Test func aFileThatCantBeRemovedLeavesItUnfinished() async throws {
+        let c = try Containers()
+        defer { c.remove() }
+        let defaults = try #require(UserDefaults(suiteName: "ryft.test.orphan.\(UUID().uuidString)"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: c.appSupport.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: c.appSupport.path) }
+        let at = OrphanedStoreCleanup.Locations(orphanFolder: c.appSupport, groupContainer: c.group)
+
+        let result = await OrphanedStoreCleanup.runOnce(live: c.live, defaults: defaults) { at }
+        let outcome = try #require(result)
+
+        #expect(outcome.decision == .delete)
+        #expect(outcome.failures == 3 && outcome.files == 0)
+        #expect(!outcome.finished)
+        #expect(!defaults.bool(forKey: OrphanedStoreCleanup.doneKey))
+        #expect(c.orphanIsIntact)
+    }
+
+    @Test func aFileThatCantBeLookedAtIsntTakenAsGone() throws {
+        let c = try Containers()
+        defer { c.remove() }
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: c.appSupport.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: c.appSupport.path) }
+
+        let outcome = OrphanedStoreCleanup.run(live: c.live, orphanFolder: c.appSupport, groupContainer: c.group)
+
+        #expect(outcome.decision == .delete)
+        #expect(outcome.failures > 0 && outcome.files == 0)
+        #expect(!outcome.finished)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: c.appSupport.path)
+        #expect(c.orphanIsIntact)
+    }
+
+    @Test func removesAnEmptySupportFolder() throws {
+        let c = try Containers()
+        defer { c.remove() }
+        let support = c.appSupport.appendingPathComponent(".Train_SUPPORT/_EXTERNAL_DATA", isDirectory: true)
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+
+        let outcome = OrphanedStoreCleanup.run(live: c.live, orphanFolder: c.appSupport, groupContainer: c.group)
+
+        #expect(outcome.files == 4 && outcome.failures == 0)
+        #expect(outcome.finished)
+        #expect(c.names(in: c.appSupport) == ["Notes.store", "readiness.json"])
+    }
+
+    @Test func keepsASupportFolderWithFiles() throws {
+        let c = try Containers()
+        defer { c.remove() }
+        let support = c.appSupport.appendingPathComponent(".Train_SUPPORT/_EXTERNAL_DATA", isDirectory: true)
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        try c.write("blob", in: support, bytes: 10, fill: 0x04)
+
+        let outcome = OrphanedStoreCleanup.run(live: c.live, orphanFolder: c.appSupport, groupContainer: c.group)
+
+        #expect(outcome.files == 3 && outcome.failures == 1)
+        #expect(!outcome.finished)
+        #expect(c.names(in: support) == ["blob"])
+    }
+
+    @Test func keepsASupportFolderItCantLookInto() throws {
+        let c = try Containers()
+        defer { c.remove() }
+        let inner = c.appSupport.appendingPathComponent(".Train_SUPPORT/_EXTERNAL_DATA", isDirectory: true)
+        try FileManager.default.createDirectory(at: inner, withIntermediateDirectories: true)
+        // Empty, maybe: it can't be listed, so that's not known.
+        try FileManager.default.setAttributes([.posixPermissions: 0o300], ofItemAtPath: inner.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: inner.path) }
+
+        let outcome = OrphanedStoreCleanup.run(live: c.live, orphanFolder: c.appSupport, groupContainer: c.group)
+
+        #expect(outcome.files == 3 && outcome.failures == 1)
+        #expect(!outcome.finished)
+        #expect(FileManager.default.fileExists(atPath: inner.path))
+    }
+
+    @Test func onlyAMissingFileCountsAsGone() {
+        let posix = { (code: Int32) in NSError(domain: NSPOSIXErrorDomain, code: Int(code)) }
+        #expect(OrphanedStoreCleanup.isMissing(NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)))
+        #expect(OrphanedStoreCleanup.isMissing(posix(ENOENT)))
+        let wrapped = NSError(domain: NSCocoaErrorDomain, code: NSFileReadUnknownError, userInfo: [NSUnderlyingErrorKey: posix(ENOENT)])
+        #expect(OrphanedStoreCleanup.isMissing(wrapped))
+        #expect(!OrphanedStoreCleanup.isMissing(NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError)))
+        #expect(!OrphanedStoreCleanup.isMissing(posix(EACCES)))
     }
 
     @Test func deletesNothingWhenTheLiveFolderCantBeCompared() throws {
@@ -234,30 +350,18 @@ struct OrphanedStoreOnceTests {
     }
 }
 
-@Suite("Data export: temporary files")
-struct DataExportFileTests {
-    @Test func removesOnlyExportFiles() throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("export-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        // (The simulator's file system ignores case, so no lower-case twin.)
-        let names = ["RYFT-export-2026-10-22.json", "RYFT-export-2026-10-23.json", "RYFT-export-notes.txt", "other.json",
-                     "RYFT-export-2026-10-24.jsonl"]
-        for name in names { try Data("{}".utf8).write(to: folder.appendingPathComponent(name)) }
-
-        #expect(DataExport.removeFiles(in: folder) == 2)
-        let left = try Set(FileManager.default.contentsOfDirectory(atPath: folder.path))
-        #expect(left == ["RYFT-export-notes.txt", "other.json", "RYFT-export-2026-10-24.jsonl"])
-        #expect(DataExport.removeFiles(in: folder) == 0)
+@Suite("Train store: where it lives")
+@MainActor
+struct TrainStoreLocationTests {
+    @Test func aStoreInMemoryHasNoFile() {
+        #expect(TrainStore(inMemory: true).storeURL == nil)
     }
 
-    @Test func aWrittenExportIsRemoved() throws {
-        let archive = DataExport.Archive(exportedAt: .now, app: "RYFT test", user: nil, days: [], workouts: [], sessions: [])
-        let url = try DataExport.write(archive)
-        #expect(url.lastPathComponent.hasPrefix(DataExport.filePrefix))
-
-        DataExport.removeFiles(in: url.deletingLastPathComponent())
-
-        #expect(!FileManager.default.fileExists(atPath: url.path))
+    /// `CloudKitDatabase` isn't `Equatable`; its descriptions tell `.none` and `.automatic` apart.
+    @Test func neverCloudKit() throws {
+        let config = try #require(TrainStore(inMemory: true).container.configurations.first)
+        let none = String(describing: ModelConfiguration.CloudKitDatabase.none)
+        #expect(none != String(describing: ModelConfiguration.CloudKitDatabase.automatic))
+        #expect(String(describing: config.cloudKitDatabase) == none)
     }
 }

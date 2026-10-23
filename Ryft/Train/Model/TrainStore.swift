@@ -26,14 +26,18 @@ final class TrainStore {
         // A move to `groupContainer: .none` resolves to exactly that old path: it must delete (or deliberately migrate)
         // whatever is there before the container opens, or it reopens an earlier account's read models and pending
         // uploads, which sign-out never wiped.
+        //
+        // Never CloudKit: `.automatic` would start mirroring the health read models to iCloud the day the app gets an
+        // iCloud capability.
         let config = ModelConfiguration(inMemory ? "Train-\(UUID().uuidString)" : "Train", schema: Self.schema,
-                                        isStoredInMemoryOnly: inMemory, groupContainer: .automatic)
+                                        isStoredInMemoryOnly: inMemory, groupContainer: .automatic, cloudKitDatabase: .none)
         do {
             container = try ModelContainer(for: Self.schema, configurations: config)
         } catch {
             // A store that can't be opened must not keep the app from launching.
             Self.log.error("Train store unavailable, using memory: \(error.localizedDescription, privacy: .public)")
-            let memory = ModelConfiguration("TrainFallback", schema: Self.schema, isStoredInMemoryOnly: true)
+            let memory = ModelConfiguration("TrainFallback", schema: Self.schema, isStoredInMemoryOnly: true,
+                                            cloudKitDatabase: .none)
             do {
                 container = try ModelContainer(for: Self.schema, configurations: memory)
             } catch {

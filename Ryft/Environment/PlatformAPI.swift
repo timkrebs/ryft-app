@@ -437,8 +437,12 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     // MARK: screens
 
+    /// Runs before `me()` answers (tests hold an export's archive open with it).
+    var beforeMe: (@Sendable () async -> Void)?
+
     func me() async throws -> User {
         try enter("me")
+        await beforeMe?()
         if let patched = lock.withLock({ patchedUser }) { return withAccount(patched) }
         return withAccount(try await screens.me())
     }
