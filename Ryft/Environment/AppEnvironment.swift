@@ -27,12 +27,19 @@ final class AppEnvironment {
     let defaults: UserDefaults
     /// Concrete so SwiftUI can observe it; services read it as `Connectivity`.
     let connectivityMonitor: ConnectivityMonitor
+    /// ryftapp.de's static files (the tracker catalog): no auth, outside the read pipeline (ADR 0002).
+    /// Only the live graph reaches the web; every other graph answers like a phone without a connection.
+    let content: ContentSource
+    /// Small files of the content above (the catalog's crash marker); a fresh directory for each test graph.
+    let contentDirectory: URL
 
     var connectivity: Connectivity { connectivityMonitor }
     /// The read pipeline (ADR 0001): every scheduled read of the platform shares its coalescing,
     /// retries, budget and per-resource record, whoever asks (Repository, journal, flags, Train,
     /// onboarding).
     lazy var reads = ReadScheduler(env: self)
+    /// The tracker catalog: bundled, or the newest valid copy from ryftapp.de (`trackerCatalog`).
+    lazy var catalogStore = TrackerCatalogStore(env: self)
     /// Fixed for previews (on) and tests (off); live follows the Demo data switch.
     private let demoOverride: Bool?
 
@@ -44,8 +51,11 @@ final class AppEnvironment {
 
     init(settings: Settings, health: HealthStore, liveAPI: PlatformAPI, demoAPI: PlatformAPI, auth: AuthService,
          persistence: Persistence, clock: AppClock, notifier: Notifier, flags: FeatureFlagProvider,
-         connectivity: ConnectivityMonitor, defaults: UserDefaults = .standard, demoOverride: Bool? = nil) {
+         connectivity: ConnectivityMonitor, defaults: UserDefaults = .standard, demoOverride: Bool? = nil,
+         content: ContentSource = MockContentSource(), contentDirectory: URL? = nil) {
         self.demoOverride = demoOverride
+        self.content = content
+        self.contentDirectory = contentDirectory ?? Self.temporaryContentDirectory()
         self.defaults = defaults
         self.settings = settings
         self.health = health
@@ -63,7 +73,13 @@ final class AppEnvironment {
     static let live = AppEnvironment(
         settings: .shared, health: HealthKitManager.shared, liveAPI: APIClient.shared, demoAPI: MockPlatformAPI(),
         auth: .shared, persistence: TrainStore.shared, clock: SystemClock(), notifier: SystemNotifier(),
-        flags: FlagStore.shared, connectivity: .shared)
+        flags: FlagStore.shared, connectivity: .shared, content: WebContentSource(),
+        contentDirectory: URL.applicationSupportDirectory.appendingPathComponent("Content", isDirectory: true))
+
+    /// Previews and tests: a directory of their own that nothing else reads.
+    private static func temporaryContentDirectory() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("ryft-content-\(UUID().uuidString)", isDirectory: true)
+    }
 
     /// Previews: signed in, mock data, nothing leaves the process.
     static func preview(online: Bool = true, auth: AuthService? = nil,
@@ -84,13 +100,14 @@ final class AppEnvironment {
     static func test(api: MockPlatformAPI = MockPlatformAPI(), health: MockHealthStore = MockHealthStore(),
                      clock: TestClock = TestClock(), notifier: MockNotifier? = nil,
                      auth: AuthService? = nil, flags: [FeatureFlag: Bool] = [:],
-                     online: Bool = true) -> AppEnvironment {
+                     online: Bool = true, content: MockContentSource = MockContentSource()) -> AppEnvironment {
         api.now = { clock.now() }
         let env = AppEnvironment(
             settings: .shared, health: health, liveAPI: api, demoAPI: api, auth: auth ?? .preview(),
             persistence: TrainStore(inMemory: true), clock: clock, notifier: notifier ?? MockNotifier(),
             flags: StaticFlags(flags), connectivity: .preview(online: online),
-            defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard, demoOverride: false)
+            defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard, demoOverride: false,
+            content: content)
         // Time moves only when a test advances it: retries wait no jitter, and the starts-per-second
         // window doesn't hold back reads issued at one instant. Suites about retry timing and the
         // budget set their own (`reads.random`, `reads.budget`).

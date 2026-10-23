@@ -3,12 +3,13 @@ import SwiftUI
 
 /// Profile → Developer → Feature flags (Debug builds only): every flag, its value
 /// and where that value comes from (compiled default, the platform, or a local
-/// override), an override per flag, and a reload of `GET /v1/config`.
+/// override), an override per flag, and a reload of `GET /v1/config`; the tracker catalog and its reload.
 struct FeatureFlagsDebugView: View {
     @Environment(\.appEnvironment) private var env
     @Environment(ScreenModels.self) private var screens
     @State private var reloading = false
     @State private var reloadResult: String?
+    @State private var reloadingCatalog = false
 
     private var store: FlagStore? { env.flags as? FlagStore }
 
@@ -27,6 +28,7 @@ struct FeatureFlagsDebugView: View {
                 if store?.overrides.isEmpty == false {
                     PrimaryButton(title: "Clear all overrides", style: .secondary) { store?.clearOverrides() }
                 }
+                catalog
             }
             .padding(Theme.Metrics.screenPadding)
         }
@@ -56,6 +58,29 @@ struct FeatureFlagsDebugView: View {
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textSecondary)
                 }
+            }
+        }
+    }
+
+    /// The tracker catalog (`devices.setup`): which copy shows, when ryftapp.de was asked, why it was refused.
+    private var catalog: some View {
+        let store = env.catalogStore
+        return Card {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(verbatim: "Tracker catalog")
+                    .font(.ryft(.headline))
+                    .foregroundStyle(Theme.textPrimary)
+                Text(verbatim: store.diagnosticLine)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(Theme.textSecondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                PrimaryButton(title: "Reload tracker catalog", style: .secondary, busy: reloadingCatalog) {
+                    reloadingCatalog = true
+                    await store.refreshIfDue(force: true)
+                    reloadingCatalog = false
+                }
+                .accessibilityIdentifier("dev.reloadCatalog")
             }
         }
     }
