@@ -57,3 +57,39 @@ no time zone. Exercise order and names in the source app can change between expo
 - **New formats** (header-row CSVs) reuse the recipe with their own `ImportFormatID`. That id is part of every name, so
   it can't be renamed later.
 - `ImportIDsTests` pins the RFC test vector and fixed ids for the synthetic fixtures; a recipe change fails them.
+
+## Amendment 1 (2026-10-23): the source-exercise key is vocabulary-free
+
+**Context.** I3's review found that the custom-exercise id and the `ImportMapping` key were built from the *matching*
+normalisation. That normalisation uses the editable alias file: synonyms, equipment phrases, plural rules. Editing
+`exercise-aliases.json` would then have changed ids and orphaned remembered choices. For example, adding `landmine` as an
+equipment word would turn "Landmine Press · Landmine" from `landmine press|landmine` into `press|landmine`, creating a
+second custom exercise and splitting its history.
+
+**Decision.** `SourceExerciseKey` is computed only by `fold`, a fixed Unicode clean-up that never reads the vocabulary:
+- `name` = `fold(name)`;
+- `equipment` = `fold(field)`, or "" when the field is missing or empty. It is never the vocabulary's canonical equipment id.
+
+`fold(text)`, in this order:
+1. On the raw scalars: any White_Space becomes U+0020. Drop every scalar of category Cc or Cf, every
+   Default_Ignorable_Code_Point, and the apostrophes U+0027, U+0060, U+00B4, U+02B9, U+02BB, U+02BC, U+02BD, U+2018,
+   U+2019, U+201B, U+2032 and U+FF07.
+2. NFKC.
+3. Unicode default lowercase mapping, with no locale. No diacritic folding; ß stays ß.
+4. Each run of scalars that aren't letters, marks or numbers (L*, M*, N*) becomes one U+0020, after dropping step 1's set
+   again. No leading or trailing space.
+5. No sorting, no deduplication, no length cap.
+
+The id recipe is unchanged:
+- custom exercise = UUIDv5(account namespace, `exercise␟<source>␟<key.name>␟<key.equipment>`);
+- an `ImportMapping` row is keyed by (account, source, key.name, key.equipment).
+
+The alias vocabulary is used **only** for matching, and for a custom exercise's kind and load type.
+
+**Consequences.**
+- Editing `exercise-aliases.json` can never change an id or orphan a remembered choice.
+- `RyftTests/Fixtures/Import/source-keys.golden.json` pins 1,029 keys: every alias name, built-in name, fixture name and
+  equipment spelling. An independent Python implementation of `fold` agrees on all of them.
+- Only a change to `fold` itself is a breaking id change, and it needs a new amendment and a migration of remembered rows.
+- **Accepted cost:** two spellings of the same equipment ("Barbell" / "Langhantel") make two step-4 rows and two custom
+  exercises if both are new. Within one export app spellings are consistent, so this is rare.
