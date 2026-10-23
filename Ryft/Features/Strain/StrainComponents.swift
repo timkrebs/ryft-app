@@ -1,29 +1,27 @@
 import SwiftUI
 
-/// Icon and display name per `Workout.activity` (names from HealthKitManager.activityName).
+/// Icon and display name per `Workout.activity` (names from HealthKitManager.activityName). The sport
+/// catalogue (`Sport`) comes first; this keeps only what has no sport.
 enum ActivityStyle {
     static func icon(for activity: String) -> String {
+        if let sport = Sport(healthKitActivity: activity) { return sport.symbol }
         switch activity {
-        case "running": return "figure.run"
-        case "walking": return "figure.walk"
-        case "hiking": return "figure.hiking"
-        case "cycling": return "figure.outdoor.cycle"
-        case "swimming": return "figure.pool.swim"
-        case "rowing": return "figure.rower"
         case "elliptical": return "figure.elliptical"
         case "stairs": return "figure.stair.stepper"
-        case "strength", "functional_strength": return "dumbbell.fill"
-        case "crossfit", "hiit": return "figure.highintensity.intervaltraining"
-        case "yoga": return "figure.yoga"
         case "core": return "figure.core.training"
-        case "soccer": return "figure.soccer"
-        case "tennis": return "figure.tennis"
         case "xc_skiing": return "figure.skiing.crosscountry"
-        case "skiing": return "figure.skiing.downhill"
         case "snowboarding": return "figure.snowboarding"
         case "cooldown": return "figure.cooldown"
         default: return "figure.mixed.cardio"
         }
+    }
+
+    /// My Day's name for a workout (and Strain's list behind `today.my_day`): the catalogue's, so a tracker's run
+    /// and a RYFT run read the same; "Workout" for a tracker's unspecified one. `name(for:)` keeps the shipped
+    /// names until the flag goes.
+    static func title(for activity: String) -> String {
+        if activity != "other", let sport = Sport(healthKitActivity: activity) { return sport.name }
+        return name(for: activity)
     }
 
     static func name(for activity: String) -> String {

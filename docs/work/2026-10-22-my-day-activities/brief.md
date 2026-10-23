@@ -69,7 +69,7 @@ far as context, big **Start**. Indoor sports skip the map and use the pedometer.
 - **Indoor / no GPS:** `CMPedometer` distance and cadence.
 - **Auto-pause** (optional setting, default on for running/cycling): speed below a threshold for 10 s; manual pause/resume
   always available.
-- **Heart rate live (optional, behind flag `activity.liveHR`):** the phone has no heart rate. If the user has a BLE heart-rate
+- **Heart rate live (optional, behind flag `activity.live_hr`):** the phone has no heart rate. If the user has a BLE heart-rate
   sensor or a watch that can broadcast heart rate (standard Bluetooth Heart Rate service 0x180D), connect via Core
   Bluetooth and show live HR. Otherwise show "Heart rate is added after your tracker syncs." Never fake HR.
 - **Crash-safe:** checkpoint every 30 s to the user's SwiftData store (points, splits, state); a killed app resumes the
