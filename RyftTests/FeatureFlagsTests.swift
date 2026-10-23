@@ -72,6 +72,20 @@ struct FlagStoreTests {
         #expect(flags.overrides.isEmpty && !flags.isOn(.coachEnabled))
     }
 
+    /// `-RyftFlags devices.setup` is on for its launch only: toggling another flag saves the overrides without it, and
+    /// the next launch without the argument has it off.
+    @Test func aLaunchFlagIsNeverSaved() {
+        defaults.set("devices.setup, nonsense", forKey: FlagStore.launchFlagsKey) // the argument domain, in a test
+        let launched = FlagStore(store: store, defaults: defaults)
+        #expect(launched.isOn(.devicesSetup) && launched.source(of: .devicesSetup) == .override)
+        launched.setOverride(.syncGzip, true)
+        #expect((defaults.dictionary(forKey: FlagStore.overridesKey) as? [String: Bool]) == ["sync.gzip": true])
+        defaults.removeObject(forKey: FlagStore.launchFlagsKey)
+        let next = FlagStore(store: store, defaults: defaults)
+        #expect(!next.isOn(.devicesSetup) && next.source(of: .devicesSetup) == .compiled)
+        #expect(next.isOn(.syncGzip))
+    }
+
     @Test func theConfigIsCachedForTheNextLaunch() {
         FlagStore(store: store, defaults: defaults).apply(config, fetchedAt: .now)
         let relaunched = FlagStore(store: store, defaults: defaults)

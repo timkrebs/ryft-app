@@ -46,6 +46,10 @@ Store "What's New".
   show, per tracker, what reaches RYFT through Apple Health and what that means for Strain, Sleep,
   Recovery and Readiness, how to set it up and keep it flowing, and what Apple Health has seen.
   Ships dark behind the remote flag `devices.setup` until it's turned on.
+- Check sync shows whether your tracker's data arrives in Apple Health, signal by signal over the last 48
+  hours: what arrived and when, what your tracker doesn't share (that's normal), and the fix for what should
+  arrive and doesn't. The check uploads nothing. Report a problem includes the check's result codes when you
+  include diagnostics.
 
 ### Changed
 - Your baseline sleep need and maximum heart rate can be changed where you see them: in

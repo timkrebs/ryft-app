@@ -667,6 +667,150 @@ struct DayMarker: View {
     }
 }
 
+/// One signal in Check sync (ui.md §5.2): glyph, name and result, every state with its own symbol and words,
+/// never colour alone. Not tappable. At accessibility sizes the result goes under the name.
+struct CheckRow: View {
+    enum Kind: Equatable {
+        case waiting, checking
+        /// Arrived: the one accent.
+        case ok
+        /// Not shared by the tracker: a neutral fact, never red or amber.
+        case expected
+        /// Not seen yet, or from another tracker: nothing promised.
+        case neutral
+        /// A nightly signal last seen before last night.
+        case late
+        /// Should arrive and doesn't: amber, with the fix under it.
+        case fix
+
+        var symbol: String {
+            switch self {
+            case .waiting: return "circle"
+            case .checking: return "circle.dotted"
+            case .ok: return "checkmark.circle.fill"
+            case .expected: return "minus.circle"
+            case .neutral: return "circle.dashed"
+            case .late: return "clock"
+            case .fix: return "exclamationmark.circle"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .ok: return Theme.accent
+            case .fix: return Theme.warning
+            case .checking, .late: return Theme.textSecondary
+            case .waiting, .expected, .neutral: return Theme.textTertiary
+            }
+        }
+    }
+
+    let name: String
+    let result: String
+    let kind: Kind
+    /// VoiceOver's value ("Arriving, last 07:42"); the result when nil.
+    var spoken: String?
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// 20 pt glyphs in a 24 pt column at the default size, growing with the text.
+    @ScaledMetric(relativeTo: .callout) private var glyphSize: CGFloat = 17
+    @ScaledMetric(relativeTo: .callout) private var glyphWidth: CGFloat = 24
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: kind.symbol)
+                .font(.system(size: glyphSize, weight: .regular))
+                .foregroundStyle(kind.color)
+                .frame(width: glyphWidth)
+                // The status line's pulse while checking; static under Reduce Motion ("checking…" says it).
+                .symbolEffect(.pulse, options: .repeating, isActive: kind == .checking && !reduceMotion)
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 2) {
+                    nameText
+                    resultText
+                }
+            } else {
+                nameText
+                Spacer(minLength: 8)
+                resultText.multilineTextAlignment(.trailing)
+            }
+        }
+        .frame(minHeight: 44)
+        .animation(Theme.Motion.respecting(reduceMotion), value: kind)
+        .animation(Theme.Motion.respecting(reduceMotion), value: result)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: name))
+        .accessibilityValue(Text(verbatim: spoken ?? result))
+    }
+
+    private var nameText: some View {
+        Text(verbatim: name)
+            .font(.ryft(.callout))
+            .foregroundStyle(Theme.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var resultText: some View {
+        Text(verbatim: result)
+            .font(.ryft(.callout))
+            .monospacedDigit()
+            .foregroundStyle(Theme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .contentTransition(.opacity)
+    }
+}
+
+extension CheckRow.Kind {
+    /// A check's row: arrived is the one accent, an expected gap neutral, only an unexpected one amber.
+    init(_ check: SignalCheck) {
+        switch check {
+        case .waiting: self = .waiting
+        case .checking: self = .checking
+        case .arrived: self = .ok
+        case .notLastNight: self = .late
+        case .notShared: self = .expected
+        case .notSeenYet, .elsewhere: self = .neutral
+        case .missing: self = .fix
+        }
+    }
+}
+
+#Preview("Check row · states", traits: .sizeThatFitsLayout) {
+    SchemePair { CheckRowPreview() }
+}
+
+#Preview("Check row · de · AX3", traits: .sizeThatFitsLayout) {
+    CheckRowPreview()
+        .padding(20)
+        .frame(width: 390)
+        .background(Theme.background)
+        .environment(\.locale, Locale(identifier: "de_DE"))
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+/// Every kind once, worded in the preview's locale (`TrackerCheckText`).
+private struct CheckRowPreview: View {
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        let text = TrackerCheckText(locale: locale)
+        let now = Date.now
+        let rows: [(TrackerSignal, SignalCheck)] = [
+            (.heartRate, .arrived(now.addingTimeInterval(-1_200))), (.hrv, .notShared), (.sleep, .arrived(now)),
+            (.sleepStages, .notSeenYet), (.restingHR, .missing(visible: true)),
+            (.respiratoryRate, .notLastNight(lastSeen: now.addingTimeInterval(-34 * 3_600))),
+            (.workouts, .checking), (.steps, .waiting),
+        ]
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(rows, id: \.0) { signal, check in
+                CheckRow(name: text.name(signal), result: text.result(check, signal: signal, app: "Garmin Connect", now: now),
+                         kind: CheckRow.Kind(check))
+            }
+        }
+    }
+}
+
 /// Setup card for the unconfigured state.
 struct SetupCard: View {
     var action: () -> Void

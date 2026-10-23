@@ -21,6 +21,8 @@ final class FlagStore: FeatureFlagProvider {
                                   demo: Settings.shared.demoMode)
 
     static let overridesKey = "flags.overrides"
+    /// Debug launch argument: flags turned on for one launch.
+    static let launchFlagsKey = "RyftFlags"
     /// Until the platform said otherwise (API.md: `ttl_sec` 21600).
     static let defaultTTL: TimeInterval = 6 * 3600
 
@@ -45,6 +47,8 @@ final class FlagStore: FeatureFlagProvider {
     private(set) var fetchedAt: Date?
     private(set) var ttl: TimeInterval = FlagStore.defaultTTL
     private(set) var overrides: [FeatureFlag: Bool] = [:]
+    /// `-RyftFlags`: on for this launch only. Kept apart from `overrides`, so saving those never stores them.
+    private(set) var launchFlags: Set<FeatureFlag> = []
     /// Arrived while screens were showing; applied on the next appearance.
     @ObservationIgnored private(set) var pending: Cached?
 
@@ -57,17 +61,21 @@ final class FlagStore: FeatureFlagProvider {
         #if DEBUG
         let saved = defaults.dictionary(forKey: Self.overridesKey) as? [String: Bool] ?? [:]
         overrides = Dictionary(uniqueKeysWithValues: saved.compactMap { k, v in FeatureFlag(rawValue: k).map { ($0, v) } })
+        // `-RyftFlags devices.setup,sync.gzip`: these on for this launch (device tests), never saved.
+        launchFlags = Set((defaults.string(forKey: Self.launchFlagsKey) ?? "").split(separator: ",")
+            .compactMap { FeatureFlag(rawValue: $0.trimmingCharacters(in: .whitespaces)) })
         #endif
     }
 
     // MARK: FeatureFlagProvider
 
     func isOn(_ flag: FeatureFlag) -> Bool {
-        overrides[flag] ?? remote[flag.rawValue] ?? flag.compiledDefault
+        if launchFlags.contains(flag) { return true }
+        return overrides[flag] ?? remote[flag.rawValue] ?? flag.compiledDefault
     }
 
     func source(of flag: FeatureFlag) -> FlagSource {
-        if overrides[flag] != nil { return .override }
+        if launchFlags.contains(flag) || overrides[flag] != nil { return .override }
         return remote[flag.rawValue] != nil ? .remote : .compiled
     }
 

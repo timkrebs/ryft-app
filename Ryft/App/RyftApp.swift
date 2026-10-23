@@ -496,6 +496,8 @@ enum DebugScreen: String {
     /// "What do you wear?", the setup screen after Apple Health, Profile → Devices & sync, and one tracker's card
     /// (`-RyftTrackers garmin,oura` picks, `-RyftTracker fitbit` the card, `-RyftScrollBottom YES` starts at the end).
     case wear, trackerSetup = "tracker-setup", devices, trackerCard = "tracker-card"
+    /// Check sync, pushed; with `-RyftSyncCheck <scenario>` in demo mode (`SyncCheckScenario`).
+    case syncCheck = "sync-check"
 
     static var requested: DebugScreen? {
         UserDefaults.standard.string(forKey: "RyftScreen").flatMap(DebugScreen.init(rawValue:))
@@ -528,6 +530,8 @@ enum DebugScreen: String {
             DebugRefreshDetails()
         case .wear, .trackerSetup, .devices, .trackerCard:
             DebugDevices(screen: self)
+        case .syncCheck:
+            DebugSyncCheck()
         }
     }
 
@@ -642,8 +646,9 @@ private struct DebugDevices: View {
         // `-RyftScrollBottom YES`: the end of a long card (its store button) for a capture.
         .defaultScrollAnchor(UserDefaults.standard.bool(forKey: "RyftScrollBottom") ? .bottom : .top)
         .task {
-            // The demo choice is an Apple Watch, which needs no setup: the setup screen shows two that do.
-            if screen == .trackerSetup, UserDefaults.standard.string(forKey: "RyftTrackers") == nil {
+            // The demo choice is an Apple Watch, which needs no setup: the setup screen shows two that do. A real
+            // account shows its own choice (or `-RyftTrackers`), nothing staged.
+            if env.isDemo, screen == .trackerSetup, UserDefaults.standard.string(forKey: "RyftTrackers") == nil {
                 screens.devices.stage(["garmin", "oura"])
             }
             ready = true
@@ -655,6 +660,16 @@ private struct DebugDevices: View {
         let catalog = env.trackerCatalog
         let id = UserDefaults.standard.string(forKey: "RyftTracker") ?? screens.devices.trackers.first ?? "garmin"
         return catalog.tracker(id) ?? MockData.tracker("garmin")
+    }
+}
+
+/// Check sync as Devices & sync pushes it; the scenario picks the trackers in demo mode.
+private struct DebugSyncCheck: View {
+    @Environment(\.appEnvironment) private var env
+    @Environment(ScreenModels.self) private var screens
+
+    var body: some View {
+        NavigationStack { TrackerCheckView(model: .make(env: env, trackers: screens.devices.trackers)) }
     }
 }
 

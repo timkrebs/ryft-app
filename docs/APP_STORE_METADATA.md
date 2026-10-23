@@ -158,7 +158,7 @@ Must match `PrivacyInfo.xcprivacy` and the code (security-privacy-reviewer check
 | Identifiers → User ID | Yes | Yes | No | App Functionality |
 | Identifiers → Device ID (install ID sent with sync) | Yes | Yes | No | App Functionality |
 | User Content → Other (workout notes, journal answers, workout logs, feedback text) | Yes | Yes | No | App Functionality |
-| Diagnostics → Other Diagnostic Data (Report a problem → "Include diagnostics": app version, device, iOS, locale, the last 20 requests without query strings and with their durations, per area (Today, History, Profile …) the last load time and the last error's status, code and request ID, sync phase and counts with day-precision dates, gates, flags; with tracker setup on, the tracker ids chosen, never device names) | Yes, when the user sends a report with diagnostics on (the default) | Yes | No | App Functionality |
+| Diagnostics → Other Diagnostic Data (Report a problem → "Include diagnostics": app version, device, iOS, locale, the last 20 requests without query strings and with their durations, per area (Today, History, Profile …) the last load time and the last error's status, code and request ID, sync phase and counts with day-precision dates, gates, flags; with tracker setup on, the tracker ids chosen, never device names, and the last Check sync: its day and, per tracker, a result code per data type (no values, times or source names)) | Yes, when the user sends a report with diagnostics on (the default) | Yes | No | App Functionality |
 | Diagnostics → Crash Data | No | — | — | — |
 
 Request durations are declared as Other Diagnostic Data, not Performance Data: they are network-diagnostic timings
