@@ -1,0 +1,38 @@
+this is not part of any export
+1;50;10
+#;KG;REPS
+"Upper · Standalone workout";"2026-03-29 2:30 am";"30 min";
+"1. Floor Press; Close Grip · Barbell · 8 reps"
+1;60;8
+2;62,5;8
+"2. Chin-Ups · Bodyweight · 8 reps"
+#;KG;REPS
+1;-20;8
+2;-15;6;
+"3. Plank · Bodyweight"
+#;SEC;REPS
+1;60;1
+"Lower · Standalone workout";"2026-10-25 2:30 am";"45 min"
+"1. Front Squat · Barbell · 5 reps"
+#;KG;REPS;RPE
+1;70;5;8
+"2. Leg Extension · Machine · 12 reps"
+#;KG;REPS
+1;1.234,5;12
+2;2000;12
+3;40;1e3
+4;40;12
+5;40;5000
+random garbage ;;; here
+"Evening · Standalone workout";"2026-04-02 16:41 pm";"about an hour"
+"1. Face Pull · Cable · 10 reps
+#;KG;REPS
+1;45;10
+"Day 3 · Legs"
+"Broken · Standalone workout";"2026-02-30 9:00 am";"30 min"
+"1. Cable Crunch · Cable · 10 reps"
+#;KG;REPS
+1;40;10
+"Late · Standalone workout";"2026-04-03 23:59";"25 hr"
+"1. Hip Abduction · Machine"
+#;KG;REPS1;100;15

@@ -707,6 +707,17 @@
         }
       }
     },
+    "A 24-hour time with am or pm: RYFT used the 24-hour time" : {
+      "comment" : "Import warning, after \"Line N\", e.g. for 16:41 pm.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine 24-Stunden-Zeit mit am oder pm: RYFT nimmt die 24-Stunden-Zeit"
+          }
+        }
+      }
+    },
     "A few minutes now saves a silent week of missing data." : {
       "comment" : "Text of the setup screen after Apple Health access.",
       "localizations" : {
@@ -738,6 +749,17 @@
         }
       }
     },
+    "A number here couldn't be read and was left out" : {
+      "comment" : "Import warning, after \"Line N\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Zahl hier konnte nicht gelesen werden und wurde ausgelassen"
+          }
+        }
+      }
+    },
     "A proxy answered before RYFT did." : {
       "localizations" : {
         "de" : {
@@ -754,6 +776,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ein echter Wecker: Er klingelt auch im Stumm-Modus und bei Fokus, mit Stopp und Schlummern."
+          }
+        }
+      }
+    },
+    "A value here is too large to be right and was left out" : {
+      "comment" : "Import warning, after \"Line N\": over 1,000 kg, 1,000 reps or 24 hours.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Wert hier ist zu groß, um zu stimmen, und wurde ausgelassen"
           }
         }
       }
@@ -977,6 +1010,10 @@
         }
       }
     },
+    "Alpha Progression" : {
+      "comment" : "The app an imported file came from (a data source, named factually).",
+      "shouldTranslate" : false
+    },
     "Always yours" : {
       "localizations" : {
         "de" : {
@@ -1130,6 +1167,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "geschlafen"
+          }
+        }
+      }
+    },
+    "Assisted weight isn't imported, reps are" : {
+      "comment" : "Import note, after \"Line N\": a negative load such as -20.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entlastungsgewicht wird nicht importiert, die Wiederholungen schon"
           }
         }
       }
@@ -2757,6 +2805,17 @@
         }
       }
     },
+    "No duration: 60 min assumed" : {
+      "comment" : "Import note, after \"Line N\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Dauer: 60 Min. angenommen"
+          }
+        }
+      }
+    },
     "No health values: no scores, no sleep, heart or workout data, and no times of day from Apple Health." : {
       "localizations" : {
         "de" : {
@@ -2814,6 +2873,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Keine Fehler"
+          }
+        }
+      }
+    },
+    "No kg or lb header here: RYFT assumed kg" : {
+      "comment" : "Import warning, after \"Line N\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hier fehlt eine kg/lb-Kopfzeile: RYFT nimmt kg an"
+          }
+        }
+      }
+    },
+    "No kg or lb header here: RYFT assumed lb" : {
+      "comment" : "Import warning, after \"Line N\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hier fehlt eine kg/lb-Kopfzeile: RYFT nimmt lb an"
           }
         }
       }
@@ -3820,6 +3901,17 @@
         }
       }
     },
+    "RYFT can't read these columns yet, so this exercise's sets were skipped" : {
+      "comment" : "Import warning, after \"Line N\": a set table with other columns than weight and reps.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT kann diese Spalten noch nicht lesen, daher wurden die Sätze dieser Übung übersprungen"
+          }
+        }
+      }
+    },
     "RYFT couldn't take that change. Try again later." : {
       "localizations" : {
         "de" : {
@@ -4497,6 +4589,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schlummert"
+          }
+        }
+      }
+    },
+    "Some characters in this line couldn't be read" : {
+      "comment" : "Import warning, after \"Line N\": the file isn't valid UTF-8 there.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einige Zeichen in dieser Zeile konnten nicht gelesen werden"
+          }
+        }
+      }
+    },
+    "Some items were left out: RYFT limits a workout to 50 exercises and 50 sets per exercise" : {
+      "comment" : "Import note, after \"Line N\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einiges wurde ausgelassen: RYFT begrenzt ein Workout auf 50 Übungen und 50 Sätze je Übung"
+          }
+        }
+      }
+    },
+    "Some items were left out: this file is over RYFT's import limits" : {
+      "comment" : "Import warning, after \"Line N\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einiges wurde ausgelassen: Diese Datei überschreitet die Import-Grenzen von RYFT"
           }
         }
       }
@@ -5228,6 +5353,28 @@
         }
       }
     },
+    "The date or time here couldn't be read" : {
+      "comment" : "Import warning, after \"Line N\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Datum oder Uhrzeit konnten hier nicht gelesen werden"
+          }
+        }
+      }
+    },
+    "The duration here couldn't be read" : {
+      "comment" : "Import warning, after \"Line N\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Dauer konnte hier nicht gelesen werden"
+          }
+        }
+      }
+    },
     "The last 20 requests: method, path without its query, status, error code, request ID, time, duration" : {
       "localizations" : {
         "de" : {
@@ -5298,6 +5445,17 @@
         }
       }
     },
+    "This file isn't saved as UTF-8: RYFT read it as Western (Windows Latin 1)" : {
+      "comment" : "Import note, after \"Line 1\": a spreadsheet-saved CSV in an older encoding.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Datei ist nicht als UTF-8 gespeichert: RYFT hat sie als Westeuropäisch (Windows Latin 1) gelesen"
+          }
+        }
+      }
+    },
     "This iPhone synced another RYFT account until %@, one you logged in to with email. If that was you, log out and log in with email. You can then add Sign in with Apple to it in Profile." : {
       "localizations" : {
         "de" : {
@@ -5348,6 +5506,39 @@
         }
       }
     },
+    "This line is too long to read" : {
+      "comment" : "Import warning, after \"Line N\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Zeile ist zu lang zum Lesen"
+          }
+        }
+      }
+    },
+    "This line isn't in a plan or workout, so it was skipped" : {
+      "comment" : "Import warning, after \"Line N\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Zeile gehört zu keinem Plan und keinem Workout und wurde übersprungen"
+          }
+        }
+      }
+    },
+    "This line isn't recognised" : {
+      "comment" : "Import warning, after \"Line N\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Zeile wird nicht erkannt"
+          }
+        }
+      }
+    },
     "This night was scored before RYFT broke the need down." : {
       "localizations" : {
         "de" : {
@@ -5358,12 +5549,56 @@
         }
       }
     },
+    "This plan has this day number twice: check its days after the import" : {
+      "comment" : "Import warning, after \"Line N\": a plan day number used a second time.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Plan hat diese Tagesnummer zweimal: Prüfe seine Tage nach dem Import"
+          }
+        }
+      }
+    },
+    "This time didn't exist in your time zone, so RYFT used the next valid time" : {
+      "comment" : "Import note, after \"Line N\": a workout on the spring clock change.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Uhrzeit gab es in deiner Zeitzone nicht, daher nimmt RYFT die nächste gültige Uhrzeit"
+          }
+        }
+      }
+    },
+    "This time occurred twice in your time zone, so RYFT used the first" : {
+      "comment" : "Import note, after \"Line N\": a workout on the autumn clock change.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Uhrzeit gab es in deiner Zeitzone zweimal, daher nimmt RYFT die erste Uhrzeit"
+          }
+        }
+      }
+    },
     "This version of RYFT is too old to load new data. Update it to continue." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Diese Version von RYFT ist zu alt, um neue Daten zu laden. Aktualisiere sie, um fortzufahren."
+          }
+        }
+      }
+    },
+    "This workout is in another picked file too and is imported once" : {
+      "comment" : "Import warning, after \"Line N\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Workout steht auch in einer anderen gewählten Datei und wird einmal importiert"
           }
         }
       }
