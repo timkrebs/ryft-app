@@ -210,10 +210,17 @@ final class ProfileViewModel {
 
     func setDemoMode(_ on: Bool) async {
         settings.demoMode = on
-        // Demo data's flags are its own: off again, the account's cached flags, never demo's.
-        (env.flags as? FlagStore)?.setDemo(on)
+        demoModeChanged(on)
         state.reset()
         await state.refresh()
+    }
+
+    /// What turning demo data on or off changes besides the setting (which belongs to the app, so tests call this).
+    func demoModeChanged(_ on: Bool) {
+        // Demo data's flags are its own: off again, the account's cached flags, never demo's.
+        (env.flags as? FlagStore)?.setDemo(on)
+        // What was matched in demo's training import was never this account's.
+        if !on { ImportMappingStore.forgetDemo(in: env.persistence) }
     }
 
     // MARK: export
@@ -228,7 +235,8 @@ final class ProfileViewModel {
         exportError = nil
         defer { exporting = false }
         do {
-            let archive = try await DataExport.archive(source: state.source, train: env.api)
+            let archive = try await DataExport.archive(source: state.source, train: env.api,
+                                                       rememberedMatches: ImportMappingStore(env: env).records())
             exported = ExportedFile(url: try DataExport.write(archive))
         } catch where error.isCancellation {
             return
