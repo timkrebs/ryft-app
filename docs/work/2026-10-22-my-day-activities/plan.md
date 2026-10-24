@@ -161,3 +161,16 @@ Every ticket gets the localization-editor (en + de) and test-engineer. Reviews p
     - about 2.6 m extra per traffic-light stop after a stationary pause (N5).
 - **A3b adds `rebasePedometer(_:)`** (paused only: it moves the baseline and counts nothing), for the restore path's
   "neither" case (design §3.9). Approved as an addition to the pipeline API.
+- **A3a.2 design adopted (lead, 2026-10-24):** the architect's probe-backed design (ADR 0003 Amendment 2) replaces the shadow
+  restore described above:
+  - the speed gate is measured from the predicted position, with ghost association;
+  - a re-init is provisional until its settle window closes, then filled by dead reckoning (≤ 10 s) or the gap rule;
+  - `maxSpeed` bounds the filter's ground speed, with `.tooFast` / `.tooFastEnded` instead of silent 0 m;
+  - realistic per-sport limits (walking and hiking 6, cycling 36, gravel 30, MTB 25 m/s).
+
+  **Accepted cost:** a train below 130 km/h after a ride counts.
+  **Open:**
+  - ui-designer writes state G11 ("too fast") in en and de, plus the Live Activity caption and the finish line, with A4;
+  - security-privacy confirms "no route points while too fast" at the A3b sign-off;
+  - one extra trail seed reads −2.31 % on both `main` and the design (fixture noise, not this change).
+
