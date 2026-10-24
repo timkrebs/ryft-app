@@ -51,14 +51,15 @@ change the `runs-on` image in the workflows or update `.xcode-version`.
   minus 2 points (78.1, 72.1, 92.8, 65.0 → 76.1, 70.1, 90.8, 63.0). Raise a floor in
   the PR that raises coverage for good. Never lower one to get a PR through.
 - **Performance:** `RyftTests/PerformanceTests` (XCTest, `XCTClockMetric` +
-  `XCTMemoryMetric`) decodes 90 days of `DayDetail` and builds and encodes one full
-  20 000-record sync page. It runs only in `Full`; compare the numbers across nightly
-  result bundles.
+  `XCTMemoryMetric`) decodes 90 days of `DayDetail`, builds and encodes one full
+  20 000-record sync page, and decodes cached reads (a `DayDetail`, 50 workouts) in the
+  shape the read-model cache stores them. It runs only in `Full`; compare the numbers
+  across nightly result bundles.
 - **Contract:** `scripts/contract/run.sh` checks out `timkrebs/ryft-platform`'s
   `docs/API.md`. `extract.py` pulls each response example out by its heading
   (the `MAP` table) and expands API.md's shorthand: `…`, `[ X, … ]`, and type
   placeholders, which are filled in from that type's own example. `main.swift` is compiled with
-  `Ryft/Networking/Models.swift` and decodes every example with the app's decoder
+  `Ryft/Networking/Models.swift` (and the `DateParsing.swift` it uses) and decodes every example with the app's decoder
   settings. It runs on PRs that touch `Ryft/Networking/` or `scripts/contract/`, and every
   night, so a platform-side contract change fails here the next morning. To cover a
   new endpoint, add a row to `MAP` and a line to `types` in `main.swift`.

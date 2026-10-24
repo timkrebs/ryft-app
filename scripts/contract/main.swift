@@ -1,6 +1,6 @@
 // Contract check (docs/CI.md → Contract): decodes every example extract.py pulled out
 // of the platform's API.md with the app's own models and the app's decoder settings.
-// Compiled together with Ryft/Networking/Models.swift by scripts/contract/run.sh.
+// Compiled together with Ryft/Networking/Models.swift (and DateParsing.swift) by scripts/contract/run.sh.
 import Foundation
 
 /// The push example is the whole APNs payload; the app reads `userInfo["ryft"]`.
