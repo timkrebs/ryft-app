@@ -11,7 +11,7 @@ import Security
 @Observable
 final class Settings {
     static let shared = Settings()
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
 
     var lastSync: Date? {
         didSet { defaults.set(lastSync, forKey: "lastSync") }
@@ -62,7 +62,9 @@ final class Settings {
 
     let deviceId: UUID
 
-    private init() {
+    /// `defaults` is injectable so a test owns its settings; the app uses `.shared` (standard defaults).
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         // The shared API key and the per-user server fields are gone (Supabase
         // Auth, one production host); drop them once.
         if !defaults.bool(forKey: "migrated.apiKeyRemoved") {

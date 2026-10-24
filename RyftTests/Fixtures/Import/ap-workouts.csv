@@ -1,0 +1,85 @@
+﻿"Push · Standalone workout";"2026-03-14 5:45 pm";"42 min"
+"1. Overhead Press · Barbell · 6 reps"
+#;KG;REPS
+1;40;8
+2;50;6
+3;52.5;6
+"2. Push-Ups · Bodyweight · 12 reps"
+#;KG;REPS
+1;+10;12
+2;+10;10
+"3. Cable Fly · Cable · 12 reps"
+#;KG;REPS
+1;-;-
+2;-;-
+3;-;-
+
+"Pull · Day 2 · Week 4 · Strength Base";"2026-03-10 7:05 am";"1:12 hr"
+"1. Deadlift · Barbell · 5 reps"
+#;KG;REPS
+1;100;5
+2;120;5
+3;130;3
+"2. Pull-Ups · Bodyweight · 6 reps"
+#;KG;REPS
+1;+80;6
+2;+80;6
+3;+80;5
+"3. Seated Cable Row · Cable · 10 reps"
+#;KG;REPS
+1;55;10
+2;57.5;10
+3;-;-
+
+"Legs · Standalone workout";"2026-03-01 12:10 pm";"53 min"
+"1. Goblet Squat · Kettlebell · 10 reps"
+#;KG;REPS
+1;24;10
+2;24;10
+3;28;8
+"2. Hip Thrust · Barbell · 10 reps"
+#;KG;REPS
+1;80;10
+2;90;8
+
+"Pull · Day 2 · Week 1 · Strength Base";"2026-02-05 12:05 am";"1:21 hr"
+"1. Deadlift · Barbell · 5 reps"
+#;KG;REPS
+1;90;5
+2;100;5
+3;110;5
+"2. Pull-Ups · Bodyweight · 6 reps"
+#;KG;REPS
+1;+80;6
+2;+80;6
+3;+80;6
+"3. Seated Cable Row · Cable · 10 reps"
+#;KG;REPS
+1;50;10
+2;52.5;10
+3;52.5;9
+"4. Walking Lunges · Dumbbells · 12 reps"
+#;KG;REPS
+1;16;12
+
+"Push · Day 1 · Week 1 · Strength Base";"2026-02-03 6:30 am";"48 min"
+"1. Overhead Press · Barbell · 6 reps"
+#;KG;REPS
+1;35;8
+2;45;6
+3;47.5;6
+4;47.5;5
+"2. Push-Ups · Bodyweight · 8-12 reps"
+#;KG;REPS
+1;-;12
+2;-;10
+"3. Cable Fly · Cable · 12–15 reps"
+#;KG;REPS
+1;15;15
+2;17.5;12
+
+"Shoulders · Standalone workout";"2026-02-01 9:15 pm";"35 min"
+"1. Arnold Press · Dumbbells · 10 reps"
+#;KG;REPS
+1;12;10
+2;12;9
