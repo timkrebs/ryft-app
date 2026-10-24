@@ -16,16 +16,16 @@ enum TrainImportReader {
         guard files.count <= limits.maxFiles else { throw ImportError.tooManyFiles(count: files.count) }
         let totalBytes = files.reduce(0) { $0 + $1.data.count }
         guard totalBytes <= limits.maxTotalBytes else { throw ImportError.tooLarge(bytes: totalBytes) }
-        var formats: [any TrainImportFormat] = []
+        var prepared: [PreparedFile] = []
         for file in files {
-            formats.append(try format(of: file, limits: limits))
+            prepared.append(try prepare(file, limits: limits))
         }
-        guard let first = formats.first else { throw ImportError.empty }
-        guard formats.allSatisfy({ $0.id == first.id }) else { throw ImportError.mixedFormats }
+        guard let first = prepared.first else { throw ImportError.empty }
+        guard prepared.allSatisfy({ $0.format.id == first.format.id }) else { throw ImportError.mixedFormats }
         var merged: ImportBundle?
-        for (index, (file, format)) in zip(files, formats).enumerated() {
+        for (index, file) in prepared.enumerated() {
             try Task.checkCancellation()
-            let bundle = try parse(file, index: index, format: format, limits: limits)
+            let bundle = try parse(file, index: index, limits: limits)
             merged = merged?.merging(bundle, maxWarnings: limits.maxWarnings) ?? bundle
         }
         guard let bundle = merged else { throw ImportError.empty }
@@ -39,30 +39,44 @@ enum TrainImportReader {
     @concurrent
     static func read(_ file: ImportFile, index: Int, limits: ImportLimits = .standard) async throws -> ImportBundle {
         MainThread.assertOff("Reading an import file")
-        let format = try format(of: file, limits: limits)
-        let bundle = try parse(file, index: index, format: format, limits: limits)
+        let bundle = try parse(prepare(file, limits: limits), index: index, limits: limits)
         log(bundle, files: 1)
         return bundle
     }
 
     // MARK: Private
 
-    private static func format(of file: ImportFile, limits: ImportLimits) throws -> any TrainImportFormat {
+    /// A picked file, checked and decoded once: detection and parsing read the same UTF-8 text, so a Windows-1252
+    /// export (`4 Sätze`) is recognised by the same tokens that parse it.
+    private struct PreparedFile {
+        let text: ImportHygiene.DecodedText
+        let format: any TrainImportFormat
+    }
+
+    private static func prepare(_ file: ImportFile, limits: ImportLimits) throws -> PreparedFile {
         let data = file.data
         guard data.count <= limits.maxFileBytes else { throw ImportError.tooLarge(bytes: data.count) }
         guard !ImportHygiene.isUnsupportedEncoding(data) else { throw ImportError.unsupportedEncoding }
         guard !ImportHygiene.isBlank(data) else { throw ImportError.empty }
-        guard let (format, _) = TrainImportFormats.best(for: ImportHygiene.head(of: data)) else {
+        let text = ImportHygiene.decode(data)
+        guard let (format, _) = TrainImportFormats.best(for: ImportHygiene.head(of: text.utf8)) else {
             throw ImportError.notRecognised
         }
-        return format
+        return PreparedFile(text: text, format: format)
     }
 
-    private static func parse(_ file: ImportFile, index: Int, format: any TrainImportFormat,
-                              limits: ImportLimits) throws -> ImportBundle {
+    private static func parse(_ file: PreparedFile, index: Int, limits: ImportLimits) throws -> ImportBundle {
         let signpost = ImportLog.signposter.beginInterval("parse", id: ImportLog.signposter.makeSignpostID())
         defer { ImportLog.signposter.endInterval("parse", signpost) }
-        return try format.parse(file.data, limits: limits).inFile(index)
+        // The size cap was checked on the picked file; its UTF-8 copy may be larger (umlauts take two bytes).
+        var textLimits = limits
+        textLimits.maxFileBytes = max(limits.maxFileBytes, file.text.utf8.count)
+        var bundle = try file.format.parse(file.text.utf8, limits: textLimits)
+        if file.text.isLegacy {
+            bundle.warnings.insert(ImportWarning(at: SourceLine(file: 0, line: 1), kind: .legacyEncoding), at: 0)
+            bundle.capWarnings(at: limits.maxWarnings)
+        }
+        return bundle.inFile(index)
     }
 
     /// Counts and warning kinds only: never names, dates, weights or line text (design §10).

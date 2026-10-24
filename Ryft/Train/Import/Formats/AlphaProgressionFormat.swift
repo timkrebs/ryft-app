@@ -73,10 +73,11 @@ struct AlphaProgressionFormat: TrainImportFormat {
         guard data.count <= limits.maxFileBytes else { throw ImportError.tooLarge(bytes: data.count) }
         guard !ImportHygiene.isUnsupportedEncoding(data) else { throw ImportError.unsupportedEncoding }
         var folder = AlphaProgressionFolder(limits: limits)
-        let legacy = ImportHygiene.legacyText(data)
-        if legacy != nil { folder.warn(.legacyEncoding, SourceLine(file: 0, line: 1)) }
-        let text = legacy ?? data
-        stats.visited += data.count + (legacy?.count ?? 0) // the UTF-8 check, and the transcoded copy
+        // The reader decides the encoding before detection and passes UTF-8; a direct caller's bytes are decided here.
+        let decoded = ImportHygiene.decode(data)
+        if decoded.isLegacy { folder.warn(.legacyEncoding, SourceLine(file: 0, line: 1)) }
+        let text = decoded.utf8
+        stats.visited += data.count + (decoded.isLegacy ? text.count : 0) // the UTF-8 census, and the transcoded copy
         var classifier = AlphaProgressionClassifier(tokens: tokens)
         let reader = LineReader(text, maxLineBytes: limits.maxLineBytes)
         for raw in reader {
@@ -114,7 +115,8 @@ struct ParseStats: Sendable {
     var lines = 0
     /// Bytes and characters visited: the line scan, the UTF-8 decode, the field split, and every part split, scanner
     /// or token match over a field (charged with the field's whole length). Linear parsing keeps it under a small
-    /// multiple of the file's bytes plus its lines; anything quadratic breaks that bound in the fuzz test.
+    /// multiple of the file's bytes plus its lines, so a classifier that rescans its fields per part breaks the bound
+    /// in the fuzz test. Work inside a helper isn't counted; the nightly `PerformanceTests` ratios cover that.
     var visited = 0
 }
 
@@ -141,9 +143,13 @@ struct AlphaProgressionClassifier {
                   tokens.repsHeader.contains(repsText.lowercased()) else { return .tableHeader(nil) }
             return .tableHeader(unit)
         }
-        // A set row's index is unquoted, and a workout titled with a number (`"5";"2026-02-13 5:10 pm";…`) isn't one.
-        if !line.isQuoted(0), isSetIndex(first), !isDateTime(line.field(1)) {
-            guard line.count == 3, !line.hasMore, let load = line.field(1), let reps = line.field(2) else { return .wideSetRow }
+        // A workout titled with a number (`"5";"2026-02-13 5:10 pm";…`) has a date in field 1 and isn't a set row. A set
+        // row's index is unquoted; a quoted one, like another number of columns, makes a row that isn't read but keeps
+        // its place, so the ordinals after it stay the same (they feed set ids, ADR 0007).
+        if isSetIndex(first), !isDate(line.field(1)) {
+            guard !line.isQuoted(0), line.count == 3, !line.hasMore, let load = line.field(1), let reps = line.field(2) else {
+                return .wideSetRow
+            }
             return .setRow(load: load, reps: reps)
         }
         if line.count == 1 { return classifySingle(first) }
@@ -308,13 +314,13 @@ struct AlphaProgressionClassifier {
         return ImportScan.integer(field) != nil
     }
 
-    /// Field 1 reads as a date and a time (only a field with a `:` is scanned).
-    private mutating func isDateTime(_ field: String?) -> Bool {
+    /// Field 1 reads as a date, with or without a time (only a field with `-`, `.` or `:` is scanned).
+    private mutating func isDate(_ field: String?) -> Bool {
         guard let field else { return false }
         charge(field)
-        guard field.contains(":") else { return false }
-        if case .dateTime = dateTime(field) { return true }
-        return false
+        guard field.contains(where: { $0 == "-" || $0 == "." || $0 == ":" }) else { return false }
+        if case .unreadable = dateTime(field) { return false }
+        return true
     }
 }
 

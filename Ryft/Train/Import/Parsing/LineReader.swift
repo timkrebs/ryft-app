@@ -104,13 +104,80 @@ enum ImportHygiene {
         data.dropFirst(bomLength(data)).allSatisfy { $0 == 0x20 || $0 == 0x09 || $0 == 0x0A || $0 == 0x0D }
     }
 
-    /// A whole file without a BOM that isn't valid UTF-8 is most likely a spreadsheet's Windows-1252 save: it is read as
-    /// that, not lossily as UTF-8 (which would put U+FFFD into names). nil when the file is UTF-8 or has a UTF-8 BOM.
-    static func legacyText(_ data: Data) -> Data? {
-        guard bomLength(data) == 0, String(bytes: data, encoding: .utf8) == nil else { return nil }
+    /// A file's text as UTF-8, decided once per file: detection and parsing read the same bytes.
+    struct DecodedText: Sendable {
+        /// UTF-8 (a BOM, if the file had one, is kept; the line reader skips it).
+        let utf8: Data
+        /// The file was read as Windows-1252 (`.legacyEncoding`).
+        let isLegacy: Bool
+    }
+
+    /// UTF-8 as it is, unless the file has no BOM and its invalid UTF-8 sequences outnumber its well-formed multi-byte
+    /// ones (or it has invalid ones and no well-formed ones). Then it is a spreadsheet's Windows-1252 save and is read
+    /// as that. One stray byte in a UTF-8 export stays a line-level `.invalidText`, so `·` and umlauts elsewhere survive.
+    static func decode(_ data: Data) -> DecodedText {
+        guard bomLength(data) == 0 else { return DecodedText(utf8: data, isLegacy: false) }
+        let census = utf8Census(data)
+        guard census.invalid > 0, census.wellFormedMultiByte == 0 || census.invalid > census.wellFormedMultiByte else {
+            return DecodedText(utf8: data, isLegacy: false)
+        }
         // Windows-1252 leaves five bytes undefined; Latin-1 reads every byte (those five become C1 controls, which the
         // field split strips).
-        let text = String(bytes: data, encoding: .windowsCP1252) ?? String(bytes: data, encoding: .isoLatin1)
-        return text.map { Data($0.utf8) }
+        guard let text = String(bytes: data, encoding: .windowsCP1252) ?? String(bytes: data, encoding: .isoLatin1) else {
+            return DecodedText(utf8: data, isLegacy: false)
+        }
+        return DecodedText(utf8: Data(text.utf8), isLegacy: true)
+    }
+
+    /// Well-formed multi-byte UTF-8 sequences and invalid bytes (a byte that starts no well-formed sequence counts once;
+    /// overlong forms, surrogates and code points over U+10FFFF are invalid). One pass, no allocation.
+    static func utf8Census(_ data: Data) -> (wellFormedMultiByte: Int, invalid: Int) {
+        data.withUnsafeBytes { raw in
+            var wellFormed = 0
+            var invalid = 0
+            var i = 0
+            let n = raw.count
+            while i < n {
+                let lead = raw[i]
+                if lead < 0x80 {
+                    i += 1
+                    continue
+                }
+                let length = sequenceLength(lead: lead, second: i + 1 < n ? raw[i + 1] : nil)
+                var valid = length > 1 && i + length <= n
+                var k = 2
+                while valid, k < length {
+                    let byte = raw[i + k]
+                    valid = byte & 0xC0 == 0x80
+                    k += 1
+                }
+                if valid {
+                    wellFormed += 1
+                    i += length
+                } else {
+                    invalid += 1
+                    i += 1
+                }
+            }
+            return (wellFormed, invalid)
+        }
+    }
+
+    /// The length of the UTF-8 sequence a lead byte starts when its second byte is in range (RFC 3629's table), else 0.
+    private static func sequenceLength(lead: UInt8, second: UInt8?) -> Int {
+        guard let second else { return 0 }
+        let range: ClosedRange<UInt8>
+        let length: Int
+        switch lead {
+        case 0xC2...0xDF: (range, length) = (0x80...0xBF, 2)
+        case 0xE0: (range, length) = (0xA0...0xBF, 3)
+        case 0xE1...0xEC, 0xEE...0xEF: (range, length) = (0x80...0xBF, 3)
+        case 0xED: (range, length) = (0x80...0x9F, 3)
+        case 0xF0: (range, length) = (0x90...0xBF, 4)
+        case 0xF1...0xF3: (range, length) = (0x80...0xBF, 4)
+        case 0xF4: (range, length) = (0x80...0x8F, 4)
+        default: return 0
+        }
+        return range.contains(second) ? length : 0
     }
 }

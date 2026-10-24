@@ -574,6 +574,12 @@ display the HealthKit name and add nothing. Never "Connect" for Garmin Connect o
 
 ## 8. Calibration honesty on Recovery / Readiness detail (§1, later)
 
+> **Erratum 2026-10-23 (lead):** the platform shipped `calibrating_reason` and per-signal counts instead of
+> `recovery_inputs`.
+> - §8.1 (detail note) is deferred until `recovery_inputs` exists.
+> - §8.2's blocked gauge mode isn't built. The empty gauge plus a note naming the signal replaces it.
+> - See design.md §7 rev. 2.
+
 ### 8.1 R1: recovery without HRV
 - Where: Recovery detail and Readiness detail, a note directly under the score block, before the charts. `GaugeNote` look (shipped, `MetricGauge.swift`): glyph
   `info.circle`, `caption`/`textSecondary`, but **left aligned and full width** (the shipped note centres; a two-sentence note + link reads better left-aligned; add `alignment` parameter).

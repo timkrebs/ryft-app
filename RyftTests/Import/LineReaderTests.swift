@@ -84,6 +84,41 @@ struct LineReaderTests {
         #expect(ImportHygiene.head(of: Data("short".utf8)) == Data("short".utf8))
     }
 
+    /// Windows-1252 only when invalid UTF-8 outnumbers well-formed multi-byte UTF-8 (or there is none of that).
+    @Test func encodingDecisions() throws {
+        let german = try ImportFixture.data("ap-workouts-de")                  // UTF-8, no BOM: umlauts and `·`
+        let english = Data(try ImportFixture.data("ap-workouts").dropFirst(3)) // UTF-8 without its BOM: `·` only
+        var germanStray = german
+        germanStray.insert(0xFF, at: 100)
+        var germanCut = german
+        while germanCut.last != 0xC2 { germanCut.removeLast() }               // ends inside a `·` (C2 B7)
+        var englishStray = english
+        englishStray.insert(0xFF, at: 200)
+        let germanText = try #require(String(bytes: german, encoding: .utf8))
+        let englishText = try #require(String(bytes: english, encoding: .utf8))
+        let germanLegacy = try #require(germanText.data(using: .windowsCP1252))
+        let englishLegacy = try #require(englishText.data(using: .windowsCP1252))
+        let decisions: [(String, Data, Bool)] = [
+            ("de + stray byte", germanStray, false),
+            ("de truncated inside ·", germanCut, false),
+            ("en + stray byte", englishStray, false),
+            ("de as cp1252", germanLegacy, true),
+            ("en as cp1252", englishLegacy, true),
+            ("de as is", german, false),
+            ("a real U+FFFD", Data("\"Row \u{FFFD} · Cable\"".utf8), false),
+            ("ASCII", Data("#;KG;REPS".utf8), false),
+            ("one invalid byte, nothing else", Data([0x41, 0xE4, 0x42]), true),
+            ("cp1252 with a UTF-8 BOM", Data([0xEF, 0xBB, 0xBF]) + germanLegacy, false),
+        ]
+        for (label, data, isLegacy) in decisions {
+            #expect(ImportHygiene.decode(data).isLegacy == isLegacy, "\(label)")
+        }
+        let census = ImportHygiene.utf8Census(Data("aä·€😀".utf8) + Data([0xFF, 0xC0, 0xAF, 0xED, 0xA0, 0x80, 0xF4, 0x90]))
+        #expect(census.wellFormedMultiByte == 4)
+        // 8 bytes: a stray FF, an overlong lead C0, a lone continuation AF, a surrogate ED A0 80 (3), F4 90 past U+10FFFF (2).
+        #expect(census.invalid == 8)
+    }
+
     @Test func blankFiles() {
         #expect(ImportHygiene.isBlank(Data()))
         #expect(ImportHygiene.isBlank(Data([0xEF, 0xBB, 0xBF, 0x0D, 0x0A, 0x20, 0x09])))

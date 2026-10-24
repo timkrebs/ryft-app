@@ -48,13 +48,10 @@ first one decides how the app reads My Day.
 | R15 | How far back a manual activity may start (the app allows 14 days), and `notes` ≤ 500 counted in characters or bytes. |
 | R16 | `route` and `hr_samples` appear **only** in `GET /v1/activities/{id}` (and R14's export), never in `GET /v1/activities?from&to`, the day detail, `GET /v1/my-day` or `PUT` answers. |
 | R17 | A final `401` for an account deleted on the web carries a distinct `code` (e.g. `account_deleted`), so the app deletes parked activities at once instead of after 30 days (§8.4). |
-| R20 | **Splits: the index base and what a split covers.** The app numbers splits from 1: the first kilometre is `index: 1`. Please state the platform's convention, with an example. Please also confirm:
-  - `distance_m` is 1000, except for the last split, which may be partial and carries its real distance.
-  - A remainder under 50 m at the end isn't sent as a split. So the splits' `distance_m` can sum to up to 50 m less than the activity's `distance_m`, and their `duration_sec` to less than `moving_sec`. The platform accepts that.
-  - `duration_sec` is moving time within the split, pauses excluded.
-  - `ascent_m` is null when the activity has no elevation.
-  (A3a, 2026-10-23) |
-| — | Naming only: API.md `Activity` is `SportActivity` in the app (ActivityKit owns `Activity`). |
+| R18 | `GET /v1/activities?from&to`: the parameters as RFC 3339 instants with offset, matched `[from, to)` on `start`, so the app asks for one local day (the phone's midnight to midnight, as it does against the fake). If the platform prefers `YYYY-MM-DD` like `GET /v1/days`, say which time zone decides an activity's day (`GET /v1/me` → `tz`?). Either way, an activity across midnight belongs to the day it starts on. (A1, 2026-10-23) |
+| R19 | **`PUT /v1/activities/{id}`: missing vs `null`.** A field the body leaves out keeps what the platform stores; an explicit `null` clears it. The app relies on both: it leaves out `route` and `hr_samples` when it has none to send (an edit of effort or notes after the route went up, or a route the user withheld), and it sends `null` for an editable field the user cleared (`notes`, `perceived_effort`, `distance_m`, `ascent_m`, `descent_m`). Please document it under the endpoint with an example of each, and say how the app removes a route it already sent (Remove route, design §8.6): `"route": null`, or a dedicated call. (A1 review, 2026-10-23) |
+| R20 | **Splits: the index base and what a split covers.** The app numbers splits from 1 (the first kilometre is `index: 1`); please state the platform's convention with an example. Please confirm: `distance_m` is 1000 except for the last split, which may be partial with its real distance; a remainder under 50 m isn't sent as a split, so the splits can sum to up to 50 m less than the activity's `distance_m` (and `duration_sec` to less than `moving_sec`); `duration_sec` is moving time within the split, pauses excluded; `ascent_m` is null without elevation. (A3a, 2026-10-23) |
+| — | Naming only: API.md `Activity` is `SportActivity` in the app (ActivityKit owns `Activity`), and `strain_source: "none"` is `StrainSource.noSource` (a case called `none` would read as `Optional.none`). |
 
 ## Train (open, 2026-10-19)
 
@@ -226,6 +223,12 @@ not moving after 1 day." The tester wears a Garmin. App brief: `CLAUDE_FOLLOWUP_
      - So `rhrBase.N` fills for Garmin users and only `lnHRVBase.N` stays 0. The brief's change (baseline nights from
        resting HR; HRV counted on its own as `hrv_baseline_days`; calibrating only on HRV when there is an HRV source)
        gets this tester to 7/7.
+   - **Answered in part, 2026-10-22.** API.md now has `DailyScore.calibrating_reason` (`short_history` | `no_hrv` |
+     `no_rhr`), `baseline_hrv_days` and `baseline_rhr_days` (`baseline_days = min(...)`), see
+     [`calibrating_reason`](../../plattform/docs/API.md#calibrating_reason). The app mirrors them in `Models.swift`
+     (`DailyScore.calibratingReason`, `baselineHrvDays`, `baselineRhrDays`). These names replace the draft's
+     `hrv_baseline_days`. **Still open, as a smaller request:** `recovery_inputs` (which inputs Recovery actually used,
+     e.g. `rhr_source`), which the Insights sentence needs. It was not provided and the app invents nothing for it.
    - **Daily samples stamped 00:00.** Garmin's resting HR is one value per calendar day, not a night measurement. Please
      check that `e.last(… SampleRestingHR, dayStart, dayEnd)` (`compute.go:166`) attributes it to the intended day.
    - **A fallback, lower priority.** Oura's export list has no HRV and no resting HR
@@ -242,8 +245,18 @@ not moving after 1 day." The tester wears a Garmin. App brief: `CLAUDE_FOLLOWUP_
    draft content and its schema are in `docs/work/2026-10-22-tracker-setup/trackers.draft.json` and
    `trackers-research.md` (en; de follows). Every entry carries `help_url` and `checked`. Optionally render
    `/setup/<tracker>` pages from the same file. The brand rule applies.
-4. **Supersedes Refresh resilience §2** (`calibrating_reason`) once `hrv_baseline_days` and `recovery_inputs` are in
-   `API.md`.
+4. **Supersedes Refresh resilience §2** (`calibrating_reason`). Done on 2026-10-22: `calibrating_reason`,
+   `baseline_hrv_days` and `baseline_rhr_days` are in `API.md`; only `recovery_inputs` stays open (§1).
+
+5. **(New 2026-10-23) A Garmin account never leaves calibrating.**
+   - **What happens.** The published contract keeps `calibrating = min(H, R) < 7`. A source that writes no HRV (Garmin, verified
+     on a device) gives `no_hrv` with H = 0 forever. So `state` stays `calibrating` for good: no band, and no "vs 7 d" delta
+     on Today. That holds even though the account's resting-HR and sleep baselines are personal after 7 nights.
+   - **Why it matters.** The brief that started this (§1, "gets this tester to 7/7") isn't met. The app now explains the
+     state honestly (design.md §7 rev. 2), but it can't end it.
+   - **Ask.** On a `no_hrv` row with R ≥ 7, end calibration (`calibrating: false`, `state` banded from readiness), with
+     `calibrating_reason` kept or a new field saying HRV is absent. If that's not the plan, document why `no_hrv` must stay
+     calibrating, so the app copy can say so.
 
 **Corrections to the evidence commands in the brief (from the debugger, T0):**
 - `scripts/user.sh <id>` prints `with HRV N` (`days_with_hrv_14d`) and the newest record per kind, not
@@ -269,7 +282,8 @@ platform's row is the root of it (`STATUS.md` → Incidents).
      `hrv_baseline_ms`, `rhr_baseline` from 2026-07-24 to 2026-10-21). If the earlier rows have their baselines, rescore
      oldest-first after a merge or backfill, so no day is scored before the 30 days it depends on. Rescore every row
      still at the 0006 default.
-2. **Why a day is calibrating.** Today the app can't tell "history is short" from "no HRV or resting HR at
+2. **Superseded 2026-10-22 (answered by API.md: `calibrating_reason`, `baseline_hrv_days`, `baseline_rhr_days`; see
+   Tracker setup §1 and §4).** Why a day is calibrating. Today the app can't tell "history is short" from "no HRV or resting HR at
    night" (phone-only, or a watch that doesn't write HRV to Apple Health). The second never ends by waiting.
    - **Proposal:** `DailyScore.calibrating_reason: "short_history" | "no_hrv" | "no_rhr" | null`, and optionally
      `baseline_hrv_days` / `baseline_rhr_days` (the two N's whose minimum is `baseline_days`). Until then the app

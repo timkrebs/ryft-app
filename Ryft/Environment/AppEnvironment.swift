@@ -40,6 +40,9 @@ final class AppEnvironment {
     lazy var reads = ReadScheduler(env: self)
     /// The tracker catalog: bundled, or the newest valid copy from ryftapp.de (`trackerCatalog`).
     lazy var catalogStore = TrackerCatalogStore(env: self)
+    /// Activities and manual sleep on this iPhone until the platform confirms them, scoped to the account
+    /// (`persistence`'s store; demo data's own in memory).
+    lazy var activities = ActivityStore(env: self)
     /// Fixed for previews (on) and tests (off); live follows the Demo data switch.
     private let demoOverride: Bool?
 
@@ -71,7 +74,8 @@ final class AppEnvironment {
 
     /// The app's graph, built once at launch.
     static let live = AppEnvironment(
-        settings: .shared, health: HealthKitManager.shared, liveAPI: APIClient.shared, demoAPI: MockPlatformAPI(),
+        settings: .shared, health: HealthKitManager.shared, liveAPI: APIClient.shared,
+        demoAPI: MockPlatformAPI(activities: .demoSource()),
         auth: .shared, persistence: TrainStore.shared, clock: SystemClock(), notifier: SystemNotifier(),
         flags: FlagStore.shared, connectivity: .shared, content: WebContentSource(),
         contentDirectory: URL.applicationSupportDirectory.appendingPathComponent("Content", isDirectory: true))
@@ -85,7 +89,7 @@ final class AppEnvironment {
     static func preview(online: Bool = true, auth: AuthService? = nil,
                         flags: [FeatureFlag: Bool] = [:], coachMarks: Bool = false,
                         notifier: MockNotifier? = nil) -> AppEnvironment {
-        let api = MockPlatformAPI()
+        let api = MockPlatformAPI(activities: .demoSource())
         let defaults = UserDefaults(suiteName: "ryft.preview") ?? .standard
         // Coach marks only in the preview that asks for them.
         defaults.set(!coachMarks, forKey: CoachMarks.doneKey)
@@ -102,11 +106,14 @@ final class AppEnvironment {
                      auth: AuthService? = nil, flags: [FeatureFlag: Bool] = [:],
                      online: Bool = true, content: MockContentSource = MockContentSource()) -> AppEnvironment {
         api.now = { clock.now() }
+        // Settings of its own: `Settings.shared` is process-wide, and parallel suites (every sync,
+        // every sign-out) write `lastSync` and `healthIntroDone` there.
+        let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
         let env = AppEnvironment(
-            settings: .shared, health: health, liveAPI: api, demoAPI: api, auth: auth ?? .preview(),
+            settings: Settings(defaults: defaults), health: health, liveAPI: api, demoAPI: api, auth: auth ?? .preview(),
             persistence: TrainStore(inMemory: true), clock: clock, notifier: notifier ?? MockNotifier(),
             flags: StaticFlags(flags), connectivity: .preview(online: online),
-            defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard, demoOverride: false,
+            defaults: defaults, demoOverride: false,
             content: content)
         // Time moves only when a test advances it: retries wait no jitter, and the starts-per-second
         // window doesn't hold back reads issued at one instant. Suites about retry timing and the

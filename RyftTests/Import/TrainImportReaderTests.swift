@@ -105,6 +105,28 @@ struct TrainImportReaderTests {
         }
     }
 
+    @Test func aWindows1252PlansFileIsRecognisedAndRead() async throws {
+        // Detection reads the same decoded text as parsing: `4 Sätze` is a sets token only once `ä` is decoded.
+        let text = "\"Grundplan · 6 Wochen\";02.02.2026\n\"Tag 1 · Oberkörper\"\n"
+            + "\"1. Schulterdrücken · Langhantel\";\"4 Sätze\";\"6 Wdh.\"\n\"Tag 2 · Unterkörper\"\n"
+            + "\"1. Kreuzheben · Langhantel\";\"3 Sätze\";\"5 Wdh.\"\n"
+        let legacy = try #require(text.data(using: .windowsCP1252))
+        let file = ImportFile(name: "plans.csv", data: legacy)
+        let bundle = try await TrainImportReader.read([file])
+        let plan = try #require(bundle.plans.first)
+        #expect(plan.name == "Grundplan")
+        #expect(plan.days.map(\.name) == ["Oberkörper", "Unterkörper"])
+        #expect(plan.days.flatMap(\.exercises).map(\.sets) == [4, 3])
+        #expect(bundle.warnings == [ImportWarning(at: SourceLine(file: 0, line: 1), kind: .legacyEncoding)])
+        let single = try await TrainImportReader.read(file, index: 4)
+        #expect(single.plans == bundle.plans.map { plan in
+            var moved = plan
+            moved.source = SourceLine(file: 4, line: plan.source.line)
+            return moved
+        })
+        #expect(single.warnings.map(\.at) == [SourceLine(file: 4, line: 1)])
+    }
+
     @Test func thePickedFilesAreCappedInNumberAndSize() async throws {
         let plans = try ImportFixture.file("ap-plans")
         await #expect(throws: ImportError.tooManyFiles(count: 7)) {

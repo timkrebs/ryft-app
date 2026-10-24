@@ -1,0 +1,8 @@
+{ "day": "2026-10-18", "readiness": 84, "state": "balanced", "recovery": 82, "strain": 12.4,
+  "steps": 9412, "active_kcal": 612, "strength_min": 59, "volume_kg": 7420, "sleep_performance": 87, "sleep_need_min": 538, "sleep_actual_min": 468, "sleep_debt_min": 137,
+  "sleep_need_base_min": 460, "sleep_need_strain_min": 37, "sleep_need_debt_min": 41, "sleep_need_nap_min": 0, "nap_min": 25,
+  "sleep_quality": 91, "sleep_consistency": 81,
+  "hrv_ms": 58.2, "rhr": 48.9, "resp_rate": 14.6, "spo2": 96.4,
+  "hrv_baseline_ms": 53.1, "rhr_baseline": 50.2, "baseline_days": 30, "baseline_hrv_days": 30, "baseline_rhr_days": 30,
+  "calibrating": false, "calibrating_reason": null,
+  "details": {}, "computed_at": "2026-10-18T07:15:02.123456Z" }

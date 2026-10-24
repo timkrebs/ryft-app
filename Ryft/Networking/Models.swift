@@ -149,6 +149,16 @@ enum ScoringState: String, Codable, CaseIterable, Sendable {
     case stale
 }
 
+/// Why `DailyScore.calibrating` is true (API.md → `DailyScore` → `calibrating_reason`). Closed in v1.
+enum CalibratingReason: String, Codable, CaseIterable, Sendable {
+    /// Too little history (or a signal that just appeared): `7 − baseline_days` more nights end it.
+    case shortHistory = "short_history"
+    /// At least 7 days with data, none with an overnight HRV: waiting does not end it.
+    case noHrv = "no_hrv"
+    /// The same for resting heart rate.
+    case noRhr = "no_rhr"
+}
+
 struct DailyScore: Codable, Identifiable, Hashable {
     let day: String // YYYY-MM-DD
     var readiness: Int?
@@ -187,6 +197,13 @@ struct DailyScore: Codable, Identifiable, Hashable {
     var baselineDays: Int
     /// `baseline_days < 7`.
     var calibrating: Bool
+    /// The N of each baseline (`baselineDays = min(...)`), 0–30. `nil` is unknown: a never-scored day,
+    /// a row scored before the field existed, or a cached copy from before it.
+    var baselineHrvDays: Int?
+    var baselineRhrDays: Int?
+    /// Why `calibrating` is true. `nil` when not calibrating, and also "unknown" for a legacy, never-scored
+    /// or cached row (not a fourth reason). An unrecognised value decodes as `nil` too.
+    var calibratingReason: CalibratingReason?
     /// `0001-01-01T00:00:00Z` for a day that hasn't been scored yet.
     var computedAt: Date?
     /// The scoring model that computed the row (`GET /v1/model`); `nil` before versions existed.
@@ -211,8 +228,12 @@ struct DailyScore: Codable, Identifiable, Hashable {
          rhrBaseline: Double? = nil, baselineDays: Int = 0, calibrating: Bool = false, computedAt: Date? = nil,
          sleepNeedBaseMin: Int? = nil, sleepNeedStrainMin: Int? = nil, sleepNeedDebtMin: Int? = nil,
          sleepNeedNapMin: Int? = nil, napMin: Int? = nil, sleepQuality: Int? = nil, sleepConsistency: Int? = nil,
-         modelVersion: String? = nil, scoringState: ScoringState? = nil) {
+         modelVersion: String? = nil, scoringState: ScoringState? = nil,
+         baselineHrvDays: Int? = nil, baselineRhrDays: Int? = nil, calibratingReason: CalibratingReason? = nil) {
         self.day = day
+        self.baselineHrvDays = baselineHrvDays
+        self.baselineRhrDays = baselineRhrDays
+        self.calibratingReason = calibratingReason
         self.modelVersion = modelVersion
         self.scoringState = scoringState
         self.readiness = readiness
@@ -249,7 +270,8 @@ struct DailyScore: Codable, Identifiable, Hashable {
         case day, readiness, state, recovery, strain, steps, activeKcal, strengthMin, volumeKg, sleepPerformance, sleepNeedMin,
              sleepActualMin, sleepDebtMin, hrvMs, rhr, respRate, spo2, hrvBaselineMs, rhrBaseline,
              baselineDays, calibrating, computedAt, sleepNeedBaseMin, sleepNeedStrainMin, sleepNeedDebtMin,
-             sleepNeedNapMin, napMin, sleepQuality, sleepConsistency, modelVersion, scoringState
+             sleepNeedNapMin, napMin, sleepQuality, sleepConsistency, modelVersion, scoringState,
+             baselineHrvDays, baselineRhrDays, calibratingReason
     }
 
     init(from decoder: Decoder) throws {
@@ -285,6 +307,9 @@ struct DailyScore: Codable, Identifiable, Hashable {
         sleepConsistency = try c.decodeLenientInt(.sleepConsistency)
         modelVersion = try c.decodeIfPresent(String.self, forKey: .modelVersion)
         scoringState = try? c.decodeIfPresent(ScoringState.self, forKey: .scoringState)
+        baselineHrvDays = try c.decodeLenientInt(.baselineHrvDays)
+        baselineRhrDays = try c.decodeLenientInt(.baselineRhrDays)
+        calibratingReason = try? c.decodeIfPresent(CalibratingReason.self, forKey: .calibratingReason)
     }
 
     /// The server's state. `null` (an older cached payload) is read like the
@@ -2095,6 +2120,271 @@ struct ExerciseHistory: Codable, Hashable {
         sessions = try c.decodeIfPresent([ExerciseHistorySession].self, forKey: .sessions) ?? []
         e1rm = try c.decodeIfPresent([E1RMPoint].self, forKey: .e1rm) ?? []
     }
+}
+
+// MARK: - Activities (draft)
+//
+// Activities the user recorded or added, and manual sleep. A mirror of the platform brief
+// (`docs/work/2026-10-22-my-day-activities/platform-brief.md`), not of API.md: API.md → Activities isn't
+// published yet, and api-contract-keeper reconciles these shapes with it (C1). No field beyond the brief.
+// Two names differ from the brief: `Activity` is `SportActivity` here (ActivityKit owns `Activity`), and
+// `strain_source: "none"` is `StrainSource.noSource` (a case called `none` would read as `Optional.none`).
+// The closed `sport` enum lives here so the contract check, which compiles this file alone, can decode an
+// activity; its catalogue (symbols, HealthKit types, tracking) is `Ryft/Activities/Sport.swift`.
+
+/// `sport`: one entry of the app's catalogue (`Sport.swift`). The raw value is the API's; an unknown
+/// value decodes as `.other`.
+enum Sport: String, CaseIterable, Codable, Identifiable, Sendable {
+    case running
+    case trailRunning = "trail_running"
+    case walking
+    case hiking
+    case cycling
+    case mountainBiking = "mountain_biking"
+    case gravel
+    case indoorRunning = "indoor_running"
+    case indoorCycling = "indoor_cycling"
+    case rowing
+    case swimming
+    case strength
+    case hiit
+    case yoga
+    case mobility
+    case climbing
+    case skiing
+    case skiTouring = "ski_touring"
+    case football
+    case tennis
+    case padel
+    case other
+
+    var id: String { rawValue }
+
+    init(from decoder: Decoder) throws {
+        self = Sport(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .other
+    }
+}
+
+/// `origin`: typed in by the user, or recorded by RYFT with GPS (or the pedometer). Unknown → `manual`.
+enum ActivityOrigin: String, Codable, Sendable {
+    case manual, recorded
+
+    init(from decoder: Decoder) throws {
+        self = ActivityOrigin(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .manual
+    }
+}
+
+/// `strain_source`: where the platform took the activity's strain from.
+enum StrainSource: String, Codable, Sendable {
+    case heartRate = "heart_rate"
+    case perceivedEffort = "perceived_effort"
+    /// `"none"`: no heart rate for the window and no effort mapping, so no strain.
+    case noSource = "none"
+}
+
+/// One entry of `splits`: a kilometre (the last one partial) of a recorded activity.
+struct ActivitySplit: Codable, Hashable, Sendable {
+    let index: Int
+    let distanceM: Double
+    /// Moving time in the split.
+    let durationSec: Double
+    let ascentM: Double?
+}
+
+/// API.md → Activities `Activity` (renamed: ActivityKit owns `Activity`). The app picks the `id`, so a `PUT`
+/// is idempotent. The platform sets the fields after `clientUpdatedAt`; `SportActivityPut` is the body that
+/// leaves them out.
+///
+/// This type's own encoding is what the read model caches: it keeps the platform's fields and never writes
+/// `route` or `hr_samples` (ADR 0006, review S5), whichever path caches it. Decoding reads them, for the detail
+/// screen's memory. Its descriptions and mirror leave out the route, the samples and the notes (design.md §8.3).
+struct SportActivity: Codable, Hashable, Identifiable, Sendable {
+    let id: UUID
+    var sport: Sport
+    var origin: ActivityOrigin
+    var start: Date
+    var end: Date
+    var movingSec: Double
+    var distanceM: Double?
+    var ascentM: Double?
+    var descentM: Double?
+    /// 1–10.
+    var perceivedEffort: Int?
+    /// At most 500 characters.
+    var notes: String?
+    var splits: [ActivitySplit]?
+    /// Encoded polyline, trimmed on the device; only with the route opt-in. Never encoded but by `SportActivityPut`.
+    var route: String?
+    /// Live heart rate from a Bluetooth sensor. Never encoded but by `SportActivityPut`.
+    var hrSamples: [HRPoint]?
+    var clientUpdatedAt: Date
+    // Set by the platform, never sent.
+    var strain: Double?
+    var strainSource: StrainSource?
+    /// The heart-rate source's name, verbatim.
+    var hrSource: String?
+    /// The tracker workout this activity was merged with: that workout's row is hidden (ADR 0006).
+    var mergedWith: UUID?
+    /// Values not specified yet (API request R2).
+    var scoringState: String?
+
+    init(id: UUID, sport: Sport, origin: ActivityOrigin, start: Date, end: Date, movingSec: Double,
+         distanceM: Double? = nil, ascentM: Double? = nil, descentM: Double? = nil, perceivedEffort: Int? = nil,
+         notes: String? = nil, splits: [ActivitySplit]? = nil, route: String? = nil, hrSamples: [HRPoint]? = nil,
+         clientUpdatedAt: Date, strain: Double? = nil, strainSource: StrainSource? = nil, hrSource: String? = nil,
+         mergedWith: UUID? = nil, scoringState: String? = nil) {
+        self.id = id
+        self.sport = sport
+        self.origin = origin
+        self.start = start
+        self.end = end
+        self.movingSec = movingSec
+        self.distanceM = distanceM
+        self.ascentM = ascentM
+        self.descentM = descentM
+        self.perceivedEffort = perceivedEffort
+        self.notes = notes
+        self.splits = splits
+        self.route = route
+        self.hrSamples = hrSamples
+        self.clientUpdatedAt = clientUpdatedAt
+        self.strain = strain
+        self.strainSource = strainSource
+        self.hrSource = hrSource
+        self.mergedWith = mergedWith
+        self.scoringState = scoringState
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, sport, origin, start, end, movingSec, distanceM, ascentM, descentM, perceivedEffort, notes, splits
+        case route, hrSamples, clientUpdatedAt, strain, strainSource, hrSource, mergedWith, scoringState
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        sport = try c.decode(Sport.self, forKey: .sport)
+        origin = try c.decode(ActivityOrigin.self, forKey: .origin)
+        start = try c.decode(Date.self, forKey: .start)
+        end = try c.decode(Date.self, forKey: .end)
+        movingSec = try c.decode(Double.self, forKey: .movingSec)
+        distanceM = try c.decodeIfPresent(Double.self, forKey: .distanceM)
+        ascentM = try c.decodeIfPresent(Double.self, forKey: .ascentM)
+        descentM = try c.decodeIfPresent(Double.self, forKey: .descentM)
+        perceivedEffort = try c.decodeLenientInt(.perceivedEffort)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes)
+        splits = try c.decodeIfPresent([ActivitySplit].self, forKey: .splits)
+        route = try c.decodeIfPresent(String.self, forKey: .route)
+        hrSamples = try c.decodeIfPresent([HRPoint].self, forKey: .hrSamples)
+        clientUpdatedAt = try c.decode(Date.self, forKey: .clientUpdatedAt)
+        strain = try c.decodeIfPresent(Double.self, forKey: .strain)
+        // A source this build doesn't know is shown like a missing one, never as "no heart rate".
+        strainSource = try c.decodeIfPresent(String.self, forKey: .strainSource).flatMap(StrainSource.init(rawValue:))
+        hrSource = try c.decodeIfPresent(String.self, forKey: .hrSource)
+        mergedWith = try c.decodeIfPresent(UUID.self, forKey: .mergedWith)
+        scoringState = try c.decodeIfPresent(String.self, forKey: .scoringState)
+    }
+
+    /// Everything but `route` and `hr_samples`: the cached copy.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(sport, forKey: .sport)
+        try c.encode(origin, forKey: .origin)
+        try c.encode(start, forKey: .start)
+        try c.encode(end, forKey: .end)
+        try c.encode(movingSec, forKey: .movingSec)
+        try c.encodeIfPresent(distanceM, forKey: .distanceM)
+        try c.encodeIfPresent(ascentM, forKey: .ascentM)
+        try c.encodeIfPresent(descentM, forKey: .descentM)
+        try c.encodeIfPresent(perceivedEffort, forKey: .perceivedEffort)
+        try c.encodeIfPresent(notes, forKey: .notes)
+        try c.encodeIfPresent(splits, forKey: .splits)
+        try c.encode(clientUpdatedAt, forKey: .clientUpdatedAt)
+        try c.encodeIfPresent(strain, forKey: .strain)
+        try c.encodeIfPresent(strainSource, forKey: .strainSource)
+        try c.encodeIfPresent(hrSource, forKey: .hrSource)
+        try c.encodeIfPresent(mergedWith, forKey: .mergedWith)
+        try c.encodeIfPresent(scoringState, forKey: .scoringState)
+    }
+
+    /// What list and day reads keep (API request R16): no route and no heart-rate samples. The detail screen
+    /// fetches a route on demand and holds it in memory only (ADR 0005, 0006). The encoding drops both anyway;
+    /// this keeps them out of values held in memory too.
+    var withoutRouteOrHeartRate: SportActivity {
+        var copy = self
+        copy.route = nil
+        copy.hrSamples = nil
+        return copy
+    }
+}
+
+extension SportActivity: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    /// Times, totals and the platform's fields; of the route, the samples and the notes only whether they're
+    /// there. `print`, interpolation, `dump`, `debugPrint` and the debugger show this (design.md §8.3).
+    var description: String {
+        var parts = ["\(id.uuidString)", sport.rawValue, origin.rawValue, start.ISO8601Format(), "\(Int(movingSec)) s"]
+        if let distanceM { parts.append("\(Int(distanceM)) m") }
+        if let strain { parts.append("strain \(strain)") }
+        if let scoringState { parts.append(scoringState) }
+        if route != nil { parts.append("route") }
+        if let hrSamples { parts.append("\(hrSamples.count) hr samples") }
+        if let notes { parts.append("notes \(notes.count) chars") }
+        return "SportActivity(\(parts.joined(separator: ", ")))"
+    }
+
+    var debugDescription: String { description }
+
+    var customMirror: Mirror {
+        Mirror(self, children: ["id": id, "sport": sport, "origin": origin, "start": start, "end": end,
+                                "movingSec": movingSec, "distanceM": distanceM as Any, "ascentM": ascentM as Any,
+                                "descentM": descentM as Any, "perceivedEffort": perceivedEffort as Any,
+                                "splits": splits as Any, "clientUpdatedAt": clientUpdatedAt, "strain": strain as Any,
+                                "strainSource": strainSource as Any, "hrSource": hrSource as Any,
+                                "mergedWith": mergedWith as Any, "scoringState": scoringState as Any],
+               displayStyle: .struct)
+    }
+}
+
+/// The body of `PUT /v1/activities/{id}`: the activity without the fields the platform sets. A field the
+/// user can clear goes as `null` when it's empty, so the platform clears it; `route`, `hr_samples` and
+/// `splits` are left out when there are none, so the platform keeps what it has (API request R19).
+struct SportActivityPut: Encodable, Sendable {
+    let activity: SportActivity
+
+    init(_ activity: SportActivity) {
+        self.activity = activity
+    }
+
+    private typealias Keys = SportActivity.CodingKeys
+
+    func encode(to encoder: Encoder) throws {
+        let a = activity
+        var c = encoder.container(keyedBy: Keys.self)
+        try c.encode(a.id, forKey: .id)
+        try c.encode(a.sport, forKey: .sport)
+        try c.encode(a.origin, forKey: .origin)
+        try c.encode(a.start, forKey: .start)
+        try c.encode(a.end, forKey: .end)
+        try c.encode(a.movingSec, forKey: .movingSec)
+        // Editable: an empty one is sent as null.
+        try c.encode(a.distanceM, forKey: .distanceM)
+        try c.encode(a.ascentM, forKey: .ascentM)
+        try c.encode(a.descentM, forKey: .descentM)
+        try c.encode(a.perceivedEffort, forKey: .perceivedEffort)
+        try c.encode(a.notes, forKey: .notes)
+        // Measured or sent once: left out when there are none.
+        try c.encodeIfPresent(a.splits, forKey: .splits)
+        try c.encodeIfPresent(a.route, forKey: .route)
+        try c.encodeIfPresent(a.hrSamples, forKey: .hrSamples)
+        try c.encode(a.clientUpdatedAt, forKey: .clientUpdatedAt)
+    }
+}
+
+/// The body of `PUT /v1/sleep/manual/{day}`: a night the user added ("Add sleep").
+struct ManualSleepPut: Codable, Hashable, Sendable {
+    let bed: Date
+    let wake: Date
 }
 
 // MARK: - Helpers

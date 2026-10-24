@@ -325,6 +325,34 @@ struct AlphaProgressionParserTests {
         #expect(!hasControl)
     }
 
+    @Test func aStrayByteInAUTF8ExportStaysUTF8() throws {
+        var german = try ImportFixture.data("ap-workouts-de")
+        let clean = try AlphaProgressionFormat().parse(german, limits: .standard)
+        let title = try #require(german.range(of: Data("Ober".utf8)))
+        german.insert(0xFF, at: title.upperBound) // inside the first workout's title
+        let parsed = try AlphaProgressionFormat().parse(german, limits: .standard)
+        // Only that line is flagged (its title holds U+FFFD); `·`, plan references, equipment and umlauts elsewhere
+        // are untouched.
+        #expect(parsed.warningList == ["1 invalidText"])
+        #expect(parsed.sessions.dropFirst() == clean.sessions.dropFirst())
+        #expect(parsed.plans == clean.plans)
+        #expect(parsed.sessions.compactMap(\.plan).count == 1)
+    }
+
+    @Test func aQuotedIndexIsARowThatKeepsItsPlace() throws {
+        let bundle = try ImportFixture.parse(text: """
+        "A · Standalone workout";"2026-01-05 10:00";"30 min"
+        "1. Floor Press · Barbell · 8 reps"
+        #;KG;REPS
+        "1";"60";"8"
+        2;"62,5";"8"
+        "5";"2026-01-06";"42 min"
+        """)
+        // The quoted index isn't read but counts; quoted load and reps are fine. A number with a date is a workout title.
+        #expect(bundle.sessions.first?.exercise(0)?.sets == [.kg(1, 62.5, 8)])
+        #expect(bundle.warningList == ["4 unrecognisedLine", "6 unreadableDate"])
+    }
+
     @Test func aDayNumberTwiceInOnePlanIsKeptAndWarned() throws {
         let bundle = try ImportFixture.parse(text: """
         "Base · 6 weeks";2026-01-05

@@ -30,10 +30,17 @@ enum ReadinessCopy {
     }
 
     /// An unscored row (the platform's placeholder, `DailyScore.empty`) has no readiness yet: its
-    /// `state: calibrating` is never a baseline being learned, whatever its flag says.
+    /// `state: calibrating` is never a baseline being learned, whatever its flag says. A scored row whose
+    /// calibration waiting won't end (`no_hrv` / `no_rhr`) never counts nights to go either.
     static func sentence(score: DailyScore?) -> String {
         guard let score else { return sentence(for: ReadinessState?.none) }
         let unscored = score.standing == .unscored
+        if !unscored, score.calibrating, !score.waitingEndsCalibration {
+            // N1: the platform's readiness, from what arrived; N2: no night yet, so no readiness.
+            guard score.readiness != nil else { return sentence(for: .calibrating, baselineReady: true) }
+            return String(localized: "Readiness from the signals that reached RYFT.",
+                          comment: "Today's sentence: a baseline can't fill (no HRV or resting HR), readiness is from the signals that arrived.")
+        }
         return sentence(for: score.resolvedState, nightsToGo: score.nightsToGo, baselineReady: unscored || !score.calibrating)
     }
 }
