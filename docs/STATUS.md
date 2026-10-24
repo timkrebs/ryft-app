@@ -59,6 +59,40 @@ Root causes (debugger, tests on `debug/refresh-repro`, cherry-picked into the fi
 4. **"— vs 7 d" wasn't missing data.** It was a flat delta (< 2 %) drawn as a dash. → T2: "Steady vs 7 d".
 5. **The tester couldn't send diagnostics.** `POST /v1/feedback` had no caller. → T3, Profile → Report a problem.
 
+## The store left behind by the App Group move (O1, `fix/orphaned-store`)
+
+Builds before the App Group kept `Train.store` (+ wal/shm) in the app container; sign-out never reached that copy.
+`OrphanedStoreCleanup` deletes it once at launch, after the live store opened, only when it provably isn't the live one.
+Export files go when the share sheet is done, at an account change or sign-out, and at the next launch.
+
+**Simulator-verified** (iPhone 18 Pro simulator, signed Debug build, 2026-10-23):
+- SwiftData copies an app-container store into an empty group container as it opens (md5-identical), and leaves the
+  source; that's why the cleanup runs after the store opened, never before.
+- End to end: a fresh install (store in the group, nothing to remove); an upgrader with a store only in the app container
+  (copied into the group with its data, then the app-container copy removed); an orphan with other data beside a live group
+  store (removed, the live store untouched). An unsigned build (no App Group) deletes nothing (`noGroupContainer`).
+- A store written by the build before `cloudKitDatabase: .none` opens with it, no read-only warning, writes go through.
+
+**Device-verified** (your iPhone, iOS 27.0.1, 2026-10-23, `devicectl` file listings only: no screenshots, no data copied
+off the phone):
+- before: the orphan in the app container's `Library/Application Support`, `Train.store` 560 KB + WAL 1.6 MB from 22 Oct
+  10:38, beside the live group store from today;
+- after installing `e7246de` and one launch: the app container's Application Support is empty, the group store is intact
+  and freshly written, and `tmp` has no export files.
+
+**Still open on a device:** an export over AirDrop (the file stays until the share sheet closes, then `tmp` has no
+`RYFT-export-*.json`).
+
+**Before the TestFlight build that ships O1** (review N2): repeat the upgrader run on an iOS 17.x and an iOS 18.x simulator
+runtime (only iOS 27 is installed here). On a signed build: move the group's `Train.store` (+ wal/shm) into the app
+container, add a marker table with `sqlite3`, delete the cleanup's marker, launch once. The group store must then have the
+marker table, also when it was only in the WAL, and the app container must be empty. If any runtime doesn't copy, the
+cleanup needs a guard first (e.g. keep the old copy until the group store has the account's rows).
+
+**Testers:** TestFlight `20261021.141128` predates the App Group, so its testers keep the store in the app container. The
+next TestFlight build copies it into the group as it opens and leaves the old copy behind, as on your iPhone. Ship O1 in that
+build (or before it): its first launch then removes the copy.
+
 ## Synchronized folders (2026-10-23, #39)
 
 You converted `Ryft/` and `RyftTests/` in Xcode (Convert to Folder), so all four source folders are now synchronized and
@@ -103,8 +137,12 @@ Garmin Connect after 08:00).
 - **T4 `fix: honest calibration and recovery inputs`:** waits for the platform's `hrv_baseline_days` / `recovery_inputs`.
   Until then the features line says "Readiness needs HRV" for Garmin (`RyftFeatures.baselinesWithoutHRV`, off).
 - **The night window** uses fixed 04:00 / 08:00 / 15:00. It could use the Bedtime & wake time instead.
-- **The SwiftData store is in the App Group container** (`TrainStore.swift:22`, `.automatic`), so the widget can read it. Move it
-  to `groupContainer: .none` with a one-time move (also needed by activities, privacy review S1).
+- **The SwiftData store is in the App Group container** (`TrainStore.init`, `.automatic`), so the widget can read it. Move it
+  to `groupContainer: .none` with a one-time move (also needed by activities, privacy review S1). **Rule:** `.none` resolves to
+  the app container's `Library/Application Support/Train.store`, the path of the copy builds before the App Group left
+  behind (an earlier account's read models and pending uploads). Since `fix: remove the store left behind by the App Group
+  move` (O1) `OrphanedStoreCleanup` deletes that copy once at launch, only when it provably isn't the live store. The move
+  must still delete (or deliberately migrate) whatever is at that path before the container opens there.
 - **Older onboarding keys** (`firstRunDone`, `aboutYouDone`, `hintSeen`) keep a deleted account's id in defaults.
 - **The catalog crash-guard hashing and marker** run on main after the first frame (a few ms). Move them into one
   `@concurrent` helper.
