@@ -3,6 +3,8 @@
 - Status: proposed (2026-10-22, My Day and activities, `docs/work/2026-10-22-my-day-activities/design.md` §3.3)
 - Amended: 2026-10-23, amendment 1 (A3a): distance from the filter's speed; a still-phone guard; a settle window;
   the re-init counts both gates
+- Amended: 2026-10-24, amendment 2 (A3a.2): a re-init is provisional until its settle window closes; the sport's
+  limit applies to the filter's speed, with a `.tooFast` state
 - Deciders: ios-lead, on ios-architect's proposal; sync-engineer implements (A3)
 - Applies to: `Ryft/Activities/Recording/TrackPipeline.swift`, `KalmanTrack.swift`, `Geodesy.swift`,
   `Ryft/Activities/Sport.swift` (per-sport parameters)
@@ -260,3 +262,186 @@ the fixes.
   - `flyingStartLosesNothing`.
 - **The fixture noise model** is drifting Gauss–Markov noise (design §11.2), not white noise.
 - **Unchanged:** the ±2 % fixture bounds and every other rule of this ADR.
+
+## Amendment 2 (2026-10-24, A3a.2): a re-init is provisional; the sport's limit applies to the filter's speed
+
+- Status: proposed by ios-architect for A3a.2 (code re-review N2; plan → A3a.2). The lead confirms; sync-engineer
+  implements.
+- **Replaces:**
+  - decision 1's second bullet (the speed gate);
+  - Amendment 1's "Re-init" bullet and its side effect;
+  - Amendment 1's risk 5.
+
+  The rest of decision 2 and Amendment 1 stands.
+- **Numbers marked "probe"** come from ios-architect's scratch harness, which isn't committed:
+  - `main` at `377f2a6` (the pipeline as merged) and a copy with each guard behind a switch;
+  - seeded synthetic 1 Hz tracks with drifting noise at a reported 5 m unless stated;
+  - 20 extra seeds of each `make-tracks.py` fixture (seed 00 is the committed file, byte for byte).
+
+### What N2 found, and what the probe added
+
+| Case | `main` (probe) |
+| --- | --- |
+| A ghost (60 m offset, a falsely good 10 m accuracy) on a run: 3–6 fixes | −18 … −27 m (as the reviewer measured) |
+| The same ghost on a run: 8–12 fixes | −33 … −45 m |
+| The same ghost on a ride (σa 3.0): 3–6 fixes | −17 … +36 m |
+| The same ghost on a ride: 8 fixes or more | +55 … +68 m, no re-init (risk 5) |
+| Sustained offset, 15 s and 30 s | run −18.0 m; ride +55 … +65 m |
+| A cycling descent at 33 m/s for 2 min (limit 25) | −58.8 % at a reported 2 m, −57.6 % at 3 m, 0.0 % at 5 m; silent |
+| "Running" chosen on a bike at 15 m/s | 67–90 m of 4.6 km at 2–3 m, the full 4.6 km at 4–5 m; silent |
+| A train after a run | +243 … +334 m; silent |
+
+Two causes:
+1. **A re-init is final.** The filter restarts at the third rejected fix and the rejected seconds are lost, so a ghost
+   costs one re-init out and one back. On a ride the innovation gate ages open before the third rejection, and the
+   ghost is accepted with a kick to the velocity (the +55 m rows).
+2. **The speed gate is two rules in one.** It rejects a jump from the last filtered position "minus both accuracies".
+   - At 1 Hz that makes the real limit `maxSpeed + 2 × accuracy`, 6–10 m/s above the catalogue value.
+   - So a fast stretch counts in full or not at all, depending on whether Core Location reports 2.9 m or 3.1 m.
+   - Above the real limit, the filter re-initialises every third fix and records nothing, without a word.
+
+### Options
+
+| | A: the reviewer's proposal | B: a provisional re-init, the limit on the filter's speed (chosen) | C: minimal |
+| --- | --- | --- | --- |
+| What | A shadow filter restored when fixes fit it (about 10 s); a bridge after a chain of speed-gate re-inits if it's at most `maxSpeed`; `speedGateReinits`, `.tooFast` on a chain; cycling 25 → 36 m/s | The decision below | The shadow restore only; cycling 25 → 36 m/s |
+| Ghost 3–12 fixes, run | 0 (±1.3 m) | 0 (±2.0 m) | 0 (±1.3 m) |
+| Sustained 15 and 30 s, run | −18 m | 0 (±3.2 m) | −18 m |
+| Ghost 3–30 fixes, ride | −19 … +67 m (no re-init to restore) | 0 (±3.9 m) | −19 … +67 m |
+| GPS trouble: offsets of 40–70 m hop every 3–5 fixes for 40 s (run / ride, 10 seeds) | +44 … +130 / +16 … +201 m; a false `.tooFast` on 5 of 10 run seeds | −44 … +1 / −98 … +20 m; no `.tooFast` | +44 … +130 / +16 … +201 m |
+| Descent at 33 m/s, cycling | 0.0 % | 0.0 % | 0.0 % |
+| "Running" on a bike at 15 m/s | 69–80 m and `.tooFast` at 2–3 m; 4.6 km and no event at 4–5 m | 57–59 m and `.tooFast` at 12 s, at every accuracy | as `main` |
+| A train after a run | +243 … +334 m, `.tooFast` | +98 … +109 m, `.tooFast` | +243 … +334 m, silent |
+| Fixtures (committed seeds) | unchanged | unchanged | unchanged |
+
+**Why not A:**
+- **The bridge can't fire for speed.** A chain of speed-gate re-inits exists only while the speed is above
+  `maxSpeed + 2 × accuracy`, so the chain's average is always above `maxSpeed`. It bridged 0 of 18 descent runs. The
+  higher limit recovered the descent, in every option.
+- **The shadow restores onto the next ghost.**
+  - In GPS trouble, a filter 4–8 s old has a gate wide enough to take the next hop: +36 … +130 m.
+  - A stricter test still gave up to +82 m (a 2σ gate, a shadow at most 8 s old).
+  - The decision below fills the span when the window closes instead, and never restores.
+- **A chain isn't speed.** Hops of 40–70 m every 3 s look like 15–20 m/s to the gate, so `.tooFast` from chains was
+  false on 5–8 of 10 run seeds.
+- **Rides keep risk 5:** the ghost is accepted before any re-init.
+
+**Also rejected:**
+- *Waiting longer before a re-init* (more rejections, or a time): the gates age open first. That's the +75 m of
+  Amendment 1.
+- *An elevation test for cycling above 25 m/s* (only while descending): the barometer is optional for cycling, and GPS
+  altitude is too noisy over 10 s. It may come back with Core Motion's activity type (below).
+
+### Decision
+
+1. **The speed gate is an outlier gate.**
+   - It measures the jump from the filter's *predicted* position (position + velocity × Δt), still minus both
+     accuracies, over Δt ≥ 1 s, against `maxSpeed`.
+   - So it limits the change of velocity a fix implies.
+   - A fresh filter (velocity 0) gates exactly as before.
+   - It rejects the same ghosts (the trail fixture's gate counts are unchanged), and no longer rejects a fast mover the
+     filter is following.
+2. **Association.**
+   - After a rejection, a fix that the gates would accept still counts as rejected when it lies nearer the last
+     rejected fix (moved on at the filter's velocity) than the prediction. It belongs to the rejected run.
+   - This stops an aged-open gate from accepting a ghost with a kick (rides: +55 … +68 m → 0).
+   - Legitimate manoeuvres never meet it, because they cause no rejection. Probe, 5 seeds each, all identical to
+     `main`: a U-turn at 3 m/s, a hairpin at 10 m/s, a 90° corner at 12 m/s, an emergency stop.
+3. **A re-init takes the rejected run's velocity.**
+   - It's the line from the run's first fix to the third, when the middle fix lies on it within the accuracies.
+     Otherwise the velocity is 0, as now.
+   - So a filter restarted on a train or after a flying start follows it, and rule 5 judges it.
+   - Without this rule, the probe recorded 0 m with no event on a train with a fresh filter.
+4. **A re-init is provisional until its settle window closes.**
+   - **The anchor.** The pipeline keeps the last *settled* filtered position, its time and its ground speed (memory
+     only, like the settle window), and counts the re-inits since then.
+   - **When the window closes:**
+     - **One re-init, the anchor at most 10 s before it:** the span is dead-reckoned at the anchor's ground speed,
+       when that speed is between the dead-band and `maxSpeed`. That's what the filter already does over one rejected
+       fix.
+     - **A chain** (two or more re-inits before a window closes), **or a longer span:** the gap rule from the anchor
+       to the window's first position. The straight line counts if its speed is at most `maxSpeed`; a train's
+       doesn't.
+   - **The anchor is dropped** by Start, Pause, a resume, Finish, a velocity reset or a gap inside the window.
+   - **While a chain is open,** `gpsQuality` says `.weak` (ui.md G4: "Distance may be low"): the fixes disagree with
+     each other.
+   - **Nothing restores a filter, and nothing copies one.**
+   - **Result:**
+     - a ghost of up to 12 fixes is a chain of two re-inits, bridged once;
+     - from 13 fixes, the ghost's own window closes in the ghost, so it's two single re-inits, each dead-reckoned
+       (the ghost runs parallel to the track).
+5. **The sport's limit applies to the filter's ground speed.**
+   - **No distance above it.** A step whose mean ground speed is above `maxSpeed` adds nothing, at any accuracy.
+     Neither does a settle window whose line is faster; it also starts the too-fast count at its start.
+   - **The state.** 3 s above the limit → `.tooFast(since:)`; 3 s at or below → `.tooFastEnded(since:)`.
+     `TrackSnapshot.tooFastSince` holds the state.
+   - **While too fast:** no `.route` points, current pace and speed are nil, and the time keeps running (it's not a
+     pause).
+6. **`maxSpeed` is the fastest the sport is done**, not a gate threshold with a hidden allowance:
+
+   | Sport | Before | After | Why |
+   | --- | --- | --- | --- |
+   | Running | 9 | 9 | a sprint finish is 7–8.5 m/s (probe: 12 s at 8.5 m/s, no `.tooFast`) |
+   | Trail running | 8 | 8 | |
+   | Walking, hiking | 4 | 6 | a jog or a run for the bus stays on foot. At 4, a walk with 60 s at 4.5 m/s lost 272 m (probe) |
+   | Cycling | 25 | 36 | road descents reach 110–130 km/h |
+   | Gravel | 22 | 30 | paved descents on a gravel bike |
+   | Mountain biking | 22 | 25 | bike-park descents |
+   | Skiing, ski touring | 40, 30 | unchanged | |
+
+7. **Diagnostics** (counts only, `PipelineDiagnostics`):
+   - `speedGateReinits`: re-inits whose rejected run included a speed-gate rejection (N2's counter);
+   - `reinitSpansDeadReckoned`, `reinitSpansBridged`, `reinitSpansDropped`: what each closed window did with its
+     span;
+   - `tooFastEpisodes`, `tooFastSec`;
+   - `tooFastDistanceM`: the filter's speed integrated while too fast. It's never distance, never saved as distance and
+     never shown; it's for D1 and a later "change sport".
+
+```mermaid
+stateDiagram-v2
+    [*] --> Settled
+    Settled --> Provisional: 3 rejections (either gate, or joining the rejected run)
+    Provisional --> Provisional: another re-init (a chain; GPS reads weak)
+    Provisional --> Settled: window closes / fill the span from the anchor
+    Settled --> Settled: accepted fix / count unless too fast
+```
+
+### Consequences
+
+**Good:**
+- **No ghost costs distance:** 2–30 fixes, run, ride, walk and MTB, within 5 m (probe), and the sustained 15 s case
+  goes from −18.0 m to +0.0 m.
+- **The same movement gives the same result at every reported accuracy.**
+- **0 m is never silent.** Too fast is a state with an event, and an open chain reads as weak GPS.
+- **One speed estimate.** The filter's speed decides distance, auto-pause, pace and now plausibility.
+- **No filter copies.** The anchor is a position, a time and a speed.
+
+**Costs:**
+- **Distance shows late during a ghost:** it holds for the ghost plus up to 10 s, then catches up at once, like the
+  settle window (Amendment 1, risk 8). Splits crossed in that time are interpolated over the filled span.
+- **The higher cycling limit counts a car or a train below 130 km/h after a ride.** Probe: 5 min of train at 33 m/s on
+  a ride added 11.2 km (at 25 m/s: +0.8 km, the acceleration and braking). Speed can't tell a vehicle from a bike below
+  any limit a descent needs.
+- **Below its limit a vehicle is a sprint.** A train after a run adds its acceleration and braking up to 9 m/s:
+  +98 … +109 m (probe).
+- **About 120 more lines** in `KalmanTrack` and `TrackPipeline`, and the catalogue values above.
+
+**Risks:**
+1. **False too-fast in real GPS.** A velocity kick above the limit for 3 s would flash the state. The probe saw none (GPS
+   trouble, manoeuvres, the fixtures), but D1 counts `tooFastEpisodes` on every run.
+2. **A wrong velocity at a re-init.** A collinear ghost run gives the restarted filter a ghost's velocity. The
+   prediction gate then rejects the true fixes, which ends in a chain: weak GPS, and the bridge from the anchor.
+3. **Dead reckoning trusts the anchor's speed for at most 10 s,** capped by `maxSpeed`.
+4. **Walking and hiking at 6 m/s** count a slow bike ride recorded as a walk.
+5. **Core Motion's activity type** (`automotive`) would tell a vehicle from a bike at any speed. It needs Motion
+   permission, which cycling may not have. It's a follow-up after D1, not this PR.
+
+**Tests:** design §11.1, rev. A3a.2 (the acceptance table).
+
+**D1 adds:**
+- `tooFastEpisodes` (target 0) and the span counts on every run;
+- a ride with a real descent (as fast as is safe): distance against the tracker, no `.tooFast`;
+- "Running" recorded on a bike above 10 m/s for 2 min: the state appears within 5 s, VoiceOver announces it;
+- a passenger in a car or train with "Running": one episode over the fast part, and at most about 120 m added per
+  stop;
+- a walk between tall buildings: re-inits, spans, weak-GPS time, and the distance against a measured course.

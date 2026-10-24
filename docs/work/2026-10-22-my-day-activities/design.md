@@ -119,11 +119,11 @@ gives every property; §2 (Add) and §3 (Start) read the same table. Unknown wir
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `running` | `figure.run` | yes | `.running` · outdoor | secondary | on · 1.0 m/s | 9 m/s | 1.5 | foot |
 | `trail_running` | `figure.run` + trail badge | yes | `.running` · outdoor | **primary** | on · 0.8 | 8 | 1.5 | foot |
-| `walking` | `figure.walk` | yes | `.walking` · outdoor | secondary | off · 0.4 | 4 | 1.0 | foot |
-| `hiking` | `figure.hiking` | yes | `.hiking` · outdoor | **primary** | off · 0.3 | 4 | 1.0 | foot |
-| `cycling` | `figure.outdoor.cycle` | yes | `.cycling` · outdoor | secondary | on · 1.5 | 25 | 3.0 | cycle |
-| `mountain_biking` | `bicycle` | yes | `.cycling` · outdoor | **primary** | on · 1.2 | 22 | 3.0 | cycle |
-| `gravel` | `bicycle` | yes | `.cycling` · outdoor | secondary | on · 1.5 | 22 | 3.0 | cycle |
+| `walking` | `figure.walk` | yes | `.walking` · outdoor | secondary | off · 0.4 | 6 | 1.0 | foot |
+| `hiking` | `figure.hiking` | yes | `.hiking` · outdoor | **primary** | off · 0.3 | 6 | 1.0 | foot |
+| `cycling` | `figure.outdoor.cycle` | yes | `.cycling` · outdoor | secondary | on · 1.5 | 36 | 3.0 | cycle |
+| `mountain_biking` | `bicycle` | yes | `.cycling` · outdoor | **primary** | on · 1.2 | 25 | 3.0 | cycle |
+| `gravel` | `bicycle` | yes | `.cycling` · outdoor | secondary | on · 1.5 | 30 | 3.0 | cycle |
 | `indoor_running` | `figure.run` (treadmill if on iOS 17) | no: pedometer | `.running` · indoor | none | on · cadence 0 | — | — | foot |
 | `indoor_cycling` | `figure.indoor.cycle` | no | `.cycling` · indoor | none | off | — | — | cycle |
 | `rowing` | `figure.rower` | no (plan D1-8) | `.rowing` | none | off | — | — | water |
@@ -140,6 +140,9 @@ gives every property; §2 (Add) and §3 (Start) read the same table. Unknown wir
 | `padel` | `figure.tennis` | no | `.tennis` (Apple has no padel; plan D1-8) | none | off | — | — | ball |
 | `other` | `figure.mixed.cardio` | no | `.other` | none | off | — | — | other |
 
+- **Max speed (rev. A3a.2):** the fastest each sport is actually done (walking and hiking 6, cycling 36, gravel 30,
+  mountain biking 25 m/s); it bounds the filter's ground speed, and above it the pipeline reports "too fast" (§3.3, ADR 0003
+  amendment 2). `Sport.swift` changes with the A3a.2 code PR.
 - **Elevation:** *primary* asks for Motion & Fitness and uses the barometer (the brief's list). *Secondary* uses the
   barometer only if Motion is already allowed, else GPS altitude. *None* shows no elevation.
 - **More per entry:** `paceStyle` (`.pace` per km for foot and snow, `.speed` km/h for cycle), the HealthKit distance
@@ -430,6 +433,15 @@ marked *rev.* are new or changed:
 
 Reconciled with what A3a built (`b059151`).
 
+**rev. A3a.2 (2026-10-24).** The speed-gate guard (code re-review N2; ADR 0003, amendment 2). Text marked
+*rev. A3a.2* replaces the A3a text it follows:
+- the speed gate measures from the filter's prediction; association; a re-init takes the rejected run's velocity
+  (steps 2–3);
+- a re-init is provisional until its settle window closes, and its span is filled from the anchor (steps 3–5);
+- the sport's limit applies to the filter's speed, with a too-fast state (step 4 and *Too fast* below);
+- `maxSpeed` is the fastest the sport is done. That replaces §2.1's "Max speed" column for walking and hiking (6),
+  cycling (36), gravel (30) and mountain biking (25 m/s).
+
 `struct TrackPipeline` is a **pure value type**. It imports Foundation only and is `Sendable`. It reads no clock:
 every input and control carries its time. The actor owns one. Unit tests drive it directly with fixture arrays, with
 no actor and no clock.
@@ -447,10 +459,10 @@ no actor and no clock.
 | Step | Rule |
 | --- | --- |
 | 1 Pre-gate | Drop `horizontalAccuracy` < 0 or > 25 m, and non-finite coordinates (counted `accuracy`). Drop timestamps not after the last accepted one (`outOfOrder`), or more than 10 s older than the newest time seen (`stale`). *rev.:* The recorder passes `receivedAt:` from its clock, so a cached fix that arrives late is stale. Only receipt times and fixes that pass the accuracy gate move "the newest time seen": one bad timestamp can't age the rest. Before Start, fixes warm the filter and the GPS indicator and record nothing. The button activates at ≤ 20 m (or "Start anyway"). |
-| 2 Speed gate | Distance to the last accepted *filtered* position, minus the two accuracies, over Δt (≥ 1 s): if it's above `sport.maxSpeed`, reject (counted as `implausible`). *rev.:* The gate ages open: Δt keeps growing while fixes are rejected, so it holds back a jump for only about (jump − accuracies) / `maxSpeed` seconds. Its rejections count toward step 3's re-init. |
-| 3 Filter | Constant-velocity Kalman per axis in a local tangent plane (WGS84 meridional and prime-vertical radii at the anchor latitude; re-anchored every 5 km). Measurement variance `max(hAcc, 3 m)²`; white-acceleration process noise `σa` from the catalogue. Innovation gate at 3.5σ. *rev.:* **Three rejections in a row, by the speed gate or the innovation gate,** re-initialise at the third fix (a real jump, a tunnel exit, sustained multipath). The jump adds no distance. Accuracy, stale and out-of-order rejections neither count nor break the run. A settle window follows (step 4). On a 60 m, 15 s multipath offset: +75.4 m with only innovation rejections counting, −18.0 m with both. Side effect: movement steadily faster than `maxSpeed` (a "run" at 16 m/s) re-initialises every third fix and records 0 m. That's intended for implausible speeds; *the lead adjusts this if a legitimate profile can exceed its `maxSpeed`*. Δt > 15 s resets the velocity variance. |
-| 4 Distance | *rev.:* The trapezoid of the filter's **ground speed** between consecutive accepted fixes, while `recording`. **A still phone adds nothing, in two layers, also with auto-pause off.** (1) A fix Core Location flags `isStationary` adds no distance. (2) A dead-band is the backstop: a step counts only when the mean of the two speeds is at least half the sport's auto-pause threshold, clamped to 0.3–0.5 m/s (run, bike and ski 0.5; trail 0.4; walk and hike 0.3, which rely on the flag). **A settle window after the filter (re)initialises or resets its velocity:** nothing accrues for 10 s (up to 30 s with fewer than 4 fixes). Then the window counts the shorter of a Theil–Sen line through its raw fixes and the filtered track's length; a coarse first fix lengthens the track, an acceleration lengthens the line. A coarse first fix (20–40 m off) now adds 0.0 m instead of up to +42 m. The cost: the first 10 s of distance appears at the window's end. **Position steps** (the geodesic between filtered positions) replace the speed for 10 s only after an auto-resume, recovering the velocity's lag. Distance is horizontal, like every GPS watch; ascent is separate. `Tuning.distanceFromVelocity = false` keeps the position sum for D1 only. |
-| 5 Gaps | Δt > 10 s between accepted fixes *within one running process*: bridge with the straight line if the implied speed is ≤ `maxSpeed`, else don't (counted `gap`). A resume after a kill never bridges (§3.9). *rev.:* Nothing is bridged from a fix before Start ("Start anyway" after a silent GPS). A step is clipped to the last Start or resume, so a fix delivered late never counts time before them. |
+| 2 Speed gate | *rev. A3a.2:* **An outlier gate, not the sport's limit** (that's step 4). The distance from the filter's **predicted** position (position + velocity × Δt) to the fix, minus the two accuracies, over Δt (≥ 1 s): if it's above `sport.maxSpeed`, reject (counted `implausible`). It limits the change of velocity a fix implies. A fresh filter (velocity 0) gates as before, and the trail fixture's gate counts don't change. *rev.:* The gate ages open: Δt keeps growing while fixes are rejected. So its rejections count toward step 3's re-init. *rev. A3a.2,* **why not from the last filtered position (A3a):** "minus both accuracies" made the real limit `maxSpeed + 2 × accuracy` at 1 Hz. A fast stretch then counted in full or not at all, depending on the reported accuracy. A "run" at 15 m/s recorded 67–90 m of 4.6 km at 2–3 m, and all of it at 4–5 m (probe). |
+| 3 Filter | Constant-velocity Kalman per axis in a local tangent plane (WGS84 meridional and prime-vertical radii at the anchor latitude; re-anchored every 5 km). Measurement variance `max(hAcc, 3 m)²`; white-acceleration process noise `σa` from the catalogue. Innovation gate at 3.5σ. Δt > 15 s resets the velocity variance. *rev.:* **Three rejections in a row, by the speed gate or the innovation gate,** re-initialise at the third fix (a real jump, a tunnel exit, sustained multipath). The jump adds no distance. Accuracy, stale and out-of-order rejections neither count nor break the run. A settle window follows (step 4). *rev. A3a.2:* **Association.** After a rejection, a fix that the gates would accept still counts as rejected when it lies nearer the last rejected fix (moved on at the filter's velocity) than the prediction: it belongs to the rejected run. Without it, a ride's gate aged open after two rejections and took a ghost with a kick (+55 … +68 m, probe). Turns and stops never meet it, because they cause no rejection. **The re-init's velocity** is the rejected run's: the line from its first to its third fix, when the middle one lies on it within the accuracies; else 0. **The re-init is provisional** until its settle window closes; step 4 then fills the rejected span from the anchor. Gone: the A3a side effect, where a movement above `maxSpeed` re-initialised every third fix and recorded 0 m silently. The filter now follows it, and step 4 refuses it openly. |
+| 4 Distance | *rev.:* The trapezoid of the filter's **ground speed** between consecutive accepted fixes, while `recording`. **A still phone adds nothing, in two layers, also with auto-pause off.** (1) A fix Core Location flags `isStationary` adds no distance. (2) A dead-band is the backstop: a step counts only when the mean of the two speeds is at least half the sport's auto-pause threshold, clamped to 0.3–0.5 m/s (run, bike and ski 0.5; trail 0.4; walk and hike 0.3, which rely on the flag). **A settle window after the filter (re)initialises or resets its velocity:** nothing accrues for 10 s (up to 30 s with fewer than 4 fixes). Then the window counts the shorter of a Theil–Sen line through its raw fixes and the filtered track's length; a coarse first fix lengthens the track, an acceleration lengthens the line. A coarse first fix (20–40 m off) now adds 0.0 m instead of up to +42 m. The cost: the first 10 s of distance appears at the window's end. **Position steps** (the geodesic between filtered positions) replace the speed for 10 s only after an auto-resume, recovering the velocity's lag. Distance is horizontal, like every GPS watch; ascent is separate. `Tuning.distanceFromVelocity = false` keeps the position sum for D1 only. *rev. A3a.2:* **The provisional span.** At a re-init, the pipeline keeps an **anchor**: the last settled filtered position, its time and its ground speed (memory only). Start, Pause, a resume, Finish, a velocity reset and a gap inside the window drop it. When the re-init's window closes: **one re-init, the anchor at most 10 s before it** → the span is dead-reckoned at the anchor's ground speed, if that's between the dead-band and `maxSpeed`; **a chain** (two or more re-inits before a window closes) **or a longer span** → the gap rule (step 5) from the anchor to the window's first position. A ghost of up to 12 fixes is one bridged chain. From 13 fixes, its own window closes inside the ghost, so it's two dead-reckoned spans. **The sport's limit:** a step whose mean ground speed is above `maxSpeed` adds nothing, at any accuracy. Neither does a settle window whose line is faster (*Too fast* below). |
+| 5 Gaps | Δt > 10 s between accepted fixes *within one running process*: bridge with the straight line if the implied speed is ≤ `maxSpeed`, else don't (counted `gap`). A resume after a kill never bridges (§3.9). *rev.:* Nothing is bridged from a fix before Start ("Start anyway" after a silent GPS). A step is clipped to the last Start or resume, so a fix delivered late never counts time before them. *rev. A3a.2:* A chain of re-inits is a gap from the anchor (step 4). While a chain is open, `gpsQuality` says `.weak` (ui.md G4: "Distance may be low"), because the fixes disagree with each other. |
 | 6 Pace | Rolling 30 s of moving time over (t, cumulative distance): pace = Δt/Δd once Δd ≥ 20 m and ≥ 10 s of data, else none ("—"). Average pace = moving time / distance. Cycling shows speed. *rev.:* Under canopy a 30 s window is noisy by physics. The probe measured a p95 error of 10–20 % at 2.2 m/s, against 2–4 % on an open road. D1 shows whether trail sports need a longer window. |
 | 7 Splits | When the recorded distance crosses k × 1000 m, interpolate the crossing time within the step. *rev.:* `TrackSplit` is `{index, distanceM, durationSec, ascentM, end}`. **`index` is 1-based** (R20). `durationSec` is the moving time in the split. `end` stays on the device; the other four are the wire's `ActivitySplit`. Finish adds the partial last split, with its real distance, **only from 5 % of a split (50 m)**: a shorter remainder at a round-number finish is GPS overshoot, not a split. Its distance and time stay in the totals, so the splits may sum to less than `distance_m` (R20). **A split crossed inside a pause that's backdated later** (auto-pause, or a manual pause while one was pending) is revised: its `.split` event carried a provisional duration, while `splits` and `checkpoint` hold the revised one. A3b stores splits from the checkpoint, never from the events. Laps are local (§13 R7). |
 | 8 Auto-pause | If enabled: enter when the filter's speed is below the sport's threshold for 10 s of fix time, or `isStationary` for 5 s (also when the fixes stop, through `advance(to:)`). Indoor runs enter after 10 s without new steps. Leave at ≥ 1.5 × threshold for 3 s. *rev.:* **Backdated both ways:** the pause starts when the user stopped and ends when they moved again, and the distance of the 3 s confirmation is replayed. **The clock holds while an auto-pause is pending** (below). A manual pause while one is pending starts at the pending moment. The filter keeps running while auto-paused. Manual pause and resume always work; a manual pause during an auto-pause stays manual. |
@@ -469,6 +481,35 @@ no actor and no clock.
     route, and the disk shouldn't learn it (ADR 0005; security-privacy reviews).
   - `.profile` points continue; they hold no coordinate.
   - Built in A3a (`routePointsOnlyWhileRecording`).
+  - *rev. A3a.2:* none while too fast either (below).
+- *rev. A3a.2* **Too fast** (ADR 0003, amendment 2):
+  - **Enter.** The filter's ground speed is above `maxSpeed` for 3 s → `.tooFast(since:)`, backdated to the first fast
+    step. A settle window whose Theil–Sen line is faster starts the count at the window's start.
+  - **Leave.** 3 s at or below the limit → `.tooFastEnded(since:)`, backdated to the first slow step.
+  - **Meanwhile:**
+    - `TrackSnapshot.tooFastSince` is set;
+    - no distance: a step above the limit never counts, even before the 3 s;
+    - no `.route` points: where a vehicle went isn't the activity's route (security-privacy confirms with A3b);
+    - `currentPace` and `currentSpeed` are nil;
+    - the time keeps running, and auto-pause works as before.
+  - **Not a phase.** `RecordingPhase` stays `recording`; it isn't a pause.
+  - **Why the speed of the filter.** It's smooth and doesn't depend on the reported accuracy. Probe, "running" on a bike
+    at 15 m/s, at a reported 2, 3, 4 and 5 m: 55–59 m recorded and `.tooFast` 3 s after the filter passed 9 m/s, every
+    time.
+  - **What A4 shows** (copy direction; ui-designer writes it into ui.md as G11, en and de):
+    - **A state line** like G4's. It ranks below G6, G5 and G4: with weak GPS the speed isn't trustworthy.
+    - **The copy says** what happened (distance paused), why (faster than the sport) and what to do (nothing, it
+      resumes when you slow down; in a vehicle, stop the recording). It names the sport, never GPS, never an error.
+      For example "Faster than running speed. Distance pauses until you slow down." / "Schneller als Lauftempo. Die
+      Distanz pausiert, bis du langsamer wirst." For cycling, the limit in the locale's unit may read better ("Faster
+      than 130 km/h").
+    - **Values.** Current pace "–:–"; the distance stands still.
+    - **Feedback.** A `.warning` haptic once, and a VoiceOver announcement on entry and exit ("Distance paused …" /
+      "Distance resumed"), never repeated.
+    - **Live Activity.** The caption slot that shows "Weak GPS" says "Distance paused". A4 adds a `tooFast` flag to
+      `ContentState` (in both copies; `check-shared-types.py`).
+    - **Finish summary (Z1).** When `tooFastSec` is at least 10 s, a caption under the distance: "Distance paused for
+      6 min: faster than running speed." No second distance number.
 - *rev.* **Who decides what:**
   - The pipeline decides auto-pause. The recorder mirrors `.autoPaused` and `.autoResumed` into `RecordingPhase`
     through the table (§3.1).
@@ -486,6 +527,9 @@ no actor and no clock.
   - **Interrupted:** Finish calls `finish(at: lastCheckpoint)`; Resume calls `resume(at: now)` (indoor runs: §3.9).
   - **Pedometer after a restore:** the first live sample comes after `resume(at:)` (§3.9).
   - **Splits:** stored from `checkpoint`, never from `.split` events (step 7).
+  - *rev. A3a.2* **Too fast:** forward `.tooFast` and `.tooFastEnded` as `RecorderEvent`s, and send a snapshot at
+    once on each, as on a phase change, so the Live Activity follows. `RecorderSnapshot` (§3.7) gains
+    `tooFastSince: Date?`.
   - **Snapshots:** `snapshot(at: clock.now)`. The recorder adds the phase, heart rate and route tail, maps
     `TrackSplit` to `ActivitySplit`, and converts m/s to km/h.
   - **Naming:** the checkpoint property is `checkpoint`. It was `resume`, which read like the control `resume(at:)`.
@@ -496,11 +540,23 @@ no actor and no clock.
   - *rev.:* Until D1 decides, Debug and TestFlight builds also keep three shadow distance totals: position steps,
     Core Location's speed, and ground speed without the auto-resume position steps. They're numbers only (ADR 0003,
     amendment 1). A3b adds them; A3a doesn't have them.
+  - *rev. A3a.2:* `PipelineDiagnostics` adds:
+    - `speedGateReinits`: re-inits whose rejected run included a speed-gate rejection (N2's counter);
+    - `reinitSpansDeadReckoned`, `reinitSpansBridged`, `reinitSpansDropped`: what each closed window did with its span;
+    - `tooFastEpisodes` and `tooFastSec`;
+    - `tooFastDistanceM`: the filter's speed integrated while too fast. It's a number for D1 and a later "change
+      sport", never distance.
+
+    They're `Codable` in the checkpoint. No checkpoint is on disk before A3b ships; after that, a new field decodes
+    with a default.
 - *rev.* **Redaction:**
   - `LocalTangentPlane` keeps two scale factors from the anchor's latitude, and `metresPerRadianEast` (N·cos φ)
     gives that latitude back exactly. Before A3a's fix, `dump` of the filter or the pipeline printed it.
   - The plane and the filter now render nothing, and `RedactionTests.filterPlaneAndPipelineRenderNoLocation` dumps a
     pipeline after a few fixes.
+  - *rev. A3a.2:* the anchor and `KalmanTrack`'s rejected run hold coordinates in memory, never in a checkpoint.
+    `Coordinate` and `KalmanTrack` already render nothing. The test also dumps a pipeline during a provisional
+    re-init.
 
 ### 3.4 Elevation (`Recording/ElevationFusion.swift`)
 
@@ -1524,9 +1580,51 @@ config, `PlatformAPI.swift:144`):
 - **Kalman.** Constant velocity converges; outlier gate; re-init after 3 rejections; variable Δt. *rev.:*
   - The 3 rejections may mix the speed gate and the innovation gate.
   - A sustained 15 s, 60 m offset with a 10 m reported accuracy on a run re-initialises twice and costs −25…+5 m
-    (measured −18.0 m; A3a as first written: +75.4 m).
-  - Movement steadily above `maxSpeed` records nothing (the side effect in §3.3 step 3).
-  - Rides: A3b adds the fixture (§11.2) and a bound.
+    (measured −18.0 m; A3a as first written: +75.4 m). *rev. A3a.2:* within 5 m (probe +0.0 m), with two
+    dead-reckoned spans.
+  - Movement steadily above `maxSpeed` records nothing. *rev. A3a.2:* **and says so** (`.tooFast`), at every reported
+    accuracy (the table below). The A3a side effect in §3.3 step 3, a silent 0 m, is gone.
+  - Rides: A3b adds the fixture (§11.2) and a bound. *rev. A3a.2:* the bound is set here: within 5 m per episode (the
+    ghost rows below). A3b's `urban-ride` fixture (§11.2) checks it under drifting noise.
+  - *rev. A3a.2,* new:
+    - `predictedPosition(at:)` is position + velocity × Δt;
+    - **association:** after a rejection, a fix nearer the last rejected fix than the prediction counts as rejected,
+      and one nearer the prediction is accepted;
+    - **the re-init's velocity** is the rejected run's when the middle fix lies on the line, else 0.
+      `reinitialisesAfterThreeRejectionsInARow` changes: its consistent 300 m jump at 3 m/s now restarts at 3 m/s,
+      bearing 60°, not at 0.
+- *rev. A3a.2* **The speed-gate guard** (ADR 0003, amendment 2). The acceptance for A3a.2.
+  - **Inputs.** The noiseless cases use `SyntheticTrack`. The noisy ones use a seeded drifting-noise helper in the test
+    target (Gauss–Markov, τ 60 s, σ = accuracy / 2, plus 0.4 m of jitter), so no new JSON fixture is needed.
+  - **Profiles.** The catalogue's, with the new limits.
+  - **Numbers.** "Design (probe)" is ios-architect's harness on the design, before the code.
+
+  | Case | Setup | `main` (probe) | A3a.2 must | Design (probe) |
+  | --- | --- | --- | --- | --- |
+  | Ghosts, 2–15 fixes | A 60 m offset at a falsely good 10 m from fix 100, three directions; running at 3 m/s, cycling 8, walking 1.4, mountain biking 5 | run −18 … −45 m (3–12 fixes); ride −17 … +68 m | Noiseless: within 1 m for every length. Drifting noise (5 seeds × 3 directions): within 5 m of the same seed without the ghost. Up to 12 fixes: 2 re-inits and 1 bridged span; 13–15 fixes: 2 re-inits and 2 dead-reckoned spans | ±0.1 m; −3.9 … +2.7 m |
+  | Sustained 60 m, 15 s and 30 s | The same offset held for 15 and 30 fixes; running and cycling | run −18.0 m; ride +55 … +65 m | Within 5 m; 2 re-inits, 2 dead-reckoned spans | +0.0 / +0.1 m; with noise −3.9 … +3.2 m |
+  | Descent, 2 min at 33 m/s | Cycling (36 m/s): 120 s at 10, +1 m/s² to 33, 120 s at 33, −1.9 m/s² to 10, 120 s at 10 (7,112 m); a reported 2, 3 and 5 m | at the old 25: −58.8 / −57.6 / 0.0 %, silent | Within ±1 %, no `.tooFast` and no re-init, at every accuracy | 0.0 %; none; 0 |
+  | Descent above the limit (guard) | The same track on a test profile limited to 25 m/s | as above | `.tooFast(since:)` within 3 s after the truth passes 25 m/s, `.tooFastEnded(since:)` within 4 s after it drops below; the distance is the part below 25 m/s (2,800 m) ±1 %; the same at 2, 3 and 5 m | since 137 s (truth 135 s); ended since 269–270 s (truth 267 s); 2,803 m |
+  | "Running" on a bike at 15 m/s | Running; a 15 s ramp from 0, then 300 s at 15 m/s (4,612 m); a reported 2, 3, 4 and 5 m | 67–90 m at 2–3 m, 4,596–4,600 m at 4–5 m; silent | At most 80 m (the ramp below 9 m/s is 40.5 m); `.tooFast(since:)` within 4 s after the truth passes 9 m/s; the same at every accuracy | 55–59 m; since 12 s (truth 9 s) |
+  | The same, flying start | 30 s at 15 m/s before Start | 0 m at 2–3 m, 4,498 m at 5 m; silent | 0 m; `.tooFast` within 15 s of Start, at every accuracy | 0 m; since 11 s after Start |
+  | A train after a run | Running, auto-pause on: 300 s at 3 m/s, 120 s still, the train +0.7 m/s² to 33 m/s, 300 s, −1 m/s² to 0, 60 s still; a reported 3 and 5 m | +243 … +334 m, silent | At most 120 m added (the train's acceleration and braking below 9 m/s: 58 + 41 m); one episode, from within 3 s after it passes 9 m/s to within 4 s after it drops below | +98 … +109 m; since 436–437 s (truth 435 s), ended since 796 s (truth 793 s) |
+  | GPS trouble | Running, walking, cycling: offsets of 40–70 m hop every 3–5 fixes for 40 s, at a reported 8 m; 10 seeds | run −133 … −41, walk −64 … −48, ride −345 … +6 m | No `.tooFast`; `gps == .weak` while a chain is open; never more than 25 m above the same seed without trouble | run −44 … +1, walk −9 … +1, ride −98 … +20 m; no `.tooFast` |
+  | Fast but on foot (guard) | A walk with 60 s at 4.5 m/s; a run with a 12 s sprint at 8.5 m/s | +3.5 / +6.1 m | Within 10 m; no `.tooFast` | +3.5 / +6.1 m |
+  | Manoeuvres (guard) | A U-turn (180° in 2 s at 3 m/s), a hairpin at 10 m/s, a 90° corner at 12 m/s, an emergency stop (12 → 0 m/s in 3 s); 5 seeds | −12.7 … +9.8 m; 0 re-inits | As `main` within 0.5 m; 0 re-inits | identical |
+  | Fixtures, committed seeds | `road-5k`, `trail-switchbacks`, `stationary` | +0.31 %, −0.34 %, 0.0 m | Within their bounds, gate counts unchanged (trail: 6 speed-gate rejections, all 6 multipath fixes caught, 0 re-inits) | identical |
+  | 20 more seeds (a probe check, not a test) | `make-tracks.py` with seeds + 7919·k | road −0.07 … +0.48 %, trail −2.31 … +2.35 % | No seed worse than `main` by more than 1 % | road identical; trail −2.31 … +1.83 % (worst change: one seed −0.56 → −1.40 %) |
+
+  - **Tests that change:**
+    - `speedGateUsesTheProfile`: the run at 16 m/s records 0 m and emits one `.tooFast`, instead of 20 speed-gate
+      rejections and 10 re-inits. The ride records 480 ± 2 m and rejects nothing.
+    - `sustainedMultipathCostsLittle`: within 5 m.
+    - `TrackProfileFixture`'s comments, and anything else that pins the old limits.
+  - **New, besides the table:**
+    - `TrackSnapshot.tooFastSince` is set and cleared with the events; `currentPace` is nil while too fast; no
+      `.route` while too fast;
+    - the anchor is dropped by Pause, resume and Finish: nothing is filled across them;
+    - `RedactionTests` dumps a pipeline during a provisional re-init;
+    - the new `PipelineDiagnostics` fields count each case once.
 - **Geodesy.** Against Vincenty reference values at 0°, 50° and 70° N.
 - **Codec.** Round trip, version byte, truncation.
 - **Recorder (actor):**
@@ -1647,7 +1745,7 @@ Synthetic, so they're deterministic and contain **no one's real location**:
 | `road-5k` | 5.000 km at 3.0 m/s, gentle curves, a 20 s traffic light, a 25 s tunnel gap, 2 outliers | distance ±2 %, 5 splits, auto-pause once |
 | `trail-switchbacks` | 8.0 km, 12 hairpins of r 15 m, +400 / −400 m, canopy noise, 30 bad fixes, 3 multipath jumps, a 45 s gap | ±2 % horizontal; ascent ±3 m (baro fixture) |
 | `stationary` | 10 min on a table, accuracy 5–30 m; *rev.:* the error level sweeps 5 → 30 → 5 m, and fixes are flagged `isStationary` from 15 s, as `liveUpdates` does | < 20 m, auto-paused ≤ 10 s, no split; auto-pause off: < 1 m with the flag, < 5 m with it stripped (measured 0.0 m) |
-| *rev.* `urban-ride` (A3b, before D1) | a city ride with sustained multipath: 10–30 s offsets of 40–60 m with a falsely good accuracy | sets the ride's re-init bound (ADR 0003, amendment 1, risk 5) |
+| *rev.* `urban-ride` (A3b, before D1) | a city ride with sustained multipath: 10–30 s offsets of 40–60 m with a falsely good accuracy | checks the ride's re-init bound under drifting noise: within 5 m per episode (ADR 0003, amendment 2) |
 
 After device test D1, one real track from a public course (not near home, ends trimmed) may be added as a
 regression fixture. That's the user's call.
