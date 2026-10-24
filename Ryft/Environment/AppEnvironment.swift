@@ -106,11 +106,14 @@ final class AppEnvironment {
                      auth: AuthService? = nil, flags: [FeatureFlag: Bool] = [:],
                      online: Bool = true, content: MockContentSource = MockContentSource()) -> AppEnvironment {
         api.now = { clock.now() }
+        // Settings of its own: `Settings.shared` is process-wide, and parallel suites (every sync,
+        // every sign-out) write `lastSync` and `healthIntroDone` there.
+        let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
         let env = AppEnvironment(
-            settings: .shared, health: health, liveAPI: api, demoAPI: api, auth: auth ?? .preview(),
+            settings: Settings(defaults: defaults), health: health, liveAPI: api, demoAPI: api, auth: auth ?? .preview(),
             persistence: TrainStore(inMemory: true), clock: clock, notifier: notifier ?? MockNotifier(),
             flags: StaticFlags(flags), connectivity: .preview(online: online),
-            defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard, demoOverride: false,
+            defaults: defaults, demoOverride: false,
             content: content)
         // Time moves only when a test advances it: retries wait no jitter, and the starts-per-second
         // window doesn't hold back reads issued at one instant. Suites about retry timing and the
