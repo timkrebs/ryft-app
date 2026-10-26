@@ -15,7 +15,8 @@ private func exportFiles(in folder: URL) -> [String] {
     ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasPrefix(DataExport.filePrefix) }
 }
 
-private let emptyArchive = DataExport.Archive(exportedAt: .now, app: "RYFT test", user: nil, days: [], workouts: [], sessions: [])
+private let emptyArchive = DataExport.Archive(exportedAt: .now, app: "RYFT test", user: nil, days: [], workouts: [], sessions: [],
+                                          rememberedMatches: [])
 
 @Suite("Data export: temporary files")
 struct DataExportFileTests {

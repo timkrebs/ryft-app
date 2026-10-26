@@ -66,3 +66,52 @@ It asked for three things, all done: merging #40 first (bf0bc19), caps across fi
 - **I4:**
   - "Line N" is the UI's own key;
   - the per-file read gives D6/D7.
+
+## I3 `train: exercise mapping and aliases`
+
+**Commits:**
+
+| Commit | What |
+| --- | --- |
+| 53eb7e5 | Matcher (remembered → exact → alias → fuzzy), normaliser, a 134-entry en/de alias catalogue, `ImportMapping` per account, derived custom-exercise ids, export of remembered matches |
+| 4c2c9ad | Review fixes |
+| a8b6e67 | The id key is independent of the alias vocabulary |
+| 737ad3c, 2c975e5 | ADR 0007 Amendment 1 |
+| 607b046 | `fold` pinned and checked independently; machine and cable kept apart |
+
+**Gates:**
+- strict build clean;
+- Unit 1,348 on the merged branch;
+- `make lint`, including `scripts/import-fold-check.py` (1,065 golden keys agree) and `scripts/builtin-exercises.py --check`;
+- mutations 22/22, then 6/6.
+
+**Real export (counts only):** 20 distinct exercises; 14 exact, 2 alias, 4 to check, 0 new.
+
+**Personal data:** the alias catalogue is generic. Only short common names overlap the real export, and none of its distinctive
+names appear. Every changed file was scanned.
+
+**security-privacy-reviewer: signed off.**
+- Matches are per account, wiped at sign-out, cleared with "Clear remembered matches", and exported.
+- Demo matches are forgotten when demo turns off.
+- The export's account binding (S1) is fixed generally in #47 (`AccountBinding`).
+
+### code-reviewer (53eb7e5): 1 blocking, 4 should-fix
+
+| # | Finding | Result |
+| --- | --- | --- |
+| 1 | **Blocking:** a generic exercise was accepted over a specific built-in ("Trap Bar Deadlift" → `deadlift`) | Specific equipment wins; a field vs name contradiction becomes a check; all-pairs test (1.8 M combinations in the re-review) |
+| 2 | Custom-exercise ids depended on the editable alias file | The key is `fold(name)` and `fold(field)` only (ADR 0007 Amendment 1); golden file of 1,065 keys |
+| 3 | Control and bidi characters in custom names | Stripped; 80-scalar cut on character boundaries; fallbacks |
+| 4 | A German-keyboard apostrophe and the soft hyphen broke normalisation | Dropped before NFKC |
+| 5 | Hand-copied built-in fixture | `builtin-exercises.py --check` against the platform seed (read-only) |
+
+### code-reviewer re-verification (737ad3c): nothing blocking
+- **N1:** "Crunch machine · Cable" silently matched the cable exercise. Now an explicit refinement map (`ez_bar` / `trap_bar` refine barbell; `smith_machine` / `assisted` refine machine); cable vs machine is a check.
+- **N2:** `fold` didn't quite match the ADR (step 4 order, Final_Sigma) and the golden file didn't pin the tricky clauses.
+  Now `fold` is idempotent and matches the ADR word for word, and 36 tricky inputs are pinned. A faithful stdlib-only checker
+  with explicit Unicode tables runs in `make lint`.
+
+### For I4
+- Call `match(_:)` from the `@concurrent` read path, not the main thread.
+- "Accept N likely matches" uses `isLikely`.
+- Remember the derived ids of "new" rows.

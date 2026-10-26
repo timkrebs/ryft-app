@@ -5,8 +5,9 @@ import UIKit
 
 /// Profile → Data → Export my data: everything the platform holds for the
 /// account as one JSON file (`/v1/me`, `/v1/days`, `/v1/workouts`,
-/// `/v1/sessions`), shared through the system share sheet. Not an Apple rule —
-/// GDPR art. 20 (data portability).
+/// `/v1/sessions`), plus what the app remembers for it (the training import's
+/// remembered matches), shared through the system share sheet. Not an Apple
+/// rule — GDPR art. 20 (data portability).
 enum DataExport {
     struct Archive: Encodable {
         let exportedAt: Date
@@ -15,6 +16,8 @@ enum DataExport {
         let days: [DailyScore]
         let workouts: [Workout]
         let sessions: [SessionSummary]
+        /// The training import's remembered exercise matches (`ImportMappingStore.records()`).
+        let rememberedMatches: [ImportMappingRecord]
     }
 
     /// Ranges are fetched in 180-day chunks back from today until a chunk is
@@ -23,7 +26,8 @@ enum DataExport {
     static let maxYears = 5
 
     @MainActor
-    static func archive(source: RyftDataSource, train: TrainDataSource, now: Date = .now) async throws -> Archive {
+    static func archive(source: RyftDataSource, train: TrainDataSource, rememberedMatches: [ImportMappingRecord] = [],
+                        now: Date = .now) async throws -> Archive {
         let user = try await source.me()
         var days: [DailyScore] = [], workouts: [Workout] = [], sessions: [SessionSummary] = []
         var end = now, emptyChunks = 0
@@ -42,7 +46,8 @@ enum DataExport {
         return Archive(exportedAt: now, app: "RYFT \(ProfileView.version)", user: user,
                        days: days.sorted { $0.day < $1.day },
                        workouts: Self.unique(workouts.sorted { $0.start < $1.start }),
-                       sessions: sessions.sorted { $0.startedAt < $1.startedAt })
+                       sessions: sessions.sorted { $0.startedAt < $1.startedAt },
+                       rememberedMatches: rememberedMatches)
     }
 
     private static func unique(_ ws: [Workout]) -> [Workout] {
