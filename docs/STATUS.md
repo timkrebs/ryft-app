@@ -1,5 +1,128 @@
 # Status — 2026-10-26
 
+## Session 2026-10-23 → 26: activities, calibration, training import, consent gates, CI and TestFlight
+
+### Landed on `main`
+
+| PR | What | Verified |
+| --- | --- | --- |
+| #39 | `Ryft/` and `RyftTests/` as synchronized folders (the user's Xcode conversion) | Same sources, same 67-file bundle, identical `Info.plist` |
+| #40 | `local-samples/` git-ignored (real training exports, local only) | — |
+| #41 | Design: training import (plan, design, ui, ADR 0007, API requests T1–T12) | Brief copy redacted; scanned against the real export |
+| #42 | Activities A3a: the pure GPS track pipeline (ADR 0003 Amendment 1, R20) | Fixtures: road +0.31 %, trail −0.34 %, still phone 0 m; 20-seed sweep |
+| #43 | T4, honest calibration: `calibrating_reason`; Today names the missing signal, never a counter that can't move | **Device:** the user's Garmin account shows the N1 note (flag off: generic; flag on: "Garmin Connect doesn't share HRV …") |
+| #46 | A1, My Day and the activities core (behind `today.my_day`) | **Device:** schema upgrade opens on disk; My Day shows the user's night and week |
+| #48 | Test isolation: each test environment owns its `Settings` (`lastSync` was shared across parallel tests) | Fixed the CI failures on unrelated PRs |
+| #44 | Training import I2: the on-device Alpha Progression parser | Real export parsed locally; counts only |
+| #45 | P1: fast date parsing for cached reads (about 40× cheaper) | Equivalence over every format, on iOS 27 only |
+| #49 | I3: exercise mapping and aliases, with remembered matches | 1,065 golden fold keys |
+| #47 | O1: the pre-App-Group `Train.store` is removed after the group store opens; export files are bound to their account | **Device:** the orphan is gone after one launch (listings only) |
+| #50 | Design A3a.2: the speed-gate guard (ADR 0003 Amendment 2) | Probe numbers in design §11.1 |
+| #51 | CI: Swift Testing parallelism capped at 4 in the Unit and Full plans; the main-actor backlog was the cause of the timing flakes | Reproduced locally (≈10 failures → 0); green on the runner |
+| #52 | A3a.2: the speed-gate guard: GPS ghosts within ±4 m, a visible "too fast" state instead of silent 0 m, per-sport limits, a Doppler veto against sliding multipath (ADR 0003 Amendment 2 and its revisions) | 81 guard cases, seeded noise; reviewer re-measured the acceptance |
+| #53 | CI: the iOS checks run on the self-hosted Mac (`mbpro-m4pro-app`); fork PRs on `xcode-27`, behind the approval setting; Xcode via `DEVELOPER_DIR` | First run green: tests about 9 min |
+| #54 | A2: Add activity and Add sleep, the detail, the upload queue, parked rows on Welcome, Send first (behind `activities.manual`; nothing uploads before C1) | **Device:** schema upgrade, My Day with the flags, German 24 h, UI tests 12/12 on the phone |
+| #55 | Privacy manifest: file metadata reads in the app containers (C617.1) for #47's cleanup | Privacy reviewer: nothing else undeclared |
+| #56, #58, #59 | TestFlight: Admin API key and group names in the docs; an internal group that gets every build is skipped; notes on a manual dispatch | Builds `20261026.163249` and `20261026.173827` uploaded and tagged |
+| #57 | P2: consent gates know the policy in force (ADR 0008): HealthKit sync, activities, Train and the import fail closed while the policy is unknown, stale or refused; training logs count as health data | Unit and mutants; device checks open (below) |
+| #61 | I5: training import ids, duplicates, saved job and uploader (dark; the live request waits for C2) | 1,200-workout export in about 0.8 s against the mock |
+| #62 | I4: training import screens behind `train.import` (dark) | Merging when green; UI validation partial (usage limit) |
+
+### Device-verified (the user's iPhone 16 Pro, iOS 27.0.1)
+- **T4:** after a refresh, the platform sends `no_hrv` for the user's Garmin account, and Today shows the honest note.
+- **A1:** schema upgrade without fallback (no "Train store unavailable" line). The live store is in the App Group container.
+- **O1:** before the install, an orphaned `Train.store` (560 KB + 1.6 MB WAL) sat in the app container. After one launch of the
+  fix it's gone, and the group store is intact. Checked with `devicectl` listings only; nothing was copied off the phone.
+- **My Day with real data:** today and the week strip are fine. Tue 2026-10-20 lists one Garmin run 6×, because the platform holds
+  6 distinct workout ids. Likely Garmin Connect wrote it 6× to Apple Health (see Open).
+
+- **A2 (#54) on the device (2026-10-26, Debug build of 2e0a070 over the A1 store):**
+  - the `sentAt` schema upgrade opens on disk: Today loads, no store fallback;
+  - My Day works on the real account with `today.my_day` and `activities.manual` on;
+  - German shows 24-hour times;
+  - the parked-rows notice renders;
+  - the Add activity and My Day UI tests pass on the phone (12/12, demo mode).
+- **Health permission:** iOS asked again for read access to Workouts on that launch. The app's requested types haven't changed
+  since the scaffold, so the phone's own permission had been reset; the user answered it.
+- **Tue 20 Oct now lists the Garmin run 7 times** (6 last week). The day reads "7 activities · 63.3 km".
+
+### Simulator-only
+- My Day's layouts (dark, light, en, de, AX3, AX5).
+- The track pipeline: all of it until the A3b device run (D1).
+- The training import: parser and matcher (real export parsed locally; counts only), builder, uploader and screens (demo).
+- O1's SwiftData copy-on-open behaviour, verified on iOS 27 only.
+
+### Open (next tickets)
+- **P2 follow-ups:**
+  - journal saves (`PUT /v1/journal/{day}`) and `PATCH /v1/me` body settings (max HR, birth year, sleep need) have no
+    consent gate yet. They're user-initiated, but still possible after a withdrawal: gate them, or extend R25;
+  - demo Train sessions survive a first sign-in, because there's no wipe without a previous user;
+  - a smaller first page in background sync runs.
+- **P2 review follow-ups (none blocking):**
+  - `runIfIdle` drops a gate release while a held run is still refreshing. Defer it until the run ends, then rerun if
+    still held and open. It recovers on the next trigger;
+  - `uploadedTo` is overwritten by each PUT's binding, so a session uploaded to A and then to demo deletes only the
+    mock copy;
+  - an account's session finished while demo was on stays bound to demo (bind ops to the session's owner);
+  - a process cold-launched in the background before the first unlock keeps the in-memory fallback store and holds
+    all uploads until it's relaunched, even in the foreground. Device check; consider reopening the durable store
+    on unlock.
+- **Training import, before C2 makes the upload live:**
+  - `.needsAttention` resumes on every automatic trigger (app active, reconnect, sign-in, gate); it should resume only on
+    the user's Try again;
+  - the Info.plist CSV document type and `LSSupportsOpeningDocumentsInPlace` ship with the flag-on PR;
+  - device checks: "Open in" from Mail and Files, an iCloud file not yet downloaded, a batch finishing in the background;
+  - privacy-policy lines: the import is read on the device, an unsent import is kept up to 30 days, `import_source` is
+    stored;
+  - a full UI validation of I4 (AX5, light, paused and saved states), the German step-4 title at AX3, the AX5 density of
+    step 4, and privacy's discard wording ("Exercises, plans and workouts already sent stay in RYFT.").
+- **Release tooling before the App Store 1.0:**
+  - `release.yml` can't produce 1.0.0: an unchanged version makes the commit fail, and its push to `main` is rejected by
+    the ruleset;
+  - `docs/RELEASING.md` is missing, and `docs/APP_STORE.md` is stale;
+  - `weekly.yml`'s 07:00 Berlin gate skips delayed runs;
+  - an iOS 17/18 check, which Xcode 27.1 can't run on simulators.
+- **C2** the training-import contract mirror once the platform publishes `POST /v1/train/import`, then **I6** docs.
+- **A3b** recorder, checkpoints and vault (plus the speed-gate nits N1–N3, Doppler mapping), **A4** (with the detail's map
+  and charts, per-mile splits), **A5–A7**, **C1** once API.md publishes Activities.
+- **O2** "sign-out removes everything":
+  - the disk wipe when the store fell back to memory;
+  - secure erase on account deletion;
+  - delivered notifications;
+  - the shared `URLCache` (Supabase auth responses);
+  - `ring-*.png` leftovers;
+  - `deviceId` rotation on deletion;
+  - `ARCHITECTURE.md`'s sign-out line;
+  - an export error shown after an account switch (cosmetic).
+- **A lint for Apple's required-reason APIs:** a file-timestamp read nearly shipped undeclared in O1, and nothing caught it
+  automatically.
+- **iOS 17/18 (before the App Store 1.0):** the O1 upgrader check (including data only in the WAL) and `DateParsingTests`;
+  Xcode 27.1 offers no iOS 17/18 simulators, so this needs a device or an older Xcode. TestFlight testers are on iOS 27.
+- **Small, noted in the review logs:**
+  - "Running" vs "Run" naming before `today.my_day` turns on;
+  - German 24 h leading zeros in `Fmt.time`;
+  - `AccountScopeTests/everyAccountChangeIsCountedSoABAIsNotTheSameAccount` failed once locally (6 changes, 5 expected);
+  - runtime warnings seen on the device (Charts `UnitPoint` anchor; `onChange(of: SyncLine)` firing more than once per frame).
+
+### Needs you
+1. **Apple Health → Browse → Activity → Workouts, Tue 20 Oct, 5:23 PM run:** it now shows 7 times in My Day (6 last week).
+   Once or several times in Apple Health? Then I file the platform dedupe request.
+2. **Relay to the platform session:** `docs/API_REQUESTS.md` → Tracker setup §5, Activities R1–R26, Training import
+   T1–T13 (the import endpoint `POST /v1/train/import` is what C2 waits for).
+3. **Training import:**
+   - a German Alpha Progression export, to confirm the German tokens;
+   - does Alpha Progression export the time a workout was recorded, or re-render it in the phone's current zone?
+   - 13 workout blocks vs the brief's 12.
+4. **ryftapp.de:** serve `trackers.json` at `2026-10-23.1`; add the privacy-policy lines (manual activities and sleep,
+   remembered exercise matches, the import read on the device and kept up to 30 days, `import_source`).
+5. **TestFlight External:** build `20261026.173827` (with P2) is with Internal. Say when to promote it; the weekly
+   workflow then needs your approval in the `external-testflight` environment.
+6. **iOS 17/18:** Xcode 27.1 no longer offers those simulators. Before the App Store 1.0: an iOS 17/18 device, or an
+   older Xcode side by side, for the O1 upgrade and P1 date checks.
+7. **Housekeeping:** close PR #17 (superseded by #18); review Dependabot's #60; delete the merged `fix/a2-review` branch.
+8. **Usage:** the Sonnet-based agents hit the weekly limit and the account its monthly spend limit (resets Oct 28,
+   23:00); I4's UI validation is partial because of it.
+
 ## Consent gates know the policy in force (P2, `fix/consent-gates`, ADR 0008)
 
 Done (unit-tested on the simulator only): one rule for every upload (`OnboardingCoordinator.gate(_:path:write:)`) over a

@@ -21,6 +21,11 @@ real conflicts without touching a worktree; then read the region table (design Â
 region. Also read the sibling tickets' `review.md` entries: copy already decided there (T1's ui-validator renamed
 "Open Garmin Connect" â†’ "Garmin Connect in the App Store") is easily re-introduced by a parallel ticket.
 
+Merged-in open PRs (T4 review, 2026-10-23): a ticket branch that merged another *open* PR's branch (T4 merged
+`chore/synchronized-folders`, #39, then deleted the fixture fallback and added new files that only exist in a target
+via synchronized folders) can't land before it. Check `git merge-base --is-ancestor <merged tip> origin/main` and
+`gh pr view <n> --json state`; say the merge order explicitly, or the squash carries the other PR's pbxproj.
+
 **Why:** both were the non-obvious parts of the T5/integration review; the merges themselves were clean.
 **How to apply:** run the survival check on any multi-branch integration; on "wire up" PRs, trace each value from the
 previously hidden call site to where it's rendered. See [[review-checks-shared-transport]].

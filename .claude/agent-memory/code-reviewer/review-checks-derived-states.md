@@ -33,3 +33,9 @@ Found in the T3 sync-check review (2026-10-22), both confirmed with a scratch te
 
 **Why:** these are logic defects a green suite hides. **How to apply:** for any new Today state, enumerate the hours
 outside its window and every SyncPhase exit. See [[review-checks-today-state]].
+
+Absence from a nil field (My Day A1 part 2, 2026-10-23): "No sleep recorded" was derived from `DayDetail.sleep == nil`
+with `detail != nil` as the "loaded" guard. API.md → `GET /v1/days/{day}`: a day not scored yet answers 200 with a
+placeholder (`sleep: null`, `workouts: []`), so 00:00 until the night is scored, during `pending`, the first import and
+offline it claimed no sleep beside Today's "Scoring your night" / RawNightCard. `nightGap` only suppresses 08–15,
+online, `waitingForSleep`. Before deriving "missing" from nil, check `score.standing` / `score.scoringState`.

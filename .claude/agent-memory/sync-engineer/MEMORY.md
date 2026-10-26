@@ -1,6 +1,22 @@
-- [Test waits on actors](feedback_test_waits_on_actors.md) — poll actor state, never a fixed real sleep; parallel Unit plan breaks it
-- [Synchronized folders](project_synchronized_folders.md) — all four source folders synchronized since #39; non-Swift files in Ryft/ get bundled
+- [No attribution](feedback_no_attribution.md) — no Co-Authored-By trailer, no Generated-with line in commits or PRs (user, 2026-10-23)
+- [Test waits on actors](feedback_test_waits_on_actors.md) — poll actor state, never a fixed sleep; await TestClock.pendingSleeps before advance
+- [Synchronized folders](project_synchronized_folders.md) — synchronized since #39; non-Swift files bundled; never a `Build/` folder (git + SwiftFormat skip it)
 - [Dev machine disk](project_dev_machine_disk.md) — shared disk near full; reuse DerivedData, no diagnostics, delete xcresults
 - [Unsigned host, simulators](project_unsigned_host_and_simulators.md) — HKSource.default() crashes unsigned builds; erase vanished sims
 - [UI smoke crash-log wait](project_ui_smoke_crashlog_wait.md) — Tear Down hang / "Failed to terminate" = XCTest crash-log wait; read the spindump
-- [Simulator and tools](project_simulator_and_tools.md) — vanished 17e data dir → simctl erase; pinned lint tools in checkout; Bash bypasses brand hook
+- [Simulator and tools](project_simulator_and_tools.md) — vanished sim → erase; stuck run after Mac sleep → kill own PID; pinned lint tools; brand hook
+- [SF Symbol availability](reference_sf_symbol_availability.md) — CoreGlyphs name_availability.plist: symbol → iOS release (target is 17)
+- [Swift Testing macro pitfalls](project_swift_testing_macro_pitfalls.md) — nested #require, rethrows/try inside #expect, slow literals break strict builds
+- [Track fixture evaluation](project_track_fixture_evaluation.md) — SwiftPM harness runs track tests in seconds; 20 seeds; one probe seed misleads
+- [Strings catalog insertion](project_strings_catalog_insertion.md) — xcstrings round-trips byte-identical via json; add keys with only + lines
+- [Import mapping harness](project_import_mapping_harness.md) — swiftc harness for matcher/aliases in seconds; built-in fixture ids; real sample counts only
+- [Wall clock and DST](project_wall_clock_dst.md) — Calendar.nextDate fails 30-min DST zones; resolve local times by UTC offsets
+- [Tests pin decisions](feedback_tests_pin_decisions.md) — reviews run mutants; test first/last, increments, thresholds; fuzz bounds must be able to fail
+- [SwiftData group container](project_swiftdata_group_container.md) — .automatic copies app-container store into empty group; signed sim builds; signposts via log show
+- [Demo setting in tests](project_demo_setting_in_tests.md) — never write Settings.shared.demoMode in unit tests; host app is in demo, singletons read it
+- [simctl spawn harness](project_simctl_spawn_harness.md) — Release numbers via swiftc + simctl spawn; macOS mutant harness; xcodebuild test leaves sim shut down
+- [Required-reason APIs](project_required_reason_apis.md) — manifest declares only UserDefaults; no file timestamps; prove with nm -u
+- [SwiftData upgrade test](project_swiftdata_upgrade_test.md) — old @Model nested in a test enum, temp-URL store, reopen with TrainStore.schema
+- [SyncMachine silent edges](project_sync_machine_silent_edges.md) — advance(to:) ignores unlisted edges (idle → failed); enter .reading first, assert phase
+- [Isolation and optional pitfalls](project_isolation_and_optional_pitfalls.md) — MainActor defaults in parameters fail; `self?.f() ?? x` swallows f's nil
+- [Import upload harness](project_import_upload_harness.md) — I5 uploader tests: two fakes, private demo switch; wipe-then-release for dropped answers
