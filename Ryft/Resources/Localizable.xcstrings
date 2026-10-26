@@ -3255,6 +3255,17 @@
         }
       }
     },
+    "Continue in RYFT" : {
+      "comment" : "Training import I8: close the import so the consent or invite step can show.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weiter in RYFT"
+          }
+        }
+      }
+    },
     "Continue with this one" : {
       "localizations" : {
         "de" : {
@@ -7580,6 +7591,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT braucht sie, um Übungen zuzuordnen."
+          }
+        }
+      }
+    },
+    "RYFT needs your answer before it sends anything. Your import is kept on this iPhone and continues afterwards." : {
+      "comment" : "Training import I8: a consent or invite step holds the upload.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT braucht deine Antwort, bevor es etwas sendet. Dein Import bleibt auf diesem iPhone und läuft danach weiter."
           }
         }
       }

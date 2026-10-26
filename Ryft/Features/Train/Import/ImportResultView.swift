@@ -118,8 +118,8 @@ struct ImportResultView: View {
             InlineMessage(message: String(localized: "The upload paused.", comment: "Training import I5."),
                           systemImage: "hand.raised",
                           details: job.lastFailure?.details,
-                          caption: String(localized: "Your import is kept on this iPhone. RYFT retries when the connection is back.",
-                                          comment: "Training import I5."))
+                          caption: String(localized: "RYFT needs your answer before it sends anything. Your import is kept on this iPhone and continues afterwards.",
+                                          comment: "Training import I8: a consent or invite step holds the upload."))
         case .notAvailable:
             header(String(localized: "Ready", comment: "Training import I9."))
             Text("Your import is saved on this iPhone.", comment: "Training import I9.")
@@ -300,6 +300,12 @@ struct ImportResultView: View {
             secondary(String(localized: "Done"), identifier: "import.done") { model.done() }
         case .paused(.notAvailable)?:
             ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done") { model.done() }
+        case .paused(.gated)?:
+            // The gate's sheet lives on the tab bar: close the cover so it can show; the import resumes once it's open.
+            ImportPrimaryButton(title: String(localized: "Continue in RYFT", comment: "Training import I8: close the import so the consent or invite step can show."),
+                                identifier: "import.continueInApp") {
+                model.finish(.close)
+            }
         case .paused(.waitingForAccount)?:
             secondary(String(localized: "Discard import", comment: "Training import I7."), identifier: "import.discardJob",
                       role: .destructive) {
@@ -407,6 +413,14 @@ enum ImportResultText {
 #Preview("Step 6 · saved on this iPhone · dark") {
     NavigationStack {
         ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.savedOnPhone)))
+    }
+    .previewEnvironment()
+}
+
+#Preview("Step 6 · waiting for consent · dark") {
+    NavigationStack {
+        ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(
+            MockTrainImport.status(.paused(.gated(.gate(.consentRequired)))))))
     }
     .previewEnvironment()
 }

@@ -91,6 +91,11 @@ final class ImportCoordinator {
     }
 
     /// "Open in RYFT" (`onOpenURL` with a file URL). Returns false for anything that isn't a file.
+    ///
+    /// iOS offers RYFT for CSV files only once `Info.plist` declares the document type (`CFBundleDocumentTypes` with
+    /// `public.comma-separated-values-text`, Viewer, Alternate, and `LSSupportsOpeningDocumentsInPlace`, design §9).
+    /// Those keys ship in the PR that turns `train.import` on (plan.md, I1 answers); until then this routing (E5 to E10)
+    /// is complete and tested, and only reachable through `onOpenURL` itself.
     @discardableResult
     func open(_ urls: [URL]) async -> Bool {
         let files = urls.filter(\.isFileURL)
