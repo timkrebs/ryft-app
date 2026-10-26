@@ -38,10 +38,13 @@ struct TrainImportResponse: Decodable, Equatable, Sendable {
     var results: [TrainImportItemResult]
     /// `YYYY-MM-DD`, the account's days that get rescored (T7); empty when the platform doesn't say.
     var daysTouched: [String]
+    /// `X-Request-ID` of the answer (not in the body): the client sets it, so a `rejected` item can show it.
+    var requestID: String?
 
-    init(results: [TrainImportItemResult], daysTouched: [String] = []) {
+    init(results: [TrainImportItemResult], daysTouched: [String] = [], requestID: String? = nil) {
         self.results = results
         self.daysTouched = daysTouched
+        self.requestID = requestID
     }
 
     enum CodingKeys: String, CodingKey { case results, daysTouched }

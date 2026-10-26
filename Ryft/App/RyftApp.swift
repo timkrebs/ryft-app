@@ -157,12 +157,16 @@ struct RyftApp: App {
                     // The previous account's reminders and alarms go; this one's come back.
                     Task { await screens.bedtime.accountChanged() }
                     sync.accountChanged()
+                    // The training import's job is the account's: the previous one's pass stops, answers are dropped.
+                    screens.trainImport.accountChanged()
                     // Flags are per account: that account's cached answer, then a fresh one.
                     (env.flags as? FlagStore)?.switchAccount(new)
                     guard new != nil else { return }
                     Task { await screens.featureFlags?.refresh(force: true) }
                     // This account's activities and nights waiting on this iPhone (a sign-in after an expiry).
                     Task { await env.uploader.flush() }
+                    // And an import it saved here.
+                    Task { await screens.trainImport.resume() }
                     // A link that arrived signed out; this account's push registration.
                     screens.router.openPending()
                     Task { await screens.push.refresh() }
@@ -172,8 +176,13 @@ struct RyftApp: App {
                     (env.flags as? FlagStore)?.setDemo(on)
                     // Train's outbox: demo's ops go when it's off, and the count follows the binding in use.
                     trainSync.demoModeChanged(on)
-                    // Demo's remembered import matches go with it (also when it's switched off elsewhere).
-                    if !on { ImportMappingStore.forgetDemo(in: env.persistence) }
+                    // Demo's remembered import matches and its import job go with it (also when it's switched off
+                    // elsewhere); the import follows the binding in use.
+                    if !on {
+                        ImportMappingStore.forgetDemo(in: env.persistence)
+                        TrainImportUploader.forgetDemo(in: env.persistence)
+                    }
+                    screens.trainImport.accountChanged()
                     Task { await screens.featureFlags?.refresh(force: true) }
                 }
                 // A restore that ended signed out: a start asked for during it doesn't wait for a sign-in.
@@ -194,6 +203,9 @@ struct RyftApp: App {
                 }
                 .onChange(of: screens.onboarding.uploadGate(for: .train)) { _, gate in
                     screens.gateChanged(.train, to: gate)
+                }
+                .onChange(of: screens.onboarding.uploadGate(for: .trainImport)) { _, gate in
+                    screens.gateChanged(.trainImport, to: gate)
                 }
                 // A flag flip that arrived meanwhile takes effect as the next screen appears.
                 .onChange(of: state.selectedTab) { _, _ in (env.flags as? FlagStore)?.applyPending() }
@@ -297,6 +309,11 @@ struct RyftApp: App {
                     await LaunchSignpost.afterFirstFrame()
                     await env.uploader.appBecameActive()
                 }
+                // A training import still to upload; old jobs go.
+                Task(priority: .utility) {
+                    await LaunchSignpost.afterFirstFrame()
+                    await screens.trainImport.appBecameActive()
+                }
             } else if phase == .background {
                 // What failed in the last 1.5 s is still waiting for its coalesced save: write it
                 // before iOS may suspend (or kill) the app.
@@ -307,6 +324,7 @@ struct RyftApp: App {
                                                       backlogBytes: { sync.backlogBytes })
                 // An activity upload in flight finishes too; the rest waits for the next trigger.
                 env.uploader.finishInBackground(app: UIApplication.shared)
+                screens.trainImport.finishInBackground(app: UIApplication.shared)
                 BackgroundWork.scheduleRefresh()
                 BackgroundWork.scheduleCompaction()
             }

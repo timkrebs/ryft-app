@@ -21,6 +21,7 @@ The app parses a CSV export of another training app on the device and sends stru
 | T10 | **"Identical content"** for the no-op is compared without server fields (`updated_at`, scoring). The app derives `completed_at` and `updated_at` from the session's start and duration, so sending a session again gives `unchanged`. |
 | T11 | **Bodyweight plan targets.** API.md says `target_value` is `null` for `target_kind: bodyweight`, but the plan builder accepts an added load there (`PlanValidation.swift:70`). Which is right? The import sends `null`. |
 | T12 | **Archived custom exercises.** Does `POST /v1/exercises` with an archived custom exercise's id un-archive it? |
+| T13 | **Every item of a request is named in `results`,** whatever its status (`unchanged` too). The app keeps an item it doesn't find pending and sends it again; after three answers without it, it lists it as not imported. And please send `X-Request-ID` on the `2xx` answer too, so a `rejected` item can show it in Details. |
 
 ## Activities and My Day (open, 2026-10-22)
 

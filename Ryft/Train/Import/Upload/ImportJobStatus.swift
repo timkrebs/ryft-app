@@ -23,6 +23,10 @@ struct ImportJobStatus: Equatable, Sendable {
     var exercises: ImportItemCounts
     var plans: ImportItemCounts
     var sessions: ImportItemCounts
+    /// Sets in the sessions that are done ("Sets imported: 28").
+    var setsDone: Int
+    /// Every plan of the job, in its order, with its state ("Plan: Upper/Lower · 6 weeks").
+    var planSummaries: [ImportPlanSummary]
     /// What the preview left out (ui.md §8.2's "Already in RYFT", "Sets skipped").
     var skipped: ImportSkipCounts
     /// Refused by the platform, or blocked by a refused custom exercise: listed with their reasons ("Not imported (3)").
@@ -62,6 +66,18 @@ enum ImportPause: Equatable, Sendable {
     case notAvailable
     /// Signed out, or the job belongs to the account while demo data shows: it waits for its account.
     case waitingForAccount
+}
+
+/// A plan of the job, for the result screen and the resume row.
+struct ImportPlanSummary: Equatable, Sendable, Identifiable {
+    enum State: Equatable, Sendable { case pending, done, rejected, blocked }
+
+    let id: UUID
+    let name: String
+    /// nil: it repeats.
+    let weeks: Int?
+    let daysPerWeek: Int
+    let state: State
 }
 
 /// One kind of item's progress.
