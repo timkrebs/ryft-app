@@ -172,7 +172,7 @@ struct RyftApp: App {
                 }
                 // Activities and nights the gate held (consent, invite, the account not known yet) go up once it's
                 // passed; never when one appears.
-                .onChange(of: screens.onboarding.syncGate) { _, gate in
+                .onChange(of: screens.onboarding.uploadGate) { _, gate in
                     guard gate == nil else { return }
                     Task { await env.uploader.flush() }
                 }

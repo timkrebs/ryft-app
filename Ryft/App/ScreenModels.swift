@@ -43,8 +43,9 @@ final class ScreenModels {
         }
         // Nothing syncs before consent, nor behind an enforced invite gate.
         sync.gate = { [onboarding] in onboarding.syncGate }
-        // Activities and nights wait for the same gates (privacy review 1).
-        state.env.uploader.gate = { [onboarding] in onboarding.syncGate }
+        // Activities and nights wait for the same gates, and for the policy in force to be known (privacy reviews 1,
+        // A-1). Until this line runs the uploader's gate is closed.
+        state.env.uploader.gate = { [onboarding] in onboarding.uploadGate }
         // The launch check's sync status reaches the sync (an operator's re-sync request).
         onboarding.statusReceived = { [sync] in sync.receive($0) }
         push = PushRegistrar(env: state.env)
