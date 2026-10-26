@@ -115,3 +115,73 @@ names appear. Every changed file was scanned.
 - Call `match(_:)` from the `@concurrent` read path, not the main thread.
 - "Accept N likely matches" uses `isLikely`.
 - Remember the derived ids of "new" rows.
+
+## I5 `train: batch upload, ids and duplicates` (2026-10-26)
+
+The data side of the import. The live request waits for C2: the live client throws `notPublished`, so a job waits as
+"saved on this iPhone", while demo mode runs end to end against the mock.
+
+**Commits:**
+
+| Commit | What |
+| --- | --- |
+| 40ba3d1 | The interface I4 builds on, with a fake |
+| aae7d5a, c7cf81c, 6615c34, 444762f | Builder (ids, verdicts, plans), uploader and saved job, status fields, a test |
+| 89e73cb, c45d73a, 94b46dc | Review fixes; the job's one-by-one wipe and the data export |
+| 8d6aa87, 05fbb96 | An identical plan picked in two files is kept once; the bisect stops without refusing good sessions |
+
+**Gates:** strict build clean; Unit 2,281 passed; `make lint`; 25 hand-written mutants caught (one S1 mutant is
+equivalent on iOS 27, see below).
+
+**Measured** (Debug simulator, signposts, a 1,200-workout synthetic export, all off the main actor):
+
+| Stage | Time |
+| --- | --- |
+| read + parse | 241 ms |
+| build | 86 ms |
+| encode the job | 78 ms |
+| 24 batches, encode + mock upload | 417 ms |
+
+### code-reviewer (444762f): 4 should-fix, 5 nits, nothing blocking
+
+| # | Finding | Result |
+| --- | --- | --- |
+| 1 | A re-import from another time zone re-sent sessions from the edge days, and the platform moved their start | The existence check reads 2 days past the import's days (zones can be 26 h apart); `aReimportInAnotherZoneSendsNothing` |
+| 2 | Two plans whose names fold the same shared one id, so the second replaced the first | Occurrence ids for plans (ADR 0007 Amendment 2); an identical plan in two picked files is kept once, with a note |
+| 3 | A 403 without a known code refused the whole import | Any 403 pauses the job, with nothing refused (ADR 0008: held, never dropped) |
+| 4 | One session the platform can't take kept a whole batch of 50 out, and Retry resent the same batch | A whole-request 400/422 bisects down to the refused item; Retry resends only what's refused |
+| Nits | `Retry-After` uncapped; answers not checked against their job; plan links after an offline preview; the upgrade test's store options; O(n) main-actor work per request | Capped at 1 h; checked; dropped as online; matched; documented with sizes (fine at hundreds of sessions) |
+
+### security-privacy-reviewer (444762f): signed off, 2 should-fix
+
+| # | Finding | Result |
+| --- | --- | --- |
+| S1 | The account wipe deleted the saved job in bulk, which may leave its external payload file (the whole imported history) on disk | Deleted one by one, with on-disk tests for sign-out and expiry. On iOS 27 the bulk delete removes the file too, so that mutant is equivalent there; the one-by-one delete is kept for iOS 17/18 |
+| S2 | "Export my data" didn't include an unsent import | `pending_import` with the items not yet on the platform, bound to the export's account |
+| Low | Demo's custom exercises went into the account's exercise cache; stale comments | Skipped for demo; updated |
+
+**Checked and sound:**
+- **On disk:** minimal (no notes, file name, URL or raw lines), bound to its account or demo, wiped everywhere (the
+  expiry path too).
+- **Logging:** carries counts only.
+- **No other account and no demo:** the upload can't reach another account or go through the live client in demo.
+- **Gate:** asked before every request.
+
+### code-reviewer re-check (8d6aa87): merge
+
+Findings 1–4, the nits and S1/S2 are fixed as intended. Checked: the bisect terminates; identical-plan dedupe can't merge
+plans that differ in content; the 2-day padding can't call a new session on a neighbouring day "already imported" (ids
+are wall-clock). One more should-fix, fixed in the last commit: after three single refusals in a row the bisect stopped
+splitting and refused whole batches of good sessions (61 in the probe), and Retry repeated it. Splitting now stops only
+when nothing was accepted in the pass, and what's left stays pending. A 403 without a known code pauses with its own
+reason instead of the consent one.
+
+**Platform:**
+- T13: every item named in `results`, and the request ID on 2xx answers too.
+- R25 (4): an import's consent refusal is the whole request's `403`, never a per-item `rejected`.
+
+**Open, for the user:** does Alpha Progression export the wall-clock time a workout was recorded, or re-render times in
+the phone's current zone? If it re-renders, an export made after a zone change would come back as all-new workouts.
+
+**Before the flag goes on:** C2 (contract mirror, live client), privacy-policy lines (import read on the device, an
+unsent import kept up to 30 days, `import_source` stored), and a device check of a batch finishing in the background.
