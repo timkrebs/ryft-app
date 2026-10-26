@@ -61,9 +61,10 @@ struct WelcomeView: View {
                 InlineMessage(message: notice, systemImage: "person.crop.circle.badge.exclamationmark")
                     .accessibilityIdentifier("welcome.notice")
             }
-            // Activities and nights a session expiry kept on this iPhone (design.md §8.4).
-            if env.flags.isOn(.activitiesManual) {
-                ParkedActivitiesNotice(source: env.parkedActivities)
+            // Activities and nights a session expiry kept on this iPhone (design.md §8.4). Not behind
+            // `activities.manual`: only an enabled feature parks rows, and signed out the flag reads its default.
+            if let parked = ParkedActivitiesNotice.parkedToMention(in: env) {
+                ParkedActivitiesNotice(parked: parked) { env.activities.purgeParked() }
             }
             VStack(spacing: 12) {
                 AppleSignInButton()
@@ -145,29 +146,13 @@ private struct ValueLine: View {
         .environment(Settings.shared)
 }
 
-/// A preview graph whose store holds a parked run and a parked night of an expired session.
-@MainActor
-private func parkedPreviewEnvironment() -> AppEnvironment {
-    let env = AppEnvironment.preview(flags: [.activitiesManual: true])
-    let context = env.persistence.context
-    let run = LocalActivity(account: "expired", sport: .running, origin: .recorded, start: .now.addingTimeInterval(-7_200),
-                            end: .now.addingTimeInterval(-5_400), movingSec: 1_700, localRevision: 1, createdAt: .now)
-    run.parkedAt = .now
-    context.insert(run)
-    let night = LocalManualSleep(day: DayFormat.string(from: .now), account: "expired", bed: .now.addingTimeInterval(-36_000),
-                                 wake: .now.addingTimeInterval(-7_800))
-    night.parkedAt = .now
-    context.insert(night)
-    return env
-}
-
 #Preview("Welcome · parked activities") {
     let auth = AuthService.preview(signedIn: false)
     auth.signOutNotice = AuthService.SignOutReason.sessionExpired.notice
     return WelcomeView()
         .environment(auth)
         .environment(Settings.shared)
-        .environment(\.appEnvironment, parkedPreviewEnvironment())
+        .environment(\.appEnvironment, AppEnvironment.previewWithParkedRows())
 }
 
 #Preview("Welcome · parked activities · light system") {
@@ -176,7 +161,7 @@ private func parkedPreviewEnvironment() -> AppEnvironment {
     return WelcomeView()
         .environment(auth)
         .environment(Settings.shared)
-        .environment(\.appEnvironment, parkedPreviewEnvironment())
+        .environment(\.appEnvironment, AppEnvironment.previewWithParkedRows())
         .preferredColorScheme(.light)
 }
 

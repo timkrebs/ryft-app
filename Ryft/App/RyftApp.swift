@@ -531,6 +531,8 @@ enum DebugScreen: String {
     case wear, trackerSetup = "tracker-setup", devices, trackerCard = "tracker-card"
     /// Check sync, pushed; with `-RyftSyncCheck <scenario>` in demo mode (`SyncCheckScenario`).
     case syncCheck = "sync-check"
+    /// Welcome after a session expiry, with a parked run and night on a preview store (`activities.manual` off).
+    case welcomeParked = "welcome-parked"
 
     static var requested: DebugScreen? {
         UserDefaults.standard.string(forKey: "RyftScreen").flatMap(DebugScreen.init(rawValue:))
@@ -565,11 +567,29 @@ enum DebugScreen: String {
             DebugDevices(screen: self)
         case .syncCheck:
             DebugSyncCheck()
+        case .welcomeParked:
+            DebugWelcomeParked()
         }
     }
 
     /// One instance for the run: the screen loads its sign-in methods into it.
     @MainActor private static let emailAccount = AuthService.preview(provider: "email")
+}
+
+/// Welcome signed out after a session expiry, its parked activities and nights on a store of their own.
+private struct DebugWelcomeParked: View {
+    @State private var env = AppEnvironment.previewWithParkedRows()
+    @State private var auth: AuthService = {
+        let auth = AuthService.preview(signedIn: false)
+        auth.signOutNotice = AuthService.SignOutReason.sessionExpired.notice
+        return auth
+    }()
+
+    var body: some View {
+        WelcomeView()
+            .environment(auth)
+            .environment(\.appEnvironment, env)
+    }
 }
 
 /// Bedtime & wake, or Tonight planned with the default schedule.

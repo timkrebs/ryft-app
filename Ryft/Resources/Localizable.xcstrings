@@ -7389,6 +7389,17 @@
         }
       }
     },
+    "Your account is being deleted. This activity is deleted with it." : {
+      "comment" : "Activity detail: uploads stopped because the account is being deleted.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Konto wird gelöscht. Diese Aktivität wird mitgelöscht."
+          }
+        }
+      }
+    },
     "Your baseline is yours to set. The top-ups follow yesterday's strain and your sleep debt; a nap lowers the next night's need." : {
       "localizations" : {
         "de" : {

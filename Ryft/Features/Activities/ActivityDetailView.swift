@@ -23,6 +23,8 @@ struct ActivityDetailScreen: View {
     @State private var editing: AddActivityModel?
     @State private var confirmsDelete = false
     @State private var workout: Workout?
+    /// Deleted here: the screen is closing. Its title stays and "isn't on this iPhone any more" doesn't flash.
+    @State private var closingTitle: String?
 
     var body: some View {
         ScrollView {
@@ -38,7 +40,7 @@ struct ActivityDetailScreen: View {
                     if model.isMerged { mergeNote }
                     notes
                     if model.isEditable { footer }
-                } else {
+                } else if closingTitle == nil {
                     InlineMessage(message: String(localized: "This activity isn't on this iPhone any more.",
                                                   comment: "Activity detail: deleted meanwhile."),
                                   systemImage: "trash", identifier: "activityDetail.gone")
@@ -50,7 +52,7 @@ struct ActivityDetailScreen: View {
         }
         .scrollIndicators(.hidden)
         .background(Theme.background.ignoresSafeArea())
-        .navigationTitle(Text(verbatim: model.title))
+        .navigationTitle(Text(verbatim: closingTitle ?? model.title))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
@@ -73,7 +75,12 @@ struct ActivityDetailScreen: View {
         .navigationDestination(item: $workout) { WorkoutDetailView(workout: $0) }
         .confirmationDialog(Text("Delete this activity?"), isPresented: $confirmsDelete, titleVisibility: .visible) {
             Button(role: .destructive) {
-                if model.delete() { dismiss() }
+                let title = model.title
+                // A tombstone until the platform confirms (or gone at once): either way it's no longer shown.
+                if model.delete() {
+                    closingTitle = title
+                    dismiss()
+                }
             } label: {
                 Text("Delete", comment: "Confirms deleting an activity or a night the user added.")
             }
@@ -141,6 +148,10 @@ struct ActivityDetailScreen: View {
             InlineMessage(message: String(localized: "Saved on this iPhone. It uploads once your account is ready.",
                                           comment: "Activity detail: the invite or consent step isn't done; the upload waits."),
                           systemImage: "icloud.and.arrow.up", identifier: "activityDetail.upload")
+        case .accountDeleting:
+            InlineMessage(message: String(localized: "Your account is being deleted. This activity is deleted with it.",
+                                          comment: "Activity detail: uploads stopped because the account is being deleted."),
+                          systemImage: "trash", identifier: "activityDetail.upload")
         case .retrying:
             InlineMessage(message: String(localized: "Saved on this iPhone. RYFT will try again, or tap Retry.",
                                           comment: "Activity detail: an upload failed and waits to be retried."),

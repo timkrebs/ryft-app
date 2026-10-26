@@ -173,7 +173,9 @@ final class ActivityDetailViewModel {
 
     /// What the header's message says about the upload (ui.md §2.4, §3.6); nil when nothing is pending.
     enum UploadNote: Equatable {
-        case uploading, offline, notAvailableYet, gated, retrying
+        /// `gated`: consent, the invite or the account itself isn't ready; `accountDeleting`: the queue holds because
+        /// the account is being deleted, and the activity goes with it.
+        case uploading, offline, notAvailableYet, gated, accountDeleting, retrying
         /// The platform refused it (a `4xx`): Edit, Details, Try again.
         case refused(UploadAttempt)
         /// Transient failures in a row: Retry, Details.
@@ -187,7 +189,7 @@ final class ActivityDetailViewModel {
             case .queued, .inFlight: return .uploading
             case .offline: return .offline
             case .notAvailableYet: return .notAvailableYet
-            case .gated: return .gated
+            case .gated: return env.auth.isDeletingAccount ? .accountDeleting : .gated
             case .retrying: return .retrying
             }
         case .failed(let attempt)?:

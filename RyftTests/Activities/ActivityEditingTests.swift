@@ -206,29 +206,87 @@ struct ActivityOriginAndParkingTests {
         #expect(!row.editable)
     }
 
-    @Test func parkedRowsAreCountedAndDeletedWithoutAnAccount() throws {
-        let g = Graph()
-        let context = g.env.persistence.context
-        let run = LocalActivity(account: "expired", sport: .running, origin: .recorded, start: g.today,
-                                end: g.today.addingTimeInterval(1_800), movingSec: 1_700, localRevision: 1, createdAt: g.today)
-        run.parkedAt = g.clock.now()
+    @Test func welcomeMentionsParkedRowsWithTheFlagOffAndNothingWithoutThem() throws {
+        // Signed out the flag reads its default (off): parked rows are mentioned anyway, as only the feature parks them.
+        let env = AppEnvironment.test(flags: [.activitiesManual: false])
+        #expect(!env.flags.isOn(.activitiesManual))
+        #expect(ParkedActivitiesNotice.parkedToMention(in: env) == nil, "nothing parked: no notice")
+        let today = Calendar.current.startOfDay(for: env.clock.now())
+        let context = env.persistence.context
+        let run = LocalActivity(account: "expired", sport: .running, origin: .recorded, start: today,
+                                end: today.addingTimeInterval(1_800), movingSec: 1_700, localRevision: 1, createdAt: today)
+        run.parkedAt = env.clock.now()
         context.insert(run)
         context.insert(ActivityTrackChunk(activityID: run.id, account: "expired", seq: 0, kind: .profile, data: Data([1]),
-                                          count: 1, first: g.today, last: g.today))
-        let night = LocalManualSleep(day: DayFormat.string(from: g.today), account: "expired",
-                                     bed: g.today.addingTimeInterval(-28_800), wake: g.today)
-        night.parkedAt = g.clock.now()
+                                          count: 1, first: today, last: today))
+        let night = LocalManualSleep(day: DayFormat.string(from: today), account: "expired",
+                                     bed: today.addingTimeInterval(-28_800), wake: today)
+        night.parkedAt = env.clock.now()
         context.insert(night)
-        // Not parked: a row of the signed-in account stays.
-        _ = g.env.activities.save(manual: ActivityDraft(sport: .yoga, start: g.today, end: g.today.addingTimeInterval(600)))
-        let parked = g.env.parkedActivities
+        env.persistence.save()
 
-        #expect(parked.parkedCount() == 2)
-        #expect(parked.purgeParked() == 2)
+        #expect(ParkedActivitiesNotice.parkedToMention(in: env) == 2)
 
-        #expect(parked.parkedCount() == 0)
+        // "Delete from this iPhone".
+        #expect(env.activities.purgeParked() == 2)
+        #expect(ParkedActivitiesNotice.parkedToMention(in: env) == nil)
         #expect(try context.fetchCount(FetchDescriptor<ActivityTrackChunk>()) == 0)
-        #expect(g.env.activities.snapshots(onDay: DayFormat.string(from: g.today)).count == 1)
+    }
+}
+
+@Suite("Activities: deletes and held uploads")
+@MainActor
+struct ActivityDeleteAndGateTests {
+    @Test func aRowWhoseUploadWasCutOffStaysATombstoneShownNowhere() throws {
+        let g = Graph()
+        let model = AddActivityModel(env: g.env, day: g.today)
+        model.sport = .yoga
+        #expect(model.save())
+        let day = DayFormat.string(from: g.today)
+        let id = try #require(g.env.activities.snapshots(onDay: day).first?.id)
+        // The uploader's sent marker: a PUT went out and no answer came, so the platform may have it.
+        g.env.activities.recordFailure(id, UploadAttempt(at: g.clock.now(), request: .put, status: nil, code: nil,
+                                                         requestID: nil, kind: .cancelled))
+        let detail = ActivityDetailViewModel(route: ActivityRoute(id: id, day: g.today), state: g.state)
+
+        #expect(detail.delete())
+
+        #expect(g.env.activities.snapshot(id: id)?.isTombstone == true, "a DELETE goes up first")
+        #expect(detail.activity == nil, "the detail shows it gone (and closes when deleted there)")
+        let input = MyDayInput(day: day, server: .dayDetail(nil, activities: []), local: g.env.activities.snapshots(onDay: day),
+                               uploads: [:])
+        #expect(MyDayAssembler.items(input, catalog: .unnamed, now: g.clock.now()).isEmpty, "My Day and Strain hide it")
+    }
+
+    @Test func theDetailSaysWhyAnUploadWaits() async throws {
+        // Consent or the invite isn't done: it uploads once the account is ready.
+        let g = Graph()
+        g.env.uploader.gate = { .consentRequired }
+        let model = AddActivityModel(env: g.env, day: g.today)
+        #expect(model.save())
+        let id = try #require(g.env.activities.snapshots(onDay: DayFormat.string(from: g.today)).first?.id)
+        await g.env.uploader.flush(userInitiated: true)
+        #expect(ActivityDetailViewModel(route: ActivityRoute(id: id, day: g.today), state: g.state).uploadNote == .gated)
+
+        // The account is being deleted: the activity goes with it.
+        let hold = RequestHold()
+        let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
+        let auth = AuthService(client: MockAuthClient(session: .preview()), settings: Settings(defaults: defaults),
+                               defaults: defaults, wipeLocalData: { _ in },
+                               deleteRemoteAccount: {
+                                   await hold.wait()
+                                   return AccountDeleted(status: "deleted", authUserDeleted: true)
+                               })
+        let env = AppEnvironment.test(auth: auth, flags: [.activitiesManual: true])
+        let state = AppState(env: env)
+        let other = try #require(env.activities.save(manual: ActivityDraft(sport: .yoga, start: env.clock.now().addingTimeInterval(-3_600),
+                                                                           end: env.clock.now()))?.id)
+        let deletion = Task { await auth.deleteAccount() }
+        #expect(await eventually { auth.isDeletingAccount })
+        let detail = ActivityDetailViewModel(route: ActivityRoute(id: other, day: env.clock.now()), state: state)
+        #expect(detail.uploadNote == .accountDeleting)
+        hold.release()
+        #expect(await deletion.value)
     }
 }
 
