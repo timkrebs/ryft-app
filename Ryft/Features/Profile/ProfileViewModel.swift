@@ -229,20 +229,31 @@ final class ProfileViewModel {
     private(set) var exporting = false
     var exported: ExportedFile?
     private(set) var exportError: String?
+    /// Where the export file is written (tests use their own folder).
+    var exportFolder = FileManager.default.temporaryDirectory
 
     func export() async {
         exporting = true
         exportError = nil
         defer { exporting = false }
+        // The archive takes a while; if the account changes meanwhile, it's the previous account's data.
+        let owner = AccountBinding(env)
         do {
             let archive = try await DataExport.archive(source: state.source, train: env.api,
                                                        rememberedMatches: ImportMappingStore(env: env).records())
-            exported = ExportedFile(url: try DataExport.write(archive))
+            guard owner.isCurrent(in: env) else { return }
+            exported = ExportedFile(url: try DataExport.write(archive, to: exportFolder))
         } catch where error.isCancellation {
             return
         } catch {
+            guard owner.isCurrent(in: env) else { return }
             exportError = String(localized: "The export couldn't be created: \(error.localizedDescription)")
         }
+    }
+
+    /// The share sheet is done, or the account changed: the file goes.
+    func removeExportFiles() {
+        DataExport.removeFiles(in: exportFolder)
     }
 
     // MARK: developer
@@ -1918,6 +1929,10 @@ extension ProfileViewModel {
     func accountChanged(from previous: String?) {
         if previous != nil { apiStatus.forgetRequests() }
         report.accountChanged()
+        // An export's share sheet (and its file) was the previous account's (or demo data's).
+        exported = nil
+        exportError = nil
+        removeExportFiles()
     }
 }
 

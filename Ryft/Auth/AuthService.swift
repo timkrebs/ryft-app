@@ -668,6 +668,9 @@ final class AuthService {
         BedtimePlanner.wipe(defaults: .standard)
         // Whether to save workouts to Apple Health is the account's choice.
         WorkoutHealthExport.wipe(defaults: .standard)
+        // A sign-out while the export's share sheet is open (a final 401, or the account deleted): the file holds all
+        // of the account's data.
+        DataExport.removeFiles()
     }
 }
 

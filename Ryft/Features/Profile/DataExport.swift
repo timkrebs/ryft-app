@@ -1,3 +1,5 @@
+import os
+import OSLog
 import SwiftUI
 import UIKit
 
@@ -53,27 +55,74 @@ enum DataExport {
         return ws.filter { seen.insert($0.id).inserted }
     }
 
-    /// Writes the archive to a temporary file named `RYFT-export-YYYY-MM-DD.json`.
-    static func write(_ archive: Archive) throws -> URL {
+    static let filePrefix = "RYFT-export-"
+    private static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "export")
+    /// The export files this process wrote, by path: the launch sweep leaves them. (Not by file dates: those are a
+    /// required-reason API, and the privacy manifest declares none.)
+    private static let writtenHere = OSAllocatedUnfairLock(initialState: Set<String>())
+
+    /// Writes the archive to a temporary file named `RYFT-export-YYYY-MM-DD.json` in `folder`. It goes when the
+    /// share sheet is done, at an account change or sign-out, and at the next launch (`removeFiles`).
+    static func write(_ archive: Archive, to folder: URL = FileManager.default.temporaryDirectory) throws -> URL {
         // Its own encoder: the shared one is used by requests concurrently.
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(archive)
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("RYFT-export-\(DayFormat.string(from: archive.exportedAt)).json")
+        let url = folder.appendingPathComponent("\(filePrefix)\(DayFormat.string(from: archive.exportedAt)).json")
+        // Recorded before the file exists: a launch sweep running meanwhile never takes it.
+        writtenHere.withLock { _ = $0.insert(url.standardizedFileURL.path) }
         try data.write(to: url, options: [.atomic, .completeFileProtection])
         return url
+    }
+
+    /// Removes the export files in `folder` but those in `kept` (paths): all of an account's data shouldn't outlive
+    /// the share sheet, the account on this iPhone, or a crash before either. Returns how many went.
+    @discardableResult
+    static func removeFiles(in folder: URL = FileManager.default.temporaryDirectory, keeping kept: Set<String> = []) -> Int {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        var removed = 0
+        for name in names where name.hasPrefix(filePrefix) && name.hasSuffix(".json") {
+            let file = folder.appendingPathComponent(name)
+            guard !kept.contains(file.standardizedFileURL.path) else { continue }
+            do {
+                try FileManager.default.removeItem(at: file)
+                removed += 1
+            } catch {
+                let e = error as NSError
+                log.error("Removing an export file failed: \(e.domain, privacy: .public) \(e.code, privacy: .public)")
+            }
+        }
+        if removed > 0 { log.info("Removed \(removed, privacy: .public) export files") }
+        return removed
+    }
+
+    /// At launch, off the main actor: what earlier runs left, never a file this run wrote.
+    @concurrent
+    static func removeLeftoverFiles(in folder: URL = FileManager.default.temporaryDirectory) async {
+        removeFiles(in: folder, keeping: writtenHere.withLock { $0 })
     }
 }
 
 /// The system share sheet for a file.
 struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
+    /// After an activity finished with the items, or the sheet was closed without one (`isDone`).
+    var completion: (() -> Void)?
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
+        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        controller.completionWithItemsHandler = { [completion] activity, completed, _, _ in
+            if Self.isDone(activity: activity, completed: completed) { completion?() }
+        }
+        return controller
+    }
+
+    /// A cancelled activity (Mail → Cancel) returns to the open sheet, where another one (Save to Files) still needs
+    /// the items; the sheet's own dismissal covers the rest.
+    static func isDone(activity: UIActivity.ActivityType?, completed: Bool) -> Bool {
+        completed || activity == nil
     }
 
     func updateUIViewController(_ vc: UIActivityViewController, context: Context) {}
