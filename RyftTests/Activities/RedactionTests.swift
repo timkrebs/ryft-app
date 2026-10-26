@@ -45,7 +45,8 @@ struct RedactionTests {
     }
 
     /// The tangent plane's east scale (N·cos φ) gives its anchor's latitude back exactly, so the plane, the filter
-    /// and the pipeline holding them render nothing of it either.
+    /// and the pipeline holding them render nothing of it either. Also during a provisional re-init, while the
+    /// pipeline holds its anchor and the filter its rejected run (ADR 0003 amendment 2): memory only, never rendered.
     @Test func filterPlaneAndPipelineRenderNoLocation() {
         var p = TrackPipeline(configuration: .gps(.run, barometer: false))
         p.start(at: SyntheticTrack.t0)
@@ -53,7 +54,14 @@ struct RedactionTests {
         let plane = LocalTangentPlane(anchor: SyntheticTrack.origin)
         var kalman = KalmanTrack(tuning: KalmanTrack.Tuning(sigmaA: 1.5))
         _ = kalman.update(Self.fix)
-        let values: [Any] = [plane, kalman, p]
+        // A 3-fix ghost from fix 100: the re-init at fix 102 keeps an anchor, and fix 103 starts a new rejected run.
+        let ghost = GuardTrack.Ghost(from: 100, count: 3, offset: GuardTrack.ghostOffsets[0])
+        var provisional = TrackPipeline(configuration: .gps(.run, autoPause: false, barometer: false))
+        provisional.start(at: SyntheticTrack.t0)
+        let events = SyntheticTrack.run(&provisional, Array(GuardTrack.fixes(GuardTrack.speeds([.hold(120, 3)]),
+                                                                            ghost: ghost)[...103]))
+        #expect(events.contains(.reinitialised) && provisional.diagnostics.reinitSpansDropped == 0)
+        let values: [Any] = [plane, kalman, p, provisional]
         for value in values {
             for text in Self.renderings(value) {
                 for digits in ["52.47", "13.40", "52,47", "13,40"] {

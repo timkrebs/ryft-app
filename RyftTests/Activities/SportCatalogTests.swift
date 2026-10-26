@@ -58,7 +58,11 @@ struct SportCatalogTests {
         #expect(Sport.allCases.filter(\.autoPauseDefault) == [.running, .trailRunning, .cycling, .mountainBiking,
                                                                .gravel, .indoorRunning])
         #expect(Sport.running.maxSpeed == 9 && Sport.running.sigmaA == 1.5 && Sport.running.autoPauseThreshold == 1.0)
-        #expect(Sport.cycling.maxSpeed == 25 && Sport.cycling.sigmaA == 3.0)
+        // The fastest each sport is done (ADR 0003 amendment 2): road descents, a run for the bus on a walk.
+        #expect(Sport.cycling.maxSpeed == 36 && Sport.cycling.sigmaA == 3.0)
+        #expect(Sport.gravel.maxSpeed == 30 && Sport.mountainBiking.maxSpeed == 25)
+        #expect(Sport.walking.maxSpeed == 6 && Sport.hiking.maxSpeed == 6 && Sport.trailRunning.maxSpeed == 8)
+        #expect(Sport.skiTouring.maxSpeed == 30)
         #expect(Sport.skiing.maxSpeed == 40 && Sport.skiing.sigmaA == 5.0)
         // Indoor runs: the pedometer, auto-pause on cadence 0.
         #expect(Sport.indoorRunning.usesPedometer && !Sport.indoorRunning.hasGPS)
@@ -99,7 +103,7 @@ struct SportCatalogTests {
         let run = Sport.running.trackProfile
         #expect(run == TrackProfile(maxSpeed: 9, sigmaA: 1.5, autoPauseThreshold: 1.0, autoPauseDefault: true,
                                     elevation: .secondary, paceStyle: .pace))
-        #expect(Sport.mountainBiking.trackProfile == TrackProfile(maxSpeed: 22, sigmaA: 3.0, autoPauseThreshold: 1.2,
+        #expect(Sport.mountainBiking.trackProfile == TrackProfile(maxSpeed: 25, sigmaA: 3.0, autoPauseThreshold: 1.2,
                                                                   autoPauseDefault: true, elevation: .primary,
                                                                   paceStyle: .speed))
         #expect(Sport.indoorRunning.trackProfile == TrackProfile(maxSpeed: nil, sigmaA: nil, autoPauseThreshold: 0,

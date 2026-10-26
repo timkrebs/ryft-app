@@ -10,7 +10,8 @@ struct TrackProfile: Equatable, Sendable {
     /// Minutes per kilometre, or km/h.
     enum PaceStyle: Sendable { case pace, speed }
 
-    /// m/s: the speed gate's limit. `nil`: no GPS.
+    /// m/s: the fastest the sport is done. Above it a step adds no distance and the recording reports "too fast"; the
+    /// speed gate also uses it to reject jumps (ADR 0003, amendment 2). `nil`: no GPS.
     var maxSpeed: Double?
     /// m/s²: the Kalman filter's process noise. `nil`: no GPS.
     var sigmaA: Double?
@@ -55,7 +56,7 @@ extension Sport {
         let elevation: TrackProfile.Elevation
         let autoPauseDefault: Bool
         let autoPauseThreshold: Double?
-        /// m/s; `nil`: no GPS.
+        /// m/s: the fastest the sport is done (`TrackProfile.maxSpeed`); `nil`: no GPS.
         let maxSpeed: Double?
         /// m/s²; `nil`: no GPS.
         let sigmaA: Double?
@@ -105,19 +106,19 @@ extension Sport {
                         maxSpeed: 8, sigmaA: 1.5, distance: .walkingRunning)
         case .walking:
             return Spec("figure.walk", .foot, .walking, elevation: .secondary, autoPause: false, threshold: 0.4,
-                        maxSpeed: 4, sigmaA: 1.0, distance: .walkingRunning)
+                        maxSpeed: 6, sigmaA: 1.0, distance: .walkingRunning)
         case .hiking:
             return Spec("figure.hiking", .foot, .hiking, elevation: .primary, autoPause: false, threshold: 0.3,
-                        maxSpeed: 4, sigmaA: 1.0, distance: .walkingRunning)
+                        maxSpeed: 6, sigmaA: 1.0, distance: .walkingRunning)
         case .cycling:
             return Spec("figure.outdoor.cycle", .cycle, .cycling, elevation: .secondary, autoPause: true,
-                        threshold: 1.5, maxSpeed: 25, sigmaA: 3.0, distance: .cycling)
+                        threshold: 1.5, maxSpeed: 36, sigmaA: 3.0, distance: .cycling)
         case .mountainBiking:
             return Spec("figure.outdoor.cycle", .cycle, .cycling, elevation: .primary, autoPause: true,
-                        threshold: 1.2, maxSpeed: 22, sigmaA: 3.0, distance: .cycling)
+                        threshold: 1.2, maxSpeed: 25, sigmaA: 3.0, distance: .cycling)
         case .gravel:
             return Spec("figure.outdoor.cycle", .cycle, .cycling, elevation: .secondary, autoPause: true,
-                        threshold: 1.5, maxSpeed: 22, sigmaA: 3.0, distance: .cycling)
+                        threshold: 1.5, maxSpeed: 30, sigmaA: 3.0, distance: .cycling)
         case .indoorRunning:
             // The pedometer measures; auto-pause is cadence 0 for 10 s.
             return Spec("figure.run", .foot, .running, location: .indoor, autoPause: true, threshold: 0,
