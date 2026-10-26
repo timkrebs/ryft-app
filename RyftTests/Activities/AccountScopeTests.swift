@@ -315,8 +315,12 @@ struct AccountReviewTests {
         let a = AccountHarness.accountA
         h.insert(a, chunks: 2)
         h.insertNight(a, daysBack: 0)
-        // A concurrent final 401 while the platform deletes: the expiry path runs in the middle of the deletion.
-        h.duringDeletion.run = { [weak h] in await h?.auth.rejectedAfterRefresh() }
+        // A concurrent final 401 while the platform deletes: the expiry path runs in the middle of the deletion. A
+        // row written under the account after that (as a recording's checkpoint keeps its own account) goes too.
+        h.duringDeletion.run = { [weak h] in
+            await h?.auth.rejectedAfterRefresh()
+            h?.insert(a, revision: 0, phase: "recording", chunks: 1)
+        }
         #expect(await h.auth.deleteAccount())
         #expect(h.rows().isEmpty && h.nights().isEmpty && h.chunks().isEmpty)
         let nothingParked = h.wipes.allSatisfy { $0.parking == nil }
