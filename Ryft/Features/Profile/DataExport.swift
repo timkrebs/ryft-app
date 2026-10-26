@@ -51,11 +51,14 @@ enum DataExport {
     static let maxYears = 5
 
     /// `activities`: the platform's activities (asked only once it publishes them,
-    /// `ActivitiesAPI.publishesActivities`); `onPhone`: the account's activities and nights on this iPhone.
+    /// `ActivitiesAPI.publishesActivities`); `onPhone`: the activities and nights on this iPhone of the account it
+    /// reads as when the export starts.
     @MainActor
     static func archive(source: RyftDataSource, train: TrainDataSource, rememberedMatches: [ImportMappingRecord] = [],
                         activities: ActivitiesAPI? = nil, onPhone: ActivityStore? = nil,
                         now: Date = .now) async throws -> Archive {
+        // The rows on this iPhone are the account's the export started for, whoever is signed in when it ends.
+        let phoneAccount = onPhone?.account
         let user = try await source.me()
         let platform = activities?.publishesActivities == true ? activities : nil
         var days: [DailyScore] = [], workouts: [Workout] = [], sessions: [SessionSummary] = []
@@ -88,9 +91,9 @@ enum DataExport {
         archive.activities = sportActivities.sorted { $0.start < $1.start }
             .filter { seen.insert($0.id).inserted }
             .map(\.withoutRouteOrHeartRate)
-        if let onPhone {
-            archive.unconfirmedActivities = onPhone.allSnapshots().compactMap(UnconfirmedActivity.init)
-            archive.manualSleep = onPhone.manualSleeps().map(ManualNight.init)
+        if let onPhone, let phoneAccount {
+            archive.unconfirmedActivities = onPhone.allSnapshots(ofAccount: phoneAccount).compactMap(UnconfirmedActivity.init)
+            archive.manualSleep = onPhone.manualSleeps(ofAccount: phoneAccount).map(ManualNight.init)
         }
         return archive
     }

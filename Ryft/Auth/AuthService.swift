@@ -211,6 +211,14 @@ final class AuthService {
     /// Why the session is ending, from `signOut(reason:)` until it's applied: the SDK's own `.signedOut` event may
     /// arrive first.
     @ObservationIgnored private var endingReason: SignOutReason?
+    /// Runs as an in-app account deletion starts, before the platform is asked: the account's uploads stop.
+    @ObservationIgnored var onAccountDeletionStart: (@MainActor () -> Void)?
+    /// `deleteAccount()` is running. A session that ends meanwhile (a concurrent final 401 or refresh failure) ends
+    /// as a deletion: nothing of the account is parked, and nothing more is uploaded for it.
+    @ObservationIgnored private(set) var isDeletingAccount = false
+    /// Counts account changes (sign-in, sign-out, another account): work bound to an account checks it, so A, then
+    /// B, then A again while it ran doesn't pass for "still A".
+    @ObservationIgnored private(set) var accountChanges = 0
     /// A call that isn't a sign-in is running (reset link, new password, deletion).
     private var otherWork = false
     /// Busy: buttons show a spinner.
@@ -601,6 +609,11 @@ final class AuthService {
         otherWork = true
         await beforeSignOut?()
         defer { otherWork = false }
+        let account = session?.user.id.uuidString
+        // From here a session ending for any reason ends as this deletion (no parking), and uploads stop.
+        isDeletingAccount = true
+        defer { isDeletingAccount = false }
+        onAccountDeletionStart?()
         let result: AccountDeleted
         do {
             result = try await deleteRemoteAccount()
@@ -612,7 +625,15 @@ final class AuthService {
             errorDetails = error.diagnosticDetails
             return false
         }
-        await signOut(reason: .accountDeleted(background: !result.authUserDeleted))
+        let reason = SignOutReason.accountDeleted(background: !result.authUserDeleted)
+        if session == nil {
+            // The session ended while the platform deleted (a concurrent final 401): the deletion's wipe runs anyway,
+            // whatever ran before it.
+            signOutNotice = reason.notice
+            wipe(Wipe(reason: reason, account: account))
+        } else {
+            await signOut(reason: reason)
+        }
         return true
     }
 
@@ -651,7 +672,10 @@ final class AuthService {
     private func apply(_ newSession: Session?, reason: SignOutReason? = nil) {
         if newSession != nil, session == nil { signOutNotice = nil }
         let leaving = session?.user.id.uuidString
-        let ending = newSession == nil ? reason ?? endingReason ?? .sessionExpired : nil
+        // During a deletion any end is the deletion's (its outcome isn't known yet; only `Wipe.parking` reads it).
+        let ending = newSession == nil
+            ? isDeletingAccount ? .accountDeleted(background: false) : reason ?? endingReason ?? .sessionExpired
+            : nil
         let previousID = session?.user.id ?? defaults.string(forKey: Self.lastUserKey).flatMap(UUID.init(uuidString:))
         if let newSession {
             // A different account on this phone starts from scratch.
@@ -669,6 +693,7 @@ final class AuthService {
             // Sign-in methods belong to the account they were loaded for.
             signInMethods = []
             linkError = nil
+            accountChanges += 1
             onAccountWillChange?(leaving, newSession?.user.id.uuidString, ending)
         }
         session = newSession

@@ -19,10 +19,12 @@ enum BackgroundWork {
     /// Above this much left, the backfill waits for power.
     static let backfillPowerThreshold = 10_000_000
 
-    /// Before launch finishes (App.init). `backlogBytes` is `SyncService.backlogBytes`.
+    /// Before launch finishes (App.init). `backlogBytes` is `SyncService.backlogBytes`. `expired`: the refresh
+    /// task's time ran out; work `afterRefresh` started outside its own task stops there (the activity uploads).
     @MainActor
     static func register(coordinator: SyncCoordinator, backlogBytes: @escaping @MainActor () -> Int?,
                          afterRefresh: @escaping @MainActor () async -> Void = {},
+                         expired: @escaping @MainActor () -> Void = {},
                          compact: @escaping @MainActor () -> Void) {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: refreshTaskID, using: nil) { task in
             guard let task = task as? BGAppRefreshTask else { return }
@@ -36,6 +38,7 @@ enum BackgroundWork {
             task.expirationHandler = {
                 work.cancel()
                 Task { await coordinator.cancel() }
+                Task { @MainActor in expired() }
             }
             Task {
                 let outcome = await work.value

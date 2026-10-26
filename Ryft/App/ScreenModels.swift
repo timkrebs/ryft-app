@@ -43,6 +43,8 @@ final class ScreenModels {
         }
         // Nothing syncs before consent, nor behind an enforced invite gate.
         sync.gate = { [onboarding] in onboarding.syncGate }
+        // Activities and nights wait for the same gates (privacy review 1).
+        state.env.uploader.gate = { [onboarding] in onboarding.syncGate }
         // The launch check's sync status reaches the sync (an operator's re-sync request).
         onboarding.statusReceived = { [sync] in sync.receive($0) }
         push = PushRegistrar(env: state.env)
@@ -69,6 +71,7 @@ final class ScreenModels {
         }
         profile = ProfileViewModel(state: state, sync: sync, coordinator: coordinator, onboarding: onboarding,
                                    devices: devices)
+        state.onForgetAccountState = { [profile] in profile.forgetExport() }
         trainToday = TrainTodayViewModel(library: library, store: store, clock: state.env.clock)
         // Train's reads share the pipeline's budget and per-resource record.
         library.reads = state.env.reads

@@ -42,6 +42,18 @@ final class MockActivitiesSource: ActivitiesAPI, @unchecked Sendable {
         set { lock.withLock { holdHook = newValue } }
     }
     private var holdHook: (@Sendable () async -> Void)?
+    /// Runs before each `GET /v1/activities?from&to` answers (tests change the account during an export with it).
+    var beforeList: (@Sendable () async -> Void)? {
+        get { lock.withLock { listHook } }
+        set { lock.withLock { listHook = newValue } }
+    }
+    private var listHook: (@Sendable () async -> Void)?
+    /// A `PUT` of these ids fails with the error (tests: one row failing again and again).
+    var failingPuts: [UUID: Error] {
+        get { lock.withLock { failures } }
+        set { lock.withLock { failures = newValue } }
+    }
+    private var failures: [UUID: Error] = [:]
 
     /// `seed`: what the platform already holds, scored, for the day of `now` (`demo(on:)`). Tests start empty.
     init(now: @escaping @Sendable () -> Date = { .now }, scoreDelay: TimeInterval = 0,
@@ -96,6 +108,7 @@ final class MockActivitiesSource: ActivitiesAPI, @unchecked Sendable {
 
     func putActivity(_ a: SportActivity) async throws -> SportActivity {
         try await held()
+        if let failure = failingPuts[a.id] { throw failure }
         // Only what a real PUT carries reaches the platform.
         let body = try APIClient.jsonEncoder.encode(SportActivityPut(a))
         let received = try APIClient.jsonDecoder.decode(SportActivity.self, from: body)
@@ -118,7 +131,8 @@ final class MockActivitiesSource: ActivitiesAPI, @unchecked Sendable {
     }
 
     func activities(from: Date, to: Date) async throws -> [SportActivity] {
-        lock.withLock {
+        await beforeList?()
+        return lock.withLock {
             listed.append(DateInterval(start: from, end: max(from, to)))
             return stored.values.filter { $0.activity.start >= from && $0.activity.start < to }
                 .map { answersWithTrack ? scored($0) : scored($0).withoutRouteOrHeartRate }

@@ -608,15 +608,17 @@ final class Repository {
         changed(.activities)
     }
 
-    /// The day whose cached list holds activity `id`, if any: the day an edit moves it from (rescored too). Only
-    /// lists that mention it are decoded.
-    func cachedDay(ofActivity id: UUID) -> String? {
+    /// The day whose cached list holds activity `id`: `day` (where it starts now) when that list has it, else one of
+    /// My Day's strip days (the day an edit moved it from, rescored too). Bounded: at most the strip's lists are
+    /// read, and only those that mention the id are decoded.
+    func cachedDay(ofActivity id: UUID, startingOn day: String?) -> String? {
+        if let day, activities(day: day).contains(where: { $0.id == id }) { return day }
         let needle = Data(id.uuidString.utf8)
-        let prefix = Self.activitiesPrefix
-        let docs = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key.starts(with: prefix) })
-        for row in (try? context.fetch(docs)) ?? [] where row.data.range(of: needle) != nil {
-            guard WireCoding.decode([SportActivity].self, row.data)?.contains(where: { $0.id == id }) == true else { continue }
-            return String(row.key.dropFirst(prefix.count))
+        for candidate in DayFormat.days(endingAt: now, count: DateStrip.length) where candidate != day {
+            guard let row = activitiesDocument(candidate), row.data.range(of: needle) != nil,
+                  WireCoding.decode([SportActivity].self, row.data)?.contains(where: { $0.id == id }) == true
+            else { continue }
+            return candidate
         }
         return nil
     }

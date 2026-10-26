@@ -79,9 +79,13 @@ struct RyftApp: App {
         BackgroundWork.register(coordinator: coordinator, backlogBytes: { SyncService.shared.backlogBytes },
                                 afterRefresh: { [bedtime = screens.bedtime, uploader = state.env.uploader] in
                                     await bedtime.refresh()
-                                    // Activities and nights still to send, on the background session.
-                                    await APIClient.$runsInBackground.withValue(true) { await uploader.flush() }
+                                    // Activities and nights still to send, on the background session, waited for
+                                    // at most 20 s (the expiry stops the replay).
+                                    await APIClient.$runsInBackground.withValue(true) {
+                                        await uploader.flush(upTo: ActivityUploader.backgroundLimit, userInitiated: false)
+                                    }
                                 },
+                                expired: { [uploader = state.env.uploader] in uploader.stopReplay() },
                                 compact: { [repository = state.repository, activities = state.env.activities] in
                                     repository.compact()
                                     // Rows a session expiry parked more than 30 days ago.
@@ -165,7 +169,11 @@ struct RyftApp: App {
                 // A gate the platform reported (a 403 with a code, or X-RYFT-Gate): what's missing now.
                 .onChange(of: APIStatus.shared.gates) { _, _ in
                     Task { await screens.onboarding.check(force: true) }
-                    // Uploads a gate held try again once it's passed.
+                }
+                // Activities and nights the gate held (consent, invite, the account not known yet) go up once it's
+                // passed; never when one appears.
+                .onChange(of: screens.onboarding.syncGate) { _, gate in
+                    guard gate == nil else { return }
                     Task { await env.uploader.flush() }
                 }
                 // A flag flip that arrived meanwhile takes effect as the next screen appears.

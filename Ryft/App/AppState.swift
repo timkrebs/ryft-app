@@ -336,12 +336,23 @@ final class AppState {
 
     // MARK: accounts: activities (design.md §8.4)
 
-    /// RyftApp: `auth`'s account hooks run these, inside the sign-in, sign-out or wipe itself.
+    /// The previous account's export (shown, failed): ScreenModels connects the profile's `forgetExport()`.
+    @ObservationIgnored var onForgetAccountState: (@MainActor () -> Void)?
+
+    /// RyftApp: `auth`'s account hooks run these, inside the sign-in, sign-out, deletion or wipe itself. Signed in
+    /// at launch, the store is put right once (privacy review N1): a kill between the SDK saving another account's
+    /// session and the purge's save leaves the other account's rows, and a kill after an unpark leaves none parked.
     func bindAccountHooks(_ auth: AuthService) {
         auth.onAccountWillChange = { [weak self] from, to, reason in
             self?.accountWillChange(from: from, to: to, reason: reason)
         }
         auth.onWipe = { [weak self] wipe in self?.wiped(wipe) }
+        // Nothing more goes up for an account being deleted, and an answer in flight is dropped.
+        auth.onAccountDeletionStart = { [weak self] in self?.env.uploader.accountChanged() }
+        if let account = auth.accountID {
+            env.activities.purge(notBelongingTo: account)
+            env.activities.unpark(account: account)
+        }
     }
 
     /// Before the new session (or none) is published, so before the first upload and My Day's first read: another
@@ -362,12 +373,15 @@ final class AppState {
     }
 
     /// The uploader stops (answers in flight are dropped), decoded read models go (the wipe changed the store
-    /// underneath), demo data's activities start over on the phone and on the demo platform (A1 review, N-3).
+    /// underneath), demo data's activities start over on the phone and on the demo platform (A1 review, N-3), and
+    /// the previous account's export goes.
     private func forgetActivityState() {
         env.uploader.accountChanged()
         repository.invalidate()
         env.activities.accountChanged()
         (env.demoAPI as? MockPlatformAPI)?.activitySource.reset()
+        // The export of what was just wiped (privacy review 3).
+        onForgetAccountState?()
     }
 
     /// `PATCH /v1/me`; a failure is the caller's to show (the setting's form, inline).

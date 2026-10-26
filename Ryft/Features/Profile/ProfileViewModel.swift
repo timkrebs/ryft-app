@@ -246,16 +246,28 @@ final class ProfileViewModel {
         exporting = true
         exportError = nil
         defer { exporting = false }
+        // The archive takes a while: an account change meanwhile (even A, B, then A again) or the Demo data switch
+        // makes it someone else's. TODO(#47): fold `accountChanges` into `AccountBinding` and use its `isCurrent`.
+        let changes = auth.accountChanges, demo = env.isDemo
         do {
             let archive = try await DataExport.archive(source: state.source, train: env.api,
                                                        rememberedMatches: ImportMappingStore(env: env).records(),
                                                        activities: env.api, onPhone: env.activities)
+            guard auth.accountChanges == changes, env.isDemo == demo else { return }
             exported = ExportedFile(url: try DataExport.write(archive))
         } catch where error.isCancellation {
             return
         } catch {
+            guard auth.accountChanges == changes, env.isDemo == demo else { return }
             exportError = String(localized: "The export couldn't be created: \(error.localizedDescription)")
         }
+    }
+
+    /// An account change or the Demo data switch, inside the wipe (`AppState.forgetActivityState`): the previous
+    /// account's export, shown or failed, goes. TODO(#47): remove its file too (`removeExportFiles()`).
+    func forgetExport() {
+        exported = nil
+        exportError = nil
     }
 
     // MARK: developer
