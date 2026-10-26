@@ -109,8 +109,10 @@ enum ImportResumeText {
                    comment: "Training import: the resume row while it uploads.")
         case .paused(.notAvailable):
             String(localized: "Import saved on this iPhone", comment: "Training import: the resume row (I9).")
-        case .paused(.waitingForAccount):
+        case .paused(.waitingForAccount), .paused(.needsAttention):
             String(localized: "Import needs attention", comment: "Training import: the resume row.")
+        case .paused(.held):
+            String(localized: "Import paused", comment: "Training import: the resume row, held for a reason the user can't act on.")
         case .paused:
             String(localized: "Import paused · waiting for a connection", comment: "Training import: the resume row.")
         case .finished where status.hasRejected:
@@ -133,8 +135,10 @@ enum ImportResumeText {
                           comment: "Training import: Profile → Data's row while it uploads.")
         case .paused(.notAvailable):
             return String(localized: "Import saved on this iPhone", comment: "Training import: the resume row (I9).")
-        case .paused(.waitingForAccount):
+        case .paused(.waitingForAccount), .paused(.needsAttention):
             return String(localized: "Needs your attention", comment: "Training import: step 4's section, and Profile → Data's row.")
+        case .paused(.held):
+            return String(localized: "Import paused", comment: "Training import: the resume row, held for a reason the user can't act on.")
         case .paused:
             return String(localized: "Waiting for a connection", comment: "Training import: Profile → Data's row.")
         case .finished where status.hasRejected:

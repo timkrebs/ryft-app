@@ -4593,6 +4593,17 @@
         }
       }
     },
+    "Import paused" : {
+      "comment" : "Training import: the resume row, held for a reason the user can't act on.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import pausiert"
+          }
+        }
+      }
+    },
     "Import paused · waiting for a connection" : {
       "comment" : "Training import: the resume row.",
       "localizations" : {
@@ -8554,6 +8565,17 @@
         }
       }
     },
+    "Some items weren't accepted, so the upload stopped." : {
+      "comment" : "Training import: the platform refused every request of the last pass.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einige Einträge wurden nicht angenommen, deshalb wurde der Upload angehalten."
+          }
+        }
+      }
+    },
     "Some items weren't imported" : {
       "comment" : "Training import I4.",
       "localizations" : {
@@ -9559,6 +9581,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Der Rest wird normal importiert."
+          }
+        }
+      }
+    },
+    "The rest of your import is kept on this iPhone. Try again to send it." : {
+      "comment" : "Training import: Try again sends the pending rest.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Rest deines Imports bleibt auf diesem iPhone. Versuche es erneut, um ihn zu senden."
+          }
+        }
+      }
+    },
+    "The upload is paused. RYFT will try again later." : {
+      "comment" : "Training import: a refusal with no step for the user (an unknown 403).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Upload ist pausiert. RYFT versucht es später noch einmal."
           }
         }
       }

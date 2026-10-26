@@ -157,6 +157,29 @@ struct ImportResultView: View {
                 .accessibilityIdentifier("import.result")
             line(String(localized: "It uploads when importing is available for your account.", comment: "Training import I9."))
             line(ImportResultText.keptLimits)
+        case .held:
+            // A 403 this build doesn't know: nothing for the user to answer, so no consent or gate words.
+            header(String(localized: "Importing…", comment: "Training import I2."))
+            progress(job, paused: true)
+            InlineMessage(message: String(localized: "The upload is paused. RYFT will try again later.",
+                                          comment: "Training import: a refusal with no step for the user (an unknown 403)."),
+                          systemImage: "pause.circle",
+                          details: job.lastFailure?.details,
+                          caption: ImportResultText.keptLimits)
+        case .needsAttention:
+            // The platform refused everything in the last pass; the rest is still pending.
+            header(String(localized: "Importing…", comment: "Training import I2."))
+            progress(job, paused: true)
+            InlineMessage(message: String(localized: "Some items weren't accepted, so the upload stopped.",
+                                          comment: "Training import: the platform refused every request of the last pass."),
+                          systemImage: "exclamationmark.circle",
+                          details: job.lastFailure?.details,
+                          retry: { await model.deps.uploader.resume() },
+                          caption: String(localized: "The rest of your import is kept on this iPhone. Try again to send it.",
+                                          comment: "Training import: Try again sends the pending rest.")
+                              + " " + ImportResultText.keptLimits,
+                          identifier: "import.tryAgain")
+            if job.hasRejected { rejected(job) }
         case .waitingForAccount:
             // A final 401 or an account deletion: the job goes with the account's data, so nothing resumes it.
             header(String(localized: "Importing…", comment: "Training import I2."))
@@ -341,7 +364,7 @@ struct ImportResultView: View {
                 model.finish(.close)
             }
             discardJob
-        case .paused(.offline)?, .paused(.retrying)?:
+        case .paused(.offline)?, .paused(.retrying)?, .paused(.held)?, .paused(.needsAttention)?:
             discardJob
         case .paused(.waitingForAccount)?:
             ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done") { model.done() }
@@ -483,6 +506,18 @@ enum ImportResultText {
             MockTrainImport.status(.paused(.gated(.gate(.consentRequired)))))))
     }
     .previewEnvironment()
+}
+
+#Preview("Step 6 · held · dark") {
+    NavigationStack { ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(
+        MockTrainImport.status(.paused(.held))))) }
+        .previewEnvironment()
+}
+
+#Preview("Step 6 · needs attention · light") {
+    NavigationStack { ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(
+        MockTrainImport.status(.paused(.needsAttention), rejected: 3)))) }
+        .previewEnvironment(scheme: .light)
 }
 
 #Preview("Step 6 · signed out mid-upload · light") {
