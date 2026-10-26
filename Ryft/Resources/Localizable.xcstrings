@@ -6736,6 +6736,17 @@
         }
       }
     },
+    "This plan is in another picked file too and is imported once" : {
+      "comment" : "Import note, after \"Line N\": the same plan in two picked files.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Plan steht auch in einer anderen gewählten Datei und wird einmal importiert"
+          }
+        }
+      }
+    },
     "This time didn't exist in your time zone, so RYFT used the next valid time" : {
       "comment" : "Import note, after \"Line N\": a workout on the spring clock change.",
       "localizations" : {

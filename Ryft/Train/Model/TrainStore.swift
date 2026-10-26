@@ -14,14 +14,14 @@ final class TrainStore {
     static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "train")
     static let schema = Schema([LocalSession.self, LocalSessionExercise.self, LocalSet.self,
                                 CachedExercise.self, CachedPlan.self, PendingTrainOp.self,
-                                ImportMapping.self] + readModels + activityModels)
+                                ImportMapping.self, PendingImport.self] + readModels + activityModels)
 
     let container: ModelContainer
     var context: ModelContext { container.mainContext }
     /// On disk. False in memory: asked for (tests, previews, demo data), or the file couldn't be opened.
     let isDurable: Bool
 
-    init(inMemory: Bool = false) {
+    convenience init(inMemory: Bool = false) {
         // In memory, each instance gets its own name, so tests and previews never share a store.
         //
         // On disk the store lives in the App Group container: the app has the `group.dev.timkrebs.ryft` entitlement,
@@ -35,9 +35,19 @@ final class TrainStore {
         // iCloud capability.
         let config = ModelConfiguration(inMemory ? "Train-\(UUID().uuidString)" : "Train", schema: Self.schema,
                                         isStoredInMemoryOnly: inMemory, groupContainer: .automatic, cloudKitDatabase: .none)
+        self.init(configuration: config)
+    }
+
+    /// Tests: a store on disk at `url` (its own folder), never CloudKit. What only a file shows (external storage,
+    /// a wipe's leftovers) is tested on it, never on the app's own store.
+    convenience init(url: URL) {
+        self.init(configuration: ModelConfiguration(schema: Self.schema, url: url, cloudKitDatabase: .none))
+    }
+
+    private init(configuration config: ModelConfiguration) {
         do {
             container = try ModelContainer(for: Self.schema, configurations: config)
-            isDurable = !inMemory
+            isDurable = !config.isStoredInMemoryOnly
         } catch {
             // A store that can't be opened must not keep the app from launching.
             // Domain and code only: a store error's description can quote values.
@@ -217,6 +227,10 @@ final class TrainStore {
         try? context.delete(model: PendingTrainOp.self)
         // The import's remembered matches are the account's too (training import design §4, §10).
         try? context.delete(model: ImportMapping.self)
+        // And its import job, never uploaded for another account (design §7). One by one: its payload is external
+        // storage, and only deleting the object is sure to take that file (the whole imported history) with it. On
+        // the iOS 27 simulator SwiftData's batch delete removed it too, but the app runs from iOS 17.
+        for job in (try? context.fetch(FetchDescriptor<PendingImport>())) ?? [] { context.delete(job) }
         try? context.delete(model: CachedDay.self)
         try? context.delete(model: CachedTrend.self)
         try? context.delete(model: CachedInsight.self)

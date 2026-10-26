@@ -100,16 +100,25 @@ struct ImportBundle: Equatable, Sendable {
 
     var isEmpty: Bool { plans.isEmpty && sessions.isEmpty }
 
-    /// Another file's bundle added to this one. Plans are appended as they are. A session whose start key is already
-    /// here (the same workout in two picked files) is kept once, with `.duplicateInFiles` at the dropped copy's line;
-    /// the occurrences are counted, so two workouts that share a start in one file both survive. Warnings stay sorted
+    /// Another file's bundle added to this one. A plan with the same content as one already here (the same plans file
+    /// picked twice: `ImportedPlan.contentKey`) is kept once, with `.duplicatePlanInFiles` at the dropped copy's line;
+    /// plans that only share a name stay (their ids tell them apart, ADR 0007 Amendment 2). A session whose start key
+    /// is already here (the same workout in two picked files) is kept once, with `.duplicateInFiles` at the dropped
+    /// copy's line; the occurrences are counted, so two workouts that share a start in one file both survive. Warnings stay sorted
     /// and capped at `maxWarnings`; the rest are counted in `suppressedWarnings`.
     func merging(_ other: ImportBundle, maxWarnings: Int = ImportLimits.standard.maxWarnings) -> ImportBundle {
         var remaining: [String: Int] = [:]
         for session in sessions { remaining[session.start.key, default: 0] += 1 }
         var merged = self
-        merged.plans += other.plans
         var dropped: [ImportWarning] = []
+        var plansHere = Set(plans.map(\.contentKey))
+        for plan in other.plans {
+            if plansHere.insert(plan.contentKey).inserted {
+                merged.plans.append(plan)
+            } else {
+                dropped.append(ImportWarning(at: plan.source, kind: .duplicatePlanInFiles))
+            }
+        }
         for session in other.sessions {
             let key = session.start.key
             if let left = remaining[key], left > 0 {
@@ -136,6 +145,39 @@ struct ImportedPlan: Equatable, Sendable {
     /// key on the day number must tell the two apart.
     var days: [ImportedDay]
     var source: SourceLine
+}
+
+extension ImportedPlan {
+    /// What makes two plans one (the content RYFT builds from them): the folded name, the start date, the weeks, and
+    /// each day's number, folded name and exercises (key, sets, target reps) in file order. Not the source line.
+    struct ContentKey: Hashable, Sendable {
+        struct Row: Hashable, Sendable {
+            let key: SourceExerciseKey
+            let sets: Int
+            let reps: ClosedRange<Int>?
+        }
+
+        struct Day: Hashable, Sendable {
+            let number: Int
+            let name: String
+            let rows: [Row]
+        }
+
+        let name: String
+        let weeks: Int?
+        let start: LocalDate?
+        let days: [Day]
+    }
+
+    var contentKey: ContentKey {
+        ContentKey(name: SourceExerciseKey.fold(name), weeks: weeks, start: startDate, days: days.map { day in
+            ContentKey.Day(number: day.number, name: SourceExerciseKey.fold(day.name), rows: day.exercises.map { row in
+                ContentKey.Row(key: SourceExerciseKey(name: SourceExerciseKey.fold(row.name),
+                                                      equipment: SourceExerciseKey.fold(row.equipment ?? "")),
+                               sets: row.sets, reps: row.targetReps)
+            })
+        })
+    }
 }
 
 struct ImportedDay: Equatable, Sendable {

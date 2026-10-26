@@ -460,6 +460,7 @@ fails as a count. Each seed is printed before its case.
 | Risk | Mitigation |
 | --- | --- |
 | German tokens differ · a wrong match files history under the wrong exercise | tokens are data and unknown lines only warn (Q1) · fuzzy needs a tap; ✓ only for remembered, exact or alias |
+| **Open (user): does Alpha Progression export the wall clock a workout was recorded at, or re-render every time in the phone's current zone?** Ids use the file's wall clock (ADR 0007). If the app re-renders, an export made after a time-zone change (travel, a move) shifts every time by the zone difference: the re-import's ids differ and the whole history comes back as new, not as "already imported" | ask the user to compare two exports of one workout made in different zones; if times move, key sessions on the day plus the order within the day instead (a new ADR amendment and a migration of nothing: no import has shipped) |
 | The id recipe changes and history duplicates · a big history blocks the main actor | ADR 0007 freezes it, `ImportIDsTests` pins vectors · parse, build and encode are `@concurrent` (`MainThread.assertOff`) |
 | Personal data in the public repo · Open-in while dark | synthetic fixtures, curated aliases, review of every fixture, doc and PR body · the flag-off sheet (Q3) |
 

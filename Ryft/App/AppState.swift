@@ -324,6 +324,8 @@ final class AppState {
         env.uploader.accountChanged()
         env.activities.accountChanged()
         (env.demoAPI as? MockPlatformAPI)?.activitySource.reset()
+        // And what demo's training import put on the demo platform.
+        (env.demoAPI as? MockPlatformAPI)?.trainImportSource.reset()
         readsChanged(.record)
     }
 
