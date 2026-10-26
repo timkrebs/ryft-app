@@ -5,8 +5,8 @@ import XCTest
 /// (`-RyftOpenMyDay 0`) and found by identifiers; the words asserted are English because the launch pins the
 /// language. The demo day: a night from Apple Health, mobility, the merged run, a walk, yoga.
 ///
-/// Times come from the real clock. The form's default window is the last hour ending now, so in the first hour after
-/// midnight it starts yesterday: those tests skip then (`openAddActivity`).
+/// Times come from the real clock. The form's default window is the last hour ending now, never before midnight, so
+/// it's always inside today (`openAddActivity` checks it).
 final class AddActivityUITests: XCTestCase {
     /// Generous: a cold simulator on CI loads Today, then the activities read.
     private let wait: TimeInterval = 45
@@ -38,7 +38,7 @@ final class AddActivityUITests: XCTestCase {
         return app
     }
 
-    /// ＋ → Add activity, with the sheet open and its default window inside today.
+    /// ＋ → Add activity, with the sheet open and its default window inside today (it starts at midnight at the latest).
     private func openAddActivity(_ app: XCUIApplication) throws {
         let plus = app.buttons["myday.add"]
         XCTAssertTrue(plus.waitForExistence(timeout: wait), "the plus menu")
@@ -51,7 +51,7 @@ final class AddActivityUITests: XCTestCase {
         XCTAssertTrue(start.waitForExistence(timeout: wait))
         let startDate = start.buttons.element(boundBy: 1).label
         let endDate = app.datePickers["addActivity.end"].buttons.element(boundBy: 1).label
-        try XCTSkipUnless(startDate == endDate, "the default window starts before midnight")
+        XCTAssertEqual(startDate, endDate, "the default window starts today, not yesterday")
     }
 
     private func choose(sport: String, in app: XCUIApplication) {
@@ -224,31 +224,21 @@ final class AddActivityUITests: XCTestCase {
 
     // MARK: 4. Add sleep
 
-    /// A day in the strip with no night: "Add sleep" there puts the night in the list, added by you. The demo days all
-    /// have their night (Apple Health), so this skips until demo data has a day without one.
+    /// A day in the strip with no night: "Add sleep" there puts the night in the list, added by you. Demo data has a
+    /// night on every day, so this launches with `-RyftScenario missing-night`: no night three days back.
     @MainActor
     func testAddSleepOnADayWithoutANightShowsTheNight() throws {
-        let app = openMyDay()
-        let night = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'myday.view.row.sleep.' OR identifier == 'myday.addSleep'"))
-        var missing: String?
-        for back in 0..<7 {
-            let chip = app.buttons["datestrip.day.\(day(daysBack: back))"]
-            guard chip.waitForExistence(timeout: 5) else { continue }
-            chip.tap()
-            XCTAssertTrue(night.firstMatch.waitForExistence(timeout: wait), "the day's night or its Add sleep")
-            if night.firstMatch.identifier == "myday.addSleep" {
-                missing = day(daysBack: back)
-                break
-            }
-        }
-        try XCTSkipIf(missing == nil, "every demo day has a night; Add sleep has nowhere to start")
-        guard let missing else { return }
+        let app = openMyDay(extra: ["-RyftScenario", "missing-night"])
+        let missing = day(daysBack: 3)
+        let chip = app.buttons["datestrip.day.\(missing)"]
+        XCTAssertTrue(chip.waitForExistence(timeout: wait), "the day three back in the strip")
+        chip.tap()
+        let addSleep = app.buttons["myday.addSleep"]
+        XCTAssertTrue(addSleep.waitForExistence(timeout: wait), "No sleep recorded · Add sleep")
 
-        app.buttons["myday.addSleep"].tap()
+        addSleep.tap()
         XCTAssertTrue(app.otherElements["addSleep.sheet"].waitForExistence(timeout: wait), "the Add sleep sheet")
-        // The duration and its note are one combined element: found by its sentence.
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Time asleep'")).firstMatch
-                        .waitForExistence(timeout: wait), "Time asleep, live")
+        XCTAssertTrue(app.descendants(matching: .any)["addSleep.duration"].waitForExistence(timeout: wait), "Time asleep, live")
         XCTAssertTrue(app.buttons["addSleep.save"].isEnabled, "the default night (23:00 to 07:00) is valid")
         app.buttons["addSleep.save"].tap()
         waitForAbsence(of: app.otherElements["addSleep.sheet"], "the sheet closes on Save")
@@ -295,10 +285,8 @@ final class AddActivityUITests: XCTestCase {
         XCTAssertTrue(app.scrollViews["activityDetail"].waitForExistence(timeout: wait), "its detail")
         XCTAssertTrue(app.otherElements["activityDetail.header"].waitForExistence(timeout: wait))
 
-        XCTExpectFailure("B2: fixed in feat/add-activity") {
-            XCTAssertFalse(app.buttons["activityDetail.menu"].exists, "no Edit or Delete menu")
-            XCTAssertFalse(app.buttons["activityDetail.edit"].exists, "no Edit button")
-            XCTAssertFalse(app.buttons["activityDetail.delete"].exists, "no Delete button")
-        }
+        XCTAssertFalse(app.buttons["activityDetail.menu"].exists, "no Edit or Delete menu")
+        XCTAssertFalse(app.buttons["activityDetail.edit"].exists, "no Edit button")
+        XCTAssertFalse(app.buttons["activityDetail.delete"].exists, "no Delete button")
     }
 }
