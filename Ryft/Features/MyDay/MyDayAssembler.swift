@@ -306,21 +306,26 @@ enum MyDayAssembler {
     /// Rule 5. A pending manual night wins until confirmed (as an activity edit does); a deleted one hides the
     /// platform's copy of it. Without any night, and with the day loaded, "No sleep recorded", unless the
     /// tracker's night is only late (`nightGap`).
-    private static func sleepItem(_ input: MyDayInput, detail: DayDetail?) -> MyDayItem? {
-        let server = detail?.sleep.flatMap { s -> (start: Date, end: Date, asleep: TimeInterval?)? in
+    /// The platform's night for the day, with its times; nil without one, or without the times to place it.
+    static func platformNight(_ detail: DayDetail?) -> (start: Date, end: Date, asleep: TimeInterval?)? {
+        detail?.sleep.flatMap { s -> (start: Date, end: Date, asleep: TimeInterval?)? in
             guard let end = s.end ?? s.start.map({ $0.addingTimeInterval(Double(s.inBedMin ?? s.totalMin ?? 0) * 60) })
             else { return nil }
             let start = s.start ?? end.addingTimeInterval(-Double(s.inBedMin ?? s.totalMin ?? 0) * 60)
             return (start, end, s.totalMin.map { Double($0) * 60 })
         }
+    }
+
+    /// The platform's night is the one the user added: the same times within a minute (the wire's ISO 8601 drops
+    /// sub-seconds), until R11 says so itself.
+    static func isAddedNight(_ server: (start: Date, end: Date, asleep: TimeInterval?), _ local: ManualSleepSnapshot) -> Bool {
+        abs(server.start.timeIntervalSince(local.bed)) <= sameNight && abs(server.end.timeIntervalSince(local.wake)) <= sameNight
+    }
+
+    private static func sleepItem(_ input: MyDayInput, detail: DayDetail?) -> MyDayItem? {
+        let server = platformNight(detail)
         let local = input.localSleep
-        // The platform's night is the one the user added: the same times within a minute (the wire's ISO 8601
-        // drops sub-seconds), until R11 says so itself.
-        let serverIsManual = local.map { l in
-            server.map {
-                abs($0.start.timeIntervalSince(l.bed)) <= sameNight && abs($0.end.timeIntervalSince(l.wake)) <= sameNight
-            } ?? false
-        } ?? false
+        let serverIsManual = local.map { l in server.map { isAddedNight($0, l) } ?? false } ?? false
 
         if let local, !local.isTombstone, local.needsUpload || server == nil {
             return MyDayItem(id: "sleep.\(input.day)", kind: .sleep(day: input.day), symbol: "bed.double.fill",

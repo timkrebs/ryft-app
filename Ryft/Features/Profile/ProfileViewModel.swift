@@ -102,12 +102,43 @@ final class ProfileViewModel {
     /// would delete. Above 0, the confirmation lists them and offers "Send first" (design.md §8.4).
     var unconfirmedActivities: Int { env.activities.unconfirmedCount(ofAccount: auth.accountID) }
 
-    /// "Send first": the queue goes up, waited for 10 s at most (it goes on after that). Returns what's still
-    /// unconfirmed; 0 means logging out loses nothing. In demo mode the account's rows can't be sent (demo data's
-    /// client is in use), so nothing changes.
-    func sendUnconfirmedActivities() async -> Int {
-        if !env.isDemo { await env.uploader.flush(upTo: ActivityUploader.sendFirstLimit) }
-        return unconfirmedActivities
+    /// Whether "Send first" can do anything now.
+    enum SendFirst: Equatable {
+        case available
+        /// Offline: the confirmation says so instead of offering it.
+        case offline
+        /// Nothing can go up now: demo data's client is in use, uploads aren't available yet, or consent or the
+        /// invite is missing. The confirmation doesn't offer it.
+        case unavailable
+    }
+
+    var sendFirst: SendFirst {
+        if env.isDemo || !env.api.publishesActivities || env.uploader.gate?() != nil { return .unavailable }
+        return env.connectivity.isOnline ? .available : .offline
+    }
+
+    /// What "Send first" came to.
+    enum SendFirstOutcome: Equatable {
+        case loggedOut
+        /// Still unconfirmed after the wait: the confirmation asks again with this many.
+        case unsent(Int)
+        /// Another session by the time the queue was sent (the tapping account's ended, maybe someone else's
+        /// began): nobody is logged out.
+        case accountChanged
+    }
+
+    /// "Send first", then log out once nothing is left (design.md §8.4): the queue goes up, waited for 10 s at most
+    /// (it goes on after that). Only the account that tapped it is logged out: if its session ended meanwhile, or
+    /// another account signed in, nothing more happens.
+    func sendFirstThenLogOut() async -> SendFirstOutcome {
+        let account = auth.accountID, changes = auth.accountChanges
+        guard account != nil, sendFirst == .available else { return .unsent(unconfirmedActivities) }
+        await env.uploader.flush(upTo: ActivityUploader.sendFirstLimit)
+        guard auth.accountID == account, auth.accountChanges == changes else { return .accountChanged }
+        let left = unconfirmedActivities
+        guard left == 0 else { return .unsent(left) }
+        await logOut()
+        return .loggedOut
     }
     func deleteAccount() async {
         let account = auth.accountID

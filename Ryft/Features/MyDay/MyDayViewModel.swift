@@ -89,10 +89,11 @@ final class MyDayViewModel {
         return addsManually && day <= today && day >= DayFormat.shift(today, days: -AddActivityModel.daysBack)
     }
 
-    /// Add sleep is offered while the day has no night (hidden once the tracker's or a typed-in night is there).
+    /// Add sleep is offered where the day says "No sleep recorded" (ui.md §2.5 rule 5, §7.4): never while the
+    /// tracker's night is only late or still being scored, nor once a night is there.
     func offersAddSleep(on day: Date, content: MyDayContent) -> Bool {
-        canAdd(on: day) && !content.items.contains {
-            if case .sleep = $0.kind { return true }
+        canAdd(on: day) && content.items.contains {
+            if case .missingSleep = $0.kind { return true }
             return false
         }
     }
@@ -100,7 +101,20 @@ final class MyDayViewModel {
     func addActivityModel(on day: Date) -> AddActivityModel { AddActivityModel(env: env, day: day) }
 
     func addSleepModel(on day: Date) -> AddSleepModel {
-        AddSleepModel(env: env, day: day, trackerHasNight: state.cachedDayDetail(for: day)?.sleep != nil)
+        AddSleepModel(env: env, day: day, night: { [weak self] in self?.night(on: $0) ?? .none })
+    }
+
+    /// What a wake day already has, for Add and Edit sleep: a night added on this iPhone (a deleted one doesn't
+    /// count), else the platform's cached night unless it's the deleted one the user added.
+    func night(on key: String) -> AddSleepModel.Night {
+        let local = env.activities.manualSleep(onDay: key)
+        if let local, !local.isTombstone { return .added }
+        guard let day = DayFormat.date(from: key), let detail = state.cachedDayDetail(for: day), detail.sleep != nil
+        else { return .none }
+        if let local, let server = MyDayAssembler.platformNight(detail), MyDayAssembler.isAddedNight(server, local) {
+            return .none
+        }
+        return .tracked
     }
 
     /// The detail's model for an activity row.
@@ -117,7 +131,7 @@ final class MyDayViewModel {
     func editSleep(_ item: MyDayItem) -> AddSleepModel? {
         guard addsManually, item.isManualSleep, case .sleep(let key) = item.kind,
               let night = env.activities.manualSleep(onDay: key) else { return nil }
-        return AddSleepModel(env: env, editing: night)
+        return AddSleepModel(env: env, editing: night, night: { [weak self] in self?.night(on: $0) ?? .none })
     }
 
     /// Delete a row after its confirmation: an activity (a tombstone until the platform confirms) or a night the

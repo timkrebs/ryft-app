@@ -338,6 +338,47 @@
         }
       }
     },
+    "%lld activities or nights haven't reached RYFT yet, and you're offline. Logging out deletes them from this iPhone." : {
+      "comment" : "Log out offline with uploads pending (Send first isn't offered); the number of activities and nights.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Aktivität oder Nacht hat RYFT noch nicht erreicht, und du bist offline. Beim Abmelden wird sie von diesem iPhone gelöscht."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Aktivitäten oder Nächte haben RYFT noch nicht erreicht, und du bist offline. Beim Abmelden werden sie von diesem iPhone gelöscht."
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld activity or night hasn't reached RYFT yet, and you're offline. Logging out deletes it from this iPhone."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld activities or nights haven't reached RYFT yet, and you're offline. Logging out deletes them from this iPhone."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld activities or nights haven't reached RYFT yet. Logging out deletes them from this iPhone." : {
       "comment" : "Log out with uploads pending; the number of activities and nights.",
       "localizations" : {
@@ -372,6 +413,47 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld activities or nights haven't reached RYFT yet. Logging out deletes them from this iPhone."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld activities or nights you added haven't reached RYFT yet. Log in by %@ to send them." : {
+      "comment" : "Welcome after a session expiry: how many unsent activities and nights wait on the phone; the day they're deleted after.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Aktivität oder Nacht, die du hinzugefügt hast, hat RYFT noch nicht erreicht. Melde dich bis %@ an, um sie zu senden."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Aktivitäten oder Nächte, die du hinzugefügt hast, haben RYFT noch nicht erreicht. Melde dich bis %@ an, um sie zu senden."
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld activity or night you added hasn't reached RYFT yet. Log in by %@ to send it."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld activities or nights you added haven't reached RYFT yet. Log in by %@ to send them."
                 }
               }
             }
@@ -902,6 +984,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ein echter Wecker: Er klingelt auch im Stumm-Modus und bei Fokus, mit Stopp und Schlummern."
+          }
+        }
+      }
+    },
+    "A tracker already recorded that night." : {
+      "comment" : "Add or edit sleep: the wake day already has the tracker's night.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Tracker hat diese Nacht schon aufgezeichnet."
           }
         }
       }
@@ -3352,6 +3445,17 @@
         }
       }
     },
+    "Merged from two sources: heart rate from %@, everything else from RYFT's recording. RYFT counts this activity once." : {
+      "comment" : "Activity detail: a merged indoor or pedometer recording; the tracker's name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus zwei Quellen zusammengeführt: Herzfrequenz von %@, alles andere aus der Aufzeichnung von RYFT. RYFT zählt diese Aktivität nur einmal."
+          }
+        }
+      }
+    },
     "Merged from two sources: heart rate from %@, route and distance from RYFT. RYFT counts this activity once." : {
       "comment" : "Activity detail: a RYFT activity merged with a tracker's workout; the tracker's name.",
       "localizations" : {
@@ -3359,6 +3463,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aus zwei Quellen zusammengeführt: Herzfrequenz von %@, Route und Distanz von RYFT. RYFT zählt diese Aktivität nur einmal."
+          }
+        }
+      }
+    },
+    "Merged from two sources: heart rate from %@, the rest from what you added. RYFT counts this activity once." : {
+      "comment" : "Activity detail: a merged manual activity; the tracker's name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus zwei Quellen zusammengeführt: Herzfrequenz von %@, der Rest aus deinem Eintrag. RYFT zählt diese Aktivität nur einmal."
           }
         }
       }
@@ -3414,6 +3529,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aus deinen Nächten sind keine Werte für %@ bei RYFT angekommen."
+          }
+        }
+      }
+    },
+    "No answer" : {
+      "comment" : "Upload Details: the request got no response (offline or cut off).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Antwort"
           }
         }
       }
@@ -7302,6 +7428,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Die Bereitschaft von gestern, bis die letzte Nacht bewertet ist."
+          }
+        }
+      }
+    },
+    "You already added a night for that day." : {
+      "comment" : "Add or edit sleep: the wake day already has a night the user added.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Für diesen Tag hast du schon eine Nacht hinzugefügt."
           }
         }
       }

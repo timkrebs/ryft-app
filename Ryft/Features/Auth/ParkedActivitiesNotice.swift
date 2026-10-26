@@ -4,23 +4,36 @@ import SwiftUI
 /// platform hasn't confirmed, kept up to 30 days for the same account. One calm line with their count, nothing of
 /// their content, and "Delete from this iPhone" with a confirmation (GDPR Art. 17, transparency).
 struct ParkedActivitiesNotice: View {
-    /// How many (`ActivityStore.parkedCount()`), more than 0.
-    let parked: Int
+    /// What Welcome mentions: how many (`ActivityStore.parkedCount()`, more than 0), and the day they're kept until
+    /// (nil: "within 30 days").
+    struct Parked: Equatable {
+        let count: Int
+        let until: Date?
+    }
+
+    let parked: Parked
     /// `ActivityStore.purgeParked()`.
     let delete: () -> Void
 
     @State private var confirms = false
 
-    /// How many to mention on Welcome; nil when none. Not behind `activities.manual`: only an enabled feature parks
-    /// rows, and signed out the flag reads its compiled default.
-    static func parkedToMention(in env: AppEnvironment) -> Int? {
-        let parked = env.activities.parkedCount()
-        return parked > 0 ? parked : nil
+    /// What to mention on Welcome; nil when nothing is parked. Not behind `activities.manual`: only an enabled feature
+    /// parks rows, and signed out the flag reads its compiled default.
+    static func parkedToMention(in env: AppEnvironment) -> Parked? {
+        let count = env.activities.parkedCount()
+        guard count > 0 else { return nil }
+        // The limit runs from parking, not from now: `until: env.activities.parkedUntil()` once the store has it.
+        return Parked(count: count, until: nil)
     }
 
     private var message: String {
-        String(localized: "\(parked) activities or nights you added haven't reached RYFT yet. Log in within 30 days to send them.",
-               comment: "Welcome after a session expiry: how many unsent activities and nights wait on the phone.")
+        guard let until = parked.until else {
+            return String(localized: "\(parked.count) activities or nights you added haven't reached RYFT yet. Log in within 30 days to send them.",
+                          comment: "Welcome after a session expiry: how many unsent activities and nights wait on the phone.")
+        }
+        let date = until.formatted(.dateTime.day().month(.wide))
+        return String(localized: "\(parked.count) activities or nights you added haven't reached RYFT yet. Log in by \(date) to send them.",
+                      comment: "Welcome after a session expiry: how many unsent activities and nights wait on the phone; the day they're deleted after.")
     }
 
     var body: some View {
@@ -62,5 +75,11 @@ extension AppEnvironment {
 }
 
 #Preview("Parked notice", traits: .sizeThatFitsLayout) {
-    SchemePair { ParkedActivitiesNotice(parked: 3) {}.padding() }
+    SchemePair {
+        VStack(spacing: 16) {
+            ParkedActivitiesNotice(parked: .init(count: 3, until: nil)) {}
+            ParkedActivitiesNotice(parked: .init(count: 1, until: .now.addingTimeInterval(29 * 86_400))) {}
+        }
+        .padding()
+    }
 }

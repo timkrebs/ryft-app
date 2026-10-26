@@ -86,8 +86,27 @@ final class ActivityDetailViewModel {
     }
 
     var isMerged: Bool { activity?.mergedWith != nil }
-    /// Manual and recorded activities, on any day; not a recording in progress or an origin this build doesn't know.
-    var isEditable: Bool { (activity?.isEditable ?? false) && (local?.isSaved ?? true) }
+
+    /// What RYFT's side of a merge brings (the merge note).
+    enum MergedPart: Equatable {
+        /// A GPS recording: route and distance.
+        case route
+        /// A recording without GPS (indoor, the pedometer).
+        case recording
+        /// A manual entry.
+        case entry
+    }
+
+    var mergedPart: MergedPart {
+        guard let activity, activity.origin == .recorded else { return .entry }
+        return activity.sport.hasGPS ? .route : .recording
+    }
+    /// Edit and Delete (the menu, the footer, Add a note, a refusal's Edit): manual and recorded activities on any
+    /// day, not a recording in progress or an origin this build doesn't know, and only behind `activities.manual`
+    /// (with `today.my_day` alone every row opens the detail read-only).
+    var isEditable: Bool {
+        env.flags.isOn(.activitiesManual) && (activity?.isEditable ?? false) && (local?.isSaved ?? true)
+    }
     var isRecorded: Bool { activity?.origin == .recorded }
     /// A manual Strength activity: suggest Train (D8).
     var suggestsTrain: Bool { activity?.sport == .strength && activity?.origin == .manual }
@@ -226,10 +245,15 @@ final class ActivityDetailViewModel {
 }
 
 extension UploadAttempt {
-    /// Details: status, code, request ID, time (never a body).
+    /// Details: status, code, request ID, time (never a body). Without a status (offline, cut off, or the uploader's
+    /// mark of a request still out when the app stopped) it says no answer came.
     var details: String {
         var parts: [String] = []
-        if let status { parts.append("HTTP \(status)") }
+        if let status {
+            parts.append("HTTP \(status)")
+        } else {
+            parts.append(String(localized: "No answer", comment: "Upload Details: the request got no response (offline or cut off)."))
+        }
         if let code { parts.append(code) }
         if let requestID { parts.append("request-id \(requestID)") }
         parts.append(at.ISO8601Format())

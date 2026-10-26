@@ -272,11 +272,26 @@ struct ActivityDetailScreen: View {
     }
 
     /// D4: merged with a tracker's workout; its heart rate and zones are in that workout's detail.
+    /// What each side gave, by what RYFT's row actually has: a GPS recording its route and distance, another
+    /// recording the rest of its measurement, a manual entry what the user typed in.
+    private func mergeText(_ source: String) -> Text {
+        switch model.mergedPart {
+        case .route:
+            return Text("Merged from two sources: heart rate from \(source), route and distance from RYFT. RYFT counts this activity once.")
+        case .recording:
+            return Text("Merged from two sources: heart rate from \(source), everything else from RYFT's recording. RYFT counts this activity once.",
+                        comment: "Activity detail: a merged indoor or pedometer recording; the tracker's name.")
+        case .entry:
+            return Text("Merged from two sources: heart rate from \(source), the rest from what you added. RYFT counts this activity once.",
+                        comment: "Activity detail: a merged manual activity; the tracker's name.")
+        }
+    }
+
     private var mergeNote: some View {
         let source = model.mergeSource ?? MyDayAssembler.appleHealth
         return VStack(alignment: .leading, spacing: 10) {
             Label {
-                Text("Merged from two sources: heart rate from \(source), route and distance from RYFT. RYFT counts this activity once.")
+                mergeText(source)
                     .fixedSize(horizontal: false, vertical: true)
             } icon: {
                 Image(systemName: "info.circle")
@@ -355,10 +370,18 @@ struct ActivityDetailScreen: View {
 @MainActor
 private enum DetailPreview {
     static let state = AppState.preview(flags: [.todayMyDay: true, .activitiesManual: true])
+    /// The same with the uploader held by the consent gate (`.pending(.gated)`).
+    static let gated: AppState = {
+        let state = AppState.preview(flags: [.todayMyDay: true, .activitiesManual: true])
+        state.env.uploader.gate = { .consentRequired }
+        return state
+    }()
     static var demo: [SportActivity] { MockActivitiesSource.demo() }
 
     /// The demo platform's activities cached, plus a manual HIIT on this iPhone (not uploaded yet).
-    static func host(_ pick: (([SportActivity]) -> SportActivity?)?, local: Bool = false) -> some View {
+    static func host(_ pick: (([SportActivity]) -> SportActivity?)?, local: Bool = false,
+                     state given: AppState? = nil) -> some View {
+        let state = given ?? Self.state
         let all = demo
         for day in Set(all.map { DayFormat.string(from: $0.start) }) {
             state.repository.store(activities: all.filter { DayFormat.string(from: $0.start) == day }, day: day)
@@ -394,6 +417,14 @@ private enum DetailPreview {
 
 #Preview("Detail · on this iPhone (HIIT)") {
     DetailPreview.host(nil, local: true).previewEnvironment(DetailPreview.state)
+}
+
+#Preview("Detail · waiting for consent (gated)") {
+    DetailPreview.host(nil, local: true, state: DetailPreview.gated).previewEnvironment(DetailPreview.gated)
+}
+
+#Preview("Detail · waiting for consent (gated) · light") {
+    DetailPreview.host(nil, local: true, state: DetailPreview.gated).previewEnvironment(DetailPreview.gated, scheme: .light)
 }
 
 #Preview("Detail · ride · AX3") {

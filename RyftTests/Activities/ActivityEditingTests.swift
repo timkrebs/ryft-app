@@ -101,6 +101,45 @@ struct AddActivityModelTests {
         #expect(row.notes == "Windy" && row.localRevision == 2 && row.confirmedRevision == 1)
     }
 
+    @Test func justAfterMidnightTheDefaultStaysOnToday() {
+        let clock = TestClock(now: Calendar.current.startOfDay(for: .now).addingTimeInterval(20 * 60))
+        let env = AppEnvironment.test(clock: clock, flags: [.activitiesManual: true])
+        let today = Calendar.current.startOfDay(for: clock.now())
+        let model = AddActivityModel(env: env, day: today)
+        #expect(model.start == today && model.end == today.addingTimeInterval(20 * 60))
+        #expect(model.canSave)
+    }
+
+    @Test func anActivityAcrossMidnightIsKeptUnderItsStartDay() throws {
+        let g = Graph()
+        let model = AddActivityModel(env: g.env, day: g.today)
+        model.start = g.today.addingTimeInterval(-30 * 60)
+        model.end = g.today.addingTimeInterval(30 * 60)
+        #expect(model.crossesMidnight && model.canSave)
+
+        #expect(model.save())
+
+        let yesterday = DayFormat.string(from: DayFormat.shift(g.today, days: -1))
+        #expect(g.env.activities.snapshots(onDay: yesterday).count == 1)
+    }
+
+    @Test func aDayIsElapsedTimeAcrossAClockChange() throws {
+        let berlin = try #require(TimeZone(identifier: "Europe/Berlin"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = berlin
+        func at(_ y: Int, _ m: Int, _ d: Int, _ h: Int, _ min: Int = 0) throws -> Date {
+            try #require(calendar.date(from: DateComponents(year: y, month: m, day: d, hour: h, minute: min)))
+        }
+        func issues(_ start: Date, _ end: Date) -> [AddActivityModel.Issue] {
+            AddActivityModel.issues(start: start, end: end, now: end.addingTimeInterval(3_600),
+                                    earliest: start.addingTimeInterval(-86_400), distanceText: "", notes: "")
+        }
+        // Autumn: 03:30 to 03:15 the next day reads 23 h 45 on the clock, but 24 h 45 passed.
+        #expect(issues(try at(2026, 10, 24, 3, 30), try at(2026, 10, 25, 3, 15)) == [.longerThanADay])
+        // Spring: 03:30 to 04:00 the next day reads 24 h 30, but 23 h 30 passed.
+        #expect(issues(try at(2026, 3, 28, 3, 30), try at(2026, 3, 29, 4)).isEmpty)
+    }
+
     @Test func aRecordedActivityKeepsItsTimesAndOffersItsFamilyOnly() {
         let g = Graph()
         let start = g.today.addingTimeInterval(7 * 3_600)
@@ -184,7 +223,128 @@ struct AddSleepModelTests {
 
     @Test func aTrackersNightLeavesNoFormToSave() {
         let g = Graph()
-        #expect(!AddSleepModel(env: g.env, day: g.today, trackerHasNight: true).canSave)
+        #expect(!AddSleepModel(env: g.env, day: g.today, night: { _ in .tracked }).canSave)
+    }
+
+    // MARK: the wake day it lands on (review B1)
+
+    /// A night the user added, saved for the day `daysBack` before today (wake 06:30, 8 hours).
+    @discardableResult
+    private func addNight(_ g: Graph, daysBack: Int) throws -> ManualSleepSnapshot {
+        let day = DayFormat.shift(g.today, days: -daysBack)
+        let wake = Calendar.current.date(bySettingHour: 6, minute: 30, second: 0, of: day) ?? day
+        return try #require(g.env.activities.saveSleep(day: DayFormat.string(from: wake), bed: wake.addingTimeInterval(-8 * 3_600),
+                                                       wake: wake))
+    }
+
+    private func myDay(_ g: Graph) -> MyDayViewModel { MyDayViewModel(state: g.state, store: TrainStore(inMemory: true)) }
+
+    @Test func movingANightOntoADayWithAnAddedNightIsRefused() throws {
+        let g = Graph()
+        try addNight(g, daysBack: 0)
+        let yesterday = try addNight(g, daysBack: 1)
+        let vm = myDay(g)
+        let model = AddSleepModel(env: g.env, editing: yesterday, night: vm.night(on:))
+        #expect(model.issues.isEmpty, "its own day doesn't count against it")
+
+        model.wake = model.wake.addingTimeInterval(86_400)
+        model.bed = model.bed.addingTimeInterval(86_400)
+
+        #expect(model.issues == [.nightAdded] && !model.canSave && !model.save())
+        #expect(g.env.activities.manualSleep(onDay: yesterday.day)?.isTombstone == false)
+    }
+
+    @Test func movingANightOntoATrackersNightIsRefused() throws {
+        let g = Graph()
+        let twoDaysBack = try addNight(g, daysBack: 2)
+        let yesterday = DayFormat.shift(g.today, days: -1)
+        let tracked = MockData.detail(for: yesterday)
+        try #require(tracked.sleep != nil)
+        g.state.repository.store(detail: tracked)
+        let vm = myDay(g)
+        #expect(vm.night(on: DayFormat.string(from: yesterday)) == .tracked)
+        let model = AddSleepModel(env: g.env, editing: twoDaysBack, night: vm.night(on:))
+
+        model.wake = model.wake.addingTimeInterval(86_400)
+        model.bed = model.bed.addingTimeInterval(86_400)
+
+        #expect(model.issues == [.nightTracked] && !model.canSave)
+        // Add sleep opened on that day shows the fact instead of the form (S3).
+        #expect(AddSleepModel(env: g.env, day: yesterday, night: vm.night(on:)).trackerHasNight)
+    }
+
+    @Test func aMovedNightIsSavedFirstAndTheOldOneGoesAfter() throws {
+        let g = Graph()
+        g.api.activitySource.publishesActivities = false // never sent: the old night goes at once
+        let yesterday = try addNight(g, daysBack: 1)
+        let model = AddSleepModel(env: g.env, editing: yesterday, night: myDay(g).night(on:))
+        model.wake = model.wake.addingTimeInterval(86_400)
+        model.bed = model.bed.addingTimeInterval(86_400)
+
+        #expect(model.save())
+
+        #expect(g.env.activities.manualSleep(onDay: model.targetDay) != nil)
+        #expect(g.env.activities.manualSleep(onDay: yesterday.day) == nil)
+    }
+
+    @Test func aFailedSaveKeepsTheOldNight() async throws {
+        let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
+        let auth = AuthService(client: MockAuthClient(session: .preview()), settings: Settings(defaults: defaults),
+                               defaults: defaults, wipeLocalData: { _ in })
+        let env = AppEnvironment.test(auth: auth, flags: [.activitiesManual: true])
+        let wake = Calendar.current.startOfDay(for: env.clock.now()).addingTimeInterval(-86_400 + 6.5 * 3_600)
+        let old = try #require(env.activities.saveSleep(day: DayFormat.string(from: wake), bed: wake.addingTimeInterval(-8 * 3_600),
+                                                         wake: wake))
+        let model = AddSleepModel(env: env, editing: old)
+        model.wake = model.wake.addingTimeInterval(-86_400)
+        model.bed = model.bed.addingTimeInterval(-86_400)
+        await auth.signOut() // the save can't write: signed out
+
+        #expect(!model.save())
+
+        let nights = try env.persistence.context.fetch(FetchDescriptor<LocalManualSleep>())
+        #expect(nights.count == 1 && nights.first?.day == old.day && nights.first?.deletedAt == nil, "the old night stays")
+    }
+
+    @Test func anOldNightKeepsItsOwnDayWhenEdited() throws {
+        let g = Graph()
+        let old = try addNight(g, daysBack: 20)
+        let model = AddSleepModel(env: g.env, editing: old)
+        #expect(model.earliestWake == Calendar.current.startOfDay(for: old.wake))
+        #expect(model.issues.isEmpty && model.canSave)
+        // Adding stays at 14 days.
+        #expect(AddSleepModel(env: g.env, day: g.today).earliestWake == DayFormat.shift(g.today, days: -AddSleepModel.daysBack))
+    }
+
+    // MARK: midnight and the clock change
+
+    @Test func aNightIsKeptUnderItsWakeDay() {
+        let g = Graph()
+        let model = AddSleepModel(env: g.env, day: g.today)
+        // By the clock, not by adding seconds to midnight: yesterday may have had 23 or 25 hours.
+        let calendar = Calendar.current
+        model.bed = calendar.date(bySettingHour: 23, minute: 30, second: 0, of: DayFormat.shift(g.today, days: -1)) ?? g.today
+        model.wake = calendar.date(bySettingHour: 6, minute: 30, second: 0, of: g.today) ?? g.today
+        #expect(model.targetDay == DayFormat.string(from: g.today) && model.duration == 7 * 3_600 && model.canSave)
+    }
+
+    @Test func sleepLengthIsElapsedTimeAcrossAClockChange() throws {
+        let berlin = try #require(TimeZone(identifier: "Europe/Berlin"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = berlin
+        func at(_ y: Int, _ m: Int, _ d: Int, _ h: Int, _ min: Int = 0) throws -> Date {
+            try #require(calendar.date(from: DateComponents(year: y, month: m, day: d, hour: h, minute: min)))
+        }
+        let now = try at(2026, 10, 26, 12)
+        let earliest = now.addingTimeInterval(-14 * 86_400)
+        // Autumn: 15:30 to 07:00 reads 15 h 30 on the clock, but 16 h 30 passed.
+        #expect(AddSleepModel.issues(bed: try at(2026, 10, 24, 15, 30), wake: try at(2026, 10, 25, 7), now: now,
+                                     earliestWake: earliest) == [.length])
+        // Spring: 22:00 to 07:00 reads 9 h, and 8 h passed.
+        let bed = try at(2026, 3, 28, 22), wake = try at(2026, 3, 29, 7)
+        #expect(wake.timeIntervalSince(bed) == 8 * 3_600)
+        #expect(AddSleepModel.issues(bed: bed, wake: wake, now: wake.addingTimeInterval(3_600),
+                                     earliestWake: bed.addingTimeInterval(-86_400)).isEmpty)
     }
 }
 
@@ -225,12 +385,47 @@ struct ActivityOriginAndParkingTests {
         context.insert(night)
         env.persistence.save()
 
-        #expect(ParkedActivitiesNotice.parkedToMention(in: env) == 2)
+        #expect(ParkedActivitiesNotice.parkedToMention(in: env) == .init(count: 2, until: nil))
 
         // "Delete from this iPhone".
         #expect(env.activities.purgeParked() == 2)
         #expect(ParkedActivitiesNotice.parkedToMention(in: env) == nil)
         #expect(try context.fetchCount(FetchDescriptor<ActivityTrackChunk>()) == 0)
+    }
+}
+
+@Suite("Activities: behind activities.manual")
+@MainActor
+struct ManualActivitiesFlagTests {
+    @Test func withTheFlagOffTheDetailIsReadOnly() throws {
+        let clock = TestClock(now: Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: .now) ?? .now)
+        let env = AppEnvironment.test(clock: clock, flags: [.todayMyDay: true])
+        let state = AppState(env: env)
+        let start = Calendar.current.startOfDay(for: clock.now()).addingTimeInterval(7 * 3_600)
+        let run = SportActivity(id: UUID(), sport: .running, origin: .manual, start: start, end: start.addingTimeInterval(2_400),
+                                movingSec: 2_400, distanceM: 7_000, clientUpdatedAt: start, strain: 9, scoringState: "scored")
+        state.repository.store(activities: [run], day: DayFormat.string(from: start))
+        let detail = ActivityDetailViewModel(route: ActivityRoute(id: run.id, day: start), state: state)
+        #expect(detail.activity?.id == run.id)
+
+        #expect(!detail.isEditable && detail.editModel() == nil && !detail.delete())
+        #expect(env.activities.snapshot(id: run.id) == nil, "nothing adopted, nothing deleted")
+    }
+
+    @Test func addSleepIsOfferedOnlyWhereNoSleepIsRecorded() {
+        let g = Graph()
+        let vm = MyDayViewModel(state: g.state, store: TrainStore(inMemory: true))
+        func content(_ kinds: [MyDayItem.Kind]) -> MyDayContent {
+            MyDayContent(day: g.today, isToday: true, phase: .ready, items: kinds.map { kind in
+                MyDayItem(id: "\(kind)", kind: kind, symbol: "bed.double", title: "", start: g.today, end: g.today, duration: 0,
+                          distanceM: nil, strain: .notApplicable, sources: [], upload: nil, editable: false)
+            })
+        }
+        let day = DayFormat.string(from: g.today)
+        // 07:00, "Scoring your night": no night row and no "No sleep recorded" either.
+        #expect(!vm.offersAddSleep(on: g.today, content: content([])))
+        #expect(!vm.offersAddSleep(on: g.today, content: content([.sleep(day: day)])))
+        #expect(vm.offersAddSleep(on: g.today, content: content([.missingSleep(day: day)])))
     }
 }
 

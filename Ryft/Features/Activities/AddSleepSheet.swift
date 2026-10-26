@@ -169,7 +169,7 @@ private enum SleepPreview {
 
 #Preview("Add sleep · tracker has the night") {
     Color.clear.sheet(isPresented: .constant(true)) {
-        AddSleepSheet(model: AddSleepModel(env: SleepPreview.state.env, day: .now, trackerHasNight: true))
+        AddSleepSheet(model: AddSleepModel(env: SleepPreview.state.env, day: .now, night: { _ in .tracked }))
     }
     .previewEnvironment(SleepPreview.state)
 }

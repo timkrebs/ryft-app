@@ -56,23 +56,24 @@ struct ProfileView: View {
         }
         .confirmationDialog("Log out of RYFT?", isPresented: $showLogOutConfirm, titleVisibility: .visible) {
             if unsentAtLogOut > 0 {
-                // Send first (10 s at most), then log out if nothing is left; otherwise ask again with what's left.
-                Button {
-                    Task {
-                        sendsFirst = true
-                        let left = await model.sendUnconfirmedActivities()
-                        sendsFirst = false
-                        if left == 0 {
-                            await model.logOut()
-                        } else {
-                            unsentAtLogOut = left
-                            showLogOutConfirm = true
+                // Send first (10 s at most), then log out if nothing is left and it's still the same account;
+                // otherwise ask again with what's left. Not offered when nothing can be sent now.
+                if model.sendFirst == .available {
+                    Button {
+                        Task {
+                            sendsFirst = true
+                            let outcome = await model.sendFirstThenLogOut()
+                            sendsFirst = false
+                            if case .unsent(let left) = outcome {
+                                unsentAtLogOut = left
+                                showLogOutConfirm = true
+                            }
                         }
+                    } label: {
+                        Text("Send first", comment: "Log out: upload the activities and nights not at RYFT yet, then log out.")
                     }
-                } label: {
-                    Text("Send first", comment: "Log out: upload the activities and nights not at RYFT yet, then log out.")
+                    .accessibilityIdentifier("profile.logOut.sendFirst")
                 }
-                .accessibilityIdentifier("profile.logOut.sendFirst")
                 Button(role: .destructive) {
                     Task { await model.logOut() }
                 } label: {
@@ -85,7 +86,10 @@ struct ProfileView: View {
                 }
             }
         } message: {
-            if unsentAtLogOut > 0 {
+            if unsentAtLogOut > 0, model.sendFirst == .offline {
+                Text("\(unsentAtLogOut) activities or nights haven't reached RYFT yet, and you're offline. Logging out deletes them from this iPhone.",
+                     comment: "Log out offline with uploads pending (Send first isn't offered); the number of activities and nights.")
+            } else if unsentAtLogOut > 0 {
                 Text("\(unsentAtLogOut) activities or nights haven't reached RYFT yet. Logging out deletes them from this iPhone.",
                      comment: "Log out with uploads pending; the number of activities and nights.")
             } else {

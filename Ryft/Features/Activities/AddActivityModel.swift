@@ -50,7 +50,8 @@ final class AddActivityModel: Identifiable {
     var addsStrengthHere = false
     private(set) var isSaving = false
 
-    /// Add activity on `day` (today: the last hour, ending now; a past day: 12:00–13:00), the most recent sport.
+    /// Add activity on `day` (today: the last hour, ending now, but never before midnight; a past day: 12:00–13:00),
+    /// the most recent sport.
     init(env: AppEnvironment, day: Date) {
         self.env = env
         mode = .add
@@ -65,7 +66,8 @@ final class AddActivityModel: Identifiable {
         if day >= today {
             let end = Date(timeIntervalSinceReferenceDate: (now.timeIntervalSinceReferenceDate / 60).rounded(.down) * 60)
             self.end = end
-            start = end.addingTimeInterval(-3_600)
+            // Just after midnight the hour would start yesterday, and the activity land there.
+            start = max(today, end.addingTimeInterval(-3_600))
         } else {
             start = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: day) ?? day
             end = calendar.date(bySettingHour: 13, minute: 0, second: 0, of: day) ?? day.addingTimeInterval(3_600)

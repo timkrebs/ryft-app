@@ -8,6 +8,19 @@ import Observation
 final class AddSleepModel: Identifiable {
     enum Issue: Hashable, Sendable {
         case wakeInFuture, wakeBeforeBed, length, tooFarBack
+        /// The wake day already has a night the user added (not the one being edited).
+        case nightAdded
+        /// A tracker already recorded the wake day's night.
+        case nightTracked
+    }
+
+    /// What a wake day already has (`MyDayViewModel.night(on:)`: the cached day and this iPhone's nights).
+    enum Night: Equatable, Sendable {
+        case none
+        /// A night the user added, saved on this iPhone.
+        case added
+        /// The platform's night from a tracker.
+        case tracked
     }
 
     nonisolated static let minLength: TimeInterval = 3_600
@@ -17,8 +30,12 @@ final class AddSleepModel: Identifiable {
 
     let id = UUID()
     @ObservationIgnored private let env: AppEnvironment
+    /// What a wake day (`yyyy-MM-dd`) already has.
+    @ObservationIgnored private let night: (String) -> Night
     /// The night being edited, by its wake day; nil when adding.
     let editedDay: String?
+    /// The night being edited, as it was.
+    private let original: ManualSleepSnapshot?
     /// The platform already has a night for the day (S3): no form, the fact instead.
     let trackerHasNight: Bool
 
@@ -26,11 +43,14 @@ final class AddSleepModel: Identifiable {
     var wake: Date
     private(set) var isSaving = false
 
-    /// The night that ends on `day`: to bed at 23:00 the evening before, up at 07:00 (no later than now).
-    init(env: AppEnvironment, day: Date, trackerHasNight: Bool = false) {
+    /// The night that ends on `day`: to bed at 23:00 the evening before, up at 07:00 (no later than now). `night`
+    /// says what a wake day already has, so a night isn't added twice or over a tracker's.
+    init(env: AppEnvironment, day: Date, night: @escaping (String) -> Night = { _ in .none }) {
         self.env = env
+        self.night = night
         editedDay = nil
-        self.trackerHasNight = trackerHasNight
+        original = nil
+        trackerHasNight = night(DayFormat.string(from: day)) == .tracked
         let calendar = Calendar.current
         let day = calendar.startOfDay(for: day)
         let evening = DayFormat.shift(day, days: -1)
@@ -40,12 +60,14 @@ final class AddSleepModel: Identifiable {
         wake = min(seven, Date(timeIntervalSinceReferenceDate: (now.timeIntervalSinceReferenceDate / 60).rounded(.down) * 60))
     }
 
-    init(env: AppEnvironment, editing night: ManualSleepSnapshot) {
+    init(env: AppEnvironment, editing edited: ManualSleepSnapshot, night: @escaping (String) -> Night = { _ in .none }) {
         self.env = env
-        editedDay = night.day
+        self.night = night
+        editedDay = edited.day
+        original = edited
         trackerHasNight = false
-        bed = night.bed
-        wake = night.wake
+        bed = edited.bed
+        wake = edited.wake
     }
 
     var isEditing: Bool { editedDay != nil }
@@ -55,14 +77,26 @@ final class AddSleepModel: Identifiable {
     }
 
     var now: Date { env.clock.now() }
-    /// The earliest wake the picker allows: 14 days back.
-    var earliestWake: Date { DayFormat.shift(Calendar.current.startOfDay(for: now), days: -Self.daysBack) }
+    /// The earliest wake the picker allows: 14 days back, or the night's own day when it's older (an edit).
+    var earliestWake: Date {
+        let calendar = Calendar.current
+        let limit = DayFormat.shift(calendar.startOfDay(for: now), days: -Self.daysBack)
+        guard let original else { return limit }
+        return min(limit, calendar.startOfDay(for: original.wake))
+    }
     var duration: TimeInterval { max(0, wake.timeIntervalSince(bed)) }
-    var issues: [Issue] { Self.issues(bed: bed, wake: wake, now: now, earliestWake: earliestWake) }
+    /// The wake day the night is saved under.
+    var targetDay: String { DayFormat.string(from: wake) }
+    var issues: [Issue] {
+        // The night being edited doesn't count against its own day.
+        let existing = targetDay == editedDay ? Night.none : night(targetDay)
+        return Self.issues(bed: bed, wake: wake, now: now, earliestWake: earliestWake, existing: existing)
+    }
     var canSave: Bool { issues.isEmpty && !isSaving && !trackerHasNight }
 
-    /// The rules (ui.md S2): wake after bed, 1 to 16 hours, wake not in the future, within the last 14 days.
-    nonisolated static func issues(bed: Date, wake: Date, now: Date, earliestWake: Date) -> [Issue] {
+    /// The rules (ui.md S2): wake after bed, 1 to 16 hours (elapsed, whatever the clocks did), wake not in the
+    /// future, within the last 14 days, and a wake day without a night already (`existing`).
+    nonisolated static func issues(bed: Date, wake: Date, now: Date, earliestWake: Date, existing: Night = .none) -> [Issue] {
         var out: [Issue] = []
         if wake > now { out.append(.wakeInFuture) }
         if wake <= bed {
@@ -71,6 +105,11 @@ final class AddSleepModel: Identifiable {
             out.append(.length)
         }
         if wake < earliestWake { out.append(.tooFarBack) }
+        switch existing {
+        case .none: break
+        case .added: out.append(.nightAdded)
+        case .tracked: out.append(.nightTracked)
+        }
         return out
     }
 
@@ -80,19 +119,25 @@ final class AddSleepModel: Identifiable {
         case .wakeBeforeBed: return String(localized: "Waking up must be after going to bed.", comment: "Add sleep: wake before bed.")
         case .length: return String(localized: "Sleep can be 1 to 16 hours.")
         case .tooFarBack: return String(localized: "You can add sleep for the last 14 days.", comment: "Add sleep: the night is too far back.")
+        case .nightAdded:
+            return String(localized: "You already added a night for that day.",
+                          comment: "Add or edit sleep: the wake day already has a night the user added.")
+        case .nightTracked:
+            return String(localized: "A tracker already recorded that night.",
+                          comment: "Add or edit sleep: the wake day already has the tracker's night.")
         }
     }
 
     /// Writes the night on this iPhone (by its wake day), then the uploader takes it. An edit that moved the night
-    /// to another wake day deletes the old one.
+    /// to another wake day deletes the old one, only once the new one is saved: a failed save loses nothing.
     @discardableResult
     func save() -> Bool {
         guard canSave else { return false }
         isSaving = true
         defer { isSaving = false }
-        let day = DayFormat.string(from: wake)
-        if let old = editedDay, old != day { env.uploader.sleepDeleted(day: old) }
+        let day = targetDay
         guard env.activities.saveSleep(day: day, bed: bed, wake: wake) != nil else { return false }
+        if let old = editedDay, old != day { env.uploader.sleepDeleted(day: old) }
         env.uploader.sleepSaved(day: day)
         return true
     }
