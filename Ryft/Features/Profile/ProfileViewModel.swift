@@ -274,33 +274,41 @@ final class ProfileViewModel {
     private(set) var exporting = false
     var exported: ExportedFile?
     private(set) var exportError: String?
+    /// Where the export file is written (tests use their own folder).
+    var exportFolder = FileManager.default.temporaryDirectory
 
     func export() async {
         exporting = true
         exportError = nil
         defer { exporting = false }
         // The archive takes a while: an account change meanwhile (even A, B, then A again) or the Demo data switch
-        // makes it someone else's. TODO(#47): fold `accountChanges` into `AccountBinding` and use its `isCurrent`.
-        let changes = auth.accountChanges, demo = env.isDemo
+        // makes it someone else's.
+        let owner = AccountBinding(env)
         do {
             let archive = try await DataExport.archive(source: state.source, train: env.api,
                                                        rememberedMatches: ImportMappingStore(env: env).records(),
                                                        activities: env.api, onPhone: env.activities)
-            guard auth.accountChanges == changes, env.isDemo == demo else { return }
-            exported = ExportedFile(url: try DataExport.write(archive))
+            guard owner.isCurrent(in: env) else { return }
+            exported = ExportedFile(url: try DataExport.write(archive, to: exportFolder))
         } catch where error.isCancellation {
             return
         } catch {
-            guard auth.accountChanges == changes, env.isDemo == demo else { return }
+            guard owner.isCurrent(in: env) else { return }
             exportError = String(localized: "The export couldn't be created: \(error.localizedDescription)")
         }
     }
 
     /// An account change or the Demo data switch, inside the wipe (`AppState.forgetActivityState`): the previous
-    /// account's export, shown or failed, goes. TODO(#47): remove its file too (`removeExportFiles()`).
+    /// account's export, shown or failed, goes, and its file with it.
     func forgetExport() {
         exported = nil
         exportError = nil
+        removeExportFiles()
+    }
+
+    /// The share sheet is done, or the account changed: the file goes.
+    func removeExportFiles() {
+        DataExport.removeFiles(in: exportFolder)
     }
 
     // MARK: developer
@@ -1976,6 +1984,10 @@ extension ProfileViewModel {
     func accountChanged(from previous: String?) {
         if previous != nil { apiStatus.forgetRequests() }
         report.accountChanged()
+        // An export's share sheet (and its file) was the previous account's (or demo data's).
+        exported = nil
+        exportError = nil
+        removeExportFiles()
     }
 }
 

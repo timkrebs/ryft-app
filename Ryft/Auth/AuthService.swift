@@ -750,6 +750,9 @@ final class AuthService {
         WorkoutHealthExport.wipe(defaults: .standard)
         // So are the route default, auto-pause and recent sports.
         ActivityPreferences.wipe(defaults: .standard)
+        // A sign-out while the export's share sheet is open (a final 401, or the account deleted): the file holds all
+        // of the account's data.
+        DataExport.removeFiles()
     }
 }
 

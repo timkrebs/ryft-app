@@ -37,6 +37,13 @@ change the `runs-on` image in the workflows or update `.xcode-version`.
   | `UISmoke` | PRs, `main` | `RyftUITests/StoreSmokeUITests` (demo mode, no server or HealthKit); a failing test is retried up to twice |
   | `Full` | nightly, manual | every unit and UI test plus `PerformanceTests` |
 
+  - Swift Testing parallelism is capped at 4 tests in flight (`Unit` and `Full`,
+    `environmentVariableEntries` → `SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH`). Uncapped,
+    it starts every test (about 1,800) at once, and the ones marked `@MainActor` (most) queue
+    on the one main actor: a test polling with `eventually` waits behind the whole backlog on
+    every hop, so on a runner where that backlog took 30+ s the waits timed out and some tests
+    hit the 60 s cap (2026-10-23 to 26). The cap is "experimental" in Xcode 27.1; if a newer Xcode
+    ignores it, the flake returns as `await eventually { clock.pendingSleeps == 1 }` failures.
   - the simulator comes from `scripts/ci-simulator.sh`: a device of its own, "RYFT CI",
     created on the newest iOS runtime (`$SIMULATOR`'s type, default iPhone 17 Pro, else
     the newest iPhone) and reused when it exists. A fresh device has no paired Apple
