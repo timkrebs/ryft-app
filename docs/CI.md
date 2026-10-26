@@ -23,9 +23,14 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
 - **Registration.** The runner must be registered to *this* repository (Settings → Actions →
   Runners). A runner registered to `ryft-platform` doesn't serve it. Until one is online,
   the macOS jobs wait in the queue, and so do the required checks.
-- **Forks.** A pull request from a fork runs the macOS jobs on `xcode-27` instead (the
-  `runs-on` expression in `ios.yml`). The repository is public, and a fork's code must
-  never run on a machine that holds the account's files.
+- **Forks.** The repository is public, and a fork's code must never run on a machine that
+  holds the account's files. Two settings keep it off:
+  - The real protection is Settings → Actions → General → "Fork pull request workflows from
+    outside collaborators" → **Require approval for all outside collaborators**. A fork's
+    pull request runs the workflow file from its own branch, so it could edit `runs-on`
+    back to the Mac. Approve a fork's run only after reading its changes to `.github/`.
+  - The `runs-on` expression in `ios.yml` sends an unmodified fork's jobs to `xcode-27`, so
+    approving a harmless fork PR never puts it on the Mac.
 - **One job at a time.** Lint, the tests and the contract check run one after another, and
   so do runs for different PRs. A second runner on the same Mac (its own directory and
   service) would run two jobs at once.

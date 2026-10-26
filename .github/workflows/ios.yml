@@ -5,8 +5,9 @@
 # (docs/RELEASING.md → Branch rules); rename them only together with the ruleset.
 #
 # The macOS jobs run on the self-hosted Mac (labels self-hosted, macOS, ARM64), which saves
-# Actions minutes. A pull request from a fork runs them on GitHub's `xcode-27` runner instead:
-# the repository is public, and a fork's code must never run on that Mac (docs/CI.md).
+# Actions minutes. A pull request from a fork runs them on GitHub's `xcode-27` runner instead.
+# That alone doesn't protect the Mac (a fork can edit this file); the approval setting for
+# fork pull requests does (docs/CI.md → The self-hosted Mac).
 name: iOS
 
 on:
