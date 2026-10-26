@@ -369,12 +369,7 @@ struct ActivityDetailScreen: View {
 
 @MainActor
 private enum DetailPreview {
-    /// The uploader's gate open, as the app opens it once consent is known.
-    static let state: AppState = {
-        let state = AppState.preview(flags: [.todayMyDay: true, .activitiesManual: true])
-        state.env.uploader.gate = { nil }
-        return state
-    }()
+    static let state = AppState.preview(flags: [.todayMyDay: true, .activitiesManual: true])
     /// The same with the uploader held by the consent gate (`.pending(.gated)`).
     static let gated: AppState = {
         let state = AppState.preview(flags: [.todayMyDay: true, .activitiesManual: true])

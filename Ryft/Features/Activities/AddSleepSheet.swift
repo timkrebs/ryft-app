@@ -66,6 +66,8 @@ struct AddSleepSheet: View {
         .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.medium, .large])
         .presentationDragIndicator(.visible)
         .accessibilityIdentifier("addSleep.sheet")
+        // The wake day's night is checked against its detail; one not on this iPhone is loaded first.
+        .task(id: model.targetDay) { await model.checkTargetDay() }
         .onChange(of: model.issues) { _, issues in
             let new = issues.filter { !announced.contains($0) }
             announced = issues
@@ -95,14 +97,15 @@ struct AddSleepSheet: View {
                 .font(.ryft(.headline))
                 .monospacedDigit()
                 .foregroundStyle(Theme.textPrimary)
-                .accessibilityIdentifier("addSleep.duration")
             Text("Time in bed. RYFT can't see your sleep stages for this entry.",
                  comment: "Add sleep: the duration is the time in bed; no stages for a typed-in night.")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        // On the combined element: a child's identifier is lost in it.
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("addSleep.duration")
         Label {
             Text("It's marked “added by you”. If your tracker records this night later, RYFT uses the tracker's data instead.")
                 .fixedSize(horizontal: false, vertical: true)
@@ -169,7 +172,7 @@ private enum SleepPreview {
 
 #Preview("Add sleep · tracker has the night") {
     Color.clear.sheet(isPresented: .constant(true)) {
-        AddSleepSheet(model: AddSleepModel(env: SleepPreview.state.env, day: .now, night: { _ in .tracked }))
+        AddSleepSheet(model: AddSleepModel(env: SleepPreview.state.env, day: .now, night: { _ in .recorded }))
     }
     .previewEnvironment(SleepPreview.state)
 }

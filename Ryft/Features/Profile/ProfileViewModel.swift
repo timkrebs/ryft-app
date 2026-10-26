@@ -143,10 +143,14 @@ final class ProfileViewModel {
         return .loggedOut
     }
     func deleteAccount() async {
-        let account = auth.accountID
-        await auth.deleteAccount()
+        let account = auth.accountID, changes = auth.accountChanges
+        let deleted = await auth.deleteAccount()
         // Deleted: this phone forgets the account's tracker steps too (what it wore went with the store).
         if let account, auth.accountID != account { onboarding?.forgetTrackerSteps(of: account) }
+        // Not deleted, and still that account: what the deletion held goes up again (the queue stopped for it).
+        if !deleted, account != nil, auth.accountID == account, auth.accountChanges == changes {
+            await env.uploader.flush()
+        }
     }
 
     // MARK: body

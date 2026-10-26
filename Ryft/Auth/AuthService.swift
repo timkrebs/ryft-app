@@ -215,7 +215,7 @@ final class AuthService {
     @ObservationIgnored var onAccountDeletionStart: (@MainActor () -> Void)?
     /// The account `deleteAccount()` is deleting, while it runs. That account's session ending meanwhile (a
     /// concurrent final 401 or refresh failure) ends as the deletion: nothing of it is parked.
-    @ObservationIgnored private var deletingAccount: String?
+    private var deletingAccount: String?
     /// The signed-in account is being deleted: nothing more is uploaded for it. False for another account that
     /// signed in while an earlier one's deletion still runs.
     var isDeletingAccount: Bool { deletingAccount != nil && deletingAccount == accountID }

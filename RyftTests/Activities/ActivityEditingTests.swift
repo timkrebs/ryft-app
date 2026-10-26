@@ -110,6 +110,15 @@ struct AddActivityModelTests {
         #expect(model.canSave)
     }
 
+    @Test func inTheDaysFirstMinuteTheDefaultIsStillValid() {
+        let midnight = Calendar.current.startOfDay(for: .now)
+        let clock = TestClock(now: midnight.addingTimeInterval(30))
+        let env = AppEnvironment.test(clock: clock, flags: [.activitiesManual: true])
+        let model = AddActivityModel(env: env, day: midnight)
+        #expect(model.start == midnight && model.end == clock.now())
+        #expect(model.issues.isEmpty && model.canSave)
+    }
+
     @Test func anActivityAcrossMidnightIsKeptUnderItsStartDay() throws {
         let g = Graph()
         let model = AddActivityModel(env: g.env, day: g.today)
@@ -223,7 +232,7 @@ struct AddSleepModelTests {
 
     @Test func aTrackersNightLeavesNoFormToSave() {
         let g = Graph()
-        #expect(!AddSleepModel(env: g.env, day: g.today, night: { _ in .tracked }).canSave)
+        #expect(!AddSleepModel(env: g.env, day: g.today, night: { _ in .recorded }).canSave)
     }
 
     // MARK: the wake day it lands on (review B1)
@@ -262,13 +271,13 @@ struct AddSleepModelTests {
         try #require(tracked.sleep != nil)
         g.state.repository.store(detail: tracked)
         let vm = myDay(g)
-        #expect(vm.night(on: DayFormat.string(from: yesterday)) == .tracked)
+        #expect(vm.night(on: DayFormat.string(from: yesterday)) == .recorded)
         let model = AddSleepModel(env: g.env, editing: twoDaysBack, night: vm.night(on:))
 
         model.wake = model.wake.addingTimeInterval(86_400)
         model.bed = model.bed.addingTimeInterval(86_400)
 
-        #expect(model.issues == [.nightTracked] && !model.canSave)
+        #expect(model.issues == [.nightRecorded] && !model.canSave)
         // Add sleep opened on that day shows the fact instead of the form (S3).
         #expect(AddSleepModel(env: g.env, day: yesterday, night: vm.night(on:)).trackerHasNight)
     }
@@ -277,6 +286,8 @@ struct AddSleepModelTests {
         let g = Graph()
         g.api.activitySource.publishesActivities = false // never sent: the old night goes at once
         let yesterday = try addNight(g, daysBack: 1)
+        // Today is loaded, without a night.
+        g.state.repository.store(detail: DayDetail(score: .empty(day: DayFormat.string(from: g.today)), sleep: nil, workouts: []))
         let model = AddSleepModel(env: g.env, editing: yesterday, night: myDay(g).night(on:))
         model.wake = model.wake.addingTimeInterval(86_400)
         model.bed = model.bed.addingTimeInterval(86_400)
@@ -285,6 +296,34 @@ struct AddSleepModelTests {
 
         #expect(g.env.activities.manualSleep(onDay: model.targetDay) != nil)
         #expect(g.env.activities.manualSleep(onDay: yesterday.day) == nil)
+    }
+
+    @Test func aDayNotOnThisIPhoneIsLoadedBeforeItsNightCounts() async throws {
+        let g = Graph()
+        let night = try addNight(g, daysBack: 12)
+        let vm = myDay(g)
+        let model = AddSleepModel(env: g.env, editing: night, night: vm.night(on:), checkDay: vm.checkDay)
+        model.wake = model.wake.addingTimeInterval(-86_400)
+        model.bed = model.bed.addingTimeInterval(-86_400)
+        #expect(model.issues == [.nightUnchecked] && !model.canSave, "13 days back was never loaded")
+
+        await model.checkTargetDay()
+
+        // The demo platform has a night there: now it counts.
+        #expect(model.issues == [.nightRecorded])
+    }
+
+    @Test func offlineAnUnloadedDayStaysUnchecked() async throws {
+        let clock = TestClock(now: Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: .now) ?? .now)
+        let env = AppEnvironment.test(clock: clock, flags: [.todayMyDay: true, .activitiesManual: true], online: false)
+        let vm = MyDayViewModel(state: AppState(env: env), store: TrainStore(inMemory: true))
+        let model = AddSleepModel(env: env, day: DayFormat.shift(clock.now(), days: -10), night: vm.night(on:),
+                                  checkDay: vm.checkDay)
+
+        await model.checkTargetDay()
+
+        #expect(model.issues == [.nightUnchecked] && !model.canSave)
+        #expect(AddSleepModel.message(.nightUnchecked) == "Couldn't check that day's sleep yet.")
     }
 
     @Test func aFailedSaveKeepsTheOldNight() async throws {
@@ -504,5 +543,27 @@ struct SplitFormatTests {
         #expect(ActivityFormat.spokenPace(movingSec: 334, distanceM: 1_000, locale: us)?.hasSuffix("per mile") == true)
         #expect(ActivityFormat.spokenClimb(8, locale: ireland) == "plus 8 metres")
         #expect(ActivityFormat.spokenClimb(nil, locale: ireland) == nil)
+    }
+}
+
+@Suite("Demo data: the missing-night scenario")
+@MainActor
+struct DemoMissingNightTests {
+    @Test func onlyTheNightThreeDaysBackGoesAndItsDaySaysNoSleepRecorded() throws {
+        let scenario = DemoDataScenario.missingNight
+        let threeBack = DayFormat.shift(.now, days: -3)
+        let before = MockData.detail(for: threeBack)
+        try #require(before.sleep != nil)
+
+        let after = scenario.apply(to: before)
+
+        #expect(after.sleep == nil && after.score == before.score && after.workouts == before.workouts)
+        #expect(MyDayAssembler.mayMissNight(after), "My Day shows \"No sleep recorded\", so Add sleep is offered")
+        // Today's and yesterday's nights stay (today's is Apple Health's).
+        for daysBack in 0...2 {
+            let detail = MockData.detail(for: DayFormat.shift(.now, days: -daysBack))
+            #expect(scenario.apply(to: detail) == detail)
+        }
+        #expect(DemoDataScenario(rawValue: "missing-night") == .missingNight && TodayScenario(rawValue: "missing-night") == nil)
     }
 }

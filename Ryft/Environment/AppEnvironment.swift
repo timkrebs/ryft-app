@@ -95,11 +95,15 @@ final class AppEnvironment {
         let defaults = UserDefaults(suiteName: "ryft.preview") ?? .standard
         // Coach marks only in the preview that asks for them.
         defaults.set(!coachMarks, forKey: CoachMarks.doneKey)
-        return AppEnvironment(
+        let env = AppEnvironment(
             settings: .shared, health: MockHealthStore(), liveAPI: api, demoAPI: api, auth: auth ?? .preview(),
             persistence: TrainStore(inMemory: true), clock: SystemClock(), notifier: notifier ?? MockNotifier(),
             flags: StaticFlags(flags), connectivity: .preview(online: online),
             defaults: defaults, demoOverride: true)
+        // Uploads as the app shows them once the gate is known to be open (ScreenModels connects the real one); a
+        // gated preview closes it again.
+        env.uploader.gate = { nil }
+        return env
     }
 
     /// Unit tests: every dependency a mock the test can script and inspect.

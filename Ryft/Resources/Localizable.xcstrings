@@ -937,6 +937,17 @@
         }
       }
     },
+    "A night is already recorded for that day." : {
+      "comment" : "Add or edit sleep: the platform already has a night for the wake day (a tracker's or another device's).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Für diesen Tag ist schon eine Nacht erfasst."
+          }
+        }
+      }
+    },
     "A notification %lld min before tonight's bedtime. It moves with your day." : {
       "localizations" : {
         "de" : {
@@ -984,17 +995,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ein echter Wecker: Er klingelt auch im Stumm-Modus und bei Fokus, mit Stopp und Schlummern."
-          }
-        }
-      }
-    },
-    "A tracker already recorded that night." : {
-      "comment" : "Add or edit sleep: the wake day already has the tracker's night.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ein Tracker hat diese Nacht schon aufgezeichnet."
           }
         }
       }
@@ -2019,6 +2019,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nachricht kopieren"
+          }
+        }
+      }
+    },
+    "Couldn't check that day's sleep yet." : {
+      "comment" : "Add or edit sleep: the wake day isn't loaded (offline), so Save waits.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Schlaf für diesen Tag konnte noch nicht geprüft werden."
           }
         }
       }

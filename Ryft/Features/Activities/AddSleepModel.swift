@@ -8,10 +8,13 @@ import Observation
 final class AddSleepModel: Identifiable {
     enum Issue: Hashable, Sendable {
         case wakeInFuture, wakeBeforeBed, length, tooFarBack
-        /// The wake day already has a night the user added (not the one being edited).
+        /// The wake day already has a night the user added on this iPhone (not the one being edited).
         case nightAdded
-        /// A tracker already recorded the wake day's night.
-        case nightTracked
+        /// The platform already has a night for the wake day: a tracker's, or one added on another device (until
+        /// R11 gives nights an origin).
+        case nightRecorded
+        /// The wake day's detail isn't on this iPhone, so its night can't be checked (offline): Save waits.
+        case nightUnchecked
     }
 
     /// What a wake day already has (`MyDayViewModel.night(on:)`: the cached day and this iPhone's nights).
@@ -19,8 +22,10 @@ final class AddSleepModel: Identifiable {
         case none
         /// A night the user added, saved on this iPhone.
         case added
-        /// The platform's night from a tracker.
-        case tracked
+        /// The platform's night: a tracker's, or one added on another device.
+        case recorded
+        /// The day's detail isn't cached: `checkDay` loads it.
+        case unknown
     }
 
     nonisolated static let minLength: TimeInterval = 3_600
@@ -32,6 +37,8 @@ final class AddSleepModel: Identifiable {
     @ObservationIgnored private let env: AppEnvironment
     /// What a wake day (`yyyy-MM-dd`) already has.
     @ObservationIgnored private let night: (String) -> Night
+    /// Loads a wake day's detail when `night` says `unknown` (the sheet asks as the wake day changes).
+    @ObservationIgnored private let checkDay: (String) async -> Void
     /// The night being edited, by its wake day; nil when adding.
     let editedDay: String?
     /// The night being edited, as it was.
@@ -45,12 +52,14 @@ final class AddSleepModel: Identifiable {
 
     /// The night that ends on `day`: to bed at 23:00 the evening before, up at 07:00 (no later than now). `night`
     /// says what a wake day already has, so a night isn't added twice or over a tracker's.
-    init(env: AppEnvironment, day: Date, night: @escaping (String) -> Night = { _ in .none }) {
+    init(env: AppEnvironment, day: Date, night: @escaping (String) -> Night = { _ in .none },
+         checkDay: @escaping (String) async -> Void = { _ in }) {
         self.env = env
         self.night = night
+        self.checkDay = checkDay
         editedDay = nil
         original = nil
-        trackerHasNight = night(DayFormat.string(from: day)) == .tracked
+        trackerHasNight = night(DayFormat.string(from: day)) == .recorded
         let calendar = Calendar.current
         let day = calendar.startOfDay(for: day)
         let evening = DayFormat.shift(day, days: -1)
@@ -60,9 +69,11 @@ final class AddSleepModel: Identifiable {
         wake = min(seven, Date(timeIntervalSinceReferenceDate: (now.timeIntervalSinceReferenceDate / 60).rounded(.down) * 60))
     }
 
-    init(env: AppEnvironment, editing edited: ManualSleepSnapshot, night: @escaping (String) -> Night = { _ in .none }) {
+    init(env: AppEnvironment, editing edited: ManualSleepSnapshot, night: @escaping (String) -> Night = { _ in .none },
+         checkDay: @escaping (String) async -> Void = { _ in }) {
         self.env = env
         self.night = night
+        self.checkDay = checkDay
         editedDay = edited.day
         original = edited
         trackerHasNight = false
@@ -94,6 +105,14 @@ final class AddSleepModel: Identifiable {
     }
     var canSave: Bool { issues.isEmpty && !isSaving && !trackerHasNight }
 
+    /// Loads the wake day's detail when it isn't on this iPhone, so its night can be checked (the sheet runs this
+    /// whenever the wake day changes). Offline it stays unchecked, and Save waits.
+    func checkTargetDay() async {
+        let day = targetDay
+        guard day != editedDay, night(day) == .unknown else { return }
+        await checkDay(day)
+    }
+
     /// The rules (ui.md S2): wake after bed, 1 to 16 hours (elapsed, whatever the clocks did), wake not in the
     /// future, within the last 14 days, and a wake day without a night already (`existing`).
     nonisolated static func issues(bed: Date, wake: Date, now: Date, earliestWake: Date, existing: Night = .none) -> [Issue] {
@@ -108,7 +127,8 @@ final class AddSleepModel: Identifiable {
         switch existing {
         case .none: break
         case .added: out.append(.nightAdded)
-        case .tracked: out.append(.nightTracked)
+        case .recorded: out.append(.nightRecorded)
+        case .unknown: out.append(.nightUnchecked)
         }
         return out
     }
@@ -122,9 +142,12 @@ final class AddSleepModel: Identifiable {
         case .nightAdded:
             return String(localized: "You already added a night for that day.",
                           comment: "Add or edit sleep: the wake day already has a night the user added.")
-        case .nightTracked:
-            return String(localized: "A tracker already recorded that night.",
-                          comment: "Add or edit sleep: the wake day already has the tracker's night.")
+        case .nightRecorded:
+            return String(localized: "A night is already recorded for that day.",
+                          comment: "Add or edit sleep: the platform already has a night for the wake day (a tracker's or another device's).")
+        case .nightUnchecked:
+            return String(localized: "Couldn't check that day's sleep yet.",
+                          comment: "Add or edit sleep: the wake day isn't loaded (offline), so Save waits.")
         }
     }
 

@@ -64,7 +64,9 @@ final class AddActivityModel: Identifiable {
         let today = calendar.startOfDay(for: now)
         let day = calendar.startOfDay(for: day)
         if day >= today {
-            let end = Date(timeIntervalSinceReferenceDate: (now.timeIntervalSinceReferenceDate / 60).rounded(.down) * 60)
+            let minute = Date(timeIntervalSinceReferenceDate: (now.timeIntervalSinceReferenceDate / 60).rounded(.down) * 60)
+            // In the day's first minute the rounded end would be midnight itself: end now, so the window isn't empty.
+            let end = minute > today ? minute : now
             self.end = end
             // Just after midnight the hour would start yesterday, and the activity land there.
             start = max(today, end.addingTimeInterval(-3_600))

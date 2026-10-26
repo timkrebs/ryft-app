@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 @testable import Ryft
 
@@ -17,11 +18,11 @@ private struct SendFirstGraph {
     let state: AppState
     let profile: ProfileViewModel
 
-    init(online: Bool = true) {
+    init(online: Bool = true,
+         deleteRemote: @escaping () async throws -> AccountDeleted = { AccountDeleted(status: "deleted", authUserDeleted: true) }) {
         let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
         auth = AuthService(client: client, settings: Settings(defaults: defaults), defaults: defaults,
-                           wipeLocalData: { _ in }, deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
-                           postAppleAuthorization: { _ in })
+                           wipeLocalData: { _ in }, deleteRemoteAccount: deleteRemote, postAppleAuthorization: { _ in })
         env = .test(api: api, clock: clock, auth: auth, flags: [.activitiesManual: true], online: online)
         env.uploader.random = { $0.lowerBound }
         env.uploader.gate = { nil } // consent given: what goes up, goes up
@@ -106,5 +107,33 @@ struct SendFirstTests {
         let g = SendFirstGraph(online: false)
         g.env.uploader.gate = { .policyUnknown }
         #expect(g.profile.sendFirst == .offline)
+    }
+}
+
+@Suite("Profile: a deletion that fails")
+@MainActor
+struct FailedDeletionTests {
+    @Test func theNoteClearsAndTheQueueGoesOn() async throws {
+        let hold = RequestHold()
+        let g = SendFirstGraph(deleteRemote: {
+            await hold.wait()
+            throw APIError.http(503, "")
+        })
+        let id = try #require(g.saveRun())
+        let detail = ActivityDetailViewModel(route: ActivityRoute(id: id, day: g.clock.now()), state: g.state)
+        let deleting = Task { await g.profile.deleteAccount() }
+        #expect(await eventually { g.auth.isDeletingAccount })
+        #expect(detail.uploadNote == .accountDeleting && g.api.count("putActivity") == 0)
+        // The note is observed: it changes when the deletion ends.
+        final class Changed: @unchecked Sendable { var value = false }
+        let changed = Changed()
+        withObservationTracking { _ = detail.uploadNote } onChange: { changed.value = true }
+
+        hold.release()
+        await deleting.value
+
+        #expect(changed.value && !g.auth.isDeletingAccount && g.auth.isSignedIn)
+        #expect(detail.uploadNote != .accountDeleting)
+        #expect(g.api.count("putActivity") == 1, "the queue the deletion held went up")
     }
 }
