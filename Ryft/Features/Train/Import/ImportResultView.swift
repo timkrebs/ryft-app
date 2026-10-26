@@ -23,9 +23,20 @@ struct ImportResultView: View {
         } bottom: {
             buttons
         }
-        // The result is shown: the resume row goes (a finished job stays readable until the next import).
-        .task(id: job?.isFinished) {
-            if job?.isFinished == true { model.deps.uploader.markResultSeen() }
+        // The result is shown: without refused items the resume row goes; with them (I4) it stays until Done.
+        .task(id: [job?.isFinished, job?.hasRejected]) { model.resultShown() }
+        .alert(Text("Discard the saved import?", comment: "Training import S2: the confirmation's title."),
+               isPresented: $model.confirmsDiscardJob) {
+            Button(role: .destructive) {
+                model.discardJob()
+            } label: {
+                Text("Discard")
+            }
+            .accessibilityIdentifier("import.discardJob.confirm")
+            Button(role: .cancel) {} label: { Text("Cancel") }
+        } message: {
+            Text("Nothing more is uploaded from it. Anything already imported stays in RYFT. The file itself is not changed.",
+                 comment: "Training import S2: what discarding a saved import does.")
         }
         .toolbar {
             // I3, I4: Done is the trailing text button; Close (leading) stays.
@@ -124,7 +135,7 @@ struct ImportResultView: View {
             progress(job, paused: true)
             InlineMessage(message: String(localized: "You're offline. Your import is kept on this iPhone and continues when you're back online.",
                                           comment: "Training import I6."),
-                          systemImage: "wifi.slash")
+                          systemImage: "wifi.slash", caption: ImportResultText.keptLimits)
         case let .retrying(at):
             header(String(localized: "Importing…", comment: "Training import I2."))
             progress(job, paused: true)
@@ -136,7 +147,8 @@ struct ImportResultView: View {
                           systemImage: "hand.raised",
                           details: job.lastFailure?.details,
                           caption: String(localized: "RYFT needs your answer before it sends anything. Your import is kept on this iPhone and continues afterwards.",
-                                          comment: "Training import I8: a consent or invite step holds the upload."))
+                                          comment: "Training import I8: a consent or invite step holds the upload.")
+                              + " " + ImportResultText.keptLimits)
         case .notAvailable:
             header(String(localized: "Ready", comment: "Training import I9."))
             Text("Your import is saved on this iPhone.", comment: "Training import I9.")
@@ -144,6 +156,7 @@ struct ImportResultView: View {
                 .foregroundStyle(Theme.textPrimary)
                 .accessibilityIdentifier("import.result")
             line(String(localized: "It uploads when importing is available for your account.", comment: "Training import I9."))
+            line(ImportResultText.keptLimits)
         case .waitingForAccount:
             // A final 401 or an account deletion: the job goes with the account's data, so nothing resumes it.
             header(String(localized: "Importing…", comment: "Training import I2."))
@@ -163,12 +176,12 @@ struct ImportResultView: View {
                           systemImage: "wifi.exclamationmark",
                           details: job.lastFailure?.details,
                           retry: { await model.deps.uploader.resume() },
-                          caption: seconds.map { $0 > 0
+                          caption: (seconds.map { $0 > 0
                               ? String(localized: "Trying again in \($0) seconds", comment: "Training import I5: a Retry-After countdown.")
                               : String(localized: "Your import is kept on this iPhone. RYFT retries when the connection is back.",
                                        comment: "Training import I5.") }
                               ?? String(localized: "Your import is kept on this iPhone. RYFT retries when the connection is back.",
-                                        comment: "Training import I5."),
+                                        comment: "Training import I5.")) + " " + ImportResultText.keptLimits,
                           identifier: "import.retry")
         }
     }
@@ -319,6 +332,7 @@ struct ImportResultView: View {
             }
         case .paused(.notAvailable)?:
             ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done") { model.done() }
+            discardJob
         case .paused(.gated)?:
             // The gate's sheet lives on the tab bar: close the cover so it can show; the import resumes once it's open.
             ImportPrimaryButton(title: String(localized: "Continue in RYFT",
@@ -326,11 +340,29 @@ struct ImportResultView: View {
                                 identifier: "import.continueInApp") {
                 model.finish(.close)
             }
+            discardJob
+        case .paused(.offline)?, .paused(.retrying)?:
+            discardJob
         case .paused(.waitingForAccount)?:
             ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done") { model.done() }
         default:
             EmptyView()
         }
+    }
+
+    /// S2: a saved or paused job can always be discarded, after a confirmation.
+    private var discardJob: some View {
+        Button {
+            model.confirmsDiscardJob = true
+        } label: {
+            Text("Discard import", comment: "Training import S2: remove the saved import from this iPhone.")
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.alert)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("import.discardJob")
     }
 
     private func secondary(_ title: String, identifier: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {
@@ -374,6 +406,12 @@ enum ImportResultText {
     /// "Upper/Lower · 6 weeks".
     static func plan(_ plan: ImportPlanSummary) -> String {
         ([plan.name] + [plan.weeks.map { String(localized: "\($0) weeks") }].compactMap { $0 }).joined(separator: " · ")
+    }
+
+    /// What "kept on this iPhone" means (privacy S2): how long, and what removes it.
+    static var keptLimits: String {
+        String(localized: "Kept on this iPhone for up to 30 days. Signing out removes it.",
+               comment: "Training import: the limits of a saved import (TrainImportUploader.retention, the sign-out wipe).")
     }
 
     /// "67 percent, 8 of 12 workouts".

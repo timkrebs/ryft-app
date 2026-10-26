@@ -46,7 +46,12 @@ struct ImportMapView: View {
             Text(verbatim: dialogMessage(target))
         }
         .sheet(item: $chooseFor) { target in
-            AddExerciseSheet(title: "Match “\(target.name)”", initialQuery: target.name) { exercise in
+            // Its "Custom exercise" stays a draft here: nothing is created before Import (review fix).
+            let draft = model.draft(for: target.key)
+                ?? ImportCustomDraft(name: target.name, kind: .machine, loadType: .weight, muscle: nil)
+            AddExerciseSheet(title: "Match “\(target.name)”", initialQuery: target.name,
+                             importDraft: CustomExerciseDraft(draft),
+                             onImportDraft: { model.create(target.key, ImportCustomDraft($0, base: draft)) }) { exercise in
                 model.choose(target.key, exercise)
             }
             .environment(model.deps.library)

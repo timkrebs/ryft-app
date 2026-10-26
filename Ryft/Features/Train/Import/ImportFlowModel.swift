@@ -45,6 +45,8 @@ final class ImportFlowModel: Identifiable {
         var isOnline: @MainActor () -> Bool
         var readURLs: @Sendable ([URL]) async -> [ImportFileAccess.Loaded] = { await ImportFileAccess.load($0) }
         var aliases: @Sendable () async -> ExerciseAliases = { await ExerciseAliases.loadBundled() }
+        /// What the account already has (the uploader's; tests hold it to order two builds).
+        var checkExisting: (@MainActor (ImportExistingQuery) async -> ImportExisting)?
         /// Debug and UI tests (`-uiTestImportFiles`): these files in place of the system picker.
         var scriptedFiles: (@MainActor () -> [ImportFileAccess.Loaded])?
         var announce: @MainActor (String) -> Void = { text in
@@ -59,14 +61,22 @@ final class ImportFlowModel: Identifiable {
     /// Called when the flow closes; the coordinator dismisses the cover.
     var onFinish: (@MainActor (Finish) -> Void)?
 
-    /// The steps pushed on top of step 1.
-    var path: [Step] = []
+    /// The steps pushed on top of step 1. Leaving step 5 or 4 (back, or a swipe) drops any build or matching still
+    /// running for it, so a later one always wins.
+    var path: [Step] = [] {
+        didSet {
+            if !path.contains(.preview), oldValue.contains(.preview) { invalidateBuild() }
+            if !path.contains(.map), oldValue.contains(.map) { invalidateMapping() }
+        }
+    }
     var step: Step { path.last ?? .pick }
 
     // MARK: Steps 1 and 2
 
     /// Set by reading; previews seed it.
-    var files: [ImportPickedFile] = []
+    var files: [ImportPickedFile] = [] {
+        didSet { detection = ImportDetection(files: files) }
+    }
     private var nextFileID = 0
     /// The system picker (`.fileImporter`).
     var showsPicker = false
@@ -75,7 +85,8 @@ final class ImportFlowModel: Identifiable {
     /// The warnings list in step 2: open by default for a partly recognised file (D8).
     var showsWarnings = false
 
-    var detection: ImportDetection { ImportDetection(files: files) }
+    /// Step 2's facts, merged once per change of the files (views read it often).
+    private(set) var detection = ImportDetection(files: [])
     /// P2 on step 1: files are being read.
     var isReading: Bool { files.contains(where: \.isReading) }
     /// Step 1's messages: the files that couldn't be read, while none could.
@@ -239,7 +250,7 @@ final class ImportFlowModel: Identifiable {
     func checkExistingPlans() async {
         guard let bundle = detection.bundle, let account else { return }
         let query = ImportBuilder.query(for: bundle, decisions: ImportDecisions(account: account, zone: deps.zone))
-        let existing = await deps.uploader.checkExisting(query)
+        let existing = await checkExisting(query)
         guard detection.bundle == bundle else { return }
         self.existing = existing
         selection?.markExisting(query.planIDs.map { existing.plans.keys.contains($0) })
@@ -259,13 +270,34 @@ final class ImportFlowModel: Identifiable {
     func continueFromChoose() {
         guard selectionBlock == nil else { return }
         path.append(.map)
-        Task { await prepareMapping() }
+        mappingTask?.cancel()
+        mappingTask = Task { await prepareMapping() }
     }
 
     func continueFromMap() {
         guard let mapping, mapping.leftToCheck == 0, libraryState == .ready else { return }
         path.append(.preview)
-        Task { await prepareBuild() }
+        buildTask?.cancel()
+        buildTask = Task { await prepareBuild() }
+    }
+
+    /// The matching or build running now; a newer one, or leaving its step, cancels it and its answer is dropped.
+    private(set) var mappingTask: Task<Void, Never>?
+    private(set) var buildTask: Task<Void, Never>?
+    @ObservationIgnored private var mappingGeneration = 0
+    @ObservationIgnored private var buildGeneration = 0
+
+    private func invalidateBuild() {
+        buildGeneration += 1
+        buildTask?.cancel()
+        buildTask = nil
+        buildState = .building
+    }
+
+    private func invalidateMapping() {
+        mappingGeneration += 1
+        mappingTask?.cancel()
+        mappingTask = nil
     }
 
     // MARK: Step 3 facts
@@ -281,9 +313,12 @@ final class ImportFlowModel: Identifiable {
     /// Matches the chosen exercises (the library from the cache; without one, a refresh first).
     func prepareMapping() async {
         guard let bundle = chosenBundle else { return }
+        mappingGeneration += 1
+        let generation = mappingGeneration
         if deps.library.exercises.isEmpty {
             libraryState = .loading
             await deps.library.refresh()
+            guard generation == mappingGeneration else { return }
         }
         let library = deps.library.exercises.filter { !$0.archived }
         guard !library.isEmpty else {
@@ -292,10 +327,13 @@ final class ImportFlowModel: Identifiable {
         }
         libraryState = .loading
         let aliases = await deps.aliases()
+        guard generation == mappingGeneration else { return }
         self.aliases = aliases
         let remembered = deps.mappings.remembered(source: bundle.format)
         let result = await ImportMatching.run(bundle, library: library, aliases: aliases,
                                               remembered: remembered.mapValues(\.exerciseID))
+        // Another matching started meanwhile (back to step 3 and on again): its answer is the one that counts.
+        guard generation == mappingGeneration else { return }
         mapping = ImportMappingState(sources: result.sources, matches: result.matches, library: library,
                                      remembered: remembered, aliases: aliases, previous: mapping?.rows ?? [])
         libraryState = .ready
@@ -389,20 +427,31 @@ final class ImportFlowModel: Identifiable {
             buildState = .failed
             return
         }
+        buildGeneration += 1
+        let generation = buildGeneration
         buildState = .building
         let query = ImportBuilder.query(for: bundle, decisions: decisions)
-        let existing = await deps.uploader.checkExisting(query)
+        let existing = await checkExisting(query)
+        // A newer build (back to step 4, a change, Continue again) or leaving step 5: this answer is stale.
+        guard generation == buildGeneration else { return }
         self.existing = existing
         do {
             let build = try await ImportBuilder.build(bundle, decisions: decisions, existing: existing,
                                                       now: deps.clock.now())
+            guard generation == buildGeneration else { return }
             included = Self.toggles(after: build, previous: self.build, included: included)
             self.build = build
             if !build.plans.contains(where: \.willBeSent) { previewSegment = .history }
             buildState = .ready
         } catch {
+            guard generation == buildGeneration else { return }
             buildState = .failed
         }
+    }
+
+    private func checkExisting(_ query: ImportExistingQuery) async -> ImportExisting {
+        if let check = deps.checkExisting { return await check(query) }
+        return await deps.uploader.checkExisting(query)
     }
 
     var totals: ImportTotals? { build?.totals(including: included) }
@@ -479,26 +528,48 @@ final class ImportFlowModel: Identifiable {
     func retryRejected() async { await deps.uploader.retryRejected() }
     func importDuplicatesFound() async { await deps.uploader.importDuplicatesFound() }
 
-    /// Done (I3, I4, I9): a finished job was seen and goes.
+    /// The result is on screen. A finished import with nothing refused counts as seen (its resume row goes); one with
+    /// refused items (I4) stays unseen, so its "needs attention" row and Retry survive a relaunch, until Done or a
+    /// Retry that leaves nothing refused.
+    func resultShown() {
+        guard let job, job.isFinished, !job.hasRejected else { return }
+        deps.uploader.markResultSeen()
+    }
+
+    /// Close (step 6's leading button): leaves; the import continues, an I4 result stays unseen.
+    func close() {
+        resultShown()
+        finish(.close)
+    }
+
+    /// Done (I3, I4, I9): a finished job was seen, refused items included.
     func done() {
         if job?.isFinished == true { deps.uploader.markResultSeen() }
         finish(.close)
     }
 
+    /// "Discard import" on a paused or saved job (S2): nothing more is sent; what's already in RYFT stays.
+    var confirmsDiscardJob = false
+
+    func discardJob() {
+        deps.uploader.discard()
+        finish(.close)
+    }
+
     func openPlan() {
         let id = job?.enrolledPlanID ?? job?.planIDs.first
-        if job?.isFinished == true { deps.uploader.markResultSeen() }
+        resultShown()
         finish(id.map(Finish.openPlan) ?? .close)
     }
 
     /// "Open the file you just received": this job's result counts as seen, the new file starts its own flow.
     func openReceivedFile() async {
-        if job?.isFinished == true { deps.uploader.markResultSeen() }
+        resultShown()
         await openWaitingFile?()
     }
 
     func openHistory() {
-        if job?.isFinished == true { deps.uploader.markResultSeen() }
+        resultShown()
         finish(.openHistory)
     }
 

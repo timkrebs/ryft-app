@@ -6,6 +6,10 @@ struct AddExerciseSheet: View {
     var title: LocalizedStringKey = "Add exercise"
     /// The search field's text when the sheet opens (the import's "Choose another exercise…": the file's name).
     var initialQuery = ""
+    /// The import: "Custom exercise" opens the form with this draft and hands the draft back; nothing is created
+    /// now (the import creates it under its derived id when Import is tapped). nil: the form saves to the library.
+    var importDraft: CustomExerciseDraft?
+    var onImportDraft: ((CustomExerciseDraft) -> Void)?
     let onPick: (Exercise) -> Void
 
     @Environment(TrainLibrary.self) private var library
@@ -74,9 +78,16 @@ struct AddExerciseSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
             .sheet(isPresented: $showsCustom) {
-                CustomExerciseForm(name: query) { e in
-                    onPick(e)
-                    dismiss()
+                if let importDraft, let onImportDraft {
+                    CustomExerciseForm(draft: importDraft) { draft in
+                        onImportDraft(draft)
+                        dismiss()
+                    }
+                } else {
+                    CustomExerciseForm(name: query) { e in
+                        onPick(e)
+                        dismiss()
+                    }
                 }
             }
             .onAppear {

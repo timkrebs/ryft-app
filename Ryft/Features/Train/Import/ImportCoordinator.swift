@@ -102,7 +102,8 @@ final class ImportCoordinator {
         guard !files.isEmpty else { return false }
         // Flags are per account: signed out, the file is read (no network, no account needed) and waits (E6).
         guard !hasAccount || isEnabled else {
-            // E10: nothing is read.
+            // E10: nothing is read, and a copy iOS made for us goes at once (privacy S1).
+            ImportFileAccess.removeOwnedCopies(files)
             showsUnavailable = true
             return true
         }
@@ -155,6 +156,16 @@ final class ImportCoordinator {
         waitingFor = nil
         flow = nil
         await receive(loaded)
+    }
+
+    /// Demo data on or off: nothing in memory crosses between demo and the account, a file waiting for a sign-in
+    /// included.
+    func demoModeChanged() {
+        flow = nil
+        replacement = nil
+        waitingFiles = nil
+        waitingFor = nil
+        signedOutFiles = nil
     }
 
     /// Signed in, signed out or another account. A file opened while signed out is shown now; anything of a previous

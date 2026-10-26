@@ -38,15 +38,22 @@ struct ImportCoordinatorTests {
         #expect(on.flow?.step == .pick)
     }
 
-    /// E10: the flag off: a calm sheet, nothing read.
+    /// E10: the flag off: a calm sheet, nothing read. A copy iOS put in the app's container (here `tmp`) goes at
+    /// once (privacy S1); the user's own file elsewhere is left alone.
     @Test func openInWithTheFlagOff() async throws {
         let importer = coordinator(.test())
-        let url = try csv()
-        defer { try? FileManager.default.removeItem(at: url) }
-        #expect(await importer.open([url]))
+        let copy = try csv()
+        let caches = try #require(FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first)
+        let own = caches.appendingPathComponent("own-\(UUID().uuidString).csv")
+        try ImportMockData.plans.write(to: own)
+        defer { try? FileManager.default.removeItem(at: own) }
+        #expect(await importer.open([copy, own]))
         #expect(importer.showsUnavailable)
         #expect(importer.flow == nil)
-        #expect(FileManager.default.fileExists(atPath: url.path)) // not read, not removed
+        #expect(!FileManager.default.fileExists(atPath: copy.path))
+        #expect(FileManager.default.fileExists(atPath: own.path))
+        #expect(ImportFileAccess.isInside(copy, ImportFileAccess.ownedDirectories))
+        #expect(!ImportFileAccess.isInside(own, ImportFileAccess.ownedDirectories))
     }
 
     @Test func notAFileIsntOurs() async throws {
@@ -128,6 +135,58 @@ struct ImportCoordinatorTests {
         importer.start()
         importer.flow?.finish(.close)
         #expect(opened.routes == [.plan(id), .history])
+    }
+
+    /// Demo data on or off: a file waiting for a sign-in doesn't open on the other side (review, low).
+    @Test func theDemoSwitchForgetsHeldFiles() async throws {
+        let auth = AuthService.preview(signedIn: false)
+        let importer = coordinator(.test(auth: auth, flags: [.trainImport: true]))
+        let url = try csv()
+        await importer.open([url])
+        #expect(importer.hasFileForSignIn)
+        importer.demoModeChanged()
+        #expect(!importer.hasFileForSignIn)
+        #expect(await auth.logIn(email: "tim@example.com", password: "secret"))
+        await importer.accountChanged(signedIn: true)
+        #expect(importer.flow == nil)
+    }
+
+    /// I4: a result with refused items isn't marked seen when it shows or on Close, so its row and Retry survive a
+    /// relaunch; Done marks it seen (review fix).
+    @Test func aPartlyFailedResultStaysUntilDone() async throws {
+        let h = ImportUploadHarness()
+        let sessions = ImportUploadHarness.sessions(3)
+        h.live.trainImportSource.rejectIDs = [sessions[1].id: "exercise not found"]
+        #expect(await h.run(ImportUploadPlan(sessions: sessions)))
+        #expect(h.uploader.status?.hasRejected == true)
+        let importer = ImportCoordinator(env: h.env, library: library, uploader: h.uploader, showStrain: {}, openRoute: { _ in })
+        importer.resume()
+        let flow = try #require(importer.flow)
+        #expect(flow.step == .result)
+        flow.resultShown()
+        flow.close()
+        #expect(h.uploader.status?.resultSeen == false)
+        // A relaunch (the app becomes active, the purge runs): the job, its refused item and the row are still there.
+        let again = h.relaunch()
+        await again.appBecameActive()
+        let relaunched = ImportCoordinator(env: h.env, library: library, uploader: again, showStrain: {}, openRoute: { _ in })
+        #expect(again.status?.hasRejected == true)
+        #expect(relaunched.showsResumeRow)
+        relaunched.resume()
+        relaunched.flow?.done()
+        #expect(again.status?.resultSeen ?? true)
+        #expect(!relaunched.showsResumeRow)
+    }
+
+    /// I3: a result with nothing refused counts as seen once shown.
+    @Test func aFinishedResultIsSeenWhenShown() async throws {
+        let h = ImportUploadHarness()
+        #expect(await h.run(ImportUploadPlan(sessions: ImportUploadHarness.sessions(2))))
+        let importer = ImportCoordinator(env: h.env, library: library, uploader: h.uploader, showStrain: {}, openRoute: { _ in })
+        #expect(importer.showsResumeRow)
+        importer.resume()
+        importer.flow?.resultShown()
+        #expect(!importer.showsResumeRow)
     }
 
     /// Signing out (or another account) forgets the flow and any waiting file.

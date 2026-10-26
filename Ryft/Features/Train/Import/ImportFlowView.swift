@@ -102,8 +102,8 @@ struct ImportStepScaffold<Content: View, Bottom: View>: View {
         case .result:
             ToolbarItem(placement: .cancellationAction) {
                 Button {
-                    // A finished result counts as seen; an unfinished job continues.
-                    model.done()
+                    // The import continues; a finished result without refused items counts as seen.
+                    model.close()
                 } label: {
                     Text("Close")
                 }

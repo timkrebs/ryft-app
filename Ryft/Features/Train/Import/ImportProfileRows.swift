@@ -42,7 +42,10 @@ struct ImportProfileRows: View {
                 .accessibilityIdentifier("profile.clearMatches")
             }
         }
-        .task(id: env.auth.accountID) { hasMatches = ImportMappingStore(env: env).hasEntries }
+        // The binding the store reads: the account, or demo's own.
+        .task(id: env.isDemo ? ImportMappingStore.demoAccount : env.auth.accountID) {
+            hasMatches = ImportMappingStore(env: env).hasEntries
+        }
         .alert(Text("Clear remembered matches?", comment: "Profile → Data: the confirmation's title."),
                isPresented: $confirmsClear) {
             Button(role: .destructive) {

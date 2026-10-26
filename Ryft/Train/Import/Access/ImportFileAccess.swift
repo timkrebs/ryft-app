@@ -41,7 +41,16 @@ enum ImportFileAccess {
         return out
     }
 
-    /// Where iOS puts copies for this app: `Documents/Inbox` (older share paths) and `tmp`.
+    /// Copies iOS put in the app's own container, removed without reading them (E10: the import is off; privacy S1).
+    /// A file anywhere else (the user's own, in Files) is never touched.
+    static func removeOwnedCopies(_ urls: [URL], owned: [URL]? = nil) {
+        let owned = owned ?? ownedDirectories
+        for url in urls where isInside(url, owned) {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    /// Where iOS puts copies for this app: `Documents/Inbox` (older share paths) and `tmp` (its `*-Inbox` folders).
     static var ownedDirectories: [URL] {
         [URL.documentsDirectory.appendingPathComponent("Inbox", isDirectory: true), FileManager.default.temporaryDirectory]
     }
@@ -64,6 +73,8 @@ enum ImportFileAccess {
         if let type = values?.contentType, !type.conforms(to: .text) { return .failure(.notText) }
         // The cap before reading, from the file system's size (not a timestamp: no Required Reason API).
         if let size = values?.fileSize, size > limits.maxFileBytes { return .failure(.tooLarge) }
+        // Device check (not unit-testable here): for an iCloud file not downloaded yet, the coordinated read waits for
+        // the download with no timeout of its own. The flow shows P2 meanwhile; the user can cancel.
         var coordinationError: NSError?
         var result: Result<Data, Problem> = .failure(.unreadable)
         NSFileCoordinator().coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinationError) { readable in

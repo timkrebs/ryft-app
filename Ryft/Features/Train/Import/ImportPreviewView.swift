@@ -304,7 +304,11 @@ struct ImportPreviewView: View {
             InlineMessage(message: String(localized: "Uploads aren't available yet.", comment: "Training import V5."),
                           systemImage: "icloud.slash",
                           caption: String(localized: "RYFT can keep this import on your iPhone and upload it when importing is switched on for your account.",
-                                          comment: "Training import V5."))
+                                          comment: "Training import V5.") + " " + ImportResultText.keptLimits)
+            if model.startRefused {
+                ImportBarCaption(text: String(localized: "An import is in progress. Finish it before starting another.",
+                                              comment: "Training import: one import at a time."))
+            }
             ImportPrimaryButton(title: String(localized: "Keep on this iPhone", comment: "Training import V5: store the import to upload later."),
                                 identifier: "import.keep", isEnabled: model.canImport) {
                 Task { await model.startImport() }

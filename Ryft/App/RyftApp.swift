@@ -185,6 +185,8 @@ struct RyftApp: App {
                         TrainImportUploader.forgetDemo(in: env.persistence)
                     }
                     screens.trainImport.accountChanged()
+                    // The import flow and any file it holds stay with the side they arrived on.
+                    screens.importer.demoModeChanged()
                     Task { await screens.featureFlags?.refresh(force: true) }
                 }
                 // A restore that ended signed out: a start asked for during it doesn't wait for a sign-in.
@@ -540,7 +542,6 @@ struct RootView: View {
             // The training import: one cover for My Plans, Profile → Data and "Open in" (ui.md §2).
             .fullScreenCover(item: Bindable(screens.importer).flow) { ImportFlowView(model: $0) }
             .sheet(isPresented: Bindable(screens.importer).showsUnavailable) { ImportUnavailableSheet() }
-            .modifier(ImportReplaceAlert(importer: screens.importer))
             // From now on this account's gates are sheets, not the full-screen flow.
             .onAppear { onboarding.reachedTabs() }
             // A gate after the first run (policy updated, consent withdrawn): over the

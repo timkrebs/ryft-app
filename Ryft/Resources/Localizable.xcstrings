@@ -3706,6 +3706,28 @@
         }
       }
     },
+    "Discard import" : {
+      "comment" : "Training import S2: remove the saved import from this iPhone.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import verwerfen"
+          }
+        }
+      }
+    },
+    "Discard the saved import?" : {
+      "comment" : "Training import S2: the confirmation's title.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gespeicherten Import verwerfen?"
+          }
+        }
+      }
+    },
     "Discard this import?" : {
       "comment" : "Training import: the cancel confirmation's title (N1).",
       "localizations" : {
@@ -4978,6 +5000,17 @@
         }
       }
     },
+    "Kept on this iPhone for up to 30 days. Signing out removes it." : {
+      "comment" : "Training import: the limits of a saved import (TrainImportUploader.retention, the sign-out wipe).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Er bleibt bis zu 30 Tage auf diesem iPhone. Beim Abmelden wird er gelöscht."
+          }
+        }
+      }
+    },
     "Kilometre %lld" : {
       "comment" : "Splits row, VoiceOver: which kilometre.",
       "localizations" : {
@@ -6187,6 +6220,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bis zu deiner Zustimmung wird nichts synchronisiert. Datenschutzerklärung, Fassung %@."
+          }
+        }
+      }
+    },
+    "Nothing more is uploaded from it. Anything already imported stays in RYFT. The file itself is not changed." : {
+      "comment" : "Training import S2: what discarding a saved import does.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Davon wird nichts mehr hochgeladen. Was schon importiert ist, bleibt in RYFT. Die Datei selbst bleibt unverändert."
           }
         }
       }

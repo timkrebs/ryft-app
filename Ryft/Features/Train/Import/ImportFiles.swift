@@ -85,7 +85,9 @@ enum ImportFileReading {
         MainThread.assertOff("Parsing an import file")
         do {
             let bundle = try await TrainImportReader.read(file, index: index)
-            let head = ImportHygiene.head(of: ImportHygiene.decode(file.data).utf8)
+            // Detection reads at most the first 64 KiB: decode only those (a cut multi-byte character at the end
+            // doesn't change the confidence).
+            let head = ImportHygiene.head(of: ImportHygiene.decode(Data(file.data.prefix(ImportHygiene.headBytes))).utf8)
             let confidence = TrainImportFormats.best(for: head)?.1 ?? .strong
             return .read(bundle, confidence: confidence)
         } catch let error as ImportError {
@@ -116,9 +118,20 @@ struct ImportSummary: Equatable, Sendable {
     }
 }
 
-/// What step 2 shows for the files in hand (ui.md §5): pure, from the files' states.
+/// What step 2 shows for the files in hand (ui.md §5): pure, from the files' states. The merge and the state are
+/// worked out once, when it's made.
 struct ImportDetection: Equatable, Sendable {
     let files: [ImportPickedFile]
+    /// The read files merged in pick order: a workout or plan in two files is kept once (`.duplicateInFiles`).
+    let bundle: ImportBundle?
+    let state: State
+
+    init(files: [ImportPickedFile]) {
+        self.files = files
+        let bundle = files.compactMap(\.bundle).reduce(nil) { (merged: ImportBundle?, next) in merged?.merging(next) ?? next }
+        self.bundle = bundle
+        state = Self.state(files, bundle: bundle)
+    }
 
     enum State: Equatable, Sendable {
         /// P2 on step 2: a file is still being read.
@@ -135,7 +148,7 @@ struct ImportDetection: Equatable, Sendable {
         case mixedApps
     }
 
-    var state: State {
+    private static func state(_ files: [ImportPickedFile], bundle: ImportBundle?) -> State {
         if files.contains(where: \.isReading) { return .reading }
         let read = files.filter { $0.bundle != nil }
         if read.isEmpty {
@@ -147,11 +160,6 @@ struct ImportDetection: Equatable, Sendable {
         }
         if Set(read.compactMap { $0.bundle?.format.rawValue }).count > 1 { return .mixedApps }
         return bundle?.isEmpty == false ? .detected : .nothingInFile
-    }
-
-    /// The read files merged in pick order: a workout in two files is kept once (`.duplicateInFiles`).
-    var bundle: ImportBundle? {
-        files.compactMap(\.bundle).reduce(nil) { merged, next in merged?.merging(next) ?? next }
     }
 
     var summary: ImportSummary? { bundle.map(ImportSummary.init) }

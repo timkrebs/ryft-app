@@ -11,6 +11,25 @@ struct TrainImportFlowModelTests {
         var lines: [String] = []
     }
 
+    /// `checkExisting` that a test can hold open, to order two builds.
+    @MainActor
+    final class HeldCheck {
+        var holds = false
+        private var waiting: [CheckedContinuation<ImportExisting, Never>] = []
+        var held: Int { waiting.count }
+
+        func check(_ query: ImportExistingQuery) async -> ImportExisting {
+            guard holds else { return .unchecked }
+            return await withCheckedContinuation { waiting.append($0) }
+        }
+
+        func release() {
+            let all = waiting
+            waiting = []
+            for continuation in all { continuation.resume(returning: .unchecked) }
+        }
+    }
+
     let store = TrainStore(inMemory: true)
     /// The uploader holds its environment weakly.
     let env = AppEnvironment.test()
@@ -19,14 +38,15 @@ struct TrainImportFlowModelTests {
 
     /// A flow on the demo library (MockTrain); `enrolled`: an active plan exists. Real time, so demo's files are recent.
     func flow(enrolled: Bool = false, library: TrainLibrary? = nil, now: Date = .now,
-              read: [ImportFileAccess.Loaded] = []) -> ImportFlowModel {
+              read: [ImportFileAccess.Loaded] = [], check: HeldCheck? = nil) -> ImportFlowModel {
         let library = library ?? TrainLibrary.preview(store: store, enrolled: enrolled)
-        let deps = ImportFlowModel.Dependencies(
+        var deps = ImportFlowModel.Dependencies(
             library: library, mappings: ImportMappingStore(persistence: store) { "account-a" },
             uploader: TrainImportUploader(env: env), clock: TestClock(now: now), zone: zone,
             account: { "account-a" }, isOnline: { true }, readURLs: { _ in read },
             aliases: { ExerciseAliases.bundled }, scriptedFiles: nil,
             announce: { [spoken] in spoken.lines.append($0) })
+        if let check { deps.checkExisting = { await check.check($0) } }
         return ImportFlowModel(deps: deps)
     }
 
@@ -206,8 +226,8 @@ struct TrainImportFlowModelTests {
 
     // MARK: Step 4
 
-    func mapped(enrolled: Bool = false) async -> ImportFlowModel {
-        let model = flow(enrolled: enrolled)
+    func mapped(enrolled: Bool = false, library: TrainLibrary? = nil, check: HeldCheck? = nil) async -> ImportFlowModel {
+        let model = flow(enrolled: enrolled, library: library, check: check)
         await model.receive(demoFiles)
         model.continueFromDetected()
         model.path.append(.map)
@@ -345,6 +365,52 @@ struct TrainImportFlowModelTests {
     }
 
     // MARK: Step 5
+
+    /// A build still running when the user goes back, changes a match and continues again never wins: the second
+    /// build is the one Import sends (review fix).
+    @Test func aStaleBuildNeverWins() async throws {
+        let check = HeldCheck()
+        let model = await mapped(check: check)
+        let new = try #require(model.mapping?.rows.first { $0.draft != nil })
+        model.acceptLikely()
+        model.setMuscle(new.id, .hamstrings)
+        check.holds = true
+        model.continueFromMap()
+        let first = model.buildTask
+        while check.held == 0 { await Task.yield() }
+        // Back to step 4: the build running for step 5 is dropped. Nordic Curl is skipped this time.
+        model.path.removeLast()
+        #expect(model.buildState == .building)
+        check.holds = false
+        model.skip(new.id)
+        model.continueFromMap()
+        await model.buildTask?.value
+        #expect(model.buildState == .ready)
+        #expect(model.build?.customExercises.isEmpty == true)
+        // The first build's answer arrives last and changes nothing.
+        check.release()
+        await first?.value
+        #expect(model.buildState == .ready)
+        #expect(model.build?.customExercises.isEmpty == true)
+        #expect(model.canImport)
+    }
+
+    /// Nothing leaves the iPhone before Import: a new exercise stays a draft through steps 4 and 5 (review fix).
+    @Test func noExerciseIsCreatedBeforeImport() async throws {
+        let api = MockPlatformAPI(train: MockTrainSource())
+        let library = TrainLibrary(store: TrainStore(inMemory: true), remote: { api }, restore: false)
+        await library.refresh()
+        let model = await mapped(library: library)
+        let new = try #require(model.mapping?.rows.first { $0.draft != nil })
+        model.acceptLikely()
+        model.create(new.id, ImportCustomDraft(name: "Nordic Curl", kind: .bodyweight, loadType: .bodyweight, muscle: .hamstrings))
+        model.continueFromMap()
+        await model.buildTask?.value
+        #expect(model.buildState == .ready)
+        #expect(model.build?.customExercises.count == 1)
+        #expect(api.count("createExercise") == 0)
+        #expect(library.exercises.allSatisfy { !$0.isCustom || $0.name != "Nordic Curl" })
+    }
 
     /// A rebuild keeps the user's toggles; workouts the earlier build didn't offer start at their default.
     @Test func rebuildKeepsToggles() {
