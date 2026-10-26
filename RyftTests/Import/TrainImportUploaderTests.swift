@@ -375,6 +375,26 @@ struct TrainImportUploaderAccountTests {
         #expect(h.requests.count == 1)
     }
 
+    /// Demo data switched on while the account's request is out (no wipe, the job stays): the answer is dropped,
+    /// unrecorded, and the account's job sends that batch again once demo is off (it answers `unchanged`).
+    @Test func anAnswerAfterTheDemoSwitchIsDropped() async throws {
+        let h = H()
+        let hold = RequestHold()
+        h.live.trainImportSource.beforeImport = { await hold.wait() }
+        let sessions = H.sessions(2)
+        #expect(await h.start(ImportUploadPlan(sessions: sessions)))
+        #expect(await eventually { hold.waiting == 1 })
+        h.settings.demoMode = true
+        hold.release()
+        #expect(await eventually { h.requests.count == 1 && !h.uploader.isRunning })
+        #expect(h.jobs().count == 1)
+        h.settings.demoMode = false
+        h.uploader.accountChanged()
+        await h.uploader.resume()
+        #expect(h.requests.map(\.sessionIDs) == [sessions.map(\.id), sessions.map(\.id)])
+        #expect(h.uploader.status?.phase == .finished)
+    }
+
     /// The account changes while a request is out: the pass stops and the request is cancelled, never a refusal.
     @Test func anAccountChangeCancelsTheRequestInFlight() async throws {
         let h = H()
