@@ -5,6 +5,13 @@ on:
   schedule:
     - cron: "0 1 * * *"   # 01:00 UTC (02:00 / 03:00 Berlin)
   workflow_dispatch:
+    inputs:
+      notes:
+        description: >-
+          What to Test, replacing the commit list (max 4000 characters). It goes to en-US and de-DE
+          alike, so write the English block, then the German one.
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -24,6 +31,8 @@ jobs:
         with:
           fetch-depth: 0
       - id: check
+        env:
+          NOTES_INPUT: ${{ inputs.notes }}
         # Skipped when nothing landed since the last uploaded build (a manual run always builds).
         run: |
           last="$(git tag --list 'build/*' --sort=-creatordate | head -n1)"
@@ -34,11 +43,23 @@ jobs:
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
+          # Notes typed into a manual run replace the generated list. They are text, never script:
+          # they come in through the environment, and the output delimiter can't occur in them.
+          delim="NOTES_$(openssl rand -hex 8)"
           {
-            echo "notes<<EOF"
-            echo "Nightly $(date -u +%Y-%m-%d) from $(git rev-parse --short HEAD)"
-            git log --no-merges --pretty='- %s' -n 30 $range
-            echo "EOF"
+            echo "notes<<$delim"
+            if [ -n "$NOTES_INPUT" ]; then
+              len="$(printf '%s' "$NOTES_INPUT" | python3 -c 'import sys; print(len(sys.stdin.read().strip()))')"
+              if [ "$len" -gt 4000 ]; then
+                echo "::error::The notes are $len characters; App Store Connect takes 4000." >&2
+                exit 1
+              fi
+              printf '%s\n' "$NOTES_INPUT"
+            else
+              echo "Nightly $(date -u +%Y-%m-%d) from $(git rev-parse --short HEAD)"
+              git log --no-merges --pretty='- %s' -n 30 $range
+            fi
+            echo "$delim"
           } >> "$GITHUB_OUTPUT"
 
   testflight:
