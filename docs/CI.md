@@ -11,7 +11,15 @@ The Xcode version is pinned in `.xcode-version` (27.1). `scripts/select-xcode.sh
 `sudo xcode-select`. If no installed Xcode matches, the job stops with a list of the
 installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
 
-### The self-hosted Mac
+| Workflow | When | What |
+| --- | --- | --- |
+| `ios.yml` | every PR, every push to `main`; 00:30 UTC nightly, or manually | `make lint` (strings), `make style` (SwiftFormat, SwiftLint), build-for-testing with warnings as errors, test plans `Unit` + `UISmoke` (nightly: `Full`), coverage floor, API contract |
+| `nightly.yml` | 01:00 UTC daily, or manually | archive `main`, upload, TestFlight group **Internal**; skipped when nothing landed since the last build |
+| `weekly.yml` | Mondays 07:00 Europe/Berlin, or manually | the newest processed build to group **External**, with the week's commits as What to Test, submitted for beta review |
+| `release.yml` | manually | bump `VERSION`, commit, tag `vX.Y.Z`, archive the tag, upload, group **Internal** |
+| `_testflight.yml` | called by nightly and release | the shared archive → upload → distribute job |
+
+## The self-hosted Mac
 - **Registration.** The runner must be registered to *this* repository (Settings → Actions →
   Runners). A runner registered to `ryft-platform` doesn't serve it. Until one is online,
   the macOS jobs wait in the queue, and so do the required checks.
@@ -26,14 +34,6 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
   set and reuses it.
 - **Load.** Builds on the Mac compete with whatever else it is doing. The test time limits
   (60 s per unit test, 3 minutes per UI test) were set for GitHub's runners.
-
-| Workflow | When | What |
-| --- | --- | --- |
-| `ios.yml` | every PR, every push to `main`; 00:30 UTC nightly, or manually | `make lint` (strings), `make style` (SwiftFormat, SwiftLint), build-for-testing with warnings as errors, test plans `Unit` + `UISmoke` (nightly: `Full`), coverage floor, API contract |
-| `nightly.yml` | 01:00 UTC daily, or manually | archive `main`, upload, TestFlight group **Internal**; skipped when nothing landed since the last build |
-| `weekly.yml` | Mondays 07:00 Europe/Berlin, or manually | the newest processed build to group **External**, with the week's commits as What to Test, submitted for beta review |
-| `release.yml` | manually | bump `VERSION`, commit, tag `vX.Y.Z`, archive the tag, upload, group **Internal** |
-| `_testflight.yml` | called by nightly and release | the shared archive → upload → distribute job |
 
 ## PR checks (`ios.yml`)
 
