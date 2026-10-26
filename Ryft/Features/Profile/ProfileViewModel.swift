@@ -268,8 +268,11 @@ final class ProfileViewModel {
     func demoModeChanged(_ on: Bool) {
         // Demo data's flags are its own: off again, the account's cached flags, never demo's.
         (env.flags as? FlagStore)?.setDemo(on)
-        // What was matched in demo's training import was never this account's.
-        if !on { ImportMappingStore.forgetDemo(in: env.persistence) }
+        // What was matched in demo's training import was never this account's, and neither is its upload.
+        if !on {
+            ImportMappingStore.forgetDemo(in: env.persistence)
+            TrainImportUploader.forgetDemo(in: env.persistence)
+        }
     }
 
     // MARK: export

@@ -14,7 +14,7 @@ final class TrainStore {
     static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "train")
     static let schema = Schema([LocalSession.self, LocalSessionExercise.self, LocalSet.self,
                                 CachedExercise.self, CachedPlan.self, PendingTrainOp.self,
-                                ImportMapping.self] + readModels + activityModels)
+                                ImportMapping.self, PendingImport.self] + readModels + activityModels)
 
     let container: ModelContainer
     var context: ModelContext { container.mainContext }
@@ -217,6 +217,8 @@ final class TrainStore {
         try? context.delete(model: PendingTrainOp.self)
         // The import's remembered matches are the account's too (training import design §4, §10).
         try? context.delete(model: ImportMapping.self)
+        // And its import job, never uploaded for another account (design §7).
+        try? context.delete(model: PendingImport.self)
         try? context.delete(model: CachedDay.self)
         try? context.delete(model: CachedTrend.self)
         try? context.delete(model: CachedInsight.self)
