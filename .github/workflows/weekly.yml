@@ -8,6 +8,13 @@ on:
     - cron: "0 5 * * 1"
     - cron: "0 6 * * 1"
   workflow_dispatch:
+    inputs:
+      notes:
+        description: >-
+          What to Test, replacing the commit list (max 4000 characters). It goes to en-US and de-DE
+          alike, so write the English block, then the German one.
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -53,14 +60,26 @@ jobs:
       - name: Newest processed build
         run: echo "BUILD=$(python3 scripts/testflight.py latest-build)" >> "$GITHUB_ENV"
       - name: Notes since the last external build
+        env:
+          NOTES_INPUT: ${{ inputs.notes }}
         run: |
           to="build/$BUILD"
           git rev-parse -q --verify "$to" >/dev/null || to=HEAD
           from="$(git rev-parse -q --verify testflight-external || true)"
-          {
-            echo "This week in RYFT (build $BUILD):"
-            git log --no-merges --pretty='- %s' -n 40 ${from:+$from..}$to
-          } > "$RUNNER_TEMP/notes.txt"
+          if [ -n "$NOTES_INPUT" ]; then
+            # Typed into a manual run: it replaces the commit list (text only, via the environment).
+            len="$(printf '%s' "$NOTES_INPUT" | python3 -c 'import sys; print(len(sys.stdin.read().strip()))')"
+            if [ "$len" -gt 4000 ]; then
+              echo "::error::The notes are $len characters; App Store Connect takes 4000."
+              exit 1
+            fi
+            printf '%s\n' "$NOTES_INPUT" > "$RUNNER_TEMP/notes.txt"
+          else
+            {
+              echo "This week in RYFT (build $BUILD):"
+              git log --no-merges --pretty='- %s' -n 40 ${from:+$from..}$to
+            } > "$RUNNER_TEMP/notes.txt"
+          fi
           cat "$RUNNER_TEMP/notes.txt"
           echo "TO=$to" >> "$GITHUB_ENV"
       - name: Distribute to External
