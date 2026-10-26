@@ -133,6 +133,9 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
     case activitiesRecording = "activities.recording"
     /// Connect heart-rate sensor (Bluetooth), a follow-up PR.
     case activityLiveHR = "activity.live_hr"
+    /// Training import from a CSV file (My Plans, Profile → Data, Open in) and its upload. Off, nothing is sent and a
+    /// saved import waits (the kill switch). On in the PR that ships the import's "Open in" keys.
+    case trainImport = "train.import"
 
     var id: String { rawValue }
 
@@ -141,7 +144,7 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .trainEnabled, .sleepPlanner: return true
         case .todayRedesign, .coachEnabled, .pushEnabled, .physiologyCard, .syncGzip, .devicesSetup: return false
-        case .todayMyDay, .activitiesManual, .activitiesRecording, .activityLiveHR: return false
+        case .todayMyDay, .activitiesManual, .activitiesRecording, .activityLiveHR, .trainImport: return false
         }
     }
 }
