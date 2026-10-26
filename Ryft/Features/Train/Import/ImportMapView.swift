@@ -110,12 +110,12 @@ struct ImportMapView: View {
         }
         LazyVStack(alignment: .leading, spacing: 10, pinnedViews: [.sectionHeaders]) {
             if !attention.isEmpty {
-                Section { rows(attention, mapping) } header: {
+                Section { rows(attention, mapping, section: "attention") } header: {
                     header(String(localized: "Needs your attention", comment: "Training import: step 4's section, and Profile → Data's row."))
                 }
             }
             if !resolved.isEmpty {
-                Section { rows(resolved, mapping) } header: {
+                Section { rows(resolved, mapping, section: "matched") } header: {
                     header(String(localized: "Matched", comment: "Training import, step 4: a row's status."))
                 }
             }
@@ -173,10 +173,13 @@ struct ImportMapView: View {
             .background(Theme.background)
     }
 
-    private func rows(_ rows: [ImportMappingRow], _ mapping: ImportMappingState) -> some View {
+    /// A row's identity includes its section: a row that moves from "Needs your attention" to "Matched" is a new
+    /// view there (a lazy stack otherwise reused the old one's content).
+    private func rows(_ rows: [ImportMappingRow], _ mapping: ImportMappingState, section: String) -> some View {
         ForEach(rows) { row in
             let index = mapping.rows.firstIndex(of: row) ?? 0
             ExerciseMatchRow(content: mapping.content(row), index: index, actions: actions(row))
+                .id("\(section)\u{1F}\(row.id.name)\u{1F}\(row.id.equipment)")
                 .transition(.opacity)
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: mapping.rows)

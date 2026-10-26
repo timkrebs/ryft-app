@@ -27,6 +27,19 @@ struct ImportResultView: View {
         .task(id: job?.isFinished) {
             if job?.isFinished == true { model.deps.uploader.markResultSeen() }
         }
+        .toolbar {
+            // I3, I4: Done is the trailing text button; Close (leading) stays.
+            if job?.isFinished == true {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        model.done()
+                    } label: {
+                        Text("Done")
+                    }
+                    .accessibilityIdentifier("import.done")
+                }
+            }
+        }
         .onChange(of: job?.isFinished) { _, finished in
             guard finished == true, let job else { return }
             model.deps.announce(String(localized: "Import finished. \(ImportResultText.sentence(job))",
@@ -304,7 +317,6 @@ struct ImportResultView: View {
                     model.openHistory()
                 }
             }
-            secondary(String(localized: "Done"), identifier: "import.done") { model.done() }
         case .paused(.notAvailable)?:
             ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done") { model.done() }
         case .paused(.gated)?:
