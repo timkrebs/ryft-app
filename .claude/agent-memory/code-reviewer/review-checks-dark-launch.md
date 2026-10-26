@@ -36,3 +36,8 @@ into it were persisted by any later toggle; `TrackerSelectionStore.stage()` put 
 `@Suite(.serialized)` probe that reports via `Issue.record` (prints from the test host don't reach the xcodebuild
 log; read messages with `xcresulttool get test-results tests`). Also check that a second key carrying the same ids
 (`sync_check` lines hold tracker ids) is gated like the first (`trackers` only with the flag on).
+
+Shared string keys (My Day A1 re-review, 2026-10-23): a dark feature that reuses an existing source string shares its
+translation. The localization pass for My Day changed `Uploading` (de "Hochladen" → "Wird hochgeladen") and so changed
+Today's shipped first-import steps with the flag off ("Apple Health lesen · Wird hochgeladen · Bewerten"). In the
+xcstrings dict compare, list *changed* values of keys that exist on main and grep each key's other call sites.
