@@ -71,6 +71,9 @@ Store "What's New".
 - Today now says why baselines are still forming. When your tracker doesn't share HRV or
   resting heart rate with Apple Health, it names the signal instead of a counter that can't
   move.
+- Health data, activities and workouts go up only under your consent to the privacy policy
+  in force, also from the background and after a long time offline; a refusal is remembered
+  until you agree. Deleting an activity, a night or a workout reaches RYFT even without it.
 
 ### Fixed
 - Today names your tracker's app as you know it ("Garmin Connect", not Apple Health's "Connect"). In

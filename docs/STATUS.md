@@ -1,4 +1,20 @@
-# Status — 2026-10-23
+# Status — 2026-10-26
+
+## Consent gates know the policy in force (P2, `fix/consent-gates`, ADR 0008)
+
+Done (unit-tested on the simulator only): one rule for every upload (`OnboardingCoordinator.gate(_:path:write:)`) over a
+persisted `ConsentState` per account; HealthKit sync, activities and nights, and Train's outbox ask it before their first
+request and before every page, item or op. Demo holds HealthKit (and `fullResync` / `resendRecent` change nothing);
+Train ops are bound to their account or demo. `DELETE`s go without a current consent. Warn-mode invite never holds.
+
+Open, device only (HealthKit and background delivery don't run in the simulator):
+- A background HealthKit wake with a stale record (more than 6 h since the last `/v1/config`): offline nothing is read
+  and the delivery completes; online one `GET /v1/config`, then pages.
+- A background wake before the first unlock after a reboot: held, then the unlock reloads the record and the next run
+  sends.
+- Withdraw consent in Profile → Privacy, then delete an activity: the `DELETE` goes, a new activity waits.
+
+Blocked on the platform: R24 (optional), R25 (Train writes refused without consent, deletes accepted), R26.
 
 ## Incidents
 
