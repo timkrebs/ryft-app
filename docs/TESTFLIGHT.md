@@ -54,9 +54,9 @@ so no question appears.
    - **Feedback:** Report a problem once, including the two-finger long-press, which is
      TestFlight only.
 
-## 3. External group "Friends"
+## 3. External group "External"
 
-1. TestFlight → **External Testing** → **+** → group **Friends**.
+1. TestFlight → **External Testing** → **+** → group **External** (the name the workflows use).
 2. Add the build. The first build of a version goes to **Beta App Review**, which takes
    about a day; later builds of the same version usually pass at once.
 3. Turn on **Public Link** and send it to friends together with an **invite code**
@@ -133,4 +133,4 @@ Testers can send diagnostics directly from the app without leaving to email or a
    `1.0.0` during the beta.
 2. Add an entry to `docs/TESTFLIGHT_NOTES.md` (en + de) and paste it into What to Test.
 3. Upload, wait for processing, add the build to **Internal**, check it, then add it to
-   **Friends**.
+   **External**.
