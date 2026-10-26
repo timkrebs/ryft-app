@@ -144,6 +144,9 @@ Garmin Connect after 08:00).
   move` (O1) `OrphanedStoreCleanup` deletes that copy once at launch, only when it provably isn't the live store. The move
   must still delete (or deliberately migrate) whatever is at that path before the container opens there.
 - **Older onboarding keys** (`firstRunDone`, `aboutYouDone`, `hintSeen`) keep a deleted account's id in defaults.
+- **RFC 3339 fast path** (`perf: fast date parsing for cached reads`): its equivalence with `ISO8601DateFormatter` was verified
+  on iOS 27 only (millions of inputs, bit-identical). Run `DateParsingTests` once on an iOS 17 or 18 runtime or device before
+  the next release.
 - **The catalog crash-guard hashing and marker** run on main after the first frame (a few ms). Move them into one
   `@concurrent` helper.
 - **RYFT on an iPhone Duo:** the tabs become a side strip. Check the layout and the UI-test queries.
