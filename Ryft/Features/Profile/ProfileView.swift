@@ -10,6 +10,9 @@ struct ProfileView: View {
 
     @State private var showResyncConfirm = false
     @State private var showLogOutConfirm = false
+    /// Activities and nights that haven't reached RYFT when Log out was tapped (design.md §8.4).
+    @State private var unsentAtLogOut = 0
+    @State private var sendsFirst = false
     @State private var showDeleteConfirm = false
     @State private var showChangePassword = false
     @State private var showWithdrawConfirm = false
@@ -52,11 +55,42 @@ struct ProfileView: View {
             Text("This uploads everything again. It can take a few minutes on the first run.")
         }
         .confirmationDialog("Log out of RYFT?", isPresented: $showLogOutConfirm, titleVisibility: .visible) {
-            Button("Log out", role: .destructive) {
-                Task { await model.logOut() }
+            if unsentAtLogOut > 0 {
+                // Send first (10 s at most), then log out if nothing is left; otherwise ask again with what's left.
+                Button {
+                    Task {
+                        sendsFirst = true
+                        let left = await model.sendUnconfirmedActivities()
+                        sendsFirst = false
+                        if left == 0 {
+                            await model.logOut()
+                        } else {
+                            unsentAtLogOut = left
+                            showLogOutConfirm = true
+                        }
+                    }
+                } label: {
+                    Text("Send first", comment: "Log out: upload the activities and nights not at RYFT yet, then log out.")
+                }
+                .accessibilityIdentifier("profile.logOut.sendFirst")
+                Button(role: .destructive) {
+                    Task { await model.logOut() }
+                } label: {
+                    Text("Log out anyway", comment: "Log out: delete the activities and nights not at RYFT yet.")
+                }
+                .accessibilityIdentifier("profile.logOut.anyway")
+            } else {
+                Button("Log out", role: .destructive) {
+                    Task { await model.logOut() }
+                }
             }
         } message: {
-            Text("Cached scores and Health sync progress are removed from this iPhone. Your account and data stay on the RYFT platform.")
+            if unsentAtLogOut > 0 {
+                Text("\(unsentAtLogOut) activities or nights haven't reached RYFT yet. Logging out deletes them from this iPhone.",
+                     comment: "Log out with uploads pending; the number of activities and nights.")
+            } else {
+                Text("Cached scores and Health sync progress are removed from this iPhone. Your account and data stay on the RYFT platform.")
+            }
         }
         .alert("Delete your RYFT account?", isPresented: $showDeleteConfirm) {
             Button("Delete account", role: .destructive) {
@@ -130,7 +164,11 @@ struct ProfileView: View {
                 if model.canChangePassword {
                     PrimaryButton(title: "Change password", style: .secondary) { showChangePassword = true }
                 }
-                PrimaryButton(title: "Log out", style: .secondary) { showLogOutConfirm = true }
+                PrimaryButton(title: "Log out", style: .secondary, busy: sendsFirst) {
+                    unsentAtLogOut = model.unconfirmedActivities
+                    showLogOutConfirm = true
+                }
+                .accessibilityIdentifier("profile.logOut")
                 PrimaryButton(title: "Delete account", style: .destructive, busy: model.isWorking) {
                     showDeleteConfirm = true
                 }

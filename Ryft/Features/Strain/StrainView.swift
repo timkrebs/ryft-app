@@ -31,6 +31,7 @@ struct StrainView: View {
                 activities
             }
             .navigationDestination(for: Workout.self) { WorkoutDetailView(workout: $0) }
+            .navigationDestination(for: ActivityRoute.self) { ActivityDetailView(route: $0) }
             .trainDestinations()
         }
         .sheet(isPresented: Bindable(coordinator).showsStart) { StartWorkoutSheet() }
@@ -134,8 +135,8 @@ struct StrainView: View {
         }
     }
 
-    /// `today.my_day`: My Day's rows without the night (ADR 0006), RYFT's activities among them. A merged activity
-    /// opens its tracker's workout; other activities open nothing until A2's detail exists.
+    /// `today.my_day`: My Day's rows without the night (ADR 0006), RYFT's activities among them, which open their own
+    /// detail (a merged one links its tracker's workout there).
     @ViewBuilder
     private var myDayList: some View {
         let items = model.dayItems
@@ -164,11 +165,11 @@ struct StrainView: View {
                         .buttonStyle(PressableButtonStyle())
                         .accessibilityHint(Text("Opens the session", comment: "VoiceOver: a My Day row opens the Train session."))
                         .accessibilityIdentifier("strain.row.\(item.id)")
-                case .activity:
-                    if let id = item.mergedWorkout, let w = model.workout(id) {
-                        NavigationLink(value: w) { row(item) }
+                case .activity(let id):
+                    if item.opensDetail {
+                        NavigationLink(value: ActivityRoute(id: id, day: model.date)) { row(item) }
                             .buttonStyle(PressableButtonStyle())
-                            .accessibilityHint(Text("Opens the workout", comment: "VoiceOver hint: the row opens the workout's detail."))
+                            .accessibilityHint(Text("Opens the activity", comment: "VoiceOver hint: a My Day row opens the activity's detail."))
                             .accessibilityIdentifier("strain.row.\(item.id)")
                     } else {
                         MyDayRow(item: item, style: .tile, showsLoad: true)

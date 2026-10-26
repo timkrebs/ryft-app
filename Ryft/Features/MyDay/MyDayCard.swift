@@ -11,16 +11,30 @@ extension TrainSyncService {
     var sessionsMark: SessionsMark { SessionsMark(pending: pendingCount, completed: lastCompletion?.id) }
 }
 
-/// What a My Day row, header or button does; the live card and screen fill it, previews leave it empty.
+/// What a My Day row, header or button does; the live card and screen fill it, previews leave it empty. An entry
+/// that's nil isn't offered (its flag is off, or the day is too far back).
 struct MyDayActions {
     /// The full screen (the card's title, expand and "Show all").
     var openDay: () -> Void = {}
-    /// A row: sleep opens Sleep, a workout its detail, a session Train's (design.md §7.3).
+    /// A row: sleep opens Sleep, a workout its detail, a session Train's, an activity its own (design.md §7.3).
     var open: (MyDayItem) -> Void = { _ in }
-    /// ＋ → Start strength workout (the shipped Train flow).
-    var startStrength: () -> Void = {}
+    /// ＋ and the button under the list: Add activity (`activities.manual`, the last 14 days).
+    var addActivity: (() -> Void)?
+    /// ＋ and "No sleep recorded · Add sleep" (`activities.manual`, while the day has no night).
+    var addSleep: (() -> Void)?
+    /// ＋ → Start strength workout (the shipped Train flow; `train.enabled`, today).
+    var startStrength: (() -> Void)?
+    /// A row's Edit and Delete (manual and recorded activities, a night the user added).
+    var edit: ((MyDayItem) -> Void)?
+    var delete: ((MyDayItem) -> Void)?
     /// Try again (the stale caption, the error).
     var retry: () async -> Void = {}
+
+    /// ＋ has something to offer.
+    var hasAddEntries: Bool { addActivity != nil || addSleep != nil || startStrength != nil }
+
+    /// Every entry offered, doing nothing (previews).
+    static let preview = MyDayActions(addActivity: {}, addSleep: {}, startStrength: {})
 }
 
 /// My Day on Today (ui.md §2.1, design.md §7.1): always today. Loads on Today's refreshes, opens the full screen
@@ -34,6 +48,9 @@ struct MyDayCard: View {
     @State private var showsDay = false
     @State private var workout: Workout?
     @State private var session: UUID?
+    @State private var activity: ActivityRoute?
+    @State private var adding: AddActivityModel?
+    @State private var sleeping: AddSleepModel?
     /// `-RyftOpenMyDay <days back>` opens the full screen once on that day (Debug, screenshots and UI tests).
     @State private var autoOpen = MyDayCard.requestedDaysBack
 
@@ -45,10 +62,14 @@ struct MyDayCard: View {
     }
 
     var body: some View {
-        MyDayCardBody(content: content, showsAdd: model.showsTrain, actions: actions)
+        let content = content
+        MyDayCardBody(content: content, actions: actions(content))
             .navigationDestination(isPresented: $showsDay) { MyDayView(model: model) }
             .navigationDestination(item: $workout) { WorkoutDetailView(workout: $0) }
             .navigationDestination(item: $session) { SessionDetailView(sessionID: $0).trainDestinations() }
+            .navigationDestination(item: $activity) { ActivityDetailView(route: $0) }
+            .sheet(item: $adding) { AddActivitySheet(model: $0) }
+            .sheet(item: $sleeping) { AddSleepSheet(model: $0) }
             .task(id: state.lastUpdated) {
                 await model.load(model.today)
                 if let back = autoOpen {
@@ -59,33 +80,47 @@ struct MyDayCard: View {
             }
     }
 
-    private var actions: MyDayActions {
-        MyDayActions(openDay: {
-            model.select(model.today)
+    private func actions(_ content: MyDayContent) -> MyDayActions {
+        let today = model.today
+        return MyDayActions(openDay: {
+            model.select(today)
             showsDay = true
         }, open: { item in
-            MyDayCard.open(item, on: model.today, model: model, router: screens.router,
-                           workout: { workout = $0 }, session: { session = $0 })
-        }, startStrength: {
-            Task { await coordinator.quickStart(.auto) }
-        }, retry: {
-            await model.load(model.today, force: true)
+            MyDayCard.open(item, on: today, model: model, router: screens.router, show: show)
+        }, addActivity: model.canAdd(on: today) ? { adding = model.addActivityModel(on: today) } : nil,
+        addSleep: model.offersAddSleep(on: today, content: content) ? { sleeping = model.addSleepModel(on: today) } : nil,
+        startStrength: model.showsTrain ? { Task { await coordinator.quickStart(.auto) } } : nil,
+        retry: {
+            await model.load(today, force: true)
         })
     }
 
-    /// Sleep → the Sleep tab on that night; a workout → its detail; a session → Train's; a merged activity → its
-    /// tracker's workout until A2's activity detail exists. Other activities open nothing yet.
+    private func show(_ destination: MyDayDestination) {
+        switch destination {
+        case .workout(let w): workout = w
+        case .session(let id): session = id
+        case .activity(let route): activity = route
+        }
+    }
+
+    /// Where a row leads in the stack (the Sleep tab is the router's).
+    enum MyDayDestination {
+        case workout(Workout), session(UUID), activity(ActivityRoute)
+    }
+
+    /// Sleep → the Sleep tab on that night; a workout → its detail; a session → Train's; an activity → its own
+    /// (a merged one links its tracker's workout there).
     static func open(_ item: MyDayItem, on day: Date, model: MyDayViewModel, router: DeepLinkRouter,
-                     workout: (Workout) -> Void, session: (UUID) -> Void) {
+                     show: (MyDayDestination) -> Void) {
         switch item.kind {
         case .sleep:
             Task { await router.open(.sleep(day)) }
         case .workout(let id):
-            if let w = model.workout(id, on: day) { workout(w) }
+            if let w = model.workout(id, on: day) { show(.workout(w)) }
         case .session(let id):
-            session(id)
-        case .activity:
-            if let id = item.mergedWorkout, let w = model.workout(id, on: day) { workout(w) }
+            show(.session(id))
+        case .activity(let id):
+            if item.opensDetail { show(.activity(ActivityRoute(id: id, day: day))) }
         case .missingSleep:
             break
         }
@@ -100,11 +135,10 @@ struct MyDayCard: View {
     }
 }
 
-/// The card itself, from a day's content: header with ＋, up to five rows, "Show all", the stale caption.
+/// The card itself, from a day's content: header with ＋, up to five rows, "Show all", Add activity, the stale
+/// caption.
 struct MyDayCardBody: View {
     let content: MyDayContent
-    /// ＋ with "Start strength workout" (`train.enabled`); hidden without an entry.
-    var showsAdd = false
     var actions = MyDayActions()
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -118,6 +152,7 @@ struct MyDayCardBody: View {
                     .padding(.top, 10)
                     .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: content.cardRows.map(\.id))
                 if content.phase == .ready, content.showsAll { showAll }
+                if let add = actions.addActivity { addButton(add) }
                 if let since = content.staleSince {
                     MyDayStaleLine(since: since, offersRetry: content.offersRetry, retry: actions.retry)
                         .padding(.top, 6)
@@ -158,8 +193,8 @@ struct MyDayCardBody: View {
             .accessibilityHint(Text("Opens the list", comment: "VoiceOver: the My Day card's title opens the full screen."))
             .accessibilityAddTraits([.isHeader, .isButton])
             .accessibilityIdentifier("myday.title")
-            if showsAdd {
-                MyDayAddMenu(startStrength: actions.startStrength)
+            if actions.hasAddEntries {
+                MyDayAddMenu(actions: actions)
             }
         }
     }
@@ -188,11 +223,19 @@ struct MyDayCardBody: View {
                         .transition(.opacity)
                 }
                 if content.hasNoActivities {
-                    Text("Nothing yet today", comment: "My Day card: no workouts or activities today.")
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.textSecondary)
-                        .padding(.top, content.items.isEmpty ? 0 : 10)
-                        .accessibilityIdentifier("myday.empty")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Nothing yet today", comment: "My Day card: no workouts or activities today.")
+                            .font(.ryft(.callout))
+                            .foregroundStyle(Theme.textSecondary)
+                        if actions.addActivity != nil {
+                            Text("Add what you did.", comment: "My Day card: under 'Nothing yet today' when activities can be added.")
+                                .font(.ryft(.caption))
+                                .foregroundStyle(Theme.textTertiary)
+                        }
+                    }
+                    .padding(.top, content.items.isEmpty ? 0 : 10)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("myday.empty")
                 }
             }
         }
@@ -206,9 +249,22 @@ struct MyDayCardBody: View {
                 .accessibilityHint(item.hint ?? Text(verbatim: ""))
                 .accessibilityIdentifier("myday.row.\(item.id)")
         } else {
-            MyDayRow(item: item)
+            MyDayRow(item: item, addSleep: actions.addSleep)
                 .accessibilityIdentifier(item.kind.isMissingSleep ? "myday.noSleep" : "myday.row.\(item.id)")
         }
+    }
+
+    /// Add activity under the list (ui.md §2.1; Start activity joins it with A4): 16 pt below, hairline above.
+    private func addButton(_ add: @escaping () -> Void) -> some View {
+        VStack(spacing: 16) {
+            Rectangle()
+                .fill(Theme.separator)
+                .frame(height: Theme.Metrics.hairline)
+                .accessibilityHidden(true)
+            PrimaryButton(title: "Add activity", style: .secondary) { add() }
+                .accessibilityIdentifier("myday.addActivity")
+        }
+        .padding(.top, 16)
     }
 
     private var showAll: some View {
@@ -236,24 +292,33 @@ extension MyDayItem {
         guard opensDetail else { return nil }
         switch kind {
         case .sleep: return Text("Opens Sleep")
-        case .workout, .activity: return Text("Opens the workout", comment: "VoiceOver hint: the row opens the workout's detail.")
+        case .workout: return Text("Opens the workout", comment: "VoiceOver hint: the row opens the workout's detail.")
+        case .activity: return Text("Opens the activity", comment: "VoiceOver hint: a My Day row opens the activity's detail.")
         case .session: return Text("Opens the session", comment: "VoiceOver: a My Day row opens the Train session.")
         case .missingSleep: return nil
         }
     }
 }
 
-/// ＋: what can be added to the day. In A1 only "Start strength workout" (Add activity, Start activity and Add
-/// sleep come with A2 and A4).
+/// ＋: what can be added to the day (ui.md §2.1): Add activity, Start strength workout, Add sleep; Start activity
+/// joins with A4. Only the entries offered.
 struct MyDayAddMenu: View {
-    let startStrength: () -> Void
+    let actions: MyDayActions
 
     var body: some View {
         Menu {
-            Button(action: startStrength) {
-                Label("Start strength workout", systemImage: "dumbbell")
+            if let add = actions.addActivity {
+                Button(action: add) { Label("Add activity", systemImage: "square.and.pencil") }
+                    .accessibilityIdentifier("myday.add.activity")
             }
-            .accessibilityIdentifier("myday.add.strength")
+            if let start = actions.startStrength {
+                Button(action: start) { Label("Start strength workout", systemImage: "dumbbell") }
+                    .accessibilityIdentifier("myday.add.strength")
+            }
+            if let sleep = actions.addSleep {
+                Button(action: sleep) { Label("Add sleep", systemImage: "bed.double") }
+                    .accessibilityIdentifier("myday.add.sleep")
+            }
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 17, weight: .medium))
@@ -331,27 +396,27 @@ struct MyDaySkeleton: View {
     ScrollView {
         SchemePair {
             VStack(spacing: 16) {
-                MyDayCardBody(content: MockMyDay.content(.populated), showsAdd: true)
-                MyDayCardBody(content: MockMyDay.content(.full), showsAdd: true)
-                MyDayCardBody(content: MockMyDay.content(.nothing), showsAdd: true)
-                MyDayCardBody(content: MockMyDay.content(.noSleepNothing), showsAdd: true)
-                MyDayCardBody(content: MockMyDay.content(.noSleepRows))
-                MyDayCardBody(content: MockMyDay.content(.loading), showsAdd: true)
-                MyDayCardBody(content: MockMyDay.content(.stale), showsAdd: true)
-                MyDayCardBody(content: MockMyDay.content(.failed), showsAdd: true)
+                MyDayCardBody(content: MockMyDay.content(.populated), actions: .preview)
+                MyDayCardBody(content: MockMyDay.content(.full), actions: .preview)
+                MyDayCardBody(content: MockMyDay.content(.nothing), actions: .preview)
+                MyDayCardBody(content: MockMyDay.content(.noSleepNothing), actions: .preview)
+                MyDayCardBody(content: MockMyDay.content(.noSleepRows), actions: .preview)
+                MyDayCardBody(content: MockMyDay.content(.loading), actions: .preview)
+                MyDayCardBody(content: MockMyDay.content(.stale), actions: .preview)
+                MyDayCardBody(content: MockMyDay.content(.failed), actions: .preview)
             }
         }
     }
 }
 
 #Preview("My Day card · populated · dark") {
-    ScrollView { MyDayCardBody(content: MockMyDay.content(.full), showsAdd: true).padding(20) }
+    ScrollView { MyDayCardBody(content: MockMyDay.content(.full), actions: .preview).padding(20) }
         .background(Theme.background)
         .preferredColorScheme(.dark)
 }
 
 #Preview("My Day card · populated · light") {
-    ScrollView { MyDayCardBody(content: MockMyDay.content(.full), showsAdd: true).padding(20) }
+    ScrollView { MyDayCardBody(content: MockMyDay.content(.full), actions: .preview).padding(20) }
         .background(Theme.background)
         .preferredColorScheme(.light)
 }
@@ -360,9 +425,9 @@ struct MyDaySkeleton: View {
     ScrollView {
         SchemePair {
             VStack(spacing: 16) {
-                MyDayCardBody(content: MockMyDay.content(.full), showsAdd: true)
-                MyDayCardBody(content: MockMyDay.content(.noSleepNothing), showsAdd: true)
-                MyDayCardBody(content: MockMyDay.content(.stale), showsAdd: true)
+                MyDayCardBody(content: MockMyDay.content(.full), actions: .preview)
+                MyDayCardBody(content: MockMyDay.content(.noSleepNothing), actions: .preview)
+                MyDayCardBody(content: MockMyDay.content(.stale), actions: .preview)
             }
         }
     }
@@ -373,8 +438,8 @@ struct MyDaySkeleton: View {
     ScrollView {
         SchemePair {
             VStack(spacing: 16) {
-                MyDayCardBody(content: MockMyDay.content(.populated), showsAdd: true)
-                MyDayCardBody(content: MockMyDay.content(.noSleepNothing), showsAdd: true)
+                MyDayCardBody(content: MockMyDay.content(.populated), actions: .preview)
+                MyDayCardBody(content: MockMyDay.content(.noSleepNothing), actions: .preview)
             }
         }
     }

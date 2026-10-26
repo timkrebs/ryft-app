@@ -78,6 +78,59 @@ final class MyDayViewModel {
         date = calendar.startOfDay(for: day)
     }
 
+    // MARK: adding and editing (`activities.manual`)
+
+    /// Add activity, Add sleep, edit and delete (behind `activities.manual`).
+    var addsManually: Bool { env.flags.isOn(.activitiesManual) }
+
+    /// Add activity and Add sleep reach 14 days back (plan D2-1).
+    func canAdd(on day: Date) -> Bool {
+        let day = calendar.startOfDay(for: day)
+        return addsManually && day <= today && day >= DayFormat.shift(today, days: -AddActivityModel.daysBack)
+    }
+
+    /// Add sleep is offered while the day has no night (hidden once the tracker's or a typed-in night is there).
+    func offersAddSleep(on day: Date, content: MyDayContent) -> Bool {
+        canAdd(on: day) && !content.items.contains {
+            if case .sleep = $0.kind { return true }
+            return false
+        }
+    }
+
+    func addActivityModel(on day: Date) -> AddActivityModel { AddActivityModel(env: env, day: day) }
+
+    func addSleepModel(on day: Date) -> AddSleepModel {
+        AddSleepModel(env: env, day: day, trackerHasNight: state.cachedDayDetail(for: day)?.sleep != nil)
+    }
+
+    /// The detail's model for an activity row.
+    func detailModel(_ id: UUID, on day: Date) -> ActivityDetailViewModel {
+        ActivityDetailViewModel(route: ActivityRoute(id: id, day: day), state: state)
+    }
+
+    /// The edit sheet for a row: an editable activity, or a night the user added.
+    func editActivity(_ item: MyDayItem, on day: Date) -> AddActivityModel? {
+        guard addsManually, item.editable, case .activity(let id) = item.kind else { return nil }
+        return detailModel(id, on: day).editModel()
+    }
+
+    func editSleep(_ item: MyDayItem) -> AddSleepModel? {
+        guard addsManually, item.isManualSleep, case .sleep(let key) = item.kind,
+              let night = env.activities.manualSleep(onDay: key) else { return nil }
+        return AddSleepModel(env: env, editing: night)
+    }
+
+    /// Delete a row after its confirmation: an activity (a tombstone until the platform confirms) or a night the
+    /// user added.
+    func delete(_ item: MyDayItem, on day: Date) {
+        guard addsManually, item.editable else { return }
+        switch item.kind {
+        case .activity(let id): detailModel(id, on: day).delete()
+        case .sleep(let key) where item.isManualSleep: env.uploader.sleepDeleted(day: key)
+        default: break
+        }
+    }
+
     /// The cached workout behind a row (`WorkoutDetailView`).
     func workout(_ id: UUID, on day: Date) -> Workout? {
         state.cachedDayDetail(for: day)?.workouts.first { $0.id == id }

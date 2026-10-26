@@ -47,7 +47,7 @@ extension MyDayItem.Source {
     /// The badge's words (ui.md §2.3): RYFT's name, "Added by you", Train, or the tracker's display name.
     var title: String {
         switch self {
-        case .ryftRecorded: return "RYFT"
+        case .ryftRecorded, .ryft: return "RYFT"
         case .ryftManual, .addedByYou: return String(localized: "Added by you", comment: "Source badge: typed in by the user.")
         case .tracker(let name, _): return name
         case .train: return String(localized: "Train")
@@ -59,6 +59,8 @@ extension MyDayItem.Source {
         // Without GPS (an indoor run, yoga…) a neutral "recorded" mark: the row's icon already shows the sport.
         case .ryftRecorded(let indoor): return indoor ? "record.circle" : "location.fill"
         case .ryftManual, .addedByYou: return "pencil"
+        // An origin this build doesn't know: the neutral "unknown source" glyph (ui.md §2.3).
+        case .ryft: return "ellipsis.circle"
         case .tracker(_, let symbol): return symbol
         case .train: return "dumbbell.fill"
         }

@@ -18,6 +18,8 @@ struct MyDayRow: View {
     var showsLoad = false
     /// R4's Retry (A2's uploader); nil shows none.
     var retry: (() -> Void)?
+    /// The missing night's "· Add sleep" (`activities.manual`); nil shows none.
+    var addSleep: (() -> Void)?
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.locale) private var locale
@@ -32,11 +34,15 @@ struct MyDayRow: View {
         HStack(alignment: isMissingSleep ? .center : .top, spacing: 14) {
             icon
             VStack(alignment: .leading, spacing: 4) {
-                Text(verbatim: item.title)
-                    .font(.ryft(.body))
-                    .foregroundStyle(isMissingSleep ? Theme.textSecondary : Theme.textPrimary)
-                    .lineLimit(isLarge ? 3 : 1)
-                    .truncationMode(.tail)
+                if isMissingSleep, let addSleep {
+                    missingNight(addSleep)
+                } else {
+                    Text(verbatim: item.title)
+                        .font(.ryft(.body))
+                        .foregroundStyle(isMissingSleep ? Theme.textSecondary : Theme.textPrimary)
+                        .lineLimit(isLarge ? 3 : 1)
+                        .truncationMode(.tail)
+                }
                 if !isMissingSleep {
                     Text(verbatim: MyDayRow.detail(item, locale: locale))
                         .font(.ryft(.caption))
@@ -74,10 +80,30 @@ struct MyDayRow: View {
             }
         }
         .contentShape(Rectangle())
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: isMissingSleep && addSleep != nil ? .contain : .ignore)
         .accessibilityLabel(Text(verbatim: MyDayRow.spoken(item, showsLoad: showsLoad, locale: locale)))
         .accessibilityActions {
             if let retry { Button(String(localized: "Retry", comment: "My Day: send a failed upload again."), action: retry) }
+        }
+    }
+
+    /// "No sleep recorded · Add sleep" on one line; at accessibility sizes the button wraps to its own (ui.md §2.1 M3).
+    private func missingNight(_ addSleep: @escaping () -> Void) -> some View {
+        let layout = isLarge ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 0))
+        return layout {
+            Text(verbatim: item.title + (isLarge ? "" : "\u{00A0}·\u{00A0}"))
+                .font(.ryft(.body))
+                .foregroundStyle(Theme.textSecondary)
+            Button(action: addSleep) {
+                Text("Add sleep")
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textPrimary)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("myday.addSleep")
         }
     }
 

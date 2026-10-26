@@ -178,7 +178,7 @@ struct MyDayMergedRowTests {
         #expect(row.strain == .scored(10.6))                        // the activity's, not the workout's 10.1
     }
 
-    @Test func aMergedRowOpensItsWorkoutAndAnUnmergedActivityOpensNothingYet() throws {
+    @Test func everyActivityOpensItsDetailAndAMergedOneKnowsItsWorkout() throws {
         let w = workout(10, from: at(7))
         let merged = activity(1, .running, from: at(7), strain: 10.6, mergedWith: w.id)
         let alone = activity(2, .yoga, origin: .manual, from: at(13), strain: 4)
@@ -188,10 +188,13 @@ struct MyDayMergedRowTests {
         #expect(row.opensDetail)
         let other = try item(activityID(2), in: list)
         #expect(other.mergedWorkout == nil)
-        #expect(!other.opensDetail)
-        // A merge whose workout isn't cached for the day has nothing to open.
+        #expect(other.opensDetail, "A2: own activities open ActivityDetailView")
+        // A merge whose workout isn't cached for the day still opens the activity; it has no workout to link.
         let uncached = try item(activityID(1), in: rows(input(detail(), activities: [merged])))
-        #expect(uncached.mergedWorkout == nil && !uncached.opensDetail)
+        #expect(uncached.mergedWorkout == nil && uncached.opensDetail)
+        // A recording in progress opens nothing here (A4's screen).
+        let recording = local(3, .running, origin: .recorded, from: at(17, 30), revision: 0, phase: "recording")
+        #expect(try !item(activityID(3), in: rows(input(detail(), local: [recording]))).opensDetail)
     }
 
     @Test func aMergeIsOnlyWhatThePlatformSaidNeverPredicted() throws {

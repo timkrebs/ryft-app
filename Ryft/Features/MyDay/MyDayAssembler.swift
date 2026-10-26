@@ -44,6 +44,8 @@ struct MyDayItem: Identifiable, Equatable {
         case ryftRecorded(indoor: Bool)
         /// An activity the user typed in (Add activity).
         case ryftManual
+        /// RYFT's, with an origin this build doesn't know (a later version's, e.g. an import): neutral, read-only.
+        case ryft
         /// A night the user typed in (Add sleep).
         case addedByYou
         /// A tracker or source in Apple Health, by its display name, with its form factor's glyph.
@@ -85,14 +87,20 @@ struct MyDayItem: Identifiable, Equatable {
         return false
     }
 
-    /// The row opens something: the night (Sleep), a workout, a session, a merged activity (its tracker's
-    /// workout). Other activities open once A2's detail exists; a missing night has nothing to open yet.
+    /// The row opens something: the night (Sleep), a workout, a session, an activity (`ActivityDetailView`; a merged
+    /// one links its tracker's workout there). A recording in progress (A4's screen) and a missing night open nothing.
     var opensDetail: Bool {
         switch kind {
         case .sleep, .workout, .session: return true
-        case .activity: return mergedWorkout != nil
+        case .activity: return !isRecording
         case .missingSleep: return false
         }
+    }
+
+    /// A night the user added (it can be edited and deleted).
+    var isManualSleep: Bool {
+        if case .sleep = kind { return editable && sources == [.addedByYou] }
+        return false
     }
 }
 
@@ -218,7 +226,8 @@ enum MyDayAssembler {
 
     private static func item(_ a: SportActivity, upload: UploadState?, mergedWith workout: Workout?,
                              catalog: TrackerCatalog) -> MyDayItem {
-        let own: MyDayItem.Source = a.origin == .recorded ? .ryftRecorded(indoor: !a.sport.hasGPS) : .ryftManual
+        let own: MyDayItem.Source = a.unknownOrigin != nil ? .ryft
+            : a.origin == .recorded ? .ryftRecorded(indoor: !a.sport.hasGPS) : .ryftManual
         // The tracker's badge first: its heart rate is what scored the merged row (ui.md §2.3).
         let sources = workout.map { [tracker(for: $0, catalog: catalog), own] } ?? [own]
         let span = max(0, a.end.timeIntervalSince(a.start))

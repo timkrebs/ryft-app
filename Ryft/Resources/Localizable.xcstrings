@@ -133,6 +133,28 @@
         }
       }
     },
+    "%@ per kilometre" : {
+      "comment" : "VoiceOver: a pace, e.g. “5 minutes, 34 seconds per kilometre”.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ pro Kilometer"
+          }
+        }
+      }
+    },
+    "%@ per mile" : {
+      "comment" : "VoiceOver: a pace, e.g. “9 minutes, 10 seconds per mile”.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ pro Meile"
+          }
+        }
+      }
+    },
     "%@ readings" : {
       "localizations" : {
         "de" : {
@@ -309,6 +331,88 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld activities"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld activities or nights haven't reached RYFT yet. Logging out deletes them from this iPhone." : {
+      "comment" : "Log out with uploads pending; the number of activities and nights.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Aktivität oder Nacht hat RYFT noch nicht erreicht. Beim Abmelden wird sie von diesem iPhone gelöscht."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Aktivitäten oder Nächte haben RYFT noch nicht erreicht. Beim Abmelden werden sie von diesem iPhone gelöscht."
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld activity or night hasn't reached RYFT yet. Logging out deletes it from this iPhone."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld activities or nights haven't reached RYFT yet. Logging out deletes them from this iPhone."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld activities or nights you added haven't reached RYFT yet. Log in within 30 days to send them." : {
+      "comment" : "Welcome after a session expiry: how many unsent activities and nights wait on the phone.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Aktivität oder Nacht, die du hinzugefügt hast, hat RYFT noch nicht erreicht. Melde dich innerhalb von 30 Tagen an, um sie zu senden."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Aktivitäten oder Nächte, die du hinzugefügt hast, haben RYFT noch nicht erreicht. Melde dich innerhalb von 30 Tagen an, um sie zu senden."
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld activity or night you added hasn't reached RYFT yet. Log in within 30 days to send it."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld activities or nights you added haven't reached RYFT yet. Log in within 30 days to send them."
                 }
               }
             }
@@ -667,6 +771,17 @@
         }
       }
     },
+    "%lld of 10, %@" : {
+      "comment" : "VoiceOver: the selected effort, e.g. '6 of 10, Moderate'.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld von 10, %@"
+          }
+        }
+      }
+    },
     "%lld waiting to send" : {
       "localizations" : {
         "de" : {
@@ -703,6 +818,17 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "(next day)" : {
+      "comment" : "Add activity: the end is on the day after the start.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(nächster Tag)"
           }
         }
       }
@@ -891,6 +1017,28 @@
         }
       }
     },
+    "Activity" : {
+      "comment" : "Activity detail: the title before it's loaded.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktivität"
+          }
+        }
+      }
+    },
+    "Add a note" : {
+      "comment" : "Activity detail: opens the edit sheet to add notes.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notiz hinzufügen"
+          }
+        }
+      }
+    },
     "Add a tracker" : {
       "comment" : "Button on the Just my iPhone card: opens What do you wear?",
       "localizations" : {
@@ -898,6 +1046,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gerät hinzufügen"
+          }
+        }
+      }
+    },
+    "Add activity" : {
+      "comment" : "My Day and the sheet's title: type in an activity.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktivität hinzufügen"
           }
         }
       }
@@ -912,12 +1071,34 @@
         }
       }
     },
+    "Add here anyway" : {
+      "comment" : "Add activity: keep adding Strength here instead of Train.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trotzdem hier hinzufügen"
+          }
+        }
+      }
+    },
     "Add Sign in with Apple to open this account with your Apple ID too. Your data stays in this account." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Füge „Mit Apple anmelden“ hinzu, um dieses Konto auch mit deiner Apple-ID zu öffnen. Deine Daten bleiben in diesem Konto."
+          }
+        }
+      }
+    },
+    "Add sleep" : {
+      "comment" : "My Day and the sheet's title: type in a night.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlaf hinzufügen"
           }
         }
       }
@@ -929,6 +1110,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zu deinem Tag hinzufügen"
+          }
+        }
+      }
+    },
+    "Add what you did." : {
+      "comment" : "My Day card: under 'Nothing yet today' when activities can be added.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Füge hinzu, was du gemacht hast."
           }
         }
       }
@@ -1000,6 +1192,17 @@
         }
       }
     },
+    "All sports" : {
+      "comment" : "Sport picker: every sport, alphabetically.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Sportarten"
+          }
+        }
+      }
+    },
     "Allow it in Health → Sharing → Apps → RYFT → Workouts." : {
       "localizations" : {
         "de" : {
@@ -1020,6 +1223,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Immer deine Daten"
+          }
+        }
+      }
+    },
+    "An activity can be at most 24 hours." : {
+      "comment" : "Add activity: too long.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Aktivität darf höchstens 24 Stunden dauern."
+          }
+        }
+      }
+    },
+    "An activity can start at most 14 days ago." : {
+      "comment" : "Add activity: the start is further back than the app allows.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Aktivität kann höchstens 14 Tage zurückliegen."
           }
         }
       }
@@ -1161,6 +1386,17 @@
         }
       }
     },
+    "Ascent" : {
+      "comment" : "Activity detail: metres climbed.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anstieg"
+          }
+        }
+      }
+    },
     "asleep" : {
       "localizations" : {
         "de" : {
@@ -1178,6 +1414,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Entlastungsgewicht wird nicht importiert, die Wiederholungen schon"
+          }
+        }
+      }
+    },
+    "Avg pace" : {
+      "comment" : "Activity detail: average time per kilometre or mile.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ø Tempo"
+          }
+        }
+      }
+    },
+    "Avg speed" : {
+      "comment" : "Activity detail: average moving speed.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ø Geschwindigkeit"
           }
         }
       }
@@ -1579,6 +1837,17 @@
         }
       }
     },
+    "Clear" : {
+      "comment" : "VoiceOver action: remove the effort rating.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zurücksetzen"
+          }
+        }
+      }
+    },
     "Clears your other choices" : {
       "comment" : "VoiceOver hint of the Just my iPhone tile.",
       "localizations" : {
@@ -1725,6 +1994,17 @@
         }
       }
     },
+    "Couldn't upload. It is still saved on this iPhone." : {
+      "comment" : "Activity detail: retries ran out; the activity is still on the phone.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hochladen fehlgeschlagen. Sie ist weiterhin auf diesem iPhone gespeichert."
+          }
+        }
+      }
+    },
     "Counts, dates and request IDs for support; no health data" : {
       "localizations" : {
         "de" : {
@@ -1782,6 +2062,61 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Stattdessen Konto löschen"
+          }
+        }
+      }
+    },
+    "Delete from this iPhone" : {
+      "comment" : "Welcome: delete the unsent activities and nights without logging in.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Von diesem iPhone löschen"
+          }
+        }
+      }
+    },
+    "Delete them from this iPhone?" : {
+      "comment" : "Welcome: confirm deleting parked activities and nights.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Von diesem iPhone löschen?"
+          }
+        }
+      }
+    },
+    "Delete this activity?" : {
+      "comment" : "Confirmation title: delete an activity.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Aktivität löschen?"
+          }
+        }
+      }
+    },
+    "Delete this entry" : {
+      "comment" : "Edit sleep: delete the night the user added.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diesen Eintrag löschen"
+          }
+        }
+      }
+    },
+    "Delete this sleep entry?" : {
+      "comment" : "Confirmation title: delete a night the user added.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diesen Schlafeintrag löschen?"
           }
         }
       }
@@ -1856,6 +2191,39 @@
         }
       }
     },
+    "Distance (optional)" : {
+      "comment" : "Add activity: the distance group's label.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Distanz (optional)"
+          }
+        }
+      }
+    },
+    "Duration %@" : {
+      "comment" : "Add activity: the time between start and end.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dauer %@"
+          }
+        }
+      }
+    },
+    "Duration, %@" : {
+      "comment" : "VoiceOver: the activity's duration, spelled out.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dauer, %@"
+          }
+        }
+      }
+    },
     "Each night's sleep need starts from this baseline, plus top-ups for strain and sleep debt, minus naps." : {
       "localizations" : {
         "de" : {
@@ -1886,6 +2254,39 @@
         }
       }
     },
+    "Easy" : {
+      "comment" : "Perceived effort 3–4.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leicht"
+          }
+        }
+      }
+    },
+    "Edit activity" : {
+      "comment" : "The edit sheet's title.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktivität bearbeiten"
+          }
+        }
+      }
+    },
+    "Edit sleep" : {
+      "comment" : "The sleep sheet's title when editing a night the user added.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlaf bearbeiten"
+          }
+        }
+      }
+    },
     "Edit trackers" : {
       "comment" : "VoiceOver label of Edit in Devices & sync.",
       "localizations" : {
@@ -1893,6 +2294,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geräte bearbeiten"
+          }
+        }
+      }
+    },
+    "Effort" : {
+      "comment" : "Activity detail: perceived effort, 1 to 10.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anstrengung"
+          }
+        }
+      }
+    },
+    "Elev" : {
+      "comment" : "Splits table: the climb column (elevation).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Höhe"
           }
         }
       }
@@ -1917,12 +2340,45 @@
         }
       }
     },
+    "End can't be in the future." : {
+      "comment" : "Add activity: the end is later than now.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Ende darf nicht in der Zukunft liegen."
+          }
+        }
+      }
+    },
+    "End must be after start." : {
+      "comment" : "Add activity: end before start.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Ende muss nach dem Beginn liegen."
+          }
+        }
+      }
+    },
     "Engine" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sync-Engine"
+          }
+        }
+      }
+    },
+    "Enter a distance above 0." : {
+      "comment" : "Add activity: the distance can't be read or is out of range.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gib eine Distanz über 0 ein."
           }
         }
       }
@@ -2018,6 +2474,17 @@
         }
       }
     },
+    "Fastest" : {
+      "comment" : "Splits table: the fastest kilometre.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schnellster"
+          }
+        }
+      }
+    },
     "First score: the last 3 days" : {
       "localizations" : {
         "de" : {
@@ -2034,6 +2501,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "für %lld %%"
+          }
+        }
+      }
+    },
+    "For last night, when no tracker recorded it." : {
+      "comment" : "Add sleep: what the sheet is for.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Für letzte Nacht, wenn kein Tracker sie erfasst hat."
           }
         }
       }
@@ -2111,6 +2589,28 @@
         }
       }
     },
+    "From your effort rating (%lld of 10). Strain becomes more precise when heart rate arrives." : {
+      "comment" : "Activity detail: strain from perceived effort, the rating.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus deiner Anstrengung (%lld von 10). Die Belastung wird genauer, sobald Herzfrequenz vorliegt."
+          }
+        }
+      }
+    },
+    "From your effort rating. Strain becomes more precise when heart rate arrives." : {
+      "comment" : "Activity detail: strain from perceived effort, the rating unknown.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus deiner Anstrengung. Die Belastung wird genauer, sobald Herzfrequenz vorliegt."
+          }
+        }
+      }
+    },
     "From your iPhone" : {
       "comment" : "Steps on the card of a tracker that writes nothing: they come from the iPhone.",
       "localizations" : {
@@ -2174,6 +2674,17 @@
         }
       }
     },
+    "Hard" : {
+      "comment" : "Perceived effort 7–8.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schwer"
+          }
+        }
+      }
+    },
     "Health sync paused" : {
       "localizations" : {
         "de" : {
@@ -2200,6 +2711,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Herzfrequenz"
+          }
+        }
+      }
+    },
+    "Heart rate and zones" : {
+      "comment" : "Activity detail: opens the merged tracker workout's heart rate and zones.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Herzfrequenz und Zonen"
           }
         }
       }
@@ -2428,6 +2950,39 @@
         }
       }
     },
+    "It's marked “added by you”. If your tracker records this night later, RYFT uses the tracker's data instead." : {
+      "comment" : "Add sleep: the night is marked as typed in; the tracker's wins.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Eintrag ist als „von dir hinzugefügt“ markiert. Erfasst dein Tracker diese Nacht später, nutzt RYFT stattdessen seine Daten."
+          }
+        }
+      }
+    },
+    "It's removed from RYFT and your strain for the day is recalculated." : {
+      "comment" : "Delete a manual activity: what happens.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sie wird aus RYFT entfernt und deine Tagesbelastung wird neu berechnet."
+          }
+        }
+      }
+    },
+    "It's removed from RYFT, including its route, and your strain for the day is recalculated." : {
+      "comment" : "Delete a recorded activity: what happens.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sie wird aus RYFT entfernt, einschließlich ihrer Route, und deine Tagesbelastung wird neu berechnet."
+          }
+        }
+      }
+    },
     "It's scored as soon as Apple Health has it." : {
       "localizations" : {
         "de" : {
@@ -2449,6 +3004,17 @@
         }
       }
     },
+    "Keep" : {
+      "comment" : "Cancels deleting an activity or a night.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Behalten"
+          }
+        }
+      }
+    },
     "Keep it flowing" : {
       "comment" : "Section of a setup card: habits that keep data arriving.",
       "localizations" : {
@@ -2456,6 +3022,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Damit es weiterläuft"
+          }
+        }
+      }
+    },
+    "Kilometre %lld" : {
+      "comment" : "Splits row, VoiceOver: which kilometre.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kilometer %lld"
+          }
+        }
+      }
+    },
+    "Km" : {
+      "comment" : "Splits table: the kilometre column.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Km"
           }
         }
       }
@@ -2689,6 +3277,39 @@
         }
       }
     },
+    "Log in Train" : {
+      "comment" : "Add activity: Strength goes to Train instead.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In Train erfassen"
+          }
+        }
+      }
+    },
+    "Log out anyway" : {
+      "comment" : "Log out: delete the activities and nights not at RYFT yet.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trotzdem abmelden"
+          }
+        }
+      }
+    },
+    "Log this in Train" : {
+      "comment" : "Activity detail: a manual Strength activity; log the sets in Train.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In Train erfassen"
+          }
+        }
+      }
+    },
     "Looks at the last 48 hours in Apple Health. The check uploads nothing." : {
       "localizations" : {
         "de" : {
@@ -2699,12 +3320,45 @@
         }
       }
     },
+    "Maximal" : {
+      "comment" : "Perceived effort 9–10.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maximal"
+          }
+        }
+      }
+    },
     "Maximum heart rate" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Maximale Herzfrequenz"
+          }
+        }
+      }
+    },
+    "Measured by RYFT. Times and distance can't be changed." : {
+      "comment" : "Edit activity: a recorded activity's times and distance are fixed.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Von RYFT gemessen. Zeiten und Distanz lassen sich nicht ändern."
+          }
+        }
+      }
+    },
+    "Merged from two sources: heart rate from %@, route and distance from RYFT. RYFT counts this activity once." : {
+      "comment" : "Activity detail: a RYFT activity merged with a tracker's workout; the tracker's name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus zwei Quellen zusammengeführt: Herzfrequenz von %@, Route und Distanz von RYFT. RYFT zählt diese Aktivität nur einmal."
           }
         }
       }
@@ -2760,6 +3414,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aus deinen Nächten sind keine Werte für %@ bei RYFT angekommen."
+          }
+        }
+      }
+    },
+    "No heart rate for this time." : {
+      "comment" : "Activity detail: scored without heart rate.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Herzfrequenz für diese Zeit."
           }
         }
       }
@@ -2948,6 +3613,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ohne Schlafphasen"
+          }
+        }
+      }
+    },
+    "No sport matches “%@”" : {
+      "comment" : "Sport picker: the search found nothing; the search text.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Sportart passt zu „%@“"
           }
         }
       }
@@ -3149,6 +3825,17 @@
         }
       }
     },
+    "Notes can be 500 characters." : {
+      "comment" : "Add activity: the notes limit.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notizen können 500 Zeichen lang sein."
+          }
+        }
+      }
+    },
     "Nothing from this iPhone in the last 2 days. Carry it with you for a while, then tap Check again." : {
       "localizations" : {
         "de" : {
@@ -3334,6 +4021,17 @@
         }
       }
     },
+    "Opens the activity" : {
+      "comment" : "VoiceOver hint: a My Day row opens the activity's detail.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet die Aktivität"
+          }
+        }
+      }
+    },
     "Opens the App Store." : {
       "comment" : "Caption under a setup card's store button.",
       "localizations" : {
@@ -3366,6 +4064,17 @@
         }
       }
     },
+    "Opens the list of sports" : {
+      "comment" : "VoiceOver: the sport row opens the picker.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet die Liste der Sportarten"
+          }
+        }
+      }
+    },
     "Opens the session" : {
       "comment" : "VoiceOver: a My Day row opens the Train session.",
       "localizations" : {
@@ -3393,6 +4102,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Öffnet, was nötig ist"
+          }
+        }
+      }
+    },
+    "Optional" : {
+      "comment" : "Add activity: the distance field's placeholder.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Optional"
           }
         }
       }
@@ -3440,6 +4160,17 @@
         }
       }
     },
+    "Pace" : {
+      "comment" : "Splits table and pace chart: time per kilometre or mile.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tempo"
+          }
+        }
+      }
+    },
     "Part of your data couldn't be loaded. The details help us find out why." : {
       "localizations" : {
         "de" : {
@@ -3478,6 +4209,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ausstehend: %@"
+          }
+        }
+      }
+    },
+    "Perceived effort" : {
+      "comment" : "VoiceOver: the effort scale's name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gefühlte Anstrengung"
+          }
+        }
+      }
+    },
+    "Perceived effort (optional)" : {
+      "comment" : "Add activity: the effort group's label.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gefühlte Anstrengung (optional)"
           }
         }
       }
@@ -3529,6 +4282,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bitte gib keine Gesundheitswerte ein, die du lieber für dich behalten möchtest."
+          }
+        }
+      }
+    },
+    "plus %@" : {
+      "comment" : "VoiceOver: a split's climb, e.g. “plus 8 metres”.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "plus %@"
           }
         }
       }
@@ -3644,6 +4408,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ausgangswerte werden neu berechnet"
+          }
+        }
+      }
+    },
+    "Recent" : {
+      "comment" : "Sport picker: the sports used last.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zuletzt"
           }
         }
       }
@@ -3923,6 +4698,17 @@
         }
       }
     },
+    "RYFT couldn't accept this activity. It is still saved on this iPhone." : {
+      "comment" : "Activity detail: the platform refused the upload.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT konnte diese Aktivität nicht annehmen. Sie ist weiterhin auf diesem iPhone gespeichert."
+          }
+        }
+      }
+    },
     "RYFT couldn't take that change. Try again later." : {
       "localizations" : {
         "de" : {
@@ -4108,6 +4894,61 @@
         }
       }
     },
+    "Saved on this iPhone. It uploads once your account is ready." : {
+      "comment" : "Activity detail: the invite or consent step isn't done; the upload waits.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf diesem iPhone gespeichert. Der Upload folgt, sobald dein Konto bereit ist."
+          }
+        }
+      }
+    },
+    "Saved on this iPhone. It will upload when you're online." : {
+      "comment" : "Activity detail: offline; the upload waits.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf diesem iPhone gespeichert. Der Upload folgt, sobald du online bist."
+          }
+        }
+      }
+    },
+    "Saved on this iPhone. RYFT will try again, or tap Retry." : {
+      "comment" : "Activity detail: an upload failed and waits to be retried.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf diesem iPhone gespeichert. RYFT versucht es erneut, oder tippe auf „Erneut versuchen“."
+          }
+        }
+      }
+    },
+    "Saved on this iPhone. Uploading activities to RYFT isn't available yet." : {
+      "comment" : "Activity detail: the platform doesn't take activities yet; nothing is sent.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf diesem iPhone gespeichert. Das Hochladen von Aktivitäten zu RYFT ist noch nicht verfügbar."
+          }
+        }
+      }
+    },
+    "Saved on this iPhone. Uploading to RYFT." : {
+      "comment" : "Activity detail: queued or being sent.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf diesem iPhone gespeichert. Wird zu RYFT hochgeladen."
+          }
+        }
+      }
+    },
     "Saved. It will be sent as soon as you're back online. You can close the app." : {
       "localizations" : {
         "de" : {
@@ -4188,6 +5029,17 @@
         }
       }
     },
+    "Search sports" : {
+      "comment" : "Sport picker: the search field's prompt.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sportarten suchen"
+          }
+        }
+      }
+    },
     "See whether your trackers' data arrives in Apple Health." : {
       "localizations" : {
         "de" : {
@@ -4216,6 +5068,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Senden"
+          }
+        }
+      }
+    },
+    "Send first" : {
+      "comment" : "Log out: upload the activities and nights not at RYFT yet, then log out.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zuerst senden"
           }
         }
       }
@@ -4458,6 +5321,17 @@
         }
       }
     },
+    "Showing what's saved on this iPhone." : {
+      "comment" : "Activity detail: offline; what's shown is on the phone.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt, was auf diesem iPhone gespeichert ist."
+          }
+        }
+      }
+    },
     "Shows how your sleep need adds up, and your baseline to change" : {
       "localizations" : {
         "de" : {
@@ -4529,6 +5403,17 @@
         }
       }
     },
+    "Sleep can be 1 to 16 hours." : {
+      "comment" : "Add sleep: too short or too long.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlaf kann 1 bis 16 Stunden dauern."
+          }
+        }
+      }
+    },
     "sleep stages" : {
       "comment" : "A signal inside a sentence, on a setup card and in Check sync (\"RYFT can read sleep stages, but …\").",
       "localizations" : {
@@ -4558,6 +5443,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schlafphasen nicht bestätigt"
+          }
+        }
+      }
+    },
+    "Sleep was already recorded by %@." : {
+      "comment" : "Add sleep: the platform has a night for this day; its source.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlaf wurde bereits von %@ erfasst."
           }
         }
       }
@@ -4686,6 +5582,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Quellen: %@, zusammengeführt"
+          }
+        }
+      }
+    },
+    "Speed" : {
+      "comment" : "Splits table: speed for cycling.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geschwindigkeit"
+          }
+        }
+      }
+    },
+    "Splits" : {
+      "comment" : "Activity detail: the splits card.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zwischenzeiten"
+          }
+        }
+      }
+    },
+    "Sport" : {
+      "comment" : "The sport picker's title.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sportart"
+          }
+        }
+      }
+    },
+    "Sport, %@" : {
+      "comment" : "VoiceOver: the chosen sport.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sportart, %@"
           }
         }
       }
@@ -5220,6 +6160,17 @@
         }
       }
     },
+    "Strain comes from the heart rate your tracker syncs for this time. Without it, your effort rating is used." : {
+      "comment" : "Add activity: where an activity's strain comes from.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Belastung kommt aus der Herzfrequenz, die dein Tracker für diese Zeit synchronisiert. Ohne sie zählt deine Anstrengung."
+          }
+        }
+      }
+    },
     "Strain pending" : {
       "comment" : "My Day row: at RYFT, strain not scored yet.",
       "localizations" : {
@@ -5237,6 +6188,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Datenströme"
+          }
+        }
+      }
+    },
+    "Strength is best logged in Train." : {
+      "comment" : "Add activity: the collapsed Strength suggestion.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Krafttraining erfasst du am besten in Train."
+          }
+        }
+      }
+    },
+    "Strength is best logged in Train. Your sets, reps and load count toward muscular load." : {
+      "comment" : "Add activity and detail: Strength belongs in Train.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Krafttraining erfasst du am besten in Train. Sätze, Wiederholungen und Last zählen für die muskuläre Belastung."
           }
         }
       }
@@ -5354,6 +6327,17 @@
         }
       }
     },
+    "That's faster than expected for this sport. Check the distance." : {
+      "comment" : "Add activity: the average speed is implausible (a warning; Save stays enabled).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das ist schneller als bei dieser Sportart üblich. Prüfe die Distanz."
+          }
+        }
+      }
+    },
     "That's normal." : {
       "localizations" : {
         "de" : {
@@ -5432,6 +6416,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Der Wecker ist aus: iOS erlaubt RYFTs Wecker nicht. Schalte ihn wieder ein, um sie zu erlauben."
+          }
+        }
+      }
+    },
+    "They haven't reached RYFT, so they're gone for good. This can't be undone." : {
+      "comment" : "Welcome: deleting parked activities and nights is final.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sie haben RYFT nicht erreicht und sind danach endgültig weg. Das lässt sich nicht rückgängig machen."
+          }
+        }
+      }
+    },
+    "This activity isn't on this iPhone any more." : {
+      "comment" : "Activity detail: deleted meanwhile.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Aktivität ist nicht mehr auf diesem iPhone."
           }
         }
       }
@@ -5610,6 +6616,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dieses Workout steht auch in einer anderen gewählten Datei und wird einmal importiert"
+          }
+        }
+      }
+    },
+    "Time asleep %@" : {
+      "comment" : "Add sleep: the time between bed and wake.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlafdauer %@"
+          }
+        }
+      }
+    },
+    "Time in bed. RYFT can't see your sleep stages for this entry." : {
+      "comment" : "Add sleep: the duration is the time in bed; no stages for a typed-in night.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeit im Bett. Schlafphasen kann RYFT für diesen Eintrag nicht sehen."
           }
         }
       }
@@ -5823,6 +6851,17 @@
         }
       }
     },
+    "Use Other" : {
+      "comment" : "Sport picker: choose the sport 'Other' when nothing matched.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„Sonstiges“ wählen"
+          }
+        }
+      }
+    },
     "Use the estimate" : {
       "localizations" : {
         "de" : {
@@ -5884,6 +6923,17 @@
         }
       }
     },
+    "Very easy" : {
+      "comment" : "Perceived effort 1–2.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sehr leicht"
+          }
+        }
+      }
+    },
     "VO₂ max" : {
       "localizations" : {
         "de" : {
@@ -5900,6 +6950,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wartet"
+          }
+        }
+      }
+    },
+    "Waiting for heart rate" : {
+      "comment" : "Activity detail: strain pending, heart rate may still arrive.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warte auf Herzfrequenz"
           }
         }
       }
@@ -5975,6 +7036,28 @@
         }
       }
     },
+    "Waking up can't be in the future." : {
+      "comment" : "Add sleep: the wake time is later than now.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Aufwachen darf nicht in der Zukunft liegen."
+          }
+        }
+      }
+    },
+    "Waking up must be after going to bed." : {
+      "comment" : "Add sleep: wake before bed.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Aufwachen muss nach dem Zubettgehen liegen."
+          }
+        }
+      }
+    },
     "Weekdays" : {
       "localizations" : {
         "de" : {
@@ -6001,6 +7084,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wir sagen dir hier Bescheid, sobald Mitteilungen dein Konto erreichen."
+          }
+        }
+      }
+    },
+    "Went to bed" : {
+      "comment" : "Add sleep: the bed time's label.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ins Bett gegangen"
           }
         }
       }
@@ -6150,6 +7244,28 @@
         }
       }
     },
+    "Without heart rate there is no strain for this activity." : {
+      "comment" : "Add activity: no strain without heart rate.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ohne Herzfrequenz gibt es für diese Aktivität keine Belastung."
+          }
+        }
+      }
+    },
+    "Woke up" : {
+      "comment" : "Add sleep: the wake time's label.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufgewacht"
+          }
+        }
+      }
+    },
     "Workouts" : {
       "localizations" : {
         "de" : {
@@ -6197,6 +7313,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Du kannst jederzeit ein Gerät hinzufügen. RYFT zeigt dir, wie du es verbindest."
+          }
+        }
+      }
+    },
+    "You can add sleep for the last 14 days." : {
+      "comment" : "Add sleep: the night is too far back.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlaf kannst du für die letzten 14 Tage hinzufügen."
           }
         }
       }
@@ -6404,6 +7531,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Deine Nacht wird bewertet."
+          }
+        }
+      }
+    },
+    "Your scores for that night are recalculated." : {
+      "comment" : "Delete a night the user added: what happens.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Werte für diese Nacht werden neu berechnet."
           }
         }
       }

@@ -8,6 +8,7 @@ struct WelcomeView: View {
     @State private var legal: LegalPage?
     @Environment(AuthService.self) private var auth
     @Environment(Settings.self) private var settings
+    @Environment(\.appEnvironment) private var env
     @State private var path: [AuthRoute] = []
 
     var body: some View {
@@ -59,6 +60,10 @@ struct WelcomeView: View {
             if let notice = auth.signOutNotice {
                 InlineMessage(message: notice, systemImage: "person.crop.circle.badge.exclamationmark")
                     .accessibilityIdentifier("welcome.notice")
+            }
+            // Activities and nights a session expiry kept on this iPhone (design.md §8.4).
+            if env.flags.isOn(.activitiesManual) {
+                ParkedActivitiesNotice(source: env.parkedActivities)
             }
             VStack(spacing: 12) {
                 AppleSignInButton()
@@ -138,6 +143,41 @@ private struct ValueLine: View {
     return WelcomeView()
         .environment(auth)
         .environment(Settings.shared)
+}
+
+/// A preview graph whose store holds a parked run and a parked night of an expired session.
+@MainActor
+private func parkedPreviewEnvironment() -> AppEnvironment {
+    let env = AppEnvironment.preview(flags: [.activitiesManual: true])
+    let context = env.persistence.context
+    let run = LocalActivity(account: "expired", sport: .running, origin: .recorded, start: .now.addingTimeInterval(-7_200),
+                            end: .now.addingTimeInterval(-5_400), movingSec: 1_700, localRevision: 1, createdAt: .now)
+    run.parkedAt = .now
+    context.insert(run)
+    let night = LocalManualSleep(day: DayFormat.string(from: .now), account: "expired", bed: .now.addingTimeInterval(-36_000),
+                                 wake: .now.addingTimeInterval(-7_800))
+    night.parkedAt = .now
+    context.insert(night)
+    return env
+}
+
+#Preview("Welcome · parked activities") {
+    let auth = AuthService.preview(signedIn: false)
+    auth.signOutNotice = AuthService.SignOutReason.sessionExpired.notice
+    return WelcomeView()
+        .environment(auth)
+        .environment(Settings.shared)
+        .environment(\.appEnvironment, parkedPreviewEnvironment())
+}
+
+#Preview("Welcome · parked activities · light system") {
+    let auth = AuthService.preview(signedIn: false)
+    auth.signOutNotice = AuthService.SignOutReason.sessionExpired.notice
+    return WelcomeView()
+        .environment(auth)
+        .environment(Settings.shared)
+        .environment(\.appEnvironment, parkedPreviewEnvironment())
+        .preferredColorScheme(.light)
 }
 
 #Preview("Welcome · light system") {
