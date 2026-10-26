@@ -3,6 +3,10 @@
 # the performance tests, and the contract against the platform's current API.md
 # (docs/CI.md). The job names are the required checks on `main`
 # (docs/RELEASING.md → Branch rules); rename them only together with the ruleset.
+#
+# The macOS jobs run on the self-hosted Mac (labels self-hosted, macOS, ARM64), which saves
+# Actions minutes. A pull request from a fork runs them on GitHub's `xcode-27` runner instead:
+# the repository is public, and a fork's code must never run on that Mac (docs/CI.md).
 name: iOS
 
 on:
@@ -61,7 +65,7 @@ jobs:
     name: Lint
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: xcode-27
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'xcode-27' || fromJSON('["self-hosted", "macOS", "ARM64"]') }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -76,7 +80,7 @@ jobs:
     name: Build, unit tests, UI smoke
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: xcode-27
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'xcode-27' || fromJSON('["self-hosted", "macOS", "ARM64"]') }}
     timeout-minutes: 75
     env:
       # Pull requests and main run Unit + UISmoke; the nightly runs Full.
@@ -154,7 +158,7 @@ jobs:
     name: Contract
     needs: changes
     if: needs.changes.outputs.contract == 'true'
-    runs-on: xcode-27
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'xcode-27' || fromJSON('["self-hosted", "macOS", "ARM64"]') }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -165,6 +169,7 @@ jobs:
           sparse-checkout: docs/API.md
           sparse-checkout-cone-mode: false
       - name: Select Xcode
-        run: sudo xcode-select -s "/Applications/Xcode_$(tr -d '[:space:]' < .xcode-version).app/Contents/Developer"
+        # DEVELOPER_DIR instead of sudo xcode-select (see .github/actions/setup).
+        run: echo "DEVELOPER_DIR=$(sh scripts/select-xcode.sh)" >> "$GITHUB_ENV"
       - name: Decode every API.md example
         run: sh scripts/contract/run.sh plattform/docs/API.md

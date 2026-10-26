@@ -1,9 +1,31 @@
 # CI/CD
 
-GitHub Actions on macOS runners. The Xcode version is pinned in `.xcode-version`
-(27.1), and every job selects `/Applications/Xcode_<version>.app`. If the runner image
-doesn't have that Xcode, the job stops with a list of the installed ones. Then either
-change the `runs-on` image in the workflows or update `.xcode-version`.
+GitHub Actions. `ios.yml`'s macOS jobs (Lint, Build/unit/UI smoke, Contract) run on the
+self-hosted Mac (`[self-hosted, macOS, ARM64]`, see below), and its `Changes` job runs on
+`ubuntu-latest`, which is free for a public repository. The TestFlight and CodeQL workflows
+still use GitHub's `xcode-27` runner.
+
+The Xcode version is pinned in `.xcode-version` (27.1). `scripts/select-xcode.sh` finds an
+`/Applications/Xcode*.app` with that version: `Xcode_<version>.app` on GitHub's images,
+`Xcode.app` on the Mac. Jobs export it as `DEVELOPER_DIR` rather than running
+`sudo xcode-select`. If no installed Xcode matches, the job stops with a list of the
+installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
+
+### The self-hosted Mac
+- **Registration.** The runner must be registered to *this* repository (Settings → Actions →
+  Runners). A runner registered to `ryft-platform` doesn't serve it. Until one is online,
+  the macOS jobs wait in the queue, and so do the required checks.
+- **Forks.** A pull request from a fork runs the macOS jobs on `xcode-27` instead (the
+  `runs-on` expression in `ios.yml`). The repository is public, and a fork's code must
+  never run on a machine that holds the account's files.
+- **One job at a time.** Lint, the tests and the contract check run one after another, and
+  so do runs for different PRs. A second runner on the same Mac (its own directory and
+  service) would run two jobs at once.
+- **Awake for the nightly.** The 00:30 UTC run waits until the Mac is awake.
+- **Its simulator.** `scripts/ci-simulator.sh` creates "RYFT CI" in the Mac's own simulator
+  set and reuses it.
+- **Load.** Builds on the Mac compete with whatever else it is doing. The test time limits
+  (60 s per unit test, 3 minutes per UI test) were set for GitHub's runners.
 
 | Workflow | When | What |
 | --- | --- | --- |
