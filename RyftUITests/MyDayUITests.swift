@@ -20,14 +20,6 @@ final class MyDayUITests: XCTestCase {
         launchDemo(openMyDayDaysBack: openDaysBack)
     }
 
-    private func element(_ app: XCUIApplication, _ identifier: String) -> XCUIElement { app.element(identifier) }
-
-    private func elements(_ app: XCUIApplication, identifierPrefix prefix: String) -> XCUIElementQuery {
-        app.elements(identifierPrefix: prefix)
-    }
-
-    private func reveal(_ element: XCUIElement, in app: XCUIApplication) { app.reveal(element) }
-
     private func day(daysBack back: Int) -> String { dayString(daysBack: back) }
 
     // MARK: the card
@@ -35,11 +27,11 @@ final class MyDayUITests: XCTestCase {
     @MainActor
     func testTheCardShowsTheMergedRunAsOneRowWithTwoBadges() throws {
         let app = launch()
-        let card = element(app, "myday.card")
+        let card = app.otherElements["myday.card"]
         XCTAssertTrue(card.waitForExistence(timeout: wait), "the My Day card on Today")
 
-        let row = element(app, "myday.row.activity.\(mergedRun)")
-        reveal(row, in: app)
+        let row = app.buttons["myday.row.activity.\(mergedRun)"]
+        app.reveal(row)
         XCTAssertTrue(row.waitForExistence(timeout: wait), "the merged run's row")
         let label = row.label
         XCTAssertTrue(label.hasPrefix("Running"), label)
@@ -49,25 +41,25 @@ final class MyDayUITests: XCTestCase {
     @MainActor
     func testTheTitleOpensTheFullScreen() throws {
         let app = launch()
-        let title = element(app, "myday.title")
+        let title = app.buttons["myday.title"]
         XCTAssertTrue(title.waitForExistence(timeout: wait))
-        reveal(title, in: app)
+        app.reveal(title)
         XCTAssertTrue(title.label.hasPrefix("My Day, "), "VoiceOver: the title and its date: \(title.label)")
         title.tap()
 
-        XCTAssertTrue(element(app, "myday.view").waitForExistence(timeout: wait), "the full screen")
-        XCTAssertTrue(element(app, "myday.view.header").waitForExistence(timeout: wait))
-        XCTAssertTrue(element(app, "myday.view.row.activity.\(mergedRun)").waitForExistence(timeout: wait),
+        XCTAssertTrue(app.otherElements["myday.view"].waitForExistence(timeout: wait), "the full screen")
+        XCTAssertTrue(app.staticTexts["myday.view.header"].waitForExistence(timeout: wait))
+        XCTAssertTrue(app.buttons["myday.view.row.activity.\(mergedRun)"].waitForExistence(timeout: wait),
                       "today's rows, the merged run once")
-        XCTAssertTrue(element(app, "datestrip.day.\(day(daysBack: 0))").exists, "the week strip")
+        XCTAssertTrue(app.buttons["datestrip.day.\(day(daysBack: 0))"].exists, "the week strip")
     }
 
     @MainActor
     func testTheSleepRowOpensTheSleepTab() throws {
         let app = launch()
-        let row = element(app, "myday.row.sleep.\(day(daysBack: 0))")
+        let row = app.buttons["myday.row.sleep.\(day(daysBack: 0))"]
         XCTAssertTrue(row.waitForExistence(timeout: wait), "last night's row")
-        reveal(row, in: app)
+        app.reveal(row)
         XCTAssertTrue(row.label.hasPrefix("Sleep"), row.label)
         row.tap()
 
@@ -81,31 +73,31 @@ final class MyDayUITests: XCTestCase {
     @MainActor
     func testTheStripSwitchesToAPastDayAndShowsItsRows() throws {
         let app = launch(openDaysBack: 0)
-        XCTAssertTrue(element(app, "myday.view").waitForExistence(timeout: wait))
-        XCTAssertTrue(element(app, "myday.view.row.activity.\(mergedRun)").waitForExistence(timeout: wait))
+        XCTAssertTrue(app.otherElements["myday.view"].waitForExistence(timeout: wait))
+        XCTAssertTrue(app.buttons["myday.view.row.activity.\(mergedRun)"].waitForExistence(timeout: wait))
 
-        let yesterday = element(app, "datestrip.day.\(day(daysBack: 1))")
+        let yesterday = app.buttons["datestrip.day.\(day(daysBack: 1))"]
         XCTAssertTrue(yesterday.waitForExistence(timeout: wait))
         yesterday.tap()
-        let padelRow = element(app, "myday.view.row.activity.\(padel)")
+        let padelRow = app.buttons["myday.view.row.activity.\(padel)"]
         XCTAssertTrue(padelRow.waitForExistence(timeout: wait), "yesterday's padel")
         XCTAssertTrue(padelRow.label.hasPrefix("Padel"), padelRow.label)
-        XCTAssertFalse(element(app, "myday.view.row.activity.\(mergedRun)").exists, "today's run is gone")
+        XCTAssertFalse(app.buttons["myday.view.row.activity.\(mergedRun)"].exists, "today's run is gone")
 
-        element(app, "datestrip.day.\(day(daysBack: 2))").tap()
-        XCTAssertTrue(element(app, "myday.view.row.activity.\(ride)").waitForExistence(timeout: wait), "the ride two days ago")
+        app.buttons["datestrip.day.\(day(daysBack: 2))"].tap()
+        XCTAssertTrue(app.buttons["myday.view.row.activity.\(ride)"].waitForExistence(timeout: wait), "the ride two days ago")
         XCTAssertFalse(padelRow.exists, "yesterday's padel is gone")
 
-        element(app, "datestrip.day.\(day(daysBack: 0))").tap()
-        XCTAssertTrue(element(app, "myday.view.row.activity.\(mergedRun)").waitForExistence(timeout: wait), "back on today")
+        app.buttons["datestrip.day.\(day(daysBack: 0))"].tap()
+        XCTAssertTrue(app.buttons["myday.view.row.activity.\(mergedRun)"].waitForExistence(timeout: wait), "back on today")
     }
 
     @MainActor
     func testAWorkoutRowOpensItsDetail() throws {
         let app = launch(openDaysBack: 0)
-        XCTAssertTrue(element(app, "myday.view").waitForExistence(timeout: wait))
+        XCTAssertTrue(app.otherElements["myday.view"].waitForExistence(timeout: wait))
         // The tracker's walk: the run beside it is merged into RYFT's row, so this is the day's only workout row.
-        let rows = elements(app, identifierPrefix: "myday.view.row.workout.")
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "myday.view.row.workout."))
         let walk = rows.firstMatch
         XCTAssertTrue(walk.waitForExistence(timeout: wait), "a tracker workout row")
         XCTAssertEqual(rows.count, 1, "the merged run's workout is hidden")
@@ -120,17 +112,20 @@ final class MyDayUITests: XCTestCase {
     @MainActor
     func testEveryRowHasAVoiceOverSentenceWithItsSources() throws {
         let app = launch(openDaysBack: 0)
-        XCTAssertTrue(element(app, "myday.view.row.activity.\(mergedRun)").waitForExistence(timeout: wait))
+        XCTAssertTrue(app.buttons["myday.view.row.activity.\(mergedRun)"].waitForExistence(timeout: wait))
 
-        let rows = elements(app, identifierPrefix: "myday.view.row.")
-        XCTAssertGreaterThanOrEqual(rows.count, 4, "the night, the run, the walk, yoga at least")
-        for index in 0..<rows.count {
-            let row = rows.element(boundBy: index)
-            XCTAssertFalse(row.label.isEmpty, "row \(row.identifier) has a label")
-            XCTAssertTrue(row.label.contains(" to "), "\(row.identifier) says its times: \(row.label)")
-            XCTAssertTrue(row.label.contains("Source"), "\(row.identifier) says where it came from: \(row.label)")
+        // One snapshot of the rows' identifiers; each row is then looked up by identifier (a live query's
+        // `count` and `element(boundBy:)` re-snapshot the whole tree on every call).
+        let ids = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "myday.view.row."))
+            .allElementsBoundByIndex.map(\.identifier)
+        XCTAssertGreaterThanOrEqual(ids.count, 4, "the night, the run, the walk, yoga at least")
+        for id in ids {
+            let label = app.buttons[id].label
+            XCTAssertFalse(label.isEmpty, "row \(id) has a label")
+            XCTAssertTrue(label.contains(" to "), "\(id) says its times: \(label)")
+            XCTAssertTrue(label.contains("Source"), "\(id) says where it came from: \(label)")
         }
-        let sleep = element(app, "myday.view.row.sleep.\(day(daysBack: 0))")
+        let sleep = app.buttons["myday.view.row.sleep.\(day(daysBack: 0))"]
         XCTAssertTrue(sleep.label.hasPrefix("Sleep"), sleep.label)
         XCTAssertTrue(sleep.label.contains("Source: Apple Health"), sleep.label)
     }

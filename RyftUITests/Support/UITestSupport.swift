@@ -32,15 +32,6 @@ extension XCTestCase {
 }
 
 extension XCUIApplication {
-    /// Any element by identifier (My Day's containers have no stable type).
-    func element(_ identifier: String) -> XCUIElement {
-        descendants(matching: .any)[identifier]
-    }
-
-    func elements(identifierPrefix prefix: String) -> XCUIElementQuery {
-        descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix))
-    }
-
     /// Scrolls until `element` can be tapped.
     func reveal(_ element: XCUIElement) {
         var tries = 0
