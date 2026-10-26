@@ -59,10 +59,14 @@ struct PlansView: View {
 private struct PlansScreen: View {
     @State var model: PlansViewModel
     @State private var editing: Plan?
+    @Environment(ScreenModels.self) private var screens
+
+    private var importer: ImportCoordinator { screens.importer }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Metrics.sectionSpacing) {
+                if importer.isEnabled { importRows }
                 if let id = model.currentPlanID {
                     currentCard(planID: id)
                 }
@@ -71,12 +75,7 @@ private struct PlansScreen: View {
                 }
                 section("Built-in", plans: model.builtin)
                 section("My plans", plans: model.mine)
-                Button {
-                    editing = .blank()
-                } label: {
-                    Label("New plan", systemImage: "plus")
-                }
-                .buttonStyle(TealButtonStyle(prominent: false))
+                newPlan
             }
             .padding(Theme.Metrics.screenPadding)
         }
@@ -87,6 +86,52 @@ private struct PlansScreen: View {
         .refreshable { await model.refresh() }
         .task { await model.loadIfNeeded() }
         .sheet(item: $editing) { PlanBuilderView(plan: $0) }
+    }
+
+    /// `train.import` off: today's button. On: a menu, Start from scratch or Import from file (ui.md §3.1).
+    @ViewBuilder
+    private var newPlan: some View {
+        if importer.isEnabled {
+            Menu {
+                Button {
+                    editing = .blank()
+                } label: {
+                    Label(String(localized: "Start from scratch", comment: "My Plans → New plan: the plan builder."),
+                          systemImage: "square.and.pencil")
+                }
+                Button {
+                    importer.start()
+                } label: {
+                    Label(String(localized: "Import from file", comment: "My Plans → New plan: the training import."),
+                          systemImage: "square.and.arrow.down")
+                }
+                .accessibilityIdentifier("plans.import")
+            } label: {
+                Label("New plan", systemImage: "plus")
+            }
+            .buttonStyle(TealButtonStyle(prominent: false))
+            .accessibilityIdentifier("plans.newPlan")
+        } else {
+            Button {
+                editing = .blank()
+            } label: {
+                Label("New plan", systemImage: "plus")
+            }
+            .buttonStyle(TealButtonStyle(prominent: false))
+        }
+    }
+
+    /// The import job (E3) and a file waiting to be opened (E7, E9), above the active plan.
+    @ViewBuilder
+    private var importRows: some View {
+        if importer.showsResumeRow, let status = importer.uploader.status {
+            ImportResumeRow(status: status, open: { importer.resume() },
+                            dismiss: status.isFinished && !status.hasRejected ? { importer.dismissFinished() } : nil)
+        }
+        if let name = importer.waitingFileName, let reason = importer.waitingFor {
+            ImportWaitingFileRow(name: name, reason: reason, canOpen: importer.canOpenWaitingFile,
+                                 open: { Task { await importer.openWaitingFile() } }, viewProgress: { importer.resume() })
+        }
     }
 
     private func currentCard(planID: UUID) -> some View {
@@ -327,4 +372,9 @@ private struct PlanDetailScreen: View {
 #Preview("Plan detail · weeks, light") {
     NavigationStack { PlanDetailView(planID: MockTrain.weightlifting.id) }
         .previewEnvironment(scheme: .light)
+}
+
+#Preview("Plans · import menu · dark") {
+    NavigationStack { PlansView().trainDestinations() }
+        .previewEnvironment(AppState.preview(flags: [.trainImport: true]))
 }

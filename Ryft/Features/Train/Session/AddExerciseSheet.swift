@@ -4,6 +4,8 @@ import SwiftUI
 /// Works offline from the cached library.
 struct AddExerciseSheet: View {
     var title: LocalizedStringKey = "Add exercise"
+    /// The search field's text when the sheet opens (the import's "Choose another exercise…": the file's name).
+    var initialQuery = ""
     let onPick: (Exercise) -> Void
 
     @Environment(TrainLibrary.self) private var library
@@ -12,6 +14,7 @@ struct AddExerciseSheet: View {
     @State private var muscle: Muscle?
     @State private var kind: ExerciseKind?
     @State private var showsCustom = false
+    @State private var seeded = false
 
     private var muscles: [Muscle] {
         Array(Set(library.exercises.flatMap(\.primaryMuscles))).sorted { $0.title < $1.title }
@@ -75,6 +78,11 @@ struct AddExerciseSheet: View {
                     onPick(e)
                     dismiss()
                 }
+            }
+            .onAppear {
+                guard !seeded else { return }
+                seeded = true
+                query = initialQuery
             }
         }
     }
@@ -172,6 +180,8 @@ struct FilterChip: View {
 /// A user's own exercise; saved locally first, so it can be logged offline.
 struct CustomExerciseForm: View {
     let onSave: (Exercise) -> Void
+    /// The import's mode: the draft goes back and nothing is saved now (it's created when Import is tapped, ui.md 7.3).
+    private var onDraft: ((CustomExerciseDraft) -> Void)?
 
     @Environment(TrainLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
@@ -183,6 +193,13 @@ struct CustomExerciseForm: View {
     init(name: String, onSave: @escaping (Exercise) -> Void) {
         _draft = State(initialValue: CustomExerciseDraft(name: name))
         self.onSave = onSave
+    }
+
+    /// Prefilled (the import: name and kind from the file, the muscle left to choose); Save hands the draft back.
+    init(draft: CustomExerciseDraft, onDraft: @escaping (CustomExerciseDraft) -> Void) {
+        _draft = State(initialValue: draft)
+        onSave = { _ in }
+        self.onDraft = onDraft
     }
 
     var body: some View {
@@ -198,8 +215,12 @@ struct CustomExerciseForm: View {
                         ForEach(ExerciseKind.allCases) { Text($0.title).tag($0) }
                     }
                     Picker("Main muscle", selection: $draft.muscle) {
-                        ForEach(Self.muscles) { Text($0.title).tag($0) }
+                        if draft.muscle == nil {
+                            Text("Choose").tag(Muscle?.none)
+                        }
+                        ForEach(Self.muscles) { Text($0.title).tag(Optional($0)) }
                     }
+                    .accessibilityIdentifier("customExercise.muscle")
                     Picker("Logged as", selection: $draft.loadType) {
                         ForEach([LoadType.weight, .bodyweight, .time, .distance], id: \.self) { Text($0.title).tag($0) }
                     }
@@ -221,6 +242,11 @@ struct CustomExerciseForm: View {
     }
 
     private func save() async {
+        if let onDraft {
+            onDraft(draft)
+            dismiss()
+            return
+        }
         saving = true
         let e = draft.exercise
         let saved = await library.createExercise(e) ?? e
