@@ -358,7 +358,7 @@ Same sheet frame, title "Add sleep", `.medium` detent (`.large` at AX sizes).
 ### 3.8 Copy (en | de)
 | Key | en | de |
 | --- | --- | --- |
-| title | Add activity | Aktivität hinzufügen |
+| title | Add activity · Edit activity | Neue Aktivität · Aktivität ändern (short: between Cancel and Save) |
 | sport | Sport | Sportart |
 | start / end | Start · End | Beginn · Ende |
 | duration | Duration %@ | Dauer %@ |
@@ -378,7 +378,7 @@ Same sheet frame, title "Add sleep", `.medium` detent (`.large` at AX sizes).
 | warn distance | That's faster than expected for this sport. Check the distance. | Das ist schneller als bei dieser Sportart üblich. Prüfe die Distanz. |
 | saved local | Saved on this iPhone. It will upload when you're online. | Auf diesem iPhone gespeichert. Der Upload folgt, sobald du online bist. |
 | rejected | RYFT couldn't accept this activity. It is still saved on this iPhone. | RYFT konnte diese Aktivität nicht annehmen. Sie ist weiterhin auf diesem iPhone gespeichert. |
-| sleep title | Add sleep | Schlaf hinzufügen |
+| sleep title | Add sleep · Edit sleep | Schlaf eintragen · Schlaf ändern (short: between Cancel and Save) |
 | sleep intro | For a night no tracker recorded. | Für eine Nacht, die kein Tracker erfasst hat. |
 | bed / wake | Went to bed · Woke up | Ins Bett gegangen · Aufgewacht |
 | asleep | Time asleep %@ | Schlafdauer %@ |
@@ -653,7 +653,7 @@ if the app dies here). Navigation title "Activity summary" inline, no back (the 
 1. **Header:** sport icon circle (64 pt like `WorkoutDetailView`), name `title`, `callout` `textSecondary` "Thursday 22 Oct · 07:12–07:48".
 2. **Map** (`RouteMap(.summary)`, `cardRadius`, 220 pt, fits the route with padding 24): Teal 4 pt polyline with casing, hollow start dot, filled finish dot, km ticks every km (small 6 pt `Mist` dots only; no text). Non-interactive; tap opens it full-screen for inspection. If a privacy zone is active: its circle dashed 1.5 pt `textSecondary`, with the caption "The route is trimmed inside privacy zones before upload." The route shown here follows the stored choice for this activity (4.1a), never a RYFT default. If route off: replaced by a muted card `map` + "Route not recorded" (D2). No route and no GPS (indoor): nothing here.
 3. **Stat grid** (shipped `WorkoutDetailView` 3-column stat tile pattern): DISTANCE, TIME (moving), AVG PACE (or SPEED); second row: ELAPSED if different from moving ("0:36:20 · 36:02 moving"), ELEVATION ↑, ↓ (when available). Values `headline` `monospacedDigit`.
-4. **Splits** (`SplitsTable`, new, `Ryft/Features/Activities/SplitsTable.swift`), `Card` with `CardHeader("Splits")`: one row per km (last partial row "0.21 km"): columns Km · Pace · bar · Elev. Pace `body` `monospacedDigit`; the bar is a 6 pt tall capsule scaled to the pace relative to the fastest, `Theme.accent` for all (single hue; the **fastest** row gets the text "Fastest" `caption` after the number, and the slowest nothing). Elevation delta "+8 m" `caption` `textSecondary`. Hairlines between rows. Header row labels `ryftLabelStyle`. Over 20 km: collapses to the first 10 and "Show all 32" button.
+4. **Splits** (`SplitsTable`, new, `Ryft/Features/Activities/SplitsTable.swift`), `Card` with `CardHeader("Splits")`: one row per km (last partial row "0.21 km"): columns Km · Pace · bar · Elev, in km, pace per km and metres in every locale (the unit the splits are measured in; per-mile splits for a miles locale are A4's). Pace `body` `monospacedDigit`; the bar is a 6 pt tall capsule scaled to the pace relative to the fastest, `Theme.accent` for all (single hue; the **fastest** row gets a glyph (`hare.fill`, `textSecondary`) in a narrow column of its own and the word "Fastest" `caption` on its own line under the pace, so the pace never wraps; the slowest nothing). Elevation delta "+8 m" `caption` `textSecondary`. Hairlines between rows. Header row labels `ryftLabelStyle`. Over 20 km: collapses to the first 10 and "Show all 32" button.
 5. **Effort** (`EffortScale`, as 3.3), optional, labelled "How hard did it feel?" 
 6. **Notes** (multiline, as 3.1).
 7. **Privacy zone suggestion** (Z6, only on the first route save while no zone exists and not dismissed twice): a `Card` with `hairline` border, `lock.shield` `textSecondary`, `headline` "Hide where you start and finish?", `callout`: "A privacy zone removes every part of the route inside its circle, before upload and export. You can add more places in Settings." Radius segmented picker 200 m / 300 m / 400 m / 500 m, **400 m preselected**. Buttons: **Add start as zone** (`PrimaryButton(.secondary)`) and **Not now** (text). Adding it re-draws the map trimmed. It is an offer, not a gate.

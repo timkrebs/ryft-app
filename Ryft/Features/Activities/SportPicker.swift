@@ -126,16 +126,12 @@ struct SportPicker: View {
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textSecondary)
             if sports.contains(.other) {
-                Button {
+                // A button (ui.md §3.2), not tinted text.
+                PrimaryButton(verbatim: String(localized: "Use Other", comment: "Sport picker: choose the sport 'Other' when nothing matched."),
+                              style: .secondary) {
                     selection = .other
                     dismiss()
-                } label: {
-                    Text("Use Other", comment: "Sport picker: choose the sport 'Other' when nothing matched.")
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.accent)
-                        .frame(minHeight: 44)
                 }
-                .buttonStyle(.plain)
                 .accessibilityIdentifier("sportPicker.useOther")
             }
         }

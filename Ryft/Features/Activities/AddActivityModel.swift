@@ -99,7 +99,13 @@ final class AddActivityModel: Identifiable {
     // MARK: what the form shows
 
     var title: String {
-        mode == .add ? String(localized: "Add activity") : String(localized: "Edit activity", comment: "The edit sheet's title.")
+        // Their own keys: the sheet's title sits between Cancel and Save, so German needs shorter words than the
+        // buttons that open it.
+        mode == .add
+            ? String(localized: "addActivity.title", defaultValue: "Add activity",
+                     comment: "The Add activity sheet's title, between Cancel and Save: keep it short.")
+            : String(localized: "editActivity.title", defaultValue: "Edit activity",
+                     comment: "The edit sheet's title, between Cancel and Save: keep it short.")
     }
 
     var now: Date { env.clock.now() }

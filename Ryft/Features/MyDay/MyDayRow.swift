@@ -87,24 +87,39 @@ struct MyDayRow: View {
         }
     }
 
-    /// "No sleep recorded · Add sleep" on one line; at accessibility sizes the button wraps to its own (ui.md §2.1 M3).
+    /// "No sleep recorded · Add sleep" on one line when it fits (ui.md §2.1 M3); otherwise, and always at
+    /// accessibility sizes, the text with Add sleep under it and no dot, never a line broken mid-phrase.
     private func missingNight(_ addSleep: @escaping () -> Void) -> some View {
-        let layout = isLarge ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: 0))
-        return layout {
-            Text(verbatim: item.title + (isLarge ? "" : "\u{00A0}·\u{00A0}"))
-                .font(.ryft(.body))
-                .foregroundStyle(Theme.textSecondary)
-            Button(action: addSleep) {
-                Text("Add sleep")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textPrimary)
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
+        ViewThatFits(in: .horizontal) {
+            if !isLarge {
+                HStack(alignment: .center, spacing: 0) {
+                    missingText(item.title + "\u{00A0}·\u{00A0}").lineLimit(1)
+                    addSleepButton(addSleep).lineLimit(1)
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("myday.addSleep")
+            VStack(alignment: .leading, spacing: 0) {
+                missingText(item.title)
+                addSleepButton(addSleep)
+            }
         }
+    }
+
+    private func missingText(_ text: String) -> some View {
+        Text(verbatim: text)
+            .font(.ryft(.body))
+            .foregroundStyle(Theme.textSecondary)
+    }
+
+    private func addSleepButton(_ addSleep: @escaping () -> Void) -> some View {
+        Button(action: addSleep) {
+            Text("Add sleep")
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("myday.addSleep")
     }
 
     private var icon: some View {

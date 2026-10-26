@@ -34,11 +34,15 @@ struct EffortScale: View {
                     button(n)
                 }
             }
-            Text(verbatim: value.map { "\($0) · \(Self.word($0))" } ?? " ")
-                .font(.ryft(.callout))
-                .monospacedDigit()
-                .foregroundStyle(Theme.textSecondary)
-                .accessibilityHidden(true)
+            // Only once a value is picked: no empty line under the grid before.
+            if let value {
+                Text(verbatim: "\(value) · \(Self.word(value))")
+                    .font(.ryft(.callout))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textSecondary)
+                    .transition(.opacity)
+                    .accessibilityHidden(true)
+            }
         }
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: value)
         .accessibilityElement(children: .ignore)
@@ -69,14 +73,18 @@ struct EffortScale: View {
             Text(verbatim: "\(n)")
                 .font(.ryft(.body).weight(selected ? .bold : .regular))
                 .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
                 .foregroundStyle(selected ? Theme.onAccent : Theme.textPrimary)
-                .frame(maxWidth: .infinity, minHeight: 44)
+                // The circle grows with the number, so "10" stays inside it at the largest sizes.
+                .padding(typeSize.isAccessibilitySize ? 14 : 4)
+                .frame(minWidth: 44, minHeight: 44)
                 .background(selected ? Theme.accent : Theme.surfaceRaised, in: Circle())
                 .overlay {
                     if selected { Circle().strokeBorder(Theme.textPrimary, lineWidth: 2) }
                 }
-                .frame(minWidth: 44)
-                .contentShape(Circle())
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("effortScale.\(n)")

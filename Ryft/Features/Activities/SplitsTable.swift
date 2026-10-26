@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// Splits (ui.md §7.1): one row per kilometre (the last one partial), its pace (or speed for cycling), a bar scaled
-/// to the fastest, and the climb. The fastest row says "Fastest": never colour alone. Over 20 rows the table shows
-/// the first 10 and "Show all".
+/// to the fastest, and the climb. The table is in the unit its splits were measured in, kilometres and metres,
+/// whatever the locale (per-mile splits are A4's). The fastest row has a glyph in a column of its own and the word
+/// "Fastest" under its pace: never colour alone. Over 20 rows the table shows the first 10 and "Show all".
 struct SplitsTable: View {
     let splits: [ActivitySplit]
     var paceStyle: TrackProfile.PaceStyle = .pace
@@ -10,6 +11,10 @@ struct SplitsTable: View {
     @Environment(\.locale) private var locale
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var showsAll = false
+    /// Wide enough for "10:05 /km" or "24.3 km/h" on one line at the size in use.
+    @ScaledMetric(relativeTo: .body) private var paceWidth: CGFloat = 96
+    /// The fastest split's glyph column.
+    @ScaledMetric(relativeTo: .caption) private var glyphWidth: CGFloat = 16
 
     static let collapseOver = 20
     static let collapsedCount = 10
@@ -55,11 +60,13 @@ struct SplitsTable: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Text("Km", comment: "Splits table: the kilometre column.").frame(width: Self.labelWidth, alignment: .leading)
             Text(paceStyle == .speed ? String(localized: "Speed")
                  : String(localized: "Pace", comment: "Splits table and pace chart: time per kilometre or mile."))
-                .frame(width: 84, alignment: .leading)
+                .lineLimit(1)
+                .frame(width: paceWidth, alignment: .leading)
+            Color.clear.frame(width: glyphWidth, height: 1)
             Spacer(minLength: 0)
             Text("Elev", comment: "Splits table: the climb column (elevation).").frame(width: 52, alignment: .trailing)
         }
@@ -72,25 +79,25 @@ struct SplitsTable: View {
 
     private func row(_ s: ActivitySplit) -> some View {
         let value = paceStyle == .speed
-            ? ActivityFormat.speed(movingSec: s.durationSec, distanceM: s.distanceM, locale: locale)
-            : ActivityFormat.pace(movingSec: s.durationSec, distanceM: s.distanceM, locale: locale)
-        let climb = s.ascentM.flatMap { ActivityFormat.elevation($0, locale: locale) }.map { "+\($0)" } ?? ""
+            ? ActivityFormat.speed(movingSec: s.durationSec, distanceM: s.distanceM, locale: locale, inKilometres: true)
+            : ActivityFormat.pace(movingSec: s.durationSec, distanceM: s.distanceM, locale: locale, inKilometres: true)
+        let climb = s.ascentM.flatMap { ActivityFormat.elevation($0, locale: locale, inMetres: true) }.map { "+\($0)" } ?? ""
         let isFastest = s.index == fastest && splits.count > 1
         let label = Text(verbatim: ActivityFormat.splitLabel(s, locale: locale))
             .font(.ryft(.callout))
             .monospacedDigit()
             .foregroundStyle(Theme.textSecondary)
-        let pace = HStack(spacing: 4) {
-            Text(verbatim: value ?? Fmt.placeholder)
-                .font(.ryft(.body))
-                .monospacedDigit()
-                .foregroundStyle(Theme.textPrimary)
-            if isFastest {
-                Text("Fastest")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-        }
+        let pace = Text(verbatim: value ?? Fmt.placeholder)
+            .font(.ryft(.body))
+            .monospacedDigit()
+            .foregroundStyle(Theme.textPrimary)
+            .lineLimit(1)
+        let word = Text("Fastest")
+            .font(.ryft(.caption))
+            .foregroundStyle(Theme.textSecondary)
+        let glyph = Image(systemName: "hare.fill")
+            .font(.ryft(.caption))
+            .foregroundStyle(Theme.textSecondary)
         let elevation = Text(verbatim: climb)
             .font(.ryft(.caption))
             .monospacedDigit()
@@ -104,15 +111,25 @@ struct SplitsTable: View {
                         Spacer(minLength: 8)
                         elevation
                     }
-                    pace
+                    HStack(spacing: 6) {
+                        pace
+                        if isFastest { glyph }
+                    }
+                    if isFastest { word }
                 }
             } else {
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     label
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                         .frame(width: Self.labelWidth, alignment: .leading)
-                    pace.frame(minWidth: 84, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 0) {
+                        pace.minimumScaleFactor(0.8)
+                        if isFastest { word.lineLimit(1).minimumScaleFactor(0.8) }
+                    }
+                    .frame(width: paceWidth, alignment: .leading)
+                    Group { if isFastest { glyph } else { Color.clear } }
+                        .frame(width: glyphWidth)
                     bar(s)
                     elevation.frame(width: 52, alignment: .trailing)
                 }
@@ -140,9 +157,10 @@ struct SplitsTable: View {
     /// "5 minutes, 34 seconds per kilometre, Fastest, plus 8 metres".
     private func spoken(_ s: ActivitySplit, isFastest: Bool) -> String {
         let rate = paceStyle == .speed
-            ? ActivityFormat.spokenSpeed(movingSec: s.durationSec, distanceM: s.distanceM, locale: locale)
-            : ActivityFormat.spokenPace(movingSec: s.durationSec, distanceM: s.distanceM, locale: locale)
-        let parts = [rate, isFastest ? String(localized: "Fastest") : nil, ActivityFormat.spokenClimb(s.ascentM, locale: locale)]
+            ? ActivityFormat.spokenSpeed(movingSec: s.durationSec, distanceM: s.distanceM, locale: locale, inKilometres: true)
+            : ActivityFormat.spokenPace(movingSec: s.durationSec, distanceM: s.distanceM, locale: locale, inKilometres: true)
+        let climb = ActivityFormat.spokenClimb(s.ascentM, locale: locale, inMetres: true)
+        let parts = [rate, isFastest ? String(localized: "Fastest") : nil, climb]
         return parts.compactMap { $0 }.joined(separator: ", ")
     }
 }

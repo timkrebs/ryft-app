@@ -64,9 +64,12 @@ struct ActivityDetailScreen: View {
                         Button(role: .destructive) { confirmsDelete = true } label: { Label("Delete", systemImage: "trash") }
                             .accessibilityIdentifier("activityDetail.menu.delete")
                     } label: {
+                        // Secondary: the accent is the screen's one (ui.md §0.5).
                         Image(systemName: "ellipsis.circle")
+                            .foregroundStyle(Theme.textSecondary)
                             .accessibilityLabel(Text("More", comment: "VoiceOver: the activity detail's menu (Edit, Delete)."))
                     }
+                    .tint(Theme.textSecondary)
                     .accessibilityIdentifier("activityDetail.menu")
                 }
             }

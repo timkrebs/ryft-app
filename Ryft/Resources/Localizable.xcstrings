@@ -1218,6 +1218,17 @@
         }
       }
     },
+    "addActivity.title" : {
+      "comment" : "The Add activity sheet's title, between Cancel and Save: keep it short.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neue Aktivität"
+          }
+        }
+      }
+    },
     "Added by you" : {
       "comment" : "Source badge: typed in by the user.",
       "localizations" : {
@@ -1235,6 +1246,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "„Mit Apple anmelden“ lässt sich bei RYFT noch nicht hinzufügen. Versuche es später erneut."
+          }
+        }
+      }
+    },
+    "addSleep.title" : {
+      "comment" : "The Add sleep sheet's title, between Cancel and Save: keep it short.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlaf eintragen"
           }
         }
       }
@@ -2369,28 +2391,6 @@
         }
       }
     },
-    "Edit activity" : {
-      "comment" : "The edit sheet's title.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aktivität bearbeiten"
-          }
-        }
-      }
-    },
-    "Edit sleep" : {
-      "comment" : "The sleep sheet's title when editing a night the user added.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Schlaf bearbeiten"
-          }
-        }
-      }
-    },
     "Edit trackers" : {
       "comment" : "VoiceOver label of Edit in Devices & sync.",
       "localizations" : {
@@ -2398,6 +2398,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geräte bearbeiten"
+          }
+        }
+      }
+    },
+    "editActivity.title" : {
+      "comment" : "The edit sheet's title, between Cancel and Save: keep it short.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktivität ändern"
+          }
+        }
+      }
+    },
+    "editSleep.title" : {
+      "comment" : "The sleep sheet's title when editing a night the user added, between Cancel and Save: keep it short.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlaf ändern"
           }
         }
       }

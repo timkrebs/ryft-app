@@ -544,6 +544,19 @@ struct SplitFormatTests {
         #expect(ActivityFormat.spokenClimb(8, locale: ireland) == "plus 8 metres")
         #expect(ActivityFormat.spokenClimb(nil, locale: ireland) == nil)
     }
+
+    @Test func theSplitsTableIsInKilometresInAMilesLocaleToo() {
+        let us = Locale(identifier: "en_US")
+        // The table's own calls: kilometres, pace per kilometre and metres, whatever the locale.
+        #expect(ActivityFormat.pace(movingSec: 334, distanceM: 1_000, locale: us, inKilometres: true) == "5:34\u{00A0}/km")
+        #expect(ActivityFormat.speed(movingSec: 150, distanceM: 1_000, locale: us, inKilometres: true)?.contains("km/h") == true)
+        #expect(ActivityFormat.elevation(8, locale: us, inMetres: true) == "8 m")
+        #expect(ActivityFormat.spokenPace(movingSec: 334, distanceM: 1_000, locale: us, inKilometres: true)?
+            .hasSuffix("per kilometre") == true)
+        #expect(ActivityFormat.spokenClimb(8, locale: us, inMetres: true) == "plus 8 meters", "US spelling, metric unit")
+        // Elsewhere (the stat grid) the locale's road units stay.
+        #expect(ActivityFormat.pace(movingSec: 334, distanceM: 1_000, locale: us)?.hasSuffix("/mi") == true)
+    }
 }
 
 @Suite("Demo data: the missing-night scenario")

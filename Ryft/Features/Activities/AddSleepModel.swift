@@ -83,8 +83,12 @@ final class AddSleepModel: Identifiable {
 
     var isEditing: Bool { editedDay != nil }
     var title: String {
-        isEditing ? String(localized: "Edit sleep", comment: "The sleep sheet's title when editing a night the user added.")
-            : String(localized: "Add sleep")
+        // Their own keys, short enough for German between Cancel and Save (as the activity sheet's).
+        isEditing
+            ? String(localized: "editSleep.title", defaultValue: "Edit sleep",
+                     comment: "The sleep sheet's title when editing a night the user added, between Cancel and Save: keep it short.")
+            : String(localized: "addSleep.title", defaultValue: "Add sleep",
+                     comment: "The Add sleep sheet's title, between Cancel and Save: keep it short.")
     }
 
     var now: Date { env.clock.now() }

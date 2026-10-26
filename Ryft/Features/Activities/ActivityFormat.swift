@@ -17,30 +17,34 @@ enum ActivityFormat {
     }
 
     /// "5:34 /km": moving time per kilometre (or mile); nil without a distance, or slower than an hour per unit.
-    static func pace(movingSec: Double, distanceM: Double?, locale: Locale = .autoupdatingCurrent) -> String? {
+    /// `inKilometres`: per kilometre whatever the locale (splits are measured per kilometre).
+    static func pace(movingSec: Double, distanceM: Double?, locale: Locale = .autoupdatingCurrent,
+                     inKilometres: Bool = false) -> String? {
         guard let distanceM, distanceM > 0, movingSec > 0 else { return nil }
-        let unit = usesMiles(locale) ? 1_609.344 : 1_000
-        let seconds = (movingSec / (distanceM / unit)).rounded()
+        let miles = usesMiles(locale) && !inKilometres
+        let seconds = (movingSec / (distanceM / (miles ? 1_609.344 : 1_000))).rounded()
         guard seconds.isFinite, seconds < 3_600 else { return nil }
         let whole = Int(seconds)
-        return "\(whole / 60):\(String(format: "%02d", whole % 60))\u{00A0}/\(distanceSymbol(locale))"
+        return "\(whole / 60):\(String(format: "%02d", whole % 60))\u{00A0}/\(miles ? "mi" : "km")"
     }
 
-    /// "24.3 km/h": average moving speed; nil without a distance.
-    static func speed(movingSec: Double, distanceM: Double?, locale: Locale = .autoupdatingCurrent) -> String? {
+    /// "24.3 km/h": average moving speed; nil without a distance. `inKilometres` as for `pace`.
+    static func speed(movingSec: Double, distanceM: Double?, locale: Locale = .autoupdatingCurrent,
+                      inKilometres: Bool = false) -> String? {
         guard let distanceM, distanceM > 0, movingSec > 0 else { return nil }
-        let perHour = distanceM / movingSec * 3.6 / (usesMiles(locale) ? 1.609_344 : 1)
-        let unit: UnitSpeed = usesMiles(locale) ? .milesPerHour : .kilometersPerHour
+        let miles = usesMiles(locale) && !inKilometres
+        let perHour = distanceM / movingSec * 3.6 / (miles ? 1.609_344 : 1)
+        let unit: UnitSpeed = miles ? .milesPerHour : .kilometersPerHour
         return Measurement(value: perHour, unit: unit)
             .formatted(.measurement(width: .abbreviated, usage: .asProvided,
                                     numberFormatStyle: .number.precision(.fractionLength(1))).locale(locale))
     }
 
-    /// "84 m" or "276 ft"; nil without a value.
-    static func elevation(_ meters: Double?, locale: Locale = .autoupdatingCurrent) -> String? {
+    /// "84 m" or "276 ft"; nil without a value. `inMetres`: metres whatever the locale (the splits table).
+    static func elevation(_ meters: Double?, locale: Locale = .autoupdatingCurrent, inMetres: Bool = false) -> String? {
         guard let meters else { return nil }
         let value = Measurement(value: meters, unit: UnitLength.meters)
-            .converted(to: usesMiles(locale) ? .feet : .meters)
+            .converted(to: usesMiles(locale) && !inMetres ? .feet : .meters)
         return value.formatted(.measurement(width: .abbreviated, usage: .asProvided,
                                             numberFormatStyle: .number.precision(.fractionLength(0))).locale(locale))
     }
@@ -67,31 +71,35 @@ enum ActivityFormat {
     }
 
     /// "5 minutes, 34 seconds per kilometre" (or mile); nil as `pace` is.
-    static func spokenPace(movingSec: Double, distanceM: Double?, locale: Locale = .autoupdatingCurrent) -> String? {
+    static func spokenPace(movingSec: Double, distanceM: Double?, locale: Locale = .autoupdatingCurrent,
+                           inKilometres: Bool = false) -> String? {
         guard let distanceM, distanceM > 0, movingSec > 0 else { return nil }
-        let seconds = (movingSec / (distanceM / (usesMiles(locale) ? 1_609.344 : 1_000))).rounded()
+        let miles = usesMiles(locale) && !inKilometres
+        let seconds = (movingSec / (distanceM / (miles ? 1_609.344 : 1_000))).rounded()
         guard seconds.isFinite, seconds < 3_600 else { return nil }
         let time = Duration.seconds(Int(seconds)).formatted(.units(allowed: [.minutes, .seconds], width: .wide).locale(locale))
-        return usesMiles(locale)
+        return miles
             ? String(localized: "\(time) per mile", comment: "VoiceOver: a pace, e.g. “9 minutes, 10 seconds per mile”.")
             : String(localized: "\(time) per kilometre", comment: "VoiceOver: a pace, e.g. “5 minutes, 34 seconds per kilometre”.")
     }
 
     /// "24.3 kilometres per hour"; nil without a distance.
-    static func spokenSpeed(movingSec: Double, distanceM: Double?, locale: Locale = .autoupdatingCurrent) -> String? {
+    static func spokenSpeed(movingSec: Double, distanceM: Double?, locale: Locale = .autoupdatingCurrent,
+                            inKilometres: Bool = false) -> String? {
         guard let distanceM, distanceM > 0, movingSec > 0 else { return nil }
-        let perHour = distanceM / movingSec * 3.6 / (usesMiles(locale) ? 1.609_344 : 1)
-        let unit: UnitSpeed = usesMiles(locale) ? .milesPerHour : .kilometersPerHour
+        let miles = usesMiles(locale) && !inKilometres
+        let perHour = distanceM / movingSec * 3.6 / (miles ? 1.609_344 : 1)
+        let unit: UnitSpeed = miles ? .milesPerHour : .kilometersPerHour
         return Measurement(value: perHour, unit: unit)
             .formatted(.measurement(width: .wide, usage: .asProvided,
                                     numberFormatStyle: .number.precision(.fractionLength(1))).locale(locale))
     }
 
-    /// "plus 8 metres" (or feet); nil without a value.
-    static func spokenClimb(_ meters: Double?, locale: Locale = .autoupdatingCurrent) -> String? {
+    /// "plus 8 metres" (or feet); nil without a value. `inMetres` as for `elevation`.
+    static func spokenClimb(_ meters: Double?, locale: Locale = .autoupdatingCurrent, inMetres: Bool = false) -> String? {
         guard let meters else { return nil }
         let value = Measurement(value: meters, unit: UnitLength.meters)
-            .converted(to: usesMiles(locale) ? .feet : .meters)
+            .converted(to: usesMiles(locale) && !inMetres ? .feet : .meters)
             .formatted(.measurement(width: .wide, usage: .asProvided,
                                     numberFormatStyle: .number.precision(.fractionLength(0))).locale(locale))
         return String(localized: "plus \(value)", comment: "VoiceOver: a split's climb, e.g. “plus 8 metres”.")
