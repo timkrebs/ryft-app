@@ -45,6 +45,8 @@ final class UploadHarness {
     init(online: Bool = true, signedIn: Bool = true) {
         env = .test(api: api, clock: clock, auth: signedIn ? nil : .preview(signedIn: false), online: online)
         env.uploader.random = { $0.lowerBound }
+        // Closed until the app connects the onboarding's gate; these tests are about what happens past it.
+        env.uploader.gate = { nil }
     }
 
     var store: ActivityStore { env.activities }

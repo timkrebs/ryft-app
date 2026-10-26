@@ -192,6 +192,18 @@ final class OnboardingCoordinator {
         return missing.contains(.consent) ? .consentRequired : nil
     }
 
+    /// What the activity uploader waits for (`ActivityUploader.gate`): `syncGate`, and stricter on the policy. Until
+    /// `GET /v1/config` says which policy is in force, a consent to an older one doesn't count (`syncGate` lets it,
+    /// for HealthKit data): a policy bumped for manual entries must hold queued and unparked rows back
+    /// (A2 privacy re-check A-1).
+    var uploadGate: APIErrorCode? {
+        guard !env.isDemo else { return nil }
+        if let gate = syncGate { return gate }
+        let f = facts
+        guard let policy = f.policyVersion, f.consentVersion == policy else { return .consentRequired }
+        return nil
+    }
+
     // MARK: the policy
 
     /// The policy in force (`GET /v1/config`).

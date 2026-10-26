@@ -79,9 +79,11 @@ final class ActivityUploader {
     @ObservationIgnored var onRemoved: (@MainActor (_ id: UUID, _ days: [String]) -> Void)?
     /// The platform confirmed a night's `PUT` or `DELETE`: that day is rescored.
     @ObservationIgnored var onSleepConfirmed: (@MainActor (_ day: String) -> Void)?
-    /// What still stands between the account and its uploads (`OnboardingCoordinator.syncGate`: no consent, an
-    /// enforced invite gate, the account not known yet). While it names one, nothing is sent. Nil: no gate (tests).
-    @ObservationIgnored var gate: (@MainActor () -> APIErrorCode?)?
+    /// What still stands between the account and its uploads (`OnboardingCoordinator.uploadGate`: no consent to the
+    /// policy in force, an enforced invite gate, the account or the policy not known yet). While it names one,
+    /// nothing is sent. **Closed until the app connects it** (ScreenModels), so no path can upload without consent;
+    /// tests open it explicitly.
+    @ObservationIgnored var gate: @MainActor () -> APIErrorCode? = { .consentRequired }
     /// Jitter source (tests: `{ $0.lowerBound }`).
     @ObservationIgnored var random: (ClosedRange<Double>) -> Double = { .random(in: $0) }
 
@@ -144,7 +146,7 @@ final class ActivityUploader {
     func deleted(_ id: UUID) {
         guard let row = store.snapshot(id: id) else { return }
         backoffs[.activity(id)] = nil
-        guard mayBeOnPlatform(.activity(id), confirmed: row.confirmedRevision, lastAttempt: row.lastAttempt) else {
+        guard mayBeOnPlatform(.activity(id), confirmed: row.confirmedRevision, sentAt: row.sentAt) else {
             store.remove(id)
             return
         }
@@ -164,7 +166,7 @@ final class ActivityUploader {
     func sleepDeleted(day: String) {
         guard let night = store.manualSleep(onDay: day) else { return }
         backoffs[.sleep(day)] = nil
-        guard mayBeOnPlatform(.sleep(day), confirmed: night.confirmedRevision, lastAttempt: night.lastAttempt) else {
+        guard mayBeOnPlatform(.sleep(day), confirmed: night.confirmedRevision, sentAt: night.sentAt) else {
             store.removeSleep(day: day)
             return
         }
@@ -262,7 +264,7 @@ final class ActivityUploader {
     }
 
     /// The gate names something missing, or the account is being deleted: the queue holds (`.pending(.gated)`).
-    private var isHeldByGate: Bool { gate?() != nil || env?.auth.isDeletingAccount == true }
+    private var isHeldByGate: Bool { gate() != nil || env?.auth.isDeletingAccount == true }
 
     private func startReplay(userInitiated: Bool) -> Task<Void, Never>? {
         guard let env, store.account != nil else { return nil }
@@ -364,19 +366,13 @@ final class ActivityUploader {
 
     // MARK: requests
 
-    /// Recorded on the row before its request goes out (a cancelled attempt without an answer): if the app dies or
-    /// the request is cancelled before an answer comes, the row says it may have reached the platform, so a delete
-    /// is sent there rather than made locally. Any answer replaces it.
-    private func sentMarker(_ request: UploadAttempt.Request) -> UploadAttempt {
-        UploadAttempt(at: env?.clock.now() ?? Date(), request: request, status: nil, code: nil, requestID: nil,
-                      kind: .cancelled)
-    }
-
     private func put(_ row: LocalActivitySnapshot, _ generation: Generation, _ api: PlatformAPI) async -> Outcome {
         let item = Item.activity(row.id), sent = row.localRevision
         let signpost = Self.signposter.beginInterval("activity-put", id: Self.signposter.makeSignpostID())
         defer { Self.signposter.endInterval("activity-put", signpost) }
-        store.recordFailure(row.id, sentMarker(.put))
+        // Persisted before the request goes out: a kill or a cut-off now leaves "may be on the platform".
+        store.setSent(row.id, env?.clock.now() ?? Date())
+        let undoSent = { [store] in store.setSent(row.id, row.sentAt) }
         inFlight = item
         defer { if generation == self.generation { inFlight = nil } }
         do {
@@ -392,7 +388,7 @@ final class ActivityUploader {
         } catch {
             guard generation == self.generation else { return .stop }
             let current = store.snapshot(id: row.id)?.localRevision == sent
-            return failed(item, error, request: .put, current: current)
+            return failed(item, error, request: .put, current: current, nothingStored: undoSent)
         }
     }
 
@@ -408,7 +404,7 @@ final class ActivityUploader {
             // Gone already.
         } catch {
             guard generation == self.generation else { return .stop }
-            return failed(item, error, request: .delete, current: true)
+            return failed(item, error, request: .delete, current: true, nothingStored: {})
         }
         guard generation == self.generation else { return .stop }
         store.remove(row.id)
@@ -421,7 +417,8 @@ final class ActivityUploader {
         let name: StaticString = night.isTombstone ? "sleep-delete" : "sleep-put"
         let signpost = Self.signposter.beginInterval(name, id: Self.signposter.makeSignpostID())
         defer { Self.signposter.endInterval(name, signpost) }
-        if !night.isTombstone { store.recordSleepFailure(day: night.day, sentMarker(.put)) }
+        if !night.isTombstone { store.setSleepSent(day: night.day, env?.clock.now() ?? Date()) }
+        let undoSent = { [store] in if !night.isTombstone { store.setSleepSent(day: night.day, night.sentAt) } }
         inFlight = item
         defer { if generation == self.generation { inFlight = nil } }
         do {
@@ -444,32 +441,40 @@ final class ActivityUploader {
         } catch {
             guard generation == self.generation else { return .stop }
             let current = store.manualSleep(onDay: night.day)?.localRevision == sent
-            return failed(item, error, request: night.isTombstone ? .delete : .put, current: current)
+            return failed(item, error, request: night.isTombstone ? .delete : .put, current: current,
+                          nothingStored: undoSent)
         }
     }
 
-    /// What a failure means for the row and the queue (API.md → Errors, design.md §4.1).
-    private func failed(_ item: Item, _ error: Error, request: UploadAttempt.Request, current: Bool) -> Outcome {
+    /// What a failure means for the row and the queue (API.md → Errors, design.md §4.1). `nothingStored` undoes the
+    /// request's sent marker: called for answers that say this request left nothing on the platform (no contract,
+    /// signed out or not configured before anything went out, a gate, a refusal), never for a cut-off, a timeout or
+    /// a server error, and never for an answer with a 2xx status this build couldn't read.
+    private func failed(_ item: Item, _ error: Error, request: UploadAttempt.Request, current: Bool,
+                        nothingStored: () -> Void) -> Outcome {
         let api = error as? APIError
         // No contract yet: the live stub, or a platform without the route (`404` on a `PUT`). Nothing was stored.
         if error as? ActivitiesError == .notPublished || (request == .put && api?.status == 404) {
             notAvailable = true
-            record(item, nil)
+            nothingStored()
             return .stop
         }
         switch api {
         case .signedOut?, .notConfigured?:
-            // Nobody to send as (a final 401 signs out, and the wipe moves the generation).
+            // Nobody to send as, so nothing went out (a final 401 signs out, and the wipe moves the generation).
+            nothingStored()
             return .stop
         default:
             break
         }
         let kind = FailureKind.of(error)
+        let answered = api?.status.map { (200..<300).contains($0) } ?? false
+        if !answered, kind == .gate || kind == .signedOut || kind == .other || kind == .appTooOld { nothingStored() }
         let attempt = UploadAttempt(at: env?.clock.now() ?? Date(), request: request, status: api?.status,
                                     code: api?.code?.rawValue, requestID: api?.requestID, kind: kind)
         switch kind {
         case .cancelled:
-            // Never a refusal, never counted: it stays queued, with the sent marker on the row (it may have arrived).
+            // Never a refusal, never counted: it stays queued, and `sentAt` says it may have arrived.
             return .stop
         case .gate:
             gated = true
@@ -491,7 +496,7 @@ final class ActivityUploader {
         }
     }
 
-    private func record(_ item: Item, _ attempt: UploadAttempt?) {
+    private func record(_ item: Item, _ attempt: UploadAttempt) {
         switch item {
         case .activity(let id): store.recordFailure(id, attempt)
         case .sleep(let day): store.recordSleepFailure(day: day, attempt)
@@ -574,12 +579,11 @@ final class ActivityUploader {
         return attempt.kind == .other || attempt.kind == .appTooOld
     }
 
-    /// Whether the platform may hold the item: confirmed once, being sent, or a request whose fate is unknown (sent
-    /// without an answer, cancelled, a server error). Refused requests and ones never sent left nothing there.
-    private func mayBeOnPlatform(_ item: Item, confirmed: Int, lastAttempt: UploadAttempt?) -> Bool {
-        if confirmed > 0 || inFlight == item { return true }
-        guard let lastAttempt else { return false }
-        return lastAttempt.kind == .transient || lastAttempt.kind == .cancelled || lastAttempt.kind == .signedOut
+    /// Whether the platform may hold the item: confirmed once, being sent, or sent without an answer that says
+    /// nothing was stored (`sentAt`, which edits, Retry and tombstones keep). Only rows never sent, or whose every
+    /// request was refused, left nothing there.
+    private func mayBeOnPlatform(_ item: Item, confirmed: Int, sentAt: Date?) -> Bool {
+        confirmed > 0 || inFlight == item || sentAt != nil
     }
 
     // MARK: signposts

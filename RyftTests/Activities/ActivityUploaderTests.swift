@@ -253,12 +253,12 @@ struct ActivityUploaderErrorTests {
         let id = try #require(h.save())
         h.api.failNext = CancellationError()
         await h.uploader.flush()
-        // Recorded as possibly sent, not counted: no backoff, not failed.
-        #expect(h.store.snapshot(id: id)?.lastAttempt?.kind == .cancelled)
+        // Marked as possibly sent, not counted: no attempt recorded, no backoff, not failed.
+        #expect(h.store.snapshot(id: id)?.sentAt != nil && h.store.snapshot(id: id)?.lastAttempt == nil)
         #expect(h.uploader.backoffs.isEmpty && h.uploader.state(of: id) == .pending(.queued))
         await h.uploader.flush()
         #expect(h.uploader.state(of: id) == .confirmed)
-        #expect(h.store.snapshot(id: id)?.lastAttempt == nil)
+        #expect(h.store.snapshot(id: id)?.sentAt == nil) // a full confirmation clears it
     }
 }
 
@@ -349,6 +349,7 @@ struct ActivityUploaderScopeTests {
                                  auth: .preview(), persistence: TrainStore(inMemory: true), clock: clock,
                                  notifier: MockNotifier(), flags: StaticFlags([:]), connectivity: .preview(online: true),
                                  defaults: defaults)
+        env.uploader.gate = { nil }
         let end = clock.now().addingTimeInterval(-3_600)
         // The account's own row, saved before demo data goes on.
         settings.demoMode = false
@@ -564,7 +565,7 @@ struct ActivityUploaderLifecycleTests {
         #expect(app.ended.count == 1) // once, though both the expiry and the replay ended it
         let row = try #require(h.store.snapshot(id: id))
         // Queued, not refused, not counted; and marked as possibly sent: a delete now goes to the platform.
-        #expect(row.confirmedRevision == 0 && row.lastAttempt?.kind == .cancelled && row.lastAttempt?.status == nil)
+        #expect(row.confirmedRevision == 0 && row.sentAt != nil && row.lastAttempt == nil)
         #expect(h.uploader.state(of: id) == .pending(.queued) && h.uploader.backoffs.isEmpty)
         h.platform.beforeWrite = nil
         await h.uploader.flush()

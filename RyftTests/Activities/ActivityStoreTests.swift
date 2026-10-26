@@ -241,6 +241,11 @@ struct ActivityStoreDocumentTests {
         #expect(bumped())
         h.store.remove(saved.id)
         #expect(bumped())
+        // A purge with nothing of anyone else's writes nothing (it runs at every launch, A2 review); one that
+        // deletes something does.
+        h.store.purge(notBelongingTo: "account-a")
+        #expect(!bumped())
+        h.insertRecorded(account: "account-b")
         h.store.purge(notBelongingTo: "account-a")
         #expect(bumped())
     }

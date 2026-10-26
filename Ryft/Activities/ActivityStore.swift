@@ -210,9 +210,20 @@ final class ActivityStore {
         let confirmed = min(sent, row.localRevision)
         guard confirmed > row.confirmedRevision else { return true }
         row.confirmedRevision = confirmed
-        if confirmed == row.localRevision { row.lastAttemptData = nil }
+        if confirmed == row.localRevision {
+            row.lastAttemptData = nil
+            row.sentAt = nil
+        }
         _ = wrote(row)
         return true
+    }
+
+    /// The uploader, right before a `PUT` goes out (a date), and after an answer that says nothing was stored
+    /// (the value before it): whether the platform may hold a revision (`LocalActivity.sentAt`).
+    func setSent(_ id: UUID, _ date: Date?) {
+        guard let row = row(id), row.sentAt != date else { return }
+        row.sentAt = date
+        _ = wrote(row)
     }
 
     /// Deletes one of the account's activities and its chunks: a confirmed `DELETE`, a tombstone that was never
@@ -292,9 +303,19 @@ final class ActivityStore {
         let confirmed = min(sent, night.localRevision)
         guard confirmed > night.confirmedRevision else { return true }
         night.confirmedRevision = confirmed
-        if confirmed == night.localRevision { night.lastAttemptData = nil }
+        if confirmed == night.localRevision {
+            night.lastAttemptData = nil
+            night.sentAt = nil
+        }
         _ = wrote(night)
         return true
+    }
+
+    /// As `setSent(_:_:)`, for a night.
+    func setSleepSent(day: String, _ date: Date?) {
+        guard let night = sleepRow(day), night.sentAt != date else { return }
+        night.sentAt = date
+        _ = wrote(night)
     }
 
     /// Deletes the account's night for `day`: a confirmed `DELETE`, or a delete of a night never sent.
@@ -395,6 +416,17 @@ final class ActivityStore {
         return rows + nights
     }
 
+    /// When the first parked row or night goes (`deleteExpiredParked`): the earliest `parkedAt` plus
+    /// `parkingLimit`; nil when nothing is parked. Welcome says "Log in by {date}" with it.
+    func parkedUntil() -> Date? {
+        _ = revision
+        let context = liveStore.context
+        let rows = fetch(FetchDescriptor<LocalActivity>(predicate: #Predicate { $0.parkedAt != nil }), in: context)
+        let nights = fetch(FetchDescriptor<LocalManualSleep>(predicate: #Predicate { $0.parkedAt != nil }), in: context)
+        let earliest = (rows.compactMap(\.parkedAt) + nights.compactMap(\.parkedAt)).min()
+        return earliest?.addingTimeInterval(Self.parkingLimit)
+    }
+
     /// "Delete from this iPhone": every parked row and night, with its chunks (keys first once A3b seals them),
     /// whoever's. Returns how many rows and nights went.
     @discardableResult
@@ -432,17 +464,22 @@ final class ActivityStore {
         let activities: [LocalActivity]
         let sleeps: [LocalManualSleep]
         // Keys first once routes are sealed (ActivityVault, A3), then the chunks, then the rows.
+        let chunks: Int
         if let account {
             activities = fetch(FetchDescriptor<LocalActivity>(predicate: #Predicate { $0.account != account }),
                                in: context)
             sleeps = fetch(FetchDescriptor<LocalManualSleep>(predicate: #Predicate { $0.account != account }),
                            in: context)
-            try? context.delete(model: ActivityTrackChunk.self, where: #Predicate { $0.account != account })
+            chunks = (try? context.fetchCount(FetchDescriptor<ActivityTrackChunk>(predicate: #Predicate { $0.account != account }))) ?? 0
+            if chunks > 0 { try? context.delete(model: ActivityTrackChunk.self, where: #Predicate { $0.account != account }) }
         } else {
             activities = fetch(FetchDescriptor<LocalActivity>(), in: context)
             sleeps = fetch(FetchDescriptor<LocalManualSleep>(), in: context)
-            try? context.delete(model: ActivityTrackChunk.self)
+            chunks = (try? context.fetchCount(FetchDescriptor<ActivityTrackChunk>())) ?? 0
+            if chunks > 0 { try? context.delete(model: ActivityTrackChunk.self) }
         }
+        // Nothing of anyone else's: no save (the launch runs this on every start, before the first frame).
+        guard !activities.isEmpty || !sleeps.isEmpty || chunks > 0 else { return 0 }
         for row in activities { context.delete(row) }
         for row in sleeps { context.delete(row) }
         liveStore.save()

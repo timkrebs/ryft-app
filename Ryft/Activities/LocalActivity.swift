@@ -45,6 +45,11 @@ final class LocalActivity {
     var deletedAt: Date?
     /// `UploadAttempt`: the last failure's time, status, code, request ID. Never a body.
     var lastAttemptData: Data?
+    /// A `PUT` went out at this time and no answer said it left nothing on the platform (cut off, timed out, a
+    /// server error): the platform may hold a revision, so a delete is sent there. Only the uploader sets it
+    /// (`ActivityStore.setSent`), and a full confirmation clears it; an edit, Retry or tombstone never does (A2 review).
+    /// Added in A2: optional, so the store migrates lightweight (`ActivitySchemaUpgradeTests`).
+    var sentAt: Date?
     /// nil · saved · alreadySaved · recordedElsewhere · failed (Apple Health, A6).
     var healthStateRaw: String?
     var createdAt: Date
@@ -102,7 +107,7 @@ extension LocalActivity {
                               recordRoute: recordRoute, routeWithheld: routeWithheld, routeDroppedAt: routeDroppedAt,
                               splits: splits, localRevision: localRevision, confirmedRevision: confirmedRevision,
                               deletedAt: deletedAt, lastAttempt: lastAttempt, createdAt: createdAt,
-                              updatedAt: updatedAt, unknownSport: unknownSport)
+                              updatedAt: updatedAt, unknownSport: unknownSport, sentAt: sentAt)
     }
 }
 
@@ -168,6 +173,8 @@ final class LocalManualSleep {
     var confirmedRevision: Int
     var deletedAt: Date?
     var lastAttemptData: Data?
+    /// As `LocalActivity.sentAt`, for the night's `PUT`.
+    var sentAt: Date?
 
     init(day: String, account: String, bed: Date, wake: Date, localRevision: Int = 1, confirmedRevision: Int = 0) {
         key = Self.key(account: account, day: day)
@@ -189,7 +196,7 @@ extension LocalManualSleep {
     var snapshot: ManualSleepSnapshot {
         ManualSleepSnapshot(day: day, bed: bed, wake: wake, localRevision: localRevision,
                             confirmedRevision: confirmedRevision, deletedAt: deletedAt,
-                            lastAttempt: WireCoding.decode(UploadAttempt.self, lastAttemptData))
+                            lastAttempt: WireCoding.decode(UploadAttempt.self, lastAttemptData), sentAt: sentAt)
     }
 }
 
@@ -223,6 +230,8 @@ struct LocalActivitySnapshot: Identifiable, Equatable, Sendable {
     /// The sport as the platform sent it, when this build doesn't know it (`sport` is then `.other`): a `PUT` sends
     /// it back unchanged (A1 review, code nit 7).
     var unknownSport: String?
+    /// `LocalActivity.sentAt`: a `PUT` may have reached the platform.
+    var sentAt: Date?
 
     /// Deleted by the user; the row stays until the platform confirms the `DELETE`.
     var isTombstone: Bool { deletedAt != nil }
@@ -257,6 +266,8 @@ struct ManualSleepSnapshot: Equatable, Sendable {
     let confirmedRevision: Int
     let deletedAt: Date?
     let lastAttempt: UploadAttempt?
+    /// `LocalManualSleep.sentAt`.
+    var sentAt: Date?
 
     var isTombstone: Bool { deletedAt != nil }
     var needsUpload: Bool { localRevision > confirmedRevision || deletedAt != nil }

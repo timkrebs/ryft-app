@@ -21,8 +21,11 @@ private final class AccountHarness {
     let env: AppEnvironment
     let state: AppState
     private(set) var wipes: [AuthService.Wipe] = []
-    /// Runs inside `DELETE /v1/me` (a concurrent 401 or refresh failure, scripted).
-    final class DuringDeletion: @unchecked Sendable { var run: (@MainActor @Sendable () async -> Void)? }
+    /// Runs inside `DELETE /v1/me` (a concurrent 401 or refresh failure, scripted), and what it answers.
+    final class DuringDeletion: @unchecked Sendable {
+        var run: (@MainActor @Sendable () async -> Void)?
+        var authUserDeleted = true
+    }
     let duringDeletion = DuringDeletion()
 
     init(signedInAs account: UUID? = AccountHarness.a, demo: Bool = false, bindHooks: Bool = true) {
@@ -39,7 +42,7 @@ private final class AccountHarness {
                            },
                            deleteRemoteAccount: {
                                await duringDeletion.run?()
-                               return AccountDeleted(status: "deleted", authUserDeleted: true)
+                               return AccountDeleted(status: "deleted", authUserDeleted: duringDeletion.authUserDeleted)
                            },
                            postAppleAuthorization: { _ in })
         api.now = { clock.now() }
@@ -49,6 +52,7 @@ private final class AccountHarness {
         env.reads.random = { $0.lowerBound }
         state = AppState(env: env)
         env.uploader.random = { $0.lowerBound }
+        env.uploader.gate = { nil }
         if bindHooks { state.bindAccountHooks(auth) }
         recorded = { [weak self] in self?.wipes.append($0) }
     }
@@ -425,6 +429,127 @@ struct AccountReviewTests {
                                                    onPhone: h.env.activities, now: h.clock.now())
         #expect(h.auth.accountID == AccountHarness.accountB)
         #expect(archive.unconfirmedActivities.map(\.activity.id) == [mine]) // A's, never B's
+    }
+}
+
+@Suite("Accounts: the A2 privacy re-check")
+@MainActor
+struct AccountRecheckTests {
+    @Test func aDeletionThatEndsAfterAnotherAccountSignedInLeavesThatAccountAlone() async throws {
+        let h = AccountHarness()
+        h.insert(AccountHarness.accountA)
+        var deletingForB: Bool?
+        // A's session ends during DELETE /v1/me (its 503 retries take up to about 90 s), and B signs in meanwhile.
+        h.duringDeletion.run = { [weak h] in
+            guard let h else { return }
+            await h.auth.rejectedAfterRefresh()
+            await h.signIn(AccountHarness.b)
+            h.insert(AccountHarness.accountB)
+            h.insertNight(AccountHarness.accountB, daysBack: 0)
+            deletingForB = h.auth.isDeletingAccount
+        }
+        let wipesBefore = h.wipes.count
+        #expect(await h.auth.deleteAccount())
+        #expect(h.auth.accountID == AccountHarness.accountB && h.auth.isSignedIn)
+        #expect(h.rows(of: AccountHarness.accountB).count == 1 && h.nights().count == 1)
+        #expect(h.rows(of: AccountHarness.accountA).isEmpty)
+        #expect(h.auth.signOutNotice == nil)
+        #expect(deletingForB == false) // B's uploads weren't held, B's end wouldn't count as A's deletion
+        #expect(h.wipes.count == wipesBefore + 1) // A's session ending, and nothing after B signed in
+    }
+
+    @Test func aDeletionKeepsItsOwnBackgroundFlag() async {
+        let h = AccountHarness()
+        h.duringDeletion.authUserDeleted = false // Supabase finishes in the background
+        var reasons: [AuthService.SignOutReason?] = []
+        let bound = h.auth.onAccountWillChange
+        h.auth.onAccountWillChange = { from, to, reason in
+            bound?(from, to, reason)
+            reasons.append(reason)
+        }
+        #expect(await h.auth.deleteAccount())
+        #expect(reasons == [.accountDeleted(background: true)])
+        #expect(h.wipes.last?.reason == .accountDeleted(background: true))
+    }
+
+    @Test func parkedUntilIsTheFirstParkingPlusThirtyDays() async {
+        let h = AccountHarness()
+        #expect(h.env.activities.parkedUntil() == nil)
+        h.insert(AccountHarness.accountA)
+        let parkedAt = h.clock.now()
+        await h.auth.rejectedAfterRefresh()
+        #expect(h.env.activities.parkedUntil() == parkedAt.addingTimeInterval(30 * 86_400))
+        // A night parked later doesn't move the date.
+        h.clock.advance(by: .seconds(86_400))
+        h.persistence.context.insert(LocalManualSleep(day: "2026-10-18", account: AccountHarness.accountA,
+                                                      bed: parkedAt.addingTimeInterval(-36_000),
+                                                      wake: parkedAt.addingTimeInterval(-7_200)))
+        h.persistence.save()
+        h.persistence.wipe(parkingActivitiesOf: AccountHarness.accountA, at: h.clock.now())
+        #expect(h.env.activities.parkedUntil() == parkedAt.addingTimeInterval(30 * 86_400))
+        h.env.activities.purgeParked()
+        #expect(h.env.activities.parkedUntil() == nil)
+    }
+
+    @Test func aLaunchWithNothingToPutRightWritesNothing() {
+        let h = AccountHarness(bindHooks: false)
+        h.insert(AccountHarness.accountA) // A's own, not parked
+        let revision = h.env.activities.revision
+        h.state.bindAccountHooks(h.auth)
+        #expect(h.env.activities.revision == revision)
+        #expect(!h.persistence.context.hasChanges)
+    }
+}
+
+/// `OnboardingCoordinator.uploadGate` (privacy re-check A-1): the uploader waits for the policy in force.
+@Suite("Onboarding: the upload gate")
+@MainActor
+struct UploadGateTests {
+    @Test func aConsentToAnOlderPolicyWaitsUntilThePolicyIsKnownAndMatches() async throws {
+        let clock = TestClock()
+        let api = MockPlatformAPI()
+        // A consent to an older policy than the one in force; neither `GET /v1/config` nor `GET /v1/me/sync` has
+        // answered yet, so this phone knows the account but not the policy.
+        api.accountConsent = Consent(policyVersion: "2026-10-01", grantedAt: clock.now())
+        api.faults["config"] = .init(.status(404, retryAfter: nil))
+        api.faults["syncStatus"] = .init(.status(404, retryAfter: nil))
+        let env = AppEnvironment.test(api: api, clock: clock)
+        let state = AppState(env: env)
+        let onboarding = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
+        env.uploader.gate = { onboarding.uploadGate }
+        await onboarding.check(force: true)
+        #expect(onboarding.user != nil && onboarding.policyVersion == nil)
+        #expect(onboarding.syncGate == nil) // HealthKit's gate takes the old consent (a separate decision)
+        #expect(onboarding.uploadGate == .consentRequired)
+        let end = clock.now().addingTimeInterval(-3_600)
+        let id = try #require(env.activities.save(manual: ActivityDraft(sport: .yoga, start: end.addingTimeInterval(-900),
+                                                                         end: end))?.id)
+        await env.uploader.flush(userInitiated: true)
+        #expect(api.count("putActivity") == 0 && env.uploader.state(of: id) == .pending(.gated))
+        // The config arrives with the newer policy: still held (the consent step asks again).
+        api.faults["config"] = nil
+        api.faults["syncStatus"] = nil
+        api.remoteConfig = Self.config(policy: "2026-11-01")
+        await onboarding.check(force: true)
+        #expect(onboarding.uploadGate == .consentRequired)
+        await env.uploader.flush()
+        #expect(api.count("putActivity") == 0)
+        // It matches the consent: the queue goes.
+        api.remoteConfig = Self.config(policy: "2026-10-01")
+        await onboarding.check(force: true)
+        #expect(onboarding.uploadGate == nil)
+        await env.uploader.flush()
+        #expect(env.uploader.state(of: id) == .confirmed)
+    }
+
+    @Test func demoDataHasNoUploadGate() {
+        let onboarding = OnboardingCoordinator(state: AppState.preview(), apiStatus: APIStatus()) {}
+        #expect(onboarding.uploadGate == nil)
+    }
+
+    private static func config(policy: String) -> RemoteConfig {
+        RemoteConfig(flags: [:], evaluatedAt: .now, ttlSec: 21_600, privacyPolicyVersion: policy,
+                     privacyPolicyUrl: "https://ryftapp.de/privacy")
     }
 }
 

@@ -57,6 +57,17 @@ struct ActivityUploaderGateTests {
         #expect(h.uploader.state(of: second) == .pending(.gated))
     }
 
+    @Test func theGateIsClosedUntilTheAppConnectsIt() async throws {
+        let api = MockPlatformAPI()
+        let clock = TestClock()
+        let env = AppEnvironment.test(api: api, clock: clock)
+        let end = clock.now().addingTimeInterval(-3_600)
+        let id = try #require(env.activities.save(manual: ActivityDraft(sport: .yoga, start: end.addingTimeInterval(-900),
+                                                                         end: end))?.id)
+        await env.uploader.flush(userInitiated: true)
+        #expect(api.calls.isEmpty && env.uploader.state(of: id) == .pending(.gated))
+    }
+
     @Test func anAccountBeingDeletedHoldsTheQueue() async throws {
         let h = UploadHarness()
         _ = try #require(h.save())
@@ -70,6 +81,7 @@ struct ActivityUploaderGateTests {
                                    return AccountDeleted(status: "deleted", authUserDeleted: true)
                                })
         let env = AppEnvironment.test(api: h.api, clock: h.clock, auth: auth)
+        env.uploader.gate = { nil } // only the deletion holds it
         let id = try #require(env.activities.save(manual: h.draft())?.id)
         let deletion = Task { await auth.deleteAccount() }
         #expect(await eventually { auth.isDeletingAccount })
@@ -90,8 +102,8 @@ struct ActivityUploaderMarkerTests {
         let id = try #require(h.save(notes: "Morning loop"))
         let flush = Task { await h.uploader.flush() }
         #expect(await eventually { hold.waiting == 1 })
-        // The marker is on the row before the request goes out (a kill now leaves it there).
-        #expect(h.store.snapshot(id: id)?.lastAttempt?.kind == .cancelled)
+        // Persisted before the request goes out (a kill now leaves it there).
+        #expect(h.store.snapshot(id: id)?.sentAt != nil)
         h.uploader.stopReplay()
         hold.release()
         await flush.value
@@ -141,14 +153,119 @@ struct ActivityUploaderMarkerTests {
         #expect(!kept.needsUpload)
     }
 
-    @Test func a404OnPutClearsTheMarker() async throws {
+    @Test(arguments: [
+        ErrorCase(APIError.http(404, "not found"), "404 on a PUT: the route isn't there"),
+        ErrorCase(APIError.signedOut, "no session: nothing went out"),
+        ErrorCase(APIError.notConfigured, "no server: nothing went out"),
+        ErrorCase(APIError.http(403, "consent", code: .consentRequired), "a gate refused it"),
+        ErrorCase(APIError.http(422, "invalid"), "refused"),
+    ])
+    func anAnswerThatStoredNothingClearsTheMarker(_ c: ErrorCase) async throws {
         let h = UploadHarness()
         let id = try #require(h.save())
-        h.api.failNext = APIError.http(404, "not found")
+        h.api.failNext = c.error
         await h.uploader.flush()
-        #expect(h.store.snapshot(id: id)?.lastAttempt == nil) // nothing was stored there
+        #expect(h.store.snapshot(id: id)?.sentAt == nil)
         h.uploader.deleted(id)
-        #expect(h.store.snapshot(id: id) == nil)
+        #expect(h.store.snapshot(id: id) == nil) // deleted here, no DELETE
+        await h.uploader.flush()
+        #expect(h.deletes() == 0)
+    }
+
+    @Test(arguments: [
+        ErrorCase(APIError.http(503, "busy"), "a server error"),
+        ErrorCase(APIError.transport(URLError(.timedOut)), "a timeout"),
+        ErrorCase(APIError.http(200, "unreadable"), "a 2xx this build couldn't read"),
+    ])
+    func anAnswerThatMayHaveStoredItKeepsTheMarker(_ c: ErrorCase) async throws {
+        let h = UploadHarness()
+        let id = try #require(h.save())
+        h.api.failNext = c.error
+        await h.uploader.flush()
+        #expect(h.store.snapshot(id: id)?.sentAt != nil)
+        h.uploader.deleted(id)
+        #expect(h.store.snapshot(id: id)?.isTombstone == true)
+    }
+
+    /// The A2 re-review: an edit, Retry or a night's edit after a cut-off kept "may be on the platform".
+    @Test func anEditAfterACutOffKeepsTheMarker() async throws {
+        let h = UploadHarness()
+        let cut = await Self.cutOffPut(h)
+        let id = try #require(cut)
+        _ = h.store.update(id, h.draft(notes: "edited offline"))
+        h.uploader.deleted(id)
+        #expect(h.store.snapshot(id: id)?.isTombstone == true)
+        await h.uploader.flush()
+        #expect(h.deletes() == 1)
+    }
+
+    @Test func aRetryOfflineAfterACutOffKeepsTheMarker() async throws {
+        let h = UploadHarness()
+        let cut = await Self.cutOffPut(h)
+        let id = try #require(cut)
+        h.env.connectivityMonitor.update(false)
+        await h.uploader.retry(id)
+        h.uploader.deleted(id)
+        #expect(h.store.snapshot(id: id)?.isTombstone == true)
+        h.env.connectivityMonitor.update(true)
+        #expect(await eventually { h.deletes() == 1 })
+    }
+
+    @Test func aRefusalOfALaterRevisionKeepsTheEarlierMarker() async throws {
+        let h = UploadHarness()
+        let cut = await Self.cutOffPut(h)
+        let id = try #require(cut)
+        _ = h.store.update(id, h.draft(notes: "second"))
+        h.api.failNext = APIError.http(422, "invalid") // revision 2 refused; revision 1 may still be there
+        await h.uploader.flush()
+        #expect(h.store.snapshot(id: id)?.sentAt != nil)
+        h.uploader.deleted(id)
+        #expect(h.store.snapshot(id: id)?.isTombstone == true)
+    }
+
+    @Test func aNightsEditAfterACutOffKeepsTheMarker() async throws {
+        let h = UploadHarness()
+        let hold = RequestHold()
+        h.platform.beforeWrite = { await hold.wait() }
+        let night = h.night()
+        h.store.saveSleep(day: night.day, bed: night.bed, wake: night.wake)
+        let flush = Task { await h.uploader.flush() }
+        #expect(await eventually { hold.waiting == 1 })
+        h.uploader.stopReplay()
+        hold.release()
+        await flush.value
+        h.store.saveSleep(day: night.day, bed: night.bed.addingTimeInterval(600), wake: night.wake)
+        h.uploader.sleepDeleted(day: night.day)
+        #expect(h.store.manualSleep(onDay: night.day)?.isTombstone == true)
+        h.platform.beforeWrite = nil
+        await h.uploader.flush()
+        #expect(h.api.count("deleteManualSleep") == 1)
+    }
+
+    /// A PUT that went out and was cut off by the background task's expiry (no answer).
+    private static func cutOffPut(_ h: UploadHarness) async -> UUID? {
+        let hold = RequestHold()
+        h.platform.beforeWrite = { await hold.wait() }
+        let id = h.save()
+        let flush = Task { await h.uploader.flush() }
+        #expect(await eventually { hold.waiting == 1 })
+        h.uploader.stopReplay()
+        hold.release()
+        await flush.value
+        h.platform.beforeWrite = nil
+        #expect(id.flatMap { h.store.snapshot(id: $0)?.sentAt } != nil)
+        return id
+    }
+}
+
+/// An error and what it stands for, for parameterised tests.
+struct ErrorCase: CustomTestStringConvertible, @unchecked Sendable {
+    let error: Error
+    let testDescription: String
+
+    init(_ error: Error, _ description: String) {
+        self.error = error
+        testDescription = description
     }
 }
 

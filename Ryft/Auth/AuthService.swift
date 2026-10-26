@@ -213,9 +213,12 @@ final class AuthService {
     @ObservationIgnored private var endingReason: SignOutReason?
     /// Runs as an in-app account deletion starts, before the platform is asked: the account's uploads stop.
     @ObservationIgnored var onAccountDeletionStart: (@MainActor () -> Void)?
-    /// `deleteAccount()` is running. A session that ends meanwhile (a concurrent final 401 or refresh failure) ends
-    /// as a deletion: nothing of the account is parked, and nothing more is uploaded for it.
-    @ObservationIgnored private(set) var isDeletingAccount = false
+    /// The account `deleteAccount()` is deleting, while it runs. That account's session ending meanwhile (a
+    /// concurrent final 401 or refresh failure) ends as the deletion: nothing of it is parked.
+    @ObservationIgnored private var deletingAccount: String?
+    /// The signed-in account is being deleted: nothing more is uploaded for it. False for another account that
+    /// signed in while an earlier one's deletion still runs.
+    var isDeletingAccount: Bool { deletingAccount != nil && deletingAccount == accountID }
     /// Counts account changes (sign-in, sign-out, another account): work bound to an account checks it, so A, then
     /// B, then A again while it ran doesn't pass for "still A".
     @ObservationIgnored private(set) var accountChanges = 0
@@ -610,9 +613,10 @@ final class AuthService {
         await beforeSignOut?()
         defer { otherWork = false }
         let account = session?.user.id.uuidString
-        // From here a session ending for any reason ends as this deletion (no parking), and uploads stop.
-        isDeletingAccount = true
-        defer { isDeletingAccount = false }
+        // From here this account's session ending for any reason ends as this deletion (no parking), and its uploads
+        // stop.
+        deletingAccount = account
+        defer { deletingAccount = nil }
         onAccountDeletionStart?()
         let result: AccountDeleted
         do {
@@ -631,9 +635,12 @@ final class AuthService {
             // whatever ran before it.
             signOutNotice = reason.notice
             wipe(Wipe(reason: reason, account: account))
-        } else {
+        } else if session?.user.id.uuidString == account {
             await signOut(reason: reason)
         }
+        // Otherwise another account signed in meanwhile (`DELETE /v1/me` retries 503s for up to about 90 s): the
+        // deleted account's data went when its session ended as this deletion; the new account stays signed in, with
+        // its data and without the notice.
         return true
     }
 
@@ -672,10 +679,11 @@ final class AuthService {
     private func apply(_ newSession: Session?, reason: SignOutReason? = nil) {
         if newSession != nil, session == nil { signOutNotice = nil }
         let leaving = session?.user.id.uuidString
-        // During a deletion any end is the deletion's (its outcome isn't known yet; only `Wipe.parking` reads it).
-        let ending = newSession == nil
-            ? isDeletingAccount ? .accountDeleted(background: false) : reason ?? endingReason ?? .sessionExpired
-            : nil
+        // While its deletion runs, the account's session ending for any reason ends as the deletion (its outcome isn't
+        // known yet; `Wipe.parking` is what matters). A deletion's own reason keeps its `background`.
+        let real = reason ?? endingReason ?? .sessionExpired
+        let deleting = deletingAccount != nil && deletingAccount == leaving
+        let ending: SignOutReason? = newSession != nil ? nil : (deleting ? real.asDeletion : real)
         let previousID = session?.user.id ?? defaults.string(forKey: Self.lastUserKey).flatMap(UUID.init(uuidString:))
         if let newSession {
             // A different account on this phone starts from scratch.
@@ -739,6 +747,12 @@ final class AuthService {
 }
 
 extension AuthService.SignOutReason {
+    /// The reason as a deletion: a deletion's own as it is, any other end of a session being deleted as one.
+    var asDeletion: Self {
+        if case .accountDeleted = self { return self }
+        return .accountDeleted(background: false)
+    }
+
     /// The one line Welcome shows, or nil for an ordinary log out.
     var notice: String? {
         switch self {
