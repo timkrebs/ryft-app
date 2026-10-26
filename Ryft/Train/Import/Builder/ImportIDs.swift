@@ -41,9 +41,12 @@ enum ImportIDs {
     }
 
     /// `plan␟src␟fold(plan name)␟startDate.key or ""` under the account: the plan keeps its id while the file's name
-    /// and start date do; a name edited in step 5 changes only `Plan.name`.
-    static func plan(account: UUID, source: ImportFormatID, name: String, startDate: LocalDate?) -> UUID {
-        v5(namespace: account, fields: ["plan", source.rawValue, SourceExerciseKey.fold(name), startDate?.key ?? ""])
+    /// and start date do; a name edited in step 5 changes only `Plan.name`. A second plan with the same name and date
+    /// adds `␟<occurrence>` (1, 2, …), as days do, so the first keeps the plain recipe.
+    static func plan(account: UUID, source: ImportFormatID, name: String, startDate: LocalDate?, occurrence: Int = 0) -> UUID {
+        var fields = ["plan", source.rawValue, SourceExerciseKey.fold(name), startDate?.key ?? ""]
+        if occurrence > 0 { fields.append(String(occurrence)) }
+        return v5(namespace: account, fields: fields)
     }
 
     /// `day␟<dayNumber>` under the plan. A day number the file names a second time (`.duplicateDay`, both kept) adds

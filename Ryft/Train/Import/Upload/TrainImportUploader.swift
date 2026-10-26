@@ -40,6 +40,8 @@ final class TrainImportUploader {
     static let finishedRetention: TimeInterval = 7 * 86_400
     /// Answers that don't name a pending item before it counts as refused.
     static let maxUnanswered = 3
+    /// Items refused alone in a row (each a whole-request `400`/`422`) before splitting stops for the pass.
+    static let maxRefusedAlone = 3
     /// After 1, 2, 3, then any more transient failures in a row: 30 s, 2 min, 10 min, 1 h (the cap).
     static let backoff: [Duration] = [.seconds(30), .seconds(120), .seconds(600), .seconds(3_600)]
     /// Up to this share of the step is added at random, so phones don't retry in step.
@@ -425,7 +427,9 @@ final class TrainImportUploader {
         refreshStatus()
     }
 
-    /// Writes the progress (encoded off the main actor), and the finish time when it changes.
+    /// Writes the progress (encoded off the main actor), and the finish time when it changes. Rewritten after each
+    /// request: about 60 bytes per finished item, so about 600 KB at the limit of 10,000 sessions, 200 times over a
+    /// whole upload; acceptable for a one-off import.
     private func store(_ progress: ImportJobProgress, finished: Date?) async {
         guard let current = loaded else { return }
         let generation = generation
@@ -524,17 +528,29 @@ final class TrainImportUploader {
             guard await isOpen(generation, revalidated: &revalidated) else { return }
             guard await create(exercise, api: api, generation: generation) else { return }
         }
-        // Plans, then sessions, in batches.
+        // Plans, then sessions, in batches. A request refused as a whole (`400`, `422`) is split in halves until the
+        // item it refuses is alone; after an accepted request the limit grows again.
         var plansLimit = Self.plansPerRequest
         var sessionsWithPlans = true
-        while let batch = nextBatch(plansLimit: plansLimit, sessionsWithPlans: sessionsWithPlans) {
+        var itemLimit: Int?
+        // Single items refused in a row: past `maxRefusedAlone` the refusal is the request's shape, not one item, and
+        // splitting stops for this pass (a whole request is refused again, as it would be without splitting).
+        var refusedAlone = 0
+        while let batch = nextBatch(plansLimit: plansLimit, sessionsWithPlans: sessionsWithPlans, itemLimit: itemLimit) {
             activity = .uploading
             refreshStatus()
             guard await isOpen(generation, revalidated: &revalidated) else { return }
-            switch await send(batch, api: api, generation: generation) {
+            switch await send(batch, api: api, generation: generation, split: refusedAlone < Self.maxRefusedAlone) {
+            case .accepted:
+                refusedAlone = 0
+                itemLimit = itemLimit.flatMap { $0 * 2 >= Self.plansPerRequest + Self.sessionsPerRequest ? nil : $0 * 2 }
+            case .refusedAlone:
+                refusedAlone += 1
+                if refusedAlone >= Self.maxRefusedAlone { itemLimit = nil }
             case .sent, .fewerSessions: continue
             case let .fewerPlans(count): plansLimit = max(1, count / 2)
             case .plansAlone: sessionsWithPlans = false
+            case let .fewerItems(count): itemLimit = max(1, count / 2)
             case .stop: return
             }
         }
@@ -576,6 +592,7 @@ final class TrainImportUploader {
     /// look like one the user logged are skipped (`duplicate`, "Import these too"). False when it couldn't be read.
     private func checkAtUpload(_ generation: Generation) async -> Bool {
         guard let current = loaded, let row = job(id: current.jobID) else { return false }
+        let jobID = current.jobID
         let zone = TimeZone(identifier: row.timeZoneID) ?? .current
         let pending = current.plan.sessions.filter { current.progress.isPending($0.id) }
         var calendar = Calendar(identifier: .gregorian)
@@ -586,20 +603,29 @@ final class TrainImportUploader {
             return LocalDate(year: year, month: month, day: day)?.key
         }
         let starts = pending.map(\.startedAt)
-        let range = starts.min().flatMap { first in starts.max().map { first.addingTimeInterval(-86_400)...$0.addingTimeInterval(86_400) } }
+        let pad = ImportBuilder.existingPadding
+        let range = starts.min().flatMap { first in starts.max().map { first.addingTimeInterval(-pad)...$0.addingTimeInterval(pad) } }
         let query = ImportExistingQuery(account: current.account, planIDs: current.plan.plans.map(\.id),
                                         sessionIDs: current.plan.sessions.map(\.id),
                                         days: Set(pending.compactMap { dayKey($0.startedAt) }), range: range, zone: zone)
         let existing = await checkExisting(query)
-        guard generation == self.generation, var updated = loaded, updated.jobID == current.jobID else { return false }
+        guard isCurrent(generation, job: jobID), var updated = loaded else { return false }
         guard existing.checked else {
             transientFailure(nil)
             return false
         }
-        for plan in updated.plan.plans where existing.plans[plan.id] != nil && updated.progress.isPending(plan.id) {
-            // RYFT's copy may have been edited: it's kept (the preview couldn't offer "Replace").
+        var missing = Set(updated.progress.missingLinks)
+        for plan in updated.plan.plans where updated.progress.isPending(plan.id) {
+            guard let entry = existing.plans[plan.id] else { continue }
+            // RYFT's copy may have been edited: it's kept (the preview couldn't offer "Replace"), and sessions keep only
+            // the links into days and rows that copy still has (as the preview's `linkablePlan` does).
             updated.progress[plan.id] = ImportJobProgress.Item(phase: .done, result: TrainImportItemResult.Status.unchanged.rawValue)
+            let kept = Set((entry?.days ?? []).flatMap { [$0.id] + $0.exercises.map(\.id) })
+            for day in plan.days {
+                for id in [day.id] + day.exercises.map(\.id) where !kept.contains(id) { missing.insert(id.uuidString) }
+            }
         }
+        updated.progress.missingLinks = missing.sorted()
         for id in existing.sessionIDs where updated.progress.isPending(id) {
             updated.progress[id] = ImportJobProgress.Item(phase: .done, result: TrainImportItemResult.Status.unchanged.rawValue)
         }
@@ -627,21 +653,29 @@ final class TrainImportUploader {
 
     /// `POST /v1/exercises` (the same id again updates it). False stops the pass.
     private func create(_ exercise: Exercise, api: PlatformAPI, generation: Generation) async -> Bool {
+        guard let jobID = loaded?.jobID else { return false }
         let signpost = ImportLog.signposter.beginInterval("upload-exercise", id: ImportLog.signposter.makeSignpostID())
         defer { ImportLog.signposter.endInterval("upload-exercise", signpost) }
         do {
             let saved = try await api.createExercise(exercise)
-            guard generation == self.generation, var current = loaded else { return false }
+            guard isCurrent(generation, job: jobID), var current = loaded else { return false }
             current.progress[exercise.id] = ImportJobProgress.Item(phase: .done, result: TrainImportItemResult.Status.created.rawValue)
             loaded = current
-            (env?.persistence as? TrainStore)?.cache(exercises: [saved])
+            // Demo's exercises live on the demo platform only: never in the account's library cache.
+            if current.account != ImportMappingStore.demoAccount { (env?.persistence as? TrainStore)?.cache(exercises: [saved]) }
             resetRetry()
             await store(current.progress, finished: nil)
-            return generation == self.generation
+            return isCurrent(generation, job: jobID)
         } catch {
-            guard generation == self.generation else { return false }
-            return await failed([exercise.id], error)
+            guard isCurrent(generation, job: jobID) else { return false }
+            return await failed([exercise.id], error, job: jobID)
         }
+    }
+
+    /// The pass's binding and job are still the ones an answer was asked for: a late answer for a discarded or
+    /// replaced job never marks the next one's items.
+    private func isCurrent(_ generation: Generation, job jobID: UUID) -> Bool {
+        generation == self.generation && loaded?.jobID == jobID
     }
 
     // MARK: batches
@@ -655,7 +689,14 @@ final class TrainImportUploader {
     }
 
     private enum SendOutcome {
+        /// The platform answered (each item done, refused, or still pending).
+        case accepted
+        /// Items were refused here (too large alone, or one item the platform refused as a whole).
         case sent
+        /// A `400` or `422` for a request of this many items: half as many per request until it's down to the one.
+        case fewerItems(Int)
+        /// A `400` or `422` for a request of one item: that item is refused.
+        case refusedAlone
         /// A `413`: half the sessions per request from now on (stored with the job).
         case fewerSessions
         /// A `413` for this many plans (and at most one session): half as many per request in this pass.
@@ -669,7 +710,10 @@ final class TrainImportUploader {
     /// later request (and, without `sessionsWithPlans`, only once none is left at all). Items that use a refused custom
     /// exercise are marked blocked instead; a session whose plan was refused or blocked goes without its plan links.
     /// Nil when nothing is left.
-    private func nextBatch(plansLimit: Int, sessionsWithPlans: Bool) -> Batch? {
+    ///
+    /// Cost: a scan of the job's items per request, on the main actor; at the limits (10,000 sessions, 200 requests)
+    /// about two million dictionary lookups over the whole upload, a few hundred milliseconds in all.
+    private func nextBatch(plansLimit: Int, sessionsWithPlans: Bool, itemLimit: Int?) -> Batch? {
         guard var current = loaded, let row = job(id: current.jobID) else { return nil }
         let refused = Set(current.plan.exercises.map(\.id).filter { id in
             guard let item = current.progress[id] else { return false }
@@ -684,7 +728,7 @@ final class TrainImportUploader {
                 blocked[plan.id] = by
                 continue
             }
-            if plans.count < plansLimit { plans.append(plan) } else { laterPlans = true }
+            if plans.count < min(plansLimit, itemLimit ?? .max) { plans.append(plan) } else { laterPlans = true }
         }
         var sessions: [TrainSession] = []
         if !laterPlans, sessionsWithPlans || plans.isEmpty {
@@ -694,14 +738,16 @@ final class TrainImportUploader {
                 return item.phase == .rejected || item.phase == .blocked
             })
             let failedDays = Set(current.plan.plans.filter { failedPlans.contains($0.id) }.flatMap(\.days).map(\.id))
-            let limit = max(1, row.sessionsPerRequest)
+            // And links into RYFT's copy of a plan where that copy no longer has the day or row.
+            let missing = Set(current.progress.missingLinks.compactMap(UUID.init(uuidString:)))
+            let limit = min(max(1, row.sessionsPerRequest), (itemLimit ?? .max) - plans.count)
             for session in current.plan.sessions where current.progress.isPending(session.id) {
                 if let by = blocker(session.exercises.map(\.exerciseId)) {
                     blocked[session.id] = by
                     continue
                 }
                 guard sessions.count < limit else { break }
-                sessions.append(Self.unlinked(session, ifIn: failedDays))
+                sessions.append(Self.unlinked(session, days: failedDays.union(missing), rows: missing))
             }
         }
         if !blocked.isEmpty {
@@ -716,22 +762,26 @@ final class TrainImportUploader {
         return Batch(plans: plans, sessions: sessions, blocked: blocked)
     }
 
-    /// The session without `plan_day_id` and `plan_exercise_id` when its day is in `days`.
-    private static func unlinked(_ session: TrainSession, ifIn days: Set<UUID>) -> TrainSession {
-        guard let day = session.planDayId, days.contains(day) else { return session }
+    /// The session without `plan_day_id` and every `plan_exercise_id` when its day is in `days`, and without the
+    /// `plan_exercise_id`s in `rows` otherwise.
+    static func unlinked(_ session: TrainSession, days: Set<UUID>, rows: Set<UUID>) -> TrainSession {
+        guard let day = session.planDayId else { return session }
+        let dropDay = days.contains(day)
+        guard dropDay || session.exercises.contains(where: { $0.planExerciseId.map(rows.contains) == true }) else { return session }
         var copy = session
-        copy.planDayId = nil
+        if dropDay { copy.planDayId = nil }
         copy.exercises = copy.exercises.map { exercise in
             var copy = exercise
-            copy.planExerciseId = nil
+            if dropDay || copy.planExerciseId.map(rows.contains) == true { copy.planExerciseId = nil }
             return copy
         }
         return copy
     }
 
     /// Encodes (off the main actor, measured), sends and records one request.
-    private func send(_ batch: Batch, api: PlatformAPI, generation: Generation) async -> SendOutcome {
+    private func send(_ batch: Batch, api: PlatformAPI, generation: Generation, split: Bool) async -> SendOutcome {
         guard let current = loaded, let row = job(id: current.jobID) else { return .stop }
+        let jobID = current.jobID
         if !batch.blocked.isEmpty { await store(current.progress, finished: nil) }
         let source = ImportFormatID(rawValue: row.source)
         // Measured: fewer sessions until the body fits; one item alone that doesn't fit is refused.
@@ -741,7 +791,7 @@ final class TrainImportUploader {
             let signpost = ImportLog.signposter.beginInterval("encode-batch", id: ImportLog.signposter.makeSignpostID())
             let encoded = await Self.encodeRequest(TrainImportRequest(source: source, plans: plans, sessions: sessions))
             ImportLog.signposter.endInterval("encode-batch", signpost)
-            guard generation == self.generation else { return .stop }
+            guard isCurrent(generation, job: jobID) else { return .stop }
             guard let encoded else { return .stop }
             if encoded.count <= Self.maxBodyBytes {
                 body = encoded
@@ -755,8 +805,8 @@ final class TrainImportUploader {
             } else if !sessions.isEmpty, !plans.isEmpty {
                 sessions = []
             } else {
-                await refuse(plans.map(\.id) + sessions.map(\.id), reason: nil, error: nil)
-                return generation == self.generation ? .sent : .stop
+                await refuse(plans.map(\.id) + sessions.map(\.id), reason: nil, error: nil, job: jobID)
+                return isCurrent(generation, job: jobID) ? .sent : .stop
             }
         }
         guard let body else { return .stop }
@@ -765,13 +815,25 @@ final class TrainImportUploader {
         defer { ImportLog.signposter.endInterval("upload-batch", signpost) }
         do {
             let answer = try await api.importTraining(encoded: body)
-            guard generation == self.generation else { return .stop }
-            await record(answer, ids: ids, bytes: body.count, plans: plans.count, sessions: sessions.count)
+            guard isCurrent(generation, job: jobID) else { return .stop }
+            await record(answer, ids: ids, bytes: body.count, plans: plans.count, sessions: sessions.count, job: jobID)
             resetRetry()
-            return generation == self.generation ? .sent : .stop
+            return isCurrent(generation, job: jobID) ? .accepted : .stop
         } catch {
-            guard generation == self.generation else { return .stop }
-            if (error as? APIError)?.status == 413 {
+            guard isCurrent(generation, job: jobID) else { return .stop }
+            let status = (error as? APIError)?.status
+            // One refused item mustn't keep the rest out: split until it's alone (Retry sends only what's refused).
+            if status == 400 || status == 422 {
+                if ids.count > 1, split {
+                    ImportLog.logger.info("Import: \(status ?? 0, privacy: .public) for \(ids.count, privacy: .public) items, split")
+                    return .fewerItems(ids.count)
+                }
+                if ids.count == 1 {
+                    await refuse(ids, reason: nil, error: error, job: jobID)
+                    return isCurrent(generation, job: jobID) ? .refusedAlone : .stop
+                }
+            }
+            if status == 413 {
                 if sessions.count > 1 {
                     row.sessionsPerRequest = max(1, sessions.count / 2)
                     env?.persistence.save()
@@ -781,16 +843,16 @@ final class TrainImportUploader {
                 if !sessions.isEmpty, !plans.isEmpty { return .plansAlone }
                 if plans.count > 1 { return .fewerPlans(plans.count) }
                 // One item alone is too large for the platform.
-                await refuse(ids, reason: nil, error: error)
-                return generation == self.generation ? .sent : .stop
+                await refuse(ids, reason: nil, error: error, job: jobID)
+                return isCurrent(generation, job: jobID) ? .sent : .stop
             }
-            return await failed(ids, error) ? .sent : .stop
+            return await failed(ids, error, job: jobID) ? .sent : .stop
         }
     }
 
     /// Per item: done, refused, or (not named) one answer closer to refused.
-    private func record(_ answer: TrainImportResponse, ids: [UUID], bytes: Int, plans: Int, sessions: Int) async {
-        guard var current = loaded else { return }
+    private func record(_ answer: TrainImportResponse, ids: [UUID], bytes: Int, plans: Int, sessions: Int, job jobID: UUID) async {
+        guard var current = loaded, current.jobID == jobID else { return }
         let sent = Set(ids)
         var counts: [String: Int] = [:]
         for result in answer.results where sent.contains(result.id) && current.progress.isPending(result.id) {
@@ -827,8 +889,8 @@ final class TrainImportUploader {
     }
 
     /// Items the platform refused (or that can't be sent): kept with the request's status and ID until Retry.
-    private func refuse(_ ids: [UUID], reason: String?, error: Error?) async {
-        guard var current = loaded else { return }
+    private func refuse(_ ids: [UUID], reason: String?, error: Error?, job jobID: UUID) async {
+        guard var current = loaded, current.jobID == jobID else { return }
         let api = error as? APIError
         for id in ids where current.progress.isPending(id) {
             current.progress[id] = ImportJobProgress.Item(phase: .rejected, reason: reason, status: api?.status,
@@ -844,12 +906,18 @@ final class TrainImportUploader {
     }
 
     /// What a failed request means (API.md → Errors). True: the pass goes on (the items were refused).
-    private func failed(_ ids: [UUID], _ error: Error) async -> Bool {
+    private func failed(_ ids: [UUID], _ error: Error, job jobID: UUID) async -> Bool {
         if error as? TrainImportError == .notPublished || (error as? APIError)?.status == 404 {
             stop(.notAvailable)
             return false
         }
         let api = error as? APIError
+        // Every `403` holds, a code this build doesn't know too: health data waits, never dropped (ADR 0008).
+        if api?.status == 403 {
+            record(failure(error))
+            stop(.gated(api?.code.map(UploadGate.gate) ?? .policyUnknown))
+            return false
+        }
         switch FailureKind.of(error) {
         case .cancelled:
             // Never a refusal: the items stay pending for the next pass.
@@ -870,7 +938,7 @@ final class TrainImportUploader {
                 stop(.waitingForAccount)
                 return false
             }
-            await refuse(ids, reason: nil, error: error)
+            await refuse(ids, reason: nil, error: error, job: jobID)
             return true
         }
     }
@@ -902,18 +970,21 @@ final class TrainImportUploader {
             return true
         }
         guard await isOpen(generation, revalidated: &revalidated) else { return false }
+        let jobID = current.jobID
         do {
             _ = try await api.enroll(planID: planID)
-            guard generation == self.generation, var updated = loaded else { return false }
+            guard isCurrent(generation, job: jobID), var updated = loaded else { return false }
             updated.progress.enrolled = true
             updated.progress.enrolledPlanID = planID
             loaded = updated
             ImportLog.logger.info("Import: enrolled in the imported plan")
             await store(updated.progress, finished: nil)
-            return generation == self.generation
+            return isCurrent(generation, job: jobID)
         } catch {
-            guard generation == self.generation else { return false }
+            guard isCurrent(generation, job: jobID) else { return false }
             switch FailureKind.of(error) {
+            case .other where (error as? APIError)?.status == 403:
+                return await failed([], error, job: jobID)
             case .other, .appTooOld:
                 // Refused: the plan is there; enrolling is the user's to do in Plans.
                 guard var updated = loaded else { return false }
@@ -923,7 +994,7 @@ final class TrainImportUploader {
                 await store(updated.progress, finished: nil)
                 return true
             case .cancelled, .gate, .signedOut, .transient:
-                return await failed([], error)
+                return await failed([], error, job: jobID)
             }
         }
     }
@@ -951,7 +1022,10 @@ final class TrainImportUploader {
         failures += 1
         let step = Self.backoff[min(failures, Self.backoff.count) - 1].timeInterval
         var wait = step + random(0...(step * Self.jitter))
-        if let retryAfter = api?.retryAfter { wait = max(wait, TimeInterval(retryAfter)) }
+        // `Retry-After` is honoured up to the backoff's ceiling (1 h): a larger one waits for a later trigger.
+        if let retryAfter = api?.retryAfter {
+            wait = max(wait, min(TimeInterval(retryAfter), Self.backoff[Self.backoff.count - 1].timeInterval))
+        }
         let due = (env?.clock.now() ?? Date()).addingTimeInterval(wait)
         retryAt = due
         lostConnection = error.map { _ in api?.status == nil } ?? false
@@ -1001,6 +1075,8 @@ final class TrainImportUploader {
 
     // MARK: status
 
+    /// Cost: one pass over the job's items on the main actor, after each request and state change; at the limits
+    /// (10,000 sessions) a few milliseconds each time. `hasWork` is the same scan.
     private func refreshStatus() {
         guard let env, let current = loaded, current.account == currentAccount, let row = job(id: current.jobID) else {
             status = nil

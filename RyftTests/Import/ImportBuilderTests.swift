@@ -33,6 +33,32 @@ struct ImportSessionIDsTests {
     }
 
     /// The fixture's own ids are the recipe's: the plan's name and start date, the session's wall clock.
+    /// Plans whose names fold the same and that share a start date (or have none): the second adds its occurrence.
+    @Test func plansOfOneNameGetTheirOccurrence() throws {
+        let account = ImportIDs.account("demo")
+        #expect(ImportIDs.plan(account: account, source: .alphaProgression, name: "My Plan", startDate: nil)
+            .uuidString.lowercased() == "aad631e5-e5ae-5438-8338-c12655a90d85")
+        #expect(ImportIDs.plan(account: account, source: .alphaProgression, name: "my plan", startDate: nil, occurrence: 1)
+            .uuidString.lowercased() == "438f2882-5138-568e-9cc5-9fb0033ccb3e")
+        func plan(_ name: String, _ exercise: String, start: String? = nil, line: Int) -> ImportedPlan {
+            let row = ImportedPlanExercise(order: 1, name: exercise, equipment: "Barbell", sets: 3, targetReps: 5...5)
+            return ImportedPlan(name: name, weeks: nil, startDate: start.flatMap(F.date),
+                                days: [ImportedDay(number: 1, name: "A", exercises: [row])], source: SourceLine(file: 0, line: line))
+        }
+        let bundle = F.bundle([], plans: [plan("My Plan", "Deadlift", line: 1), plan("MY  PLAN", "Hip Thrust", line: 10),
+                                          plan("My Plan", "Deadlift", start: "2026-02-02", line: 20)])
+        let ids = ImportBuilder.planIDs(of: bundle, account: account)
+        #expect(ids.map { $0.uuidString.lowercased() }.prefix(2) == ["aad631e5-e5ae-5438-8338-c12655a90d85",
+                                                                      "438f2882-5138-568e-9cc5-9fb0033ccb3e"])
+        // Another start date is another plan: its own first occurrence.
+        #expect(ids[2] == ImportIDs.plan(account: account, source: .alphaProgression, name: "My Plan", startDate: F.date("2026-02-02")))
+        let build = try F.build(bundle, F.decisions())
+        let upload = build.uploadPlan(including: build.defaultIncluded)
+        #expect(upload.plans.map(\.id) == ids)
+        #expect(Set(upload.plans.flatMap(\.days).map(\.id)).count == 3)
+        #expect(ImportBuilder.query(for: bundle, decisions: F.decisions()).planIDs == ids)
+    }
+
     @Test func theFixtureBuildsTheRecipesIDs() throws {
         let build = try F.build(F.bundle(), F.decisions())
         let plan = try #require(build.plans.first)
@@ -518,9 +544,11 @@ struct ImportExistingQueryTests {
         #expect(query.sessionIDs == ImportBuilder.sessionIDs(of: bundle, account: ImportIDs.account("demo")))
         #expect(query.days == ["2026-02-01", "2026-02-03", "2026-02-05", "2026-03-01", "2026-03-10", "2026-03-14"])
         let range = try #require(query.range)
-        // Berlin midnight on 1 Feb (UTC+1) to the last second of 14 Mar.
-        #expect(range.lowerBound == Date(timeIntervalSince1970: 1_769_900_400))
-        #expect(range.upperBound == Date(timeIntervalSince1970: 1_773_529_199))
+        // Berlin midnight on 1 Feb (UTC+1) to the last second of 14 Mar, two days wider on each side: imported again
+        // in a zone up to 26 hours away, the edge days' sessions are still read (`existingPadding`).
+        #expect(ImportBuilder.existingPadding == 2 * 86_400)
+        #expect(range.lowerBound == Date(timeIntervalSince1970: 1_769_900_400 - 172_800))
+        #expect(range.upperBound == Date(timeIntervalSince1970: 1_773_529_199 + 172_800))
         #expect(ImportBuilder.query(for: F.bundle([]), decisions: F.decisions()).range == nil)
     }
 }

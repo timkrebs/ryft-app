@@ -10,6 +10,8 @@ struct ImportBuildContext: Sendable {
     let resolver: ImportTimeResolver
     /// The derived session ids, in the bundle's order.
     let sessionIDs: [UUID]
+    /// The derived plan ids, in the bundle's order.
+    let planIDs: [UUID]
     /// Every source exercise in first-seen order (plans, then sessions): a stable order for custom exercises.
     let exerciseOrder: [SourceExerciseKey]
     /// The `+N` loads per source exercise, for the bodyweight answer's default (design §5).
@@ -24,6 +26,7 @@ struct ImportBuildContext: Sendable {
         account = ImportIDs.account(decisions.account)
         resolver = ImportTimeResolver(zone: decisions.zone)
         sessionIDs = ImportBuilder.sessionIDs(of: bundle, account: account)
+        planIDs = ImportBuilder.planIDs(of: bundle, account: account)
         var order: [SourceExerciseKey] = []
         var seen = Set<SourceExerciseKey>()
         var plus: [SourceExerciseKey: [Double]] = [:]

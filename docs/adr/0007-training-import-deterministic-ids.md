@@ -110,7 +110,10 @@ count, how a plan's name is normalised, and what tells two days with the same nu
 - A session's occurrence counts the sessions with the same wall-clock start key **oldest first**, which is from the end
   of an Alpha Progression export (it lists the newest first). A newer export that adds workouts at the top keeps every
   earlier id.
-- A plan's name in its key is `fold(name)` (Amendment 1's fold), its start date `YYYY-MM-DD` or "".
+- A plan's name in its key is `fold(name)` (Amendment 1's fold), its start date `YYYY-MM-DD` or "". A second plan
+  whose name folds the same and that has the same start date (or none) adds `␟<occurrence>` (1, 2, …), counted in the
+  picked files' order, so the first keeps the plain recipe. Without it the second plan silently replaced the first
+  (I5 review, 2026-10-26). The same plans file picked twice therefore gives two plans.
 - A plan day is `day␟<number>`; a number the file names again adds `␟<occurrence>` (1, 2, …), so the first day keeps the
   plain recipe.
 - A plan exercise's and a session exercise's occurrence counts the same source-exercise key within its day or session.

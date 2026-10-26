@@ -13,6 +13,8 @@ final class MockTrainImportSource: TrainImportAPI, @unchecked Sendable {
         let planIDs: [UUID]
         let sessionIDs: [UUID]
         let bytes: Int
+        /// Refused as a whole (`refuseRequestsWith`); nothing of it was stored.
+        var refused = false
     }
 
     private let lock = NSLock()
@@ -22,6 +24,8 @@ final class MockTrainImportSource: TrainImportAPI, @unchecked Sendable {
     private var rejected: [UUID: String] = [:]
     private var omitted: Set<UUID> = []
     private var publishes = true
+    private var refusing: Set<UUID> = []
+    private var finishesCancelled = false
     private var holdHook: (@Sendable () async -> Void)?
 
     init() {}
@@ -42,6 +46,19 @@ final class MockTrainImportSource: TrainImportAPI, @unchecked Sendable {
     var omitIDs: Set<UUID> {
         get { lock.withLock { omitted } }
         set { lock.withLock { omitted = newValue } }
+    }
+
+    /// A request that holds any of these is refused as a whole (`422`, request ID `req-422`), as a platform that
+    /// validates the batch before storing anything.
+    var refuseRequestsWith: Set<UUID> {
+        get { lock.withLock { refusing } }
+        set { lock.withLock { refusing = newValue } }
+    }
+
+    /// A request whose task was cancelled while held is still answered (its answer was on its way).
+    var finishesCancelledRequests: Bool {
+        get { lock.withLock { finishesCancelled } }
+        set { lock.withLock { finishesCancelled = newValue } }
     }
 
     /// Runs before each request is stored (tests hold a request open with it). A request whose task was cancelled
@@ -69,12 +86,20 @@ final class MockTrainImportSource: TrainImportAPI, @unchecked Sendable {
         guard publishesTrainImport else { throw APIError.http(404, "not found") }
         if let hook = beforeImport {
             await hook()
-            try Task.checkCancellation()
+            if !finishesCancelledRequests { try Task.checkCancellation() }
         }
         guard body.count <= 1 << 20 else { throw APIError.http(413, "request body too large") }
         let request = try APIClient.jsonDecoder.decode(Body.self, from: body)
         guard request.plans.count <= 5, request.sessions.count <= 50 else {
             throw APIError.http(413, "too many items")
+        }
+        let refused = refuseRequestsWith
+        if !refused.isDisjoint(with: request.plans.map(\.id) + request.sessions.map(\.id)) {
+            lock.withLock {
+                log.append(Request(source: request.source, planIDs: request.plans.map(\.id),
+                                   sessionIDs: request.sessions.map(\.id), bytes: body.count, refused: true))
+            }
+            throw APIError.http(422, "invalid item", requestID: "req-422")
         }
         return lock.withLock {
             log.append(Request(source: request.source, planIDs: request.plans.map(\.id),

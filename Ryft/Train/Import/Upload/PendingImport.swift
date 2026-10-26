@@ -80,6 +80,27 @@ struct ImportJobProgress: Codable, Equatable, Sendable {
     /// The days the platform rescores, for the refresh after the last batch.
     var daysTouched: [String] = []
     var lastFailure: ImportFailure?
+    /// Plan day and plan exercise ids (`uuidString`) that RYFT's kept copy of a plan doesn't have (found at upload after
+    /// an offline preview): sessions are sent without links to them.
+    var missingLinks: [String] = []
+
+    init() {}
+
+    /// Every field may be missing (a job stored by an earlier build): it reads as its default.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        items = try c.decodeIfPresent([String: Item].self, forKey: .items) ?? [:]
+        unanswered = try c.decodeIfPresent([String: Int].self, forKey: .unanswered) ?? [:]
+        enrolled = try c.decodeIfPresent(Bool.self, forKey: .enrolled) ?? false
+        enrolledPlanID = try c.decodeIfPresent(UUID.self, forKey: .enrolledPlanID)
+        daysTouched = try c.decodeIfPresent([String].self, forKey: .daysTouched) ?? []
+        lastFailure = try c.decodeIfPresent(ImportFailure.self, forKey: .lastFailure)
+        missingLinks = try c.decodeIfPresent([String].self, forKey: .missingLinks) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case items, unanswered, enrolled, enrolledPlanID, daysTouched, lastFailure, missingLinks
+    }
 
     subscript(id: UUID) -> Item? {
         get { items[id.uuidString] }

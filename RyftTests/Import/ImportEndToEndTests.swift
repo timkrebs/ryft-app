@@ -80,6 +80,33 @@ struct ImportEndToEndTests {
         #expect(newerBuild.uploadPlan(including: newerBuild.defaultIncluded).sessions.count == 1)
     }
 
+    /// Imported in Tokyo, imported again in New York (13 or 14 hours behind): the edge days' sessions are still found,
+    /// so nothing is sent again and no `started_at` moves.
+    @Test func aReimportInAnotherZoneSendsNothing() async throws {
+        let h = ImportUploadHarness(demo: true)
+        let rows: [(String, [(ImportedLoad?, Int?)])] = [("Deadlift", [(.weight(kg: 100), 5)])]
+        let early = ImportBuildFixture.session(title: "Early", day: "2026-03-01", hour: 6, minute: 0, exercises: rows)
+        let late = ImportBuildFixture.session(title: "Late", day: "2026-03-05", hour: 23, minute: 0, exercises: rows)
+        let bundle = ImportBuildFixture.bundle([late, early])
+        let tokyo = try #require(TimeZone(identifier: "Asia/Tokyo"))
+        let newYork = try #require(TimeZone(identifier: "America/New_York"))
+        let first = ImportBuildFixture.decisions(account: h.account, zone: tokyo)
+        let firstExisting = await h.uploader.checkExisting(ImportBuilder.query(for: bundle, decisions: first))
+        let firstBuild = try ImportBuildFixture.build(bundle, first, existing: firstExisting)
+        let firstPlan = firstBuild.uploadPlan(including: firstBuild.defaultIncluded)
+        #expect(firstPlan.sessions.count == 2)
+        #expect(await h.run(firstPlan))
+        let stored = h.demoAPI.trainImportSource.sessions.map(\.startedAt).sorted()
+        h.uploader.markResultSeen()
+        let again = ImportBuildFixture.decisions(account: h.account, zone: newYork)
+        let existing = await h.uploader.checkExisting(ImportBuilder.query(for: bundle, decisions: again))
+        #expect(existing.sessionIDs == Set(firstPlan.sessions.map(\.id)))
+        let againBuild = try ImportBuildFixture.build(bundle, again, existing: existing)
+        #expect(againBuild.sessions.map(\.verdict) == [.alreadyImported, .alreadyImported])
+        #expect(againBuild.uploadPlan(including: againBuild.defaultIncluded).sessions.isEmpty)
+        #expect(h.demoAPI.trainImportSource.sessions.map(\.startedAt).sorted() == stored)
+    }
+
     /// A large export (1,200 workouts): read, built and uploaded in 24 requests, nothing lost.
     @Test func aLargeExportGoesUpInBatches() async throws {
         let workouts = 1_200
