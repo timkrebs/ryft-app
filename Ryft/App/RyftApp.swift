@@ -204,6 +204,8 @@ struct RyftApp: App {
                 // Back online: upload what HealthKit collected meanwhile, then reload.
                 .onChange(of: connectivity.isOnline) { _, online in
                     guard online else { return }
+                    // An offline start left the policy unknown: ask now (activity uploads wait for it).
+                    Task { await screens.onboarding.refreshPolicyIfUnknown() }
                     Task { await coordinator.run(.reconnect) }
                     Task { await refreshTrain() }
                     // Reports saved offline (Profile → Report a problem).

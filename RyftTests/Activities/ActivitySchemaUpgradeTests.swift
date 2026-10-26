@@ -83,23 +83,34 @@ private enum ActivitySchemaA1 {
 
 /// A2 adds `sentAt` to `LocalActivity` and `LocalManualSleep`. The store a build from A1 left on disk must open with
 /// the new schema (a lightweight migration: an added optional attribute), keep every row, and read `sentAt` as nil.
+///
+/// Both stores are configured the way `TrainStore.init` configures its own (a name, the default location, the whole
+/// schema), and the reopened container must be on disk: a migration that failed would leave `TrainStore` on its
+/// in-memory fallback. `TrainStore` itself can't be pointed at a test store without a production change (its name is
+/// fixed), so `isDurable` isn't asserted here.
 @Suite("Activities: the A2 schema opens an A1 store")
 @MainActor
 struct ActivitySchemaUpgradeTests {
     @Test func anA1StoreOpensWithEveryRowAndNoSentMarker() throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ryft-upgrade-\(UUID().uuidString)",
-                                                                                  isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let url = folder.appendingPathComponent("Train.store")
+        let name = "Train-upgrade-\(UUID().uuidString)"
         let id = UUID()
         let start = Date(timeIntervalSince1970: 1_792_390_000)
+        var files: [URL] = []
+        defer {
+            for file in files {
+                for suffix in ["", "-wal", "-shm"] {
+                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: file.path + suffix))
+                }
+            }
+        }
 
         // An A1 build writes the store (its activity tables).
         do {
             let schema = Schema([ActivitySchemaA1.LocalActivity.self, ActivitySchemaA1.LocalManualSleep.self,
                                  ActivityTrackChunk.self])
-            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
+            let configuration = ModelConfiguration(name, schema: schema, isStoredInMemoryOnly: false)
+            files.append(configuration.url)
+            let container = try ModelContainer(for: schema, configurations: configuration)
             let context = container.mainContext
             context.insert(ActivitySchemaA1.LocalActivity(id: id, account: "account-a", start: start, notes: "Hills",
                                                           localRevision: 2))
@@ -108,9 +119,12 @@ struct ActivitySchemaUpgradeTests {
             try context.save()
         }
 
-        // This build opens it with the whole app schema.
-        let container = try ModelContainer(for: TrainStore.schema,
-                                           configurations: ModelConfiguration(schema: TrainStore.schema, url: url))
+        // This build opens it as `TrainStore` does: by name, with the whole app schema, on disk.
+        let configuration = ModelConfiguration(name, schema: TrainStore.schema, isStoredInMemoryOnly: false)
+        let container = try ModelContainer(for: TrainStore.schema, configurations: configuration)
+        #expect(container.configurations.allSatisfy { !$0.isStoredInMemoryOnly })
+        #expect(container.configurations.first?.url == files.first)
+        #expect(FileManager.default.fileExists(atPath: configuration.url.path))
         let context = container.mainContext
         let rows = try context.fetch(FetchDescriptor<LocalActivity>())
         let nights = try context.fetch(FetchDescriptor<LocalManualSleep>())

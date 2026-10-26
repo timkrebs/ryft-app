@@ -25,6 +25,8 @@ private final class AccountHarness {
     final class DuringDeletion: @unchecked Sendable {
         var run: (@MainActor @Sendable () async -> Void)?
         var authUserDeleted = true
+        /// Thrown after `run` (the deletion failed or was cut short).
+        var error: Error?
     }
     let duringDeletion = DuringDeletion()
 
@@ -42,6 +44,7 @@ private final class AccountHarness {
                            },
                            deleteRemoteAccount: {
                                await duringDeletion.run?()
+                               if let error = duringDeletion.error { throw error }
                                return AccountDeleted(status: "deleted", authUserDeleted: duringDeletion.authUserDeleted)
                            },
                            postAppleAuthorization: { _ in })
@@ -353,7 +356,7 @@ struct AccountReviewTests {
 
     @Test func theSameAccountsUnparkSendsNothingBeforeConsent() async {
         let h = AccountHarness()
-        var gate: APIErrorCode? = .consentRequired
+        var gate: UploadGate? = .gate(.consentRequired)
         h.env.uploader.gate = { gate }
         h.insert(AccountHarness.accountA)
         await h.auth.rejectedAfterRefresh()
@@ -458,6 +461,45 @@ struct AccountRecheckTests {
         #expect(h.wipes.count == wipesBefore + 1) // A's session ending, and nothing after B signed in
     }
 
+    @Test func anotherAccountThatCameAndWentDuringTheDeletionGetsNoNoticeAndKeepsWhatItParked() async {
+        let h = AccountHarness()
+        h.insert(AccountHarness.accountA)
+        // A's session ends; B signs in, adds a row, and its own session expires, all before DELETE /v1/me returns.
+        h.duringDeletion.run = { [weak h] in
+            guard let h else { return }
+            await h.auth.rejectedAfterRefresh()
+            await h.signIn(AccountHarness.b)
+            h.insert(AccountHarness.accountB)
+            await h.auth.rejectedAfterRefresh()
+        }
+        #expect(await h.auth.deleteAccount())
+        #expect(!h.auth.isSignedIn)
+        #expect(h.auth.signOutNotice == AuthService.SignOutReason.sessionExpired.notice) // B's own, not A's deletion
+        #expect(h.rows(of: AccountHarness.accountB).count == 1 && h.rows(of: AccountHarness.accountB).first?.parkedAt != nil)
+        #expect(h.rows(of: AccountHarness.accountA).isEmpty)
+    }
+
+    @Test func aDeletionCutShortByAnAccountSwitchShowsNoError() async {
+        let h = AccountHarness()
+        h.duringDeletion.run = { [weak h] in
+            guard let h else { return }
+            await h.auth.rejectedAfterRefresh()
+            await h.signIn(AccountHarness.b)
+        }
+        h.duringDeletion.error = CancellationError()
+        #expect(await h.auth.deleteAccount() == false)
+        #expect(h.auth.errorMessage == nil && h.auth.errorDetails == nil)
+        #expect(h.auth.accountID == AccountHarness.accountB)
+    }
+
+    @Test func aDeletionThatFailsForTheSameAccountSaysSo() async {
+        let h = AccountHarness()
+        h.duringDeletion.error = APIError.http(503, "busy", requestID: "req-503")
+        #expect(await h.auth.deleteAccount() == false)
+        #expect(h.auth.errorMessage != nil && h.auth.errorDetails?.contains("req-503") == true)
+        #expect(h.auth.accountID == AccountHarness.accountA)
+    }
+
     @Test func aDeletionKeepsItsOwnBackgroundFlag() async {
         let h = AccountHarness()
         h.duringDeletion.authUserDeleted = false // Supabase finishes in the background
@@ -520,7 +562,7 @@ struct UploadGateTests {
         await onboarding.check(force: true)
         #expect(onboarding.user != nil && onboarding.policyVersion == nil)
         #expect(onboarding.syncGate == nil) // HealthKit's gate takes the old consent (a separate decision)
-        #expect(onboarding.uploadGate == .consentRequired)
+        #expect(onboarding.uploadGate == .policyUnknown)
         let end = clock.now().addingTimeInterval(-3_600)
         let id = try #require(env.activities.save(manual: ActivityDraft(sport: .yoga, start: end.addingTimeInterval(-900),
                                                                          end: end))?.id)
@@ -531,7 +573,7 @@ struct UploadGateTests {
         api.faults["syncStatus"] = nil
         api.remoteConfig = Self.config(policy: "2026-11-01")
         await onboarding.check(force: true)
-        #expect(onboarding.uploadGate == .consentRequired)
+        #expect(onboarding.uploadGate == .gate(.consentRequired))
         await env.uploader.flush()
         #expect(api.count("putActivity") == 0)
         // It matches the consent: the queue goes.
@@ -540,6 +582,73 @@ struct UploadGateTests {
         #expect(onboarding.uploadGate == nil)
         await env.uploader.flush()
         #expect(env.uploader.state(of: id) == .confirmed)
+    }
+
+    /// A cold start that never ran `check()` (a background wake): the account and its cached config are all there is.
+    private static func coldStart(consent: String, cached: (account: String?, policy: String)?,
+                                  online: Bool = true) async throws -> (AppEnvironment, OnboardingCoordinator, UUID) {
+        let clock = TestClock()
+        let api = MockPlatformAPI()
+        api.accountConsent = Consent(policyVersion: consent, grantedAt: clock.now())
+        let env = AppEnvironment.test(api: api, clock: clock, online: online)
+        let state = AppState(env: env)
+        state.user = try await api.me() // the cached account
+        if let cached {
+            let document = FlagStore.Cached(config: config(policy: cached.policy), fetchedAt: clock.now())
+            env.persistence.saveDocument(document, key: FlagStore.cacheKey(cached.account ?? env.auth.accountID),
+                                         at: clock.now())
+        }
+        let onboarding = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
+        env.uploader.gate = { onboarding.uploadGate }
+        let end = clock.now().addingTimeInterval(-3_600)
+        let id = try #require(env.activities.save(manual: ActivityDraft(sport: .yoga, start: end.addingTimeInterval(-900),
+                                                                         end: end))?.id)
+        return (env, onboarding, id)
+    }
+
+    @Test func aColdStartWithTheAccountsCachedMatchingPolicyUploads() async throws {
+        let (env, onboarding, id) = try await Self.coldStart(consent: "2026-10-20", cached: (nil, "2026-10-20"))
+        #expect(onboarding.policyVersion == nil && onboarding.policyVersionInForce == "2026-10-20")
+        #expect(onboarding.uploadGate == nil)
+        await env.uploader.flush()
+        #expect(env.uploader.state(of: id) == .confirmed)
+    }
+
+    @Test func aColdStartWithoutACachedConfigIsHeld() async throws {
+        let (env, onboarding, id) = try await Self.coldStart(consent: "2026-10-20", cached: nil)
+        #expect(onboarding.uploadGate == .policyUnknown)
+        await env.uploader.flush(userInitiated: true)
+        #expect(env.uploader.state(of: id) == .pending(.gated))
+    }
+
+    @Test func aColdStartWithACachedPolicyTheConsentDoesntMatchIsHeld() async throws {
+        let (env, onboarding, id) = try await Self.coldStart(consent: "2026-10-01", cached: (nil, "2026-10-20"))
+        #expect(onboarding.uploadGate == .gate(.consentRequired))
+        await env.uploader.flush(userInitiated: true)
+        #expect(env.uploader.state(of: id) == .pending(.gated))
+    }
+
+    @Test func anotherAccountsCachedConfigIsNeverUsed() async throws {
+        let (env, onboarding, id) = try await Self.coldStart(consent: "2026-10-20", cached: ("someone-else", "2026-10-20"))
+        #expect(onboarding.policyVersionInForce == nil && onboarding.uploadGate == .policyUnknown)
+        await env.uploader.flush(userInitiated: true)
+        #expect(env.uploader.state(of: id) == .pending(.gated))
+    }
+
+    @Test func anOfflineStartAsksForThePolicyOnReconnectThenUploads() async throws {
+        let (env, onboarding, id) = try await Self.coldStart(consent: MockData.policyVersion, cached: nil, online: false)
+        await onboarding.check() // offline: no answer
+        #expect(onboarding.uploadGate == .policyUnknown)
+        #expect(env.uploader.state(of: id) == .pending(.offline))
+        env.connectivityMonitor.update(true)
+        await onboarding.refreshPolicyIfUnknown()
+        #expect(onboarding.policyVersion == MockData.policyVersion && onboarding.uploadGate == nil)
+        await env.uploader.flush()
+        #expect(env.uploader.state(of: id) == .confirmed)
+        // Known now: no second ask.
+        let configs = (env.api as? MockPlatformAPI)?.count("config")
+        await onboarding.refreshPolicyIfUnknown()
+        #expect((env.api as? MockPlatformAPI)?.count("config") == configs)
     }
 
     @Test func demoDataHasNoUploadGate() {
