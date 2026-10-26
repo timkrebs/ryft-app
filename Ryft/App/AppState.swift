@@ -342,11 +342,18 @@ final class AppState {
     /// RyftApp: `auth`'s account hooks run these, inside the sign-in, sign-out, deletion or wipe itself. Signed in
     /// at launch, the store is put right once (privacy review N1): a kill between the SDK saving another account's
     /// session and the purge's save leaves the other account's rows, and a kill after an unpark leaves none parked.
-    func bindAccountHooks(_ auth: AuthService) {
+    /// `apiStatus`: whose requests the wipe forgets (`APIStatus.forgetRequests`; the app's shared one by default).
+    func bindAccountHooks(_ auth: AuthService, apiStatus: APIStatus? = nil) {
+        let apiStatus = apiStatus ?? .shared
         auth.onAccountWillChange = { [weak self] from, to, reason in
             self?.accountWillChange(from: from, to: to, reason: reason)
         }
-        auth.onWipe = { [weak self] wipe in self?.wiped(wipe) }
+        auth.onWipe = { [weak self] wipe in
+            // The leaving account's requests are forgotten before the next session is published: a late answer
+            // for them (a 403's gate, a 503) is never recorded as the next account's (its consent record included).
+            apiStatus.forgetRequests()
+            self?.wiped(wipe)
+        }
         // Nothing more goes up for an account being deleted, and an answer in flight is dropped.
         auth.onAccountDeletionStart = { [weak self] in self?.env.uploader.accountChanged() }
         if let account = auth.accountID {

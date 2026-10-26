@@ -64,7 +64,7 @@ struct SyncSeamTests {
         let api = MockPlatformAPI()
         api.syncResponse = SyncResponse(samples: 3, sleep: 0, workouts: 0, daysTouched: ["2026-10-19"])
         let env = AppEnvironment.test(api: api, health: health)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
 
         await sync.syncNow()
 
@@ -80,7 +80,7 @@ struct SyncSeamTests {
         health.pageSize = 1_000
         let api = MockPlatformAPI()
         api.failNext = APIError.http(413, "too large")
-        let sync = SyncService(env: .test(api: api, health: health))
+        let sync = SyncService.ungated(env: .test(api: api, health: health))
 
         await sync.syncNow()
 
@@ -94,7 +94,7 @@ struct SyncSeamTests {
     @Test func offlineSendsNothing() async {
         let health = MockHealthStore(pages: [.quantity(.heartRate): [samples(1)]])
         let api = MockPlatformAPI()
-        let sync = SyncService(env: .test(api: api, health: health, online: false))
+        let sync = SyncService.ungated(env: .test(api: api, health: health, online: false))
 
         await sync.syncNow()
 
@@ -106,7 +106,7 @@ struct SyncSeamTests {
         let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(2)]])
         let api = MockPlatformAPI()
         api.failNext = APIError.http(500, "")
-        let sync = SyncService(env: .test(api: api, health: health))
+        let sync = SyncService.ungated(env: .test(api: api, health: health))
 
         await sync.syncNow()
 
@@ -153,7 +153,7 @@ struct SyncEngineTests {
     @Test func readingMappingEncodingAndUploadingStayOffTheMainThread() async {
         let health = MockHealthStore(pages: [.quantity(.heartRate): [samples(3), samples(2)], .sleep: [samples(1)]])
         let api = MockPlatformAPI()
-        let sync = SyncService(env: .test(api: api, health: health))
+        let sync = SyncService.ungated(env: .test(api: api, health: health))
 
         await sync.syncNow()
 
@@ -168,7 +168,7 @@ struct SyncEngineTests {
         let api = MockPlatformAPI()
         api.syncResponse = SyncResponse(samples: 1, sleep: 0, workouts: 0, daysTouched: ["2026-10-21"])
         let env = AppEnvironment.test(api: api, health: health)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
 
         let touched = try await sync.upload()
 
@@ -192,7 +192,7 @@ struct SyncEngineTests {
         let health = MockHealthStore(pages: [.quantity(.heartRate): [samples(3)]])
         let api = MockPlatformAPI()
         api.syncResponse = SyncResponse(samples: 3, sleep: 0, workouts: 0, daysTouched: ["2026-10-18"])
-        let sync = SyncService(env: .test(api: api, health: health))
+        let sync = SyncService.ungated(env: .test(api: api, health: health))
 
         _ = try await sync.upload()
 
@@ -203,7 +203,7 @@ struct SyncEngineTests {
         let health = MockHealthStore(pages: [.quantity(.heartRate): [samples(1)]], recent: [.sleep: [samples(4)]])
         health.commit(HealthPage(delta: HealthDelta(), anchor: nil, more: false), for: .workouts) // synced before
         let api = MockPlatformAPI()
-        let sync = SyncService(env: .test(api: api, health: health))
+        let sync = SyncService.ungated(env: .test(api: api, health: health))
 
         _ = try await sync.upload()
 
@@ -217,7 +217,7 @@ struct SyncEngineTests {
                                      pages: [.quantity(.heartRate): [samples(2), samples(2), samples(2), samples(2)]])
         let api = MockPlatformAPI()
         api.beforeSync = { try? await clock.sleep(for: .seconds(1)) }
-        let sync = SyncService(env: .test(api: api, health: health, clock: clock))
+        let sync = SyncService.ungated(env: .test(api: api, health: health, clock: clock))
         health.commit(HealthPage(delta: HealthDelta(), anchor: nil, more: false), for: .sleep) // not a first sync
         let run = Task { await sync.syncNow() }
 
@@ -243,7 +243,7 @@ struct SyncEngineTests {
                                      pages: [.quantity(.heartRate): [samples(100), samples(100), samples(100)]])
         health.commit(HealthPage(delta: HealthDelta(), anchor: nil, more: false), for: .sleep) // not a first sync
         let api = MockPlatformAPI()
-        let sync = SyncService(env: .test(api: api, health: health))
+        let sync = SyncService.ungated(env: .test(api: api, health: health))
 
         await sync.syncNow()
 
@@ -263,7 +263,7 @@ struct SyncEngineTests {
                                                                                     unknownType: 0),
                                                              sleep: .none, workouts: .none))
         let env = AppEnvironment.test(api: api, health: health)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
 
         await sync.syncNow()
 
@@ -281,7 +281,7 @@ struct SyncEngineTests {
         let api = MockPlatformAPI()
         api.failNext = APIError.http(500, "", requestID: "01a15a69-7142-7a8b-aba2-c099a5fcd1e4")
         let env = AppEnvironment.test(api: api, health: health)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
 
         await sync.syncNow()
 
@@ -295,7 +295,7 @@ struct SyncEngineTests {
     @Test func aFullResyncIsABackfillAgain() async {
         let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(2)]])
         let api = MockPlatformAPI()
-        let sync = SyncService(env: .test(api: api, health: health))
+        let sync = SyncService.ungated(env: .test(api: api, health: health))
         await sync.syncNow()
         #expect(sync.engineState.backfillDone)
 
@@ -317,7 +317,7 @@ struct SyncEngineBackgroundTests {
         health.commit(HealthPage(delta: HealthDelta(), anchor: nil, more: false), for: .workouts) // not a first sync
         let api = MockPlatformAPI()
         api.beforeSync = { try? await clock.sleep(for: .seconds(1)) }
-        let sync = SyncService(env: .test(api: api, health: health, clock: clock))
+        let sync = SyncService.ungated(env: .test(api: api, health: health, clock: clock))
         let run = Task { await sync.syncNow() }
         #expect(await eventually { clock.pendingSleeps == 1 }) // page 0 uploading
 
@@ -335,7 +335,7 @@ struct SyncEngineBackgroundTests {
         let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(2)]])
         health.nextError = HKError(.errorDatabaseInaccessible)
         let api = MockPlatformAPI()
-        let sync = SyncService(env: .test(api: api, health: health))
+        let sync = SyncService.ungated(env: .test(api: api, health: health))
 
         let touched = try? await sync.upload()
 
@@ -352,7 +352,7 @@ struct SyncEngineBackgroundTests {
         let gone = [UUID(), UUID()]
         health.deletions = [.quantity(.heartRate): gone]
         let env = AppEnvironment.test(health: health)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
 
         await sync.syncNow()
 
@@ -383,7 +383,7 @@ struct SyncEngineBackgroundTests {
         let api = MockPlatformAPI()
         let env = AppEnvironment.test(api: api, health: health)
         let state = AppState(env: env)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         // Launched in the background for the delivery.
         let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock,
                                           inBackground: true)
@@ -419,7 +419,7 @@ struct SyncEngineReviewTests {
         let api = MockPlatformAPI()
         api.beforeSync = { try? await clock.sleep(for: .seconds(1)) }
         let env = AppEnvironment.test(api: api, health: health, clock: clock)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let run = Task { await sync.syncNow() }
         #expect(await eventually { clock.pendingSleeps == 1 })
 
@@ -441,7 +441,7 @@ struct SyncEngineReviewTests {
         let api = MockPlatformAPI()
         api.beforeSync = { try? await clock.sleep(for: .seconds(1)) }
         let env = AppEnvironment.test(api: api, health: health, clock: clock)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let run = Task { await sync.syncNow() }
         #expect(await eventually { clock.pendingSleeps == 1 })
         clock.advance(by: .seconds(1)) // page 0 accepted and committed; page 1 uploading
@@ -460,7 +460,7 @@ struct SyncEngineReviewTests {
         health.commit(HealthPage(delta: HealthDelta(), anchor: nil, more: false), for: .sleep)
         let api = MockPlatformAPI()
         api.syncResponse = SyncResponse(samples: 1, sleep: 0, workouts: 0, daysTouched: ["2026-10-20"])
-        let sync = SyncService(env: .test(api: api, health: health))
+        let sync = SyncService.ungated(env: .test(api: api, health: health))
 
         await sync.syncNow()
         #expect(sync.engineState.recentDone && health.recentReads == 0)
@@ -476,7 +476,7 @@ struct SyncEngineReviewTests {
         api.beforeSync = { try? await clock.sleep(for: .seconds(60)) }
         let env = AppEnvironment.test(api: api, health: health, clock: clock)
         let state = AppState(env: env)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let c = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: clock)
         let run = Task { await c.run(.appActive) }
         #expect(await eventually { clock.pendingSleeps == 1 })
@@ -500,7 +500,7 @@ struct SyncEngineBackgroundReviewTests {
         health.onCommit = { _ in
             if !PendingDeletions.load(account: account, defaults: env.defaults).isEmpty { keptAtCommit.add() }
         }
-        await SyncService(env: env).syncNow()
+        await SyncService.ungated(env: env).syncNow()
         #expect(keptAtCommit.value >= 1)
     }
 
@@ -509,7 +509,7 @@ struct SyncEngineBackgroundReviewTests {
         let api = MockPlatformAPI()
         api.syncResponse = SyncResponse(samples: 1, sleep: 0, workouts: 0, daysTouched: ["2026-10-20"])
         let env = AppEnvironment.test(api: api, health: health)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let c = SyncCoordinator(steps: LiveSyncSteps(state: AppState(env: env), sync: sync), clock: env.clock,
                                 inBackground: true)
         _ = await c.run(.healthKit)
@@ -522,7 +522,7 @@ struct SyncEngineBackgroundReviewTests {
         let api = MockPlatformAPI()
         api.syncResponse = SyncResponse(samples: 1, sleep: 0, workouts: 0, daysTouched: ["2026-10-20"])
         let env = AppEnvironment.test(api: api, health: health)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         _ = try? await sync.upload() // the first-score window: a backlog, nothing measured yet
         #expect(sync.hasBacklog)
         // Not 0: both streams still to backfill, unmeasured, so the task waits for power.
@@ -539,7 +539,7 @@ struct SyncEngineBackgroundReviewTests {
         let api = MockPlatformAPI()
         api.beforeSync = { try? await clock.sleep(for: .seconds(20)) }
         let env = AppEnvironment.test(api: api, health: health, clock: clock)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let c = SyncCoordinator(steps: LiveSyncSteps(state: AppState(env: env), sync: sync), clock: clock,
                                 inBackground: true)
         let task = FakeProcessingTask()
@@ -573,7 +573,7 @@ struct SyncScoringStateTests {
         let env = AppEnvironment.test(api: api)
         let state = AppState(env: env)
         let status = APIStatus()
-        let steps = LiveSyncSteps(state: state, sync: SyncService(env: env), apiStatus: status)
+        let steps = LiveSyncSteps(state: state, sync: SyncService.ungated(env: env), apiStatus: status)
 
         let answer = try await steps.syncStatus()
 
@@ -585,7 +585,7 @@ struct SyncScoringStateTests {
         let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(2)]])
         let api = MockPlatformAPI()
         let env = AppEnvironment.test(api: api, health: health)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         await sync.syncNow()
         #expect(health.resets == 0)
 
@@ -606,7 +606,7 @@ struct SyncScoringStateTests {
         let api = MockPlatformAPI()
         api.syncResponse = SyncResponse(samples: 1, sleep: 0, workouts: 0, daysTouched: ["2026-10-20"],
                                         scoring: SyncScoring(queuedDays: ["2026-10-20"], expectedWithinSec: 25))
-        let sync = SyncService(env: .test(api: api, health: health))
+        let sync = SyncService.ungated(env: .test(api: api, health: health))
 
         await sync.syncNow()
 
@@ -619,7 +619,7 @@ struct SyncScoringStateTests {
         let api = MockPlatformAPI()
         api.resyncRequestedAt = Date(timeIntervalSince1970: 1_792_500_000)
         let env = AppEnvironment.test(api: api, health: health)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let onboarding = OnboardingCoordinator(state: AppState(env: env), apiStatus: APIStatus()) {}
         onboarding.statusReceived = { sync.receive($0) }
 
@@ -632,7 +632,7 @@ struct SyncScoringStateTests {
     @Test func resyncRequestsAreComparedAsTheServerSentThem() async {
         let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [:])
         let clock = TestClock(now: Date(timeIntervalSince1970: 2_000_000_000)) // the phone runs far ahead
-        let sync = SyncService(env: .test(health: health, clock: clock))
+        let sync = SyncService.ungated(env: .test(health: health, clock: clock))
         let request = Date(timeIntervalSince1970: 1_792_500_000)
 
         sync.fullResyncRequested(at: request)
@@ -664,12 +664,12 @@ struct SyncGzipTests {
     @Test func pagesGoUpGzippedOnlyWhenTheFlagSaysSo() async {
         let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(3)]])
         let api = MockPlatformAPI()
-        await SyncService(env: .test(api: api, health: health)).syncNow()
+        await SyncService.ungated(env: .test(api: api, health: health)).syncNow()
         #expect(api.syncEncodings == [nil])
 
         let gzipHealth = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(3)]])
         let gzipAPI = MockPlatformAPI()
-        await SyncService(env: .test(api: gzipAPI, health: gzipHealth, flags: [.syncGzip: true])).syncNow()
+        await SyncService.ungated(env: .test(api: gzipAPI, health: gzipHealth, flags: [.syncGzip: true])).syncNow()
         #expect(gzipAPI.syncEncodings == ["gzip"])
         #expect(gzipAPI.syncRequests.first?.samples.count == 3) // the platform reads the same page
     }
@@ -677,7 +677,7 @@ struct SyncGzipTests {
     @Test func uploadedBytesCountTheWireAndStreamsTheJSON() async throws {
         let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(500)]])
         let api = MockPlatformAPI()
-        let sync = SyncService(env: .test(api: api, health: health, flags: [.syncGzip: true]))
+        let sync = SyncService.ungated(env: .test(api: api, health: health, flags: [.syncGzip: true]))
         await sync.syncNow()
         let state = sync.engineState
         let json = try #require(state.streams["heart_rate"]?.bytes)
@@ -687,7 +687,7 @@ struct SyncGzipTests {
         let plainHealth = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(500)]])
         let plainAPI = MockPlatformAPI()
         plainAPI.refusesGzip = true
-        let plain = SyncService(env: .test(api: plainAPI, health: plainHealth, flags: [.syncGzip: true]))
+        let plain = SyncService.ungated(env: .test(api: plainAPI, health: plainHealth, flags: [.syncGzip: true]))
         await plain.syncNow()
         // The fallback counts the plain body once, not the refused gzipped one.
         #expect(plain.engineState.bytesUploaded == plainAPI.syncBodySizes.reduce(0, +))
@@ -699,7 +699,7 @@ struct SyncGzipTests {
                                      pages: [.quantity(.heartRate): [samples(2), samples(2)]])
         let api = MockPlatformAPI()
         api.refusesGzip = true
-        let sync = SyncService(env: .test(api: api, health: health, flags: [.syncGzip: true]))
+        let sync = SyncService.ungated(env: .test(api: api, health: health, flags: [.syncGzip: true]))
         await sync.syncNow()
         #expect(api.syncEncodings == ["gzip", nil, nil]) // the page again, plain, then plain
         #expect(sync.lastError == nil && health.committed.count == 2)
@@ -714,7 +714,7 @@ struct SyncEngineImportCountTests {
                                      recent: [.quantity(.heartRate): [samples(4)]])
         let api = MockPlatformAPI()
         api.syncResponse = SyncResponse(samples: 1, sleep: 0, workouts: 0, daysTouched: ["2026-10-21"])
-        let sync = SyncService(env: .test(api: api, health: health))
+        let sync = SyncService.ungated(env: .test(api: api, health: health))
 
         _ = try await sync.upload() // the recent window
         #expect(sync.engineState.streams["heart_rate"]?.recentRecords == 4)
@@ -744,7 +744,7 @@ struct SyncEngineImportCountTests {
                    source: "Garmin")
         })
         let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [spread]])
-        let sync = SyncService(env: .test(health: health))
+        let sync = SyncService.ungated(env: .test(health: health))
         await sync.syncNow()
         let days = sync.engineState.streams["heart_rate"]?.days ?? []
         #expect(days.count == SyncEngineState.StreamProgress.maxDays)
@@ -756,7 +756,7 @@ struct SyncEngineImportCountTests {
                                      recent: [.quantity(.heartRate): [samples(2)]])
         let api = MockPlatformAPI()
         api.syncResponse = SyncResponse(samples: 3, sleep: 0, workouts: 0, daysTouched: ["2026-10-19"])
-        let sync = SyncService(env: .test(api: api, health: health))
+        let sync = SyncService.ungated(env: .test(api: api, health: health))
         _ = try await sync.upload()
         _ = try await sync.upload()
         #expect(sync.engineState.backfillDone)
@@ -783,7 +783,7 @@ struct SyncEngineImportCountTests {
     @Test func theRunReportsWhatItIsDoingAndClearsItAfter() async {
         let health = MockHealthStore(streams: [.sleep], pages: [.sleep: [samples(2)]])
         let api = MockPlatformAPI()
-        let sync = SyncService(env: .test(api: api, health: health))
+        let sync = SyncService.ungated(env: .test(api: api, health: health))
         let seen = Counter()
         api.beforeSync = { @MainActor in
             if case .uploading(.sleep, records: 2)? = sync.activity { seen.add() }
@@ -1837,7 +1837,7 @@ struct ReportProblemTests {
         let status = APIStatus()
         status.record(.init(date: .now, method: "GET", path: "/v1/me", status: 503, requestID: "a-1"))
         status.served(.init(date: .now, method: "GET", path: "/v1/days/2026-10-21", status: 200, requestID: "a-2"))
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let profile = ProfileViewModel(state: state, sync: sync,
                                        coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
                                                                     clock: env.clock),
@@ -1852,6 +1852,9 @@ struct ReportProblemTests {
 
         report.stage(message: "A's words", category: .data, includeDiagnostics: false, context: .preview,
                      result: .rateLimited)
+        // Another account: the wipe forgot A's requests inside the switch (`AppState.bindAccountHooks`), and the
+        // profile forgets the draft a runloop later without forgetting again (B's first requests are B's).
+        status.forgetRequests()
         profile.accountChanged(from: "account-a")
 
         #expect(status.requests.isEmpty && status.failures.isEmpty && status.epoch == 1)
@@ -2138,7 +2141,7 @@ struct ReportProblemTests {
                                                              transport: "timedOut", attempts: 3, at: loaded),
                                     consecutiveFailures: 1),
         ])
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let profile = ProfileViewModel(state: state, sync: sync,
                                        coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
                                                                     clock: env.clock),
@@ -2340,6 +2343,7 @@ struct WorkoutHealthExportTests {
     @Test func finishingWritesTheSessionOnceWhenComplete() async throws {
         let store = TrainStore(inMemory: true)
         let trainSync = TrainSyncService(store: store, remote: { MockPlatformAPI() }, monitorsNetwork: false)
+        trainSync.gate = { _ in nil } // open: these tests are about what happens past it
         let coordinator = TrainCoordinator(sync: trainSync, library: TrainLibrary.preview(store: store), liveActivities: false)
         let s = SessionFactory.empty(in: store)
         s.startedAt = Date.now.addingTimeInterval(-1_800)
@@ -2390,7 +2394,7 @@ struct WorkoutHealthExportTests {
         let health = MockHealthStore(streams: [.workouts], pages: [.workouts: [HealthDelta(workouts: [workout(own), watch]),
                                                                               HealthDelta(workouts: [workout(own)])]])
         let api = MockPlatformAPI()
-        let sync = SyncService(env: .test(api: api, health: health))
+        let sync = SyncService.ungated(env: .test(api: api, health: health))
         await sync.syncNow()
         #expect(api.syncRequests.flatMap(\.workouts).map(\.id) == [watch.id]) // the watch's only
         #expect(health.committed == [.workouts, .workouts]) // both pages' anchors still move
@@ -2910,7 +2914,7 @@ struct RyftFeaturesTests {
 struct DevicesAndDiagnosticsTests {
     private func profile(flag: Bool) -> ProfileViewModel {
         let state = AppState(env: .test(flags: [.devicesSetup: flag]))
-        let sync = SyncService(env: state.env)
+        let sync = SyncService.ungated(env: state.env)
         return ProfileViewModel(state: state, sync: sync,
                                 coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: state.env.clock))
     }

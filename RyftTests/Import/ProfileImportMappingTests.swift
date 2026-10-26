@@ -11,7 +11,7 @@ struct ProfileImportMappingTests {
 
     func model(_ env: AppEnvironment) -> ProfileViewModel {
         let state = AppState(env: env)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock)
         return ProfileViewModel(state: state, sync: sync, coordinator: coordinator, apiStatus: APIStatus())
     }

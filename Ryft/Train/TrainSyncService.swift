@@ -5,6 +5,8 @@
 //   finish     ──▶ outbox `put` (still in_progress), `complete` ──now──▶ PUT, POST …/complete {ended_at}
 //   409        ──▶ merge with the server copy by set id (later updated_at) ──▶ PUT again
 //   offline    ──▶ ops stay queued; NWPathMonitor (and app active) replays them
+//   gate       ──▶ PUT and complete wait for consent to the policy in force; DELETE goes without it (ADR 0008)
+//   binding    ──▶ every op is its account's or demo's, and goes only through that binding's client
 //
 // Nothing here touches HealthKit; sessions aren't written to Health in v1.
 import Foundation
@@ -21,6 +23,22 @@ final class TrainSyncService {
     private(set) var lastError: String?
     /// The latest completion the server answered, for the summary sheet.
     private(set) var lastCompletion: TrainSession?
+    /// The last replay's `PUT`s and completions waited at this gate (consent, invite, the policy not known); they
+    /// stay queued, in order (ADR 0008). Nil when they went, or none waited.
+    private(set) var heldAt: UploadGate?
+    /// Training logs (sessions, sets, body weight) are health data: every op asks this for its kind before it goes,
+    /// and waits, never dropped (`OnboardingCoordinator.uploadGate(for: .train, write:)`, wired by ScreenModels). A
+    /// `delete` asks for `.erasure`, which goes without a current consent. **Closed until the app connects it**;
+    /// tests open it explicitly. Reads, exercises and plans (TrainLibrary) don't ask it.
+    @ObservationIgnored var gate: @MainActor (UploadWrite) -> UploadGate? = { _ in .gate(.consentRequired) }
+    /// Asks for the policy in force before a `PUT` waits for `policyUnknown` (`ConsentState.revalidate`).
+    @ObservationIgnored var revalidatePolicy: (@MainActor () async throws -> Void)?
+    /// `PendingTrainOp.account` for demo data's ops.
+    nonisolated static let demoOwner = "demo"
+    /// Whose ops the client in use now sends (`remote`): the signed-in account's ID, `demoOwner` with demo data,
+    /// nil signed out. Read in the same main-actor step as `remote`, so an op only ever goes through its own
+    /// binding's client.
+    private let owner: @MainActor () -> String?
 
     let store: TrainStore
     private let remoteProvider: () -> TrainDataSource
@@ -54,16 +72,24 @@ final class TrainSyncService {
     /// Conflict rounds per upload before the op is set aside.
     static let maxConflictRounds = 3
 
-    init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil,
+    /// `owner` goes with `remote`: by default both follow the live environment's account and Demo data switch.
+    init(store: TrainStore? = nil, remote: (() -> TrainDataSource)? = nil, owner: (@MainActor () -> String?)? = nil,
          debounce: Duration = .seconds(2), finishWait: Duration = .seconds(10), monitorsNetwork: Bool = true,
          connectivity: ConnectivityMonitor? = nil) {
         self.connectivity = connectivity ?? .shared
         self.finishWait = finishWait
         self.store = store ?? .shared
         self.remoteProvider = remote ?? { TrainSource.current }
+        self.owner = owner ?? {
+            let env = AppEnvironment.live
+            return env.isDemo ? Self.demoOwner : env.auth.accountID
+        }
         self.debounce = debounce
         self.monitorsNetwork = monitorsNetwork
         pendingCount = self.store.pendingOps().count
+        // By binding from the next step on: the default owner reads `AppEnvironment.live`, which `shared` mustn't
+        // touch while it's being built (the live graph's sign-in wipe calls back into `shared`).
+        Task { [weak self] in self?.refreshCount() }
         if monitorsNetwork { startMonitoring() }
     }
 
@@ -90,7 +116,7 @@ final class TrainSyncService {
         s.pendingCompletion = true
         s.restEndsAt = nil
         enqueuePut(for: s.id)
-        store.enqueue(.complete, sessionID: s.id, bodyweightKg: bodyweightKg)
+        store.enqueue(.complete, sessionID: s.id, bodyweightKg: bodyweightKg, account: owner())
         refreshCount()
         debounceTask?.cancel()
         let generation = generation
@@ -122,22 +148,33 @@ final class TrainSyncService {
 
     /// Discard (after confirmation): gone locally; a `DELETE` if the server has a copy.
     func discard(_ s: LocalSession) {
-        let id = s.id, uploaded = s.uploaded
+        // The copy is where its uploads went (`uploadedTo`), whatever the Demo data switch says now: the delete is
+        // bound there, so A's session deleted while demo data shows goes to A's platform once demo is off.
+        let id = s.id, uploaded = s.uploaded, copy = s.uploadedTo
         store.dropOps(for: id)
         store.delete(s)
-        if uploaded { store.enqueue(.delete, sessionID: id) }
+        // Its own `put` and `complete` went with `dropOps`: sent after the delete, they'd bring the session back.
+        if uploaded { store.enqueue(.delete, sessionID: id, account: copy) }
         refreshCount()
         Task { await flush() }
     }
 
+    /// Demo data on or off (RyftApp): the count follows the binding in use. Off, demo's ops go: they could only ever
+    /// reach the in-memory platform, which is gone with it.
+    func demoModeChanged(_ on: Bool) {
+        if !on { store.dropOps(account: Self.demoOwner) }
+        refreshCount()
+    }
+
     private func enqueuePut(for id: UUID) {
-        // One queued PUT per session is enough: it sends the document as it is then.
+        // One queued PUT per session and binding is enough: it sends the document as it is then.
+        let owner = owner()
         let last = store.pendingOps().last { $0.sessionId == id }
-        if let last, last.kind == .put, last.seq != inFlightSeq {
+        if let last, last.kind == .put, last.seq != inFlightSeq, Self.belongs(last, to: owner) {
             store.save()
             return
         }
-        store.enqueue(.put, sessionID: id)
+        store.enqueue(.put, sessionID: id, account: owner)
         refreshCount()
     }
 
@@ -166,9 +203,16 @@ final class TrainSyncService {
         _ = await wait(for: replay, upTo: limit)
     }
 
-    /// Starts the replay, or has the running one go round once more; nil offline.
+    /// Starts the replay, or has the running one go round once more; nil offline, or while the gate holds every op.
     private func startReplay() -> Task<Void, Never>? {
         guard !monitorsNetwork || connectivity.isOnline else { return nil }
+        // Consent first: while both kinds wait, nothing starts and the ops stay queued. A policy not known right now
+        // is asked for before the first `PUT`; a `delete` goes without a current consent.
+        let data = gate(.data)
+        if let data, data != .policyUnknown, gate(.erasure) != nil {
+            heldAt = data
+            return nil
+        }
         if let replay {
             flushAgain = true
             return replay
@@ -178,9 +222,11 @@ final class TrainSyncService {
         // `accountChanged()` does.
         let task = Task { [weak self] in
             guard let self else { return }
+            // At most once per replay, when the first `PUT` finds the policy unknown.
+            var revalidated = false
             repeat {
                 flushAgain = false
-                await drain(generation)
+                await drain(generation, revalidated: &revalidated)
             } while flushAgain && isOnline && generation == self.generation
             // Same main-actor step as the last check: nobody can join a replay that's over.
             guard replayID == id else { return }
@@ -210,12 +256,42 @@ final class TrainSyncService {
         }
     }
 
-    private func drain(_ generation: Generation) async {
-        while generation == self.generation, let op = store.pendingOps().first {
+    /// Sends the queued ops in order. Passed over for this pass, and kept: another binding's ops (never sent through
+    /// this client), and the ops the gate holds. Once a `PUT` or completion waits, every later one does too (their
+    /// order stays); a `delete` may still go.
+    private func drain(_ generation: Generation, revalidated: inout Bool) async {
+        var passedOver = Set<Int>()
+        var held: UploadGate?
+        defer { if generation == self.generation { heldAt = held } }
+        while generation == self.generation, let op = store.pendingOps().first(where: { !passedOver.contains($0.seq) }) {
+            let write: UploadWrite = op.kind == .delete ? .erasure : .data
+            if write == .data, held != nil {
+                passedOver.insert(op.seq)
+                continue
+            }
+            // Asked before every op: consent withdrawn mid-queue holds the next `PUT`, which stays queued.
+            let hold = gate(write)
+            if hold == .policyUnknown, write == .data, !revalidated {
+                revalidated = true
+                try? await revalidatePolicy?()
+                continue // asked again: the account, the binding and the policy may have moved meanwhile
+            }
+            if let hold {
+                if write == .data { held = hold }
+                passedOver.insert(op.seq)
+                continue
+            }
+            // The binding is checked and the client read in the same step: an op goes only through its own.
+            let owner = owner()
+            guard Self.belongs(op, to: owner) else {
+                passedOver.insert(op.seq)
+                continue
+            }
+            let client = remote
             inFlightSeq = op.seq
             defer { inFlightSeq = nil }
             do {
-                try await perform(op, generation)
+                try await perform(op, generation, client, as: owner)
                 // Another account meanwhile: its queue and sessions aren't this replay's.
                 guard generation == self.generation else { return }
                 store.dequeue(op)
@@ -243,6 +319,13 @@ final class TrainSyncService {
         }
     }
 
+    /// Whether `op` goes through the client whose binding is `owner` (an account's ID, `demoOwner`, nil signed out).
+    /// An op queued before ops had an owner is the signed-in account's: demo's client never sends it.
+    static func belongs(_ op: PendingTrainOp, to owner: String?) -> Bool {
+        guard let account = op.account else { return owner != demoOwner }
+        return account == owner
+    }
+
     static func isRetryable(_ error: APIError) -> Bool {
         switch error {
         case .transport, .notConfigured, .signedOut: return true
@@ -252,11 +335,13 @@ final class TrainSyncService {
         }
     }
 
-    private func perform(_ op: PendingTrainOp, _ generation: Generation) async throws {
+    /// `owner`: the binding `remote` belongs to.
+    private func perform(_ op: PendingTrainOp, _ generation: Generation, _ remote: TrainDataSource,
+                         as owner: String?) async throws {
         switch op.kind {
         case .put:
             guard let s = store.session(id: op.sessionId) else { return } // discarded meanwhile
-            try await put(s, generation)
+            try await put(s, generation, remote, as: owner)
         case .complete:
             guard let s = store.session(id: op.sessionId) else { return }
             // `ended_at` from here: the queue may replay this long after the workout.
@@ -279,7 +364,8 @@ final class TrainSyncService {
         }
     }
 
-    private func put(_ s: LocalSession, _ generation: Generation) async throws {
+    private func put(_ s: LocalSession, _ generation: Generation, _ remote: TrainDataSource,
+                     as owner: String?) async throws {
         var doc = s.wire
         for _ in 0..<Self.maxConflictRounds {
             let result = try await remote.putSession(doc)
@@ -287,10 +373,12 @@ final class TrainSyncService {
             switch result {
             case .saved:
                 s.uploaded = true
+                s.uploadedTo = owner
                 store.save()
                 return
             case .conflict(let server):
                 s.uploaded = true
+                s.uploadedTo = owner
                 let merged = SessionMerge.merge(local: s.wire, server: server, deletedSetIDs: Set(s.deletedSetIDs))
                 s.apply(merged, names: store.exercise(id:), in: store.context)
                 store.save()
@@ -300,8 +388,11 @@ final class TrainSyncService {
         throw APIError.http(409, String(localized: "This workout changed on another device. Open it again to sync."))
     }
 
+    /// The ops the client in use can send: another binding's (demo's after demo data is switched off, the
+    /// account's while it's on) don't show as waiting here.
     private func refreshCount() {
-        pendingCount = store.pendingOps().count
+        let owner = owner()
+        pendingCount = store.pendingOps().filter { Self.belongs($0, to: owner) }.count
     }
 
     // MARK: network

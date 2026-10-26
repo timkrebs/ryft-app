@@ -109,6 +109,7 @@ struct TrainSyncTests {
                             baseURL: URL(string: "https://api.test"))
         self.api = api
         service = TrainSyncService(store: store, remote: { api }, debounce: .milliseconds(30), monitorsNetwork: false)
+        service.gate = { _ in nil } // open: these tests are about what happens past it
     }
 
     private func session(_ title: String) -> LocalSession {
@@ -266,6 +267,7 @@ struct TrainSyncTests {
     @Test func finishWaitsAtMostItsCap() async throws {
         let quick = TrainSyncService(store: store, remote: { [api] in api }, debounce: .milliseconds(30),
                                      finishWait: .milliseconds(200), monitorsNetwork: false)
+        quick.gate = { _ in nil } // open: these tests are about what happens past it
         let a = session("A")
         check(a.orderedExercises[0].orderedSets[0], reps: 5, kg: 100)
         TrainStubURLProtocol.script([.hold, .status(200, try Fixture.data("train_session_completed"))])

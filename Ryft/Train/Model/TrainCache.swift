@@ -66,13 +66,17 @@ final class PendingTrainOp {
     var sessionId: UUID
     var bodyweightKg: Double?
     var createdAt: Date
+    /// Whose op it is: the account's ID, or `TrainSyncService.demoOwner` for demo data. It goes only through that
+    /// binding's client (ADR 0008). Nil for ops queued before this build: the signed-in account's.
+    var account: String?
 
-    init(seq: Int, kind: Kind, sessionId: UUID, bodyweightKg: Double? = nil) {
+    init(seq: Int, kind: Kind, sessionId: UUID, bodyweightKg: Double? = nil, account: String? = nil) {
         self.seq = seq
         self.kindRaw = kind.rawValue
         self.sessionId = sessionId
         self.bodyweightKg = bodyweightKg
         self.createdAt = .now
+        self.account = account
     }
 
     var kind: Kind { Kind(rawValue: kindRaw) ?? .put }

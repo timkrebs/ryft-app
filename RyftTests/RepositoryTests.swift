@@ -453,7 +453,7 @@ struct ReadinessSnapshotTests {
                                               pendingDays: [], expectedWithinSec: 20, resyncRequestedAt: nil)
             }
             state.repository.publishWidget()
-            let sync = SyncService(env: env)
+            let sync = SyncService.ungated(env: env)
             let vm = TodayViewModel(state: state, sync: sync,
                                     coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock),
                                     apiStatus: APIStatus())
@@ -663,7 +663,7 @@ struct CalibrationSourceTests {
                                                   sleepActualMin: row.sleepActualMin, baselineDays: 0, calibrating: true,
                                                   computedAt: env.clock.now(), scoringState: .scored),
                                 sleep: nil, workouts: [])
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let vm = TodayViewModel(state: state, sync: sync,
                                 coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock),
                                 apiStatus: APIStatus())

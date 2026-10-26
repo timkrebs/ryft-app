@@ -25,10 +25,10 @@ private struct SendFirstGraph {
                            wipeLocalData: { _ in }, deleteRemoteAccount: deleteRemote, postAppleAuthorization: { _ in })
         env = .test(api: api, clock: clock, auth: auth, flags: [.activitiesManual: true], online: online)
         env.uploader.random = { $0.lowerBound }
-        env.uploader.gate = { nil } // consent given: what goes up, goes up
+        env.uploader.gate = { _ in nil } // consent given: what goes up, goes up
         state = AppState(env: env)
-        state.bindAccountHooks(auth)
-        let sync = SyncService(env: env)
+        state.bindAccountHooks(auth, apiStatus: APIStatus())
+        let sync = SyncService.ungated(env: env)
         profile = ProfileViewModel(state: state, sync: sync,
                                    coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: clock),
                                    apiStatus: APIStatus())
@@ -87,7 +87,7 @@ struct SendFirstTests {
         // Demo data's client is in use: the account's rows can't go up.
         let env = AppEnvironment.preview(flags: [.activitiesManual: true])
         let state = AppState(env: env)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let profile = ProfileViewModel(state: state, sync: sync,
                                        coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock),
                                        apiStatus: APIStatus())
@@ -97,15 +97,15 @@ struct SendFirstTests {
 
     @Test func behindTheConsentGateItIsNotOffered() throws {
         let g = SendFirstGraph()
-        g.env.uploader.gate = { .gate(.consentRequired) }
+        g.env.uploader.gate = { _ in .gate(.consentRequired) }
         #expect(g.profile.sendFirst == .unavailable)
-        g.env.uploader.gate = { .policyUnknown }
+        g.env.uploader.gate = { _ in .policyUnknown }
         #expect(g.profile.sendFirst == .unavailable)
     }
 
     @Test func offlineWithThePolicyUnknownItSaysOffline() throws {
         let g = SendFirstGraph(online: false)
-        g.env.uploader.gate = { .policyUnknown }
+        g.env.uploader.gate = { _ in .policyUnknown }
         #expect(g.profile.sendFirst == .offline)
     }
 }

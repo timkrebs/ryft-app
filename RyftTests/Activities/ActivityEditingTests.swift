@@ -500,7 +500,7 @@ struct ActivityDeleteAndGateTests {
     @Test func theDetailSaysWhyAnUploadWaits() async throws {
         // Consent or the invite isn't done: it uploads once the account is ready.
         let g = Graph()
-        g.env.uploader.gate = { .gate(.consentRequired) }
+        g.env.uploader.gate = { _ in .gate(.consentRequired) }
         let model = AddActivityModel(env: g.env, day: g.today)
         #expect(model.save())
         let id = try #require(g.env.activities.snapshots(onDay: DayFormat.string(from: g.today)).first?.id)

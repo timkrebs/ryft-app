@@ -243,8 +243,8 @@ struct FlagGateTests {
         let off = state([.trainEnabled: false])
         let on = state([:])
         let today = { (s: AppState) in
-            TodayViewModel(state: s, sync: SyncService(env: s.env),
-                           coordinator: SyncCoordinator(steps: LiveSyncSteps(state: s, sync: SyncService(env: s.env)),
+            TodayViewModel(state: s, sync: SyncService.ungated(env: s.env),
+                           coordinator: SyncCoordinator(steps: LiveSyncSteps(state: s, sync: SyncService.ungated(env: s.env)),
                                                         clock: s.env.clock))
         }
         #expect(!today(off).showsTrain && today(on).showsTrain)
@@ -254,14 +254,14 @@ struct FlagGateTests {
 
     @Test func theRedesignShipsDark() {
         let s = state([:])
-        let model = TodayViewModel(state: s, sync: SyncService(env: s.env),
-                                   coordinator: SyncCoordinator(steps: LiveSyncSteps(state: s, sync: SyncService(env: s.env)),
+        let model = TodayViewModel(state: s, sync: SyncService.ungated(env: s.env),
+                                   coordinator: SyncCoordinator(steps: LiveSyncSteps(state: s, sync: SyncService.ungated(env: s.env)),
                                                                 clock: s.env.clock))
         #expect(!model.showsRedesign)
         let lit = state([.todayRedesign: true])
         lit.user = MockData.user
-        let litModel = TodayViewModel(state: lit, sync: SyncService(env: lit.env),
-                                      coordinator: SyncCoordinator(steps: LiveSyncSteps(state: lit, sync: SyncService(env: lit.env)),
+        let litModel = TodayViewModel(state: lit, sync: SyncService.ungated(env: lit.env),
+                                      coordinator: SyncCoordinator(steps: LiveSyncSteps(state: lit, sync: SyncService.ungated(env: lit.env)),
                                                                    clock: lit.env.clock))
         #expect(litModel.showsRedesign)
     }
@@ -275,7 +275,7 @@ struct FlagGateTests {
 
     @Test func notificationsRowShowsWhenSignedIn() {
         let s = state([:])
-        let sync = SyncService(env: s.env)
+        let sync = SyncService.ungated(env: s.env)
         let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: s, sync: sync), clock: s.env.clock)
         #expect(ProfileViewModel(state: s, sync: sync, coordinator: coordinator).showsNotifications)
     }

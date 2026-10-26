@@ -445,6 +445,7 @@ struct MyDayReviewFixTests {
     @Test func finishingASessionMovesTheMarkMyDayObservesAndTheDayListsIt() async {
         let g = Graph()
         let sync = TrainSyncService(store: g.store, remote: { MockPlatformAPI() }, monitorsNetwork: false)
+        sync.gate = { _ in nil } // open: these tests are about what happens past it
         let before = sync.sessionsMark
         let session = SessionFactory.empty(in: g.store)
         session.title = "Upper A"
