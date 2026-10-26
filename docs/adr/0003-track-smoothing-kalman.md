@@ -5,7 +5,8 @@
   the re-init counts both gates
 - Amended: 2026-10-24, amendment 2 (A3a.2): a re-init is provisional until its settle window closes; the sport's
   limit applies to the filter's speed, with a `.tooFast` state
-- Revised: 2026-10-26, after the code review: a valid Doppler speed vetoes entering `.tooFast` (end of amendment 2)
+- Revised: 2026-10-26, after the code review: the too-fast state enters above an entry speed and holds refused steps
+  until it confirms; a valid Doppler speed vetoes entering it (end of amendment 2)
 - Deciders: ios-lead, on ios-architect's proposal; sync-engineer implements (A3)
 - Applies to: `Ryft/Activities/Recording/TrackPipeline.swift`, `KalmanTrack.swift`, `Geodesy.swift`,
   `Ryft/Activities/Sport.swift` (per-sport parameters)
@@ -380,6 +381,9 @@ Two causes:
      `TrackSnapshot.tooFastSince` holds the state.
    - **While too fast:** no `.route` points, current pace and speed are nil, and the time keeps running (it's not a
      pause).
+   - *Revised by "Revision after the code review (2026-10-26): the entry speed and held steps" below. Outside an
+     episode only a step above the entry speed is refused, and it's held until the state confirms; the state leaves at
+     or below the limit itself.*
 6. **`maxSpeed` is the fastest the sport is done**, not a gate threshold with a hidden allowance:
 
    | Sport | Before | After | Why |
@@ -426,7 +430,8 @@ stateDiagram-v2
   a ride added 11.2 km (at 25 m/s: +0.8 km, the acceleration and braking). Speed can't tell a vehicle from a bike below
   any limit a descent needs.
 - **Below its limit a vehicle is a sprint.** A train after a run adds its acceleration and braking up to 9 m/s:
-  +98 … +109 m (probe).
+  +98 … +109 m (probe). *Revised (the entry speed, below): up to 9.6 m/s, +107 … +131 m over 20 seeds; the bound is
+  135 m.*
 - **About 120 more lines** in `KalmanTrack` and `TrackPipeline`, and the catalogue values above.
 
 **Risks:**
@@ -446,8 +451,71 @@ stateDiagram-v2
 - a ride with a real descent (as fast as is safe): distance against the tracker, no `.tooFast`;
 - "Running" recorded on a bike above 10 m/s for 2 min: the state appears within 5 s, VoiceOver announces it;
 - a passenger in a car or train with "Running": one episode over the fast part, and at most about 120 m added per
-  stop;
+  stop (*revised: about 135 m, the entry speed below*);
 - a walk between tall buildings: re-inits, spans, weak-GPS time, and the distance against a measured course.
+
+### Revision after the code review (2026-10-26): the entry speed and held steps
+
+- Status: built by the review fixes (`ee974c0`, reviews S1 and N-a; `c33883f`, reviews X3 and X4) and recorded here
+  so this ADR matches the code. The lead confirms with the PR (`activities: speed-gate guard`).
+- **Revises** decision 5's "No distance above it" and "The state", and the train under Costs. The rest of decision 5
+  stands.
+- **Numbers** are the implementer's tests at `c33883f`, re-run by the code-reviewer (`GuardTrack`: seeded 1 Hz tracks,
+  drifting noise), not the probe.
+
+**Why.** The state entered and left at the same speed, and a step above the limit was refused at once. Near the limit
+the filter's noise did both by chance:
+- a run at 8.7, a walk at 5.4, mountain biking at 24.5 and a ride at 35.5 m/s, 20 seeds at a reported 5 and 8 m: up to
+  25 episodes in 20 seeds, up to −621 m (the ride), and silent refusals in up to 11 seeds;
+- a 12 s sprint at 8.5 m/s on "running": −12.1 m and −18.3 m on two of 30 seeds, silently.
+
+**Decision:**
+1. **The entry speed.** Outside an episode, a step or a closing settle window counts as too fast only above
+   max(limit × 1.05, limit + 0.6 m/s) (`tooFastEnterFactor`, `tooFastEnterMargin`): 9.6 m/s for running, 6.6 for
+   walking, 26.25 for mountain biking, 37.8 for cycling. 3 s of such steps enter the state. Inside an episode the limit
+   itself applies, and 3 s at or below it leave. Outside an episode, a step between the limit and the entry speed is
+   distance.
+2. **Held steps.** Until the state confirms, a refused step or window is held, not dropped.
+   - The state confirms: what was held is refused, and `.tooFast(since:)` is backdated to the first of it.
+   - A slow step, Pause, Finish or a checkpoint comes first: what was held counts as distance, with no episode. A
+     checkpoint counts it in the state it saves, because a restore can't confirm it; the live pipeline keeps holding
+     (review X3).
+   - A re-init's span that the gap rule refused (its line faster than the limit) stays refused either way.
+   - Held steps normally wait less than 3 s: by then the state has confirmed, or a slow step has released them.
+3. **The mean speed.** A step is judged by the mean of its two ground speeds, also in the 10 s of position steps after
+   an auto-resume (review X4).
+4. **A pause ends the state** (review N-a). Pause or an auto-pause ends an episode at the pause, or where the speed had
+   already dropped. A car that stops hard sends no slow steps, only a stationary fix.
+5. **The counters.** `tooFastSec` and `tooFastDistanceM` count only what a confirmed episode refused.
+
+**Measured:**
+
+| Case | Before | Code at `c33883f` | Bound (design §11.1) |
+| --- | --- | --- | --- |
+| Near the limit: run 8.7, walk 5.4, MTB 24.5, ride 35.5 m/s; 20 seeds at 5 and 8 m | before S1: up to 25 episodes in 20 seeds; up to −621 m | no episode; −7.6 … +10.1 m | no episode, nothing refused; within 15 m |
+| Fast but on foot: a walk with 60 s at 4.5 m/s, a run with a 12 s sprint at 8.5 m/s; 30 seeds | before S1: the sprint −12.1 / −18.3 m on two seeds, silently | −4.9 … +8.9 m; no episode | within 10 m |
+| "Running" on a bike at 15 m/s | probe: 55–59 m; `.tooFast` 3 s after 9 m/s | 54–68 m; `.tooFast` 2–3 s after 9 m/s | 80 m; within 4 s |
+| Descent above a 25 m/s limit | probe: 2,803 m (the part at or below 25) | +0.76 … +2.01 % against the part at or below 25 (2,804 m); ends 1–2 s after the truth; 1 episode | 2,829 m ±1 % without noise, ±1.5 % with it; timed from 26.25 m/s |
+| Cycling descent at 33 m/s (limit 36) | probe: 0.0 % | −0.05 … +0.15 %; no episode | ±1 %; no episode |
+| A train after a run | probe: +98 … +109 m | +113 m (3 m) and +128 m (5 m) noiseless; +107 … +131 m over 20 seeds; 1 episode | 135 m; 1 episode |
+
+**Good:**
+- **Near the limit nothing flaps and nothing is lost silently.** A sprint finish and a fast jog keep their distance
+  (within 10 m).
+- **A burst under 3 s is distance.** Only a confirmed episode refuses anything.
+
+**Costs:**
+- **A vehicle counts up to the entry speed, not the limit.** The train after a run adds up to 131 m (was 109 m,
+  probe), so the bound is 135 m (was 120 m).
+- **A descent above the limit counts its ramp to 26.25 m/s:** about 25 m more than the part at or below 25.
+- **Distance shows late while steps are held,** normally under 3 s, then catches up at once.
+
+**Risk:** the margin (5 %, at least 0.6 m/s) is tuned on synthetic noise. D1 counts `tooFastEpisodes` on every run.
+
+**Tests** (`SpeedGateGuardTests`): `nearTheLimitNothingFlapsOrIsLost`, `fastButOnFootIsNotTooFast`,
+`theEntrySpeedIsTheLargerMargin`, `aShortBurstIsHeldAndReleased`, `pausesEndTheTooFastState`,
+`aFastWindowClosedByPauseIsRefused`, `positionStepsAreJudgedByTheirMeanSpeed`, `runningChosenOnABikeSaysTooFast`,
+`aDescentAboveTheLimitPausesDistanceAndSaysSo`, `aTrainAfterARunIsOneEpisode`.
 
 ### Revision after the code review (2026-10-26): the Doppler veto
 
@@ -463,9 +531,8 @@ stateDiagram-v2
   and run 22 false episodes in 20 seeds (design §11.1).
 - **Core Location's own speed doesn't slide.** It comes from the receiver's velocity solution, not from the positions,
   so multipath doesn't move it.
-- **The state since review S1.** It enters above the entry speed, max(limit × 1.05, limit + 0.6 m/s), and leaves at or
-  below the limit. A refused step is held until the state confirms; a slow step, Pause or Finish releases it as
-  distance.
+- **The state since review S1** (the revision above). It enters above the entry speed and leaves at or below the
+  limit. A refused step is held until the state confirms.
 
 **Decision:**
 1. **The veto.** A step or a closing settle window counts as too fast only if Core Location's Doppler speed
@@ -522,10 +589,11 @@ Doppler patterns over 20 seeds. "Running" on a bike is when `.tooFast` starts af
 - **The veto falls back to the old rule.** With no usable Doppler speed in the last 8 s, the filter decides alone.
 
 **Costs (measured, with all the review fixes):**
-- "Running" on a bike: `.tooFast` +2 … +3 s after the truth passes 9 m/s; 56–68 m recorded (the ramp below 9 m/s is
+- "Running" on a bike: `.tooFast` +2 … +3 s after the truth passes 9 m/s; 54–68 m recorded (the ramp below 9 m/s is
   40.5 m).
 - A descent above 25 m/s (the test profile limited to 25): 2,825 … 2,860 m (S1's hysteresis allows 2,829 m).
-- A train after a run: +112 … +128 m. The bound stays 135 m.
+- A train after a run: +112 … +128 m with the Doppler patterns above; +107 … +131 m over 20 seeds without Doppler.
+  The bound stays 135 m.
 
 **Risks:**
 1. **Slow slides still add distance.** The veto keeps the state honest, not the distance. A slide below the gates'
@@ -537,6 +605,8 @@ Doppler patterns over 20 seeds. "Running" on a bike is when `.tooFast` starts af
 4. **The veto needs A3b.** Until A3b maps `CLLocation.speed` and `speedAccuracy` into `LocationFix`, no fix carries
    one, and the filter decides alone.
 5. **0.9, 8 s, 0.5 m/s² and 2 m/s are tuned on synthetic Doppler** (the truth ±0.3 m/s). D1 checks them.
+6. **The re-verification's nits, carried to A3b** (design §3.3): a slide that starts inside an episode can extend it
+   (N1); the holdover crosses Pause and auto-pause (N2); Doppler gaps longer than 8 s fail open again (N3).
 
 **Tests** (`SpeedGateGuardTests`; design §11.1, the train and sliding-multipath rows):
 - `slidingMultipathIsNeverTooFastWithDoppler`: Doppler on every fix, 6–10 s and 10–20 s slides, 0 episodes;
