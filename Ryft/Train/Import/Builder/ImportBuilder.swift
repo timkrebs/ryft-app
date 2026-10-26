@@ -4,6 +4,10 @@ import Foundation
 /// ids, the clock-change rules, the bodyweight answers, "last time" targets, duplicates and what already exists. Pure;
 /// `build` runs off the main actor.
 enum ImportBuilder {
+    /// A plan's name and a session's title: the platform's limits.
+    static let maxPlanNameLength = 80
+    static let maxTitleLength = 120
+
     /// The ids and days the preview asks the platform about (`TrainImportUploader.checkExisting(_:)`). Cheap: ids only,
     /// no mapping.
     static func query(for bundle: ImportBundle, decisions: ImportDecisions) -> ImportExistingQuery {
@@ -43,9 +47,29 @@ enum ImportBuilder {
     /// The same, on the caller's thread (previews, tests).
     static func buildNow(_ bundle: ImportBundle, decisions: ImportDecisions, existing: ImportExisting,
                          now: Date) throws -> ImportBuild {
-        // I5 fills this in: plans (§8), sessions (§5, §8), verdicts (§6) and warnings.
-        ImportBuild(account: decisions.account, source: bundle.format, zone: decisions.zone, plans: [], sessions: [],
-                    customExercises: [], warnings: [], duplicatesChecked: existing.checked, enrolPlanID: nil)
+        let context = ImportBuildContext(bundle: bundle, decisions: decisions, existing: existing)
+        // Plans first: whether a plan is sent decides whether sessions may point into it.
+        let plans = try ImportPlanAssembly.plans(context)
+        let built = try ImportSessionAssembly.build(context, plans: plans, now: now)
+        let previews = try ImportPlanAssembly.withLastTime(plans, sessions: built.sessions, refs: built.refs,
+                                                           context: context)
+        let enrol = decisions.enrolPlanIndex.flatMap { index -> UUID? in
+            guard let plan = previews.first(where: { $0.index == index }), plan.plan != nil,
+                  plan.willBeSent || plan.state == .alreadyInRYFT else { return nil }
+            return plan.id
+        }
+        var custom: [Exercise] = []
+        var seen = Set<UUID>()
+        let usedIDs = Set(previews.compactMap(\.plan).flatMap(\.days).flatMap(\.exercises).map(\.exerciseId))
+            .union(built.sessions.compactMap(\.session).flatMap(\.exercises).map(\.exerciseId))
+        for key in context.exerciseOrder {
+            guard case let .custom(exercise)? = decisions.exercises[key]?.target, usedIDs.contains(exercise.id),
+                  seen.insert(exercise.id).inserted else { continue }
+            custom.append(exercise)
+        }
+        return ImportBuild(account: decisions.account, source: bundle.format, zone: decisions.zone, plans: previews,
+                           sessions: built.sessions, customExercises: custom, warnings: ImportWarning.sorted(built.warnings),
+                           duplicatesChecked: existing.checked, enrolPlanID: enrol)
     }
 
     static func totals(of build: ImportBuild, including included: Set<UUID>) -> ImportTotals {
@@ -54,7 +78,7 @@ enum ImportBuilder {
         for session in build.sessions {
             switch session.verdict {
             case .new, .duplicate:
-                guard included.contains(session.id) else {
+                guard included.contains(session.id), session.session != nil else {
                     if case .duplicate = session.verdict { totals.duplicatesOff += 1 }
                     continue
                 }
@@ -76,7 +100,40 @@ enum ImportBuilder {
 
     static func uploadPlan(of build: ImportBuild, including included: Set<UUID>,
                            planNames: [UUID: String]) -> ImportUploadPlan {
-        ImportUploadPlan(enrolPlanID: build.enrolPlanID)
+        var upload = ImportUploadPlan(enrolPlanID: build.enrolPlanID)
+        for preview in build.plans {
+            guard preview.willBeSent, var plan = preview.plan else {
+                upload.skipped.plans += 1
+                continue
+            }
+            if let edited = planNames[preview.id] {
+                let name = ImportText.cut(ImportCustomExercise.clean(edited), max: maxPlanNameLength)
+                if !name.isEmpty { plan.name = name }
+            }
+            upload.plans.append(plan)
+        }
+        var sessions: [TrainSession] = []
+        for preview in build.sessions {
+            switch preview.verdict {
+            case .new, .duplicate:
+                guard let session = preview.session, included.contains(preview.id) else {
+                    if case .duplicate = preview.verdict { upload.skipped.duplicates += 1 } else { upload.skipped.deselected += 1 }
+                    continue
+                }
+                sessions.append(session)
+                upload.skipped.skippedSets += preview.skippedSetCount
+            case .alreadyImported: upload.skipped.alreadyImported += 1
+            case .outsideRange: upload.skipped.outsideRange += 1
+            case .inFuture: upload.skipped.inFuture += 1
+            case .empty: upload.skipped.empty += 1
+            case .historyOff: break
+            }
+        }
+        upload.sessions = sessions.sorted { ($0.startedAt, $0.id.uuidString) < ($1.startedAt, $1.id.uuidString) }
+        let used = Set(upload.plans.flatMap(\.days).flatMap(\.exercises).map(\.exerciseId))
+            .union(upload.sessions.flatMap(\.exercises).map(\.exerciseId))
+        upload.exercises = build.customExercises.filter { used.contains($0.id) }
+        return upload
     }
 
     // MARK: ids (ADR 0007)
