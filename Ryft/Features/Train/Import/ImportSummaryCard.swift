@@ -55,7 +55,7 @@ enum ImportSummaryText {
         guard summary.workouts > 0 else { return nil }
         let count = String(localized: "\(summary.workouts) workouts", comment: "Training import: a count of workouts.")
         guard let first = summary.firstDay, let last = summary.lastDay else { return count }
-        let range = ImportText.range(first, last, zone: zone, spoken: spoken)
+        let range = ImportDateText.range(first, last, zone: zone, spoken: spoken)
         return spoken
             ? String(localized: "\(count) from \(range)", comment: "Training import, VoiceOver: 12 workouts from 8 June to 5 July 2026.")
             : "\(count) · \(range)"

@@ -204,7 +204,7 @@ extension LocalDate {
 }
 
 /// Dates and ranges in the import's words (ui.md §0: numbers first, the zone the flow captured).
-enum ImportText {
+enum ImportDateText {
     /// "8 Jun to 5 Jul 2026"; `spoken`: "8 June to 5 July 2026" for VoiceOver.
     static func range(_ first: LocalDate, _ last: LocalDate, zone: TimeZone, spoken: Bool = false,
                       locale: Locale = .autoupdatingCurrent) -> String {

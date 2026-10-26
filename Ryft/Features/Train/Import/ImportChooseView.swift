@@ -210,7 +210,7 @@ enum ImportChooseText {
             return String(localized: "0 workouts in this range", comment: "Training import C4.")
         }
         let count = String(localized: "\(sessions.count) workouts", comment: "Training import: a count of workouts.")
-        return String(localized: "\(count) from \(ImportText.range(first, last, zone: zone))",
+        return String(localized: "\(count) from \(ImportDateText.range(first, last, zone: zone))",
                       comment: "Training import, VoiceOver: 12 workouts from 8 June to 5 July 2026.")
     }
 }

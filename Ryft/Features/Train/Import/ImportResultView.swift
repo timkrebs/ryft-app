@@ -168,13 +168,12 @@ struct ImportResultView: View {
             .accessibilityIdentifier("import.result")
         Card {
             VStack(alignment: .leading, spacing: 10) {
-                if job.plans.done > 0 {
-                    StatRow(title: "Plans", value: model.build?.plans.first(where: \.willBeSent).map { model.planName($0) }
-                        ?? "\(job.plans.done)")
+                ForEach(job.planSummaries.filter { $0.state == .done }) { plan in
+                    StatRow(title: "Plan", value: ImportResultText.plan(plan))
                 }
                 StatRow(title: "Workouts imported", value: "\(job.sessions.done)")
-                if let sets = model.totals?.sets, job.sessions.done > 0 {
-                    StatRow(title: "Sets imported", value: "\(sets)")
+                if job.sessions.done > 0 {
+                    StatRow(title: "Sets imported", value: "\(job.setsDone)")
                 }
                 if job.skipped.skippedSets > 0 {
                     StatRow(title: "Sets skipped", value: "\(job.skipped.skippedSets)",
@@ -352,6 +351,11 @@ enum ImportResultText {
                                        comment: "Training import I3: sets that weren't imported.")
         }
         return sentence
+    }
+
+    /// "Upper/Lower · 6 weeks".
+    static func plan(_ plan: ImportPlanSummary) -> String {
+        ([plan.name] + [plan.weeks.map { String(localized: "\($0) weeks") }].compactMap { $0 }).joined(separator: " · ")
     }
 
     /// "67 percent, 8 of 12 workouts".
