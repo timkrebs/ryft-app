@@ -4,8 +4,8 @@ import SwiftUI
 /// platform hasn't confirmed, kept up to 30 days for the same account. One calm line with their count, nothing of
 /// their content, and "Delete from this iPhone" with a confirmation (GDPR Art. 17, transparency).
 struct ParkedActivitiesNotice: View {
-    /// What Welcome mentions: how many (`ActivityStore.parkedCount()`, more than 0), and the day they're kept until
-    /// (nil: "within 30 days").
+    /// What Welcome mentions: how many (`ActivityStore.parkedCount()`, more than 0), and the day the first of them
+    /// goes (`parkedUntil()`; nil: "within 30 days").
     struct Parked: Equatable {
         let count: Int
         let until: Date?
@@ -22,11 +22,12 @@ struct ParkedActivitiesNotice: View {
     static func parkedToMention(in env: AppEnvironment) -> Parked? {
         let count = env.activities.parkedCount()
         guard count > 0 else { return nil }
-        // The limit runs from parking, not from now: `until: env.activities.parkedUntil()` once the store has it.
-        return Parked(count: count, until: nil)
+        // The limit runs from parking, not from now.
+        return Parked(count: count, until: env.activities.parkedUntil())
     }
 
-    private var message: String {
+    /// "… Log in by 24 November to send them." (or "within 30 days" without a date).
+    static func message(_ parked: Parked) -> String {
         guard let until = parked.until else {
             return String(localized: "\(parked.count) activities or nights you added haven't reached RYFT yet. Log in within 30 days to send them.",
                           comment: "Welcome after a session expiry: how many unsent activities and nights wait on the phone.")
@@ -37,7 +38,7 @@ struct ParkedActivitiesNotice: View {
     }
 
     var body: some View {
-        InlineMessage(message: message, systemImage: "icloud.and.arrow.up", identifier: "welcome.parked",
+        InlineMessage(message: Self.message(parked), systemImage: "icloud.and.arrow.up", identifier: "welcome.parked",
                       action: (title: String(localized: "Delete from this iPhone",
                                              comment: "Welcome: delete the unsent activities and nights without logging in."),
                                perform: { confirms = true }))

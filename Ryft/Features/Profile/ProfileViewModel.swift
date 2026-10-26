@@ -107,14 +107,16 @@ final class ProfileViewModel {
         case available
         /// Offline: the confirmation says so instead of offering it.
         case offline
-        /// Nothing can go up now: demo data's client is in use, uploads aren't available yet, or consent or the
-        /// invite is missing. The confirmation doesn't offer it.
+        /// Nothing can go up now: demo data's client is in use, uploads aren't available yet, or the upload gate
+        /// holds (consent, the invite, or the policy in force not known yet). The confirmation doesn't offer it.
         case unavailable
     }
 
     var sendFirst: SendFirst {
-        if env.isDemo || !env.api.publishesActivities || env.uploader.gate?() != nil { return .unavailable }
-        return env.connectivity.isOnline ? .available : .offline
+        if env.isDemo || !env.api.publishesActivities { return .unavailable }
+        // Offline is said first: it's true whatever else holds the queue.
+        if !env.connectivity.isOnline { return .offline }
+        return env.uploader.gate() == nil ? .available : .unavailable
     }
 
     /// What "Send first" came to.

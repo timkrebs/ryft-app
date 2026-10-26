@@ -385,7 +385,13 @@ struct ActivityOriginAndParkingTests {
         context.insert(night)
         env.persistence.save()
 
-        #expect(ParkedActivitiesNotice.parkedToMention(in: env) == .init(count: 2, until: nil))
+        // The first parked row goes 30 days after it was parked: "Log in by" that day.
+        let until = env.clock.now().addingTimeInterval(ActivityStore.parkingLimit)
+        let parked = try #require(ParkedActivitiesNotice.parkedToMention(in: env))
+        #expect(parked == .init(count: 2, until: until))
+        let message = ParkedActivitiesNotice.message(parked)
+        #expect(message.contains(until.formatted(.dateTime.day().month(.wide))) && !message.contains("30 days"))
+        #expect(ParkedActivitiesNotice.message(.init(count: 2, until: nil)).contains("within 30 days"))
 
         // "Delete from this iPhone".
         #expect(env.activities.purgeParked() == 2)
@@ -440,8 +446,7 @@ struct ActivityDeleteAndGateTests {
         let day = DayFormat.string(from: g.today)
         let id = try #require(g.env.activities.snapshots(onDay: day).first?.id)
         // The uploader's sent marker: a PUT went out and no answer came, so the platform may have it.
-        g.env.activities.recordFailure(id, UploadAttempt(at: g.clock.now(), request: .put, status: nil, code: nil,
-                                                         requestID: nil, kind: .cancelled))
+        g.env.activities.setSent(id, g.clock.now())
         let detail = ActivityDetailViewModel(route: ActivityRoute(id: id, day: g.today), state: g.state)
 
         #expect(detail.delete())
@@ -456,7 +461,7 @@ struct ActivityDeleteAndGateTests {
     @Test func theDetailSaysWhyAnUploadWaits() async throws {
         // Consent or the invite isn't done: it uploads once the account is ready.
         let g = Graph()
-        g.env.uploader.gate = { .consentRequired }
+        g.env.uploader.gate = { .gate(.consentRequired) }
         let model = AddActivityModel(env: g.env, day: g.today)
         #expect(model.save())
         let id = try #require(g.env.activities.snapshots(onDay: DayFormat.string(from: g.today)).first?.id)

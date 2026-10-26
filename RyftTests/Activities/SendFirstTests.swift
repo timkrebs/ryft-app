@@ -24,6 +24,7 @@ private struct SendFirstGraph {
                            postAppleAuthorization: { _ in })
         env = .test(api: api, clock: clock, auth: auth, flags: [.activitiesManual: true], online: online)
         env.uploader.random = { $0.lowerBound }
+        env.uploader.gate = { nil } // consent given: what goes up, goes up
         state = AppState(env: env)
         state.bindAccountHooks(auth)
         let sync = SyncService(env: env)
@@ -95,7 +96,15 @@ struct SendFirstTests {
 
     @Test func behindTheConsentGateItIsNotOffered() throws {
         let g = SendFirstGraph()
-        g.env.uploader.gate = { .consentRequired }
+        g.env.uploader.gate = { .gate(.consentRequired) }
         #expect(g.profile.sendFirst == .unavailable)
+        g.env.uploader.gate = { .policyUnknown }
+        #expect(g.profile.sendFirst == .unavailable)
+    }
+
+    @Test func offlineWithThePolicyUnknownItSaysOffline() throws {
+        let g = SendFirstGraph(online: false)
+        g.env.uploader.gate = { .policyUnknown }
+        #expect(g.profile.sendFirst == .offline)
     }
 }
