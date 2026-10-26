@@ -55,7 +55,7 @@ private final class AccountHarness {
         env.reads.random = { $0.lowerBound }
         state = AppState(env: env)
         env.uploader.random = { $0.lowerBound }
-        env.uploader.gate = { nil }
+        env.uploader.gate = { _ in nil }
         if bindHooks { state.bindAccountHooks(auth) }
         recorded = { [weak self] in self?.wipes.append($0) }
     }
@@ -357,7 +357,7 @@ struct AccountReviewTests {
     @Test func theSameAccountsUnparkSendsNothingBeforeConsent() async {
         let h = AccountHarness()
         var gate: UploadGate? = .gate(.consentRequired)
-        h.env.uploader.gate = { gate }
+        h.env.uploader.gate = { _ in gate }
         h.insert(AccountHarness.accountA)
         await h.auth.rejectedAfterRefresh()
         await h.signIn(AccountHarness.a)
@@ -543,7 +543,8 @@ struct AccountRecheckTests {
     }
 }
 
-/// `OnboardingCoordinator.uploadGate` (privacy re-check A-1): the uploader waits for the policy in force.
+/// `OnboardingCoordinator.uploadGate` for activity uploads (privacy re-check A-1, then ADR 0008): the uploader waits
+/// for a fresh policy the consent matches. The rule itself is table-tested in `ConsentGateTests`.
 @Suite("Onboarding: the upload gate")
 @MainActor
 struct UploadGateTests {
@@ -558,102 +559,105 @@ struct UploadGateTests {
         let env = AppEnvironment.test(api: api, clock: clock)
         let state = AppState(env: env)
         let onboarding = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
-        env.uploader.gate = { onboarding.uploadGate }
+        env.uploader.gate = { onboarding.uploadGate(for: .activities, write: $0) }
         await onboarding.check(force: true)
         #expect(onboarding.user != nil && onboarding.policyVersion == nil)
-        #expect(onboarding.syncGate == nil) // HealthKit's gate takes the old consent (a separate decision)
-        #expect(onboarding.uploadGate == .policyUnknown)
+        #expect(onboarding.uploadGate(for: .activities) == .policyUnknown)
         let end = clock.now().addingTimeInterval(-3_600)
         let id = try #require(env.activities.save(manual: ActivityDraft(sport: .yoga, start: end.addingTimeInterval(-900),
                                                                          end: end))?.id)
-        await env.uploader.flush(userInitiated: true)
+        await env.uploader.flush(userInitiated: true) // asks the config once more: still refused
         #expect(api.count("putActivity") == 0 && env.uploader.state(of: id) == .pending(.gated))
         // The config arrives with the newer policy: still held (the consent step asks again).
         api.faults["config"] = nil
         api.faults["syncStatus"] = nil
         api.remoteConfig = Self.config(policy: "2026-11-01")
         await onboarding.check(force: true)
-        #expect(onboarding.uploadGate == .gate(.consentRequired))
+        #expect(onboarding.uploadGate(for: .activities) == .gate(.consentRequired))
         await env.uploader.flush()
         #expect(api.count("putActivity") == 0)
         // It matches the consent: the queue goes.
         api.remoteConfig = Self.config(policy: "2026-10-01")
         await onboarding.check(force: true)
-        #expect(onboarding.uploadGate == nil)
+        #expect(onboarding.uploadGate(for: .activities) == nil)
         await env.uploader.flush()
         #expect(env.uploader.state(of: id) == .confirmed)
     }
 
-    /// A cold start that never ran `check()` (a background wake): the account and its cached config are all there is.
-    private static func coldStart(consent: String, cached: (account: String?, policy: String)?,
-                                  online: Bool = true) async throws -> (AppEnvironment, OnboardingCoordinator, UUID) {
+    /// A cold start that never ran `check()` (a background wake): the account's cached user and its consent record
+    /// are all there is. `recorded`: a policy answer stored for `account` (nil: the signed-in one) `age` ago.
+    private static func coldStart(consent: String, recorded: (account: String?, policy: String, age: TimeInterval)?,
+                                  online: Bool = true) async throws
+        -> (AppEnvironment, OnboardingCoordinator, UUID, MockPlatformAPI) {
         let clock = TestClock()
         let api = MockPlatformAPI()
         api.accountConsent = Consent(policyVersion: consent, grantedAt: clock.now())
         let env = AppEnvironment.test(api: api, clock: clock, online: online)
         let state = AppState(env: env)
         state.user = try await api.me() // the cached account
-        if let cached {
-            let document = FlagStore.Cached(config: config(policy: cached.policy), fetchedAt: clock.now())
-            env.persistence.saveDocument(document, key: FlagStore.cacheKey(cached.account ?? env.auth.accountID),
-                                         at: clock.now())
+        if let recorded {
+            let record = ConsentState.Record(policyVersion: recorded.policy, policyURL: nil,
+                                             answeredAt: clock.now().addingTimeInterval(-recorded.age))
+            let account = recorded.account ?? env.auth.accountID ?? "-"
+            env.persistence.saveDocument(record, key: ConsentState.key(account), at: clock.now())
         }
         let onboarding = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
-        env.uploader.gate = { onboarding.uploadGate }
+        env.uploader.gate = { onboarding.uploadGate(for: .activities, write: $0) }
         let end = clock.now().addingTimeInterval(-3_600)
         let id = try #require(env.activities.save(manual: ActivityDraft(sport: .yoga, start: end.addingTimeInterval(-900),
                                                                          end: end))?.id)
-        return (env, onboarding, id)
+        return (env, onboarding, id, api)
     }
 
-    @Test func aColdStartWithTheAccountsCachedMatchingPolicyUploads() async throws {
-        let (env, onboarding, id) = try await Self.coldStart(consent: "2026-10-20", cached: (nil, "2026-10-20"))
-        #expect(onboarding.policyVersion == nil && onboarding.policyVersionInForce == "2026-10-20")
-        #expect(onboarding.uploadGate == nil)
+    @Test func aColdStartWithAFreshMatchingRecordUploadsWithoutAskingTheConfig() async throws {
+        let (env, onboarding, id, api) = try await Self.coldStart(consent: "2026-10-20", recorded: (nil, "2026-10-20", 60))
+        #expect(onboarding.policyVersion == "2026-10-20" && onboarding.uploadGate(for: .activities) == nil)
         await env.uploader.flush()
-        #expect(env.uploader.state(of: id) == .confirmed)
+        #expect(env.uploader.state(of: id) == .confirmed && api.count("config") == 0)
     }
 
-    @Test func aColdStartWithoutACachedConfigIsHeld() async throws {
-        let (env, onboarding, id) = try await Self.coldStart(consent: "2026-10-20", cached: nil)
-        #expect(onboarding.uploadGate == .policyUnknown)
-        await env.uploader.flush(userInitiated: true)
-        #expect(env.uploader.state(of: id) == .pending(.gated))
+    @Test func aColdStartWithAStaleRecordAsksOnceThenUploads() async throws {
+        let (env, onboarding, id, api) = try await Self.coldStart(consent: MockData.policyVersion,
+                                                                   recorded: (nil, MockData.policyVersion, 6 * 3_600))
+        #expect(onboarding.uploadGate(for: .activities) == .policyUnknown)
+        await env.uploader.flush()
+        #expect(api.count("config") == 1 && env.uploader.state(of: id) == .confirmed)
     }
 
-    @Test func aColdStartWithACachedPolicyTheConsentDoesntMatchIsHeld() async throws {
-        let (env, onboarding, id) = try await Self.coldStart(consent: "2026-10-01", cached: (nil, "2026-10-20"))
-        #expect(onboarding.uploadGate == .gate(.consentRequired))
+    @Test func aColdStartOfflineWithoutARecordIsHeldAndAsksNothing() async throws {
+        let (env, onboarding, id, api) = try await Self.coldStart(consent: "2026-10-20", recorded: nil, online: false)
+        #expect(onboarding.uploadGate(for: .activities) == .policyUnknown)
         await env.uploader.flush(userInitiated: true)
-        #expect(env.uploader.state(of: id) == .pending(.gated))
+        #expect(env.uploader.state(of: id) == .pending(.offline) && api.calls == ["me"]) // only the setup's read
     }
 
-    @Test func anotherAccountsCachedConfigIsNeverUsed() async throws {
-        let (env, onboarding, id) = try await Self.coldStart(consent: "2026-10-20", cached: ("someone-else", "2026-10-20"))
-        #expect(onboarding.policyVersionInForce == nil && onboarding.uploadGate == .policyUnknown)
+    @Test func aColdStartWithARecordTheConsentDoesntMatchIsHeld() async throws {
+        let (env, onboarding, id, api) = try await Self.coldStart(consent: "2026-10-01", recorded: (nil, "2026-10-20", 60))
+        #expect(onboarding.uploadGate(for: .activities) == .gate(.consentRequired))
         await env.uploader.flush(userInitiated: true)
-        #expect(env.uploader.state(of: id) == .pending(.gated))
+        #expect(env.uploader.state(of: id) == .pending(.gated) && api.count("config") == 0)
+    }
+
+    @Test func anotherAccountsRecordIsNeverUsed() async throws {
+        let (_, onboarding, _, _) = try await Self.coldStart(consent: "2026-10-20",
+                                                              recorded: ("someone-else", "2026-10-20", 60), online: false)
+        #expect(onboarding.policyVersion == nil && onboarding.uploadGate(for: .activities) == .policyUnknown)
     }
 
     @Test func anOfflineStartAsksForThePolicyOnReconnectThenUploads() async throws {
-        let (env, onboarding, id) = try await Self.coldStart(consent: MockData.policyVersion, cached: nil, online: false)
+        let (env, onboarding, id, api) = try await Self.coldStart(consent: MockData.policyVersion, recorded: nil,
+                                                                   online: false)
         await onboarding.check() // offline: no answer
-        #expect(onboarding.uploadGate == .policyUnknown)
+        #expect(onboarding.uploadGate(for: .activities) == .policyUnknown)
         #expect(env.uploader.state(of: id) == .pending(.offline))
-        env.connectivityMonitor.update(true)
-        await onboarding.refreshPolicyIfUnknown()
-        #expect(onboarding.policyVersion == MockData.policyVersion && onboarding.uploadGate == nil)
-        await env.uploader.flush()
-        #expect(env.uploader.state(of: id) == .confirmed)
-        // Known now: no second ask.
-        let configs = (env.api as? MockPlatformAPI)?.count("config")
-        await onboarding.refreshPolicyIfUnknown()
-        #expect((env.api as? MockPlatformAPI)?.count("config") == configs)
+        env.connectivityMonitor.update(true) // the uploader's own reconnect: it asks the config, then sends
+        #expect(await eventually { env.uploader.state(of: id) == .confirmed })
+        #expect(api.count("config") == 1 && api.count("me") == 1) // the setup's read only: no forced check
     }
 
     @Test func demoDataHasNoUploadGate() {
         let onboarding = OnboardingCoordinator(state: AppState.preview(), apiStatus: APIStatus()) {}
-        #expect(onboarding.uploadGate == nil)
+        #expect(onboarding.uploadGate(for: .activities) == nil)
     }
 
     private static func config(policy: String) -> RemoteConfig {

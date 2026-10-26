@@ -1656,6 +1656,7 @@ struct TrainQuickStartTests {
     private func coordinator(_ api: MockPlatformAPI = MockPlatformAPI()) -> (TrainCoordinator, TrainLibrary, TrainStore) {
         let store = TrainStore(inMemory: true)
         let sync = TrainSyncService(store: store, remote: { api }, debounce: .milliseconds(30), monitorsNetwork: false)
+        sync.gate = { _ in nil } // open: these tests are about what happens past it
         let library = TrainLibrary(store: store, remote: { api }, restore: false)
         return (TrainCoordinator(sync: sync, library: library, liveActivities: false), library, store)
     }
@@ -1980,13 +1981,13 @@ struct OnboardingCoordinatorTests {
 
         #expect(!model.holdsFirstRun)
         #expect(model.flowStep == .consent) // the gate is off: no invite step
-        #expect(model.syncGate == .consentRequired)
+        #expect(model.uploadGate(for: .healthKit) == .gate(.consentRequired))
         #expect(state.user != nil && api.count("syncStatus") == 1 && api.count("config") == 1)
 
         #expect(await model.agree())
         #expect(api.consentPosts == [MockData.policyVersion])
         #expect(starts.runs == 1) // the first sync starts right away
-        #expect(model.syncGate == nil)
+        #expect(model.uploadGate(for: .healthKit) == nil)
         #expect(model.flowStep == .aboutYou)
 
         #expect(await model.saveAboutYou(birthYear: 1990))
@@ -2006,11 +2007,11 @@ struct OnboardingCoordinatorTests {
         let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
         model.reachedTabs()
         let sync = SyncService(env: env)
-        sync.gate = { model.syncGate }
+        sync.gate = { model.uploadGate(for: .healthKit) }
         await model.check()
 
         #expect(try await sync.upload() == [])
-        #expect(sync.pausedFor == .consentRequired && sync.lastError == nil)
+        #expect(sync.pausedFor == .gate(.consentRequired) && sync.lastError == nil)
         #expect(api.count("sync") == 0 && health.committed.isEmpty)
 
         _ = await model.agree()
@@ -2029,7 +2030,7 @@ struct OnboardingCoordinatorTests {
         let touched = try? await sync.upload()
 
         #expect(touched == [])
-        #expect(sync.pausedFor == .consentRequired && sync.lastError == nil && sync.phase == .idle)
+        #expect(sync.pausedFor == .gate(.consentRequired) && sync.lastError == nil && sync.phase == .idle)
         #expect(health.committed.isEmpty) // the page goes again once consent is given
     }
 
@@ -2043,7 +2044,7 @@ struct OnboardingCoordinatorTests {
         #expect(model.sheetStep == .consent)
         #expect(model.earlierConsent?.policyVersion == "2026-01-01")
         model.sheetStep = nil // swiped away
-        #expect(model.sheetStep == nil && model.pendingGate == .consent && model.syncGate == .consentRequired)
+        #expect(model.sheetStep == nil && model.pendingGate == .consent && model.uploadGate(for: .healthKit) == .gate(.consentRequired))
         model.show(.consent) // Today's "Review"
         #expect(model.sheetStep == .consent)
     }
@@ -2070,7 +2071,7 @@ struct OnboardingCoordinatorTests {
         await model.check()
         #expect(model.flowStep == .invite)
         #expect(!model.canDefer(.invite)) // enforced: nothing works without it
-        #expect(model.syncGate == .inviteRequired)
+        #expect(model.uploadGate(for: .healthKit) == .gate(.inviteRequired))
 
         model.inviteCode = "RYFT-0000-0000"
         #expect(await !model.redeemInvite())
@@ -2088,7 +2089,7 @@ struct OnboardingCoordinatorTests {
         api.inviteGateOn = true
         let (model, _, _) = onboarding(api)
         await model.check()
-        #expect(model.flowStep == .invite && model.canDefer(.invite) && model.syncGate == nil)
+        #expect(model.flowStep == .invite && model.canDefer(.invite) && model.uploadGate(for: .healthKit) == nil)
         model.later(.invite)
         #expect(model.flowStep == .aboutYou)
     }
@@ -2147,9 +2148,9 @@ struct OnboardingCoordinatorTests {
     @Test func withdrawingStopsSyncWithoutAsking() async {
         let (model, _, _) = onboarding(introDone: true)
         await model.check()
-        #expect(model.syncGate == nil)
+        #expect(model.uploadGate(for: .healthKit) == nil)
         #expect(await model.withdrawConsent())
-        #expect(model.syncGate == .consentRequired)
+        #expect(model.uploadGate(for: .healthKit) == .gate(.consentRequired))
         #expect(model.sheetStep == nil) // asked again only from Profile or Today
         #expect(model.pendingGate == .consent)
     }
@@ -2170,7 +2171,7 @@ struct OnboardingCoordinatorTests {
         #expect(model.flowStep == .aboutYou)
         model.finishAboutYou()
         #expect(model.flowStep == .wear && !OnboardingCoordinator.Step.wear.isGate && model.canDefer(.wear))
-        #expect(model.syncGate == nil) // not a gate: the sync doesn't wait for it
+        #expect(model.uploadGate(for: .healthKit) == nil) // not a gate: the sync doesn't wait for it
 
         model.answerWear(["oura", "garmin"])
 
@@ -2235,7 +2236,10 @@ struct OnboardingCoordinatorTests {
     @Test func demoModeHasNoGates() async {
         let demo = OnboardingCoordinator(state: AppState.preview(), apiStatus: APIStatus()) {}
         await demo.check()
-        #expect(demo.missing.isEmpty && demo.syncGate == nil && !demo.holdsFirstRun)
+        #expect(demo.missing.isEmpty && !demo.holdsFirstRun)
+        // HealthKit's client is the platform's: it holds in demo (privacy review S1). The others go to the mock.
+        #expect(demo.uploadGate(for: .healthKit) == .demo)
+        #expect(demo.uploadGate(for: .activities) == nil && demo.uploadGate(for: .train) == nil)
     }
 
     @Test func todaySaysWhatsNeededAndOpensTheStep() async {
@@ -2351,7 +2355,7 @@ struct OnboardingEdgeTests {
         let (model, state, _) = onboarding(api)
         await model.check()
         #expect(state.user == nil && model.missing.isEmpty)
-        #expect(model.syncGate == .consentRequired) // a consent can't be assumed
+        #expect(model.uploadGate(for: .healthKit) == .gate(.consentRequired)) // a consent can't be assumed
         #expect(model.pendingGate == nil) // and it isn't the user's to fix
     }
 
@@ -2361,7 +2365,7 @@ struct OnboardingEdgeTests {
         await model.check()
         api.failAfterRevoke = true
         #expect(await model.withdrawConsent())
-        #expect(state.user?.consent == nil && model.syncGate == .consentRequired)
+        #expect(state.user?.consent == nil && model.uploadGate(for: .healthKit) == .gate(.consentRequired))
     }
 
     @Test func anotherAccountOnAPhoneThatAllowedHealthStillGetsItsSteps() async {
@@ -2382,13 +2386,13 @@ struct OnboardingEdgeTests {
         let api = MockPlatformAPI()
         let sync = SyncService(env: .test(api: api, health: health))
         let withdrawn = Flag()
-        sync.gate = { withdrawn.isSet ? .consentRequired : nil }
+        sync.gate = { withdrawn.isSet ? .gate(.consentRequired) : nil }
         api.afterSync = { withdrawn.set() } // consent withdrawn meanwhile
 
         _ = try? await sync.upload()
 
         #expect(api.count("sync") == 1 && health.committed.count == 1) // the second page stays
-        #expect(sync.pausedFor == .consentRequired && sync.lastError == nil)
+        #expect(sync.pausedFor == .gate(.consentRequired) && sync.lastError == nil)
     }
 
     @Test func trainKeepsWritesRefusedAtAGate() {

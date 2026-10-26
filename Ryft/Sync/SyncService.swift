@@ -74,12 +74,12 @@ final class SyncService {
     /// When the latest GET /v1/me/sync answered, on this phone's clock (`receive`). "Taking longer than usual"
     /// needs one after the threshold that still lists the days (`TodayStates.scoringSlow`).
     private(set) var statusReadAt: Date?
-    /// Uploads wait behind this gate (no consent to the current policy, no beta access)
-    /// until it's passed. Not an error: something the user does (`OnboardingCoordinator`).
-    private(set) var pausedFor: APIErrorCode?
-    /// Asked before every upload: the gate the account is behind, if any (RyftApp wires
-    /// `OnboardingCoordinator.syncGate`). Nothing syncs before consent.
-    @ObservationIgnored var gate: (@MainActor () -> APIErrorCode?)?
+    /// The last run held at this gate (no consent to the policy in force, no beta access, the policy not known),
+    /// until it's passed. Not an error: the user's action, or a policy read the next run makes (ADR 0008).
+    private(set) var pausedFor: UploadGate?
+    /// Asked before the first HealthKit read and before every page (ScreenModels wires
+    /// `OnboardingCoordinator.uploadGate(for: .healthKit)`). Nothing syncs before consent to the policy in force.
+    @ObservationIgnored var gate: (@MainActor () -> UploadGate?)?
     /// Scoring usually finishes within a few seconds of an upload or recompute.
     static let rescoreDelay: Duration = .seconds(3)
 
@@ -185,6 +185,9 @@ final class SyncService {
     private func run() async throws -> [String] {
         // Only this run's outcome counts: an early return (offline, gated) leaves no backlog.
         hasBacklog = false
+        // Demo data never opens the HealthKit path: the engine's client is the platform's whatever the switch says
+        // (privacy review S1). Profile's re-sync and `syncNow` come through here too.
+        guard !env.isDemo else { return [] }
         guard auth.isSignedIn, let account = auth.accountID else {
             lastError = APIError.signedOut.localizedDescription
             throw APIError.signedOut
@@ -198,9 +201,30 @@ final class SyncService {
             advance(to: .offline)
             return []
         }
-        // Behind a gate nothing goes out; the anchors stay, so the pages follow once it's passed.
-        if let gate = gate?() {
-            pausedFor = gate
+        // Behind a gate nothing goes out; the anchors stay, so the pages follow once it's passed. A policy this
+        // phone doesn't know right now is asked for first, before any HealthKit read (ADR 0008). Its failure is the
+        // run's error, with its request ID.
+        var hold = gate?()
+        // (Not before the first unlock: nothing could be stored, so the run holds.)
+        if hold == .policyUnknown, env.consent.isRecordReadable {
+            // The run starts here, with that read (shown as reading).
+            advance(to: .reading)
+            do {
+                try await env.consent.revalidate()
+            } catch is CancellationError {
+                advance(to: .idle)
+                throw CancellationError()
+            } catch {
+                lastError = error.localizedDescription
+                lastErrorDetails = error.diagnosticDetails
+                advance(to: .failed)
+                throw error
+            }
+            hold = gate?()
+            if hold != nil { advance(to: .idle) }
+        }
+        if let hold {
+            pausedFor = hold
             return []
         }
         pausedFor = nil
@@ -278,7 +302,8 @@ final class SyncService {
     /// date-bounded (the platform counts what it already has as duplicates), then what's new.
     /// The caller runs the sync.
     func resendRecent() {
-        guard let account = auth.accountID else { return }
+        // Demo data: the account's engine state isn't demo's to change (privacy review S1).
+        guard !env.isDemo, let account = auth.accountID else { return }
         var state = SyncEngineState.load(account: account, defaults: env.defaults)
         state.recentDone = false
         state.recentRequested = true
@@ -290,6 +315,8 @@ final class SyncService {
     /// `backfillDays` or if the backend database was recreated. The engine counts it as a
     /// backfill again (the platform answers the overlap as duplicates).
     func fullResync() async {
+        // Demo data: the account's anchors and engine state stay as they are, and nothing is sent (`run()`).
+        guard !env.isDemo else { return }
         resetForFullResync()
         await syncNow()
     }
@@ -529,6 +556,11 @@ actor SyncEngine {
         var gzip = false
     }
 
+    /// The gate closed between pages: the run stops before the next one, uncommitted. A local hold, never a refusal.
+    struct HeldAtGate: Error, Sendable {
+        let gate: UploadGate
+    }
+
     enum Event: Sendable {
         case reading(HealthStream)
         case uploading(HealthStream, records: Int)
@@ -541,8 +573,9 @@ actor SyncEngine {
         var uploaded = 0
         /// Stopped after the first score's window; the backfill follows.
         var backlog = false
-        /// Refused at a gate; the page's anchor isn't committed.
-        var pausedFor: APIErrorCode?
+        /// Held at a gate: the platform refused the page, or the gate closed between pages. The page's anchor isn't
+        /// committed.
+        var pausedFor: UploadGate?
         /// HealthKit was locked (protected data); nothing is lost, the rest follows the unlock.
         var waitingForUnlock = false
         /// The responses' `scoring`, merged: every day queued, the longest expected wait.
@@ -569,7 +602,7 @@ actor SyncEngine {
     private var maxRecords = 0
     /// The platform refused a gzipped body this run: plain JSON from then on.
     private var gzipRefused = false
-    private var gate: @Sendable () async -> APIErrorCode? = { nil }
+    private var gate: @Sendable () async -> UploadGate? = { nil }
     /// `requestStop()`: end after the page being uploaded.
     private var stopRequested = false
     /// Draining the first score's window (its records are sent again in the backfill).
@@ -596,7 +629,7 @@ actor SyncEngine {
 
     /// `gate` is asked before every page: a gate that appears mid-run (consent withdrawn)
     /// stops the next page before it goes up, uncommitted.
-    func run(_ context: Context, gate: @escaping @Sendable () async -> APIErrorCode?,
+    func run(_ context: Context, gate: @escaping @Sendable () async -> UploadGate?,
              report: @escaping @Sendable (Event) async -> Void) async throws -> Result {
         self.gate = gate
         account = context.account
@@ -644,8 +677,15 @@ actor SyncEngine {
             state.phase = .idle
             await finished(context, report)
             return finish(result)
+        } catch let hold as HeldAtGate {
+            // The gate closed between pages: nothing was sent, and nothing is recorded as a refusal.
+            result.pausedFor = hold.gate
+            state.phase = .idle
+            await finished(context, report)
+            return finish(result)
         } catch let error where error.gate != nil {
-            result.pausedFor = error.gate
+            // The platform refused the page (`APIStatus` kept the refusal for the account).
+            result.pausedFor = error.gate.map(UploadGate.gate)
             state.phase = .idle
             await finished(context, report)
             return finish(result)
@@ -818,8 +858,8 @@ actor SyncEngine {
     private func upload(_ delta: HealthDelta, stream: HealthStream, context: Context,
                         report: @Sendable (Event) async -> Void) async throws -> Bool {
         guard !delta.isEmpty else { return true }
-        // Consent withdrawn or a gate reported meanwhile: this page stays (its anchor too).
-        if let gate = await gate() { throw APIError.http(403, "", code: gate) }
+        // Consent withdrawn, a gate reported or the policy gone stale meanwhile: this page stays (its anchor too).
+        if let gate = await gate() { throw HeldAtGate(gate: gate) }
         await report(.uploading(stream, records: delta.count))
         let request = SyncRequest(deviceId: context.deviceID, deviceName: context.deviceName,
                                   appVersion: context.appVersion, osVersion: context.osVersion,

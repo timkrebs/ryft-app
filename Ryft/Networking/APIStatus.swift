@@ -71,16 +71,27 @@ final class APIStatus {
 
     // MARK: gates
 
+    /// A gate the platform named (`true`) or no longer names (`false`): `ConsentState` stores it for the account
+    /// (ADR 0008), so the next process holds without sending a page.
+    @ObservationIgnored var onGate: (@MainActor (_ code: APIErrorCode, _ refused: Bool) -> Void)?
+
     /// A refusal's code (`enforced`) or a warn-mode header.
     func observe(_ codes: Set<APIErrorCode>, enforced: Bool) {
         gates.formUnion(codes)
-        if enforced, codes.contains(.inviteRequired) { inviteBlocked = true }
+        if enforced, codes.contains(.inviteRequired) {
+            inviteBlocked = true
+            onGate?(.inviteRequired, true)
+        }
+        // Consent in warn mode is kept as a refusal too, on purpose: uploads of health data fail closed (ADR 0008,
+        // privacy review N4). The warn-mode invite gate isn't: the platform serves the account.
+        if codes.contains(.consentRequired) { onGate?(.consentRequired, true) }
     }
 
     /// The gate was passed (code redeemed, consent given) or the server no longer reports it.
     func resolved(_ code: APIErrorCode) {
         gates.remove(code)
         if code == .inviteRequired { inviteBlocked = false }
+        onGate?(code, false)
     }
 
     /// Another account: its gates are its own.

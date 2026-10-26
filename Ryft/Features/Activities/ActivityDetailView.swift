@@ -376,7 +376,7 @@ private enum DetailPreview {
     /// The same with the uploader held by the consent gate (`.pending(.gated)`).
     static let gated: AppState = {
         let state = AppState.preview(flags: [.todayMyDay: true, .activitiesManual: true])
-        state.env.uploader.gate = { .gate(.consentRequired) }
+        state.env.uploader.gate = { _ in .gate(.consentRequired) }
         return state
     }()
     static var demo: [SportActivity] { MockActivitiesSource.demo() }

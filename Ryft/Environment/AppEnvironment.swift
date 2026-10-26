@@ -45,6 +45,9 @@ final class AppEnvironment {
     lazy var activities = ActivityStore(env: self)
     /// Sends those activities and nights to the platform, and their deletes (`activities`' rows are its queue).
     lazy var uploader = ActivityUploader(env: self, store: activities)
+    /// The account's consent standing on this phone: the policy in force as last heard, and the platform's last
+    /// refusal (ADR 0008). Every upload of health data decides from it.
+    lazy var consent = ConsentState(env: self)
     /// Fixed for previews (on) and tests (off); live follows the Demo data switch.
     private let demoOverride: Bool?
 
@@ -102,7 +105,7 @@ final class AppEnvironment {
             defaults: defaults, demoOverride: true)
         // Uploads as the app shows them once the gate is known to be open (ScreenModels connects the real one); a
         // gated preview closes it again.
-        env.uploader.gate = { nil }
+        env.uploader.gate = { _ in nil }
         return env
     }
 

@@ -349,7 +349,7 @@ struct ActivityUploaderScopeTests {
                                  auth: .preview(), persistence: TrainStore(inMemory: true), clock: clock,
                                  notifier: MockNotifier(), flags: StaticFlags([:]), connectivity: .preview(online: true),
                                  defaults: defaults)
-        env.uploader.gate = { nil }
+        env.uploader.gate = { _ in nil }
         let end = clock.now().addingTimeInterval(-3_600)
         // The account's own row, saved before demo data goes on.
         settings.demoMode = false

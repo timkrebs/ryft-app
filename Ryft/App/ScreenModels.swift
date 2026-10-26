@@ -31,21 +31,30 @@ final class ScreenModels {
     /// My Day (`today.my_day`): the card on Today and its full screen.
     let myDay: MyDayViewModel
     private let state: AppState
+    private let sync: SyncService
+    /// Train's outbox (the app's; nil in tests and previews that don't upload sessions).
+    private let trainSync: TrainSyncService?
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, store: TrainStore, library: TrainLibrary,
-         apiStatus: APIStatus? = nil) {
+         apiStatus: APIStatus? = nil, trainSync: TrainSyncService? = nil) {
         self.coordinator = coordinator
         self.state = state
+        self.sync = sync
+        self.trainSync = trainSync
         let devices = TrackerSelectionStore(env: state.env)
         self.devices = devices
         onboarding = OnboardingCoordinator(state: state, apiStatus: apiStatus ?? .shared, devices: devices) {
             await coordinator.run(.userInitiated)
         }
-        // Nothing syncs before consent, nor behind an enforced invite gate.
-        sync.gate = { [onboarding] in onboarding.syncGate }
-        // Activities and nights wait for the same gates, and for the policy in force to be known (privacy reviews 1,
-        // A-1). Until this line runs the uploader's gate is closed.
-        state.env.uploader.gate = { [onboarding] in onboarding.uploadGate }
+        // Every upload waits for the same rule, per path and kind of write (ADR 0008): consent to the policy in force,
+        // known and fresh, and no enforced invite gate; a DELETE only the invite gate. Until these lines run the two
+        // outboxes' gates are closed.
+        sync.gate = { [onboarding] in onboarding.uploadGate(for: .healthKit) }
+        state.env.uploader.gate = { [onboarding] in onboarding.uploadGate(for: .activities, write: $0) }
+        if let trainSync {
+            trainSync.gate = { [onboarding] in onboarding.uploadGate(for: .train, write: $0) }
+            trainSync.revalidatePolicy = { [consent = state.env.consent] in try await consent.revalidate() }
+        }
         // The launch check's sync status reaches the sync (an operator's re-sync request).
         onboarding.statusReceived = { [sync] in sync.receive($0) }
         push = PushRegistrar(env: state.env)
@@ -64,9 +73,8 @@ final class ScreenModels {
             FeatureFlags(flags: store, clock: env.clock) {
                 // Flags are evaluated per user: nothing to ask before sign-in (and nothing recorded).
                 guard env.isDemo || env.auth.isSignedIn else { throw APIError.signedOut }
-                guard let config = try await env.reads.run(ReadKey(.config), { try await env.api.config() }) else {
-                    throw ReadScheduler.NotSent()
-                }
+                // The one door for the config: its policy version is recorded for the gates too.
+                guard let config = try await env.consent.fetchConfig() else { throw ReadScheduler.NotSent() }
                 return config
             }
         }
@@ -77,6 +85,28 @@ final class ScreenModels {
         // Train's reads share the pipeline's budget and per-resource record.
         library.reads = state.env.reads
         bedtime = BedtimePlanner(state: state)
+    }
+
+    /// A path's data gate changed (RootView forwards each). When it opens, that path's queue goes: the activity
+    /// uploader, Train's outbox, and a sync whose last run was held. A sync that wasn't held isn't rerun: that would be
+    /// an extra HealthKit pass at every launch. In the background there's no view: each run asks the gate (and the
+    /// policy) at its own start.
+    func gateChanged(_ path: UploadPath, to gate: UploadGate?) {
+        guard gate == nil else { return }
+        switch path {
+        case .healthKit:
+            guard sync.pausedFor != nil else { return }
+            let coordinator = coordinator
+            Task { await coordinator.run(.appActive) }
+        case .activities:
+            let uploader = state.env.uploader
+            Task { await uploader.flush() }
+        case .train:
+            guard let trainSync else { return }
+            Task { await trainSync.flush() }
+        case .trainImport:
+            break // the import's upload isn't built yet: it asks at its own start
+        }
     }
 
     /// Pull to refresh on any tab: the upload starts, today and the sync status load at once, the

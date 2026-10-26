@@ -2340,6 +2340,7 @@ struct WorkoutHealthExportTests {
     @Test func finishingWritesTheSessionOnceWhenComplete() async throws {
         let store = TrainStore(inMemory: true)
         let trainSync = TrainSyncService(store: store, remote: { MockPlatformAPI() }, monitorsNetwork: false)
+        trainSync.gate = { _ in nil } // open: these tests are about what happens past it
         let coordinator = TrainCoordinator(sync: trainSync, library: TrainLibrary.preview(store: store), liveActivities: false)
         let s = SessionFactory.empty(in: store)
         s.startedAt = Date.now.addingTimeInterval(-1_800)

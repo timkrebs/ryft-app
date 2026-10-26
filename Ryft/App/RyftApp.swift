@@ -70,8 +70,9 @@ struct RyftApp: App {
         }
         self.coordinator = coordinator
         _state = State(initialValue: state)
+        // Training logs are health data: Train's outbox waits for the same rule as every upload (ADR 0008).
         let screens = ScreenModels(state: state, sync: .shared, coordinator: coordinator,
-                                   store: .shared, library: .shared)
+                                   store: .shared, library: .shared, trainSync: .shared)
         _screens = State(initialValue: screens)
         // Sign-out first deletes this phone's push registration, while the session still works.
         AuthService.shared.beforeSignOut = { [push = screens.push] in await push.signOut() }
@@ -177,11 +178,16 @@ struct RyftApp: App {
                 .onChange(of: APIStatus.shared.gates) { _, _ in
                     Task { await screens.onboarding.check(force: true) }
                 }
-                // Activities and nights the gate held (consent, invite, the account not known yet) go up once it's
-                // passed; never when one appears.
-                .onChange(of: screens.onboarding.uploadGate) { _, gate in
-                    guard gate == nil else { return }
-                    Task { await env.uploader.flush() }
+                // A path's data gate opened (consent, invite, the policy in force known): its queue goes, and a held
+                // sync runs again (`ScreenModels.gateChanged`); never when one appears.
+                .onChange(of: screens.onboarding.uploadGate(for: .healthKit)) { _, gate in
+                    screens.gateChanged(.healthKit, to: gate)
+                }
+                .onChange(of: screens.onboarding.uploadGate(for: .activities)) { _, gate in
+                    screens.gateChanged(.activities, to: gate)
+                }
+                .onChange(of: screens.onboarding.uploadGate(for: .train)) { _, gate in
+                    screens.gateChanged(.train, to: gate)
                 }
                 // A flag flip that arrived meanwhile takes effect as the next screen appears.
                 .onChange(of: state.selectedTab) { _, _ in (env.flags as? FlagStore)?.applyPending() }
@@ -211,8 +217,6 @@ struct RyftApp: App {
                 // Back online: upload what HealthKit collected meanwhile, then reload.
                 .onChange(of: connectivity.isOnline) { _, online in
                     guard online else { return }
-                    // An offline start left the policy unknown: ask now (activity uploads wait for it).
-                    Task { await screens.onboarding.refreshPolicyIfUnknown() }
                     Task { await coordinator.run(.reconnect) }
                     Task { await refreshTrain() }
                     // Reports saved offline (Profile → Report a problem).

@@ -116,7 +116,7 @@ final class ProfileViewModel {
         if env.isDemo || !env.api.publishesActivities { return .unavailable }
         // Offline is said first: it's true whatever else holds the queue.
         if !env.connectivity.isOnline { return .offline }
-        return env.uploader.gate() == nil ? .available : .unavailable
+        return env.uploader.gate(.data) == nil ? .available : .unavailable
     }
 
     /// What "Send first" came to.
@@ -539,7 +539,7 @@ final class SyncDetailsModel {
             "device \(env.settings.deviceId.uuidString.lowercased())",
             "phase \(e.phase.rawValue) · recent \(e.recentDone) · backfill \(e.backfillDone) · stream \(e.stream ?? "-")",
             "uploaded \(e.bytesUploaded) B · backlog \(sync.backlogBytes ?? 0) B · deletions kept \(e.pendingDeletions)",
-            "queue running \(isRunning) · queued \(hasQueuedRun) · unlock \(sync.waitingForUnlock) · gate \(sync.pausedFor?.rawValue ?? "-")",
+            "queue running \(isRunning) · queued \(hasQueuedRun) · unlock \(sync.waitingForUnlock) · gate \(sync.pausedFor?.diagnosticName ?? "-")",
             "updated \(e.updatedAt.map { $0.ISO8601Format() } ?? "-") · full resync \(e.lastFullResyncAt.map { $0.ISO8601Format() } ?? "-")",
         ]
         if let error = e.lastError { lines.append("last error \(error) · request \(e.lastRequestID ?? "-")") }

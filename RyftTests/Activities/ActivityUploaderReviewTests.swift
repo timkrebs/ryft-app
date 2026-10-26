@@ -8,14 +8,14 @@ import Testing
 @Suite("Activity uploader: consent gate")
 @MainActor
 struct ActivityUploaderGateTests {
-    /// What `OnboardingCoordinator.syncGate` says, scripted.
+    /// What `OnboardingCoordinator.uploadGate(for: .activities)` says, scripted (the same for every kind of write).
     final class Gate { var code: APIErrorCode? }
 
     @Test func withoutConsentNothingIsSent() async throws {
         let h = UploadHarness()
         let gate = Gate()
         gate.code = .consentRequired
-        h.uploader.gate = { gate.code.map(UploadGate.gate) }
+        h.uploader.gate = { _ in gate.code.map(UploadGate.gate) }
         let id = try #require(h.save())
         let night = h.night()
         h.store.saveSleep(day: night.day, bed: night.bed, wake: night.wake)
@@ -33,7 +33,7 @@ struct ActivityUploaderGateTests {
 
     @Test func theInviteGateHoldsTheQueueToo() async throws {
         let h = UploadHarness()
-        h.uploader.gate = { .gate(.inviteRequired) }
+        h.uploader.gate = { _ in .gate(.inviteRequired) }
         _ = try #require(h.save())
         await h.uploader.flush(userInitiated: true)
         #expect(h.puts() == 0)
@@ -42,7 +42,7 @@ struct ActivityUploaderGateTests {
     @Test func consentWithdrawnMidQueueStopsBeforeTheNextItem() async throws {
         let h = UploadHarness()
         let gate = Gate()
-        h.uploader.gate = { gate.code.map(UploadGate.gate) }
+        h.uploader.gate = { _ in gate.code.map(UploadGate.gate) }
         let hold = RequestHold()
         h.platform.beforeWrite = { await hold.wait() }
         let first = try #require(h.save(minutesAgo: 120))
@@ -60,7 +60,7 @@ struct ActivityUploaderGateTests {
     @Test func withOnlyThePolicyUnknownOfflineSaysOfflineAndMissingConsentSaysGated() async throws {
         let h = UploadHarness(online: false)
         var hold: UploadGate? = .policyUnknown
-        h.uploader.gate = { hold }
+        h.uploader.gate = { _ in hold }
         let id = try #require(h.save())
         #expect(h.uploader.state(of: id) == .pending(.offline)) // being online settles it
         hold = .gate(.consentRequired)
@@ -96,7 +96,7 @@ struct ActivityUploaderGateTests {
                                    return AccountDeleted(status: "deleted", authUserDeleted: true)
                                })
         let env = AppEnvironment.test(api: h.api, clock: h.clock, auth: auth)
-        env.uploader.gate = { nil } // only the deletion holds it
+        env.uploader.gate = { _ in nil } // only the deletion holds it
         let id = try #require(env.activities.save(manual: h.draft())?.id)
         let deletion = Task { await auth.deleteAccount() }
         #expect(await eventually { auth.isDeletingAccount })

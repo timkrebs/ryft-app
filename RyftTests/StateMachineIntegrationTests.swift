@@ -100,6 +100,7 @@ struct StateMachineIntegrationTests {
     @Test func theRestTimerMovesTheSessionBetweenActiveAndResting() throws {
         let store = TrainStore(inMemory: true)
         let trainSync = TrainSyncService(store: store, remote: { MockPlatformAPI() }, monitorsNetwork: false)
+        trainSync.gate = { _ in nil } // open: these tests are about what happens past it
         let s = SessionFactory.empty(in: store)
         SessionFactory.add(MockTrain.bench, to: s, sets: 2, in: store)
         let c = SessionController(session: s, sync: trainSync, liveActivity: nil)
@@ -129,6 +130,7 @@ struct StateMachineIntegrationTests {
     @Test func finishingCompletesOnce() async throws {
         let store = TrainStore(inMemory: true)
         let trainSync = TrainSyncService(store: store, remote: { MockPlatformAPI() }, monitorsNetwork: false)
+        trainSync.gate = { _ in nil } // open: these tests are about what happens past it
         let s = SessionFactory.empty(in: store)
         SessionFactory.add(MockTrain.bench, to: s, sets: 1, in: store)
         let c = SessionController(session: s, sync: trainSync, liveActivity: nil)

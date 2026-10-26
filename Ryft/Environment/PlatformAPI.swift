@@ -244,6 +244,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     /// Runs before each sync answers (tests hold an upload open with it).
     var beforeSync: (@Sendable () async -> Void)?
+    /// Where a sync's `403` gate refusal is reported, as `APIClient` reports it to `APIStatus.shared` (tests).
+    var reportsGates: APIStatus?
 
     func sync(encoded body: Data, contentEncoding: String?) async throws -> SyncResponse {
         let onMain = MainThread.isCurrent
@@ -252,6 +254,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         lock.withLock { syncEncodings.append(contentEncoding) }
         if contentEncoding == "gzip", refusesGzip { throw APIError.http(415, "unsupported content encoding") }
         if enforcesConsent, gate == .consentRequired {
+            // As `APIClient` does: the refusal reaches the gates (tests that give one).
+            if let reportsGates { await reportsGates.observe([.consentRequired], enforced: true) }
             throw APIError.http(403, "consent required", code: .consentRequired)
         }
         let json = contentEncoding == "gzip" ? try Gzip.decompress(body) : body
@@ -308,7 +312,14 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         }
     }
 
-    func config() async throws -> RemoteConfig { try enter("config"); return remoteConfig }
+    func config() async throws -> RemoteConfig {
+        try enter("config")
+        await beforeConfig?()
+        return remoteConfig
+    }
+
+    /// Runs before `GET /v1/config` answers (tests hold the read open with it).
+    var beforeConfig: (@Sendable () async -> Void)?
 
     func registerPush(deviceID: UUID, _ registration: PushRegistration) async throws {
         try enter("registerPush")
