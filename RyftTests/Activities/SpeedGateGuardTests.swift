@@ -152,8 +152,8 @@ struct SpeedGateGuardTests {
 
     /// "Running" chosen on a bike: a 15 s ramp from 0, then 300 s at 15 m/s (4,612.5 m). At most 80 m (the ramp below
     /// 9 m/s is 40.5 m) and one `.tooFast` within 4 s after the truth passes 9 m/s, at every reported accuracy. `main`
-    /// recorded 67–90 m at 2–3 m and all of it at 4–5 m, silently. Measured: 55–66 m, since +2 … +3 s (the state
-    /// enters above 9.6 m/s).
+    /// recorded 67–90 m at 2–3 m and all of it at 4–5 m, silently. Measured over the implementer's and the review's
+    /// runs: 54–68 m, since +2 … +3 s (the state enters above 9.6 m/s).
     @Test(arguments: [2.0, 3.0, 4.0, 5.0])
     func runningChosenOnABikeSaysTooFast(accuracy: Double) throws {
         let speeds = GuardTrack.speeds([Ramp(15, 0, 15), .hold(300, 15)])
@@ -201,7 +201,7 @@ struct SpeedGateGuardTests {
     /// braking below 9 m/s are 66 + 41 m, and the filter crosses the entry speed 1–3 s late (A3a.2 had 120 m with the
     /// state entering at 9 m/s; review S1 moved it). `main`: +243 … +334 m, silently. Measured noiseless: +114 /
     /// +128 m, since +0 … +2 s, ended +1 … +3 s. Under drifting noise "added" is against the same seed with the train
-    /// left out (the run's own noise reads +0.5 … +13 m): 20 seeds +102 … +131 m.
+    /// left out (the run's own noise reads +0.5 … +13 m): 20 seeds +102 … +131 m (the review's seeds: +107 … +131 m).
     @Test(arguments: [3.0, 5.0])
     func aTrainAfterARunIsOneEpisode(accuracy: Double) throws {
         let run = GuardTrack.speeds([.hold(300, 3), Ramp(2, 3, 0)])
