@@ -228,7 +228,8 @@ final class TrainStore {
         // The import's remembered matches are the account's too (training import design §4, §10).
         try? context.delete(model: ImportMapping.self)
         // And its import job, never uploaded for another account (design §7). One by one: its payload is external
-        // storage, and a batch delete would leave the file (the whole imported history) beside the store.
+        // storage, and only deleting the object is sure to take that file (the whole imported history) with it. On
+        // the iOS 27 simulator SwiftData's batch delete removed it too, but the app runs from iOS 17.
         for job in (try? context.fetch(FetchDescriptor<PendingImport>())) ?? [] { context.delete(job) }
         try? context.delete(model: CachedDay.self)
         try? context.delete(model: CachedTrend.self)
