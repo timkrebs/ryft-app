@@ -111,11 +111,14 @@ these, Xcode creates or renews the distribution certificate and profiles in the 
 `scripts/ExportOptions-upload.plist` (`destination: upload`) sends the build straight to
 App Store Connect.
 
-### Secrets (repository → Settings → Secrets and variables → Actions)
+### Secrets (Settings → Environments → `internal-testflight` and `external-testflight`)
+
+Each environment holds the same three secrets; `external-testflight` asks for approval per run.
+Set them with `gh secret set <NAME> --env <environment>` (it prompts for the value).
 
 | Secret | Value |
 | --- | --- |
-| `ASC_KEY_ID` | Key ID of an App Store Connect API key with the **App Manager** role |
+| `ASC_KEY_ID` | Key ID of an App Store Connect **Team** API key with the **Admin** role. The export signs with Apple's cloud-managed distribution certificate, which an App Manager key may not use ("Cloud signing permission error", 2026-10-26) |
 | `ASC_ISSUER_ID` | Issuer ID (App Store Connect → Users and Access → Integrations) |
 | `ASC_KEY_P8` | The contents of `AuthKey_<id>.p8`, including the BEGIN/END lines |
 
