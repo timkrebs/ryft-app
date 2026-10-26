@@ -8,7 +8,7 @@ enum FixRejection: String, Codable, Sendable {
     case outOfOrder
     /// More than 10 s older than the newest time the pipeline has seen.
     case stale
-    /// Implies a speed above the sport's maximum from the last filtered position.
+    /// Implies a change of velocity above the sport's maximum: the jump from the filter's predicted position.
     case implausible
     /// Beyond the Kalman filter's innovation gate.
     case innovation
@@ -67,7 +67,9 @@ enum PipelineEvent: Sendable, Equatable {
     /// The profile after an accepted fix or pedometer sample (only after Start).
     case profile(ProfilePoint)
     case rejected(FixRejection)
-    /// The filter restarted at this fix (three innovation rejections in a row); the jump adds no distance.
+    /// The filter restarted at this fix (three rejections in a row, by either gate); the jump adds no distance. The
+    /// re-init is provisional: when its settle window closes, the rejected span is filled from the last settled
+    /// position (design §3.3 step 4).
     case reinitialised
     /// Δt over 10 s between accepted fixes; `bridged` when the straight line was counted.
     case gap(seconds: Double, bridged: Bool)
@@ -76,6 +78,12 @@ enum PipelineEvent: Sendable, Equatable {
     case autoPaused(since: Date)
     /// Auto-pause left; the pause ends at `since` (when the user started moving).
     case autoResumed(since: Date)
+    /// The filter's ground speed has been above the sport's limit for 3 s (entering 5 % or 0.6 m/s above it, with
+    /// Core Location's Doppler speed agreeing), since `since` (the first fast step): no distance, no route points, no
+    /// current pace or speed. Not a pause: the time runs on (design §3.3 "Too fast").
+    case tooFast(since: Date)
+    /// 3 s at or below the limit again, since `since` (the first slow step); or a pause began at `since`.
+    case tooFastEnded(since: Date)
 }
 
 /// Counts only: never a coordinate (design §3.3, §8.3). Part of `RecordingDiagnostics` and the checkpoint.
@@ -92,6 +100,24 @@ struct PipelineDiagnostics: Codable, Equatable, Sendable {
     var longestGapSec: Double = 0
     var autoPauses = 0
     var pedometerSamples = 0
+    /// Re-inits whose rejected run included a speed-gate rejection.
+    var speedGateReinits = 0
+    /// What each provisional re-init's span became (design §3.3 step 4); each anchor ends as exactly one of these.
+    /// Dead-reckoned at the anchor's speed (one re-init, at most 10 s).
+    var reinitSpansDeadReckoned = 0
+    /// The straight line from the anchor counted (a chain, or a longer span).
+    var reinitSpansBridged = 0
+    /// Nothing added: the speed was below the dead-band or above the sport's limit, or Pause, a resume or Finish
+    /// dropped the anchor, or a checkpoint was taken while it was open (a restore can't fill it).
+    var reinitSpansDropped = 0
+    /// Times the too-fast state was entered (`.tooFast`).
+    var tooFastEpisodes = 0
+    /// Seconds the sport's limit refused inside confirmed too-fast episodes: steps, settle windows and spans faster
+    /// than `maxSpeed`. Refusals the state didn't confirm were counted as distance after all.
+    var tooFastSec: Double = 0
+    /// The filter's speed integrated over those seconds. Never distance, never saved or shown as distance: a number
+    /// for device tuning (D1) and a later "change sport".
+    var tooFastDistanceM: Double = 0
 
     var rejected: Int {
         rejectedAccuracy + rejectedOutOfOrder + rejectedStale + rejectedImplausible + rejectedInnovation
@@ -105,6 +131,36 @@ struct PipelineDiagnostics: Codable, Equatable, Sendable {
         case .implausible: rejectedImplausible += 1
         case .innovation: rejectedInnovation += 1
         }
+    }
+}
+
+extension PipelineDiagnostics {
+    /// Every count decodes with its default when the key is missing: a checkpoint written before a counter existed
+    /// (A3a's had none of A3a.2's) still restores.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func int(_ key: CodingKeys) throws -> Int { try c.decodeIfPresent(Int.self, forKey: key) ?? 0 }
+        func double(_ key: CodingKeys) throws -> Double { try c.decodeIfPresent(Double.self, forKey: key) ?? 0 }
+        self.init()
+        fixesAccepted = try int(.fixesAccepted)
+        rejectedAccuracy = try int(.rejectedAccuracy)
+        rejectedOutOfOrder = try int(.rejectedOutOfOrder)
+        rejectedStale = try int(.rejectedStale)
+        rejectedImplausible = try int(.rejectedImplausible)
+        rejectedInnovation = try int(.rejectedInnovation)
+        reinitialisations = try int(.reinitialisations)
+        gapsBridged = try int(.gapsBridged)
+        gapsNotBridged = try int(.gapsNotBridged)
+        longestGapSec = try double(.longestGapSec)
+        autoPauses = try int(.autoPauses)
+        pedometerSamples = try int(.pedometerSamples)
+        speedGateReinits = try int(.speedGateReinits)
+        reinitSpansDeadReckoned = try int(.reinitSpansDeadReckoned)
+        reinitSpansBridged = try int(.reinitSpansBridged)
+        reinitSpansDropped = try int(.reinitSpansDropped)
+        tooFastEpisodes = try int(.tooFastEpisodes)
+        tooFastSec = try double(.tooFastSec)
+        tooFastDistanceM = try double(.tooFastDistanceM)
     }
 }
 
@@ -129,6 +185,9 @@ struct TrackSnapshot: Sendable, Equatable {
     let gps: GPSQuality
     /// `now − movingSec` while recording, so a clock can tick on its own; nil otherwise.
     let movingAnchor: Date?
+    /// Since when the filter's speed is above the sport's limit (`.tooFast`); nil otherwise. Distance pauses
+    /// meanwhile, and the current pace and speed are nil.
+    let tooFastSince: Date?
 }
 
 /// The location pipeline (design §3.3, ADR 0003): gates, the Kalman filter, distance, gaps, rolling pace, splits
@@ -137,7 +196,9 @@ struct TrackSnapshot: Sendable, Equatable {
 /// Distance integrates the filter's ground speed between accepted fixes while recording and moving (above the
 /// sport's dead-band, not flagged stationary); gaps over 10 s are bridged by the straight line when the implied speed
 /// is plausible (`Tuning.distanceFromVelocity` explains why not position steps). After the filter (re)starts or
-/// resets its velocity, the first 10 s settle as a whole at their end (`Tuning.settleWindow`). Auto-pause is
+/// resets its velocity, the first 10 s settle as a whole at their end (`Tuning.settleWindow`). A re-init is
+/// provisional: when its window closes, the rejected span is filled from the last settled position (`Anchor`). A
+/// step faster than the sport's limit adds nothing, and 3 s of them are the too-fast state. Auto-pause is
 /// backdated: it starts when the user stopped and ends when they moved again, so the 10 s and 3 s confirmations are
 /// neither moving time nor lost distance, and the snapshot's clock holds while one is pending.
 ///
@@ -205,6 +266,33 @@ struct TrackPipeline: Sendable {
         /// fix tilts nothing. With fewer than `settleMinFixes` fixes it waits up to 3× as long.
         var settleWindow: TimeInterval = 10
         var settleMinFixes = 4
+        /// A provisional re-init with one re-init and its anchor at most this long before it is dead-reckoned at the
+        /// anchor's speed; a chain or a longer span takes the gap rule's straight line (ADR 0003 amendment 2).
+        var maxDeadReckoning: TimeInterval = 10
+        /// This long above the sport's limit enters the too-fast state, and this long at or below it leaves.
+        var tooFastAfter: TimeInterval = 3
+        /// The state is entered only above max(limit × `tooFastEnterFactor`, limit + `tooFastEnterMargin`) and left at
+        /// or below the limit itself, so the filter's noise near the limit doesn't flap it. Until it confirms, a refused
+        /// step is held, and counted as distance if a slow step comes first.
+        var tooFastEnterFactor = 1.05
+        var tooFastEnterMargin = 0.6
+        /// When a fix has a valid Doppler speed, a step (or window) counts as too fast only if that speed is also above
+        /// this share of the limit: sliding multipath moves the positions and the filter, not the Doppler speed.
+        var dopplerShareOfLimit = 0.9
+        /// A fix without a usable Doppler speed takes the last one for up to this long, raised by
+        /// `dopplerHoldoverAcceleration` per second of its age: Core Location leaves the speed out on some fixes, and a
+        /// veto that failed open on each of them let sliding multipath through (review X1). The allowance keeps a
+        /// stale, slow reading from vetoing a real acceleration (a train at 0.7 m/s² outruns it within seconds); a slide
+        /// doesn't speed the user up, so for a walker the veto holds the full 8 s (1.4 + 8 × 0.5 = 5.4 m/s, the walking
+        /// veto's threshold). Measured on 6–10 s slides with Doppler on 30 % of the fixes: 34 false episodes in 80 runs
+        /// without the holdover, 10 with 5 s, 2 with this; 8 s without the allowance cost a train +171 m and "running"
+        /// on a bike a `.tooFast` 7 s late.
+        var dopplerHoldover: TimeInterval = 8
+        var dopplerHoldoverAcceleration = 0.5
+        /// A Doppler speed whose accuracy is worse than this, m/s, counts as unknown (review X2). Absolute, because
+        /// it's the receiver's velocity solution that degrades, whatever the sport: 2 m/s keeps a slow sport's veto
+        /// clear (a walk at 1.4 m/s against 5.4 m/s), while 0.3 × the limit would accept ±11 m/s on a road bike.
+        var maxDopplerAccuracy = 2.0
 
         static let standard = Tuning()
     }
@@ -267,12 +355,30 @@ struct TrackPipeline: Sendable {
         let from: Date
         let to: Date
         let distance: Double
+        /// What the sport's limit refused: the length of a step, window or span faster than `maxSpeed`. Never
+        /// distance; `PipelineDiagnostics.tooFastSec` and `tooFastDistanceM` count it inside an episode.
+        var refused: Double = 0
+        /// Whether a refusal the state doesn't confirm counts as distance after all: a step's or window's does, a
+        /// span's doesn't (its line was refused by the gap rule).
+        var releasable = true
+    }
+
+    /// The last settled point before a provisional re-init (ADR 0003 amendment 2, decision 4): the filtered
+    /// position, its time and its ground speed. Inside a window that had no anchor, the window's first position and
+    /// its line's speed (nil with fewer than three fixes: the gap rule then). Memory only, never checkpointed; its
+    /// coordinate renders nothing.
+    private struct Anchor: Sendable {
+        let position: Coordinate
+        let time: Date
+        let speed: Double?
+        /// Re-inits since the anchor; two or more before a window closes are a chain.
+        var reinits: Int
     }
 
     /// The fixes since the filter (re)started, held until the settle window ends. Memory only, never checkpointed.
     private struct Settling: Sendable {
         let since: Date
-        var fixes: [(time: Date, coordinate: Coordinate, isStationary: Bool)]
+        var fixes: [(time: Date, coordinate: Coordinate, isStationary: Bool, doppler: Double?)]
         /// The filtered track's length over the window, from `firstFiltered` to `lastFiltered`.
         var path: Double = 0
         var firstFiltered: Coordinate?
@@ -326,6 +432,22 @@ struct TrackPipeline: Sendable {
     private var pedometer: PedometerReading?
     private var lastStepping: Date?
 
+    /// Set from a provisional re-init until its settle window closes; then its span is filled. Only while recording or
+    /// auto-paused, so Start never finds one, and Pause, a resume and Finish drop it.
+    private var anchor: Anchor?
+    /// Whether the current run of rejections included a speed-gate rejection (`speedGateReinits`).
+    private var rejectedRunHadSpeedGate = false
+    /// Since when the filter's speed is above the sport's limit (`.tooFast`); nil otherwise. Judged only while
+    /// recording; Pause and a resume keep it.
+    private(set) var tooFastSince: Date?
+    /// The first step on the other side of the limit than the state, not yet confirmed by `Tuning.tooFastAfter`.
+    private var limitCrossedAt: Date?
+    /// Steps and spans the limit refused while the state is unconfirmed: the state confirms them as too fast, or a
+    /// slow step (Pause, Finish) releases them.
+    private var heldTooFast: [Step] = []
+    /// The last usable Doppler speed and when, for fixes without one (`Tuning.dopplerHoldover`). Memory only.
+    private var lastDoppler: (time: Date, speed: Double)?
+
     init(configuration: Configuration) {
         self.configuration = configuration
         kalman = KalmanTrack(tuning: KalmanTrack.Tuning(sigmaA: configuration.profile.sigmaA ?? 1.5))
@@ -374,7 +496,7 @@ struct TrackPipeline: Sendable {
     /// Samples held besides the output (splits, laps, pauses): bounded by time windows, never by the recording's
     /// length. Every input touches only these, plus an O(log pauses) search: O(1) per input. For the cost test.
     var retainedSampleCount: Int {
-        paceSamples.count + pending.count + (settling?.fixes.count ?? 0) + elevation.retainedSampleCount
+        paceSamples.count + pending.count + (settling?.fixes.count ?? 0) + heldTooFast.count + elevation.retainedSampleCount
     }
     /// The speed a step needs to count: the dead-band for this sport (`Tuning.deadBandShareOfAutoPause`).
     var movingSpeed: Double {
@@ -393,13 +515,28 @@ struct TrackPipeline: Sendable {
 
     /// The checkpoint state (part of `RecordingHeader`); nil before Start.
     var checkpoint: Resume? {
+        guard heldTooFast.isEmpty else {
+            // A restore can't confirm what's held: the checkpoint counts it as distance, as Pause and Finish do.
+            var released = self
+            var ignored: [PipelineEvent] = []
+            released.releaseHeld(&ignored)
+            return released.checkpoint
+        }
         guard let start else { return nil }
         return Resume(start: start, pauses: pauses, distanceM: distanceM, splits: splits,
                       splitStartMovingSec: splitStartMoving, splitStartAscentM: splitStartAscent,
                       ascentM: elevation.ascent, descentM: elevation.descent, laps: laps,
                       lapStartDistanceM: lapStartDistance, lastSampleTime: lastAccepted?.time ?? pedometer?.time,
                       pedometerDistanceM: pedometer?.distance, pedometerSteps: pedometer?.steps,
-                      diagnostics: diagnostics)
+                      diagnostics: checkpointDiagnostics)
+    }
+
+    /// A restore can't fill a provisional span that is open now, so the checkpoint counts its anchor as dropped: each
+    /// anchor ends exactly once in the restored counts too.
+    private var checkpointDiagnostics: PipelineDiagnostics {
+        var saved = diagnostics
+        if anchor != nil { saved.reinitSpansDropped += 1 }
+        return saved
     }
 
     /// Elapsed time minus every pause, up to `time` (and never past Finish). O(log pauses): pauses are sorted and
@@ -435,9 +572,11 @@ struct TrackPipeline: Sendable {
         return 1000 / speed
     }
 
-    /// Metres per second over the last 30 s of moving time; nil unless recording with ≥ 10 s and ≥ 20 m.
+    /// Metres per second over the last 30 s of moving time; nil unless recording with ≥ 10 s and ≥ 20 m, and nil while
+    /// too fast (the window's distance stands still then).
     var currentSpeed: Double? {
-        guard state == .recording, let last = paceSamples.last, let first = paceSamples.first else { return nil }
+        guard state == .recording, tooFastSince == nil, let last = paceSamples.last, let first = paceSamples.first
+        else { return nil }
         let windowStart = last.moving - tuning.paceWindow
         var then = (moving: first.moving, distance: first.distance)
         if first.moving < windowStart {
@@ -462,6 +601,8 @@ struct TrackPipeline: Sendable {
     func gpsQuality(at time: Date) -> GPSQuality {
         guard configuration.distance == .gps else { return .off }
         guard let last = lastAccepted else { return .weak }
+        // A chain of re-inits is open: the fixes disagree with each other ("Distance may be low", ui.md G4).
+        if let anchor, anchor.reinits >= 2 { return .weak }
         if time.timeIntervalSince(last.time) > tuning.weakAfter, !last.isStationary { return .weak }
         return last.accuracy <= tuning.goodAccuracy ? .good : .fair
     }
@@ -493,7 +634,8 @@ struct TrackPipeline: Sendable {
             currentPace: currentPace, averagePace: average, currentSpeed: currentSpeed,
             averageSpeed: average.flatMap { $0 > 0 ? 1000 / $0 : nil }, ascentM: ascentM, descentM: descentM, altitudeM: altitudeM,
             steps: steps, lastSplit: splits.last, gps: gpsQuality(at: time),
-            movingAnchor: state == .recording && held == nil ? time.addingTimeInterval(-moving) : nil
+            movingAnchor: state == .recording && held == nil ? time.addingTimeInterval(-moving) : nil,
+            tooFastSince: tooFastSince
         )
     }
 
@@ -525,11 +667,13 @@ struct TrackPipeline: Sendable {
     mutating func pause(at time: Date) -> [PipelineEvent] {
         observe(time)
         var events: [PipelineEvent] = []
+        if state == .recording || state == .autoPaused { dropAnchor() }
         switch state {
         case .recording:
             settle(&events)
             // While an auto-pause is pending the clock already holds at its start: the pause starts there too.
             let from = max(pendingAutoPause(at: time) ?? time, pauses.last?.end ?? .distantPast, start ?? .distantPast)
+            stopCounting(at: from, &events)
             openPause(.manual, at: from)
             if from < time { reviseAfterBackdating(from: from) }
         case .autoPaused:
@@ -552,6 +696,8 @@ struct TrackPipeline: Sendable {
         state = .recording
         elevation.setCounting(true)
         stepFrom = nil
+        dropAnchor()
+        limitCrossedAt = nil
         lastStepping = time
         if let last = paceSamples.last { paceSamples.append(PaceSample(time: time, moving: last.moving, distance: distanceM)) }
         resetMotion()
@@ -579,7 +725,11 @@ struct TrackPipeline: Sendable {
         }
         observe(time)
         var events: [PipelineEvent] = []
-        if state == .recording { settle(&events) }
+        dropAnchor()
+        if state == .recording {
+            settle(&events)
+            releaseHeld(&events)
+        }
         settling = nil
         let end = max(time, start)
         closeOpenPause(at: end)
@@ -636,37 +786,42 @@ struct TrackPipeline: Sendable {
         if let last = lastAccepted, t <= last.time { return reject(.outOfOrder) }
         if let latestSeen, t < latestSeen.addingTimeInterval(-tuning.staleAfter) { return reject(.stale) }
         observe(t)
-        var implausibleJump = false
+        let fixDoppler = doppler(of: fix)
+        // The last settled point: a provisional re-init keeps it as its anchor (design §3.3 step 4).
+        let settled = settling == nil ? stepFrom : nil
+        let limit = configuration.profile.maxSpeed ?? .infinity
 
-        // 2 Speed gate, from the last filtered position.
-        if let maxSpeed = configuration.profile.maxSpeed, let from = kalman.position, let since = kalman.lastTime,
-           let last = lastAccepted {
+        // 2 Speed gate: an outlier gate on the jump from the filter's prediction, minus both accuracies. It limits
+        // the change of velocity a fix implies; the sport's limit on the speed itself is step 4's.
+        var speedGated = false
+        if let last = lastAccepted, let since = kalman.lastTime, let predicted = kalman.predictedPosition(at: t) {
             let dt = max(t.timeIntervalSince(since), tuning.minSpeedGateInterval)
-            let reach = Geodesy.distance(from, fix.coordinate) - fix.horizontalAccuracy - last.accuracy
-            if reach / dt > maxSpeed {
-                // The gate ages open as Δt grows; counting its rejections toward the re-init keeps a sustained
-                // multipath offset from being accepted later with a kick to the velocity (design §3.3 step 3).
-                guard kalman.rejectedElsewhere(fix) == .reinitialised else { return reject(.implausible) }
-                implausibleJump = true
-            }
+            let reach = Geodesy.distance(predicted, fix.coordinate) - fix.horizontalAccuracy - last.accuracy
+            // The gate ages open as Δt grows; counting its rejections toward the re-init keeps a sustained
+            // multipath offset from being accepted later with a kick to the velocity (design §3.3 step 3).
+            speedGated = reach / dt > limit
         }
 
         // 3 Filter.
         var events: [PipelineEvent] = []
         let previousFixTime = kalman.lastTime
-        let outcome: KalmanTrack.Outcome = implausibleJump ? .reinitialised : kalman.update(fix)
+        let outcome = speedGated ? kalman.rejectedElsewhere(fix) : kalman.update(fix)
         switch outcome {
         case .rejected:
-            return reject(.innovation)
+            if speedGated { rejectedRunHadSpeedGate = true }
+            return reject(speedGated ? .implausible : .innovation)
         case .reinitialised:
             diagnostics.reinitialisations += 1
+            if speedGated || rejectedRunHadSpeedGate { diagnostics.speedGateReinits += 1 }
             events.append(.reinitialised)
-            beginSettling(with: fix)
+            beginProvisional(from: settled)
+            beginSettling(with: fix, doppler: fixDoppler)
         case .initialised:
-            beginSettling(with: fix)
+            beginSettling(with: fix, doppler: fixDoppler)
         case .updated:
-            settling?.fixes.append((t, fix.coordinate, fix.isStationary))
+            settling?.fixes.append((t, fix.coordinate, fix.isStationary, fixDoppler))
         }
+        rejectedRunHadSpeedGate = false
         if let here = kalman.position, settling != nil {
             if let previous = settling?.lastFiltered { settling?.path += Geodesy.distance(previous, here) }
             settling?.lastFiltered = here
@@ -684,49 +839,72 @@ struct TrackPipeline: Sendable {
 
         // 4–5 Distance and gaps. While the filter settles, nothing accrues until its window ends.
         var step: Step?
+        // The rejected span of a provisional re-init whose window closes now, and which side of the sport's limit
+        // this fix's step (or closed window) was on, from when.
+        var span: Step?
+        var limitSide: (fast: Bool, from: Date)?
         if let window = settling, outcome == .updated, window.fixes.count >= 2, let previousFixTime,
            t.timeIntervalSince(previousFixTime) > tuning.gapAfter {
-            // A gap inside the window breaks its line: the gap rule from the window's first filtered position, and
-            // a fresh window from this fix.
-            step = bridge(from: (window.firstFiltered, window.fixes[0].time), to: (position, t),
-                          gap: t.timeIntervalSince(previousFixTime), stationary: fix.isStationary, &events)
-            beginSettling(with: fix)
+            // A gap inside the window breaks its line: the gap rule, and a fresh window from this fix. The line starts
+            // at a provisional re-init's anchor when there is one (its span and the gap in one line), else at the
+            // window's first filtered position.
+            let gap = t.timeIntervalSince(previousFixTime)
+            if let open = anchor {
+                anchor = nil
+                step = bridge(from: (open.position, open.time), to: (position, t), gap: gap, stationary: fix.isStationary,
+                              &events)
+                if (step?.distance ?? 0) > 0 { diagnostics.reinitSpansBridged += 1 } else { diagnostics.reinitSpansDropped += 1 }
+            } else {
+                step = bridge(from: (window.firstFiltered, window.fixes[0].time), to: (position, t), gap: gap,
+                              stationary: fix.isStationary, &events)
+            }
+            beginSettling(with: fix, doppler: fixDoppler)
         } else if let window = settling, t.timeIntervalSince(window.since) >= tuning.settleWindow,
                   window.fixes.count >= tuning.settleMinFixes || t.timeIntervalSince(window.since) >= 3 * tuning.settleWindow
                   || window.fixes.count >= 64 {
-            step = closedStep(window, &events)
+            span = spanStep(to: window)
+            let closed = closedStep(window, &events)
+            step = closed.step
+            if let fast = closed.fast { limitSide = (fast, window.since) }
             settling = nil
         } else if outcome == .updated, settling == nil, let from = stepFrom {
             let dt = t.timeIntervalSince(from.time)
             var length: Double
             var counts: Bool
+            var fast = false
             if dt > tuning.gapAfter {
                 length = Geodesy.distance(from.position, position)
                 let implied = length / dt
-                let bridged = implied <= (configuration.profile.maxSpeed ?? .infinity)
+                let bridged = implied <= limit
                 if bridged { diagnostics.gapsBridged += 1 } else { diagnostics.gapsNotBridged += 1 }
                 events.append(.gap(seconds: dt, bridged: bridged))
                 counts = bridged && implied >= movingSpeed
-            } else if tuning.distanceFromVelocity, t > positionStepsUntil ?? .distantPast {
-                let mean = (from.speed + groundSpeed) / 2
-                length = mean * dt
-                counts = mean >= movingSpeed
             } else {
-                length = Geodesy.distance(from.position, position)
-                counts = kalman.speed >= movingSpeed
+                let mean = (from.speed + groundSpeed) / 2
+                if tuning.distanceFromVelocity, t > positionStepsUntil ?? .distantPast {
+                    length = mean * dt
+                    counts = mean >= movingSpeed
+                } else {
+                    length = Geodesy.distance(from.position, position)
+                    counts = kalman.speed >= movingSpeed
+                }
+                // The sport's limit applies to the step's mean ground speed, at any reported accuracy, with hysteresis,
+                // when Core Location's Doppler speed (if the fix has one) agrees.
+                fast = mean > tooFastThreshold && dopplerAgrees(fixDoppler) && !fix.isStationary
+                limitSide = (fast, from.time)
             }
             // Core Location says the phone isn't moving: nothing accrues, even with auto-pause off.
             if fix.isStationary { counts = false }
-            step = Step(from: from.time, to: t, distance: counts ? length : 0)
+            step = Step(from: from.time, to: t, distance: counts && !fast ? length : 0, refused: fast ? length : 0)
             // After a gap long enough to reset the velocity, the gap is bridged above and the next seconds settle
             // like a start: the velocity converges again, and the position came mostly from this one fix.
             if let previousFixTime, t.timeIntervalSince(previousFixTime) > kalman.tuning.velocityResetAfter {
-                beginSettling(with: fix)
+                beginSettling(with: fix, doppler: fixDoppler)
             }
         } else if outcome == .updated, settling == nil, stepFrom == nil, let previousFixTime,
                   t.timeIntervalSince(previousFixTime) > kalman.tuning.velocityResetAfter {
             // The same without a step to bridge (the first fix after Start or a resume, after a silent GPS).
-            beginSettling(with: fix)
+            beginSettling(with: fix, doppler: fixDoppler)
         }
         guard state != .ready else { return events }
 
@@ -735,7 +913,7 @@ struct TrackPipeline: Sendable {
         let threshold = configuration.profile.autoPauseThreshold ?? 0
         switch state {
         case .recording:
-            if let step, let counted = clipped(step) { accrue(counted, &events) }
+            count(span: span, step: step, side: limitSide, at: t, &events)
             recordPaceSample(at: t)
             if autoPauseEnabled {
                 slowSince = speed < threshold ? (slowSince ?? t) : nil
@@ -749,6 +927,7 @@ struct TrackPipeline: Sendable {
         case .autoPaused:
             if speed >= tuning.autoResumeFactor * threshold, !fix.isStationary {
                 if let since = fastSince {
+                    if let span { pending.append(span) }
                     if let step { pending.append(step) }
                     if t.timeIntervalSince(since) >= tuning.autoResumeAfter { leaveAutoPause(since: since, &events) }
                 } else {
@@ -765,8 +944,9 @@ struct TrackPipeline: Sendable {
         }
 
         let altitude = elevation.altitudeM
-        // Where the user went while paused isn't the activity's route (design §3.3, ADR 0005).
-        if state == .recording {
+        // Where the user went while paused isn't the activity's route (design §3.3, ADR 0005), nor where a vehicle
+        // went while too fast.
+        if state == .recording, tooFastSince == nil {
             events.append(.route(RoutePoint(time: t, latitude: position.latitude, longitude: position.longitude,
                                             horizontalAccuracy: kalman.positionSigma, altitude: altitude)))
         }
@@ -882,8 +1062,8 @@ struct TrackPipeline: Sendable {
     }
 
     /// Starts a settle window at this fix (`Tuning.settleWindow`): a (re)initialised filter, or a reset velocity.
-    private mutating func beginSettling(with fix: LocationFix) {
-        settling = Settling(since: fix.timestamp, fixes: [(fix.timestamp, fix.coordinate, fix.isStationary)],
+    private mutating func beginSettling(with fix: LocationFix, doppler: Double?) {
+        settling = Settling(since: fix.timestamp, fixes: [(fix.timestamp, fix.coordinate, fix.isStationary, doppler)],
                             firstFiltered: kalman.position, lastFiltered: kalman.position)
         positionStepsUntil = nil
     }
@@ -891,9 +1071,24 @@ struct TrackPipeline: Sendable {
     /// The distance of a settle window: the shorter of a Theil–Sen line through its fixes (the median of the pairwise
     /// velocities per axis, over the window's span) and the filtered track's length. They fail in opposite
     /// directions: a coarse first fix lengthens the track as the filter walks back from it, and one bad fix can't tilt
-    /// a median; an acceleration (a standing start) lengthens the line, and the track follows it. Nil with fewer than
+    /// a median; an acceleration (a standing start) lengthens the line, and the track follows it. A line faster than
+    /// the sport's limit adds nothing (`fast`, judged like a step, with the window's median Doppler speed). Nil with
+    /// fewer than three fixes.
+    private func settledStep(_ window: Settling) -> (step: Step, fast: Bool)? {
+        guard let speed = lineSpeed(window), let first = window.fixes.first, let last = window.fixes.last else { return nil }
+        let fixes = window.fixes
+        let still = fixes.filter(\.isStationary).count * 2 > fixes.count
+        let dopplers = fixes.compactMap(\.doppler)
+        let fast = speed > tooFastThreshold && dopplerAgrees(dopplers.isEmpty ? nil : ElevationFusion.median(dopplers))
+            && !still
+        let moving = speed >= movingSpeed && !still && !fast
+        let length = min(speed * last.time.timeIntervalSince(first.time), window.path)
+        return (Step(from: first.time, to: last.time, distance: moving ? length : 0, refused: fast ? length : 0), fast)
+    }
+
+    /// The speed of a window's Theil–Sen line: the median of the pairwise velocities per axis. Nil with fewer than
     /// three fixes.
-    private func settledStep(_ window: Settling) -> Step? {
+    private func lineSpeed(_ window: Settling) -> Double? {
         let fixes = window.fixes
         guard fixes.count >= 3, let first = fixes.first, let last = fixes.last, last.time > first.time else { return nil }
         let plane = LocalTangentPlane(anchor: first.coordinate)
@@ -910,28 +1105,175 @@ struct TrackPipeline: Sendable {
             }
         }
         guard !east.isEmpty else { return nil }
-        let speed = Displacement(east: ElevationFusion.median(east), north: ElevationFusion.median(north)).length
-        let still = fixes.filter(\.isStationary).count * 2 > fixes.count
-        let moving = speed >= movingSpeed && !still
-        let line = speed * last.time.timeIntervalSince(first.time)
-        return Step(from: first.time, to: last.time, distance: moving ? min(line, window.path) : 0)
+        return Displacement(east: ElevationFusion.median(east), north: ElevationFusion.median(north)).length
     }
 
-    /// Ends a settle window early (Pause, Finish).
+    /// Ends a settle window early (Pause, Finish): its step counts like one that closed on its own.
     private mutating func settle(_ events: inout [PipelineEvent]) {
         guard let window = settling else { return }
         settling = nil
-        if state == .recording, let step = closedStep(window, &events), let counted = clipped(step) {
-            accrue(counted, &events)
+        guard state == .recording, let last = window.fixes.last else { return }
+        let closed = closedStep(window, &events)
+        count(span: nil, step: closed.step, side: closed.fast.map { ($0, window.since) }, at: last.time, &events)
+    }
+
+    /// A closing window's step: the settled line, or with fewer than three fixes the gap rule over the window. `fast`
+    /// says which side of the sport's limit the line was on; nil for the gap rule.
+    private mutating func closedStep(_ window: Settling, _ events: inout [PipelineEvent]) -> (step: Step?, fast: Bool?) {
+        if let settled = settledStep(window) { return (settled.step, settled.fast) }
+        guard let first = window.fixes.first, let last = window.fixes.last, let to = window.lastFiltered else {
+            return (nil, nil)
+        }
+        let step = bridge(from: (window.firstFiltered, first.time), to: (to, last.time),
+                          gap: last.time.timeIntervalSince(first.time), stationary: last.isStationary, &events)
+        return (step, nil)
+    }
+
+    /// A re-init: the first since the last settled position keeps that position as the anchor (while recording or
+    /// auto-paused, where its span can count); another before the window closes makes a chain. Inside a window that
+    /// has no anchor (Start's, or after a velocity reset), the window's start is the anchor, at its line's speed: the
+    /// window's fixes would be lost otherwise.
+    private mutating func beginProvisional(from settled: (position: Coordinate, time: Date, speed: Double)?) {
+        if anchor != nil {
+            anchor?.reinits += 1
+            return
+        }
+        guard state == .recording || state == .autoPaused else { return }
+        if let settled {
+            anchor = Anchor(position: settled.position, time: settled.time, speed: settled.speed, reinits: 1)
+        } else if let window = settling, let first = window.fixes.first, let position = window.firstFiltered {
+            anchor = Anchor(position: position, time: first.time, speed: lineSpeed(window), reinits: 1)
         }
     }
 
-    /// A closing window's step: the settled line, or with fewer than three fixes the gap rule over the window.
-    private mutating func closedStep(_ window: Settling, _ events: inout [PipelineEvent]) -> Step? {
-        if let step = settledStep(window) { return step }
-        guard let first = window.fixes.first, let last = window.fixes.last, let to = window.lastFiltered else { return nil }
-        return bridge(from: (window.firstFiltered, first.time), to: (to, last.time),
-                      gap: last.time.timeIntervalSince(first.time), stationary: last.isStationary, &events)
+    /// A provisional re-init's window closes: its rejected span, from the anchor to the window's first position
+    /// (ADR 0003 amendment 2, decision 4). One re-init with the anchor at most `maxDeadReckoning` before it is
+    /// dead-reckoned at the anchor's speed, as the filter does over one rejected fix. A chain or a longer span takes
+    /// the gap rule's straight line; a train's is too fast. Either counts only between the dead-band and the limit.
+    private mutating func spanStep(to window: Settling) -> Step? {
+        guard let anchor else { return nil }
+        self.anchor = nil
+        let span = window.since.timeIntervalSince(anchor.time)
+        guard span > 0, let to = window.firstFiltered else {
+            diagnostics.reinitSpansDropped += 1
+            return nil
+        }
+        let reckoned = anchor.reinits == 1 && span <= tuning.maxDeadReckoning ? anchor.speed : nil
+        let speed = reckoned ?? Geodesy.distance(anchor.position, to) / span
+        let deadReckoned = reckoned != nil
+        let tooFast = speed > (configuration.profile.maxSpeed ?? .infinity)
+        guard speed >= movingSpeed, !tooFast else {
+            diagnostics.reinitSpansDropped += 1
+            return Step(from: anchor.time, to: window.since, distance: 0, refused: tooFast ? speed * span : 0,
+                        releasable: false)
+        }
+        if deadReckoned { diagnostics.reinitSpansDeadReckoned += 1 } else { diagnostics.reinitSpansBridged += 1 }
+        return Step(from: anchor.time, to: window.since, distance: speed * span)
+    }
+
+    /// Pause, a resume or Finish: the span isn't filled across them.
+    private mutating func dropAnchor() {
+        guard anchor != nil else { return }
+        anchor = nil
+        diagnostics.reinitSpansDropped += 1
+    }
+
+    /// A recording input's span and step through the sport's limit, in time order (review S1): a slow step first releases
+    /// what was held, a refused one is held, and the state then confirms or not.
+    private mutating func count(span: Step?, step: Step?, side: (fast: Bool, from: Date)?, at time: Date,
+                                _ events: inout [PipelineEvent]) {
+        if let span, let counted = clipped(span) { apply(counted, &events) }
+        if let side, !side.fast { releaseHeld(&events) }
+        if let step, let counted = clipped(step) { apply(counted, &events) }
+        if let side { trackLimit(fast: side.fast, from: side.from, to: time, &events) }
+    }
+
+    /// Accrues a step, or holds it when the limit refused it and the too-fast state isn't confirmed yet.
+    private mutating func apply(_ step: Step, _ events: inout [PipelineEvent]) {
+        if step.refused > 0, tooFastSince == nil {
+            heldTooFast.append(step)
+        } else {
+            accrue(step, &events)
+        }
+    }
+
+    /// The state didn't confirm what was held (a slow step, Pause, Finish): a step's or window's length counts as
+    /// distance after all; a refused span stays refused, and neither is counted as too fast.
+    private mutating func releaseHeld(_ events: inout [PipelineEvent]) {
+        let held = heldTooFast
+        heldTooFast = []
+        for step in held where step.releasable {
+            accrue(Step(from: step.from, to: step.to, distance: step.refused), &events)
+        }
+    }
+
+    /// A pause or an auto-pause begins at `from`: unconfirmed refusals count, and the too-fast state ends there (or
+    /// where the speed had already dropped), so it never outlives the movement (review N-a).
+    private mutating func stopCounting(at from: Date, _ events: inout [PipelineEvent]) {
+        releaseHeld(&events)
+        if tooFastSince != nil {
+            tooFastSince = nil
+            events.append(.tooFastEnded(since: min(limitCrossedAt ?? from, from)))
+        }
+        limitCrossedAt = nil
+    }
+
+    /// The speed a step or window must exceed to count as too fast: the limit while too fast, the entry speed above
+    /// it otherwise (`Tuning.tooFastEnterFactor`, `tooFastEnterMargin`).
+    private var tooFastThreshold: Double {
+        guard let limit = configuration.profile.maxSpeed else { return .infinity }
+        return tooFastSince == nil ? max(limit * tuning.tooFastEnterFactor, limit + tuning.tooFastEnterMargin) : limit
+    }
+
+    /// The Doppler speed a fix stands for: its own when it's valid and accurate to `Tuning.maxDopplerAccuracy`, else
+    /// the last such one within `Tuning.dopplerHoldover`, plus the allowance for its age (the fastest the user could
+    /// be by now); nil without either.
+    private mutating func doppler(of fix: LocationFix) -> Double? {
+        if let speed = fix.dopplerSpeed, (fix.speedAccuracy ?? 0) <= tuning.maxDopplerAccuracy {
+            lastDoppler = (fix.timestamp, speed)
+            return speed
+        }
+        guard let last = lastDoppler, fix.timestamp.timeIntervalSince(last.time) <= tuning.dopplerHoldover else {
+            return nil
+        }
+        return last.speed + tuning.dopplerHoldoverAcceleration * fix.timestamp.timeIntervalSince(last.time)
+    }
+
+    /// Whether Core Location's Doppler speed lets the state be entered (`Tuning.dopplerShareOfLimit`); without a usable
+    /// one the filter decides alone. It vetoes entering only: multipath can't make a movement too fast, but once a
+    /// real episode runs, the filter's speed (not the Doppler speed falling ahead of it on braking) decides when the
+    /// steps count again, so a stop doesn't add the filter's lag.
+    private func dopplerAgrees(_ doppler: Double?) -> Bool {
+        guard tooFastSince == nil, let doppler, let limit = configuration.profile.maxSpeed else { return true }
+        return doppler > tuning.dopplerShareOfLimit * limit
+    }
+
+    /// The too-fast state (design §3.3 "Too fast"): `Tuning.tooFastAfter` of steps on the other side (above the entry
+    /// speed to enter, at or below the limit to leave) switch it, backdated to the first of them. A closed settle
+    /// window is one step from its start.
+    private mutating func trackLimit(fast: Bool, from: Date, to: Date, _ events: inout [PipelineEvent]) {
+        guard fast != (tooFastSince != nil) else {
+            limitCrossedAt = nil
+            return
+        }
+        let since = limitCrossedAt ?? max(from, countsFrom ?? from)
+        guard to.timeIntervalSince(since) >= tuning.tooFastAfter else {
+            limitCrossedAt = since
+            return
+        }
+        limitCrossedAt = nil
+        if fast {
+            tooFastSince = since
+            diagnostics.tooFastEpisodes += 1
+            events.append(.tooFast(since: since))
+            // Confirmed: what was held is refused for good.
+            let held = heldTooFast
+            heldTooFast = []
+            for step in held { accrue(step, &events) }
+        } else {
+            tooFastSince = nil
+            events.append(.tooFastEnded(since: since))
+        }
     }
 
     /// The gap rule (design §3.3 step 5): the straight line, counted when its speed is at most the sport's maximum
@@ -950,18 +1292,28 @@ struct TrackPipeline: Sendable {
         return Step(from: start.time, to: end.time, distance: bridged && implied >= movingSpeed && !stationary ? length : 0)
     }
 
-    /// The part of a step after the last Start or resume: a fix delivered late never counts time before them.
-    private func clipped(_ step: Step) -> Step? {
-        guard step.distance > 0, let start else { return nil }
-        let from = max(start, pauses.last?.end ?? start)
-        guard step.to > from else { return nil }
-        guard step.from < from else { return step }
-        let span = step.to.timeIntervalSince(step.from)
-        return Step(from: from, to: step.to, distance: step.distance * step.to.timeIntervalSince(from) / span)
+    /// The last Start or resume (manual or auto): nothing counts before it.
+    private var countsFrom: Date? {
+        guard let start else { return nil }
+        return max(start, pauses.last?.end ?? start)
     }
 
-    /// Adds a step's distance and emits every split it crosses, interpolating the crossing time along the step.
+    /// The part of a step after the last Start or resume: a fix delivered late never counts time before them.
+    private func clipped(_ step: Step) -> Step? {
+        guard step.distance > 0 || step.refused > 0, let from = countsFrom, step.to > from else { return nil }
+        guard step.from < from else { return step }
+        let share = step.to.timeIntervalSince(from) / step.to.timeIntervalSince(step.from)
+        return Step(from: from, to: step.to, distance: step.distance * share, refused: step.refused * share,
+                    releasable: step.releasable)
+    }
+
+    /// Adds a step's distance and emits every split it crosses, interpolating the crossing time along the step. What
+    /// the sport's limit refused goes to the diagnostics only.
     private mutating func accrue(_ step: Step, _ events: inout [PipelineEvent]) {
+        if step.refused > 0 {
+            diagnostics.tooFastSec += step.to.timeIntervalSince(step.from)
+            diagnostics.tooFastDistanceM += step.refused
+        }
         let before = distanceM
         distanceM += step.distance
         var next = Double(splits.count + 1) * tuning.splitDistance
@@ -996,6 +1348,7 @@ struct TrackPipeline: Sendable {
     /// Enters auto-pause, backdated to when the user stopped: the slow seconds aren't moving time.
     private mutating func enterAutoPause(since: Date, _ events: inout [PipelineEvent]) {
         let from = max(since, pauses.last?.end ?? since, start ?? since)
+        stopCounting(at: from, &events)
         openPause(.auto, at: from)
         state = .autoPaused
         elevation.setCounting(false)
@@ -1014,7 +1367,7 @@ struct TrackPipeline: Sendable {
         let replay = pending
         resetMotion()
         for step in replay {
-            if step.distance > 0 { accrue(step, &events) }
+            apply(step, &events)
             recordPaceSample(at: step.to)
         }
     }

@@ -5,16 +5,15 @@ runs:
   steps:
     - name: Select Xcode
       shell: bash
+      # DEVELOPER_DIR, not `sudo xcode-select`: the self-hosted Mac has no passwordless sudo,
+      # and its own Xcode selection stays as it is.
       run: |
-        version="$(tr -d '[:space:]' < .xcode-version)"
-        app="/Applications/Xcode_${version}.app"
-        if [ ! -d "$app" ]; then
-          echo "::error::Xcode $version is not on this runner (.xcode-version). Installed:"
-          ls -d /Applications/Xcode*.app
+        if ! dir="$(sh scripts/select-xcode.sh)"; then
+          echo "::error::The Xcode in .xcode-version is not on this runner (see the list above)."
           exit 1
         fi
-        sudo xcode-select -s "$app/Contents/Developer"
-        xcodebuild -version
+        echo "DEVELOPER_DIR=$dir" >> "$GITHUB_ENV"
+        DEVELOPER_DIR="$dir" xcodebuild -version
     - name: Config
       shell: bash
       run: make config

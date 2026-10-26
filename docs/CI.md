@@ -1,9 +1,15 @@
 # CI/CD
 
-GitHub Actions on macOS runners. The Xcode version is pinned in `.xcode-version`
-(27.1), and every job selects `/Applications/Xcode_<version>.app`. If the runner image
-doesn't have that Xcode, the job stops with a list of the installed ones. Then either
-change the `runs-on` image in the workflows or update `.xcode-version`.
+GitHub Actions. `ios.yml`'s macOS jobs (Lint, Build/unit/UI smoke, Contract) run on the
+self-hosted Mac (`[self-hosted, macOS, ARM64]`, see below), and its `Changes` job runs on
+`ubuntu-latest`, which is free for a public repository. The TestFlight and CodeQL workflows
+still use GitHub's `xcode-27` runner.
+
+The Xcode version is pinned in `.xcode-version` (27.1). `scripts/select-xcode.sh` finds an
+`/Applications/Xcode*.app` with that version: `Xcode_<version>.app` on GitHub's images,
+`Xcode.app` on the Mac. Jobs export it as `DEVELOPER_DIR` rather than running
+`sudo xcode-select`. If no installed Xcode matches, the job stops with a list of the
+installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
 
 | Workflow | When | What |
 | --- | --- | --- |
@@ -12,6 +18,27 @@ change the `runs-on` image in the workflows or update `.xcode-version`.
 | `weekly.yml` | Mondays 07:00 Europe/Berlin, or manually | the newest processed build to group **External**, with the week's commits as What to Test, submitted for beta review |
 | `release.yml` | manually | bump `VERSION`, commit, tag `vX.Y.Z`, archive the tag, upload, group **Internal** |
 | `_testflight.yml` | called by nightly and release | the shared archive → upload → distribute job |
+
+## The self-hosted Mac
+- **Registration.** The runner must be registered to *this* repository (Settings → Actions →
+  Runners). A runner registered to `ryft-platform` doesn't serve it. Until one is online,
+  the macOS jobs wait in the queue, and so do the required checks.
+- **Forks.** The repository is public, and a fork's code must never run on a machine that
+  holds the account's files. Two settings keep it off:
+  - The real protection is Settings → Actions → General → "Fork pull request workflows from
+    outside collaborators" → **Require approval for all outside collaborators**. A fork's
+    pull request runs the workflow file from its own branch, so it could edit `runs-on`
+    back to the Mac. Approve a fork's run only after reading its changes to `.github/`.
+  - The `runs-on` expression in `ios.yml` sends an unmodified fork's jobs to `xcode-27`, so
+    approving a harmless fork PR never puts it on the Mac.
+- **One job at a time.** Lint, the tests and the contract check run one after another, and
+  so do runs for different PRs. A second runner on the same Mac (its own directory and
+  service) would run two jobs at once.
+- **Awake for the nightly.** The 00:30 UTC run waits until the Mac is awake.
+- **Its simulator.** `scripts/ci-simulator.sh` creates "RYFT CI" in the Mac's own simulator
+  set and reuses it.
+- **Load.** Builds on the Mac compete with whatever else it is doing. The test time limits
+  (60 s per unit test, 3 minutes per UI test) were set for GitHub's runners.
 
 ## PR checks (`ios.yml`)
 

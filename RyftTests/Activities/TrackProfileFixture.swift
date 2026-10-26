@@ -7,11 +7,13 @@ extension TrackProfile {
     static var run: TrackProfile { Sport.running.trackProfile }
     /// `trail_running`: max 8 m/s, σa 1.5, auto-pause on at 0.8 m/s, elevation primary.
     static var trail: TrackProfile { Sport.trailRunning.trackProfile }
-    /// `cycling`: max 25 m/s, σa 3.0, auto-pause on at 1.5 m/s, elevation secondary, speed.
+    /// `cycling`: max 36 m/s (road descents), σa 3.0, auto-pause on at 1.5 m/s, elevation secondary, speed.
     static var bike: TrackProfile { Sport.cycling.trackProfile }
-    /// `walking`: max 4 m/s, σa 1.0, auto-pause off (0.4 m/s), elevation secondary.
+    /// `mountain_biking`: max 25 m/s, σa 3.0, auto-pause on at 1.2 m/s, elevation primary, speed.
+    static var mtb: TrackProfile { Sport.mountainBiking.trackProfile }
+    /// `walking`: max 6 m/s (a run for the bus stays a walk), σa 1.0, auto-pause off (0.4 m/s), elevation secondary.
     static var walk: TrackProfile { Sport.walking.trackProfile }
-    /// `hiking`: max 4 m/s, σa 1.0, auto-pause off (0.3 m/s), elevation primary.
+    /// `hiking`: max 6 m/s, σa 1.0, auto-pause off (0.3 m/s), elevation primary.
     static var hike: TrackProfile { Sport.hiking.trackProfile }
     /// `indoor_running`: no GPS; auto-pause on cadence 0 (the catalogue's threshold is 0, not nil: the pipeline
     /// reads it only as `?? 0` and for GPS).

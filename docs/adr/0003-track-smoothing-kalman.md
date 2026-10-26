@@ -5,6 +5,9 @@
   the re-init counts both gates
 - Amended: 2026-10-24, amendment 2 (A3a.2): a re-init is provisional until its settle window closes; the sport's
   limit applies to the filter's speed, with a `.tooFast` state
+- Revised: 2026-10-26, after the code review: a re-init in a window without an anchor anchors at the window's start,
+  and a gap inside a provisional window is bridged from the anchor; the too-fast state enters above an entry speed and
+  holds refused steps until it confirms; a valid Doppler speed vetoes entering it (end of amendment 2)
 - Deciders: ios-lead, on ios-architect's proposal; sync-engineer implements (A3)
 - Applies to: `Ryft/Activities/Recording/TrackPipeline.swift`, `KalmanTrack.swift`, `Geodesy.swift`,
   `Ryft/Activities/Sport.swift` (per-sport parameters)
@@ -227,6 +230,8 @@ the fixes.
 7. **Core Location's own speed** (`fix.speed`, usually Doppler-derived) isn't used. If D1 shows it beats the filter's
    speed, the follow-up feeds it into the filter as a velocity measurement. That needs `speedAccuracy` and `course`
    in `LocationFix`, a frozen type, so it goes through the lead. It never becomes a second distance.
+   *Superseded for the too-fast state by amendment 2, "Revision after the code review (2026-10-26)": a valid Doppler
+   speed vetoes entering it. Distance still comes from the filter only.*
 8. **The settle window shows distance late.** For the first 10 s after Start, a resume after a kill or a tunnel exit,
    the distance stands still, then catches up at once. Splits crossed in the window are interpolated over it.
 
@@ -363,6 +368,9 @@ Two causes:
        to the window's first position. The straight line counts if its speed is at most `maxSpeed`; a train's
        doesn't.
    - **The anchor is dropped** by Start, Pause, a resume, Finish, a velocity reset or a gap inside the window.
+   - *Revised by "Revision after the code review (2026-10-26): the anchor in a window, and gaps" below. Inside a window
+     without an anchor, a re-init anchors at the window's start; a gap inside a provisional window, a velocity reset
+     included, is bridged from the anchor instead of dropping it.*
    - **While a chain is open,** `gpsQuality` says `.weak` (ui.md G4: "Distance may be low"): the fixes disagree with
      each other.
    - **Nothing restores a filter, and nothing copies one.**
@@ -377,6 +385,9 @@ Two causes:
      `TrackSnapshot.tooFastSince` holds the state.
    - **While too fast:** no `.route` points, current pace and speed are nil, and the time keeps running (it's not a
      pause).
+   - *Revised by "Revision after the code review (2026-10-26): the entry speed and held steps" below. Outside an
+     episode only a step above the entry speed is refused, and it's held until the state confirms; the state leaves at
+     or below the limit itself.*
 6. **`maxSpeed` is the fastest the sport is done**, not a gate threshold with a hidden allowance:
 
    | Sport | Before | After | Why |
@@ -423,7 +434,8 @@ stateDiagram-v2
   a ride added 11.2 km (at 25 m/s: +0.8 km, the acceleration and braking). Speed can't tell a vehicle from a bike below
   any limit a descent needs.
 - **Below its limit a vehicle is a sprint.** A train after a run adds its acceleration and braking up to 9 m/s:
-  +98 … +109 m (probe).
+  +98 … +109 m (probe). *Revised (the entry speed, below): up to 9.6 m/s, +107 … +131 m over 20 seeds; the bound is
+  135 m.*
 - **About 120 more lines** in `KalmanTrack` and `TrackPipeline`, and the catalogue values above.
 
 **Risks:**
@@ -443,5 +455,227 @@ stateDiagram-v2
 - a ride with a real descent (as fast as is safe): distance against the tracker, no `.tooFast`;
 - "Running" recorded on a bike above 10 m/s for 2 min: the state appears within 5 s, VoiceOver announces it;
 - a passenger in a car or train with "Running": one episode over the fast part, and at most about 120 m added per
-  stop;
+  stop (*revised: about 135 m, the entry speed below*);
 - a walk between tall buildings: re-inits, spans, weak-GPS time, and the distance against a measured course.
+
+### Revision after the code review (2026-10-26): the anchor in a window, and gaps
+
+- Status: built by the review fixes (`ee974c0`, reviews S3, N-d and N-e) and recorded here so this ADR matches the
+  code. The lead confirms with the PR (`activities: speed-gate guard`).
+- **Revises** decision 4's "The anchor" and "The anchor is dropped". The rest of decision 4 stands.
+- **Numbers** are the implementer's noiseless tests at `c33883f` (`GuardTrack`: "running" at 3 m/s, a 60 m ghost at a
+  falsely good 10 m), not the probe.
+
+**Why.**
+- **A re-init inside a window without an anchor lost the window.** The anchor was the last *settled* position, and
+  inside Start's window, or one opened by a velocity reset, there's none. The re-init had no span to fill, and the
+  window's fixes before it were lost: a 3-fix ghost 3, 6 or 9 s after Start cost −24, −33 or −42 m; 4 s after a 20 s
+  tunnel, −27 m.
+- **A gap inside a provisional window dropped the span.** The span and the silence after it were lost together: a
+  3-fix ghost followed by 16 s without fixes cost −18 m.
+
+**Decision:**
+1. **An anchor at the window's start** (review S3). A re-init inside a window that has no anchor (Start's, or one
+   opened by a velocity reset or a gap) anchors at the window's first filtered position and its time. The anchor's
+   speed is the Theil–Sen line through the window's fixes so far, when there are 3 or more.
+   - **One re-init, the anchor at most 10 s before it:** the span is dead-reckoned at that line speed, between the
+     dead-band and `maxSpeed`, as for a settled anchor.
+   - **Fewer than 3 fixes** (no line), **a chain, or a longer span:** the gap rule from the anchor to the new window's
+     first position.
+2. **A gap inside a provisional window is bridged from the anchor** (review N-e). A gap over 10 s, a velocity reset
+   included, runs the gap rule in one straight line from the anchor to the fix after the gap: the span and the silence
+   together. The anchor ends as one bridged span, or dropped when the line is below the dead-band or above `maxSpeed`.
+   A fresh window starts at that fix. Without an anchor the line runs from the window's first position, as before.
+3. **What drops an anchor:** Pause, a manual resume and Finish. Nothing is filled across them. An anchor exists only
+   while recording or auto-paused: a re-init while paused keeps none.
+4. **A checkpoint counts an open anchor as dropped** (review N-d). A restore can't fill the span, so each anchor ends
+   exactly once in the restored counts. The live pipeline keeps it and still fills the span.
+
+**Measured** (noiseless):
+
+| Case | A3a.2 before the review | Now | Spans: dead-reckoned / bridged / dropped |
+| --- | --- | --- | --- |
+| A 3-fix ghost 3, 6 or 9 s after Start | −24 / −33 / −42 m | within 1 m | 0 / 1 / 0 |
+| A 14-fix ghost after 5 fixes of Start's window | not measured | within 1 m | 2 / 0 / 0 |
+| A 3-fix ghost 4 s after a 20 s tunnel | −27 m | within 1 m | 0 / 1 / 0 |
+| A 3-fix ghost, then 16 s without fixes | −18 m | within 1 m; one bridged gap | 0 / 1 / 0 |
+
+**Good:**
+- **A ghost costs no distance in any settle window,** with or without a settled position before it.
+- **A dropout inside a ghost's window keeps the span.** Like any gap, it's one straight line.
+
+**Costs:**
+- **A line through 3 or 4 fixes is rough.** Dead reckoning trusts it for at most 10 s, capped by `maxSpeed` (risk 3).
+- **A straight line cuts corners,** as every bridged gap does.
+
+**Tests** (`SpeedGateGuardTests`): `aGhostInTheStartWindowLosesNothing`, `aLongGhostInTheStartWindowIsDeadReckoned`,
+`aGhostAfterATunnelLosesNothing`, `aGapInsideTheWindowIsBridgedFromTheAnchor`, `aGhostWhilePausedKeepsNoAnchor`,
+`aCheckpointCountsAnOpenAnchorAsDropped`.
+
+### Revision after the code review (2026-10-26): the entry speed and held steps
+
+- Status: built by the review fixes (`ee974c0`, reviews S1 and N-a; `c33883f`, reviews X3 and X4) and recorded here
+  so this ADR matches the code. The lead confirms with the PR (`activities: speed-gate guard`).
+- **Revises** decision 5's "No distance above it" and "The state", and the train under Costs. The rest of decision 5
+  stands.
+- **Numbers** are the implementer's tests at `c33883f`, re-run by the code-reviewer (`GuardTrack`: seeded 1 Hz tracks,
+  drifting noise), not the probe.
+
+**Why.** The state entered and left at the same speed, and a step above the limit was refused at once. Near the limit
+the filter's noise did both by chance:
+- a run at 8.7, a walk at 5.4, mountain biking at 24.5 and a ride at 35.5 m/s, 20 seeds at a reported 5 and 8 m: up to
+  25 episodes in 20 seeds, up to −621 m (the ride), and silent refusals in up to 11 seeds;
+- a 12 s sprint at 8.5 m/s on "running": −12.1 m and −18.3 m on two of 30 seeds, silently.
+
+**Decision:**
+1. **The entry speed.** Outside an episode, a step or a closing settle window counts as too fast only above
+   max(limit × 1.05, limit + 0.6 m/s) (`tooFastEnterFactor`, `tooFastEnterMargin`): 9.6 m/s for running, 6.6 for
+   walking, 26.25 for mountain biking, 37.8 for cycling. 3 s of such steps enter the state. Inside an episode the limit
+   itself applies, and 3 s at or below it leave. Outside an episode, a step between the limit and the entry speed is
+   distance.
+2. **Held steps.** Until the state confirms, a refused step or window is held, not dropped.
+   - The state confirms: what was held is refused, and `.tooFast(since:)` is backdated to the first of it.
+   - A slow step, Pause, Finish or a checkpoint comes first: what was held counts as distance, with no episode. A
+     checkpoint counts it in the state it saves, because a restore can't confirm it; the live pipeline keeps holding
+     (review X3).
+   - A re-init's span that the gap rule refused (its line faster than the limit) stays refused either way.
+   - Held steps normally wait less than 3 s: by then the state has confirmed, or a slow step has released them.
+3. **The mean speed.** A step is judged by the mean of its two ground speeds, also in the 10 s of position steps after
+   an auto-resume (review X4).
+4. **A pause ends the state** (review N-a). Pause or an auto-pause ends an episode at the pause, or where the speed had
+   already dropped. A car that stops hard sends no slow steps, only a stationary fix.
+5. **The counters.** `tooFastSec` and `tooFastDistanceM` count only what a confirmed episode refused.
+
+**Measured:**
+
+| Case | Before | Code at `c33883f` | Bound (design §11.1) |
+| --- | --- | --- | --- |
+| Near the limit: run 8.7, walk 5.4, MTB 24.5, ride 35.5 m/s; 20 seeds at 5 and 8 m | before S1: up to 25 episodes in 20 seeds; up to −621 m | no episode; −7.6 … +10.1 m | no episode, nothing refused; within 15 m |
+| Fast but on foot: a walk with 60 s at 4.5 m/s, a run with a 12 s sprint at 8.5 m/s; 30 seeds | before S1: the sprint −12.1 / −18.3 m on two seeds, silently | −4.9 … +8.9 m; no episode | within 10 m |
+| "Running" on a bike at 15 m/s | probe: 55–59 m; `.tooFast` 3 s after 9 m/s | 54–68 m; `.tooFast` 2–3 s after 9 m/s | 80 m; within 4 s |
+| Descent above a 25 m/s limit | probe: 2,803 m (the part at or below 25) | +0.76 … +2.01 % against the part at or below 25 (2,804 m); ends 1–2 s after the truth; 1 episode | 2,829 m ±1 % without noise, ±1.5 % with it; timed from 26.25 m/s |
+| Cycling descent at 33 m/s (limit 36) | probe: 0.0 % | −0.05 … +0.15 %; no episode | ±1 %; no episode |
+| A train after a run | probe: +98 … +109 m | +113 m (3 m) and +128 m (5 m) noiseless; +107 … +131 m over 20 seeds; 1 episode | 135 m; 1 episode |
+
+**Good:**
+- **Near the limit nothing flaps and nothing is lost silently.** A sprint finish and a fast jog keep their distance
+  (within 10 m).
+- **A burst under 3 s is distance.** Only a confirmed episode refuses anything.
+
+**Costs:**
+- **A vehicle counts up to the entry speed, not the limit.** The train after a run adds up to 131 m (was 109 m,
+  probe), so the bound is 135 m (was 120 m).
+- **A descent above the limit counts its ramp to 26.25 m/s:** about 25 m more than the part at or below 25.
+- **Distance shows late while steps are held,** normally under 3 s, then catches up at once.
+
+**Risk:** the margin (5 %, at least 0.6 m/s) is tuned on synthetic noise. D1 counts `tooFastEpisodes` on every run.
+
+**Tests** (`SpeedGateGuardTests`): `nearTheLimitNothingFlapsOrIsLost`, `fastButOnFootIsNotTooFast`,
+`theEntrySpeedIsTheLargerMargin`, `aShortBurstIsHeldAndReleased`, `pausesEndTheTooFastState`,
+`aFastWindowClosedByPauseIsRefused`, `positionStepsAreJudgedByTheirMeanSpeed`, `runningChosenOnABikeSaysTooFast`,
+`aDescentAboveTheLimitPausesDistanceAndSaysSo`, `aTrainAfterARunIsOneEpisode`.
+
+### Revision after the code review (2026-10-26): the Doppler veto
+
+- Status: built by the review fixes (`ee974c0`, review S2; `c33883f`, review X1–X3) and recorded here so this ADR
+  matches the code. The lead confirms with the PR (`activities: speed-gate guard`).
+- **Supersedes** Amendment 1's risk 7 as far as the too-fast state goes. Distance still comes from the filter only.
+- **Numbers** are the implementer's, from the test target (`GuardTrack`: seeded 1 Hz tracks, drifting noise, a Doppler
+  speed at the truth ±0.3 m/s), not the probe.
+
+**Why.**
+- **Sliding multipath.** Offsets of 20–40 m that slide in 6–10 s are slow enough for both gates. The filter follows
+  the slide, and its ground speed crosses a slow sport's limit. A3a.2 as first written gave walk 54, hike 46, trail 33
+  and run 22 false episodes in 20 seeds (design §11.1).
+- **Core Location's own speed doesn't slide.** It comes from the receiver's velocity solution, not from the positions,
+  so multipath doesn't move it.
+- **The state since review S1** (the revision above). It enters above the entry speed and leaves at or below the
+  limit. A refused step is held until the state confirms.
+
+**Decision:**
+1. **The veto.** A step or a closing settle window counts as too fast only if Core Location's Doppler speed
+   (`LocationFix.speed`) is above 0.9 × the limit too (`dopplerShareOfLimit`): 8.1 m/s for running, 5.4 m/s for
+   walking. A window takes the median of its fixes' Doppler speeds. A vetoed step is an ordinary step: it counts as
+   distance and releases what was held. Without a usable Doppler speed, the filter decides alone, as before.
+2. **Entry only.** The veto applies while the state is off. Inside an episode the filter's ground speed alone decides:
+   a step counts again once its mean is at or below the limit, and 3 s of them end the state. Braking drops the
+   Doppler speed below the limit before the filter's speed, so a veto there would count the filter's lag as distance.
+3. **Holdover.** A fix without a usable Doppler speed takes the last usable one from up to 8 s back
+   (`dopplerHoldover`), raised by 0.5 m/s² per second of its age (`dopplerHoldoverAcceleration`). The raised value
+   means "the fastest the user could be by now".
+   - Core Location leaves the speed out on some fixes. A veto that failed open on each of them let slides through.
+   - A slide doesn't speed the user up, so for a walker the veto holds the full 8 s: 1.4 + 8 × 0.5 = 5.4 m/s, exactly
+     the walking veto's threshold.
+   - A real acceleration isn't held back: a train at 0.7 m/s² gains only 0.2 m/s a second on the raised value. The
+     train and the bike read as they do without the holdover (the table).
+   - Memory only, like the settle window. A checkpoint doesn't keep it.
+4. **Accuracy.** A Doppler speed is valid when it's finite and ≥ 0 and its `speedAccuracy` isn't negative. An unknown
+   accuracy doesn't invalidate it. Above 2 m/s it counts as unknown (`maxDopplerAccuracy`). The cutoff is absolute,
+   because it's the receiver's velocity solution that degrades, whatever the sport. 2 m/s keeps a walk at 1.4 m/s
+   clear of its 5.4 m/s threshold.
+5. **Checkpoint.** A checkpoint taken while steps are held counts them as distance, as Pause and Finish do: a restore
+   can't confirm them. The live pipeline keeps holding them.
+6. **`LocationFix` gains `speedAccuracy`** (optional, nil by default). That's the frozen-type change risk 7 sent through
+   the lead. `course` isn't needed.
+
+**The holdover, measured.** False episodes in 80 runs: 6–10 s slides for 180 s, 20 seeds each of walk, hike, trail
+and run. "Doppler missing in 5-fix gaps" leaves out about 40 % of the fixes. The train and the bike use the same two
+Doppler patterns over 20 seeds. "Running" on a bike is when `.tooFast` starts after the truth passes 9 m/s.
+
+| Rule | Doppler on 30 % of fixes | Doppler missing in 5-fix gaps | Train after a run, worst seed | "Running" on a bike |
+| --- | --- | --- | --- | --- |
+| No holdover | 34 | 49 | +128 m | +2 … +3 s |
+| Plain 5 s | 10 | 8 | +136 m | +2 … +4 s |
+| Plain 8 s | 2 | 3 | +171 m | up to +7 s |
+| **8 s + 0.5 m/s² (chosen)** | **2** | **5** | **+127 m** | **+2 … +3 s** |
+
+**Rejected:**
+- *No holdover* (a fix without Doppler fails open): 34 and 49 false episodes. The train and the bike are fine.
+- *Plain 5 s:* 10 and 8 false episodes, and the train goes over the 135 m bound (+136 m).
+- *Plain 8 s:* the fewest false episodes, but a stale reading from early in the acceleration vetoes it: the train
+  +171 m, the bike up to 7 s late. The allowance costs 2 episodes in 5-fix gaps (5, not 3) and saves 44 m on the
+  train and 4 s on the bike.
+- *A relative accuracy cutoff* (0.3 × the limit): it would accept ±11 m/s on a road bike. The receiver's velocity
+  solution degrades the same way at any speed.
+- *Vetoing inside an episode too* (the rule as `ee974c0` built it): with Doppler on every fix, the train after a run
+  read +129 … +141 m, up to 6 m over the bound. Now it reads what it reads without Doppler (+128 m noiseless at 5 m).
+
+**Good:**
+- **Sliding multipath doesn't enter the state** when the fixes carry Doppler: 0 false episodes with Doppler on 70–100 %
+  of fixes (6–10 s slides), and on every fix with 10–20 s slides too.
+- **A real episode is the filter's.** Doppler changes neither its end nor its distance.
+- **The veto falls back to the old rule.** With no usable Doppler speed in the last 8 s, the filter decides alone.
+
+**Costs (measured, with all the review fixes):**
+- "Running" on a bike: `.tooFast` +2 … +3 s after the truth passes 9 m/s; 54–68 m recorded (the ramp below 9 m/s is
+  40.5 m).
+- A descent above 25 m/s (the test profile limited to 25): 2,825 … 2,860 m (S1's hysteresis allows 2,829 m).
+- A train after a run: +112 … +128 m with the Doppler patterns above; +107 … +131 m over 20 seeds without Doppler.
+  The bound stays 135 m.
+
+**Risks:**
+1. **Slow slides still add distance.** The veto keeps the state honest, not the distance. A slide below the gates'
+   tolerance counts as motion below the limit: +74 … +556 m in the review's 180 s scenarios (design §3.3, open item).
+2. **A Doppler speed that reads low is believed.** It can keep a real episode from starting, and its steps then count
+   as distance. Validity and the 2 m/s cutoff are the only guards.
+3. **How many real fixes carry a valid Doppler speed is unknown.** With fewer than in the table, the veto fails open
+   more often.
+4. **The veto needs A3b.** Until A3b maps `CLLocation.speed` and `speedAccuracy` into `LocationFix`, no fix carries
+   one, and the filter decides alone.
+5. **0.9, 8 s, 0.5 m/s² and 2 m/s are tuned on synthetic Doppler** (the truth ±0.3 m/s). D1 checks them.
+6. **The re-verification's nits, carried to A3b** (design §3.3): a slide that starts inside an episode can extend it
+   (N1); the holdover crosses Pause and auto-pause (N2); Doppler gaps longer than 8 s fail open again (N3).
+
+**Tests** (`SpeedGateGuardTests`; design §11.1, the train and sliding-multipath rows):
+- `slidingMultipathIsNeverTooFastWithDoppler`: Doppler on every fix, 6–10 s and 10–20 s slides, 0 episodes;
+- `partialDopplerStillVetoesSlidingMultipath`: Doppler on 70 % and 30 % of fixes and in 5-fix gaps, at most 0, 4 and
+  8 episodes in 80 runs;
+- `aHeldOverDopplerSpeedDoesNotHoldBackAnAcceleration`: the train within 135 m, the bike within 4 s, 20 seeds;
+- `dopplerDoesNotEndAnEpisode`: the train with Doppler on every fix adds what it adds without, in one episode;
+- `dopplerDecidesWhenValid`: validity, the 0.9 share and the 2 m/s cutoff, for steps and for a settle window;
+- `aShortBurstIsHeldAndReleased`: a checkpoint while held counts the held steps.
+
+**D1 adds:**
+- the share of fixes with a valid Doppler speed, and their `speedAccuracy`, on every run;
+- a walk and a hike between tall buildings or under a glass roof: no `.tooFast`, and the distance against a measured
+  course.

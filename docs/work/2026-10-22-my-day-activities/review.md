@@ -63,6 +63,63 @@ The security-privacy sign-off for trimming and sealing comes with A3b, where the
 - GPS-only elevation on a still phone: about 17 m of false ascent in 10 min. Gate it on `isStationary` (A3b, D1).
 - **Merge with A1:** delete `Ryft/Activities/Recording/TrackProfile+Pending.swift`, since A1's `Sport.swift` declares `TrackProfile`. Then point the test fixtures at `Sport.*.trackProfile`.
 
+## A3a.2 `activities: speed-gate guard` (2026-10-24 → 26)
+
+**Commits:**
+
+| Commit | What |
+| --- | --- |
+| bfbe917 (on `main`) | The design: ADR 0003 Amendment 2, design §3.3 and §11.1 rev. A3a.2 |
+| 4ef4c6e | The guard as designed: the speed gate measured from the prediction, association, a provisional re-init with an anchor, `maxSpeed` on the filter's speed with `.tooFast` / `.tooFastEnded`, per-sport limits |
+| ee974c0, 03753e6 | Review fixes S1–S3 and the nits; the acceptance after the review |
+| c33883f | Re-review fixes X1–X4; Doppler vetoes entering only |
+| 2f098b1, b669276, bb76df9 | ADR 0003 and the design describe the rules as built |
+
+**Gates:** strict build clean; Unit 1294/1294; `make lint`; 259 activity-suite tests in the reviewer's own run, longest case 1.6 s.
+
+**Acceptance, as built** (the reviewer's measurements at c33883f; the same with Doppler absent, on every fix, on 30 % of fixes, or in 5-fix gaps):
+
+| Case | Bound | Measured |
+| --- | --- | --- |
+| GPS ghosts with noise, against the same seed | ±4 m | −3.9 … +2.7 m |
+| Cycling descent at 33 m/s | 0 % | −0.05 … +0.15 %, 0 episodes |
+| Descent above a 25 m/s limit | ±1 % vs the part below the entry speed | +0.76 … +2.01 % vs "at or below 25", 1 episode |
+| "Running" picked on a bike | ≤ 80 m, `.tooFast` within 4 s | 54–68 m, 2–3 s |
+| Train after a run | ≤ 135 m | +107 … +131 m over 20 seeds, 1 episode |
+| Committed fixtures | identical | road +0.31 %, trail −0.34 %, still phone 0.0 m |
+
+### code-reviewer (4ef4c6e): 3 should-fix, 5 nits
+
+| # | Finding | Result |
+| --- | --- | --- |
+| S1 | Near the limit, distance was refused silently before the state confirmed, and the state flapped (a sprint at 8.5 m/s: −12 … −18 m on some seeds; cycling at 35.5 m/s: up to −621 m) | Refused steps are held until the state confirms and released if it doesn't. Entry above max(limit × 1.05, limit + 0.6 m/s), exit at or below the limit. 0/20 episodes near the limit; no silent refusals |
+| S2 | Walkers and hikers got a false "too fast" in sliding multipath (7/20 walks) | A valid Doppler speed below 0.9 × the limit vetoes entry (`LocationFix.speedAccuracy` added). 0 with Doppler on every fix |
+| S3 | A ghost starting inside a non-provisional settle window cost 24–42 m | The window anchors at its first filtered position |
+| N-a … N-e | Too fast continuing into pauses; route points at episode edges; `PipelineDiagnostics` decode defaults; a diagnostics invariant after restore; a gap inside the window | N-a: a pause ends the state. N-c: missing counters decode as 0, tested on an A3a checkpoint. N-d: an open anchor counts as dropped. N-e: bridged from the anchor. **A3b:** N-b, route points written before an episode confirms |
+
+### code-reviewer re-verification (ee974c0): 1 should-fix, 3 nits
+
+| # | Finding | Result |
+| --- | --- | --- |
+| X1 | The Doppler veto failed open on every fix without Doppler (30 % Doppler: 13/10/5/2 false episodes per 20 runs, walk/hike/trail/run) | The last usable Doppler speed is held for up to 8 s, raised by 0.5 m/s² per second of age: 1/1/0/0. Plain 5 s and plain 8 s were measured and rejected (ADR 0003) |
+| X2 | A Doppler speed with poor accuracy still vetoed | `speedAccuracy` above 2 m/s counts as unknown |
+| X3 | A checkpoint taken while steps were held lost them on restore (−10.8 m per step) | The checkpoint counts them, as Pause and Finish do |
+| X4 | The mean-speed rule for position steps was untested (a surviving mutant) | `positionStepsAreJudgedByTheirMeanSpeed`. 65/66 mutants caught; the survivor (`>` vs `>=`) is equivalent |
+| — | **Implementer's addition:** with Doppler on every fix, braking ended an episode early and the filter's lag counted (train +129 … +141 m) | Doppler vetoes *entering* only; inside an episode the filter's speed decides. Train +107 … +131 m |
+
+### code-reviewer re-verification (c33883f): ship
+
+X1–X4 are fixed, with tests that fail without them, and nothing in the acceptance regressed. The entry-only rule is sound.
+
+**Carried to A3b:**
+- **N1:** a slide that starts during an episode can extend it, by up to 20 s on the walking profile with fast slides. Option: end the episode after about 5 s of fresh, valid Doppler below the limit.
+- **N2:** the Doppler holdover crosses Pause and auto-pause (+27 m, 2 s later, in a car scenario). Reset it in `pause(at:)` and `enterAutoPause`.
+- **N3:** Doppler gaps longer than 8 s fail open again (10-fix gaps: 7/4/4/3 per 20 runs). D1 logs gap lengths.
+- A3b maps `CLLocation.speed` and `speedAccuracy` into `LocationFix`. Without that the veto never applies.
+- `PipelineDiagnostics` counts the share of fixes with a valid Doppler speed, for D1.
+
+**Privacy:** unchanged from A3a. The pipeline logs nothing; `LocationFix` gains a speed accuracy, not a coordinate.
+
 ## A1 part 1: the activities core (6c63923, 2026-10-23)
 
 **Reviewers:**

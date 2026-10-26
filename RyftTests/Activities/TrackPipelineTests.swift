@@ -54,9 +54,12 @@ struct TrackPipelineTests {
             let reason = replay.rejection(at: i)
             #expect(reason == .implausible || reason == .innovation, "multipath \(i): \(String(describing: reason))")
         }
-        // Only the multipath fixes fail the speed or innovation gate: no clean fix is lost.
+        // Only the multipath fixes fail the speed or innovation gate: no clean fix is lost. The speed gate measures
+        // from the prediction since A3a.2 and still takes all six (ADR 0003 amendment 2, decision 1).
         #expect(d.rejectedImplausible + d.rejectedInnovation == trail.faults.multipath.count)
+        #expect(d.rejectedImplausible == 6)
         #expect(d.rejectedOutOfOrder == 0 && d.rejectedStale == 0 && d.reinitialisations == 0)
+        #expect(d.tooFastEpisodes == 0 && d.tooFastSec == 0)
         #expect(d.fixesAccepted + d.rejected == trail.fixes.count)
     }
 
@@ -131,23 +134,28 @@ struct TrackPipelineTests {
         #expect(p.diagnostics.rejectedOutOfOrder == 2 && p.diagnostics.rejectedStale == 2)
     }
 
-    /// 16 m/s is implausible for a run (max 9 m/s) and fine for a ride (max 25 m/s). Speed-gate rejections count
-    /// toward the re-init, so the run restarts at every third fix and never settles: it records nothing.
+    /// 16 m/s is faster than a run (max 9 m/s) and fine for a ride (max 36 m/s). The run's filter starts at rest, so
+    /// the speed gate rejects two fixes and the re-init takes their velocity; the filter then follows, and the
+    /// sport's limit refuses the distance and says so: one `.tooFast`, from the window's start. (A3a re-initialised
+    /// every third fix: 20 speed-gate rejections, 10 re-inits and 0 m, silently.)
     @Test func speedGateUsesTheProfile() {
         let fast = SyntheticTrack.fixes([Segment(seconds: 30, speed: 16)], accuracy: 3)
         var run = Self.started(.gps(.run, barometer: false))
         var bike = Self.started(.gps(.bike, barometer: false))
-        _ = SyntheticTrack.run(&run, fast)
+        let runEvents = SyntheticTrack.run(&run, fast)
         _ = SyntheticTrack.run(&bike, fast)
-        #expect(run.diagnostics.rejectedImplausible == 20 && run.diagnostics.reinitialisations == 10)
         #expect(run.distanceM == 0)
-        #expect(bike.diagnostics.rejected == 0)
+        #expect(runEvents.filter { if case .tooFast = $0 { true } else { false } }.count == 1)
+        #expect(run.diagnostics.rejectedImplausible == 2 && run.diagnostics.reinitialisations == 1)
+        #expect(run.tooFastSince == fast[3].timestamp && run.diagnostics.tooFastEpisodes == 1)
+        #expect(bike.diagnostics.rejected == 0 && bike.tooFastSince == nil)
         #expect(abs(bike.distanceM - 480) < 2, "\(bike.distanceM) m")
     }
 
     /// A 60 m multipath offset held for 15 s (design §3.3 step 3): three rejections by either gate re-initialise
     /// at the offset, and three more on the way back. Counting only the innovation gate let the aged-open speed
-    /// gate accept the offset with a kick to the velocity: +75 m.
+    /// gate accept the offset with a kick to the velocity: +75 m. A3a lost the rejected seconds (−18.0 m); since
+    /// A3a.2 each re-init's span is dead-reckoned from the anchor (+0.0 m).
     @Test func sustainedMultipathCostsLittle() {
         var p = Self.started(.gps(.run, autoPause: false, barometer: false))
         let offset = Displacement(east: -52, north: 30)
@@ -161,8 +169,8 @@ struct TrackPipelineTests {
             _ = p.ingest(LocationFix(timestamp: fix.timestamp, latitude: c.latitude, longitude: c.longitude,
                                      horizontalAccuracy: 10))
         }
-        #expect(p.diagnostics.reinitialisations == 2)
-        #expect(p.distanceM - 900 > -25 && p.distanceM - 900 < 5, "\(p.distanceM - 900) m")
+        #expect(p.diagnostics.reinitialisations == 2 && p.diagnostics.reinitSpansDeadReckoned == 2)
+        #expect(abs(p.distanceM - 900) < 5, "\(p.distanceM - 900) m")
     }
 
     // MARK: Lifecycle
@@ -196,7 +204,8 @@ struct TrackPipelineTests {
 
     /// The real flow: the filter warms up for 30 s while the user waits for "Ready", then Start and a standing start.
     /// The window opens at Start anyway, so the velocity's lag behind the acceleration isn't lost (review N3: −7, −13
-    /// and −20 m to 3, 6 and 9 m/s before; −0.1, −0.1 and −2.8 m now).
+    /// and −20 m to 3, 6 and 9 m/s before; −0.1, −0.1 and −2.8 m after). 9 m/s is the run's limit itself: the
+    /// filter rings over it after the ramp, below the too-fast state's entry speed (−3.1 m since A3a.2's review).
     @Test(arguments: [3.0, 6.0, 9.0])
     func aStandingStartAfterAWarmUpLosesLittle(to speed: Double) {
         var p = TrackPipeline(configuration: .gps(.run, autoPause: false, barometer: false))
@@ -486,6 +495,29 @@ struct TrackPipelineTests {
         let s = restored.snapshot(at: SyntheticTrack.t0.addingTimeInterval(90))
         #expect(s.distanceM > 100 && s.movingSec == 0)
         #expect(s.averagePace == nil && s.averageSpeed == nil)
+    }
+
+    /// A checkpoint written by A3a, before the A3a.2 counters existed (review N-c): it still decodes, with them at 0.
+    @Test func anA3aCheckpointStillDecodes() throws {
+        let json = #"""
+        {"diagnostics":{"autoPauses":0,"fixesAccepted":401,"gapsBridged":0,"gapsNotBridged":0,"longestGapSec":1,\#
+        "pedometerSamples":0,"reinitialisations":0,"rejectedAccuracy":0,"rejectedImplausible":0,"rejectedInnovation":0,\#
+        "rejectedOutOfOrder":0,"rejectedStale":0},"distanceM":1200.0056067980522,"lapStartDistanceM":0,"laps":[],\#
+        "lastSampleTime":803113600,"pauses":[],"splitStartAscentM":0,"splitStartMovingSec":333.33143162727356,\#
+        "splits":[{"distanceM":1000,"durationSec":333.33143162727356,"end":803113533.3314316,"index":1}],\#
+        "start":803113200}
+        """#
+        let saved = try JSONDecoder().decode(TrackPipeline.Resume.self, from: Data(json.utf8))
+        #expect(saved.diagnostics.fixesAccepted == 401 && saved.diagnostics.longestGapSec == 1)
+        #expect(saved.diagnostics.speedGateReinits == 0 && saved.diagnostics.reinitSpansDropped == 0)
+        #expect(saved.diagnostics.tooFastEpisodes == 0 && saved.diagnostics.tooFastDistanceM == 0)
+        #expect(saved.distanceM > 1200 && saved.splits.map(\.index) == [1])
+        // And what A3a.2 writes reads back the same.
+        var diagnostics = saved.diagnostics
+        diagnostics.speedGateReinits = 2
+        diagnostics.tooFastSec = 12.5
+        let again = try JSONDecoder().decode(PipelineDiagnostics.self, from: JSONEncoder().encode(diagnostics))
+        #expect(again == diagnostics)
     }
 
     @Test func restoreKeepsAManualPause() throws {
