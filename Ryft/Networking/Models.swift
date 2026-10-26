@@ -2419,21 +2419,3 @@ extension KeyedDecodingContainer {
         return nil
     }
 }
-
-enum DateParsing {
-    private static let fractional: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
-    private static let plain: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
-
-    /// RFC3339 with or without fractional seconds (Go emits nanoseconds).
-    static func rfc3339(_ s: String) -> Date? {
-        fractional.date(from: s) ?? plain.date(from: s)
-    }
-}
