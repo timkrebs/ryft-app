@@ -120,26 +120,28 @@ struct SpeedGateGuardTests {
         }
     }
 
-    /// The same descent on a test profile limited to 25 m/s: the part above the limit adds nothing, and says so.
-    /// `.tooFast` within 3 s after the truth passes 25 m/s, `.tooFastEnded` within 4 s after it drops below, and the
-    /// distance is the part at or below 25 m/s (2,803.8 m) ±1 %, at every accuracy. Measured noiseless: since +1 s,
-    /// ended +1 … +2 s, −0.0 … +0.0 %. Under drifting noise each second the boundaries move is 25 m (0.9 %): at a
-    /// reported 5 m (σ 2.5 m) 20 seeds read −1.21 … +1.09 %, so the noisy bound is ±1.5 % (2 and 3 m: within ±0.3 %).
+    /// The same descent on a test profile limited to 25 m/s: the part above the limit adds nothing, and says so. The
+    /// state enters above the entry speed (26.25 m/s, review S1) and leaves at or below 25. So `.tooFast` within 3 s
+    /// after the truth passes the entry speed, `.tooFastEnded` within 4 s after it drops to 25, and the distance is what
+    /// that hysteresis allows (up the ramp to 26.25, then from 25 down: 2,829 m; 2,804 m at or below 25) ±1 %, at every
+    /// accuracy. Measured noiseless: since +1 s, ended +1 … +2 s, +0.00 … +0.04 %. Under drifting noise each second a
+    /// boundary moves is 25 m (0.9 %): 20 seeds read −1.19 … +1.15 %, so the noisy bound is ±1.5 %.
     @Test(arguments: [2.0, 3.0, 5.0])
     func aDescentAboveTheLimitPausesDistanceAndSaysSo(accuracy: Double) throws {
         var limited = TrackProfile.bike
         limited.maxSpeed = 25
-        let crossing = try #require(GuardTrack.crossings(Self.descent, limit: 25))
-        let below = try #require(crossing.below)
-        let allowed = GuardTrack.distance(Self.descent, atMost: 25)
+        let entry = try #require(GuardTrack.crossings(Self.descent, limit: GuardTrack.entrySpeed(25)))
+        let below = try #require(GuardTrack.crossings(Self.descent, limit: 25)?.below)
+        let up = Int(entry.above.timeIntervalSince(SyntheticTrack.t0)), down = Int(below.timeIntervalSince(SyntheticTrack.t0))
+        let allowed = Self.descent[..<up].reduce(0, +) + Self.descent[down...].reduce(0, +)
         for seed in [nil, 1, 2, 3, 4, 5] as [UInt64?] {
             let (p, events) = GuardTrack.record(.gps(limited, barometer: false),
                                                 GuardTrack.fixes(Self.descent, accuracy: accuracy, seed: seed))
             let entered = GuardTrack.tooFast(events), ended = GuardTrack.tooFastEnded(events)
             #expect(entered.count == 1 && ended.count == 1, "seed \(String(describing: seed))")
             let since = try #require(entered.first), endedSince = try #require(ended.first)
-            #expect(since.timeIntervalSince(crossing.above) >= 0 && since.timeIntervalSince(crossing.above) <= 3,
-                    "since \(since.timeIntervalSince(crossing.above)) s after the truth")
+            #expect(since.timeIntervalSince(entry.above) >= 0 && since.timeIntervalSince(entry.above) <= 3,
+                    "since \(since.timeIntervalSince(entry.above)) s after the truth")
             #expect(endedSince.timeIntervalSince(below) >= 0 && endedSince.timeIntervalSince(below) <= 4,
                     "ended \(endedSince.timeIntervalSince(below)) s after the truth")
             let error = (p.distanceM - allowed) / allowed
@@ -150,7 +152,8 @@ struct SpeedGateGuardTests {
 
     /// "Running" chosen on a bike: a 15 s ramp from 0, then 300 s at 15 m/s (4,612.5 m). At most 80 m (the ramp below
     /// 9 m/s is 40.5 m) and one `.tooFast` within 4 s after the truth passes 9 m/s, at every reported accuracy. `main`
-    /// recorded 67–90 m at 2–3 m and all of it at 4–5 m, silently. Measured: 55–59 m, since +2 s.
+    /// recorded 67–90 m at 2–3 m and all of it at 4–5 m, silently. Measured: 55–66 m, since +2 … +3 s (the state
+    /// enters above 9.6 m/s).
     @Test(arguments: [2.0, 3.0, 4.0, 5.0])
     func runningChosenOnABikeSaysTooFast(accuracy: Double) throws {
         let speeds = GuardTrack.speeds([Ramp(15, 0, 15), .hold(300, 15)])
@@ -193,18 +196,19 @@ struct SpeedGateGuardTests {
     }
 
     /// A train after a run, auto-pause on: 300 s at 3 m/s (903 m with the stop), 120 s still, the train at +0.7 m/s²
-    /// to 33 m/s, 300 s, −1 m/s² to 0, 60 s still. At most 120 m added (its acceleration and braking below 9 m/s are
-    /// 58 + 41 m) and one episode, from within 3 s after it passes 9 m/s to within 4 s after it drops below. `main`:
-    /// +243 … +334 m, silently. Measured noiseless: +105 / +109 m, since +1 s, ended +2 s. Under drifting noise
-    /// "added" is against the same seed with the train left out (the run's own noise reads +0.5 … +13 m): 20 seeds
-    /// +91 … +118 m.
+    /// to 33 m/s, 300 s, −1 m/s² to 0, 60 s still. One episode, from within 3 s after the train passes the entry speed
+    /// (9.6 m/s) to within 4 s after it drops to 9. At most 135 m added: its acceleration to the entry speed and its
+    /// braking below 9 m/s are 66 + 41 m, and the filter crosses the entry speed 1–3 s late (A3a.2 had 120 m with the
+    /// state entering at 9 m/s; review S1 moved it). `main`: +243 … +334 m, silently. Measured noiseless: +114 /
+    /// +128 m, since +0 … +2 s, ended +1 … +3 s. Under drifting noise "added" is against the same seed with the train
+    /// left out (the run's own noise reads +0.5 … +13 m): 20 seeds +102 … +131 m.
     @Test(arguments: [3.0, 5.0])
     func aTrainAfterARunIsOneEpisode(accuracy: Double) throws {
         let run = GuardTrack.speeds([.hold(300, 3), Ramp(2, 3, 0)])
         let train = GuardTrack.speeds([.hold(120, 0), Ramp(47, 0, 33), .hold(300, 33), Ramp(33, 33, 0), .hold(60, 0)])
         let speeds = run + train
-        let crossing = try #require(GuardTrack.crossings(speeds, limit: 9))
-        let below = try #require(crossing.below)
+        let entry = try #require(GuardTrack.crossings(speeds, limit: GuardTrack.entrySpeed(9))).above
+        let below = try #require(GuardTrack.crossings(speeds, limit: 9)?.below)
         for seed in [nil, 1, 2, 3, 4, 5] as [UInt64?] {
             let (p, events) = GuardTrack.record(.gps(.run, barometer: false),
                                                 GuardTrack.fixes(speeds, accuracy: accuracy, seed: seed))
@@ -213,17 +217,17 @@ struct SpeedGateGuardTests {
                 : GuardTrack.record(.gps(.run, barometer: false),
                                     GuardTrack.fixes(withoutTrain, accuracy: accuracy, seed: seed)).pipeline.distanceM
             let added = p.distanceM - baseline
-            #expect(added >= 0 && added <= 120, "seed \(String(describing: seed)): +\(added) m")
+            #expect(added >= 0 && added <= 135, "seed \(String(describing: seed)): +\(added) m")
             if seed == nil {
-                // The design's probe: +105 / +109 m. Position steps after the auto-resume are refused by the filter's
-                // speed now; judged by the mean of the step's ends they'd add a step more (+119 m at 5 m).
-                #expect(abs(added - (accuracy == 3 ? 105 : 109)) < 3, "+\(added) m")
+                // Measured +114 / +128 m. Position steps after the auto-resume are judged by the filter's speed now;
+                // judged by the mean of the step's ends they'd add a step more.
+                #expect(abs(added - (accuracy == 3 ? 113.7 : 128.2)) < 3, "+\(added) m")
             }
             let entered = GuardTrack.tooFast(events), ended = GuardTrack.tooFastEnded(events)
             #expect(entered.count == 1 && ended.count == 1)
             let since = try #require(entered.first), endedSince = try #require(ended.first)
-            #expect(since.timeIntervalSince(crossing.above) >= 0 && since.timeIntervalSince(crossing.above) <= 3,
-                    "since \(since.timeIntervalSince(crossing.above)) s after the truth")
+            #expect(since.timeIntervalSince(entry) >= 0 && since.timeIntervalSince(entry) <= 3,
+                    "since \(since.timeIntervalSince(entry)) s after the truth")
             #expect(endedSince.timeIntervalSince(below) >= 0 && endedSince.timeIntervalSince(below) <= 4,
                     "ended \(endedSince.timeIntervalSince(below)) s after the truth")
         }
@@ -288,8 +292,10 @@ struct SpeedGateGuardTests {
         var testDescription: String { name }
     }
 
-    /// Fast but on foot: a walk with 60 s at 4.5 m/s, a run with a 12 s sprint at 8.5 m/s. Within 10 m, no
-    /// `.tooFast`: the limits are the fastest each sport is done. At the old walking limit of 4 m/s the walk lost 272 m.
+    /// Fast but on foot: a walk with 60 s at 4.5 m/s, a run with a 12 s sprint at 8.5 m/s, 30 seeds. Within 10 m, no
+    /// `.tooFast` and nothing refused: the limits are the fastest each sport is done. At the old walking limit of 4 m/s
+    /// the walk lost 272 m; before the review's hold and hysteresis (S1) the sprint lost −12.1 m on seed 9 and −18.3 m
+    /// on seed 28, silently. Measured: −4.9 … +8.9 m.
     @Test(arguments: [
         Sprint(name: "walk with a jog at 4.5 m/s", profile: .walk,
                ramps: [.hold(120, 1.4), Ramp(5, 1.4, 4.5), .hold(60, 4.5), Ramp(5, 4.5, 1.4), .hold(120, 1.4)]),
@@ -299,7 +305,8 @@ struct SpeedGateGuardTests {
     func fastButOnFootIsNotTooFast(_ sprint: Sprint) {
         let speeds = GuardTrack.speeds(sprint.ramps)
         let truth = GuardTrack.distance(speeds)
-        for seed in [nil, 1, 2, 3, 4, 5] as [UInt64?] {
+        let seeds: [UInt64?] = [nil] + (1 ... 30).map { UInt64($0) }
+        for seed in seeds {
             let (p, events) = GuardTrack.record(Self.noAutoPause(sprint.profile), GuardTrack.fixes(speeds, seed: seed))
             #expect(abs(p.distanceM - truth) < 10, "seed \(String(describing: seed)): \(p.distanceM - truth) m")
             #expect(GuardTrack.tooFast(events).isEmpty && p.diagnostics.tooFastSec == 0)
@@ -424,7 +431,17 @@ struct SpeedGateGuardTests {
         p.resume(at: fixes[153].timestamp)
         #expect(Self.spans(p.diagnostics) == [0, 0, 1])
         _ = SyntheticTrack.run(&p, Array(fixes[153...]))
-        #expect(Self.spans(p.diagnostics) == [0, 0, 1])
+        // The way back re-initialises inside the window the dropped anchor left, so that window's first position (the
+        // ghost) anchors it (review S3); the line from the ghost is too fast, so that span is dropped as well, and a
+        // dropped span adds nothing later either (the part after Resume isn't released as distance).
+        #expect(p.diagnostics.reinitialisations == 2 && Self.spans(p.diagnostics) == [0, 0, 2])
+        var clean = TrackPipeline(configuration: .gps(.run, autoPause: true, barometer: false))
+        let truth = GuardTrack.fixes(speeds)
+        clean.start(at: truth[0].timestamp)
+        _ = SyntheticTrack.run(&clean, Array(truth[...152]))
+        clean.resume(at: truth[153].timestamp)
+        _ = SyntheticTrack.run(&clean, Array(truth[153...]))
+        #expect(abs(p.distanceM - clean.distanceM) < 5, "\(p.distanceM) m, without the ghost \(clean.distanceM) m")
     }
 
     /// A single re-init dead-reckons only when its anchor is at most 10 s before it; further back, the gap rule's
@@ -459,17 +476,16 @@ struct SpeedGateGuardTests {
         #expect(slow.distanceM == 0 && Self.spans(slow.diagnostics) == [0, 0, 1])
     }
 
-    /// A gap inside the provisional window drops the anchor: the gap rule bridges from the window's start, and the
-    /// chain's span before it isn't filled on top (that would count the gap twice).
-    @Test func aGapInsideTheWindowDropsTheAnchor() {
+    /// A gap inside the provisional window is bridged from the anchor (review N-e): the chain's span and the silence
+    /// in one straight line, fix 99 to fix 121, and the anchor ends as one bridged span. (A3a.2 dropped the span: −18 m.)
+    @Test func aGapInsideTheWindowIsBridgedFromTheAnchor() {
         let speeds = GuardTrack.speeds([.hold(300, 3)])
         let ghost = GuardTrack.Ghost(from: 100, count: 3, offset: GuardTrack.ghostOffsets[0])
         let all = GuardTrack.fixes(speeds, ghost: ghost)
         let (p, events) = GuardTrack.record(Self.noAutoPause(.run), Array(all[...105]) + Array(all[121...]))
-        #expect(Self.spans(p.diagnostics) == [0, 0, 1])
-        #expect(events.contains(.gap(seconds: 16, bridged: true)))
-        // Everything but the chain's span from fix 99 to fix 105: 18 m.
-        #expect(abs(p.distanceM - (GuardTrack.distance(speeds) - 18)) < 1, "\(p.distanceM) m")
+        #expect(Self.spans(p.diagnostics) == [0, 1, 0])
+        #expect(events.contains(.gap(seconds: 16, bridged: true)) && p.diagnostics.gapsBridged == 1)
+        #expect(abs(p.distanceM - GuardTrack.distance(speeds)) < 1, "\(p.distanceM) m")
     }
 
     /// No anchor while paused: a long ghost during a manual pause re-initialises the filter twice, and no span is
@@ -507,10 +523,289 @@ struct SpeedGateGuardTests {
         if let since = GuardTrack.tooFast(events).first, let ended = GuardTrack.tooFastEnded(events).first {
             #expect(abs(d.tooFastSec - ended.timeIntervalSince(since)) < 1e-6)
         }
-        // The filter's speed over the refused seconds: about the descent above 25 m/s (4,308.7 m), never distance.
-        let above = GuardTrack.distance(Self.descent) - GuardTrack.distance(Self.descent, atMost: 25)
+        // The filter's speed over the refused seconds: about the descent the hysteresis refuses (above 26.25 m/s going
+        // up, above 25 going down: 4,283.6 m), never distance.
+        let up = Self.descent.firstIndex { $0 > GuardTrack.entrySpeed(25) } ?? 0
+        let down = Self.descent[up...].firstIndex { $0 <= 25 } ?? 0
+        let above = Self.descent[up ..< down].reduce(0, +)
         #expect(abs(d.tooFastDistanceM - above) / above < 0.02, "\(d.tooFastDistanceM) m of \(above) m")
         #expect(abs(q.distanceM + d.tooFastDistanceM - GuardTrack.distance(Self.descent)) < 10)
         #expect(Self.spans(d) == [0, 0, 0] && d.speedGateReinits == 0)
+    }
+
+    // MARK: Review fixes (S1–S3, N-a, N-d)
+
+    struct NearLimit: CustomTestStringConvertible, Sendable {
+        let name: String
+        let profile: TrackProfile
+        let ramps: [GuardTrack.Ramp]
+        var testDescription: String { name }
+    }
+
+    /// Near the limit the filter's noise neither flaps the state nor loses distance (review S1): the state enters only
+    /// above the entry speed (5 % or 0.6 m/s above the limit), and a refused step waits for the state, which never
+    /// confirms here, so it counts. 20 seeds at a reported 5 and 8 m. Before: up to 25 episodes in 20 seeds and
+    /// −621 m (a ride at 35.5 m/s), silent refusals in up to 11. Measured: none, within −7.6 … +10.1 m.
+    @Test(arguments: [
+        NearLimit(name: "run 12 s at 8.7 m/s", profile: .run,
+                  ramps: [.hold(120, 3), Ramp(4, 3, 8.7), .hold(12, 8.7), Ramp(6, 8.7, 3), .hold(120, 3)]),
+        NearLimit(name: "walk 60 s at 5.4 m/s", profile: .walk,
+                  ramps: [.hold(120, 1.4), Ramp(5, 1.4, 5.4), .hold(60, 5.4), Ramp(5, 5.4, 1.4), .hold(120, 1.4)]),
+        NearLimit(name: "MTB 60 s at 24.5 m/s", profile: .mtb,
+                  ramps: [.hold(120, 8), Ramp(17, 8, 24.5), .hold(60, 24.5), Ramp(9, 24.5, 8), .hold(120, 8)]),
+        NearLimit(name: "ride 60 s at 35.5 m/s", profile: .bike,
+                  ramps: [.hold(120, 10), Ramp(25, 10, 35.5), .hold(60, 35.5), Ramp(13, 35.5, 10), .hold(120, 10)])
+    ])
+    func nearTheLimitNothingFlapsOrIsLost(_ near: NearLimit) {
+        let speeds = GuardTrack.speeds(near.ramps)
+        let truth = GuardTrack.distance(speeds)
+        for accuracy in [5.0, 8.0] {
+            for seed in UInt64(1) ... 20 {
+                let (p, events) = GuardTrack.record(Self.noAutoPause(near.profile),
+                                                    GuardTrack.fixes(speeds, accuracy: accuracy, seed: seed))
+                #expect(GuardTrack.tooFast(events).isEmpty && p.diagnostics.tooFastSec == 0, "\(accuracy) m, seed \(seed)")
+                #expect(abs(p.distanceM - truth) < 15, "\(accuracy) m, seed \(seed): \(p.distanceM - truth) m")
+            }
+        }
+    }
+
+    /// A burst above the entry speed shorter than 3 s is held and then released: it counts as distance, without an
+    /// episode or a refused second; so does a burst still held when the user pauses or finishes. A burst of 3 s or more
+    /// is the state, backdated to its first step, and what was held is refused.
+    @Test func aShortBurstIsHeldAndReleased() throws {
+        let short = GuardTrack.speeds([.hold(60, 3), Ramp(2, 3, 20), Ramp(2, 20, 3), .hold(60, 3)])
+        let fixes = GuardTrack.fixes(short)
+        let (p, events) = GuardTrack.record(Self.noAutoPause(.run), fixes)
+        #expect(GuardTrack.tooFast(events).isEmpty && p.diagnostics.tooFastSec == 0)
+        #expect(abs(p.distanceM - GuardTrack.distance(short)) < 1, "\(p.distanceM - GuardTrack.distance(short)) m")
+
+        // Paused or finished while a step is held: it counts, as on a run without a limit.
+        var unlimited = TrackProfile.run
+        unlimited.maxSpeed = 100
+        for finish in [false, true] {
+            var held = TrackPipeline(configuration: Self.noAutoPause(.run))
+            var free = TrackPipeline(configuration: Self.noAutoPause(unlimited))
+            held.start(at: fixes[0].timestamp)
+            free.start(at: fixes[0].timestamp)
+            var heldAt: Int?
+            for (i, fix) in fixes.enumerated() {
+                let before = held.distanceM
+                _ = held.ingest(fix)
+                _ = free.ingest(fix)
+                if i > 60, held.distanceM == before {
+                    heldAt = i
+                    break
+                }
+            }
+            let at = try #require(heldAt)
+            #expect(free.distanceM > held.distanceM + 5, "a step is held at fix \(at)")
+            if finish {
+                _ = held.finish(at: fixes[at].timestamp)
+                _ = free.finish(at: fixes[at].timestamp)
+            } else {
+                held.pause(at: fixes[at].timestamp)
+                free.pause(at: fixes[at].timestamp)
+            }
+            #expect(abs(held.distanceM - free.distanceM) < 0.01, "finish \(finish): \(held.distanceM) m, \(free.distanceM) m")
+            #expect(held.diagnostics.tooFastSec == 0)
+        }
+
+        let long = GuardTrack.speeds([.hold(60, 3), Ramp(3, 3, 13), .hold(6, 13), Ramp(3, 13, 3), .hold(60, 3)])
+        let (q, longEvents) = GuardTrack.record(Self.noAutoPause(.run), GuardTrack.fixes(long))
+        let since = try #require(GuardTrack.tooFast(longEvents).first)
+        let ended = try #require(GuardTrack.tooFastEnded(longEvents).first)
+        #expect(abs(q.diagnostics.tooFastSec - ended.timeIntervalSince(since)) < 1e-6)
+        #expect(abs(q.distanceM + q.diagnostics.tooFastDistanceM - GuardTrack.distance(long)) < 2)
+    }
+
+    /// Sliding multipath (review S2): offsets of 20–40 m that slide in 6–10 s or 10–20 s for 180 s, at a reported 10 m,
+    /// are slow enough for the gates, so the filter's speed carries the slide. Core Location's Doppler speed doesn't
+    /// move with multipath, and it has to agree before anything counts as too fast. 20 seeds per foot sport: no
+    /// `.tooFast` (without Doppler: up to 33 episodes in 20 seeds for walkers).
+    @Test(arguments: [
+        Mover(name: "walk 1.4 m/s", profile: .walk, speed: 1.4),
+        Mover(name: "hike 1.0 m/s", profile: .hike, speed: 1.0),
+        Mover(name: "trail 2.2 m/s", profile: .trail, speed: 2.2),
+        Mover(name: "run 3 m/s", profile: .run, speed: 3)
+    ])
+    func slidingMultipathIsNeverTooFastWithDoppler(_ mover: Mover) {
+        let speeds = GuardTrack.speeds([.hold(400, mover.speed)])
+        for hop in [6 ... 10, 10 ... 20] {
+            for seed in UInt64(1) ... 20 {
+                let clean = GuardTrack.fixes(speeds, seed: seed, doppler: true)
+                let sliding = GuardTrack.sliding(clean, from: 100, until: 280, hop: hop, seed: seed)
+                let (p, events) = GuardTrack.record(Self.noAutoPause(mover.profile), sliding)
+                #expect(GuardTrack.tooFast(events).isEmpty && p.diagnostics.tooFastSec == 0, "\(hop) s, seed \(seed)")
+            }
+        }
+    }
+
+    struct DopplerCase: CustomTestStringConvertible, Sendable {
+        let name: String
+        let speed: Double?
+        let accuracy: Double?
+        let tooFast: Bool
+        var testDescription: String { name }
+    }
+
+    /// The Doppler speed decides only when it's valid, for steps and for settle windows: "running" on a bike at 15 m/s,
+    /// from a standing start (steps) and a flying start (the first window). It agrees above 0.9 × the limit (8.1 m/s);
+    /// a negative speed or a negative accuracy is no Doppler speed, and the filter decides alone.
+    @Test(arguments: [
+        DopplerCase(name: "Doppler 15 m/s agrees", speed: 15, accuracy: 0.5, tooFast: true),
+        DopplerCase(name: "Doppler 8.5 m/s agrees (0.94 × the limit)", speed: 8.5, accuracy: 0.5, tooFast: true),
+        DopplerCase(name: "Doppler 7.7 m/s vetoes (0.86 × the limit)", speed: 7.7, accuracy: 0.5, tooFast: false),
+        DopplerCase(name: "Doppler 3 m/s, accuracy unknown, vetoes", speed: 3, accuracy: nil, tooFast: false),
+        DopplerCase(name: "invalid speed: the filter decides", speed: -1, accuracy: 0.5, tooFast: true),
+        DopplerCase(name: "invalid accuracy: the filter decides", speed: 3, accuracy: -1, tooFast: true)
+    ])
+    func dopplerDecidesWhenValid(_ doppler: DopplerCase) {
+        let standing = GuardTrack.speeds([Ramp(15, 0, 15), .hold(120, 15)])
+        let fixes = GuardTrack.fixes(standing).map { $0.with(speed: doppler.speed, accuracy: doppler.accuracy) }
+        let (p, events) = GuardTrack.record(.gps(.run, barometer: false), fixes)
+        #expect(!GuardTrack.tooFast(events).isEmpty == doppler.tooFast, "steps")
+        if !doppler.tooFast {
+            // Vetoed, it counts what a run without a limit counts.
+            var unlimited = TrackProfile.run
+            unlimited.maxSpeed = 100
+            let free = GuardTrack.record(.gps(unlimited, barometer: false), fixes).pipeline.distanceM
+            #expect(abs(p.distanceM - free) < 0.01 && free > 1800, "\(p.distanceM) m, unlimited \(free) m")
+        }
+
+        let flying = GuardTrack.fixes(GuardTrack.speeds([.hold(60, 15)])).map {
+            $0.with(speed: doppler.speed, accuracy: doppler.accuracy)
+        }
+        var q = TrackPipeline(configuration: .gps(.run, barometer: false))
+        for fix in flying[..<30] { _ = q.ingest(fix) }
+        q.start(at: flying[30].timestamp)
+        // The first window closes 10 s after Start: its line decides.
+        let windowEvents = flying[30 ... 40].flatMap { q.ingest($0) }
+        #expect(!GuardTrack.tooFast(windowEvents).isEmpty == doppler.tooFast, "window")
+    }
+
+    /// A ghost inside a settle window that has no anchor (review S3): Start's, or the one after a velocity reset.
+    /// The window's start is the anchor, so its fixes aren't thrown away: a 3-fix ghost at 3, 6 and 9 s after Start is
+    /// a chain bridged from the window's first position (before: −24, −33, −42 m).
+    @Test(arguments: [3, 6, 9])
+    func aGhostInTheStartWindowLosesNothing(at second: Int) {
+        let speeds = GuardTrack.speeds([.hold(200, 3)])
+        let ghost = GuardTrack.Ghost(from: second, count: 3, offset: GuardTrack.ghostOffsets[0])
+        let (p, _) = GuardTrack.record(Self.noAutoPause(.run), GuardTrack.fixes(speeds, ghost: ghost))
+        #expect(abs(p.distanceM - GuardTrack.distance(speeds)) < 1, "\(p.distanceM - GuardTrack.distance(speeds)) m")
+        #expect(p.diagnostics.reinitialisations == 2 && Self.spans(p.diagnostics) == [0, 1, 0])
+    }
+
+    /// A single re-init inside Start's window is dead-reckoned at the window's line speed (5 fixes at 3 m/s before a
+    /// 14-fix ghost); the way back from the ghost, anchored at its settled position, likewise.
+    @Test func aLongGhostInTheStartWindowIsDeadReckoned() {
+        let speeds = GuardTrack.speeds([.hold(200, 3)])
+        let ghost = GuardTrack.Ghost(from: 5, count: 14, offset: GuardTrack.ghostOffsets[0])
+        let (p, _) = GuardTrack.record(Self.noAutoPause(.run), GuardTrack.fixes(speeds, ghost: ghost))
+        #expect(abs(p.distanceM - GuardTrack.distance(speeds)) < 1, "\(p.distanceM - GuardTrack.distance(speeds)) m")
+        #expect(p.diagnostics.reinitialisations == 2 && Self.spans(p.diagnostics) == [2, 0, 0])
+    }
+
+    /// The same 4 s after a 20 s tunnel: the gap is bridged, the velocity reset opens a window, and a 3-fix ghost in
+    /// it is a chain from the tunnel exit (before: −27 m).
+    @Test func aGhostAfterATunnelLosesNothing() {
+        let speeds = GuardTrack.speeds([.hold(200, 3)])
+        let fixes = GuardTrack.fixes(speeds, ghost: GuardTrack.Ghost(from: 124, count: 3, offset: GuardTrack.ghostOffsets[0]))
+        let (p, events) = GuardTrack.record(Self.noAutoPause(.run), Array(fixes[...100]) + Array(fixes[120...]))
+        #expect(events.contains(.gap(seconds: 20, bridged: true)))
+        #expect(abs(p.distanceM - GuardTrack.distance(speeds)) < 1, "\(p.distanceM - GuardTrack.distance(speeds)) m")
+        #expect(Self.spans(p.diagnostics) == [0, 1, 0])
+    }
+
+    /// A pause or an auto-pause ends the too-fast state (review N-a). A car at 15 m/s stops hard; Core Location flags
+    /// the phone stationary and stops sending fixes, so no slow steps arrive: the auto-pause ends it, from where the
+    /// speed dropped. A manual pause while too fast ends it at the pause.
+    @Test func pausesEndTheTooFastState() throws {
+        let speeds = GuardTrack.speeds([.hold(60, 3), Ramp(10, 3, 15), .hold(60, 15), Ramp(4, 15, 0)])
+        var fixes = GuardTrack.fixes(speeds)
+        let last = try #require(fixes.last)
+        fixes.append(LocationFix(timestamp: last.timestamp.addingTimeInterval(1), latitude: last.latitude,
+                                 longitude: last.longitude, horizontalAccuracy: 5, isStationary: true))
+        var p = TrackPipeline(configuration: .gps(.run, autoPause: true, barometer: false))
+        p.start(at: fixes[0].timestamp)
+        var events = fixes.flatMap { p.ingest($0) }
+        #expect(p.tooFastSince != nil, "no slow steps confirmed the end")
+        let end = try #require(fixes.last).timestamp
+        for second in 1 ... 10 { events += p.advance(to: end.addingTimeInterval(Double(second))) }
+        let ended = try #require(GuardTrack.tooFastEnded(events).first)
+        let paused = try #require(events.compactMap { if case let .autoPaused(since) = $0 { since } else { nil } }.first)
+        // From the first slow step of the stop, before the stationary fix the auto-pause starts at.
+        #expect(ended < paused && ended > end.addingTimeInterval(-6))
+        #expect(p.state == .autoPaused && p.snapshot(at: end.addingTimeInterval(10)).tooFastSince == nil)
+
+        let cruise = GuardTrack.fixes(GuardTrack.speeds([.hold(60, 3), Ramp(10, 3, 15), .hold(60, 15)]))
+        var q = TrackPipeline(configuration: Self.noAutoPause(.run))
+        q.start(at: cruise[0].timestamp)
+        _ = SyntheticTrack.run(&q, cruise)
+        #expect(q.tooFastSince != nil)
+        let pauseAt = try #require(cruise.last).timestamp
+        #expect(q.pause(at: pauseAt).contains(.tooFastEnded(since: pauseAt)))
+        #expect(q.tooFastSince == nil)
+    }
+
+    /// A checkpoint taken while a chain is open counts its anchor as dropped (review N-d): a restore can't fill the
+    /// span, and each anchor ends exactly once in the restored counts. The live pipeline still bridges it.
+    @Test func aCheckpointCountsAnOpenAnchorAsDropped() throws {
+        let speeds = GuardTrack.speeds([.hold(200, 3)])
+        let fixes = GuardTrack.fixes(speeds, ghost: GuardTrack.Ghost(from: 100, count: 3, offset: GuardTrack.ghostOffsets[0]))
+        var p = TrackPipeline(configuration: Self.noAutoPause(.run))
+        p.start(at: fixes[0].timestamp)
+        _ = SyntheticTrack.run(&p, Array(fixes[...106]))
+        let saved = try #require(p.checkpoint)
+        #expect(saved.diagnostics.reinitialisations == 2 && Self.spans(saved.diagnostics) == [0, 0, 1])
+        #expect(Self.spans(p.diagnostics) == [0, 0, 0])
+        let restored = TrackPipeline(configuration: Self.noAutoPause(.run), restoring: saved,
+                                     interruptedAt: fixes[106].timestamp)
+        #expect(Self.spans(restored.diagnostics) == [0, 0, 1])
+        _ = SyntheticTrack.run(&p, Array(fixes[107...]))
+        let later = try #require(p.checkpoint)
+        #expect(Self.spans(p.diagnostics) == [0, 1, 0] && Self.spans(later.diagnostics) == [0, 1, 0])
+    }
+
+    /// A fast window closed early by Pause is judged like one that closes on its own (6 s of a flying start at 15 m/s
+    /// on "running"): it's the state, refused, and the pause then ends it. Nothing is released as distance.
+    @Test func aFastWindowClosedByPauseIsRefused() throws {
+        let fixes = GuardTrack.fixes(GuardTrack.speeds([.hold(60, 15)]))
+        var p = TrackPipeline(configuration: Self.noAutoPause(.run))
+        for fix in fixes[..<30] { _ = p.ingest(fix) }
+        p.start(at: fixes[30].timestamp)
+        _ = SyntheticTrack.run(&p, Array(fixes[30 ... 36]))
+        #expect(p.distanceM == 0 && p.tooFastSince == nil)
+        let events = p.pause(at: fixes[36].timestamp)
+        #expect(GuardTrack.tooFast(events) == [fixes[30].timestamp])
+        #expect(GuardTrack.tooFastEnded(events) == [fixes[36].timestamp])
+        #expect(p.distanceM == 0 && p.diagnostics.tooFastSec > 5)
+    }
+
+    struct Entry: CustomTestStringConvertible, Sendable {
+        let name: String
+        let profile: TrackProfile
+        let start: Double
+        let speed: Double
+        let tooFast: Bool
+        var testDescription: String { name }
+    }
+
+    /// The entry speed is the larger of 5 % and 0.6 m/s above the limit: 9.6 m/s for a run (the margin), 26.25 m/s
+    /// for mountain biking (the factor). Noiseless, after a gentle ramp: just below it, no episode and every metre
+    /// counts; just above it, one episode.
+    @Test(arguments: [
+        Entry(name: "run at 9.5", profile: .run, start: 3, speed: 9.5, tooFast: false),
+        Entry(name: "run at 9.75", profile: .run, start: 3, speed: 9.75, tooFast: true),
+        Entry(name: "MTB at 26.0", profile: .mtb, start: 10, speed: 26.0, tooFast: false),
+        Entry(name: "MTB at 26.5", profile: .mtb, start: 10, speed: 26.5, tooFast: true)
+    ])
+    func theEntrySpeedIsTheLargerMargin(_ entry: Entry) {
+        let speeds = GuardTrack.speeds([.hold(60, entry.start), Ramp(30, entry.start, entry.speed), .hold(60, entry.speed),
+                                        Ramp(30, entry.speed, entry.start), .hold(60, entry.start)])
+        let (p, events) = GuardTrack.record(Self.noAutoPause(entry.profile), GuardTrack.fixes(speeds))
+        #expect(GuardTrack.tooFast(events).count == (entry.tooFast ? 1 : 0))
+        if !entry.tooFast {
+            #expect(abs(p.distanceM - GuardTrack.distance(speeds)) < 2, "\(p.distanceM - GuardTrack.distance(speeds)) m")
+        }
     }
 }

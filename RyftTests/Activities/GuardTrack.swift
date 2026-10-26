@@ -55,11 +55,47 @@ enum GuardTrack {
     }
 
     /// 1 Hz fixes from `SyntheticTrack.t0`: fix i is where second i ends, so second i moves at `speeds[i]`. With a
-    /// seed, drifting noise: Gauss–Markov per axis (τ 60 s, σ = accuracy / 2) plus 0.4 m of white jitter.
+    /// seed, drifting noise: Gauss–Markov per axis (τ 60 s, σ = accuracy / 2) plus 0.4 m of white jitter. With
+    /// `doppler`, each fix reports Core Location's Doppler speed: the second's true speed (plus 0.3 m/s of noise with a
+    /// seed). Multipath doesn't move it, so a ghost keeps the true one.
     static func fixes(_ speeds: [Double], accuracy: Double = 5, seed: UInt64? = nil, sigma: Double? = nil,
-                      ghost: Ghost? = nil) -> [LocationFix] {
+                      ghost: Ghost? = nil, doppler: Bool = false) -> [LocationFix] {
         let clean = SyntheticTrack.fixes(speeds.map { SyntheticTrack.Segment(seconds: 1, speed: $0) }, accuracy: accuracy)
-        return perturbed(clean, accuracy: accuracy, seed: seed, sigma: sigma, ghost: ghost)
+        let fixes = perturbed(clean, accuracy: accuracy, seed: seed, sigma: sigma, ghost: ghost)
+        guard doppler else { return fixes }
+        var rng = SeededGenerator(seed: (seed ?? 0) &+ 99)
+        let noise = seed == nil ? 0 : 0.3
+        return fixes.enumerated().map { i, fix in
+            let truth = speeds.isEmpty ? 0 : speeds[max(i - 1, 0)]
+            return fix.with(speed: max(0, truth + noise * rng.gaussian()))
+        }
+    }
+
+    /// Sliding multipath from fix `from` to `until`: the offset moves linearly to a new one of 20–40 m every
+    /// `hop` fixes, reported at `accuracy`. Slow enough for the gates, so the filter follows the slide.
+    static func sliding(_ clean: [LocationFix], from: Int, until: Int, hop: ClosedRange<Int>, accuracy: Double = 10,
+                        seed: UInt64) -> [LocationFix] {
+        var fixes = clean
+        var rng = SeededGenerator(seed: seed &* 31 &+ 7)
+        var i = from
+        var previous = Displacement(east: 0, north: 0)
+        while i < until {
+            let length = hop.lowerBound + Int(rng.next() % UInt64(hop.count))
+            let angle = Double(rng.next() % 360) * .pi / 180
+            let metres = 20 + Double(rng.next() % 20)
+            let target = Displacement(east: metres * sin(angle), north: metres * cos(angle))
+            for j in i ..< min(i + length, until) {
+                let f = Double(j - i + 1) / Double(length)
+                let offset = Displacement(east: previous.east + (target.east - previous.east) * f,
+                                          north: previous.north + (target.north - previous.north) * f)
+                let c = LocalTangentPlane(anchor: clean[j].coordinate).unproject(offset)
+                fixes[j] = LocationFix(timestamp: clean[j].timestamp, latitude: c.latitude, longitude: c.longitude,
+                                       horizontalAccuracy: accuracy, speed: clean[j].speed)
+            }
+            previous = target
+            i += length
+        }
+        return fixes
     }
 
     /// The same along a path whose heading turns by `turns[i]` degrees during second i (in 20 sub-steps).
@@ -101,6 +137,12 @@ enum GuardTrack {
         events.filter { if case .route = $0 { true } else { false } }.count
     }
 
+    /// The entry speed of the too-fast state for a limit (`TrackPipeline.Tuning`'s hysteresis).
+    static func entrySpeed(_ limit: Double) -> Double {
+        let tuning = TrackPipeline.Tuning.standard
+        return max(limit * tuning.tooFastEnterFactor, limit + tuning.tooFastEnterMargin)
+    }
+
     private static func fix(at second: Int, _ c: Coordinate, _ accuracy: Double) -> LocationFix {
         LocationFix(timestamp: SyntheticTrack.t0.addingTimeInterval(Double(second)), latitude: c.latitude,
                     longitude: c.longitude, horizontalAccuracy: accuracy)
@@ -125,5 +167,14 @@ enum GuardTrack {
             return LocationFix(timestamp: fix.timestamp, latitude: c.latitude, longitude: c.longitude,
                                horizontalAccuracy: reported)
         }
+    }
+}
+
+extension LocationFix {
+    /// The same fix reporting a Doppler speed (and its accuracy).
+    func with(speed: Double?, accuracy speedAccuracy: Double? = nil) -> LocationFix {
+        LocationFix(timestamp: timestamp, latitude: latitude, longitude: longitude, altitude: altitude,
+                    horizontalAccuracy: horizontalAccuracy, verticalAccuracy: verticalAccuracy, speed: speed,
+                    speedAccuracy: speedAccuracy, isStationary: isStationary)
     }
 }

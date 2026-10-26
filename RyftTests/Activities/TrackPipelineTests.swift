@@ -204,9 +204,9 @@ struct TrackPipelineTests {
 
     /// The real flow: the filter warms up for 30 s while the user waits for "Ready", then Start and a standing start.
     /// The window opens at Start anyway, so the velocity's lag behind the acceleration isn't lost (review N3: −7, −13
-    /// and −20 m to 3, 6 and 9 m/s before; −0.1, −0.1 and −2.8 m after). The top case is a sprint finish at 8.5 m/s
-    /// since A3a.2 (−2.2 m): 9 m/s is the run's limit itself, where the filter's ringing after the ramp crosses it.
-    @Test(arguments: [3.0, 6.0, 8.5])
+    /// and −20 m to 3, 6 and 9 m/s before; −0.1, −0.1 and −2.8 m after). 9 m/s is the run's limit itself: the
+    /// filter rings over it after the ramp, below the too-fast state's entry speed (−3.1 m since A3a.2's review).
+    @Test(arguments: [3.0, 6.0, 9.0])
     func aStandingStartAfterAWarmUpLosesLittle(to speed: Double) {
         var p = TrackPipeline(configuration: .gps(.run, autoPause: false, barometer: false))
         _ = SyntheticTrack.run(&p, SyntheticTrack.fixes([Segment(seconds: 29, speed: 0)]))
@@ -495,6 +495,29 @@ struct TrackPipelineTests {
         let s = restored.snapshot(at: SyntheticTrack.t0.addingTimeInterval(90))
         #expect(s.distanceM > 100 && s.movingSec == 0)
         #expect(s.averagePace == nil && s.averageSpeed == nil)
+    }
+
+    /// A checkpoint written by A3a, before the A3a.2 counters existed (review N-c): it still decodes, with them at 0.
+    @Test func anA3aCheckpointStillDecodes() throws {
+        let json = #"""
+        {"diagnostics":{"autoPauses":0,"fixesAccepted":401,"gapsBridged":0,"gapsNotBridged":0,"longestGapSec":1,\#
+        "pedometerSamples":0,"reinitialisations":0,"rejectedAccuracy":0,"rejectedImplausible":0,"rejectedInnovation":0,\#
+        "rejectedOutOfOrder":0,"rejectedStale":0},"distanceM":1200.0056067980522,"lapStartDistanceM":0,"laps":[],\#
+        "lastSampleTime":803113600,"pauses":[],"splitStartAscentM":0,"splitStartMovingSec":333.33143162727356,\#
+        "splits":[{"distanceM":1000,"durationSec":333.33143162727356,"end":803113533.3314316,"index":1}],\#
+        "start":803113200}
+        """#
+        let saved = try JSONDecoder().decode(TrackPipeline.Resume.self, from: Data(json.utf8))
+        #expect(saved.diagnostics.fixesAccepted == 401 && saved.diagnostics.longestGapSec == 1)
+        #expect(saved.diagnostics.speedGateReinits == 0 && saved.diagnostics.reinitSpansDropped == 0)
+        #expect(saved.diagnostics.tooFastEpisodes == 0 && saved.diagnostics.tooFastDistanceM == 0)
+        #expect(saved.distanceM > 1200 && saved.splits.map(\.index) == [1])
+        // And what A3a.2 writes reads back the same.
+        var diagnostics = saved.diagnostics
+        diagnostics.speedGateReinits = 2
+        diagnostics.tooFastSec = 12.5
+        let again = try JSONDecoder().decode(PipelineDiagnostics.self, from: JSONEncoder().encode(diagnostics))
+        #expect(again == diagnostics)
     }
 
     @Test func restoreKeepsAManualPause() throws {
