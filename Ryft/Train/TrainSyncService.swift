@@ -87,6 +87,9 @@ final class TrainSyncService {
         self.debounce = debounce
         self.monitorsNetwork = monitorsNetwork
         pendingCount = self.store.pendingOps().count
+        // By binding from the next step on: the default owner reads `AppEnvironment.live`, which `shared` mustn't
+        // touch while it's being built (the live graph's sign-in wipe calls back into `shared`).
+        Task { [weak self] in self?.refreshCount() }
         if monitorsNetwork { startMonitoring() }
     }
 
@@ -145,23 +148,33 @@ final class TrainSyncService {
 
     /// Discard (after confirmation): gone locally; a `DELETE` if the server has a copy.
     func discard(_ s: LocalSession) {
-        let id = s.id, uploaded = s.uploaded
+        // The copy is where its uploads went (`uploadedTo`), whatever the Demo data switch says now: the delete is
+        // bound there, so A's session deleted while demo data shows goes to A's platform once demo is off.
+        let id = s.id, uploaded = s.uploaded, copy = s.uploadedTo
         store.dropOps(for: id)
         store.delete(s)
         // Its own `put` and `complete` went with `dropOps`: sent after the delete, they'd bring the session back.
-        if uploaded { store.enqueue(.delete, sessionID: id, account: owner()) }
+        if uploaded { store.enqueue(.delete, sessionID: id, account: copy) }
         refreshCount()
         Task { await flush() }
     }
 
+    /// Demo data on or off (RyftApp): the count follows the binding in use. Off, demo's ops go: they could only ever
+    /// reach the in-memory platform, which is gone with it.
+    func demoModeChanged(_ on: Bool) {
+        if !on { store.dropOps(account: Self.demoOwner) }
+        refreshCount()
+    }
+
     private func enqueuePut(for id: UUID) {
-        // One queued PUT per session is enough: it sends the document as it is then.
+        // One queued PUT per session and binding is enough: it sends the document as it is then.
+        let owner = owner()
         let last = store.pendingOps().last { $0.sessionId == id }
-        if let last, last.kind == .put, last.seq != inFlightSeq {
+        if let last, last.kind == .put, last.seq != inFlightSeq, Self.belongs(last, to: owner) {
             store.save()
             return
         }
-        store.enqueue(.put, sessionID: id, account: owner())
+        store.enqueue(.put, sessionID: id, account: owner)
         refreshCount()
     }
 
@@ -269,7 +282,8 @@ final class TrainSyncService {
                 continue
             }
             // The binding is checked and the client read in the same step: an op goes only through its own.
-            guard Self.belongs(op, to: owner()) else {
+            let owner = owner()
+            guard Self.belongs(op, to: owner) else {
                 passedOver.insert(op.seq)
                 continue
             }
@@ -277,7 +291,7 @@ final class TrainSyncService {
             inFlightSeq = op.seq
             defer { inFlightSeq = nil }
             do {
-                try await perform(op, generation, client)
+                try await perform(op, generation, client, as: owner)
                 // Another account meanwhile: its queue and sessions aren't this replay's.
                 guard generation == self.generation else { return }
                 store.dequeue(op)
@@ -321,11 +335,13 @@ final class TrainSyncService {
         }
     }
 
-    private func perform(_ op: PendingTrainOp, _ generation: Generation, _ remote: TrainDataSource) async throws {
+    /// `owner`: the binding `remote` belongs to.
+    private func perform(_ op: PendingTrainOp, _ generation: Generation, _ remote: TrainDataSource,
+                         as owner: String?) async throws {
         switch op.kind {
         case .put:
             guard let s = store.session(id: op.sessionId) else { return } // discarded meanwhile
-            try await put(s, generation, remote)
+            try await put(s, generation, remote, as: owner)
         case .complete:
             guard let s = store.session(id: op.sessionId) else { return }
             // `ended_at` from here: the queue may replay this long after the workout.
@@ -348,7 +364,8 @@ final class TrainSyncService {
         }
     }
 
-    private func put(_ s: LocalSession, _ generation: Generation, _ remote: TrainDataSource) async throws {
+    private func put(_ s: LocalSession, _ generation: Generation, _ remote: TrainDataSource,
+                     as owner: String?) async throws {
         var doc = s.wire
         for _ in 0..<Self.maxConflictRounds {
             let result = try await remote.putSession(doc)
@@ -356,10 +373,12 @@ final class TrainSyncService {
             switch result {
             case .saved:
                 s.uploaded = true
+                s.uploadedTo = owner
                 store.save()
                 return
             case .conflict(let server):
                 s.uploaded = true
+                s.uploadedTo = owner
                 let merged = SessionMerge.merge(local: s.wire, server: server, deletedSetIDs: Set(s.deletedSetIDs))
                 s.apply(merged, names: store.exercise(id:), in: store.context)
                 store.save()
@@ -369,8 +388,11 @@ final class TrainSyncService {
         throw APIError.http(409, String(localized: "This workout changed on another device. Open it again to sync."))
     }
 
+    /// The ops the client in use can send: another binding's (demo's after demo data is switched off, the
+    /// account's while it's on) don't show as waiting here.
     private func refreshCount() {
-        pendingCount = store.pendingOps().count
+        let owner = owner()
+        pendingCount = store.pendingOps().filter { Self.belongs($0, to: owner) }.count
     }
 
     // MARK: network

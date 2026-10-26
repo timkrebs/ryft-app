@@ -79,7 +79,8 @@ final class SyncService {
     private(set) var pausedFor: UploadGate?
     /// Asked before the first HealthKit read and before every page (ScreenModels wires
     /// `OnboardingCoordinator.uploadGate(for: .healthKit)`). Nothing syncs before consent to the policy in force.
-    @ObservationIgnored var gate: (@MainActor () -> UploadGate?)?
+    /// **Closed until the app connects it**, like the two outboxes' gates; tests open it explicitly.
+    @ObservationIgnored var gate: @MainActor () -> UploadGate? = { .gate(.consentRequired) }
     /// Scoring usually finishes within a few seconds of an upload or recompute.
     static let rescoreDelay: Duration = .seconds(3)
 
@@ -204,7 +205,7 @@ final class SyncService {
         // Behind a gate nothing goes out; the anchors stay, so the pages follow once it's passed. A policy this
         // phone doesn't know right now is asked for first, before any HealthKit read (ADR 0008). Its failure is the
         // run's error, with its request ID.
-        var hold = gate?()
+        var hold = gate()
         // (Not before the first unlock: nothing could be stored, so the run holds.)
         if hold == .policyUnknown, env.consent.isRecordReadable {
             // The run starts here, with that read (shown as reading).
@@ -217,10 +218,13 @@ final class SyncService {
             } catch {
                 lastError = error.localizedDescription
                 lastErrorDetails = error.diagnosticDetails
+                // Held as well as failed: when the policy arrives another way (the flags' refresh, a check), the
+                // release edge runs the sync again (`ScreenModels.gateChanged`).
+                pausedFor = .policyUnknown
                 advance(to: .failed)
                 throw error
             }
-            hold = gate?()
+            hold = gate()
             if hold != nil { advance(to: .idle) }
         }
         if let hold {
@@ -243,7 +247,12 @@ final class SyncService {
                                          osVersion: AppInfo.osVersion, now: env.clock.now(),
                                          gzip: env.flags.isOn(.syncGzip))
         do {
-            let result = try await engine.run(context, gate: { [weak self] in await self?.gate?() }) { [weak self] event in
+            // Asked before every page. A service that's gone holds (nothing can show or release it).
+            let gate: @Sendable () async -> UploadGate? = { [weak self] in
+                guard let self else { return .gate(.consentRequired) }
+                return await self.gate()
+            }
+            let result = try await engine.run(context, gate: gate) { [weak self] event in
                 await self?.apply(event, for: account)
             }
             lastDaysTouched = result.touched

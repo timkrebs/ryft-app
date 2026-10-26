@@ -95,9 +95,11 @@ final class ScreenModels {
         guard gate == nil else { return }
         switch path {
         case .healthKit:
+            // Only a held sync, and only when none is running or queued (`agree()` starts its own): that one reads
+            // the gate itself, and a rerun after it would be an extra pass.
             guard sync.pausedFor != nil else { return }
             let coordinator = coordinator
-            Task { await coordinator.run(.appActive) }
+            Task { await coordinator.runIfIdle(.appActive) }
         case .activities:
             let uploader = state.env.uploader
             Task { await uploader.flush() }

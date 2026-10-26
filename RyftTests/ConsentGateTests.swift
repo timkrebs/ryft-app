@@ -109,7 +109,7 @@ private final class ConsentHarness {
 
     /// A SyncService with the coordinator's gate, as ScreenModels wires it.
     func sync() -> SyncService {
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         sync.gate = { [onboarding] in onboarding.uploadGate(for: .healthKit) }
         return sync
     }
@@ -130,8 +130,11 @@ private final class ConsentHarness {
 @MainActor
 private final class CountingSteps: SyncSteps {
     private(set) var uploads = 0
+    /// Holds each upload open until released (a sync in flight).
+    var hold: RequestHold?
     func upload() async throws -> [String] {
         uploads += 1
+        await hold?.wait()
         return []
     }
     var hasBacklog: Bool { false }
@@ -489,6 +492,24 @@ struct ConsentRecordTests {
         #expect(h.onboarding.uploadGate(for: .activities, write: .erasure) == .policyUnknown)
     }
 
+    @Test func theLiveGraphsFallbackStoreIsNeverReadable() async throws {
+        let h = ConsentHarness() // an in-memory store, as `TrainStore`'s fallback before the first unlock
+        try await h.cachedUser()
+        h.consent.requiresDurableStore = true // as the live graph has it
+        h.consent.reload()
+        h.answer()
+        h.consent.refused(.consentRequired, at: h.clock.now())
+        #expect(!h.consent.isRecordReadable && h.consent.latestPolicyVersion == nil && h.consent.refusals.isEmpty)
+        #expect(h.persistence.document(ConsentState.Record.self, key: ConsentState.key(h.account)) == nil)
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .policyUnknown)
+        #expect(h.onboarding.uploadGate(for: .activities, write: .erasure) == .policyUnknown)
+        // The unlock can't bring the file back into this process.
+        NotificationCenter.default.post(name: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil)
+        #expect(!h.consent.isRecordReadable)
+        try? await h.consent.revalidate()
+        #expect(h.api.count("config") == 0)
+    }
+
     @Test func aNewAnswerAndTheRefusalsEndReleaseTheGateForObservers() async throws {
         let h = ConsentHarness()
         try await h.cachedUser()
@@ -550,6 +571,22 @@ struct ConsentWriterTests {
         #expect(h.consent.refusals.isEmpty)
         // Warn mode (`X-RYFT-Gate`, `GET /v1/me/sync`): kept too, on purpose (N4).
         h.status.observe([.consentRequired], enforced: false)
+        #expect(h.consent.refusals == [.consentRequired])
+    }
+
+    @Test func aLateRefusalForTheLeavingAccountIsntTheNextOnes() async {
+        let h = ConsentHarness()
+        h.state.bindAccountHooks(h.auth, apiStatus: h.status)
+        h.status.record(.init(date: .now, method: "GET", path: "/v1/me", status: 503, requestID: "a-1"))
+        let startedForA = h.status.epoch // a request A sent, still on its way
+        await h.signIn(ConsentHarness.b) // straight from A to B: the wipe runs inside the switch
+        #expect(h.auth.accountID == ConsentHarness.b.uuidString)
+        #expect(h.status.epoch == startedForA + 1 && h.status.failures.isEmpty) // A's requests forgotten already
+        // A's 403 lands after B's session is published, before the app's account-change handler runs a runloop later.
+        h.status.observe([.consentRequired], enforced: true, epoch: startedForA)
+        #expect(h.consent.refusals.isEmpty && h.status.gates.isEmpty)
+        // B's own refusal counts.
+        h.status.observe([.consentRequired], enforced: true, epoch: h.status.epoch)
         #expect(h.consent.refusals == [.consentRequired])
     }
 
@@ -665,7 +702,7 @@ struct ConsentWriterTests {
         await launch.check() // offline: nothing asked
         let step: OnboardingCoordinator.Step = code == .consentRequired ? .consent : .invite
         #expect(launch.pendingGate == step)
-        let sync = SyncService(env: h.env)
+        let sync = SyncService.ungated(env: h.env)
         let today = TodayViewModel(state: h.state, sync: sync,
                                    coordinator: SyncCoordinator(steps: LiveSyncSteps(state: h.state, sync: sync),
                                                                 clock: h.clock),
@@ -712,7 +749,18 @@ struct ConsentSyncTests {
         let sync = h.sync()
         await #expect(throws: APIError.self) { try await sync.upload() }
         #expect(sync.phase == .failed && sync.lastErrorDetails?.contains("fault-config") == true)
+        #expect(sync.pausedFor == .policyUnknown) // held too: the release edge runs it again
         #expect(health.pageReads == 0 && health.recentReads == 0 && h.api.count("sync") == 0)
+    }
+
+    @Test func closedUntilTheAppConnectsIt() async throws {
+        let health = MockHealthStore(pages: [.quantity(.heartRate): [ConsentHarness.page()]])
+        let h = ConsentHarness(health: health)
+        try await h.cachedUser()
+        h.answer()
+        let sync = SyncService(env: h.env)
+        #expect(try await sync.upload() == [])
+        #expect(sync.pausedFor == .gate(.consentRequired) && h.api.count("sync") == 0 && health.pageReads == 0)
     }
 
     @Test func aLockedRecordHoldsWithoutAskingTheConfig() async throws {
@@ -767,7 +815,7 @@ struct ConsentSyncTests {
         ]])
         let h = ConsentHarness(health: health)
         let api = h.api
-        let sync = SyncService(env: h.env)
+        let sync = SyncService.ungated(env: h.env)
         sync.gate = { api.count("sync") >= 1 ? .gate(.consentRequired) : nil } // closes after page 1, locally
         _ = try await sync.upload()
         #expect(api.count("sync") == 1 && health.committed.count == 1)
@@ -780,7 +828,7 @@ struct ConsentSyncTests {
         let health = MockHealthStore(pages: [.quantity(.heartRate): [ConsentHarness.page()]])
         let h = ConsentHarness(health: health)
         h.consent.isProtectedDataAvailable = { false } // unknown stays unknown: nothing could be stored
-        let sync = SyncService(env: h.env)
+        let sync = SyncService.ungated(env: h.env)
         sync.gate = { hold }
         let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: h.state, sync: sync), clock: h.clock)
         let completions = Tally()
@@ -793,7 +841,7 @@ struct ConsentSyncTests {
         let health = MockHealthStore(pages: [.quantity(.heartRate): [ConsentHarness.page()]])
         let h = ConsentHarness(health: health, demo: true)
         let before = SyncEngineState.load(account: h.auth.accountID, defaults: h.defaults)
-        let sync = SyncService(env: h.env) // no gate wired: the run itself refuses demo data (privacy review S1)
+        let sync = SyncService.ungated(env: h.env) // the gate open: the run itself refuses demo data (privacy review S1)
         await sync.fullResync()
         await sync.syncNow()
         sync.resendRecent()
@@ -953,7 +1001,7 @@ struct ConsentUploadTests {
 struct ConsentReleaseTests {
     private func screens(_ h: ConsentHarness, steps: CountingSteps, trainSync: TrainSyncService? = nil)
         -> (ScreenModels, SyncService) {
-        let sync = SyncService(env: h.env)
+        let sync = SyncService.ungated(env: h.env)
         let store = TrainStore(inMemory: true)
         let library = TrainLibrary(store: store, remote: { [api = h.api] in api }, restore: false)
         let screens = ScreenModels(state: h.state, sync: sync, coordinator: SyncCoordinator(steps: steps, clock: h.clock),
@@ -997,6 +1045,45 @@ struct ConsentReleaseTests {
         #expect(steps.uploads == 0)
         screens.gateChanged(.healthKit, to: nil)
         #expect(await eventually { steps.uploads == 1 })
+    }
+
+    @Test func aSyncWhosePolicyReadFailedRunsWhenThePolicyArrives() async throws {
+        let h = ConsentHarness()
+        try await h.cachedUser()
+        let steps = CountingSteps()
+        let (screens, sync) = screens(h, steps: steps) // wires the sync's gate
+        h.api.faults["config"] = .init(.status(404, retryAfter: nil))
+        await #expect(throws: APIError.self) { try await sync.upload() }
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .policyUnknown)
+        // The config arrives another way (the flags' refresh, a check): the gate opens.
+        h.api.faults["config"] = nil
+        try await h.consent.fetchConfig()
+        #expect(h.onboarding.uploadGate(for: .healthKit) == nil)
+        screens.gateChanged(.healthKit, to: nil)
+        #expect(await eventually { steps.uploads == 1 })
+    }
+
+    @Test func noRerunWhileASyncIsRunning() async throws {
+        let h = ConsentHarness()
+        try await h.cachedUser()
+        h.answer()
+        let steps = CountingSteps()
+        let (screens, sync) = screens(h, steps: steps)
+        var hold: UploadGate? = .gate(.consentRequired)
+        sync.gate = { hold }
+        _ = try await sync.upload()
+        #expect(sync.pausedFor == .gate(.consentRequired))
+        hold = nil
+        // `agree()`'s own sync is running when the release arrives: it reads the gate itself.
+        let held = RequestHold()
+        steps.hold = held
+        let agreed = Task { await screens.coordinator.run(.userInitiated) }
+        #expect(await eventually { held.waiting == 1 })
+        screens.gateChanged(.healthKit, to: nil)
+        held.release()
+        _ = await agreed.value
+        try? await Task.sleep(for: .milliseconds(30)) // a negative check: no rerun may start
+        #expect(steps.uploads == 1)
     }
 
     @Test func trainsOutboxFlushesWhenItsGateOpens() async throws {
@@ -1135,10 +1222,11 @@ struct ConsentTrainTests {
         sync.sessionChanged(SessionFactory.empty(in: store))
         demo.on = false
         await sync.flush()
-        #expect(live.calls.isEmpty && mock.calls.isEmpty && sync.pendingCount == 1)
+        // Kept (unless demo's switch-off drops it: `demoModeChanged`), never shown as the account's.
+        #expect(live.calls.isEmpty && mock.calls.isEmpty && store.pendingOps().count == 1 && sync.pendingCount == 0)
         demo.on = true
         await sync.flush()
-        #expect(mock.count("putSession") == 1 && live.calls.isEmpty && sync.pendingCount == 0)
+        #expect(mock.count("putSession") == 1 && live.calls.isEmpty && store.pendingOps().isEmpty)
     }
 
     @Test func anAccountOpNeverGoesToTheMock() async {
@@ -1147,7 +1235,7 @@ struct ConsentTrainTests {
         sync.sessionChanged(SessionFactory.empty(in: store))
         demo.on = true
         await sync.flush()
-        #expect(mock.calls.isEmpty && live.calls.isEmpty && sync.pendingCount == 1)
+        #expect(mock.calls.isEmpty && live.calls.isEmpty && store.pendingOps().count == 1 && sync.pendingCount == 0)
         demo.on = false
         await sync.flush()
         #expect(live.count("putSession") == 1 && mock.calls.isEmpty)
@@ -1163,6 +1251,49 @@ struct ConsentTrainTests {
         demo.on = false
         await sync.flush()
         #expect(live.count("putSession") == 1 && mock.calls.isEmpty)
+    }
+
+    @Test func theCountIsTheBindingsAndDemosOpsGoWhenItsOff() async {
+        let demo = Switch(true), live = MockPlatformAPI(), mock = MockPlatformAPI()
+        let (sync, store) = boundOutbox(demo: demo, live: live, mock: mock)
+        sync.sessionChanged(SessionFactory.empty(in: store)) // demo's
+        demo.on = false
+        sync.demoModeChanged(false)
+        #expect(sync.pendingCount == 0 && store.pendingOps().isEmpty) // gone: only the mock could take it
+        sync.sessionChanged(SessionFactory.empty(in: store)) // the account's
+        demo.on = true
+        sync.demoModeChanged(true)
+        #expect(sync.pendingCount == 0 && store.pendingOps().count == 1) // waiting, but not demo's to show
+        demo.on = false
+        sync.demoModeChanged(false)
+        #expect(sync.pendingCount == 1)
+    }
+
+    @Test func aPutIsCoalescedOnlyIntoItsOwnBindings() {
+        let demo = Switch(true), live = MockPlatformAPI(), mock = MockPlatformAPI()
+        let (sync, store) = boundOutbox(demo: demo, live: live, mock: mock)
+        let session = SessionFactory.empty(in: store)
+        sync.sessionChanged(session)
+        sync.sessionChanged(session) // coalesced: the same binding's
+        demo.on = false
+        sync.sessionChanged(session)
+        #expect(store.pendingOps().map(\.account) == [TrainSyncService.demoOwner, "A"])
+    }
+
+    @Test func aDeleteGoesWhereTheUploadsWent() async {
+        let demo = Switch(false), live = MockPlatformAPI(), mock = MockPlatformAPI()
+        let (sync, store) = boundOutbox(demo: demo, live: live, mock: mock)
+        let session = SessionFactory.empty(in: store)
+        sync.sessionChanged(session)
+        await sync.flush()
+        #expect(live.count("putSession") == 1 && session.uploadedTo == "A")
+        demo.on = true
+        sync.discard(session) // deleted while demo data shows
+        await sync.flush()
+        #expect(mock.calls.isEmpty && store.pendingOps().map(\.account) == ["A"])
+        demo.on = false
+        await sync.flush()
+        #expect(live.count("deleteSession") == 1 && store.pendingOps().isEmpty)
     }
 
     @Test func eachOpRecordsItsOwner() {

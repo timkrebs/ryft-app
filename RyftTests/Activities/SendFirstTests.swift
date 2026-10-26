@@ -27,8 +27,8 @@ private struct SendFirstGraph {
         env.uploader.random = { $0.lowerBound }
         env.uploader.gate = { _ in nil } // consent given: what goes up, goes up
         state = AppState(env: env)
-        state.bindAccountHooks(auth)
-        let sync = SyncService(env: env)
+        state.bindAccountHooks(auth, apiStatus: APIStatus())
+        let sync = SyncService.ungated(env: env)
         profile = ProfileViewModel(state: state, sync: sync,
                                    coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: clock),
                                    apiStatus: APIStatus())
@@ -87,7 +87,7 @@ struct SendFirstTests {
         // Demo data's client is in use: the account's rows can't go up.
         let env = AppEnvironment.preview(flags: [.activitiesManual: true])
         let state = AppState(env: env)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let profile = ProfileViewModel(state: state, sync: sync,
                                        coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock),
                                        apiStatus: APIStatus())

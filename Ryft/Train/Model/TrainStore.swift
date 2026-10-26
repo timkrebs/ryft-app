@@ -178,6 +178,13 @@ final class TrainStore {
         save()
     }
 
+    /// Every op of one binding (`PendingTrainOp.account`).
+    func dropOps(account: String) {
+        let owner: String? = account
+        try? context.delete(model: PendingTrainOp.self, where: #Predicate { $0.account == owner })
+        save()
+    }
+
     func dropOps(for sessionID: UUID) {
         try? context.delete(model: PendingTrainOp.self, where: #Predicate { $0.sessionId == sessionID })
         save()

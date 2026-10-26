@@ -1083,7 +1083,7 @@ struct ReadSchedulerTests {
         api.faults["me"] = .init(.status(503, retryAfter: nil))
         let (_, state, _) = readGraph(api: api)
         await state.refresh()
-        let sync = SyncService(env: state.env)
+        let sync = SyncService.ungated(env: state.env)
         let model = SyncDetailsModel(state: state, sync: sync,
                                      coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
                                                                   clock: state.env.clock),
@@ -1190,7 +1190,7 @@ private final class SlowUploadSteps: SyncSteps {
     var statusDuration: Duration = .zero
 
     init(state: AppState, clock: TestClock, uploadDuration: Duration) {
-        live = LiveSyncSteps(state: state, sync: SyncService(env: state.env), apiStatus: APIStatus())
+        live = LiveSyncSteps(state: state, sync: SyncService.ungated(env: state.env), apiStatus: APIStatus())
         self.state = state
         self.clock = clock
         self.uploadDuration = uploadDuration
@@ -1306,7 +1306,7 @@ struct PullToRefreshTests {
         api.faults["days"] = .init(.timeout)
         api.faults["insights"] = .init(.unavailable)
         let (env, state, clock) = readGraph(api: api)
-        let c = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: SyncService(env: env)), clock: clock)
+        let c = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: SyncService.ungated(env: env)), clock: clock)
         let outcome = await c.run(.silentPush(days: [DayFormat.string(from: clock.now())]))
         #expect(outcome.error == nil && !outcome.cancelled)
         #expect(env.reads.states[.history]?.consecutiveFailures == 1)
@@ -1525,7 +1525,7 @@ struct ReadSchedulerWaiterTests {
         await env.auth.signOut(reason: .sessionExpired)
         state.accountChanged(from: account)
         let sent = api.calls.count
-        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: SyncService(env: env)), clock: clock)
+        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: SyncService.ungated(env: env)), clock: clock)
         _ = await coordinator.run(.silentPush(days: [DayFormat.string(from: clock.now())]))
         #expect(api.calls.count == sent)                        // nothing went out signed out
         #expect(env.reads.states.isEmpty)
@@ -1880,7 +1880,7 @@ struct ReadRecordSuspensionTests {
         let api = MockPlatformAPI()
         api.faults["insights"] = .init(.status(503, retryAfter: nil))
         let (env, state, clock) = readGraph(api: api)
-        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: SyncService(env: env)), clock: clock)
+        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: SyncService.ungated(env: env)), clock: clock)
         let router = DeepLinkRouter(state: state, sleep: SleepViewModel(state: state),
                                     strain: StrainViewModel(state: state, store: TrainStore(inMemory: true)),
                                     insights: InsightsViewModel(state: state))

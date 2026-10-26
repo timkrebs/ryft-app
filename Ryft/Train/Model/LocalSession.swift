@@ -26,6 +26,9 @@ final class LocalSession {
     var pendingCompletion = false
     /// The server has a copy (a discard then needs a `DELETE`).
     var uploaded = false
+    /// Whose platform has it: the binding its uploads went to (an account's ID, or `TrainSyncService.demoOwner` for
+    /// the in-memory platform). A discard's `DELETE` is bound there. Nil from builds before P2: the signed-in account's.
+    var uploadedTo: String?
     /// `[PersonalRecord]` returned by the completion.
     var prsData: Data?
     /// The running rest timer, so it survives the app being killed.

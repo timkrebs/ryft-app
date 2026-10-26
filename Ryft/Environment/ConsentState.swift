@@ -108,6 +108,10 @@ final class ConsentState {
         UIApplication.shared.isProtectedDataAvailable
     }
     @ObservationIgnored private var unlockObserver: NSObjectProtocol?
+    /// The live graph's (`AppEnvironment.live`): the record counts only in the account's store on disk. A process
+    /// that started before the first unlock and fell back to `TrainStore`'s in-memory store never reads or writes it
+    /// there, so it holds every write until it's relaunched (an unlock can't bring the file back into this process).
+    @ObservationIgnored var requiresDurableStore = false
 
     init(env: AppEnvironment) {
         self.env = env
@@ -134,10 +138,13 @@ final class ConsentState {
         if let memo, memo.binding == binding { return memo.record }
         let stored = env.persistence.document(Record.self, key: Self.key(account))
         // Nothing read while the store may be locked isn't kept: the next read, after the unlock, asks again
-        // (privacy review N2). A record read is kept either way.
-        if stored != nil || isProtectedDataAvailable() { memo = (binding, stored) }
+        // (privacy review N2). A record read is kept either way. Nothing from a fallback store is kept at all.
+        if storeHoldsRecords, stored != nil || isProtectedDataAvailable() { memo = (binding, stored) }
         return stored
     }
+
+    /// The store the record is read from and written to lasts: always in tests and previews, on disk in the live graph.
+    private var storeHoldsRecords: Bool { !requiresDurableStore || env?.persistence.isDurable == true }
 
     /// The record could be read for the current binding (always signed out or in demo, where there's none). False
     /// before the first unlock when nothing came back: then every write holds (`policyUnknown`) and `revalidate`
@@ -145,6 +152,7 @@ final class ConsentState {
     var isRecordReadable: Bool {
         _ = record
         guard let env, !env.isDemo, env.auth.accountID != nil else { return true }
+        // Never memoised from a fallback store (`record`), so that's never readable either.
         return memo?.binding == AccountBinding(env)
     }
 
@@ -209,7 +217,7 @@ final class ConsentState {
     }
 
     private func write(_ change: (inout Record) -> Void) {
-        guard let env, !env.isDemo, let account = env.auth.accountID else { return }
+        guard let env, !env.isDemo, let account = env.auth.accountID, storeHoldsRecords else { return }
         var updated = record ?? Record()
         let before = updated
         change(&updated)

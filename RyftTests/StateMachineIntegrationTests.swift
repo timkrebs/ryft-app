@@ -67,7 +67,7 @@ struct StateMachineIntegrationTests {
         ]])
         let api = MockPlatformAPI()
         let env = AppEnvironment.test(api: api, health: health)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         #expect(sync.phase == .idle && !sync.isSyncing)
 
         _ = try? await sync.upload()
@@ -80,7 +80,7 @@ struct StateMachineIntegrationTests {
     }
 
     @Test func offlineSyncIsOffline() async {
-        let sync = SyncService(env: .test(online: false))
+        let sync = SyncService.ungated(env: .test(online: false))
         _ = try? await sync.upload()
         #expect(sync.phase == .offline)
     }
@@ -90,7 +90,7 @@ struct StateMachineIntegrationTests {
             Sample(type: .heartRate, start: .now, end: .now, value: 60, unit: "bpm", source: "x")])]])
         let api = MockPlatformAPI()
         api.failure = APIError.http(500, "")
-        let sync = SyncService(env: .test(api: api, health: health))
+        let sync = SyncService.ungated(env: .test(api: api, health: health))
         _ = try? await sync.upload()
         #expect(sync.phase == .failed)
     }

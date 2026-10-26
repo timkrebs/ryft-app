@@ -56,7 +56,7 @@ private final class AccountHarness {
         state = AppState(env: env)
         env.uploader.random = { $0.lowerBound }
         env.uploader.gate = { _ in nil }
-        if bindHooks { state.bindAccountHooks(auth) }
+        if bindHooks { state.bindAccountHooks(auth, apiStatus: APIStatus()) }
         recorded = { [weak self] in self?.wipes.append($0) }
     }
 
@@ -376,7 +376,7 @@ struct AccountReviewTests {
         let parked = h.insert(a)
         h.persistence.wipe(parkingActivitiesOf: a, at: h.clock.now()) // parked by an expiry before a kill
         #expect(h.rows(of: a).first?.parkedAt != nil)
-        h.state.bindAccountHooks(h.auth) // the launch
+        h.state.bindAccountHooks(h.auth, apiStatus: APIStatus()) // the launch
         let otherLeft = h.rows().contains { $0.id == other }
         #expect(!otherLeft)
         #expect(h.rows().map(\.id) == [parked] && h.rows().first?.parkedAt == nil)
@@ -537,7 +537,7 @@ struct AccountRecheckTests {
         let h = AccountHarness(bindHooks: false)
         h.insert(AccountHarness.accountA) // A's own, not parked
         let revision = h.env.activities.revision
-        h.state.bindAccountHooks(h.auth)
+        h.state.bindAccountHooks(h.auth, apiStatus: APIStatus())
         #expect(h.env.activities.revision == revision)
         #expect(!h.persistence.context.hasChanges)
     }

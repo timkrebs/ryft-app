@@ -180,6 +180,15 @@ actor SyncCoordinator {
         return await next.value
     }
 
+    /// Runs `trigger` only when no sync is running or queued (checked and started in one step); nil otherwise. For a
+    /// release edge (`ScreenModels.gateChanged`): a sync already on its way reads the gate itself, and a rerun after it
+    /// would be an extra pass.
+    @discardableResult
+    func runIfIdle(_ trigger: Trigger) async -> Outcome? {
+        guard running == nil, queued == nil else { return nil }
+        return await run(trigger)
+    }
+
     /// `GET /v1/me/sync` now, outside a run (pull to refresh's phase 2): through the read pipeline,
     /// so a scoring poll in flight is joined, with the step's effects (the screens' state, gates,
     /// an operator's re-sync request). A failure is recorded there, not here.

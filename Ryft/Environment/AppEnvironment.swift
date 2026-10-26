@@ -78,12 +78,18 @@ final class AppEnvironment {
     }
 
     /// The app's graph, built once at launch.
-    static let live = AppEnvironment(
-        settings: .shared, health: HealthKitManager.shared, liveAPI: APIClient.shared,
-        demoAPI: MockPlatformAPI(activities: .demoSource()),
-        auth: .shared, persistence: TrainStore.shared, clock: SystemClock(), notifier: SystemNotifier(),
-        flags: FlagStore.shared, connectivity: .shared, content: WebContentSource(),
-        contentDirectory: URL.applicationSupportDirectory.appendingPathComponent("Content", isDirectory: true))
+    static let live: AppEnvironment = {
+        let env = AppEnvironment(
+            settings: .shared, health: HealthKitManager.shared, liveAPI: APIClient.shared,
+            demoAPI: MockPlatformAPI(activities: .demoSource()),
+            auth: .shared, persistence: TrainStore.shared, clock: SystemClock(), notifier: SystemNotifier(),
+            flags: FlagStore.shared, connectivity: .shared, content: WebContentSource(),
+            contentDirectory: URL.applicationSupportDirectory.appendingPathComponent("Content", isDirectory: true))
+        // The consent record counts only on disk: `TrainStore`'s in-memory fallback (a launch before the first
+        // unlock) holds every upload instead (ADR 0008).
+        env.consent.requiresDurableStore = true
+        return env
+    }()
 
     /// Previews and tests: a directory of their own that nothing else reads.
     private static func temporaryContentDirectory() -> URL {

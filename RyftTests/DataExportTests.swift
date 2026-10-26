@@ -93,7 +93,7 @@ struct DataExportAccountTests {
                                postAppleAuthorization: { _ in })
         let env = AppEnvironment.test(api: api, clock: clock, auth: auth)
         let state = AppState(env: env)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let profile = ProfileViewModel(state: state, sync: sync,
                                        coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: clock),
                                        apiStatus: APIStatus())
@@ -156,7 +156,7 @@ struct DataExportAccountTests {
         let s = try setup()
         defer { try? FileManager.default.removeItem(at: s.folder) }
         // As RyftApp and ScreenModels connect them.
-        s.state.bindAccountHooks(s.auth)
+        s.state.bindAccountHooks(s.auth, apiStatus: APIStatus())
         s.state.onForgetAccountState = { [profile = s.profile] in profile.forgetExport() }
         await s.profile.export()
         #expect(exportFiles(in: s.folder).count == 1)

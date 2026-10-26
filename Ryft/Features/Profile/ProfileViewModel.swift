@@ -1982,11 +1982,11 @@ final class ReportProblemModel {
 }
 
 extension ProfileViewModel {
-    /// Signed out or another account (`previous`: the account before): its last requests (and the responses still
-    /// on their way) and a report's draft were that account's, and must never go out as this one. A first sign-in
-    /// leaves no account behind, so its first requests (Apple authorization, the gate check) stay.
+    /// Signed out or another account (`previous`: the account before): a report's draft was that account's, and must
+    /// never go out as this one. Its last requests (and the responses still on their way) were forgotten inside the
+    /// wipe already, before the new session was published (`AppState.bindAccountHooks`); a first sign-in leaves no
+    /// account behind, so its first requests (Apple authorization, the gate check) stay.
     func accountChanged(from previous: String?) {
-        if previous != nil { apiStatus.forgetRequests() }
         report.accountChanged()
         // An export's share sheet (and its file) was the previous account's (or demo data's).
         forgetExport()

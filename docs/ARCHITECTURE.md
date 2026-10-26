@@ -202,7 +202,8 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   the Repository's memo.
 - Demo data goes to a separate in-memory store, so it never mixes with an account's.
 - Train's outbox (`PendingTrainOp`) is in the shared store, so each op records whose it is (the account, or demo):
-  it goes only through that binding's client, and another binding's ops wait (ADR 0008).
+  it goes only through that binding's client, and another binding's ops wait, uncounted (ADR 0008). A session's
+  `DELETE` is bound to where its uploads went (`LocalSession.uploadedTo`); demo's ops go when demo data is switched off.
 
 **Migration.** `LegacyCacheMigration` imports the old `ResponseCache` JSON files
 (Caches/ryft-responses) once on first launch, then deletes them. `ResponseCache` is gone.
@@ -521,9 +522,14 @@ mode) serves the request and names the gate in `X-RYFT-Gate`:
     flight, at most once a minute after a failure) before an upload holds for an unknown policy.
   - `APIStatus.onGate` keeps `consent_required` in any mode and `invite_required` only when enforced; a warn-mode
     invite never holds. `check()`, `agree()` and `redeemInvite()` end them.
-  - Read once per `AccountBinding`; wiped with every account wipe; demo reads and writes nothing.
+  - Read once per `AccountBinding`; wiped with every account wipe; demo reads and writes nothing. In the live graph
+    `TrainStore`'s in-memory fallback (a launch before the first unlock) never counts as readable: every write holds.
+  - The wipe forgets the leaving account's requests (`APIStatus.forgetRequests`) before the next session is
+    published, so a late `403` of theirs is never kept as the next account's refusal.
 - **The release edge:** RootView forwards each path's gate to `ScreenModels.gateChanged(_:to:)`; when it opens, the
-  path's queue goes, and a sync whose last run was held runs again. In the background each run asks at its own start.
+  path's queue goes, and a sync whose last run was held (or whose policy read failed) runs again, unless one is already
+  running or queued (`SyncCoordinator.runIfIdle`). In the background each run asks at its own start. Every gate is
+  closed until the app connects it (`SyncService.gate` too).
 - `account_hint` (the platform's guess that this is the same person signed in another
   way) shows once per account; Profile → Sign-in methods links Apple to an email account
   (Supabase identity linking).
