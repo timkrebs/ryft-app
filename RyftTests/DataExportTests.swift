@@ -80,6 +80,7 @@ struct DataExportAccountTests {
         let auth: AuthService
         let clock: TestClock
         let folder: URL
+        let state: AppState
     }
 
     private func setup() throws -> Setup {
@@ -98,7 +99,7 @@ struct DataExportAccountTests {
                                        apiStatus: APIStatus())
         let folder = try makeFolder()
         profile.exportFolder = folder
-        return Setup(profile: profile, api: api, client: client, auth: auth, clock: clock, folder: folder)
+        return Setup(profile: profile, api: api, client: client, auth: auth, clock: clock, folder: folder, state: state)
     }
 
     @Test(.timeLimit(.minutes(1))) func theAccountGetsItsOwnExport() async throws {
@@ -130,6 +131,42 @@ struct DataExportAccountTests {
         #expect(exportFiles(in: s.folder).isEmpty)
     }
 
+    @Test(.timeLimit(.minutes(1))) func anArchiveThatFinishesAfterAnotherAccountCameAndWentIsDropped() async throws {
+        let s = try setup()
+        defer { try? FileManager.default.removeItem(at: s.folder) }
+        let clock = s.clock
+        let a = try #require(s.auth.accountID.flatMap(UUID.init(uuidString:)))
+        s.api.beforeMe = { try? await clock.sleep(for: .seconds(1)) }
+        let exporting = Task { await s.profile.export() }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+
+        // A, B, then A again: the same id, but B's session (and the wipes) came in between.
+        s.client.emit(.signedIn, .preview(id: UUID()))
+        #expect(await eventually { s.auth.accountID != a.uuidString })
+        s.client.emit(.signedIn, .preview(id: a))
+        #expect(await eventually { s.auth.accountID == a.uuidString })
+        clock.advance(by: .seconds(1))
+        await exporting.value
+
+        #expect(s.profile.exported == nil && s.profile.exportError == nil)
+        #expect(exportFiles(in: s.folder).isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aWipeRemovesTheExportFile() async throws {
+        let s = try setup()
+        defer { try? FileManager.default.removeItem(at: s.folder) }
+        // As RyftApp and ScreenModels connect them.
+        s.state.bindAccountHooks(s.auth)
+        s.state.onForgetAccountState = { [profile = s.profile] in profile.forgetExport() }
+        await s.profile.export()
+        #expect(exportFiles(in: s.folder).count == 1)
+
+        await s.auth.signOut()
+
+        #expect(s.profile.exported == nil)
+        #expect(exportFiles(in: s.folder).isEmpty)
+    }
+
     @Test(.timeLimit(.minutes(1))) func anAccountChangeClosesTheSheetAndRemovesTheFile() async throws {
         let s = try setup()
         defer { try? FileManager.default.removeItem(at: s.folder) }
@@ -156,5 +193,26 @@ struct AccountBindingTests {
         #expect(owner.isCurrent(in: live))
         #expect(!owner.isCurrent(in: demo))
         #expect(AccountBinding(demo).demo)
+    }
+
+    @Test func anAccountThatWentAndCameBackIsntCurrent() async throws {
+        let client = MockAuthClient(session: .preview())
+        let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
+        let auth = AuthService(client: client, defaults: defaults, wipeLocalData: { _ in },
+                               deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                               postAppleAuthorization: { _ in })
+        let env = AppEnvironment.test(auth: auth)
+        let a = try #require(auth.accountID.flatMap(UUID.init(uuidString:)))
+        let owner = AccountBinding(env)
+        // Lets the auth service's session observation start listening.
+        for _ in 0..<20 { await Task.yield() }
+
+        client.emit(.signedIn, .preview(id: UUID()))
+        #expect(await eventually { auth.accountID != a.uuidString })
+        client.emit(.signedIn, .preview(id: a))
+        #expect(await eventually { auth.accountID == a.uuidString })
+
+        #expect(AccountBinding(env).account == owner.account)
+        #expect(!owner.isCurrent(in: env), "A, B, then A again")
     }
 }

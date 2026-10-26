@@ -1985,9 +1985,7 @@ extension ProfileViewModel {
         if previous != nil { apiStatus.forgetRequests() }
         report.accountChanged()
         // An export's share sheet (and its file) was the previous account's (or demo data's).
-        exported = nil
-        exportError = nil
-        removeExportFiles()
+        forgetExport()
     }
 }
 
