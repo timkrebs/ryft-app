@@ -106,6 +106,9 @@ Garmin Connect after 08:00).
 - **The SwiftData store is in the App Group container** (`TrainStore.swift:22`, `.automatic`), so the widget can read it. Move it
   to `groupContainer: .none` with a one-time move (also needed by activities, privacy review S1).
 - **Older onboarding keys** (`firstRunDone`, `aboutYouDone`, `hintSeen`) keep a deleted account's id in defaults.
+- **RFC 3339 fast path** (`perf: fast date parsing for cached reads`): its equivalence with `ISO8601DateFormatter` was verified
+  on iOS 27 only (millions of inputs, bit-identical). Run `DateParsingTests` once on an iOS 17 or 18 runtime or device before
+  the next release.
 - **The catalog crash-guard hashing and marker** run on main after the first frame (a few ms). Move them into one
   `@concurrent` helper.
 - **RYFT on an iPhone Duo:** the tabs become a side strip. Check the layout and the UI-test queries.
