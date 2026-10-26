@@ -175,6 +175,18 @@ final class AuthService {
         case accountDeleted(background: Bool)
     }
 
+    /// One wipe of this phone's per-account data, and what it keeps (design.md §8.4).
+    struct Wipe: Equatable {
+        /// Why the session ended; nil when another account's session replaced it.
+        let reason: SignOutReason?
+        /// The account that's leaving, when known.
+        let account: String?
+
+        /// Whose activities, manual sleep and privacy zones stay, parked and bound to their account for 30 days:
+        /// the leaving account's after a session expiry (it may sign in again), nobody's otherwise.
+        var parking: String? { reason == .sessionExpired ? account : nil }
+    }
+
     private(set) var session: Session?
     private(set) var user: Auth.User?
     /// The session's phase (`AuthMachine`): restoring → signedOut / signingIn / signedIn
@@ -188,6 +200,28 @@ final class AuthService {
     /// Runs before a user-initiated sign-out and before account deletion, while
     /// the session still works (RyftApp: delete the push registration).
     @ObservationIgnored var beforeSignOut: (@MainActor () async -> Void)?
+    /// Runs when the account changes (signed in, signed out, another account), before the new session (or none) is
+    /// published: so before `accountID` observers, the first upload and the first read. `from` and `to` are the
+    /// accounts; `reason` says why `from`'s session ended (nil for a sign-in). Activities purge other accounts' rows
+    /// by `to` here (design.md §8.4); it doesn't rely on `lastUserKey`, which a sign-out removes.
+    @ObservationIgnored var onAccountWillChange: (@MainActor (_ from: String?, _ to: String?, _ reason: SignOutReason?) -> Void)?
+    /// Runs inside every wipe, right after the local data went: services stop the leaving account's work now, not a
+    /// runloop later when the app's account-change handler runs.
+    @ObservationIgnored var onWipe: (@MainActor (Wipe) -> Void)?
+    /// Why the session is ending, from `signOut(reason:)` until it's applied: the SDK's own `.signedOut` event may
+    /// arrive first.
+    @ObservationIgnored private var endingReason: SignOutReason?
+    /// Runs as an in-app account deletion starts, before the platform is asked: the account's uploads stop.
+    @ObservationIgnored var onAccountDeletionStart: (@MainActor () -> Void)?
+    /// The account `deleteAccount()` is deleting, while it runs. That account's session ending meanwhile (a
+    /// concurrent final 401 or refresh failure) ends as the deletion: nothing of it is parked.
+    private var deletingAccount: String?
+    /// The signed-in account is being deleted: nothing more is uploaded for it. False for another account that
+    /// signed in while an earlier one's deletion still runs.
+    var isDeletingAccount: Bool { deletingAccount != nil && deletingAccount == accountID }
+    /// Counts account changes (sign-in, sign-out, another account): work bound to an account checks it, so A, then
+    /// B, then A again while it ran doesn't pass for "still A".
+    @ObservationIgnored private(set) var accountChanges = 0
     /// A call that isn't a sign-in is running (reset link, new password, deletion).
     private var otherWork = false
     /// Busy: buttons show a spinner.
@@ -203,9 +237,9 @@ final class AuthService {
     private let settings: Settings
     private let defaults: UserDefaults
     /// Per-user local state to drop when the account ends or changes: cached
-    /// responses, HealthKit anchors, per-user defaults. AppState resets itself
-    /// on `accountID` changes.
-    private let wipeLocalData: @MainActor () -> Void
+    /// responses, HealthKit anchors, per-user defaults; after an expiry, all but
+    /// what `Wipe.parking` keeps. AppState resets itself on `accountID` changes.
+    private let wipeLocalData: @MainActor (Wipe) -> Void
     /// `DELETE /v1/me`; injected so tests don't need the platform.
     private let deleteRemoteAccount: () async throws -> AccountDeleted
     /// `POST /v1/me/apple-authorization`; injected for tests.
@@ -214,7 +248,7 @@ final class AuthService {
     private var pendingNonce: String?
 
     init(client: AuthClientProtocol?, settings: Settings = .shared, defaults: UserDefaults = .standard,
-         wipeLocalData: @escaping @MainActor () -> Void = AuthService.wipeSharedLocalData,
+         wipeLocalData: @escaping @MainActor (Wipe) -> Void = AuthService.wipeSharedLocalData,
          deleteRemoteAccount: @escaping () async throws -> AccountDeleted = { try await APIClient.shared.deleteMe() },
          postAppleAuthorization: @escaping (String) async throws -> Void = { try await APIClient.shared.postAppleAuthorization(code: $0) }) {
         self.client = client
@@ -245,11 +279,13 @@ final class AuthService {
                 }
                 // The SDK ended a session nobody signed out of: it expired. (A sign-out
                 // the app started has already left `signedIn`, so it isn't read as one.)
+                var reason: SignOutReason?
                 if change.session == nil, self.session != nil, self.phase == .signedIn || self.phase == .refreshing {
                     self.signOutNotice = SignOutReason.sessionExpired.notice
                     self.machine.enter(.expired)
+                    reason = .sessionExpired
                 }
-                self.apply(change.session)
+                self.apply(change.session, reason: reason)
             }
         }
         if isRestoring {
@@ -553,15 +589,17 @@ final class AuthService {
         // Leave `signedIn` first, so the SDK's own `.signedOut` event isn't read as an expiry.
         machine.enter(reason == .sessionExpired ? .expired : .signedOut)
         signOutNotice = reason.notice
+        endingReason = reason
+        defer { endingReason = nil }
         #if DEBUG
         if settings.apiKeyMode {
             settings.apiKeyMode = false
-            wipeLocalData()
+            wipe(Wipe(reason: reason, account: nil))
         }
         #endif
         // The SDK drops the local session before calling /logout, so this also works offline.
         try? await client?.signOut()
-        apply(nil)
+        apply(nil, reason: reason)
     }
 
     /// `DELETE /v1/me` (data, then the Supabase user), then the same as log out.
@@ -574,10 +612,20 @@ final class AuthService {
         otherWork = true
         await beforeSignOut?()
         defer { otherWork = false }
+        let account = session?.user.id.uuidString
+        // From here this account's session ending for any reason ends as this deletion (no parking), and its uploads
+        // stop.
+        deletingAccount = account
+        defer { deletingAccount = nil }
+        let changesAtStart = accountChanges
+        onAccountDeletionStart?()
         let result: AccountDeleted
         do {
             result = try await deleteRemoteAccount()
         } catch {
+            // The account changed meanwhile, or the call was cancelled (a switch cuts its retries short): whoever is
+            // here now didn't ask, so no message.
+            guard !error.isCancellation, accountChanges == changesAtStart else { return false }
             // 503 (after APIClient's retries) means nothing was deleted.
             errorMessage = (error as? APIError)?.status == 503
                 ? String(localized: "RYFT couldn't delete your account just now. Nothing was deleted. Try again in a moment.")
@@ -585,7 +633,21 @@ final class AuthService {
             errorDetails = error.diagnosticDetails
             return false
         }
-        await signOut(reason: .accountDeleted(background: !result.authUserDeleted))
+        let reason = SignOutReason.accountDeleted(background: !result.authUserDeleted)
+        if session == nil {
+            // The session ended while the platform deleted (a concurrent final 401), and nothing else happened since:
+            // the deletion's notice and wipe. If another account came and went meanwhile, the notice isn't its, and a
+            // wipe would take what it parked: the deleted account's data already went when its session ended.
+            if accountChanges == changesAtStart + 1 {
+                signOutNotice = reason.notice
+                wipe(Wipe(reason: reason, account: account))
+            }
+        } else if session?.user.id.uuidString == account {
+            await signOut(reason: reason)
+        }
+        // Otherwise another account signed in meanwhile (`DELETE /v1/me` retries 503s for up to about 90 s): the
+        // deleted account's data went when its session ended as this deletion; the new account stays signed in, with
+        // its data and without the notice.
         return true
     }
 
@@ -619,16 +681,26 @@ final class AuthService {
         }
     }
 
-    private func apply(_ newSession: Session?) {
+    /// `reason`: why a session that ends here ended. Without one (the SDK ended it on its own) it's an expiry,
+    /// which keeps the account's unsent activities parked rather than deleting them.
+    private func apply(_ newSession: Session?, reason: SignOutReason? = nil) {
         if newSession != nil, session == nil { signOutNotice = nil }
+        let leaving = session?.user.id.uuidString
+        // While its deletion runs, the account's session ending for any reason ends as the deletion (its outcome isn't
+        // known yet; `Wipe.parking` is what matters). A deletion's own reason keeps its `background`.
+        let real = reason ?? endingReason ?? .sessionExpired
+        let deleting = deletingAccount != nil && deletingAccount == leaving
+        let ending: SignOutReason? = newSession != nil ? nil : (deleting ? real.asDeletion : real)
         let previousID = session?.user.id ?? defaults.string(forKey: Self.lastUserKey).flatMap(UUID.init(uuidString:))
         if let newSession {
             // A different account on this phone starts from scratch.
-            if let previousID, previousID != newSession.user.id { wipeLocalData() }
+            if let previousID, previousID != newSession.user.id {
+                wipe(Wipe(reason: nil, account: previousID.uuidString))
+            }
             defaults.set(newSession.user.id.uuidString, forKey: Self.lastUserKey)
         } else if session != nil {
-            // Logged out (by the user, account deleted, or the refresh token was revoked).
-            wipeLocalData()
+            // Logged out (by the user, account deleted, or the session expired).
+            wipe(Wipe(reason: ending, account: leaving))
             defaults.removeObject(forKey: Self.lastUserKey)
             needsNewPassword = false
         }
@@ -636,6 +708,8 @@ final class AuthService {
             // Sign-in methods belong to the account they were loaded for.
             signInMethods = []
             linkError = nil
+            accountChanges += 1
+            onAccountWillChange?(leaving, newSession?.user.id.uuidString, ending)
         }
         session = newSession
         user = newSession?.user
@@ -649,14 +723,20 @@ final class AuthService {
 
     private static let lastUserKey = AccountScope.defaultsKey
 
+    private func wipe(_ wipe: Wipe) {
+        wipeLocalData(wipe)
+        onWipe?(wipe)
+    }
+
     /// Live wipe: cached API responses, HealthKit anchors (the next account
     /// re-syncs the full backfill) and per-user UserDefaults.
-    static func wipeSharedLocalData() {
+    static func wipeSharedLocalData(_ wipe: Wipe) {
         HealthKitManager.shared.resetAnchors()
         SyncEngineState.wipe(defaults: .standard)
         Settings.shared.clearPerUserState()
-        // Cached read models, logged sessions, the offline library and queued uploads are per account.
-        TrainStore.shared.wipe()
+        // Cached read models, logged sessions, the offline library and queued uploads are per account; after an
+        // expiry the account's unconfirmed activities stay, parked (design.md §8.4).
+        TrainStore.shared.wipe(parkingActivitiesOf: wipe.parking)
         // Its replay stops now, not when the app's account-change handler runs a runloop later.
         TrainSyncService.shared.accountChanged()
         TrainLibrary.shared.wipe()
@@ -668,6 +748,8 @@ final class AuthService {
         BedtimePlanner.wipe(defaults: .standard)
         // Whether to save workouts to Apple Health is the account's choice.
         WorkoutHealthExport.wipe(defaults: .standard)
+        // So are the route default, auto-pause and recent sports.
+        ActivityPreferences.wipe(defaults: .standard)
         // A sign-out while the export's share sheet is open (a final 401, or the account deleted): the file holds all
         // of the account's data.
         DataExport.removeFiles()
@@ -675,6 +757,12 @@ final class AuthService {
 }
 
 extension AuthService.SignOutReason {
+    /// The reason as a deletion: a deletion's own as it is, any other end of a session being deleted as one.
+    var asDeletion: Self {
+        if case .accountDeleted = self { return self }
+        return .accountDeleted(background: false)
+    }
+
     /// The one line Welcome shows, or nil for an ordinary log out.
     var notice: String? {
         switch self {

@@ -8,6 +8,7 @@ struct WelcomeView: View {
     @State private var legal: LegalPage?
     @Environment(AuthService.self) private var auth
     @Environment(Settings.self) private var settings
+    @Environment(\.appEnvironment) private var env
     @State private var path: [AuthRoute] = []
 
     var body: some View {
@@ -59,6 +60,11 @@ struct WelcomeView: View {
             if let notice = auth.signOutNotice {
                 InlineMessage(message: notice, systemImage: "person.crop.circle.badge.exclamationmark")
                     .accessibilityIdentifier("welcome.notice")
+            }
+            // Activities and nights a session expiry kept on this iPhone (design.md §8.4). Not behind
+            // `activities.manual`: only an enabled feature parks rows, and signed out the flag reads its default.
+            if let parked = ParkedActivitiesNotice.parkedToMention(in: env) {
+                ParkedActivitiesNotice(parked: parked) { env.activities.purgeParked() }
             }
             VStack(spacing: 12) {
                 AppleSignInButton()
@@ -138,6 +144,25 @@ private struct ValueLine: View {
     return WelcomeView()
         .environment(auth)
         .environment(Settings.shared)
+}
+
+#Preview("Welcome · parked activities") {
+    let auth = AuthService.preview(signedIn: false)
+    auth.signOutNotice = AuthService.SignOutReason.sessionExpired.notice
+    return WelcomeView()
+        .environment(auth)
+        .environment(Settings.shared)
+        .environment(\.appEnvironment, AppEnvironment.previewWithParkedRows())
+}
+
+#Preview("Welcome · parked activities · light system") {
+    let auth = AuthService.preview(signedIn: false)
+    auth.signOutNotice = AuthService.SignOutReason.sessionExpired.notice
+    return WelcomeView()
+        .environment(auth)
+        .environment(Settings.shared)
+        .environment(\.appEnvironment, AppEnvironment.previewWithParkedRows())
+        .preferredColorScheme(.light)
 }
 
 #Preview("Welcome · light system") {

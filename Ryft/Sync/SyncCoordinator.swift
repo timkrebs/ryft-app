@@ -75,11 +75,15 @@ actor SyncCoordinator {
         case processing
         /// A silent push: refresh these days, no upload.
         case silentPush(days: [String])
+        /// The platform took a change to these days that didn't come from HealthKit (an activity or a night the
+        /// user added, edited or deleted; a training import): no upload, the scoring wait, then the refresh.
+        /// Coalesces with a push into one wait for all the days; behind an upload trigger its days ride along.
+        case daysChanged(days: [String])
 
         var priority: TaskPriority {
             switch self {
             case .userInitiated, .appActive, .reconnect: return .userInitiated
-            case .healthKit, .background, .silentPush, .backlog, .processing: return .utility
+            case .healthKit, .background, .silentPush, .daysChanged, .backlog, .processing: return .utility
             }
         }
 
@@ -117,6 +121,9 @@ actor SyncCoordinator {
     private var runningID: UUID?
     private var queued: Task<Outcome, Never>?
     private var queuedTrigger: Trigger?
+    /// `.daysChanged` days that joined the queued rerun: awaited and refreshed even when an upload trigger won the
+    /// merge (`merge` keeps one trigger).
+    private var queuedDays: Set<String> = []
     /// HealthKit deliveries waiting for the queued rerun's upload.
     private var queuedAfterUpload: [@Sendable () -> Void] = []
     /// Where the app is, from its lifecycle (RyftApp: the scene phase, and the launch state
@@ -143,6 +150,8 @@ actor SyncCoordinator {
     var isRunning: Bool { running != nil }
     /// A rerun waits behind the running sync.
     var hasQueuedRun: Bool { queued != nil }
+    /// What that rerun will run, the triggers merged so far.
+    var queuedRunTrigger: Trigger? { queuedTrigger }
 
     /// Runs (or joins) a sync for `trigger` and returns how it ended. `afterUpload` (a
     /// HealthKit delivery's completion) is called as soon as the upload step is over,
@@ -156,6 +165,7 @@ actor SyncCoordinator {
         guard let current = running else { return await start(trigger, afterUpload: afterUpload.map { [$0] } ?? []).value }
         // Busy: one rerun after the current one, shared by every trigger meanwhile.
         if let afterUpload { queuedAfterUpload.append(afterUpload) }
+        if case .daysChanged(let days) = trigger { queuedDays.formUnion(days) }
         if let queued {
             queuedTrigger = merge(queuedTrigger, trigger)
             return await queued.value
@@ -202,6 +212,7 @@ actor SyncCoordinator {
         queued?.cancel()
         queued = nil
         queuedTrigger = nil
+        queuedDays = []
         let waiting = queuedAfterUpload
         queuedAfterUpload = []
         waiting.forEach { $0() }
@@ -213,13 +224,17 @@ actor SyncCoordinator {
         guard !Task.isCancelled else { return Outcome(cancelled: true) }
         let trigger = queuedTrigger ?? .background
         let afterUpload = queuedAfterUpload
+        let days = queuedDays.sorted()
         queued = nil
         queuedTrigger = nil
         queuedAfterUpload = []
-        return await start(trigger, afterUpload: afterUpload).value
+        queuedDays = []
+        return await start(trigger, afterUpload: afterUpload, alsoAwaiting: days).value
     }
 
-    private func start(_ trigger: Trigger, afterUpload: [@Sendable () -> Void]) -> Task<Outcome, Never> {
+    /// `alsoAwaiting`: `.daysChanged` days merged into an upload trigger's run.
+    private func start(_ trigger: Trigger, afterUpload: [@Sendable () -> Void],
+                       alsoAwaiting extraDays: [String] = []) -> Task<Outcome, Never> {
         let id = UUID()
         // A BG task only ever runs in the background; everything else follows the app.
         let background = inBackground || trigger == .processing
@@ -233,7 +248,7 @@ actor SyncCoordinator {
                                         if background { return true }
                                         return await self?.inBackground ?? true
                                     },
-                                    afterUpload: afterUpload)
+                                    afterUpload: afterUpload, alsoAwaiting: extraDays)
             }
             await self?.finished(id, backlog: outcome.backlog && !outcome.cancelled && outcome.error == nil,
                                  trigger: trigger, background: background)
@@ -265,11 +280,15 @@ actor SyncCoordinator {
         }
     }
 
-    /// A silent push's days join whatever else is waiting; any upload trigger wins over a push.
+    /// A silent push's days join whatever else is waiting; with a `.daysChanged` they're one wait for all the
+    /// days. Any upload trigger wins over both (a `.daysChanged`'s days ride along in `queuedDays`).
     private func merge(_ a: Trigger?, _ b: Trigger) -> Trigger {
         switch (a, b) {
         case (.silentPush(let x)?, .silentPush(let y)): return .silentPush(days: Array(Set(x + y)).sorted())
-        case (.silentPush?, _): return b
+        case (.silentPush(let x)?, .daysChanged(let y)), (.daysChanged(let x)?, .silentPush(let y)),
+             (.daysChanged(let x)?, .daysChanged(let y)):
+            return .daysChanged(days: Array(Set(x + y)).sorted())
+        case (.silentPush?, _), (.daysChanged?, _): return b
         case (let a?, _): return a.priority >= b.priority ? a : b
         case (nil, _): return b
         }
@@ -296,9 +315,11 @@ actor SyncCoordinator {
         }
     }
 
+    // Static, so it holds no actor state: every seam comes in as an argument.
+    // swiftlint:disable:next function_parameter_count
     private static func pipeline(_ trigger: Trigger, steps: SyncSteps, clock: AppClock, scoring: ScoringSignal,
                                  inBackground: @Sendable () async -> Bool,
-                                 afterUpload: [@Sendable () -> Void]) async -> Outcome {
+                                 afterUpload: [@Sendable () -> Void], alsoAwaiting extraDays: [String]) async -> Outcome {
         var outcome = Outcome()
         // A HealthKit delivery's completion follows the upload step, however it ended.
         var uploadReported = false
@@ -310,16 +331,32 @@ actor SyncCoordinator {
         defer { uploadDone() }
         do {
             let touched: [String]
-            if case .silentPush(let days) = trigger {
+            switch trigger {
+            case .silentPush(let days):
                 uploadDone()
                 touched = days
-            } else {
-                (touched, outcome.attempts) = try await uploadWithBackoff(steps, clock)
+            case .daysChanged(let days):
                 uploadDone()
+                touched = days
+                outcome.touched = days
+                if await inBackground() {
+                    // As after an upload in the background: the silent push refreshes once scoring is done.
+                    try Task.checkCancellation()
+                    await steps.report(.done)
+                    return outcome
+                }
+                await steps.report(.awaitingScores)
+                outcome.polls = try await awaitScoring(days, steps, clock, scoring)
+            default:
+                let uploaded: [String]
+                (uploaded, outcome.attempts) = try await uploadWithBackoff(steps, clock)
+                uploadDone()
+                // Days a `.daysChanged` brought into this run are awaited and refreshed with the uploaded ones.
+                touched = uploaded + Set(extraDays).subtracting(uploaded).sorted()
                 outcome.touched = touched
                 // Only an upload that sent something leaves a backlog to continue (offline,
                 // gated or demo uploads send nothing).
-                outcome.backlog = touched.isEmpty ? false : await steps.hasBacklog
+                outcome.backlog = uploaded.isEmpty ? false : await steps.hasBacklog
                 outcome.waitingForUnlock = await steps.isWaitingForUnlock
                 if await inBackground() {
                     // The system's time is short: the silent push refreshes once scoring is done.

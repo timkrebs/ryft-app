@@ -32,6 +32,28 @@ final class MockActivitiesSource: ActivitiesAPI, @unchecked Sendable {
     private(set) var puts: [SportActivity] = []
     private(set) var deletes: [UUID] = []
     private(set) var sleepPuts: [String: ManualSleepPut] = [:]
+    private(set) var sleepDeletes: [String] = []
+    /// Every `GET /v1/activities?from&to` range asked for, in order.
+    private(set) var listed: [DateInterval] = []
+    /// Runs before each write (`PUT`, `DELETE`) reaches the platform (tests hold a request open with it). A write
+    /// whose task was cancelled meanwhile throws `CancellationError`, as a cancelled URL request does.
+    var beforeWrite: (@Sendable () async -> Void)? {
+        get { lock.withLock { holdHook } }
+        set { lock.withLock { holdHook = newValue } }
+    }
+    private var holdHook: (@Sendable () async -> Void)?
+    /// Runs before each `GET /v1/activities?from&to` answers (tests change the account during an export with it).
+    var beforeList: (@Sendable () async -> Void)? {
+        get { lock.withLock { listHook } }
+        set { lock.withLock { listHook = newValue } }
+    }
+    private var listHook: (@Sendable () async -> Void)?
+    /// A `PUT` of these ids fails with the error (tests: one row failing again and again).
+    var failingPuts: [UUID: Error] {
+        get { lock.withLock { failures } }
+        set { lock.withLock { failures = newValue } }
+    }
+    private var failures: [UUID: Error] = [:]
 
     /// `seed`: what the platform already holds, scored, for the day of `now` (`demo(on:)`). Tests start empty.
     init(now: @escaping @Sendable () -> Date = { .now }, scoreDelay: TimeInterval = 0,
@@ -55,6 +77,8 @@ final class MockActivitiesSource: ActivitiesAPI, @unchecked Sendable {
             puts = []
             deletes = []
             sleepPuts = [:]
+            sleepDeletes = []
+            listed = []
             seed = initialSeed
         }
     }
@@ -76,7 +100,15 @@ final class MockActivitiesSource: ActivitiesAPI, @unchecked Sendable {
 
     // MARK: ActivitiesAPI
 
+    /// The test hold, then a cancellation check.
+    private func held() async throws {
+        await beforeWrite?()
+        try Task.checkCancellation()
+    }
+
     func putActivity(_ a: SportActivity) async throws -> SportActivity {
+        try await held()
+        if let failure = failingPuts[a.id] { throw failure }
         // Only what a real PUT carries reaches the platform.
         let body = try APIClient.jsonEncoder.encode(SportActivityPut(a))
         let received = try APIClient.jsonDecoder.decode(SportActivity.self, from: body)
@@ -99,8 +131,10 @@ final class MockActivitiesSource: ActivitiesAPI, @unchecked Sendable {
     }
 
     func activities(from: Date, to: Date) async throws -> [SportActivity] {
-        lock.withLock {
-            stored.values.filter { $0.activity.start >= from && $0.activity.start < to }
+        await beforeList?()
+        return lock.withLock {
+            listed.append(DateInterval(start: from, end: max(from, to)))
+            return stored.values.filter { $0.activity.start >= from && $0.activity.start < to }
                 .map { answersWithTrack ? scored($0) : scored($0).withoutRouteOrHeartRate }
                 .sorted { $0.start < $1.start }
         }
@@ -114,6 +148,7 @@ final class MockActivitiesSource: ActivitiesAPI, @unchecked Sendable {
     }
 
     func deleteActivity(id: UUID) async throws {
+        try await held()
         try lock.withLock {
             guard stored.removeValue(forKey: id) != nil else {
                 throw APIError.http(404, "not found", requestID: "mock-activity-404")
@@ -123,6 +158,7 @@ final class MockActivitiesSource: ActivitiesAPI, @unchecked Sendable {
     }
 
     func putManualSleep(day: String, _ body: ManualSleepPut) async throws {
+        try await held()
         guard body.wake > body.bed, body.wake <= now() else {
             throw APIError.http(422, "invalid sleep", requestID: "mock-sleep-422")
         }
@@ -133,10 +169,12 @@ final class MockActivitiesSource: ActivitiesAPI, @unchecked Sendable {
     }
 
     func deleteManualSleep(day: String) async throws {
+        try await held()
         try lock.withLock {
             guard sleeps.removeValue(forKey: day) != nil else {
                 throw APIError.http(404, "not found", requestID: "mock-sleep-404")
             }
+            sleepDeletes.append(day)
         }
     }
 

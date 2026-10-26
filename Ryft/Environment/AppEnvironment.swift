@@ -43,6 +43,8 @@ final class AppEnvironment {
     /// Activities and manual sleep on this iPhone until the platform confirms them, scoped to the account
     /// (`persistence`'s store; demo data's own in memory).
     lazy var activities = ActivityStore(env: self)
+    /// Sends those activities and nights to the platform, and their deletes (`activities`' rows are its queue).
+    lazy var uploader = ActivityUploader(env: self, store: activities)
     /// Fixed for previews (on) and tests (off); live follows the Demo data switch.
     private let demoOverride: Bool?
 
@@ -93,11 +95,15 @@ final class AppEnvironment {
         let defaults = UserDefaults(suiteName: "ryft.preview") ?? .standard
         // Coach marks only in the preview that asks for them.
         defaults.set(!coachMarks, forKey: CoachMarks.doneKey)
-        return AppEnvironment(
+        let env = AppEnvironment(
             settings: .shared, health: MockHealthStore(), liveAPI: api, demoAPI: api, auth: auth ?? .preview(),
             persistence: TrainStore(inMemory: true), clock: SystemClock(), notifier: notifier ?? MockNotifier(),
             flags: StaticFlags(flags), connectivity: .preview(online: online),
             defaults: defaults, demoOverride: true)
+        // Uploads as the app shows them once the gate is known to be open (ScreenModels connects the real one); a
+        // gated preview closes it again.
+        env.uploader.gate = { nil }
+        return env
     }
 
     /// Unit tests: every dependency a mock the test can script and inspect.

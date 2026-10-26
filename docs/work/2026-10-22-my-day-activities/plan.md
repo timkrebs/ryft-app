@@ -37,6 +37,7 @@ opt-in, privacy-trimmed and never lost before the platform confirms it.
 | A5 | `activities: privacy zones and route opt-in` | sync-engineer + ios-developer | no |
 | A6 | `health: save activities with route to Apple Health` | sync-engineer | no |
 | A7 | `docs: activities` | lead | no |
+| P2 | `sync: consent gates know the policy in force` (from A2's privacy review; **before any `privacy_policy_version` bump**, so before `activities.manual`) | sync-engineer, architect note first | no |
 
 Every ticket gets the localization-editor (en + de) and test-engineer. Reviews per `docs/AGENT_FLEET.md`:
 - code-reviewer, always;

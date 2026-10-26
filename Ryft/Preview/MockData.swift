@@ -385,6 +385,34 @@ private extension Double {
     }
 }
 
+#if DEBUG
+/// Demo data's own scenarios, from the same `-RyftScenario` argument as Today's (`TodayScenario`, which ignores
+/// these): what the demo platform serves differently, for UI tests and screenshots. Demo mode only; without the
+/// argument demo data is unchanged.
+enum DemoDataScenario: String {
+    /// No night three days back (the day is scored, its sleep missing): My Day says "No sleep recorded" there and
+    /// Add sleep can be reached. Today's and yesterday's nights stay.
+    case missingNight = "missing-night"
+
+    static var requested: DemoDataScenario? {
+        UserDefaults.standard.string(forKey: "RyftScenario").flatMap(DemoDataScenario.init(rawValue:))
+    }
+
+    /// The day without its night (`missingNight`).
+    static var missingNightDay: String { DayFormat.string(from: DayFormat.shift(.now, days: -3)) }
+
+    func apply(to detail: DayDetail) -> DayDetail {
+        switch self {
+        case .missingNight:
+            guard detail.score.day == Self.missingNightDay else { return detail }
+            var d = detail
+            d.sleep = nil
+            return d
+        }
+    }
+}
+#endif
+
 /// `RyftDataSource` backed by `MockData`.
 struct MockDataSource: RyftDataSource {
     static let shared = MockDataSource()
@@ -436,7 +464,13 @@ struct MockDataSource: RyftDataSource {
         return MockData.history.filter { $0.day >= lo && $0.day <= hi }
     }
 
-    func day(_ date: Date) async throws -> DayDetail { MockData.detail(for: date) }
+    func day(_ date: Date) async throws -> DayDetail {
+        #if DEBUG
+        return DemoDataScenario.requested?.apply(to: MockData.detail(for: date)) ?? MockData.detail(for: date)
+        #else
+        return MockData.detail(for: date)
+        #endif
+    }
 
     func sleep(range: SleepRangeKind) async throws -> SleepRange { MockData.sleepRange(range) }
 

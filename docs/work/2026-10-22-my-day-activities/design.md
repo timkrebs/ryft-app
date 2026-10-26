@@ -87,7 +87,7 @@ flowchart LR
     ST --> UP["ActivityUploader (@MainActor)<br/>revisions · backoff · generation"]
     UP -->|"trim (privacy zones) · encode"| API
     UP -->|"confirmed"| HK["Apple Health (opt-in)"]
-    UP -->|"activitySaved(days)"| SC["SyncCoordinator<br/>awaitScoring → refresh"]
+    UP -->|"daysChanged(days)"| SC["SyncCoordinator<br/>awaitScoring → refresh"]
   end
   API["ActivitiesAPI (PlatformAPI)<br/>fake until API.md"] --> REPO["Repository → CachedDay · CachedDocument activities.&lt;day&gt;"]
   SC --> REPO
@@ -926,13 +926,16 @@ ms). The expensive parts happen above, off the main actor.
 
 ### 4.3 Scoring follow-up: one pipeline
 
-`SyncCoordinator.Trigger` gains **`.activitySaved(days: [String])`** (`SyncCoordinator.swift:70–83`):
+`SyncCoordinator.Trigger` gains **`.daysChanged(days: [String])`** (`SyncCoordinator.swift:70–83`; *rev. A2:* named
+for what it reports, since the training import's batch upload sends it too):
 - like `.silentPush`, it skips the HealthKit upload;
 - unlike it, it runs `awaitScoring(days)`, then the refresh (`:313–356`);
 - its priority is `.utility`; it coalesces with `.silentPush` the same way (`:271`).
 
-It needs the platform to put the activity's day into `pending_days` until rescored (R3). Until then the wait ends at
-its 5-minute cap and the refresh still runs. My Day shows the hollow dot meanwhile.
+It needs the platform to put the activity's day into `pending_days` until rescored (R3). *Rev. A2 (R21 (3)):* until
+the platform lists those days, the wait ends at the first status answer that doesn't list them (after
+`expected_within_sec`, 30 s by default), not at the 5-minute cap, so the refresh can still show the day's old strain.
+My Day shows the hollow dot meanwhile.
 
 ### 4.4 The `ActivitiesAPI` seam (`Ryft/Activities/ActivitiesAPI.swift`, A1)
 
@@ -1523,7 +1526,7 @@ config, `PlatformAPI.swift:144`):
   - `ReadResource.activities`, `Repository.activities(day:)` and `refreshActivities`;
   - `DateStrip`;
   - the four flags.
-- **A2:** `UploadState`, `ActivityUploader`'s API, `SyncCoordinator.Trigger.activitySaved(days:)`,
+- **A2:** `UploadState`, `ActivityUploader`'s API, `SyncCoordinator.Trigger.daysChanged(days:)`,
   `ActivityPreferences`, `AuthService.onAccountWillChange` and `onWipe`, `TrainStore.wipe(parkingActivitiesOf:)`.
 - **A3:**
   - §3.1 `RecordingPhase` and its table;
@@ -1731,7 +1734,7 @@ config, `PlatformAPI.swift:144`):
   - **confirmation:** sets `confirmedRevision` and calls `onConfirmed`;
   - **account change:** an answer for another account is dropped (generation);
   - **delete:** never uploaded → local only; uploaded → `DELETE`; 404 → gone.
-- **`SyncCoordinatorTests`:** `.activitySaved` skips the upload, waits for scoring, refreshes, and coalesces with a
+- **`SyncCoordinatorTests`:** `.daysChanged` skips the upload, waits for scoring, refreshes, and coalesces with a
   push.
 - **Assembler** (a table): every rule of §2.5, merged rows with two badges and the tracker display name, local
   overlay over the server copy, tombstones, the sleep rules with `nightGap`, ordering, strain states.

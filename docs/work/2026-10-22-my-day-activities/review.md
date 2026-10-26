@@ -238,3 +238,146 @@ X1–X4 are fixed, with tests that fail without them, and nothing in the accepta
 - **Before the flag turns on:** sport names "Running" vs workout detail "Run".
 - **German 24 h leading zeros (`Fmt.time`):** a device check.
 - **Possible flake:** `MyDayUITests.testEveryRowHasAVoiceOverSentenceWithItsSources` uses a `descendants(matching: .any)` query that timed out once locally (it passed on retry).
+
+## A2 part 1: uploader, account hooks and export (125f7d9, merged with `main` in e985bf8)
+
+Nothing blocked the commit. The live client publishes nothing before C1, and part 1 had no UI. The findings below would
+lose data, resurrect it, or send it without consent once C1 lands and `activities.manual` turns on. All of them are
+fixed in `fix/a2-review` (sync-engineer, 0ba27f6 and 87551d0), which is merged into `feat/add-activity`.
+
+### code-reviewer (125f7d9): 4 should-fix, 7 nits
+
+| # | Finding | Fix |
+| --- | --- | --- |
+| 1 | A cancelled or interrupted PUT counted as never sent, so a later delete stayed local and the platform kept the activity | Before every PUT, the row persists a sent marker (`UploadAttempt` `.cancelled`, no status). An answer replaces it, and 404 or no-contract clears it. A cancellation keeps it, with no backoff |
+| 2 | Re-adding a night while its DELETE was out deleted the new night | `removeSleep(day:onlyIfDeleted:)` removes the night only while it is still a tombstone. Tested with a held request |
+| 3 | One row failing transiently blocked the whole queue | Backoff is per item. After `failedAfter` failures the row is passed over and the rest go |
+| 4 | The background refresh waited on `flush()` past its expiry | `flush(upTo: 20 s)`, and the expiration handler stops the replay |
+| Nits | Unknown origin showed "Added by you"; `cachedDay` scanned a year; export vs #47; the demo test had no live row; no concurrent-flush test; design §4.3/§10/§11.1 still said `activitySaved` | Neutral badge (part 2); bounded scan; export binding below; both tests added; the design text is carried below |
+
+### security-privacy-reviewer (125f7d9): 4 should-fix, 5 notes
+
+| # | Finding | Fix |
+| --- | --- | --- |
+| 1 | The uploader didn't check consent: every trigger sent one item and was refused, and a gate appearing triggered a flush | `ActivityUploader.gate` reads `onboarding.syncGate`. It is checked in `startReplay` and before each item, and the app flushes only when the gate clears |
+| 2 | An in-app account deletion could park the data instead of deleting it (a concurrent 401 ended the session as an expiry) | `isDeletingAccount` makes any ending a deletion, the uploader stops before `DELETE /v1/me`, and the deletion wipe always runs after success |
+| 3 | The export wasn't bound to one account, and A2 added notes and nights to it | The account is captured before the first await, rows are read with `ofAccount:`, an `accountChanges` counter catches A→B→A, and `forgetExport()` runs inside the wipe. **`TODO(#47)`:** fold into `AccountBinding` and remove the export file |
+| 4 | Parked rows were invisible to the user, and nothing could delete them while signed out | `parkedCount()` and `purgeParked()`. Welcome shows a count-only line and "Delete from this iPhone" (part 2) |
+| N1 | A launch-time sign-in never purged or unparked | Done once when signed in at launch |
+| N3 | Tombstones kept their notes | Cleared on tombstone |
+| N2 | The first attempt doesn't re-check the account after `accessToken()` | **C1** |
+| N4 | The `try?` chunk delete can leave orphans | **A3b** orphan sweep |
+| N5 | Export lacks R11 (manual nights from the platform) and routes | **A5** |
+
+**Decision (lead):** the parked-rows notice on Welcome is not gated on `activities.manual`. Signed out, no account
+evaluates flags, so the flag reads its compiled default. Parked rows can only exist if the feature was on.
+
+## A2 part 2: Add activity, Add sleep and the detail (555d687), and the fix rounds
+
+### code-reviewer (555d687): 3 should-fix, 5 nits
+
+| # | Finding | Fix |
+| --- | --- | --- |
+| B1 | Add or Edit sleep could overwrite another day's night, or add one over the tracker's, because the checks looked at the day the sheet was opened for, not at the wake day | The target day is validated against manual and tracker nights; a move saves the new night before tombstoning the old |
+| B2 | The detail's Edit and Delete ignored `activities.manual` | Gated on the flag |
+| B3 | The ＋ menu offered Add sleep while the tracker's night was only late or being scored | Offered only with the missing-night row |
+| Nits | Add activity just after midnight landed on yesterday; Send first's loop lived in the view (and repeated silently offline or in demo); the merge-note copy; no exception for editing an old night; no midnight or DST tests | All done |
+
+### security-privacy-reviewer (555d687 and the fixes): signed off, 3 should-fix
+
+| # | Finding | Fix |
+| --- | --- | --- |
+| B-1 | The parked-rows notice was behind `activities.manual`, which reads off when signed out | Shown whenever parked rows exist (lead decision above) |
+| A-1 | The upload gate opened for a consent to any policy version until `/v1/config` arrived | `uploadGate` stays closed until the policy version is known and matches; the uploader's gate is closed by default |
+| A-2 | A deletion's success path could sign out another account that signed in meanwhile | The deletion is bound to its account; `isDeletingAccount` is true only for it |
+| Notes | "Log in within 30 days" counted from now; Send first could sign out another account | "Log in by {date}" from `parkedUntil()`; Send first is bound to the account and change counter at the tap |
+
+### code-reviewer re-check (5473810): 1 should-fix, 4 nits
+
+| # | Finding | Fix |
+| --- | --- | --- |
+| A1 (round 2) | An edit or Retry erased the sent marker, so a cut-off upload followed by an edit and a delete stayed local while the platform kept it | A dedicated `sentAt` field that only the uploader sets and only a confirmation clears; `ActivitySchemaUpgradeTests` opens an A1-era store |
+| G1 | The upload gate needed the policy version, which lived in memory only: a cold background launch or an offline start uploaded nothing | Falls back to the account's cached `RemoteConfig`, and the config is refreshed on reconnect |
+| Nits | A deletion cut short by an account switch showed a raw error; "gated" won over "offline"; the upgrade test bypassed `TrainStore`; A2-r (privacy, low): A→B→signed out during a deletion showed A's notice to B | Fixed |
+
+**Carried:**
+- **C1:**
+  - a 2xx this build can't read is recorded as refused forever; treat it as confirming the revision sent;
+  - check the account between building the body and attaching the bearer on the first attempt;
+  - confirm the platform refuses activity and manual-sleep writes for an outdated consent (403).
+- **P2, its own ticket, before any `privacy_policy_version` bump** (sync-engineer, architect note first): the consent gates in background processes.
+  - **HealthKit sync** opens its gate for a consent to any version while `/v1/config` hasn't answered in the process (background wakes, a config that times out, a bump mid-session). Up to one page (20,000 records, 32 MiB) per wake goes to the platform and is refused. Give `syncGate` the upload gate's fail-closed semantics via `policyVersionInForce`.
+  - **Both gates:** use the cached version only while `fetchedAt + ttlSec > now`, and persist a `consent_required` refusal per account until a check finds consent current. Without these, a stale cache after a bump lets one refused item (or page) out per background wake.
+  - **From the re-check of e453232:**
+    - a forced check on every reconnect while the config keeps failing (honour the recheck interval);
+    - a SwiftData read per pending row per render while the session's config is missing (memoise);
+    - a newer cached config doesn't release the gate until the next check.
+- **Platform:** refuse activity and manual-sleep writes for an account whose deletion is in progress (R22); confirm `403 consent_required` on them for an outdated consent (R23); R17 (`account_deleted`).
+
+### Re-checks of e453232
+
+Both reviewers signed off. A2-r and G1 are closed, and another account's cached config is never read. Their remaining
+notes are in P2 above.
+
+### code-reviewer, integration (555d687 → e4cd91c): nothing blocks
+
+The merge of `main` (#47) lost nothing: export cleanup still runs at launch, in every wipe, when the share sheet closes and
+on an account change. B1–B3 and Send first are fixed as asked.
+
+| # | Finding | Fix |
+| --- | --- | --- |
+| D1 | The deletion note read unobserved state: after a failed deletion it stayed, and nothing restarted the queue | Observed; a failed deletion for the same account flushes |
+| Nits | A night from another device read as a tracker's; days not cached on this iPhone weren't checked; Add activity at exactly midnight opened invalid | Neutral wording; the day is loaded first (Save waits); the default window is always valid |
+
+### localization-editor: no changes
+
+The English and German copy is complete, with plurals on the count sentences and matching format arguments.
+
+### ui-validator (5431669): 4 should-fix, nits
+
+| # | Finding | Fix |
+| --- | --- | --- |
+| 1 | German sheet titles truncated ("Aktivität hinzuf…") | Shorter titles |
+| 2 | The splits table mixed km and mi in a miles locale | The table uses its splits' unit (km) throughout; per-mile splits carried to A4 |
+| 3 | The "Fastest" marker broke the pace cell (en and de) | The pace column never wraps; a glyph column, with the word kept for VoiceOver |
+| 4 | "No sleep recorded · Add sleep" wrapped badly at the default size | One line if it fits; otherwise stacked without the dot |
+| Nits | The effort scale's "10" was cropped at AX5; an empty caption gap; a teal toolbar icon; "Use Other" was plain text | Fixed |
+
+**Not reachable in demo mode, still to check:**
+- the uploading, gated, offline and failed states (previews only);
+- Send first (needs unsent rows and a session);
+- 24-hour time on a German device.
+
+**Carried to A4:** the detail's route map and its pace, elevation and HR charts (§8.1.4–8.1.8), "Start activity", per-mile splits.
+
+### test-engineer: UI acceptance in demo mode
+
+`AddActivityUITests` (Full; test 1 in UISmoke):
+- Add activity saves a pending row "Added by you" whose VoiceOver label leaves the notes out;
+- invalid times disable Save, with their reason; the future can't be picked;
+- the detail edits and deletes the new row;
+- Add sleep on a missing night (the `-RyftScenario missing-night` demo scenario);
+- Add sleep is not offered where the tracker has the night;
+- with `activities.manual` off, nothing can be added, edited or deleted.
+
+**Shared helpers:** `RyftUITests/Support/UITestSupport.swift`. `MyDayUITests` now uses typed queries and takes one
+snapshot of the rows instead of re-querying the whole tree in a loop. That loop is the likely cause of its CI timeout
+(the run on #47).
+
+### Gates (846ec54, merged with `main`)
+
+| Check | Result |
+| --- | --- |
+| Strict build | no warnings |
+| Unit plan | 1977 passed |
+| UISmoke | 32 tests; 1 skip that predates A2 |
+| `AddActivityUITests` and `MyDayUITests` | 12 of 12 |
+| `make lint` | clean |
+
+### Simulator only; device checks still to do
+- **The schema upgrade with `sentAt` over a real A1 store.** The upgrade test can't open the store through `TrainStore` itself, so check `isDurable` (no in-memory fallback) on the device, as in N-7.
+- **After C1:**
+  - expire a session with an unsent activity: the parked notice shows on Welcome;
+  - delete the account with an unsent activity: nothing remains on the phone;
+  - background the app during an upload.
+- **24-hour time in German** on a device: the simulator showed 12-hour times.

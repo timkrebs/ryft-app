@@ -78,6 +78,83 @@ final class MyDayViewModel {
         date = calendar.startOfDay(for: day)
     }
 
+    // MARK: adding and editing (`activities.manual`)
+
+    /// Add activity, Add sleep, edit and delete (behind `activities.manual`).
+    var addsManually: Bool { env.flags.isOn(.activitiesManual) }
+
+    /// Add activity and Add sleep reach 14 days back (plan D2-1).
+    func canAdd(on day: Date) -> Bool {
+        let day = calendar.startOfDay(for: day)
+        return addsManually && day <= today && day >= DayFormat.shift(today, days: -AddActivityModel.daysBack)
+    }
+
+    /// Add sleep is offered where the day says "No sleep recorded" (ui.md §2.5 rule 5, §7.4): never while the
+    /// tracker's night is only late or still being scored, nor once a night is there.
+    func offersAddSleep(on day: Date, content: MyDayContent) -> Bool {
+        canAdd(on: day) && content.items.contains {
+            if case .missingSleep = $0.kind { return true }
+            return false
+        }
+    }
+
+    func addActivityModel(on day: Date) -> AddActivityModel { AddActivityModel(env: env, day: day) }
+
+    func addSleepModel(on day: Date) -> AddSleepModel {
+        AddSleepModel(env: env, day: day, night: { [weak self] in self?.night(on: $0) ?? .none },
+                      checkDay: { [weak self] in await self?.checkDay($0) })
+    }
+
+    /// What a wake day already has, for Add and Edit sleep: a night added on this iPhone (a deleted one doesn't
+    /// count), else the platform's cached night unless it's the deleted one the user added; `unknown` while the
+    /// day's detail isn't on this iPhone (`checkDay` loads it).
+    func night(on key: String) -> AddSleepModel.Night {
+        let local = env.activities.manualSleep(onDay: key)
+        if let local, !local.isTombstone { return .added }
+        guard let day = DayFormat.date(from: key) else { return .none }
+        guard let detail = state.cachedDayDetail(for: day) else { return .unknown }
+        guard detail.sleep != nil else { return .none }
+        if let local, let server = MyDayAssembler.platformNight(detail), MyDayAssembler.isAddedNight(server, local) {
+            return .none
+        }
+        return .recorded
+    }
+
+    /// Loads a day's detail for the sleep check (cache-first; a failure leaves it unchecked).
+    func checkDay(_ key: String) async {
+        guard let day = DayFormat.date(from: key) else { return }
+        _ = try? await state.repository.refreshDay(day, mode: .ifStale, userInitiated: true)
+    }
+
+    /// The detail's model for an activity row.
+    func detailModel(_ id: UUID, on day: Date) -> ActivityDetailViewModel {
+        ActivityDetailViewModel(route: ActivityRoute(id: id, day: day), state: state)
+    }
+
+    /// The edit sheet for a row: an editable activity, or a night the user added.
+    func editActivity(_ item: MyDayItem, on day: Date) -> AddActivityModel? {
+        guard addsManually, item.editable, case .activity(let id) = item.kind else { return nil }
+        return detailModel(id, on: day).editModel()
+    }
+
+    func editSleep(_ item: MyDayItem) -> AddSleepModel? {
+        guard addsManually, item.isManualSleep, case .sleep(let key) = item.kind,
+              let night = env.activities.manualSleep(onDay: key) else { return nil }
+        return AddSleepModel(env: env, editing: night, night: { [weak self] in self?.night(on: $0) ?? .none },
+                             checkDay: { [weak self] in await self?.checkDay($0) })
+    }
+
+    /// Delete a row after its confirmation: an activity (a tombstone until the platform confirms) or a night the
+    /// user added.
+    func delete(_ item: MyDayItem, on day: Date) {
+        guard addsManually, item.editable else { return }
+        switch item.kind {
+        case .activity(let id): detailModel(id, on: day).delete()
+        case .sleep(let key) where item.isManualSleep: env.uploader.sleepDeleted(day: key)
+        default: break
+        }
+    }
+
     /// The cached workout behind a row (`WorkoutDetailView`).
     func workout(_ id: UUID, on day: Date) -> Workout? {
         state.cachedDayDetail(for: day)?.workouts.first { $0.id == id }
@@ -254,8 +331,13 @@ extension MyDayInput {
         let sleep = includingSleep ? activities.manualSleep(onDay: key) : nil
         let sessions = store.completedSessions(from: start, to: end).map(\.summary)
         let missing = includingSleep && sleep == nil && detail.map(MyDayAssembler.mayMissNight) == true
-        return MyDayInput(day: key, server: .dayDetail(detail, activities: server), local: local,
-                          localSessions: sessions, localSleep: sleep, nightGap: missing && nightGap())
+        // The uploader knows more than the rows: offline, retrying, gated, failed, not available yet.
+        let uploader = state.env.uploader
+        let uploads = Dictionary(local.filter(\.needsUpload).map { ($0.id, uploader.state(for: $0)) },
+                                 uniquingKeysWith: { first, _ in first })
+        return MyDayInput(day: key, server: .dayDetail(detail, activities: server), local: local, uploads: uploads,
+                          localSessions: sessions, localSleep: sleep,
+                          sleepUpload: sleep.map(uploader.sleepState(for:)), nightGap: missing && nightGap())
     }
 
     /// A row needs a tracker's name: the day has workouts (a merged activity names its workout's tracker).

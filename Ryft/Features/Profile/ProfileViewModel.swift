@@ -97,11 +97,60 @@ final class ProfileViewModel {
     var accountErrorDetails: String? { auth.errorDetails }
 
     func logOut() async { await auth.signOut() }
+
+    /// Activities and nights on this iPhone the platform hasn't confirmed, recordings not saved: what logging out
+    /// would delete. Above 0, the confirmation lists them and offers "Send first" (design.md §8.4).
+    var unconfirmedActivities: Int { env.activities.unconfirmedCount(ofAccount: auth.accountID) }
+
+    /// Whether "Send first" can do anything now.
+    enum SendFirst: Equatable {
+        case available
+        /// Offline: the confirmation says so instead of offering it.
+        case offline
+        /// Nothing can go up now: demo data's client is in use, uploads aren't available yet, or the upload gate
+        /// holds (consent, the invite, or the policy in force not known yet). The confirmation doesn't offer it.
+        case unavailable
+    }
+
+    var sendFirst: SendFirst {
+        if env.isDemo || !env.api.publishesActivities { return .unavailable }
+        // Offline is said first: it's true whatever else holds the queue.
+        if !env.connectivity.isOnline { return .offline }
+        return env.uploader.gate() == nil ? .available : .unavailable
+    }
+
+    /// What "Send first" came to.
+    enum SendFirstOutcome: Equatable {
+        case loggedOut
+        /// Still unconfirmed after the wait: the confirmation asks again with this many.
+        case unsent(Int)
+        /// Another session by the time the queue was sent (the tapping account's ended, maybe someone else's
+        /// began): nobody is logged out.
+        case accountChanged
+    }
+
+    /// "Send first", then log out once nothing is left (design.md §8.4): the queue goes up, waited for 10 s at most
+    /// (it goes on after that). Only the account that tapped it is logged out: if its session ended meanwhile, or
+    /// another account signed in, nothing more happens.
+    func sendFirstThenLogOut() async -> SendFirstOutcome {
+        let account = auth.accountID, changes = auth.accountChanges
+        guard account != nil, sendFirst == .available else { return .unsent(unconfirmedActivities) }
+        await env.uploader.flush(upTo: ActivityUploader.sendFirstLimit)
+        guard auth.accountID == account, auth.accountChanges == changes else { return .accountChanged }
+        let left = unconfirmedActivities
+        guard left == 0 else { return .unsent(left) }
+        await logOut()
+        return .loggedOut
+    }
     func deleteAccount() async {
-        let account = auth.accountID
-        await auth.deleteAccount()
+        let account = auth.accountID, changes = auth.accountChanges
+        let deleted = await auth.deleteAccount()
         // Deleted: this phone forgets the account's tracker steps too (what it wore went with the store).
         if let account, auth.accountID != account { onboarding?.forgetTrackerSteps(of: account) }
+        // Not deleted, and still that account: what the deletion held goes up again (the queue stopped for it).
+        if !deleted, account != nil, auth.accountID == account, auth.accountChanges == changes {
+            await env.uploader.flush()
+        }
     }
 
     // MARK: body
@@ -236,11 +285,13 @@ final class ProfileViewModel {
         exporting = true
         exportError = nil
         defer { exporting = false }
-        // The archive takes a while; if the account changes meanwhile, it's the previous account's data.
+        // The archive takes a while: an account change meanwhile (even A, B, then A again) or the Demo data switch
+        // makes it someone else's.
         let owner = AccountBinding(env)
         do {
             let archive = try await DataExport.archive(source: state.source, train: env.api,
-                                                       rememberedMatches: ImportMappingStore(env: env).records())
+                                                       rememberedMatches: ImportMappingStore(env: env).records(),
+                                                       activities: env.api, onPhone: env.activities)
             guard owner.isCurrent(in: env) else { return }
             exported = ExportedFile(url: try DataExport.write(archive, to: exportFolder))
         } catch where error.isCancellation {
@@ -249,6 +300,14 @@ final class ProfileViewModel {
             guard owner.isCurrent(in: env) else { return }
             exportError = String(localized: "The export couldn't be created: \(error.localizedDescription)")
         }
+    }
+
+    /// An account change or the Demo data switch, inside the wipe (`AppState.forgetActivityState`): the previous
+    /// account's export, shown or failed, goes, and its file with it.
+    func forgetExport() {
+        exported = nil
+        exportError = nil
+        removeExportFiles()
     }
 
     /// The share sheet is done, or the account changed: the file goes.
@@ -1930,9 +1989,7 @@ extension ProfileViewModel {
         if previous != nil { apiStatus.forgetRequests() }
         report.accountChanged()
         // An export's share sheet (and its file) was the previous account's (or demo data's).
-        exported = nil
-        exportError = nil
-        removeExportFiles()
+        forgetExport()
     }
 }
 

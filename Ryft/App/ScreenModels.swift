@@ -43,6 +43,9 @@ final class ScreenModels {
         }
         // Nothing syncs before consent, nor behind an enforced invite gate.
         sync.gate = { [onboarding] in onboarding.syncGate }
+        // Activities and nights wait for the same gates, and for the policy in force to be known (privacy reviews 1,
+        // A-1). Until this line runs the uploader's gate is closed.
+        state.env.uploader.gate = { [onboarding] in onboarding.uploadGate }
         // The launch check's sync status reaches the sync (an operator's re-sync request).
         onboarding.statusReceived = { [sync] in sync.receive($0) }
         push = PushRegistrar(env: state.env)
@@ -52,6 +55,8 @@ final class ScreenModels {
         sleep = SleepViewModel(state: state)
         strain = StrainViewModel(state: state, store: store)
         myDay = MyDayViewModel(state: state, store: store) { [today] in TodayStates.nightGap(today.facts) != nil }
+        // A confirmed activity or night: into the read model, and its days rescored through the sync pipeline.
+        state.env.uploader.connect(repository: state.repository, coordinator: coordinator)
         insights = InsightsViewModel(state: state, journal: journal)
         router = DeepLinkRouter(state: state, sleep: sleep, strain: strain, insights: insights, onboarding: onboarding)
         let env = state.env
@@ -67,6 +72,7 @@ final class ScreenModels {
         }
         profile = ProfileViewModel(state: state, sync: sync, coordinator: coordinator, onboarding: onboarding,
                                    devices: devices)
+        state.onForgetAccountState = { [profile] in profile.forgetExport() }
         trainToday = TrainTodayViewModel(library: library, store: store, clock: state.env.clock)
         // Train's reads share the pipeline's budget and per-resource record.
         library.reads = state.env.reads

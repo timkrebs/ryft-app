@@ -45,6 +45,11 @@ final class LocalActivity {
     var deletedAt: Date?
     /// `UploadAttempt`: the last failure's time, status, code, request ID. Never a body.
     var lastAttemptData: Data?
+    /// A `PUT` went out at this time and no answer said it left nothing on the platform (cut off, timed out, a
+    /// server error): the platform may hold a revision, so a delete is sent there. Only the uploader sets it
+    /// (`ActivityStore.setSent`), and a full confirmation clears it; an edit, Retry or tombstone never does (A2 review).
+    /// Added in A2: optional, so the store migrates lightweight (`ActivitySchemaUpgradeTests`).
+    var sentAt: Date?
     /// nil · saved · alreadySaved · recordedElsewhere · failed (Apple Health, A6).
     var healthStateRaw: String?
     var createdAt: Date
@@ -84,7 +89,14 @@ extension LocalActivity {
     static let savedPhase = "saved"
 
     var sport: Sport { Sport(rawValue: sportRaw) ?? .other }
+    /// The sport as the platform sent it, when this build doesn't know it (an adopted row, `ActivityStore.adopt`).
+    var unknownSport: String? { Sport(rawValue: sportRaw) == nil ? sportRaw : nil }
     var origin: ActivityOrigin { ActivityOrigin(rawValue: originRaw) ?? .manual }
+    /// What a session expiry parks (design.md §8.4): a revision or a delete the platform hasn't confirmed, or a
+    /// recording that isn't saved yet.
+    var isUnconfirmedOrRecording: Bool {
+        localRevision > confirmedRevision || deletedAt != nil || phaseRaw != Self.savedPhase
+    }
     var splits: [ActivitySplit] { WireCoding.decode([ActivitySplit].self, splitsData) ?? [] }
     var lastAttempt: UploadAttempt? { WireCoding.decode(UploadAttempt.self, lastAttemptData) }
 
@@ -95,7 +107,7 @@ extension LocalActivity {
                               recordRoute: recordRoute, routeWithheld: routeWithheld, routeDroppedAt: routeDroppedAt,
                               splits: splits, localRevision: localRevision, confirmedRevision: confirmedRevision,
                               deletedAt: deletedAt, lastAttempt: lastAttempt, createdAt: createdAt,
-                              updatedAt: updatedAt)
+                              updatedAt: updatedAt, unknownSport: unknownSport, sentAt: sentAt)
     }
 }
 
@@ -161,6 +173,8 @@ final class LocalManualSleep {
     var confirmedRevision: Int
     var deletedAt: Date?
     var lastAttemptData: Data?
+    /// As `LocalActivity.sentAt`, for the night's `PUT`.
+    var sentAt: Date?
 
     init(day: String, account: String, bed: Date, wake: Date, localRevision: Int = 1, confirmedRevision: Int = 0) {
         key = Self.key(account: account, day: day)
@@ -176,10 +190,13 @@ final class LocalManualSleep {
 extension LocalManualSleep {
     static func key(account: String, day: String) -> String { "\(account)|\(day)" }
 
+    /// A revision or a delete the platform hasn't confirmed: what a session expiry parks (design.md §8.4).
+    var isUnconfirmed: Bool { localRevision > confirmedRevision || deletedAt != nil }
+
     var snapshot: ManualSleepSnapshot {
         ManualSleepSnapshot(day: day, bed: bed, wake: wake, localRevision: localRevision,
                             confirmedRevision: confirmedRevision, deletedAt: deletedAt,
-                            lastAttempt: WireCoding.decode(UploadAttempt.self, lastAttemptData))
+                            lastAttempt: WireCoding.decode(UploadAttempt.self, lastAttemptData), sentAt: sentAt)
     }
 }
 
@@ -210,6 +227,11 @@ struct LocalActivitySnapshot: Identifiable, Equatable, Sendable {
     let lastAttempt: UploadAttempt?
     let createdAt: Date
     let updatedAt: Date
+    /// The sport as the platform sent it, when this build doesn't know it (`sport` is then `.other`): a `PUT` sends
+    /// it back unchanged (A1 review, code nit 7).
+    var unknownSport: String?
+    /// `LocalActivity.sentAt`: a `PUT` may have reached the platform.
+    var sentAt: Date?
 
     /// Deleted by the user; the row stays until the platform confirms the `DELETE`.
     var isTombstone: Bool { deletedAt != nil }
@@ -231,7 +253,7 @@ struct LocalActivitySnapshot: Identifiable, Equatable, Sendable {
                       end: self.end ?? start.addingTimeInterval(movingSec), movingSec: movingSec,
                       distanceM: distanceM, ascentM: ascentM, descentM: descentM,
                       perceivedEffort: perceivedEffort, notes: notes.isEmpty ? nil : notes,
-                      splits: splits.isEmpty ? nil : splits, clientUpdatedAt: updatedAt)
+                      splits: splits.isEmpty ? nil : splits, clientUpdatedAt: updatedAt, unknownSport: unknownSport)
     }
 }
 
@@ -244,6 +266,8 @@ struct ManualSleepSnapshot: Equatable, Sendable {
     let confirmedRevision: Int
     let deletedAt: Date?
     let lastAttempt: UploadAttempt?
+    /// `LocalManualSleep.sentAt`.
+    var sentAt: Date?
 
     var isTombstone: Bool { deletedAt != nil }
     var needsUpload: Bool { localRevision > confirmedRevision || deletedAt != nil }
@@ -285,8 +309,8 @@ struct ActivityDraft: Equatable, Sendable {
 }
 
 extension TrainStore {
-    /// The activity tables (design.md §2.3). Wiped with the rest of the store; A2 adds parking (§8.4).
-    /// `LocalPrivacyZone` joins them in A5.
+    /// The activity tables (design.md §2.3). Wiped with the rest of the store, except what a session expiry parks
+    /// (`wipe(parkingActivitiesOf:)`, §8.4). `LocalPrivacyZone` joins them in A5.
     static let activityModels: [any PersistentModel.Type] = [LocalActivity.self, ActivityTrackChunk.self,
                                                              LocalManualSleep.self]
 }

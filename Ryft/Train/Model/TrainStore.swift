@@ -189,6 +189,15 @@ final class TrainStore {
     private(set) var epoch = 0
 
     func wipe() {
+        wipe(parkingActivitiesOf: nil)
+    }
+
+    /// The same, keeping what a session expiry parks (design.md §8.4): of the activity tables, exactly `account`'s
+    /// unconfirmed or recording `LocalActivity` rows and their chunks, and its unconfirmed `LocalManualSleep`, marked
+    /// `parkedAt` (`now` unless already parked, so the 30-day limit never restarts). Every other row of those tables
+    /// goes, any account's. `nil`: they all go (sign-out, deletion, another account). A5 parks the account's
+    /// `LocalPrivacyZone` rows too; A3b deletes vault keys first.
+    func wipe(parkingActivitiesOf account: String?, at now: Date = Date()) {
         epoch += 1
         // Batch deletes skip cascade rules, so children go explicitly.
         try? context.delete(model: LocalSet.self)
@@ -206,11 +215,36 @@ final class TrainStore {
         try? context.delete(model: CachedSleepRange.self)
         try? context.delete(model: CachedWorkout.self)
         try? context.delete(model: CachedDocument.self)
-        // Activities: chunks have no relationship to their row (batch deletes skip cascades), so every chunk goes
-        // explicitly, orphans included. A2 keeps an expired session's unconfirmed rows (design.md §8.4).
-        try? context.delete(model: ActivityTrackChunk.self)
-        try? context.delete(model: LocalActivity.self)
-        try? context.delete(model: LocalManualSleep.self)
+        wipeActivities(parking: account, at: now)
         save()
+    }
+
+    private func wipeActivities(parking account: String?, at now: Date) {
+        // Chunks have no relationship to their row (batch deletes skip cascades), so they go explicitly, orphans
+        // included.
+        guard let account else {
+            try? context.delete(model: ActivityTrackChunk.self)
+            try? context.delete(model: LocalActivity.self)
+            try? context.delete(model: LocalManualSleep.self)
+            return
+        }
+        var kept: [UUID] = []
+        for row in (try? context.fetch(FetchDescriptor<LocalActivity>())) ?? [] {
+            if row.account == account, row.isUnconfirmedOrRecording {
+                row.parkedAt = row.parkedAt ?? now
+                kept.append(row.id)
+            } else {
+                context.delete(row)
+            }
+        }
+        try? context.delete(model: ActivityTrackChunk.self,
+                            where: #Predicate { $0.account != account || !kept.contains($0.activityID) })
+        for night in (try? context.fetch(FetchDescriptor<LocalManualSleep>())) ?? [] {
+            if night.account == account, night.isUnconfirmed {
+                night.parkedAt = night.parkedAt ?? now
+            } else {
+                context.delete(night)
+            }
+        }
     }
 }

@@ -44,6 +44,8 @@ struct MyDayItem: Identifiable, Equatable {
         case ryftRecorded(indoor: Bool)
         /// An activity the user typed in (Add activity).
         case ryftManual
+        /// RYFT's, with an origin this build doesn't know (a later version's, e.g. an import): neutral, read-only.
+        case ryft
         /// A night the user typed in (Add sleep).
         case addedByYou
         /// A tracker or source in Apple Health, by its display name, with its form factor's glyph.
@@ -85,14 +87,20 @@ struct MyDayItem: Identifiable, Equatable {
         return false
     }
 
-    /// The row opens something: the night (Sleep), a workout, a session, a merged activity (its tracker's
-    /// workout). Other activities open once A2's detail exists; a missing night has nothing to open yet.
+    /// The row opens something: the night (Sleep), a workout, a session, an activity (`ActivityDetailView`; a merged
+    /// one links its tracker's workout there). A recording in progress (A4's screen) and a missing night open nothing.
     var opensDetail: Bool {
         switch kind {
         case .sleep, .workout, .session: return true
-        case .activity: return mergedWorkout != nil
+        case .activity: return !isRecording
         case .missingSleep: return false
         }
+    }
+
+    /// A night the user added (it can be edited and deleted).
+    var isManualSleep: Bool {
+        if case .sleep = kind { return editable && sources == [.addedByYou] }
+        return false
     }
 }
 
@@ -118,6 +126,8 @@ struct MyDayInput: Equatable {
     var localSessions: [SessionSummary] = []
     /// A night the user added for this day, until the platform confirms it.
     var localSleep: ManualSleepSnapshot?
+    /// The uploader's word on that night (offline, retrying, failed); without one, the row's own.
+    var sleepUpload: UploadState?
     /// T1's night gap (`TodayStates.nightGap`): the tracker's night is only late, so "No sleep recorded" waits.
     var nightGap = false
 }
@@ -216,14 +226,15 @@ enum MyDayAssembler {
 
     private static func item(_ a: SportActivity, upload: UploadState?, mergedWith workout: Workout?,
                              catalog: TrackerCatalog) -> MyDayItem {
-        let own: MyDayItem.Source = a.origin == .recorded ? .ryftRecorded(indoor: !a.sport.hasGPS) : .ryftManual
+        let own: MyDayItem.Source = a.unknownOrigin != nil ? .ryft
+            : a.origin == .recorded ? .ryftRecorded(indoor: !a.sport.hasGPS) : .ryftManual
         // The tracker's badge first: its heart rate is what scored the merged row (ui.md §2.3).
         let sources = workout.map { [tracker(for: $0, catalog: catalog), own] } ?? [own]
         let span = max(0, a.end.timeIntervalSince(a.start))
         return MyDayItem(id: "activity.\(a.id.uuidString)", kind: .activity(a.id), symbol: a.sport.symbol,
                          title: a.sport.name, start: a.start, end: a.end, duration: a.movingSec > 0 ? a.movingSec : span,
-                         distanceM: a.distanceM, strain: strain(a), sources: sources, upload: upload, editable: true,
-                         mergedWorkout: workout?.id)
+                         distanceM: a.distanceM, strain: strain(a), sources: sources, upload: upload,
+                         editable: a.isEditable, mergedWorkout: workout?.id)
     }
 
     private static func recording(_ r: LocalActivitySnapshot, now: Date) -> MyDayItem {
@@ -295,28 +306,34 @@ enum MyDayAssembler {
     /// Rule 5. A pending manual night wins until confirmed (as an activity edit does); a deleted one hides the
     /// platform's copy of it. Without any night, and with the day loaded, "No sleep recorded", unless the
     /// tracker's night is only late (`nightGap`).
-    private static func sleepItem(_ input: MyDayInput, detail: DayDetail?) -> MyDayItem? {
-        let server = detail?.sleep.flatMap { s -> (start: Date, end: Date, asleep: TimeInterval?)? in
+    /// The platform's night for the day, with its times; nil without one, or without the times to place it.
+    static func platformNight(_ detail: DayDetail?) -> (start: Date, end: Date, asleep: TimeInterval?)? {
+        detail?.sleep.flatMap { s -> (start: Date, end: Date, asleep: TimeInterval?)? in
             guard let end = s.end ?? s.start.map({ $0.addingTimeInterval(Double(s.inBedMin ?? s.totalMin ?? 0) * 60) })
             else { return nil }
             let start = s.start ?? end.addingTimeInterval(-Double(s.inBedMin ?? s.totalMin ?? 0) * 60)
             return (start, end, s.totalMin.map { Double($0) * 60 })
         }
+    }
+
+    /// The platform's night is the one the user added: the same times within a minute (the wire's ISO 8601 drops
+    /// sub-seconds), until R11 says so itself.
+    static func isAddedNight(_ server: (start: Date, end: Date, asleep: TimeInterval?), _ local: ManualSleepSnapshot) -> Bool {
+        abs(server.start.timeIntervalSince(local.bed)) <= sameNight && abs(server.end.timeIntervalSince(local.wake)) <= sameNight
+    }
+
+    private static func sleepItem(_ input: MyDayInput, detail: DayDetail?) -> MyDayItem? {
+        let server = platformNight(detail)
         let local = input.localSleep
-        // The platform's night is the one the user added: the same times within a minute (the wire's ISO 8601
-        // drops sub-seconds), until R11 says so itself.
-        let serverIsManual = local.map { l in
-            server.map {
-                abs($0.start.timeIntervalSince(l.bed)) <= sameNight && abs($0.end.timeIntervalSince(l.wake)) <= sameNight
-            } ?? false
-        } ?? false
+        let serverIsManual = local.map { l in server.map { isAddedNight($0, l) } ?? false } ?? false
 
         if let local, !local.isTombstone, local.needsUpload || server == nil {
             return MyDayItem(id: "sleep.\(input.day)", kind: .sleep(day: input.day), symbol: "bed.double.fill",
                              title: String(localized: "Sleep"), start: local.bed, end: local.wake,
                              duration: max(0, local.wake.timeIntervalSince(local.bed)), distanceM: nil,
                              strain: .notApplicable, sources: [.addedByYou],
-                             upload: local.needsUpload ? .pending(.queued) : .confirmed, editable: true)
+                             upload: input.sleepUpload ?? (local.needsUpload ? .pending(.queued) : .confirmed),
+                             editable: true)
         }
         if let server, !(local?.isTombstone == true && serverIsManual) {
             let manual = serverIsManual && local?.isTombstone == false

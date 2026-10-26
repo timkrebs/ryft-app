@@ -2400,7 +2400,7 @@ struct OnboardingEdgeTests {
     @Test func signInMethodsBelongToTheirAccount() async {
         let client = MockAuthClient(session: .preview(provider: "email"))
         let auth = AuthService(client: client, defaults: UserDefaults(suiteName: "ryft.test.\(UUID())") ?? .standard,
-                               wipeLocalData: {}, deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                               wipeLocalData: { _ in }, deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
                                postAppleAuthorization: { _ in })
         await auth.loadSignInMethods()
         #expect(auth.signInMethods.map(\.provider) == ["email"])
