@@ -14,8 +14,8 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
 | Workflow | When | What |
 | --- | --- | --- |
 | `ios.yml` | every PR, every push to `main`; 00:30 UTC nightly, or manually | `make lint` (strings), `make style` (SwiftFormat, SwiftLint), build-for-testing with warnings as errors, test plans `Unit` + `UISmoke` (nightly: `Full`), coverage floor, API contract |
-| `nightly.yml` | 01:00 UTC daily, or manually | archive `main`, upload, TestFlight group **Internal**; skipped when nothing landed since the last build |
-| `weekly.yml` | Mondays 07:00 Europe/Berlin, or manually | the newest processed build to group **External**, with the week's commits as What to Test, submitted for beta review |
+| `nightly.yml` | 01:00 UTC daily, or manually | archive `main`, upload, TestFlight group **Internal**; skipped when nothing landed since the last build. A manual run takes optional `notes` (max 4000 characters, English block then German: the script sends one text to `en-US` and `de-DE`) instead of the commit list: `gh workflow run nightly.yml -f notes="$(cat notes.txt)"` |
+| `weekly.yml` | Mondays 07:00 Europe/Berlin, or manually | the newest processed build to group **External**, with the week's commits as What to Test (a manual run can pass `notes` as in `nightly.yml`), submitted for beta review |
 | `release.yml` | manually | bump `VERSION`, commit, tag `vX.Y.Z`, archive the tag, upload, group **Internal** |
 | `_testflight.yml` | called by nightly and release | the shared archive → upload → distribute job |
 

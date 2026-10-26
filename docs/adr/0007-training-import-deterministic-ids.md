@@ -113,7 +113,13 @@ count, how a plan's name is normalised, and what tells two days with the same nu
 - A plan's name in its key is `fold(name)` (Amendment 1's fold), its start date `YYYY-MM-DD` or "". A second plan
   whose name folds the same and that has the same start date (or none) adds `␟<occurrence>` (1, 2, …), counted in the
   picked files' order, so the first keeps the plain recipe. Without it the second plan silently replaced the first
-  (I5 review, 2026-10-26). The same plans file picked twice therefore gives two plans.
+  (I5 review, 2026-10-26). Plans with the same *content* (the same folded name, start date, weeks, days and rows) are
+  one plan: merging the picked files keeps the first and notes the others (`.duplicatePlanInFiles`), so the same plans
+  file picked twice gives one plan.
+- **Accepted limit:** occurrence ids of same-named plans without a date (or with the same date) follow the file's
+  order. If the source app reorders such plans, or deletes one, a re-import can swap their ids or give the later one a
+  new id: one plan comes back as "already in RYFT" with the other's content, or a new copy appears. Rare (the app's
+  exports name plans by the user's titles), and the preview shows every plan before Import.
 - A plan day is `day␟<number>`; a number the file names again adds `␟<occurrence>` (1, 2, …), so the first day keeps the
   plain recipe.
 - A plan exercise's and a session exercise's occurrence counts the same source-exercise key within its day or session.

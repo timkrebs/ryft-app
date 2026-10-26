@@ -40,7 +40,8 @@ final class TrainImportUploader {
     static let finishedRetention: TimeInterval = 7 * 86_400
     /// Answers that don't name a pending item before it counts as refused.
     static let maxUnanswered = 3
-    /// Items refused alone in a row (each a whole-request `400`/`422`) before splitting stops for the pass.
+    /// Items refused alone (each a whole-request `400`/`422`) in a pass where nothing was accepted before the pass
+    /// stops with the rest pending (`ImportPause.needsAttention`).
     static let maxRefusedAlone = 3
     /// After 1, 2, 3, then any more transient failures in a row: 30 s, 2 min, 10 min, 1 h (the cap).
     static let backoff: [Duration] = [.seconds(30), .seconds(120), .seconds(600), .seconds(3_600)]
@@ -533,20 +534,26 @@ final class TrainImportUploader {
         var plansLimit = Self.plansPerRequest
         var sessionsWithPlans = true
         var itemLimit: Int?
-        // Single items refused in a row: past `maxRefusedAlone` the refusal is the request's shape, not one item, and
-        // splitting stops for this pass (a whole request is refused again, as it would be without splitting).
+        // Whether the platform took anything in this pass, and how many items it refused alone meanwhile. With nothing
+        // taken and `maxRefusedAlone` refused alone, the refusal is the requests' shape, not single items: the pass
+        // stops and the rest stays pending (never refused), at about eight requests.
+        var acceptedInPass = false
         var refusedAlone = 0
         while let batch = nextBatch(plansLimit: plansLimit, sessionsWithPlans: sessionsWithPlans, itemLimit: itemLimit) {
             activity = .uploading
             refreshStatus()
             guard await isOpen(generation, revalidated: &revalidated) else { return }
-            switch await send(batch, api: api, generation: generation, split: refusedAlone < Self.maxRefusedAlone) {
+            switch await send(batch, api: api, generation: generation) {
             case .accepted:
-                refusedAlone = 0
+                acceptedInPass = true
                 itemLimit = itemLimit.flatMap { $0 * 2 >= Self.plansPerRequest + Self.sessionsPerRequest ? nil : $0 * 2 }
             case .refusedAlone:
                 refusedAlone += 1
-                if refusedAlone >= Self.maxRefusedAlone { itemLimit = nil }
+                if !acceptedInPass, refusedAlone >= Self.maxRefusedAlone {
+                    ImportLog.logger.info("Import: every request refused, \(refusedAlone, privacy: .public) alone; the rest waits")
+                    stop(.needsAttention)
+                    return
+                }
             case .sent, .fewerSessions: continue
             case let .fewerPlans(count): plansLimit = max(1, count / 2)
             case .plansAlone: sessionsWithPlans = false
@@ -779,7 +786,7 @@ final class TrainImportUploader {
     }
 
     /// Encodes (off the main actor, measured), sends and records one request.
-    private func send(_ batch: Batch, api: PlatformAPI, generation: Generation, split: Bool) async -> SendOutcome {
+    private func send(_ batch: Batch, api: PlatformAPI, generation: Generation) async -> SendOutcome {
         guard let current = loaded, let row = job(id: current.jobID) else { return .stop }
         let jobID = current.jobID
         if !batch.blocked.isEmpty { await store(current.progress, finished: nil) }
@@ -824,7 +831,7 @@ final class TrainImportUploader {
             let status = (error as? APIError)?.status
             // One refused item mustn't keep the rest out: split until it's alone (Retry sends only what's refused).
             if status == 400 || status == 422 {
-                if ids.count > 1, split {
+                if ids.count > 1 {
                     ImportLog.logger.info("Import: \(status ?? 0, privacy: .public) for \(ids.count, privacy: .public) items, split")
                     return .fewerItems(ids.count)
                 }
@@ -912,10 +919,11 @@ final class TrainImportUploader {
             return false
         }
         let api = error as? APIError
-        // Every `403` holds, a code this build doesn't know too: health data waits, never dropped (ADR 0008).
+        // Every `403` holds, without a code this build knows too: health data waits, never dropped (ADR 0008). Only
+        // the gates the user can answer (consent, the invite) are `gated`; any other is `held`.
         if api?.status == 403 {
             record(failure(error))
-            stop(.gated(api?.code.map(UploadGate.gate) ?? .policyUnknown))
+            stop(api?.code.map { ImportPause.gated(.gate($0)) } ?? .held)
             return false
         }
         switch FailureKind.of(error) {
@@ -924,7 +932,7 @@ final class TrainImportUploader {
             return false
         case .gate:
             record(failure(error))
-            stop(.gated(api?.code.map(UploadGate.gate) ?? .policyUnknown))
+            stop(api?.code.map { ImportPause.gated(.gate($0)) } ?? .held)
             return false
         case .signedOut:
             record(failure(error))

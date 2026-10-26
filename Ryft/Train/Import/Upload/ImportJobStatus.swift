@@ -66,6 +66,13 @@ enum ImportPause: Equatable, Sendable {
     case notAvailable
     /// Signed out, or the job belongs to the account while demo data shows: it waits for its account.
     case waitingForAccount
+    /// The platform answered `403` without a gate this build knows: nothing for the user to answer here. Held, never
+    /// dropped; tried again on the next trigger. `lastFailure` has the status and request ID for Details.
+    case held
+    /// The platform refused every request of the last pass (split down to single items, three refused alone, nothing
+    /// accepted): those three are refused, the rest stays pending and is tried on the next trigger or with `resume()`
+    /// ("Try again"). `retryRejected()` sends the refused ones first again.
+    case needsAttention
 }
 
 /// A plan of the job, for the result screen and the resume row.

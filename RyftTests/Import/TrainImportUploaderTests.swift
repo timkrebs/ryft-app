@@ -140,19 +140,57 @@ struct TrainImportUploaderBatchTests {
         #expect(h.uploader.status?.hasRejected == false)
     }
 
-    /// Every request refused: after three items refused alone, splitting stops and the rest is refused as a whole,
-    /// instead of one request per item.
-    @Test func aRefusalOfEverythingStopsSplitting() async throws {
+    /// Every request refused and nothing accepted: after three items refused alone the pass stops, about eight
+    /// requests, and the rest stays pending ("needs attention"), never refused.
+    @Test func aRefusalOfEverythingStopsThePassAndKeepsTheRest() async throws {
         let h = H()
         let sessions = H.sessions(50)
         h.live.failure = APIError.http(422, "exercise unknown", requestID: "req-422")
         #expect(await h.run(ImportUploadPlan(sessions: sessions)))
-        // 50, 25, 12, 6, 3, then three alone, then the 47 left as one request.
-        #expect(h.live.count("importTraining") == 9)
-        #expect(h.uploader.status?.sessions == ImportItemCounts(total: 50, rejected: 50))
+        // 50, 25, 12, 6, 3, then three alone.
+        #expect(h.live.count("importTraining") == 8)
+        let status = try #require(h.uploader.status)
+        #expect(status.phase == .paused(.needsAttention))
+        #expect(status.sessions == ImportItemCounts(total: 50, rejected: 3))
+        #expect(status.rejected.map(\.id) == sessions.prefix(3).map(\.id))
+        // "Try again" once the platform takes them: the rest goes, the three refused wait for Retry.
         h.live.failure = nil
+        await h.uploader.resume()
+        #expect(h.uploader.status?.sessions == ImportItemCounts(total: 50, done: 47, rejected: 3))
         await h.uploader.retryRejected()
         #expect(h.uploader.status?.sessions.done == 50)
+    }
+
+    /// Three refused in a row, then one in every ten: once anything is accepted the pass splits to the end, so every
+    /// good session goes in one pass and only the nine refused ones are listed (reviewer's probe).
+    @Test func clusteredAndSpreadRefusalsRefuseNoGoodSession() async throws {
+        let h = H()
+        let sessions = H.sessions(100)
+        var bad = Set([30, 31, 32].map { sessions[$0].id })
+        for index in stride(from: 40, to: 100, by: 10) { bad.insert(sessions[index].id) }
+        h.live.trainImportSource.refuseRequestsWith = bad
+        #expect(await h.run(ImportUploadPlan(sessions: sessions)))
+        let status = try #require(h.uploader.status)
+        #expect(status.phase == .finished)
+        #expect(status.sessions == ImportItemCounts(total: 100, done: 91, rejected: 9))
+        #expect(Set(status.rejected.map(\.id)) == bad)
+    }
+
+    /// The first three refused before anything is accepted: the pass stops with the rest pending, and the next pass
+    /// (an automatic trigger) gets every good one in.
+    @Test func refusalsFirstStopThePassButTheNextOneGoesOn() async throws {
+        let h = H()
+        let sessions = H.sessions(60)
+        let bad = Set(sessions.prefix(3).map(\.id))
+        h.live.trainImportSource.refuseRequestsWith = bad
+        #expect(await h.run(ImportUploadPlan(sessions: sessions)))
+        #expect(h.uploader.status?.phase == .paused(.needsAttention))
+        #expect(h.uploader.status?.sessions == ImportItemCounts(total: 60, rejected: 3))
+        await h.uploader.appBecameActive()
+        let status = try #require(h.uploader.status)
+        #expect(status.phase == .finished)
+        #expect(status.sessions == ImportItemCounts(total: 60, done: 57, rejected: 3))
+        #expect(Set(status.rejected.map(\.id)) == bad)
     }
 
     /// A custom exercise the platform refuses blocks what uses it; the rest goes.
@@ -350,7 +388,8 @@ struct TrainImportUploaderResumeTests {
         #expect(await h.run(ImportUploadPlan(sessions: sessions)))
         let status = try #require(h.uploader.status)
         #expect(status.sessions.pending == 120 && status.rejected.isEmpty)
-        #expect(status.phase == .paused(.gated(error.code.map(UploadGate.gate) ?? .policyUnknown)))
+        // Consent and the invite are gates the user answers; a 403 without a known code is held, with nothing to answer.
+        #expect(status.phase == .paused(error.code.map { ImportPause.gated(.gate($0)) } ?? .held))
         #expect(status.lastFailure?.requestID == "req-403")
         #expect(h.live.count("importTraining") == 1)
         h.live.failure = nil
@@ -365,7 +404,7 @@ struct TrainImportUploaderResumeTests {
         let live = h.live
         h.live.trainImportSource.beforeImport = { live.failNext = APIError.http(403, "forbidden") }
         #expect(await h.run(ImportUploadPlan(plans: [plan], enrolPlanID: plan.id)))
-        #expect(h.uploader.status?.phase == .paused(.gated(.policyUnknown)))
+        #expect(h.uploader.status?.phase == .paused(.held))
         #expect(h.uploader.status?.enrolledPlanID == nil)
         h.live.trainImportSource.beforeImport = nil
         await h.uploader.resume()
