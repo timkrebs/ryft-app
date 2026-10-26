@@ -234,7 +234,13 @@ struct KeepsScreenAwake: ViewModifier {
 @MainActor
 enum TrainPreview {
     static let store = TrainStore(inMemory: true)
-    static let sync = TrainSyncService(store: store, remote: { MockTrainSource.shared }, monitorsNetwork: false)
+    /// Demo data's binding and an open gate: previews upload to the mock as demo data does.
+    static let sync: TrainSyncService = {
+        let sync = TrainSyncService(store: store, remote: { MockTrainSource.shared }, owner: { TrainSyncService.demoOwner },
+                                    monitorsNetwork: false)
+        sync.gate = { _ in nil }
+        return sync
+    }()
     static let library = TrainLibrary.preview(store: store)
     static let coordinator = TrainCoordinator(sync: sync, library: library)
 

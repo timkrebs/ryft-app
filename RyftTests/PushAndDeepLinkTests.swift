@@ -365,7 +365,7 @@ struct PushRegistrarTests {
         let state = AppState(env: env)
         let push = PushRegistrar(env: env)
         push.syncSucceeded()
-        let today = TodayViewModel(state: state, sync: SyncService(env: env),
+        let today = TodayViewModel(state: state, sync: SyncService.ungated(env: env),
                                    coordinator: SyncCoordinator(steps: NoSteps(), clock: env.clock), push: push)
         #expect(today.showsPushPrompt)
         today.dismissPushPrompt()
@@ -518,7 +518,7 @@ struct NotificationSettingsViewModelTests {
     @Test func afterTheFlipTodayAsksOnceForAnAlreadySyncedAccount() async {
         let (state, flags) = flagged(MockNotifier())
         let push = PushRegistrar(env: state.env)
-        let sync = SyncService(env: state.env)
+        let sync = SyncService.ungated(env: state.env)
         let today = TodayViewModel(state: state, sync: sync,
                                    coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
                                                                 clock: state.env.clock),

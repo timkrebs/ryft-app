@@ -18,8 +18,9 @@ import UIKit
 ///   `X-RYFT-Gate` on a served request, reaches `APIStatus`; RyftApp re-checks, and
 ///   the gate shows: full screen during the account's first run on this phone, as a
 ///   sheet over the tabs afterwards (never a reset to Welcome).
-/// - **Nothing syncs before consent** (`syncGate`, read by `SyncService`); after
-///   agreeing, the first sync starts at once.
+/// - **Nothing uploads before consent to the policy in force** (`uploadGate(for:write:)`,
+///   the pure `gate(_:path:write:)`, asked by `SyncService`, `ActivityUploader` and
+///   `TrainSyncService`; ADR 0008); after agreeing, the first sync starts at once.
 @MainActor
 @Observable
 final class OnboardingCoordinator {
@@ -45,11 +46,13 @@ final class OnboardingCoordinator {
         var userKnown = false
         var betaAccess = true
         var consentVersion: String?
-        /// `GET /v1/config` → `privacy_policy_version`; `nil` when unknown.
+        /// `GET /v1/config` → `privacy_policy_version`, the latest heard of, whatever its age (`ConsentState`);
+        /// `nil` when unknown.
         var policyVersion: String?
         /// `GET /v1/me/sync` → `gate`.
         var serverGate: APIErrorCode?
-        /// Refusals and warn-mode headers since (`APIStatus.gates`).
+        /// Refusals and warn-mode headers since (`APIStatus.gates`), and the gates `ConsentState` keeps the
+        /// platform's refusal of.
         var reported: Set<APIErrorCode> = []
         var birthYear: Int?
         var aboutYouDone = false
@@ -59,6 +62,14 @@ final class OnboardingCoordinator {
         var wearAsked = false
         /// `devices.setup`: the step exists at all.
         var devicesSetup = false
+        /// Demo data is on.
+        var demo = false
+        /// A `403 invite_required` (not a warning), this session or kept from an earlier one (`ConsentState`).
+        var inviteBlocked = false
+        /// The policy answer is younger than its age limit (`ConsentState.isPolicyFresh`): only then can a gate open.
+        var policyFresh = false
+        /// The consent record could be read (`ConsentState.isRecordReadable`; false before the first unlock).
+        var recordReadable = true
     }
 
     /// The missing steps, in order. Invite only when the platform says its gate applies
@@ -77,13 +88,33 @@ final class OnboardingCoordinator {
         return out
     }
 
+    /// What every upload waits for (ADR 0008; design.md §4's tables), the same rule for every path:
+    /// - Demo data holds HealthKit sync, whose client is the platform's (`demo`). The other paths bind every request
+    ///   to demo and send it to the in-memory platform, so they're open.
+    /// - A record that can't be read (before the first unlock) holds every write as `policyUnknown`.
+    /// - An enforced invite gate holds every write, erasures too (the platform refuses them behind it).
+    /// - An erasure (`DELETE`) goes from here on: no account known, no consent, a refusal or an unknown policy don't
+    ///   hold it (Art. 17).
+    /// - Data waits for the account, then the consent step (`missing`: a known mismatch, or the platform's refusal),
+    ///   then a fresh policy (`policyUnknown`). Only a fresh policy the consent matches opens it: staleness can only
+    ///   hold.
+    nonisolated static func gate(_ f: Facts, path: UploadPath, write: UploadWrite) -> UploadGate? {
+        if f.demo { return path == .healthKit ? .demo : nil }
+        guard f.recordReadable else { return .policyUnknown }
+        if f.inviteBlocked { return .gate(.inviteRequired) }
+        if write == .erasure { return nil }
+        guard f.userKnown else { return .gate(.consentRequired) }
+        if missing(f).contains(.consent) { return .gate(.consentRequired) }
+        guard f.policyFresh else { return .policyUnknown }
+        return nil
+    }
+
     /// The first run waits this long for the platform, then goes on with what it knows.
     static let checkTimeout: Duration = .seconds(10)
     /// Re-checks closer together than this are answered from the last one.
     static let recheckInterval: TimeInterval = 60
 
     private(set) var phase: Phase = .idle
-    private(set) var config: RemoteConfig?
     private(set) var syncStatus: SyncStatus?
     /// "Not now" this session; asked again on the next app start.
     private(set) var deferred: Set<Step> = []
@@ -121,6 +152,9 @@ final class OnboardingCoordinator {
         self.startSync = startSync
         bodySettings = BodySettingsEditor(state: state)
         self.devices = devices ?? TrackerSelectionStore(env: state.env)
+        // The platform's consent gate, wherever it's reported (a 403, X-RYFT-Gate, GET /v1/me/sync), is kept for the
+        // account; its end too (ADR 0008).
+        state.env.consent.listen(to: apiStatus)
     }
 
     /// What the user wears: "What do you wear?" saves it, the setup screen after Apple Health reads it.
@@ -134,12 +168,19 @@ final class OnboardingCoordinator {
     private var defaults: UserDefaults { env.defaults }
     var user: User? { state.user }
 
+    private var consent: ConsentState { env.consent }
+
     var facts: Facts {
         let u = user
+        // The refusals kept from before show their steps as a 403 does (an enforced invite is kept, never a warning).
+        let refusals = consent.refusals
+        let reported = apiStatus.gates.union(refusals)
         return Facts(userKnown: u != nil, betaAccess: u?.betaAccess ?? true, consentVersion: u?.consent?.policyVersion,
-                     policyVersion: config?.privacyPolicyVersion, serverGate: syncStatus?.gate,
-                     reported: apiStatus.gates, birthYear: u?.birthYear, aboutYouDone: aboutYouDone,
-                     aboutYouSaved: aboutYouSaved, wearAsked: wearAsked, devicesSetup: env.flags.isOn(.devicesSetup))
+                     policyVersion: consent.latestPolicyVersion, serverGate: syncStatus?.gate,
+                     reported: reported, birthYear: u?.birthYear, aboutYouDone: aboutYouDone,
+                     aboutYouSaved: aboutYouSaved, wearAsked: wearAsked, devicesSetup: env.flags.isOn(.devicesSetup),
+                     demo: env.isDemo, inviteBlocked: apiStatus.inviteBlocked || refusals.contains(.inviteRequired),
+                     policyFresh: consent.isPolicyFresh(at: env.clock.now()), recordReadable: consent.isRecordReadable)
     }
 
     var missing: [Step] {
@@ -181,55 +222,20 @@ final class OnboardingCoordinator {
         }
     }
 
-    /// What `SyncService` waits for: consent to the policy in force, or an enforced invite gate.
-    /// Until the account is known (first check still running or failed, nothing cached),
-    /// nothing goes up either: a consent can't be assumed. The warn-mode invite gate
-    /// doesn't hold sync back (the platform serves it).
-    var syncGate: APIErrorCode? {
-        guard !env.isDemo else { return nil }
-        if apiStatus.inviteBlocked { return .inviteRequired }
-        guard user != nil else { return .consentRequired }
-        return missing.contains(.consent) ? .consentRequired : nil
-    }
-
-    /// What the activity uploader waits for (`ActivityUploader.gate`): `syncGate`, and stricter on the policy. Until
-    /// this phone knows which policy is in force (`policyVersionInForce`), a consent to an older one doesn't count
-    /// (`syncGate` lets it, for HealthKit data): a policy bumped for manual entries must hold queued and unparked rows
-    /// back (A2 privacy re-check A-1).
-    var uploadGate: UploadGate? {
-        guard !env.isDemo else { return nil }
-        if let gate = syncGate { return .gate(gate) }
-        guard let policy = policyVersionInForce else { return .policyUnknown }
-        return facts.consentVersion == policy ? nil : .gate(.consentRequired)
-    }
-
-    /// The privacy policy in force as this phone knows it, in one place for every gate that must fail closed on it
-    /// (`uploadGate`; `syncGate` later): this session's `GET /v1/config`, else the signed-in account's cached config
-    /// (`FlagStore`'s per-account document, wiped at sign-out), so a background launch that never runs `check()`
-    /// still knows it. Never another account's. Nil when neither is known.
-    var policyVersionInForce: String? {
-        if let version = config?.privacyPolicyVersion { return version }
-        // Read each time (only until this session's config arrives): the flags may cache a newer one any moment.
-        guard let account = env.auth.accountID else { return nil }
-        return env.persistence.document(FlagStore.Cached.self, key: FlagStore.cacheKey(account))?
-            .config.privacyPolicyVersion
-    }
-
-    /// Back online with the policy still unknown (an offline start): ask now rather than at the next activation, so
-    /// the uploads it holds go (RyftApp flushes when `uploadGate` clears).
-    func refreshPolicyIfUnknown() async {
-        guard config == nil, env.connectivity.isOnline, env.auth.isSignedIn, !env.isDemo else { return }
-        await check(force: true)
+    /// What `path`'s next `write` waits for: `gate(facts, path, write)` (ADR 0008). Observable: a new answer, a
+    /// refusal or its end re-renders whoever read it.
+    func uploadGate(for path: UploadPath, write: UploadWrite = .data) -> UploadGate? {
+        Self.gate(facts, path: path, write: write)
     }
 
     // MARK: the policy
 
-    /// The policy in force (`GET /v1/config`).
-    var policyVersion: String? { config?.privacyPolicyVersion }
+    /// The latest policy heard of (`ConsentState`), whatever its age: what the consent step shows and agrees to.
+    var policyVersion: String? { consent.latestPolicyVersion }
 
     /// Where the policy is published; the in-app Safari sheet opens it.
     var policyPage: LegalPage {
-        config?.privacyPolicyUrl.flatMap(URL.init(string:)).flatMap(LegalPage.init(url:)) ?? .privacy
+        consent.policyURL.flatMap(URL.init(string:)).flatMap(LegalPage.init(url:)) ?? .privacy
     }
 
     /// A consent to an older policy: the consent step says what changed.
@@ -313,21 +319,33 @@ final class OnboardingCoordinator {
         // Signed out or another account meanwhile: that answer isn't theirs.
         guard env.auth.accountID == account else { return }
         if let user = answer.user { state.user = user }
-        if let config = answer.config { self.config = config }
+        // The config was recorded inside its read (`ConsentState.fetchConfig`).
         if let status = answer.status {
             syncStatus = status
             state.syncStatus = status
             statusReceived?(status)
             // The platform no longer reports a gate this phone still remembers: it's passed.
+            // Kept for the account (`ConsentState`): `consent_required` here as anywhere. `invite_required` here
+            // can't tell warn from enforced, so it's never kept (a warn-mode invite doesn't hold uploads).
             switch status.gate {
             case nil:
                 apiStatus.resolved(.inviteRequired)
                 apiStatus.resolved(.consentRequired)
             case .consentRequired?:
                 apiStatus.resolved(.inviteRequired)
+                consent.refused(.consentRequired, at: env.clock.now())
             case .inviteRequired?:
                 break
             }
+        }
+        // This same check's answers show a gate kept from before is passed, and its status didn't name it: the
+        // account's consent matches the policy it heard, or the account has beta access.
+        if let user = answer.user, answer.status?.gate != .consentRequired,
+           let version = answer.config?.privacyPolicyVersion, user.consent?.policyVersion == version {
+            consent.cleared(.consentRequired)
+        }
+        if let user = answer.user, user.betaAccess, answer.status?.gate != .inviteRequired {
+            consent.cleared(.inviteRequired)
         }
         lastCheck = env.clock.now()
         phase = .ready
@@ -343,7 +361,7 @@ final class OnboardingCoordinator {
     /// the same resources). Failures leave a part unknown (the cache decides); the first run gives
     /// up waiting after `checkTimeout`.
     private func fetchWithTimeout() async -> Answer {
-        let api = api, clock = env.clock, reads = env.reads, state = state
+        let api = api, clock = env.clock, reads = env.reads, state = state, consent = consent
         let tz = TimeZone.current.identifier
         return await withTaskGroup(of: Answer?.self) { group in
             group.addTask {
@@ -351,7 +369,8 @@ final class OnboardingCoordinator {
                 async let me = try? reads.run(ReadKey(.me), store: { (user: User) in state.user = user }) {
                     try await api.me()
                 }
-                async let config = try? reads.run(ReadKey(.config)) { try await api.config() }
+                // The one door for the config: recorded inside the read, so it lands even when the timeout wins.
+                async let config = try? consent.fetchConfig()
                 async let status = try? reads.run(ReadKey(.syncStatus)) { try await api.syncStatus() }
                 var user = await me
                 // New users start in Europe/Berlin, which defines every day boundary.
@@ -373,7 +392,6 @@ final class OnboardingCoordinator {
     func switchAccount(_ account: String?) {
         if self.account != nil { apiStatus.resetGates() }
         self.account = account
-        config = nil
         syncStatus = nil
         deferred = []
         lastCheck = nil
@@ -413,22 +431,23 @@ final class OnboardingCoordinator {
     func agree() async -> Bool {
         let ok = await perform {
             let version: String
-            if let v = self.config?.privacyPolicyVersion {
+            if let v = self.consent.latestPolicyVersion, self.consent.isPolicyFresh(at: self.env.clock.now()) {
                 version = v
             } else {
-                let fresh = try await self.api.config()
-                self.config = fresh
-                guard let v = fresh.privacyPolicyVersion else { throw APIError.http(422, "no policy version") }
+                let fresh = try await self.consent.fetchConfig(userInitiated: true)
+                guard let v = fresh?.privacyPolicyVersion else { throw APIError.http(422, "no policy version") }
                 version = v
             }
             try await self.api.consent(policyVersion: version, appVersion: AppInfo.version)
+            // In force now (the platform answers 422 otherwise): an answer, good for the usual ttl.
+            self.consent.consented(to: version, at: self.env.clock.now())
             self.apiStatus.resolved(.consentRequired)
             self.deferred.remove(.consent)
             await self.check(force: true)
         } message: { error in
             guard (error as? APIError)?.status == 422 else { return nil }
             // The text on screen was an older policy: show the new one.
-            Task { [weak self] in self?.config = try? await self?.api.config() }
+            Task { [weak self] in _ = try? await self?.consent.fetchConfig(userInitiated: true) }
             return String(localized: "The privacy policy was just updated. Read the new version, then agree again.")
         }
         if ok { await startSync() }

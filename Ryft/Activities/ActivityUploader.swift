@@ -6,22 +6,13 @@
 //                                                      edited meanwhile ──▶ one more PUT
 //   delete ──▶ never sent: gone at once · else tombstone ──▶ DELETE (2xx or 404 ──▶ gone)
 //   transport · 5xx · 408 · 429 · 401 ──▶ that item backs off 30 s · 2 min · 10 min · 1 h (jitter, Retry-After)
-//   403 + code, or the consent gate ──▶ gated · 404 on PUT, or no contract yet ──▶ not available yet
+//   403 + code, or the gate ──▶ gated (a DELETE passes the consent gate) · 404 on PUT, or no contract yet ──▶ not
+//   available yet
 //   other 4xx ──▶ failed, kept
 import Foundation
 import Observation
 import UIKit
 import os
-
-/// Why activity uploads wait (`ActivityUploader.gate`, `OnboardingCoordinator.uploadGate`).
-enum UploadGate: Equatable, Sendable {
-    /// Something only the user or the platform can settle: no consent to the policy in force, an enforced invite
-    /// gate, the account not known yet.
-    case gate(APIErrorCode)
-    /// The policy in force isn't known on this phone yet (no config fetched this session or cached for the
-    /// account): being online settles it.
-    case policyUnknown
-}
 
 /// The upload queue for own activities and nights. The queue is the rows themselves: a row needs uploading while
 /// `localRevision > confirmedRevision` or while it's a tombstone (`ActivityStore.unconfirmed()`), so state lives in
@@ -31,8 +22,9 @@ enum UploadGate: Equatable, Sendable {
 /// - **One request at a time:** activities in the order they were created, then nights by day.
 /// - **Idempotent:** a `PUT` is keyed by the app's id (a night by its day), so a retry after a timeout never makes a
 ///   second one; an edit made while a `PUT` was out is sent with one more.
-/// - **Consent first:** nothing goes up while `gate` names a gate (the same one `SyncService` asks), as with
-///   HealthKit data.
+/// - **Consent first:** no `PUT` goes up while `gate(.data)` names a gate (the rule `SyncService` asks too), as with
+///   HealthKit data. A `DELETE` asks `gate(.erasure)`, which only demo binding, an unreadable record and an enforced
+///   invite gate hold: erasure goes without a current consent (ADR 0008).
 /// - **Never lost:** nothing is deleted before the platform confirmed it, except a delete of a row that was never
 ///   sent, and the account wipe. A refusal is a state (`failed`), shown with its status and request ID.
 /// - **No row holds up the others:** each item backs off on its own; an item that failed `failedAfter` times in a
@@ -89,11 +81,12 @@ final class ActivityUploader {
     @ObservationIgnored var onRemoved: (@MainActor (_ id: UUID, _ days: [String]) -> Void)?
     /// The platform confirmed a night's `PUT` or `DELETE`: that day is rescored.
     @ObservationIgnored var onSleepConfirmed: (@MainActor (_ day: String) -> Void)?
-    /// What still stands between the account and its uploads (`OnboardingCoordinator.uploadGate`: no consent to the
-    /// policy in force, an enforced invite gate, the account or the policy not known yet). While it names one,
-    /// nothing is sent. **Closed until the app connects it** (ScreenModels), so no path can upload without consent;
-    /// tests open it explicitly.
-    @ObservationIgnored var gate: @MainActor () -> UploadGate? = { .gate(.consentRequired) }
+    /// What still stands between the account and a request of that kind
+    /// (`OnboardingCoordinator.uploadGate(for: .activities, write:)`): for `PUT`s no consent to the policy in force,
+    /// an enforced invite gate, the account or the policy not known yet; for `DELETE`s only the invite gate and a
+    /// record that can't be read. While it names one, nothing of that kind is sent. **Closed until the app connects
+    /// it** (ScreenModels), so no path can upload without consent; tests open it explicitly.
+    @ObservationIgnored var gate: @MainActor (UploadWrite) -> UploadGate? = { _ in .gate(.consentRequired) }
     /// Jitter source (tests: `{ $0.lowerBound }`).
     @ObservationIgnored var random: (ClosedRange<Double>) -> Double = { .random(in: $0) }
 
@@ -273,8 +266,8 @@ final class ActivityUploader {
         }
     }
 
-    /// The gate names something missing, or the account is being deleted: the queue holds (`.pending(.gated)`).
-    private var isHeldByGate: Bool { gate() != nil || env?.auth.isDeletingAccount == true }
+    /// `hold` is what `gate(_:)` said: asked once by each caller. An account being deleted holds everything.
+    private func isHeld(by hold: UploadGate?) -> Bool { hold != nil || env?.auth.isDeletingAccount == true }
 
     private func startReplay(userInitiated: Bool) -> Task<Void, Never>? {
         guard let env, store.account != nil else { return nil }
@@ -287,21 +280,29 @@ final class ActivityUploader {
             notAvailable = true
             return nil
         }
-        // Consent and the invite gate first, as for HealthKit data.
-        guard !isHeldByGate else { return nil }
         guard env.connectivity.isOnline else { return nil }
+        // Consent and the invite gate first, as for HealthKit data: nothing starts while both kinds hold. A policy
+        // this phone doesn't know right now is asked for before the first `PUT` (`ConsentState.revalidate`), and
+        // every item asks the gate for its own kind.
+        let data = gate(.data)
+        let dataWaits = isHeld(by: data) && (data != .policyUnknown || env.auth.isDeletingAccount)
+        if dataWaits, isHeld(by: gate(.erasure)) { return nil }
         if let replay {
             flushAgain = true
             return replay
         }
         let generation = generation, api = env.api, id = UUID()
+        let consent = env.consent
         let task = Task { [weak self] in
             guard let self else { return }
+            // The policy is asked for at most once per replay (joined with any read in flight, at most once a minute
+            // after a failure), when the first `PUT` finds it unknown; a `DELETE` never waits for it.
+            var revalidated = false
             var pass = Pass.done
             repeat {
                 flushAgain = false
                 gated = false
-                pass = await drain(generation, api: api)
+                pass = await drain(generation, api: api, consent: consent, revalidated: &revalidated)
             } while pass == .done && flushAgain && generation == self.generation
             // Same main-actor step as the last check: nobody can join a replay that's over.
             guard replayID == id else { return }
@@ -316,22 +317,62 @@ final class ActivityUploader {
 
     private enum Pass { case done, stopped }
 
-    /// Sends one item after another. Refused items (until Retry or an edit), and items that failed `failedAfter` times
-    /// in a row (for the rest of the pass), are passed over; any other failure stops the pass.
-    private func drain(_ generation: Generation, api: PlatformAPI) async -> Pass {
+    /// One item's request.
+    private enum Work {
+        case put(LocalActivitySnapshot)
+        case delete(LocalActivitySnapshot)
+        case night(ManualSleepSnapshot)
+
+        var write: UploadWrite {
+            switch self {
+            case .put: return .data
+            case .delete: return .erasure
+            case .night(let night): return night.isTombstone ? .erasure : .data
+            }
+        }
+    }
+
+    /// Sends one item after another. Refused items (until Retry or an edit), items that failed `failedAfter` times in
+    /// a row, and items the gate holds (for the rest of the pass) are passed over; any other failure stops the pass.
+    private func drain(_ generation: Generation, api: PlatformAPI, consent: ConsentState,
+                       revalidated: inout Bool) async -> Pass {
         var passedOver = Set<Item>()
+        var dataHeld = false
         while generation == self.generation, !Task.isCancelled {
-            // Consent can be withdrawn while the queue runs: the next item waits for it.
-            if isHeldByGate { return .stopped }
-            guard let item = next(excluding: passedOver) else { return .done }
-            let outcome: Outcome
+            if env?.auth.isDeletingAccount == true { return .stopped }
+            guard let item = next(excluding: passedOver) else { return dataHeld ? .stopped : .done }
+            let work: Work
             switch item {
             case .activity(let id):
                 guard let row = store.snapshot(id: id) else { continue }
-                outcome = row.isTombstone ? await delete(row, generation, api) : await put(row, generation, api)
+                work = row.isTombstone ? .delete(row) : .put(row)
             case .sleep(let day):
                 guard let night = store.manualSleep(onDay: day) else { continue }
-                outcome = await send(night, generation, api)
+                work = .night(night)
+            }
+            // Asked before every item, for its kind: consent withdrawn while the queue runs holds the next `PUT`, and
+            // every `PUT` after it in this pass (their order stays); a `DELETE` still goes.
+            if work.write == .data, dataHeld {
+                passedOver.insert(item)
+                continue
+            }
+            var hold = gate(work.write)
+            if hold == .policyUnknown, work.write == .data, !revalidated {
+                revalidated = true
+                try? await consent.revalidate()
+                guard generation == self.generation else { return .stopped }
+                hold = gate(work.write)
+            }
+            if hold != nil {
+                if work.write == .data { dataHeld = true }
+                passedOver.insert(item)
+                continue
+            }
+            let outcome: Outcome
+            switch work {
+            case .put(let row): outcome = await put(row, generation, api)
+            case .delete(let row): outcome = await delete(row, generation, api)
+            case .night(let night): outcome = await send(night, generation, api)
             }
             guard generation == self.generation else { return .stopped }
             switch outcome {
@@ -552,7 +593,7 @@ final class ActivityUploader {
     /// shows the recording instead.
     func state(for row: LocalActivitySnapshot) -> UploadState {
         guard row.needsUpload else { return .confirmed }
-        return pending(.activity(row.id), lastAttempt: row.lastAttempt)
+        return pending(.activity(row.id), write: row.isTombstone ? .erasure : .data, lastAttempt: row.lastAttempt)
     }
 
     /// A night's state; nil when the account added none for `day`.
@@ -562,20 +603,21 @@ final class ActivityUploader {
 
     func sleepState(for night: ManualSleepSnapshot) -> UploadState {
         guard night.needsUpload else { return .confirmed }
-        return pending(.sleep(night.day), lastAttempt: night.lastAttempt)
+        return pending(.sleep(night.day), write: night.isTombstone ? .erasure : .data, lastAttempt: night.lastAttempt)
     }
 
-    private func pending(_ item: Item, lastAttempt: UploadAttempt?) -> UploadState {
+    private func pending(_ item: Item, write: UploadWrite, lastAttempt: UploadAttempt?) -> UploadState {
         if inFlight == item { return .pending(.inFlight) }
         if let lastAttempt, Self.isRefused(lastAttempt) { return .failed(lastAttempt) }
         let backoff = backoffs[item]
         if let lastAttempt, let backoff, backoff.failures >= Self.failedAfter { return .failed(lastAttempt) }
         guard let env, env.api.publishesActivities, !notAvailable else { return .pending(.notAvailableYet) }
         let online = env.connectivity.isOnline
-        if gated || isHeldByGate {
+        let hold = gate(write) // once per row (My Day renders every row)
+        if gated || isHeld(by: hold) {
             // Only the policy version is missing, and only being online brings it: say offline. Missing consent or
             // an invite stays "gated" (being online won't help).
-            if !gated, !online, gate() == .policyUnknown, !env.auth.isDeletingAccount { return .pending(.offline) }
+            if !gated, !online, hold == .policyUnknown, !env.auth.isDeletingAccount { return .pending(.offline) }
             return .pending(.gated)
         }
         if !online { return .pending(.offline) }

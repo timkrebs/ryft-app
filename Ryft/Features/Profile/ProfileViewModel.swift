@@ -116,7 +116,7 @@ final class ProfileViewModel {
         if env.isDemo || !env.api.publishesActivities { return .unavailable }
         // Offline is said first: it's true whatever else holds the queue.
         if !env.connectivity.isOnline { return .offline }
-        return env.uploader.gate() == nil ? .available : .unavailable
+        return env.uploader.gate(.data) == nil ? .available : .unavailable
     }
 
     /// What "Send first" came to.
@@ -539,7 +539,7 @@ final class SyncDetailsModel {
             "device \(env.settings.deviceId.uuidString.lowercased())",
             "phase \(e.phase.rawValue) · recent \(e.recentDone) · backfill \(e.backfillDone) · stream \(e.stream ?? "-")",
             "uploaded \(e.bytesUploaded) B · backlog \(sync.backlogBytes ?? 0) B · deletions kept \(e.pendingDeletions)",
-            "queue running \(isRunning) · queued \(hasQueuedRun) · unlock \(sync.waitingForUnlock) · gate \(sync.pausedFor?.rawValue ?? "-")",
+            "queue running \(isRunning) · queued \(hasQueuedRun) · unlock \(sync.waitingForUnlock) · gate \(sync.pausedFor?.diagnosticName ?? "-")",
             "updated \(e.updatedAt.map { $0.ISO8601Format() } ?? "-") · full resync \(e.lastFullResyncAt.map { $0.ISO8601Format() } ?? "-")",
         ]
         if let error = e.lastError { lines.append("last error \(error) · request \(e.lastRequestID ?? "-")") }
@@ -1982,11 +1982,11 @@ final class ReportProblemModel {
 }
 
 extension ProfileViewModel {
-    /// Signed out or another account (`previous`: the account before): its last requests (and the responses still
-    /// on their way) and a report's draft were that account's, and must never go out as this one. A first sign-in
-    /// leaves no account behind, so its first requests (Apple authorization, the gate check) stay.
+    /// Signed out or another account (`previous`: the account before): a report's draft was that account's, and must
+    /// never go out as this one. Its last requests (and the responses still on their way) were forgotten inside the
+    /// wipe already, before the new session was published (`AppState.bindAccountHooks`); a first sign-in leaves no
+    /// account behind, so its first requests (Apple authorization, the gate check) stay.
     func accountChanged(from previous: String?) {
-        if previous != nil { apiStatus.forgetRequests() }
         report.accountChanged()
         // An export's share sheet (and its file) was the previous account's (or demo data's).
         forgetExport()

@@ -201,6 +201,9 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
 - Sign-out wipes the whole store (`Persistence.wipe`), and `AppState.reset()` invalidates
   the Repository's memo.
 - Demo data goes to a separate in-memory store, so it never mixes with an account's.
+- Train's outbox (`PendingTrainOp`) is in the shared store, so each op records whose it is (the account, or demo):
+  it goes only through that binding's client, and another binding's ops wait, uncounted (ADR 0008). A session's
+  `DELETE` is bound to where its uploads went (`LocalSession.uploadedTo`); demo's ops go when demo data is switched off.
 
 **Migration.** `LegacyCacheMigration` imports the old `ResponseCache` JSON files
 (Caches/ryft-responses) once on first launch, then deletes them. `ResponseCache` is gone.
@@ -247,7 +250,9 @@ graph of `await`s and a `TaskGroup`:
   - **State per account** (`SyncEngineState`, UserDefaults like the anchors): phase,
     current stream, per-stream records, bytes and date range, the last error with its
     request ID. Wiped on sign-out with the anchors.
-  - The gate (`SyncService.gate`) is asked before every page.
+  - The gate (`SyncService.gate`: `OnboardingCoordinator.uploadGate(for: .healthKit)`, §10) is asked before the
+    first HealthKit read, after one `GET /v1/config` when the policy in force isn't known, and again before every
+    page. A hold commits no anchor; in demo, `run()` refuses before anything else.
   - **gzip** (`sync.gzip`, off until the platform takes it): the encoded page is gzipped
     off the main actor; a `400` / `415` sends it plain and keeps the run plain.
 - **Signposts** (`Signposts.sync`, `Signposts.launch`): intervals for read, map, encode,
@@ -501,13 +506,35 @@ mode) serves the request and names the gate in `X-RYFT-Gate`:
     most 10 s).
   - Afterwards: a gate as a sheet over the tabs; "Not now" is remembered for the
     session and Today shows "Action needed".
-- **`SyncService.gate`** asks the coordinator before every page: nothing syncs before
-  consent, before the account is known, or behind an enforced invite gate (`pausedFor`). A sync the platform refuses at
-  a gate pauses the same way and keeps the anchor of the page it couldn't send.
+- **One rule for every upload** (ADR 0008): `OnboardingCoordinator.gate(_:path:write:)`, a pure function next to
+  `missing(_:)`, asked through `uploadGate(for:write:)` by `SyncService` (`.healthKit`), `ActivityUploader`
+  (`.activities`), `TrainSyncService` (`.train`) and, once built, the training import (`.trainImport`):
+  - before a path's first read or request, and again before every page, item or op;
+  - demo data holds HealthKit (its client is the platform's) and opens the others, whose requests are bound to demo;
+  - data waits for the account, consent to the policy in force, and a **fresh** policy answer; an enforced invite
+    gate and an unreadable record (before the first unlock) hold everything;
+  - a `DELETE` goes without a current consent (erasure); a `consent_required` answer to it keeps it queued.
+  A hold is never an error (`pausedFor`, `.pending(.gated)`, Train's pending count); no anchor or queued item is lost.
+- **`ConsentState`** (`Environment/ConsentState.swift`, `env.consent`) is what this phone knows, per account, as one
+  `CachedDocument`: the last `/v1/config` answer (or consent `204`) and when it arrived, and the platform's refusals.
+  - Fresh while younger than `min(ttl_sec, 24 h)` on this phone's clock; a clock set back is stale.
+  - `fetchConfig()` is the only way the app reads `/v1/config`; `revalidate()` asks once (joined with reads in
+    flight, at most once a minute after a failure) before an upload holds for an unknown policy.
+  - `APIStatus.onGate` keeps `consent_required` in any mode and `invite_required` only when enforced; a warn-mode
+    invite never holds. `check()`, `agree()` and `redeemInvite()` end them.
+  - Read once per `AccountBinding`; wiped with every account wipe; demo reads and writes nothing. In the live graph
+    `TrainStore`'s in-memory fallback (a launch before the first unlock) never counts as readable: every write holds.
+  - The wipe forgets the leaving account's requests (`APIStatus.forgetRequests`) before the next session is
+    published, so a late `403` of theirs is never kept as the next account's refusal.
+- **The release edge:** RootView forwards each path's gate to `ScreenModels.gateChanged(_:to:)`; when it opens, the
+  path's queue goes, and a sync whose last run was held (or whose policy read failed) runs again, unless one is already
+  running or queued (`SyncCoordinator.runIfIdle`). In the background each run asks at its own start. Every gate is
+  closed until the app connects it (`SyncService.gate` too).
 - `account_hint` (the platform's guess that this is the same person signed in another
   way) shows once per account; Profile → Sign-in methods links Apple to an email account
   (Supabase identity linking).
 
 Tests: `OnboardingDecisionTests` (the decision table), `OnboardingCoordinatorTests` (the
 flow, mid-session sheets, invite codes, account switch, the hint, Today's action),
-`APIClientStatusTests` (the status matrix and the headers).
+`APIClientStatusTests` (the status matrix and the headers), `ConsentGateTests` (the upload rule's tables, the record,
+its writers, sync, activity and Train holds, the release edge).

@@ -31,7 +31,10 @@ private func day(_ offset: Int, from date: Date = .now) -> String {
 struct TodayViewModelTests {
     @Test func loadsTheBriefing() async {
         let (env, state, _) = makeState()
-        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
         #expect(vm.readiness == nil)
         #expect(vm.sleepText == Fmt.placeholder)
 
@@ -48,7 +51,10 @@ struct TodayViewModelTests {
     @Test func greetingFollowsTheClock() {
         let morning = Calendar.current.date(bySettingHour: 7, minute: 0, second: 0, of: .now)!
         let (env, state, clock) = makeState(now: morning)
-        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
         #expect(vm.greeting == String(localized: "Good morning,"))
         clock.set(Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: .now)!)
         #expect(vm.greeting == String(localized: "Good evening,"))
@@ -59,7 +65,10 @@ struct TodayViewModelTests {
         let api = MockPlatformAPI()
         api.failure = APIError.http(500, "", requestID: "rid-500")
         let (env, state, _) = makeState(api: api)
-        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
 
         await state.refresh()
 
@@ -78,7 +87,10 @@ struct TodayViewModelTests {
         let api = MockPlatformAPI()
         api.failure = APIError.http(503, "request timed out", requestID: "rid-503", code: .consentRequired)
         let (env, state, _) = makeState(api: api)
-        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
 
         await state.refresh()
 
@@ -98,7 +110,10 @@ struct TodayViewModelTests {
         let api = MockPlatformAPI()
         api.failure = APIError.http(500, "", requestID: "rid-500")
         let (env, state, _) = makeState(api: api)
-        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
         await state.refresh()
         #expect(vm.syncLine == .issue(.today))
         #expect(vm.scrollToIssue == 0)
@@ -111,7 +126,10 @@ struct TodayViewModelTests {
 
     @Test func tappingAnyOtherLineOpensSyncDetails() async {
         let (env, state, _) = makeState()
-        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
         await state.refresh()
         #expect(vm.syncLine == .upToDate(state.lastUpdated, demo: false))
 
@@ -122,7 +140,10 @@ struct TodayViewModelTests {
 
     @Test func tappingTheOfflineLineOpensSyncDetails() {
         let (env, state, _) = makeState(online: false)
-        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
         #expect(vm.syncLine == .offline)
         vm.resolveLine()
         #expect(vm.showsSyncDetails && vm.scrollToIssue == 0)
@@ -134,7 +155,10 @@ struct TodayViewModelTests {
         // Morning, so 2 h later is still the same day (a new day has no data of its own yet).
         let morning = Calendar.current.date(bySettingHour: 8, minute: 0, second: 0, of: .now)!
         let (env, state, clock) = makeState(api: api, now: morning)
-        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
         await state.refresh()
         let loaded = state.lastUpdated
         #expect(loaded != nil)
@@ -161,7 +185,10 @@ struct TodayViewModelTests {
     @Test func offlineShowsThePillAndRequestsNothing() async {
         let api = MockPlatformAPI()
         let (env, state, _) = makeState(api: api, online: false)
-        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
 
         await vm.refresh()
 
@@ -175,7 +202,10 @@ struct TodayViewModelTests {
         var detail = MockData.todayDetail
         detail.score = MockData.calibratingScore
         state.today = detail
-        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
         // The gauge counts the nights ("Baselines · 3 of 7 nights"); the sentence says what they're for (ui.md §1.5).
         #expect(vm.hero == .calibrating(nights: MockData.calibratingScore.baselineDays))
         #expect(vm.sentence == String(localized: "Your baselines are still forming."))
@@ -189,7 +219,7 @@ struct TodayViewModelTests {
         let api = MockPlatformAPI()
         api.failNext = APIError.http(500, "")
         let (env, state, _) = makeState(api: api, health: health)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let vm = TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
 
         await sync.syncNow()
@@ -204,7 +234,10 @@ struct TodayViewModelTests {
 
     @Test func tilesOpenTheirTabs() {
         let (env, state, _) = makeState()
-        let vm = { let sync = SyncService(env: env); return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
         vm.open(.strain)
         #expect(state.selectedTab == .strain)
     }
@@ -443,7 +476,7 @@ struct TodayStatesTests {
     // MARK: through the view model
 
     private func model(_ state: AppState) -> TodayViewModel {
-        let sync = SyncService(env: state.env)
+        let sync = SyncService.ungated(env: state.env)
         return TodayViewModel(state: state, sync: sync,
                               coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: state.env.clock),
                               apiStatus: APIStatus())
@@ -755,7 +788,7 @@ struct TodayNightAndScoringTests {
 
     @Test func theWaitsStartStaysOnlyWhileThePlatformSaysPending() {
         let (env, _, clock) = makeState(now: at(10, 0))
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         sync.advance(to: .reading)
         sync.advance(to: .awaitingScores)
         #expect(sync.scoringWaitStart == at(10, 0))
@@ -828,7 +861,7 @@ struct TodayNightAndScoringTests {
 
     @Test func aWaitThatEndsEarlyForgetsItsStart() {
         let (env, _, clock) = makeState(now: at(10, 0))
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         // Cancelled (background, sign-out) or failed before the cut-off: no start left to call slow hours later.
         for end in [SyncPhase.idle, .failed] {
             sync.advance(to: .reading)
@@ -853,7 +886,7 @@ struct TodayNightAndScoringTests {
 
     @Test func statusReadsStartAndClearTheClockButNeverMidWait() {
         let (env, _, clock) = makeState(now: at(10, 0))
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         // Days pending that nobody here waits for (a relaunch, another device): timed from now, on this clock.
         sync.receive(status(.pending, now: clock.now()))
         #expect(sync.scoringWaitStart == at(10, 0) && sync.statusReadAt == at(10, 0))
@@ -880,7 +913,7 @@ struct TodayNightAndScoringTests {
     @Test func theFactsTimeTheWaitAndTheGaugeStopsBreathing() {
         let now = at(10, 0)
         let (_, state, clock) = makeState(now: now)
-        let sync = SyncService(env: state.env)
+        let sync = SyncService.ungated(env: state.env)
         let vm = TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
         state.syncStatus = status(.pending, now: now)
         state.history = [DailyScore(day: DayFormat.string(from: DayFormat.shift(now, days: -1)), readiness: 76, state: .balanced,
@@ -905,7 +938,7 @@ struct TodayNightAndScoringTests {
         let now = at(7, 0)
         let api = MockPlatformAPI()
         let (_, state, clock) = makeState(api: api, now: now)
-        let sync = SyncService(env: state.env)
+        let sync = SyncService.ungated(env: state.env)
         let pipeline = coordinator(state, sync)
         let vm = TodayViewModel(state: state, sync: sync, coordinator: pipeline, apiStatus: APIStatus())
         let today = DayFormat.string(from: now)
@@ -955,7 +988,7 @@ struct TodayNightAndScoringTests {
         health.night = RawNight(asleepMin: 400, bedtime: now.addingTimeInterval(-30_000), wake: now.addingTimeInterval(-3_000),
                                 source: "Connect", bundleID: "com.garmin.connect.mobile")
         let (_, state, _) = makeState(health: health, now: now)
-        let sync = SyncService(env: state.env)
+        let sync = SyncService.ungated(env: state.env)
         let vm = TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
         #expect(vm.facts.sourceApps.isEmpty) // nothing to name before HealthKit answered
         await vm.loadHealthFacts()
@@ -1211,7 +1244,7 @@ struct TodayPresentationTests {
                                           today: TodayState(day: key, state: status, scoredAt: nil, modelVersion: "x"),
                                           pendingDays: [], expectedWithinSec: 20, resyncRequestedAt: nil)
         }
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         return TodayViewModel(state: state, sync: sync,
                               coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock),
                               apiStatus: APIStatus())
@@ -1306,7 +1339,7 @@ struct TodayPresentationTests {
     @Test func everyRowHasADemoScenario() {
         func vm(_ scenario: TodayScenario) -> TodayViewModel {
             let state = AppState.preview(scenario: scenario)
-            let sync = SyncService(env: state.env)
+            let sync = SyncService.ungated(env: state.env)
             return TodayViewModel(state: state, sync: sync,
                                   coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: state.env.clock),
                                   apiStatus: APIStatus())
@@ -1347,7 +1380,7 @@ struct SyncDetailsTests {
                                         ignored: SyncIgnored(samples: IgnoredCounts(duplicate: 1, outsideWindow: 0, unknownType: 0),
                                                              sleep: .none, workouts: .none))
         let (_, state, _) = makeState(api: api, health: health)
-        let sync = SyncService(env: state.env)
+        let sync = SyncService.ungated(env: state.env)
         let model = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
         await sync.syncNow()
 
@@ -1371,7 +1404,7 @@ struct SyncDetailsTests {
             HealthDelta(samples: [Sample(type: .heartRate, start: .now, end: .now, value: 61.5, unit: "bpm", source: "x")])
         ]])
         let (_, state, _) = makeState(health: health)
-        let sync = SyncService(env: state.env)
+        let sync = SyncService.ungated(env: state.env)
         let model = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: status)
         await sync.syncNow()
         await model.loadQueue()
@@ -1393,7 +1426,7 @@ struct SyncDetailsTests {
         // Nothing to score: the coordinator doesn't wait on the test clock.
         api.syncResponse = SyncResponse(samples: 1, sleep: 0, workouts: 0, daysTouched: [])
         let (_, state, _) = makeState(api: api, health: health)
-        let sync = SyncService(env: state.env)
+        let sync = SyncService.ungated(env: state.env)
         let model = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
         await sync.syncNow()
         let before = health.recentReads
@@ -1406,7 +1439,7 @@ struct SyncDetailsTests {
 
     @Test func theScoringRowSaysSinceWhenAndWhetherItsSlow() {
         let (_, state, clock) = makeState()
-        let sync = SyncService(env: state.env)
+        let sync = SyncService.ungated(env: state.env)
         let model = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
         #expect(model.scoringText == String(localized: "Nothing waiting") && !model.scoringIsSlow)
         #expect(model.diagnostics.contains("scoring since - · expected 30 s · slow false"))
@@ -1603,7 +1636,10 @@ struct InsightsViewModelTests {
 struct ProfileViewModelTests {
     @Test func accountFallsBackFromNameToEmail() {
         let (env, state, _) = makeState()
-        let vm = { let sync = SyncService(env: env); return ProfileViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return ProfileViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
         state.user = User(id: UUID(), name: "", email: "a@b.c", provider: "email", tz: TimeZone.current.identifier,
                           maxHr: 185, sleepBaseMin: 450)
         #expect(vm.accountTitle == "a@b.c")
@@ -1617,7 +1653,10 @@ struct ProfileViewModelTests {
     @Test func rescoringSendsNoSettings() async {
         let api = MockPlatformAPI()
         let (env, state, clock) = makeState(api: api)
-        let vm = { let sync = SyncService(env: env); return ProfileViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return ProfileViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
         let run = Task { await vm.bodySettings.rescore() }
         #expect(await eventually { clock.pendingSleeps == 1 })
         #expect(api.count("recompute") == 1 && api.count("patchMe") == 0) // settings saved when they changed
@@ -1629,7 +1668,10 @@ struct ProfileViewModelTests {
     @Test func failedRescoreSaysWhy() async {
         let api = MockPlatformAPI()
         let (env, state, _) = makeState(api: api)
-        let vm = { let sync = SyncService(env: env); return ProfileViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return ProfileViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
         api.failure = APIError.http(429, "")
         await vm.bodySettings.rescore()
         #expect(vm.bodySettings.rescoreStatus == APIError.http(429, "").localizedDescription)
@@ -1639,7 +1681,10 @@ struct ProfileViewModelTests {
         let health = MockHealthStore()
         health.access = .notAsked
         let (env, state, _) = makeState(health: health)
-        let vm = { let sync = SyncService(env: env); return ProfileViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus()) }()
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return ProfileViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
         await vm.refreshHealthStatus()
         #expect(vm.canAskForHealth && vm.healthNeedsAttention)
         await vm.requestHealthAccess()
@@ -1656,6 +1701,7 @@ struct TrainQuickStartTests {
     private func coordinator(_ api: MockPlatformAPI = MockPlatformAPI()) -> (TrainCoordinator, TrainLibrary, TrainStore) {
         let store = TrainStore(inMemory: true)
         let sync = TrainSyncService(store: store, remote: { api }, debounce: .milliseconds(30), monitorsNetwork: false)
+        sync.gate = { _ in nil } // open: these tests are about what happens past it
         let library = TrainLibrary(store: store, remote: { api }, restore: false)
         return (TrainCoordinator(sync: sync, library: library, liveActivities: false), library, store)
     }
@@ -1980,13 +2026,13 @@ struct OnboardingCoordinatorTests {
 
         #expect(!model.holdsFirstRun)
         #expect(model.flowStep == .consent) // the gate is off: no invite step
-        #expect(model.syncGate == .consentRequired)
+        #expect(model.uploadGate(for: .healthKit) == .gate(.consentRequired))
         #expect(state.user != nil && api.count("syncStatus") == 1 && api.count("config") == 1)
 
         #expect(await model.agree())
         #expect(api.consentPosts == [MockData.policyVersion])
         #expect(starts.runs == 1) // the first sync starts right away
-        #expect(model.syncGate == nil)
+        #expect(model.uploadGate(for: .healthKit) == nil)
         #expect(model.flowStep == .aboutYou)
 
         #expect(await model.saveAboutYou(birthYear: 1990))
@@ -2005,12 +2051,12 @@ struct OnboardingCoordinatorTests {
         let state = AppState(env: env)
         let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
         model.reachedTabs()
-        let sync = SyncService(env: env)
-        sync.gate = { model.syncGate }
+        let sync = SyncService.ungated(env: env)
+        sync.gate = { model.uploadGate(for: .healthKit) }
         await model.check()
 
         #expect(try await sync.upload() == [])
-        #expect(sync.pausedFor == .consentRequired && sync.lastError == nil)
+        #expect(sync.pausedFor == .gate(.consentRequired) && sync.lastError == nil)
         #expect(api.count("sync") == 0 && health.committed.isEmpty)
 
         _ = await model.agree()
@@ -2024,12 +2070,12 @@ struct OnboardingCoordinatorTests {
         api.enforcesConsent = true
         let health = MockHealthStore(pages: [.quantity(.heartRate): [HealthDelta(samples: [
             Sample(type: .heartRate, start: .now, end: .now, value: 60, unit: "bpm", source: "Watch")])]])
-        let sync = SyncService(env: .test(api: api, health: health)) // no gate wired: the platform refuses
+        let sync = SyncService.ungated(env: .test(api: api, health: health)) // no gate wired: the platform refuses
 
         let touched = try? await sync.upload()
 
         #expect(touched == [])
-        #expect(sync.pausedFor == .consentRequired && sync.lastError == nil && sync.phase == .idle)
+        #expect(sync.pausedFor == .gate(.consentRequired) && sync.lastError == nil && sync.phase == .idle)
         #expect(health.committed.isEmpty) // the page goes again once consent is given
     }
 
@@ -2043,7 +2089,7 @@ struct OnboardingCoordinatorTests {
         #expect(model.sheetStep == .consent)
         #expect(model.earlierConsent?.policyVersion == "2026-01-01")
         model.sheetStep = nil // swiped away
-        #expect(model.sheetStep == nil && model.pendingGate == .consent && model.syncGate == .consentRequired)
+        #expect(model.sheetStep == nil && model.pendingGate == .consent && model.uploadGate(for: .healthKit) == .gate(.consentRequired))
         model.show(.consent) // Today's "Review"
         #expect(model.sheetStep == .consent)
     }
@@ -2070,7 +2116,7 @@ struct OnboardingCoordinatorTests {
         await model.check()
         #expect(model.flowStep == .invite)
         #expect(!model.canDefer(.invite)) // enforced: nothing works without it
-        #expect(model.syncGate == .inviteRequired)
+        #expect(model.uploadGate(for: .healthKit) == .gate(.inviteRequired))
 
         model.inviteCode = "RYFT-0000-0000"
         #expect(await !model.redeemInvite())
@@ -2088,7 +2134,7 @@ struct OnboardingCoordinatorTests {
         api.inviteGateOn = true
         let (model, _, _) = onboarding(api)
         await model.check()
-        #expect(model.flowStep == .invite && model.canDefer(.invite) && model.syncGate == nil)
+        #expect(model.flowStep == .invite && model.canDefer(.invite) && model.uploadGate(for: .healthKit) == nil)
         model.later(.invite)
         #expect(model.flowStep == .aboutYou)
     }
@@ -2147,9 +2193,9 @@ struct OnboardingCoordinatorTests {
     @Test func withdrawingStopsSyncWithoutAsking() async {
         let (model, _, _) = onboarding(introDone: true)
         await model.check()
-        #expect(model.syncGate == nil)
+        #expect(model.uploadGate(for: .healthKit) == nil)
         #expect(await model.withdrawConsent())
-        #expect(model.syncGate == .consentRequired)
+        #expect(model.uploadGate(for: .healthKit) == .gate(.consentRequired))
         #expect(model.sheetStep == nil) // asked again only from Profile or Today
         #expect(model.pendingGate == .consent)
     }
@@ -2170,7 +2216,7 @@ struct OnboardingCoordinatorTests {
         #expect(model.flowStep == .aboutYou)
         model.finishAboutYou()
         #expect(model.flowStep == .wear && !OnboardingCoordinator.Step.wear.isGate && model.canDefer(.wear))
-        #expect(model.syncGate == nil) // not a gate: the sync doesn't wait for it
+        #expect(model.uploadGate(for: .healthKit) == nil) // not a gate: the sync doesn't wait for it
 
         model.answerWear(["oura", "garmin"])
 
@@ -2235,7 +2281,10 @@ struct OnboardingCoordinatorTests {
     @Test func demoModeHasNoGates() async {
         let demo = OnboardingCoordinator(state: AppState.preview(), apiStatus: APIStatus()) {}
         await demo.check()
-        #expect(demo.missing.isEmpty && demo.syncGate == nil && !demo.holdsFirstRun)
+        #expect(demo.missing.isEmpty && !demo.holdsFirstRun)
+        // HealthKit's client is the platform's: it holds in demo (privacy review S1). The others go to the mock.
+        #expect(demo.uploadGate(for: .healthKit) == .demo)
+        #expect(demo.uploadGate(for: .activities) == nil && demo.uploadGate(for: .train) == nil)
     }
 
     @Test func todaySaysWhatsNeededAndOpensTheStep() async {
@@ -2246,7 +2295,7 @@ struct OnboardingCoordinatorTests {
         model.reachedTabs()
         await model.check()
         model.later(.consent)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let today = TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync),
                                    onboarding: model, apiStatus: APIStatus())
 
@@ -2268,7 +2317,7 @@ struct ProfilePrivacyTests {
         let (env, state, _) = makeState(api: api)
         let onboarding = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
         onboarding.reachedTabs()
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let vm = ProfileViewModel(state: state, sync: sync, coordinator: coordinator(state, sync),
                                   onboarding: onboarding, apiStatus: APIStatus())
         return (vm, onboarding, state)
@@ -2351,7 +2400,7 @@ struct OnboardingEdgeTests {
         let (model, state, _) = onboarding(api)
         await model.check()
         #expect(state.user == nil && model.missing.isEmpty)
-        #expect(model.syncGate == .consentRequired) // a consent can't be assumed
+        #expect(model.uploadGate(for: .healthKit) == .gate(.consentRequired)) // a consent can't be assumed
         #expect(model.pendingGate == nil) // and it isn't the user's to fix
     }
 
@@ -2361,7 +2410,7 @@ struct OnboardingEdgeTests {
         await model.check()
         api.failAfterRevoke = true
         #expect(await model.withdrawConsent())
-        #expect(state.user?.consent == nil && model.syncGate == .consentRequired)
+        #expect(state.user?.consent == nil && model.uploadGate(for: .healthKit) == .gate(.consentRequired))
     }
 
     @Test func anotherAccountOnAPhoneThatAllowedHealthStillGetsItsSteps() async {
@@ -2380,15 +2429,15 @@ struct OnboardingEdgeTests {
             HealthDelta(samples: [Sample(type: .heartRate, start: .now, end: .now, value: 61, unit: "bpm", source: "W")]),
         ]])
         let api = MockPlatformAPI()
-        let sync = SyncService(env: .test(api: api, health: health))
+        let sync = SyncService.ungated(env: .test(api: api, health: health))
         let withdrawn = Flag()
-        sync.gate = { withdrawn.isSet ? .consentRequired : nil }
+        sync.gate = { withdrawn.isSet ? .gate(.consentRequired) : nil }
         api.afterSync = { withdrawn.set() } // consent withdrawn meanwhile
 
         _ = try? await sync.upload()
 
         #expect(api.count("sync") == 1 && health.committed.count == 1) // the second page stays
-        #expect(sync.pausedFor == .consentRequired && sync.lastError == nil)
+        #expect(sync.pausedFor == .gate(.consentRequired) && sync.lastError == nil)
     }
 
     @Test func trainKeepsWritesRefusedAtAGate() {
@@ -2420,7 +2469,7 @@ struct OnboardingEdgeTests {
 struct RefreshAllOrNothingTests {
     private func model(_ api: MockPlatformAPI) -> (TodayViewModel, AppState, TestClock) {
         let (env, state, clock) = makeState(api: api)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let vm = TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
         return (vm, state, clock)
     }

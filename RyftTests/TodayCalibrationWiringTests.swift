@@ -24,7 +24,7 @@ struct TodayCalibrationWiringTests {
                                baselineDays: 0, calibrating: true, computedAt: now, scoringState: .scored,
                                baselineHrvDays: 0, baselineRhrDays: 24, calibratingReason: reason)
         state.today = DayDetail(score: today, sleep: nil, workouts: [])
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         return TodayViewModel(state: state, sync: sync,
                               coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock),
                               devices: TrackerSelectionStore(env: env, launch: trackers), apiStatus: APIStatus())

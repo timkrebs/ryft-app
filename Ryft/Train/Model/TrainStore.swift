@@ -165,14 +165,23 @@ final class TrainStore {
         (try? context.fetch(FetchDescriptor<PendingTrainOp>(sortBy: [SortDescriptor(\.seq)]))) ?? []
     }
 
-    func enqueue(_ kind: PendingTrainOp.Kind, sessionID: UUID, bodyweightKg: Double? = nil) {
+    /// `account`: whose op it is (`PendingTrainOp.account`).
+    func enqueue(_ kind: PendingTrainOp.Kind, sessionID: UUID, bodyweightKg: Double? = nil, account: String? = nil) {
         let next = (pendingOps().last?.seq ?? 0) + 1
-        context.insert(PendingTrainOp(seq: next, kind: kind, sessionId: sessionID, bodyweightKg: bodyweightKg))
+        context.insert(PendingTrainOp(seq: next, kind: kind, sessionId: sessionID, bodyweightKg: bodyweightKg,
+                                      account: account))
         save()
     }
 
     func dequeue(_ op: PendingTrainOp) {
         context.delete(op)
+        save()
+    }
+
+    /// Every op of one binding (`PendingTrainOp.account`).
+    func dropOps(account: String) {
+        let owner: String? = account
+        try? context.delete(model: PendingTrainOp.self, where: #Predicate { $0.account == owner })
         save()
     }
 

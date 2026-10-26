@@ -226,7 +226,7 @@ struct ActivityFlagTests {
         #expect(ReadResource.activities.displayName == String(localized: "Activities"))
         let env = AppEnvironment.test(flags: [.todayMyDay: myDay])
         let state = AppState(env: env)
-        let sync = SyncService(env: env)
+        let sync = SyncService.ungated(env: env)
         let model = SyncDetailsModel(state: state, sync: sync,
                                      coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync),
                                                                   clock: env.clock),

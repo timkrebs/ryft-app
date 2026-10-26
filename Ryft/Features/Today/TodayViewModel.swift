@@ -127,7 +127,11 @@ final class TodayViewModel {
     /// With onboarding, its facts decide (a sync paused only until the account is known
     /// isn't the user's to fix); without it, a sync the platform refused at a gate.
     private var gate: OnboardingCoordinator.Step? {
-        onboarding.map { $0.pendingGate } ?? sync.pausedFor.map(Self.step(for:))
+        onboarding.map { $0.pendingGate } ?? sync.pausedFor.flatMap { hold in
+            // Only a gate the user can pass is a step; a policy not known yet isn't.
+            if case .gate(let code) = hold { return Self.step(for: code) }
+            return nil
+        }
     }
 
     var lastUpdated: Date? { state.lastUpdated }
