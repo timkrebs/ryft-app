@@ -5,6 +5,7 @@
   the re-init counts both gates
 - Amended: 2026-10-24, amendment 2 (A3a.2): a re-init is provisional until its settle window closes; the sport's
   limit applies to the filter's speed, with a `.tooFast` state
+- Revised: 2026-10-26, after the code review: a valid Doppler speed vetoes entering `.tooFast` (end of amendment 2)
 - Deciders: ios-lead, on ios-architect's proposal; sync-engineer implements (A3)
 - Applies to: `Ryft/Activities/Recording/TrackPipeline.swift`, `KalmanTrack.swift`, `Geodesy.swift`,
   `Ryft/Activities/Sport.swift` (per-sport parameters)
@@ -227,6 +228,8 @@ the fixes.
 7. **Core Location's own speed** (`fix.speed`, usually Doppler-derived) isn't used. If D1 shows it beats the filter's
    speed, the follow-up feeds it into the filter as a velocity measurement. That needs `speedAccuracy` and `course`
    in `LocationFix`, a frozen type, so it goes through the lead. It never becomes a second distance.
+   *Superseded for the too-fast state by amendment 2, "Revision after the code review (2026-10-26)": a valid Doppler
+   speed vetoes entering it. Distance still comes from the filter only.*
 8. **The settle window shows distance late.** For the first 10 s after Start, a resume after a kill or a tunnel exit,
    the distance stands still, then catches up at once. Splits crossed in the window are interpolated over it.
 
@@ -445,3 +448,106 @@ stateDiagram-v2
 - a passenger in a car or train with "Running": one episode over the fast part, and at most about 120 m added per
   stop;
 - a walk between tall buildings: re-inits, spans, weak-GPS time, and the distance against a measured course.
+
+### Revision after the code review (2026-10-26): the Doppler veto
+
+- Status: built by the review fixes (`ee974c0`, review S2; `c33883f`, review X1–X3) and recorded here so this ADR
+  matches the code. The lead confirms with the PR (`activities: speed-gate guard`).
+- **Supersedes** Amendment 1's risk 7 as far as the too-fast state goes. Distance still comes from the filter only.
+- **Numbers** are the implementer's, from the test target (`GuardTrack`: seeded 1 Hz tracks, drifting noise, a Doppler
+  speed at the truth ±0.3 m/s), not the probe.
+
+**Why.**
+- **Sliding multipath.** Offsets of 20–40 m that slide in 6–10 s are slow enough for both gates. The filter follows
+  the slide, and its ground speed crosses a slow sport's limit. A3a.2 as first written gave walk 54, hike 46, trail 33
+  and run 22 false episodes in 20 seeds (design §11.1).
+- **Core Location's own speed doesn't slide.** It comes from the receiver's velocity solution, not from the positions,
+  so multipath doesn't move it.
+- **The state since review S1.** It enters above the entry speed, max(limit × 1.05, limit + 0.6 m/s), and leaves at or
+  below the limit. A refused step is held until the state confirms; a slow step, Pause or Finish releases it as
+  distance.
+
+**Decision:**
+1. **The veto.** A step or a closing settle window counts as too fast only if Core Location's Doppler speed
+   (`LocationFix.speed`) is above 0.9 × the limit too (`dopplerShareOfLimit`): 8.1 m/s for running, 5.4 m/s for
+   walking. A window takes the median of its fixes' Doppler speeds. A vetoed step is an ordinary step: it counts as
+   distance and releases what was held. Without a usable Doppler speed, the filter decides alone, as before.
+2. **Entry only.** The veto applies while the state is off. Inside an episode the filter's ground speed alone decides:
+   a step counts again once its mean is at or below the limit, and 3 s of them end the state. Braking drops the
+   Doppler speed below the limit before the filter's speed, so a veto there would count the filter's lag as distance.
+3. **Holdover.** A fix without a usable Doppler speed takes the last usable one from up to 8 s back
+   (`dopplerHoldover`), raised by 0.5 m/s² per second of its age (`dopplerHoldoverAcceleration`). The raised value
+   means "the fastest the user could be by now".
+   - Core Location leaves the speed out on some fixes. A veto that failed open on each of them let slides through.
+   - A slide doesn't speed the user up, so for a walker the veto holds the full 8 s: 1.4 + 8 × 0.5 = 5.4 m/s, exactly
+     the walking veto's threshold.
+   - A real acceleration isn't held back: a train at 0.7 m/s² gains only 0.2 m/s a second on the raised value. The
+     train and the bike read as they do without the holdover (the table).
+   - Memory only, like the settle window. A checkpoint doesn't keep it.
+4. **Accuracy.** A Doppler speed is valid when it's finite and ≥ 0 and its `speedAccuracy` isn't negative. An unknown
+   accuracy doesn't invalidate it. Above 2 m/s it counts as unknown (`maxDopplerAccuracy`). The cutoff is absolute,
+   because it's the receiver's velocity solution that degrades, whatever the sport. 2 m/s keeps a walk at 1.4 m/s
+   clear of its 5.4 m/s threshold.
+5. **Checkpoint.** A checkpoint taken while steps are held counts them as distance, as Pause and Finish do: a restore
+   can't confirm them. The live pipeline keeps holding them.
+6. **`LocationFix` gains `speedAccuracy`** (optional, nil by default). That's the frozen-type change risk 7 sent through
+   the lead. `course` isn't needed.
+
+**The holdover, measured.** False episodes in 80 runs: 6–10 s slides for 180 s, 20 seeds each of walk, hike, trail
+and run. "Doppler missing in 5-fix gaps" leaves out about 40 % of the fixes. The train and the bike use the same two
+Doppler patterns over 20 seeds. "Running" on a bike is when `.tooFast` starts after the truth passes 9 m/s.
+
+| Rule | Doppler on 30 % of fixes | Doppler missing in 5-fix gaps | Train after a run, worst seed | "Running" on a bike |
+| --- | --- | --- | --- | --- |
+| No holdover | 34 | 49 | +128 m | +2 … +3 s |
+| Plain 5 s | 10 | 8 | +136 m | +2 … +4 s |
+| Plain 8 s | 2 | 3 | +171 m | up to +7 s |
+| **8 s + 0.5 m/s² (chosen)** | **2** | **5** | **+127 m** | **+2 … +3 s** |
+
+**Rejected:**
+- *No holdover* (a fix without Doppler fails open): 34 and 49 false episodes. The train and the bike are fine.
+- *Plain 5 s:* 10 and 8 false episodes, and the train goes over the 135 m bound (+136 m).
+- *Plain 8 s:* the fewest false episodes, but a stale reading from early in the acceleration vetoes it: the train
+  +171 m, the bike up to 7 s late. The allowance costs 2 episodes in 5-fix gaps (5, not 3) and saves 44 m on the
+  train and 4 s on the bike.
+- *A relative accuracy cutoff* (0.3 × the limit): it would accept ±11 m/s on a road bike. The receiver's velocity
+  solution degrades the same way at any speed.
+- *Vetoing inside an episode too* (the rule as `ee974c0` built it): with Doppler on every fix, the train after a run
+  read +129 … +141 m, up to 6 m over the bound. Now it reads what it reads without Doppler (+128 m noiseless at 5 m).
+
+**Good:**
+- **Sliding multipath doesn't enter the state** when the fixes carry Doppler: 0 false episodes with Doppler on 70–100 %
+  of fixes (6–10 s slides), and on every fix with 10–20 s slides too.
+- **A real episode is the filter's.** Doppler changes neither its end nor its distance.
+- **The veto falls back to the old rule.** With no usable Doppler speed in the last 8 s, the filter decides alone.
+
+**Costs (measured, with all the review fixes):**
+- "Running" on a bike: `.tooFast` +2 … +3 s after the truth passes 9 m/s; 56–68 m recorded (the ramp below 9 m/s is
+  40.5 m).
+- A descent above 25 m/s (the test profile limited to 25): 2,825 … 2,860 m (S1's hysteresis allows 2,829 m).
+- A train after a run: +112 … +128 m. The bound stays 135 m.
+
+**Risks:**
+1. **Slow slides still add distance.** The veto keeps the state honest, not the distance. A slide below the gates'
+   tolerance counts as motion below the limit: +74 … +556 m in the review's 180 s scenarios (design §3.3, open item).
+2. **A Doppler speed that reads low is believed.** It can keep a real episode from starting, and its steps then count
+   as distance. Validity and the 2 m/s cutoff are the only guards.
+3. **How many real fixes carry a valid Doppler speed is unknown.** With fewer than in the table, the veto fails open
+   more often.
+4. **The veto needs A3b.** Until A3b maps `CLLocation.speed` and `speedAccuracy` into `LocationFix`, no fix carries
+   one, and the filter decides alone.
+5. **0.9, 8 s, 0.5 m/s² and 2 m/s are tuned on synthetic Doppler** (the truth ±0.3 m/s). D1 checks them.
+
+**Tests** (`SpeedGateGuardTests`; design §11.1, the train and sliding-multipath rows):
+- `slidingMultipathIsNeverTooFastWithDoppler`: Doppler on every fix, 6–10 s and 10–20 s slides, 0 episodes;
+- `partialDopplerStillVetoesSlidingMultipath`: Doppler on 70 % and 30 % of fixes and in 5-fix gaps, at most 0, 4 and
+  8 episodes in 80 runs;
+- `aHeldOverDopplerSpeedDoesNotHoldBackAnAcceleration`: the train within 135 m, the bike within 4 s, 20 seeds;
+- `dopplerDoesNotEndAnEpisode`: the train with Doppler on every fix adds what it adds without, in one episode;
+- `dopplerDecidesWhenValid`: validity, the 0.9 share and the 2 m/s cutoff, for steps and for a settle window;
+- `aShortBurstIsHeldAndReleased`: a checkpoint while held counts the held steps.
+
+**D1 adds:**
+- the share of fixes with a valid Doppler speed, and their `speedAccuracy`, on every run;
+- a walk and a hike between tall buildings or under a glass roof: no `.tooFast`, and the distance against a measured
+  course.
