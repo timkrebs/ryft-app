@@ -3,14 +3,15 @@
 PR `sync: consent gates know the policy in force`, stacked on A2 (#54, `2e0a070`). The rules are in ADR 0008.
 Line numbers are from `2e0a070`.
 
-**Amended after the privacy review (2026-10-26):**
-- demo opens only the activity uploader, and `SyncService.run()` refuses in demo;
-- `invite_required` is persisted like `consent_required`;
-- an unreadable record is never cached;
-- the age limit is capped at 24 h;
-- warn-mode gates count as refusals;
-- training logs are health data, so Train's outbox and the import ask the gate;
-- R25 and R26 are new.
+**Amended after the privacy review and the lead's decisions (2026-10-26):**
+- **Demo.** Demo opens a path only against the mock, for ops bound to demo. HealthKit sync holds, and
+  `SyncService.run()` refuses in demo.
+- **Train.** Train ops are bound to their account (demo counts as one), so demo stays open for Train as today.
+- **Invite.** Only an enforced `invite_required` is persisted and holds. `consent_required` holds in any mode.
+- **DELETEs** go out without a current consent (Art. 17).
+- **The record.** A read of it that fails before the first unlock is never cached, and the age limit is capped at 24 h.
+- **Training logs** are health data.
+- **Platform.** R25 and R26 are new.
 
 ## 1. Problem
 
@@ -27,10 +28,11 @@ Line numbers are from `2e0a070`.
    - it reads SwiftData on every call (`pending()` asks twice per row, on every My Day render);
    - it isn't observable;
    - it forces a check on every reconnect.
-3. **The privacy review found three more holes:**
+3. **The privacy review found four more holes:**
    - `syncNow` / `fullResync` reach the live client in demo mode (S1).
-   - An enforced invite gate isn't remembered either.
+   - An enforced invite gate isn't remembered.
    - Training logs go up with no gate at all.
+   - Train's outbox picks its client per call, so an op can cross between demo and the account.
 4. **The constraints:**
    - The platform is the truth for consent.
    - The phone owns only what it last heard and when.
@@ -62,7 +64,7 @@ flowchart LR
   chk["check(): /v1/me/sync gate,<br/>/v1/me consent and beta_access"] -->|"refused / cleared"| CS
   CS["ConsentState<br/>CachedDocument consent.&lt;account&gt;"] --> F["OnboardingCoordinator.facts"]
   U["CachedUser"] --> F
-  F --> G["gate(_ facts, path) → UploadGate?"]
+  F --> G["gate(_ facts, path, write) → UploadGate?"]
   G --> SS["HealthKit: SyncService.run + every page"]
   G --> AU["ActivityUploader: replay + every item"]
   G --> TS["TrainSyncService: replay + every op"]
@@ -78,7 +80,7 @@ flowchart LR
     - `policyVersion`, `policyURL`;
     - `answeredAt` (this phone's clock when the answer arrived);
     - `ttl`;
-    - `refusals: [APIErrorCode: Date]`, which holds `consent_required` and `invite_required`.
+    - `refusals: [APIErrorCode: Date]`, which holds `consent_required` (any mode) and an enforced `invite_required`.
   - Written only by `ConsentState`, and only when something changed.
 - **Fresh** means `0 ≤ now − answeredAt < ttl`, with `env.clock.now()`.
   - Both ends are on the phone's clock, so the server's clock never enters. `FlagStore` uses `evaluated_at` for flags,
@@ -100,8 +102,8 @@ flowchart LR
 - **Before the first unlock.**
   - While protected data is unavailable, a read of the record isn't cached. Availability comes through a closure the
     tests set; live it is `isProtectedDataAvailable`.
-  - Meanwhile `Facts.recordReadable` is false, and the gate holds every path with `policyUnknown`. `revalidate()`
-    doesn't run then, because nothing could be stored.
+  - Meanwhile `Facts.recordReadable` is false, and the gate holds every write. `revalidate()` doesn't run then, because
+    nothing could be stored.
   - On `protectedDataDidBecomeAvailable`, one observer (like `BackgroundWork.resumeOnUnlock`) drops the memo and bumps
     `revision`.
 - **Wipe.**
@@ -121,12 +123,18 @@ binding is dropped. A refusal is written only on a change.
 | --- | --- | --- |
 | A `/v1/config` answer | `fetchConfig`'s `store:` (inside the flight, so it lands even when the caller timed out) | `received(_:at:binding:)` |
 | `POST /v1/me/consent` → `204` for X | `agree()` | `consented(to: X, at:)`: X answered now, and the consent refusal is cleared |
-| A gate code from the platform: a `403` on any request, `X-RYFT-Gate`, or the pipeline's `/v1/me/sync` `gate` | `APIStatus.observe` (current epoch only), then `onGate(code, true)` | `refused(code, at:)` |
-| The check's `/v1/me/sync` names a gate | `check()` | `refused(code, at:)` |
+| `consent_required` from the platform, in any mode: a `403` on any request (a DELETE's too), `X-RYFT-Gate`, or the pipeline's `/v1/me/sync` `gate` | `APIStatus.observe` (current epoch only), then `onGate(.consentRequired, true)` | `refused(.consentRequired, at:)` |
+| An **enforced** `invite_required`: a `403` | `APIStatus.observe(enforced: true)`, then `onGate(.inviteRequired, true)` | `refused(.inviteRequired, at:)` |
+| The check's `/v1/me/sync` says `consent_required` | `check()` | `refused(.consentRequired, at:)` |
 | The platform no longer names a gate | `APIStatus.resolved(code)`: `check()` with `gate: null` (both codes) or `consent_required` (invite; the beta gate is checked first), `agree()`, `redeemInvite()` 204. Then `onGate(code, false)` | `cleared(code)` |
 | The check's own answers show it passed: `/v1/me` consent equals the same check's config version (consent), or `beta_access: true` (invite). Either way only if its `/v1/me/sync` didn't name that gate | `check()` | `cleared(code)` |
 
-- **Warn-mode gates are recorded as refusals, on purpose.** The app fails closed even where the platform would serve.
+- **Warn-mode `invite_required` is never recorded and never holds.** It is a product nudge, not a legal basis.
+  - `X-RYFT-Gate: invite_required` and a `/v1/me/sync` `gate` of `invite_required` reach `APIStatus.gates`, so the
+    deferrable invite step still shows.
+  - `/v1/me/sync` can't tell warn from enforced, so that answer is never recorded as an invite refusal.
+- **Warn-mode `consent_required` is recorded and holds, on purpose.** The app fails closed on consent even where the
+  platform would serve.
 - **Nothing local is recorded as a refusal.** The engine's own stop between pages never reaches `APIStatus`, which
   only sees real responses.
 - **In-app withdrawal needs no write.** It already persists `consent: nil` in `CachedUser`, and the forced check that
@@ -144,75 +152,101 @@ only way the app asks for the config:
 - `policyVersion`, `policyPage` and `earlierConsent` read the record's latest version and URL, whatever their age;
 - `agree()` uses a fresh version, or fetches one.
 
-### 3.2 One gate, one rule, per path
+### 3.2 One gate, one rule, per path and per write
 
-`syncGate` is deleted. Every upload of health data asks `OnboardingCoordinator.uploadGate(for: path)`, which is the
-pure `gate(facts, path)`. The paths are `UploadPath`:
+`syncGate` is deleted. Every upload asks `OnboardingCoordinator.uploadGate(for: path, write:)`, which is the pure
+`gate(facts, path, write)`. The paths are `UploadPath`:
 - `.healthKit`;
 - `.activities`;
 - `.train` (the outbox);
 - `.trainImport`.
 
+`UploadWrite` is either `.data` or `.erasure`:
+- `.data` writes carry health data: sync pages, activity and night `PUT`s, Train session `PUT`s and completions (with
+  body weight), and the import.
+- `.erasure` is every `DELETE`.
+
 `Facts` gains these:
-- `demo`, `inviteBlocked`, `policyFresh` and `recordReadable`;
-- `reported` now includes the stored refusals.
+- `demo`, `inviteBlocked` (this process's enforced 403, or the stored invite refusal), `policyFresh` and
+  `recordReadable`;
+- `reported` now includes the stored consent refusal.
 
 `policyVersion` becomes the latest known version, whatever its age.
 
-    gate(f, path) = demo → (path == .activities ? open : demo)
-                    · !recordReadable → policyUnknown
-                    · inviteBlocked ∨ invite ∈ reported → invite
-                    · !userKnown → consent
-                    · missing(f) ∋ .consent → consent
-                    · !policyFresh → policyUnknown
-                    · open
+    gate(f, path, write) = demo → (path == .healthKit ? demo : open)
+                           · !recordReadable → policyUnknown
+                           · inviteBlocked → invite
+                           · write == .erasure → open
+                           · !userKnown → consent
+                           · missing(f) ∋ .consent → consent
+                           · !policyFresh → policyUnknown
+                           · open
 
-- **Demo opens only the activity uploader.** Its client switches to the mock, and every request is bound to the demo
-  flag (`ActivityUploader.Generation`), so nothing crosses between demo and the account.
-  - HealthKit sync's client is always the live API, so it holds.
-  - Train's outbox and the import pick their client per call, without that binding, so they hold too.
-  - The `demo` result is a new `UploadGate` case that holds silently.
-- **`SyncService.run()` refuses in demo** before anything else and returns `[]`. That covers `syncNow`, `fullResync` and
-  `resendRecent`, which skipped `LiveSyncSteps`' demo check (S1).
-  - `fullResync()` and `resendRecent()` change no anchors or engine state in demo. Today `resetForFullResync()` resets
-    the real HealthKit anchors first.
+- **Demo, and binding.** An op never crosses between demo and the account.
+  - **HealthKit sync** always uses the live client, so in demo it gets `demo` (a new `UploadGate` case that holds
+    silently).
+  - **`SyncService.run()` refuses in demo** before anything else and returns `[]`. That covers `syncNow`, `fullResync`
+    and `resendRecent`, which skipped `LiveSyncSteps`' demo check (S1). `fullResync()` and `resendRecent()` change no
+    anchors or engine state in demo. Today `resetForFullResync()` resets the real HealthKit anchors first.
+  - **The activity uploader** already binds every request to its account or demo (`ActivityUploader.Generation`).
+  - **Train's outbox** gets the same binding.
+    - `PendingTrainOp` has no account at `2e0a070` (`TrainCache.swift:61`). P2 adds one: the account, or demo as its
+      own account. sync-engineer checks the branch.
+    - At flush an op goes only through its own binding's client: a demo op through the mock, an account op through
+      the live API. Ops of another binding wait and are never sent through the wrong client.
+    - Ops queued before this build have no binding. They count as the signed-in account's and wait while demo is on,
+      which is what happens today minus the crossing.
+  - **The import** binds its batch the same way when its upload is built (I5).
+  - With binding, demo stays open for activities, Train and the import against the mock, as today.
+  - Holding demo ops instead would flush them to the live account once demo is off, which is worse.
+- **DELETEs go out without a current consent.** Erasure is in the user's interest (Art. 17), and a `DELETE` carries no
+  health data.
+  - Only demo, an unreadable record and an enforced invite gate hold it. The platform refuses every route but
+    onboarding's behind that gate.
+  - If the platform answers a `DELETE` with `consent_required`, that is recorded as a refusal (holding data writes),
+    and the delete stays queued.
+  - It is tried again on the outbox's next trigger, as a gated item is today. It has no body, so it carries no health
+    data. R25 asks the platform to accept such deletes.
 - **Staleness can only hold.**
   - A stale version that differs from the consent still means "consent outdated", which is the user's action.
   - A stale version that matches the consent is `policyUnknown`.
   - Only a fresh one opens.
-- **The UI.** `missing()` is unchanged. It asks for consent or the invite on a known mismatch or a refusal, never just
+- **The UI.** `missing()` is unchanged. It asks for consent or the invite on a known mismatch or a signal, never just
   because the policy is unknown.
 - **Types.** `UploadGate` moves from `ActivityUploader.swift` to `ConsentState.swift`.
   - `SyncService.gate`, `pausedFor`, the engine's per-page gate and `Result.pausedFor` carry `UploadGate?`.
   - Today maps only `.gate(code)` to a step.
 - **Training logs are health data** (Art. 9): body weight, effort, notes, and their use for strain and recovery.
-  - `TrainSyncService` gets a `gate` closure like the uploader's: closed by default, wired in `ScreenModels` to
-    `uploadGate(for: .train)`.
-  - It is asked at replay start (with revalidation) and before each op. Held ops stay queued, as they already do after a
-    `403` with a code (`TrainSyncService.swift:249`).
-  - The training import's upload (`POST /v1/train/import`, not built yet) asks `uploadGate(for: .trainImport)` before
-    its first request and holds the batch. The import's design takes this line when its upload ticket starts.
-  - Reads stay ungated: library, plans, sessions, today's prescription.
-  - `TrainLibrary`'s direct writes (custom exercises, plans, enrolment) carry no session, body or effort data, so they
-    stay ungated. Privacy to confirm.
+  - `TrainSyncService` gets a `gate` closure like the uploader's: closed by default, wired in `ScreenModels`.
+  - It is asked at replay start (with revalidation) and before each op, with `.erasure` for `delete` and `.data` for
+    `put` and `complete`.
+  - Held ops stay queued and in order, as they already do after a `403` with a code (`TrainSyncService.swift:249`).
+  - A `delete` may pass held ops. When it passes a held `put` or `complete` of its own session, those are dropped:
+    sent later, they would bring the session back. sync-engineer checks whether the outbox's coalescing already does
+    this.
+  - The import's upload (`POST /v1/train/import`, I5) asks `uploadGate(for: .trainImport, write: .data)` before its
+    first request and holds the batch.
+  - Reads stay ungated. So do `TrainLibrary`'s direct writes (custom exercises, plans, enrolment), which carry no
+    session, body or effort data.
 
 ### 3.3 Revalidation, reconnect, release
 
 - **Revalidate before holding.**
   - `SyncService.run()` checks demo and connectivity first.
-  - Then, if the gate says `policyUnknown` and the record is readable, it awaits `consent.revalidate()` and asks the
-    gate again.
-  - The uploader's replay and Train's replay do the same at their start.
+  - Then, if the data gate says `policyUnknown` and the record is readable, it awaits `consent.revalidate()` and asks
+    the gate again.
+  - The uploader's replay and Train's replay do the same at their start when they hold data writes. Erasures don't
+    wait for it.
   - `revalidate()` is a no-op when the policy is fresh. Otherwise it makes one `fetchConfig`, joined with any config
     read in flight. After a failure it sends nothing for `OnboardingCoordinator.recheckInterval` (60 s) and rethrows the
     last error.
-  - The sync's run throws it, so a failure shows (§5). The two outboxes hold with `try?`.
+  - The sync's run throws it, so a failure shows (§5). The two outboxes hold their data writes with `try?`.
 - **Reconnect.**
   - `refreshPolicyIfUnknown()` and its line in RyftApp's reconnect handler are deleted.
   - `run(.reconnect)` and the outboxes' own connectivity handlers revalidate when they need to, within the 60 s limit.
     So a flapping connection makes at most one config request a minute and no forced check.
 - **Release edge.**
-  - RootView forwards each path's gate to `ScreenModels.gateChanged(_:to:)`, so it is testable.
+  - RootView forwards each path's data gate to `ScreenModels.gateChanged(_:to:)`, so it is testable.
   - When a gate becomes nil, its outbox flushes: the activity uploader (as today) and Train's outbox. A sync whose last
     run was held (`sync.pausedFor != nil`) runs again (`.appActive`).
   - In the background there is no view. Each run asks and revalidates at its own start, and BGAppRefresh flushes the
@@ -226,11 +260,11 @@ pure `gate(facts, path)`. The paths are `UploadPath`:
 
 ## 4. Truth table
 
-The same result for every path, except row 1.
+**Data writes.** Every path, except where row 1 says otherwise.
 
-| # | Demo | Record readable | Invite (blocked, or refused) | User known | Consent refused (stored, reported, server gate) | Consent C | Policy V | Gate |
+| # | Demo | Record readable | Invite enforced (now or stored) | User known | Consent refused (stored, reported, server gate) | Consent C | Policy V | Gate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | on | – | – | – | – | – | – | `.activities`: open. Every other path: `demo` (holds) |
+| 1 | on | – | – | – | – | – | – | `.healthKit`: `demo` (holds). Every other path: open, against the mock, for demo-bound ops only |
 | 2 | off | no | – | – | – | – | – | `policyUnknown`, no revalidation |
 | 3 | off | yes | yes | – | – | – | – | `invite` |
 | 4 | off | yes | no | no | – | – | – | `consent` (account not known) |
@@ -239,6 +273,9 @@ The same result for every path, except row 1.
 | 7 | off | yes | no | yes | no | X | X, fresh | **open** |
 | 8 | off | yes | no | yes | no | X | ≠ X, any age | `consent` |
 | 9 | off | yes | no | yes | no | X | X stale, or none | `policyUnknown`: revalidate if online, else hold |
+
+**Erasures (DELETE):** rows 1–3 as above, and **open** in every other case: no account, no consent, a refusal, or an
+unknown policy.
 
 | Scenario | What decides | Result |
 | --- | --- | --- |
@@ -252,10 +289,11 @@ The same result for every path, except row 1.
 | Offline | `run()` returns before the gate | The Offline line, no reads. Rows show `.pending(.offline)` |
 | Policy bump mid-session | Row 7 on the old version | The next ttl refresh or check moves it to row 8 with no page. A page sent before that is refused once (row 5) |
 | Consent withdrawn on another device | The cached consent is stale truth; row 7 | At most one refused page, then row 5 until a foreground check finds the gate gone, or the user agrees here |
-| Withdrawn in this app | `consent: nil` persisted at once | Row 6 |
+| Withdrawn in this app, then deletes an activity | Row 6 for data; the erasure is open | Data writes hold; the `DELETE` goes. If the platform refuses it, it stays queued and is tried again on the next trigger |
 | Consent given elsewhere while refused | Row 5 | Held in the background until this phone's next foreground check (`gate: null`). Where push is on, the platform's `SYNC_STALE` nudges the user |
-| Invite gate in warn mode, no code redeemed | `X-RYFT-Gate: invite_required` is stored: row 3 | Uploads hold, which is new. The invite step stays deferrable (`canDefer`) |
-| Demo data on | Row 1 | HealthKit sync refuses, including `syncNow` and `fullResync`; Train's outbox and the import hold; activities go to the mock |
+| Invite gate in warn mode, no code redeemed | Not recorded, not held | Uploads go. The invite step shows and can be put off |
+| Invite gate enforced | A `403 invite_required`, stored: row 3 | Everything holds, deletes too, until a code is redeemed or the check finds the gate gone |
+| Demo data on | Row 1 | HealthKit sync refuses, including `syncNow` and `fullResync`. Activities and Train go to the mock, demo-bound ops only; the account's queued ops wait for demo off |
 
 ## 5. What users see
 
@@ -267,11 +305,11 @@ The same result for every path, except row 1.
     the existing "paused" line and the message under the cards show it, with Details and the request ID. No new string.
 - **A stored refusal** shows its gate as a `403` does today ("Action needed" on Today, the sheet over the tabs), but
   from launch on, also offline. That's honest: the platform did refuse. "Not now" works as before.
-- **Warn-mode invite:** uploads now wait. The invite step can still be put off.
+- **Deletes** take effect on the platform even without consent. A deleted row leaves My Day at once, as today.
 - **Activity rows:** unchanged. Unknown and offline says "upload when you're online"; unknown and online says "once your
   account is ready".
-- **Train:** held sessions stay in the outbox's pending count, as they do offline.
-- **In demo**, a finished session waits there too instead of getting the mock's completion (§10).
+- **Train:** held sessions stay in the outbox's pending count, as they do offline. Demo Train works against the mock,
+  as today.
 - **A background wake that skips its upload is silent.** No local notification.
 
 ## 6. Background cost
@@ -289,20 +327,24 @@ The same result for every path, except row 1.
   - The completion runs once the upload step ends, in every outcome (`SyncCoordinator` `uploadDone()` in a `defer`).
   - The revalidation sits inside that step: one GET of about 1 KB, normally under a second, and at most the background
     session's 20 s / 25 s.
-- **Network:** at most one `GET /v1/config` per age limit (6 h) per phone when it succeeds, and at most one a minute
-  while it fails. No `/v1/me` or `/v1/me/sync` is added.
+- **Network:**
+  - at most one `GET /v1/config` per age limit (6 h) per phone when it succeeds, and at most one a minute while it
+    fails;
+  - no `/v1/me` or `/v1/me/sync` is added;
+  - a `DELETE` the platform refuses for consent repeats once per outbox trigger, without a body.
 
 ## 7. Types and signatures
 
 ```swift
 enum UploadGate: Equatable, Sendable { case gate(APIErrorCode), policyUnknown, demo }   // moved; `demo` new
 enum UploadPath: Sendable { case healthKit, activities, train, trainImport }
+enum UploadWrite: Sendable { case data, erasure }
 
 @MainActor @Observable final class ConsentState {
     init(env: AppEnvironment)
     var latestPolicyVersion: String? { get }          // any age: the consent step's text, earlierConsent
     var policyURL: String? { get }
-    var refusals: Set<APIErrorCode> { get }
+    var refusals: Set<APIErrorCode> { get }           // consent (any mode), invite (enforced only)
     var isRecordReadable: Bool { get }
     func isPolicyFresh(at now: Date) -> Bool
     func received(_ config: RemoteConfig, at: Date, binding: AccountBinding)
@@ -315,14 +357,16 @@ enum UploadPath: Sendable { case healthKit, activities, train, trainImport }
 }
 
 // OnboardingCoordinator: Facts + demo, inviteBlocked, policyFresh, recordReadable
-nonisolated static func gate(_ f: Facts, path: UploadPath) -> UploadGate?
-func uploadGate(for path: UploadPath) -> UploadGate?  // deleted: syncGate, config, policyVersionInForce,
+nonisolated static func gate(_ f: Facts, path: UploadPath, write: UploadWrite) -> UploadGate?
+func uploadGate(for path: UploadPath, write: UploadWrite = .data) -> UploadGate?
+                                                      // deleted: syncGate, config, policyVersionInForce,
                                                       // refreshPolicyIfUnknown()
 // SyncService / SyncEngine
 var gate: (@MainActor () -> UploadGate?)?;  private(set) var pausedFor: UploadGate?
-// TrainSyncService (closed until ScreenModels wires it)
-@ObservationIgnored var gate: @MainActor () -> UploadGate? = { .gate(.consentRequired) }
-// APIStatus
+// ActivityUploader / TrainSyncService (closed until ScreenModels wires them)
+@ObservationIgnored var gate: @MainActor (UploadWrite) -> UploadGate? = { _ in .gate(.consentRequired) }
+// PendingTrainOp: + account (the account ID, or demo's); optional for ops queued before this build
+// APIStatus: consent in any mode; invite only when enforced
 @ObservationIgnored var onGate: (@MainActor (APIErrorCode, _ refused: Bool) -> Void)?
 // ScreenModels (wires the three gates, onGate, FeatureFlags' fetch)
 func gateChanged(_ path: UploadPath, to gate: UploadGate?)
@@ -330,16 +374,18 @@ func gateChanged(_ path: UploadPath, to gate: UploadGate?)
 
 ## 8. Steps (commits in this PR)
 
-1. `ConsentState`: the record (both codes), memo, the unlock reload, writers, `fetchConfig` and `revalidate`, with
-   their tests (§9 T2).
+1. `ConsentState`: the record (consent, enforced invite), memo, the unlock reload, writers, `fetchConfig` and
+   `revalidate`, with their tests (§9 T2).
 2. Route every config read through `fetchConfig`. Delete `OnboardingCoordinator.config`.
-3. Build `Facts` from `ConsentState`. Add `gate(_:path:)` and make `uploadGate(for:)` the only gate. Delete
+3. Build `Facts` from `ConsentState`. Add `gate(_:path:write:)` and make `uploadGate(for:write:)` the only gate. Delete
    `syncGate`, `policyVersionInForce` and `refreshPolicyIfUnknown`.
 4. `UploadGate` through `SyncService` and `SyncEngine`:
    - the demo refusal in `run()`, with `fullResync` / `resendRecent` inert in demo;
    - revalidation in `run()`.
-   The activity uploader revalidates at replay start and reads the gate once in `pending()`.
-5. Train's outbox gate (replay start and per op).
+   The activity uploader asks per item with its write kind, revalidates at replay start for data, and reads the gate
+   once in `pending()`.
+5. Train: bind `PendingTrainOp` to its account or demo (unless the branch already has it), send each op only through
+   its binding's client, and add the outbox gate (replay start and per op, with the write kind).
 6. The writers: the `APIStatus` hook, `check()`, `agree()` and `redeemInvite()`.
 7. RyftApp: the release edge through `ScreenModels.gateChanged(_:to:)`, and the reconnect line goes.
 8. Docs:
@@ -347,30 +393,31 @@ func gateChanged(_ path: UploadPath, to gate: UploadGate?)
    - ADR 0008 accepted;
    - R25 and R26 in `API_REQUESTS.md`.
 
-**Migration.** There is no data migration.
+**Migration.** There is no data migration beyond the new optional `PendingTrainOp.account` (a lightweight SwiftData
+change).
 - The first launch of this build finds no record, which reads as stale. Online, the first run revalidates with one GET.
   Offline, it holds.
 - No refusal is stored, so the first refusal after the update costs one page, as it does today.
 - `FlagStore`'s cached config keeps its version inside its blob, unread.
-- Train ops already queued wait for the gate like new ones.
+- Train ops queued before this build count as the signed-in account's.
 
 ## 9. Tests and the mutants they must kill
 
 | Test | Pins | Mutant it must kill |
 | --- | --- | --- |
-| T1 `OnboardingDecisionTests.gate` (pure table) | Rows 1–9, one case each and row 1 for every path, plus stale-and-different → `consent` | Demo opening every path; an unreadable record treated as "no refusal"; a stale or no record opening the gate; a stored or warn-mode invite ignored; demo checked after invite; an unknown account opening; consent nil plus unknown answering `policyUnknown` |
+| T1 `OnboardingDecisionTests.gate` (pure table) | Data rows 1–9, one case each, row 1 for every path, and stale-and-different → `consent`. Erasure: rows 1–3 hold; open with no account, no consent, a refusal, or an unknown policy | Demo opening HealthKit; demo holding activities or Train; an unreadable record treated as "no refusal"; a stale or no record opening data; an erasure held by consent or the policy; an erasure open behind an enforced invite; demo checked after invite; an unknown account opening data; consent nil plus unknown answering `policyUnknown` |
 | T2 `ConsentStateTests` (`env.test`, `TestClock`, in-memory store) | Fresh at `limit − 1 s`, stale at the limit and with a clock set back; 6 h for `ttl_sec: 0`; stale at 24 h for `ttl_sec` of 7 days | `<=` at the boundary; `abs(age)`; ignoring `ttl_sec`; no 24 h cap |
 | | A second `ConsentState` on the same store sees the answer and both refusals ("next process") | A refusal kept in memory only |
 | | With protected data unavailable, the read isn't cached; the unlock notification reloads it | Caching the failed read |
-| | Invite: stored from a `403` and from a warn header; cleared by `redeemInvite` 204, by status `consent_required`, and by `beta_access: true` | Invite not persisted; invite cleared on any check |
+| | Invite: stored from an enforced `403` only; not from `X-RYFT-Gate` or `/v1/me/sync`. Cleared by `redeemInvite` 204, by status `consent_required` or `null`, and by `beta_access: true` | Storing warn-mode invite; invite cleared on any check |
+| | Consent: stored from a `403`, from `X-RYFT-Gate` and from `/v1/me/sync` | Recording enforced consent refusals only |
 | | Each `Wipe` (user, expiry with parking, deletion, account switch) empties the record for a new instance and for the same one | A memo not keyed by `accountChanges` (A → expiry → A reads the pre-wipe memo) |
 | | Demo writes nothing; switching demo off reads the account's record | A demo answer recorded for the account |
 | | An answer from a flight under A lands after B signs in, and is dropped; an older answer doesn't replace a newer one | No binding check; last-write-wins |
 | | 100 reads, 1 store fetch (a counting `Persistence`) | The memo removed |
 | | `withObservationTracking` on `uploadGate(for:)` fires on `received` and on `cleared` | `revision` made `@ObservationIgnored` |
 | | `revalidate()`: after a failure, 1 config request within 60 s and 2 after 61 s; concurrent with `check()`, 1 request | No rate limit; not joined |
-| T3 writers (`OnboardingCoordinatorTests`, `APIClientStatusTests`) | `observe(code)` enforced or warn → refused; `resolved(code)` → cleared, for both codes | Recording enforced refusals only |
-| | `check()`: status `consent_required` → consent refused and invite cleared; `null` → both cleared; `invite_required` → consent unchanged; status failed with the consent equal to the config version → consent cleared | Clearing consent on `invite_required`, or on any answered check |
+| T3 writers (`OnboardingCoordinatorTests`, `APIClientStatusTests`) | `check()`: status `consent_required` → consent refused and invite cleared; `null` → both cleared; `invite_required` → nothing recorded; status failed with the consent equal to the config version → consent cleared | Clearing consent on `invite_required`, or on any answered check |
 | | `agree()` → cleared, fresh for 6 h with no further config request | The 204 not counted as an answer |
 | | A stored refusal at an offline launch → `pendingGate` is that step, Today `actionNeeded` | The refusal not fed to `missing()` |
 | T4 sync (`SyncEngineTests`, `SyncCoordinatorTests`; `MockHealthStore` counts reads and commits) | Stale and offline: 0 reads, 0 commits, 0 `sync`. Stale and online: 1 `config`, then pages. Config failing: the run throws its error (request ID in Details), 0 reads | Revalidating after the first read; swallowing the error |
@@ -379,10 +426,12 @@ func gateChanged(_ path: UploadPath, to gate: UploadGate?)
 | | `403 consent_required` on page 2: its anchor isn't committed, the refusal is recorded, `pausedFor == .gate(.consentRequired)` | Committing before the gate |
 | | A local hold mid-run writes no refusal | The refusal written from `Result.pausedFor` |
 | | `.healthKit` held for each reason: `afterUpload` runs exactly once | The completion skipped on a hold |
-| T5 activity uploader | `pending()` calls the gate once per row; unknown offline → `.offline`, online → `.gated`; the replay revalidates once; open in demo | A second gate read; demo holding the mock client |
+| T5 activity uploader | `pending()` calls the gate once per row; unknown offline → `.offline`, online → `.gated`; the replay revalidates once | A second gate read |
+| | Consent refused: a tombstone's `DELETE` goes and edits' `PUT`s don't. A `DELETE` answered `consent_required` → refusal recorded, tombstone kept, sent again on the next trigger | Erasures held by consent; the tombstone dropped on a refusal |
 | T6 reconnect | 5 reconnects within 60 s with config failing: 1 `config`, 0 `me` | `refreshPolicyIfUnknown` kept |
 | T7 `ScreenModels.gateChanged` | Gate to nil: one flush per outbox, and one sync run only if the last run was held | Rerunning on every release (an extra HealthKit pass at each launch) |
-| T8 Train outbox (`TrainSyncServiceTests`) | Gated or in demo: 0 `putSession` / `completeSession` / `deleteSession`, and the ops are kept in order. Library and session reads still go. Release flushes in order. A refusal between two ops stops before the second | The replay ignoring the gate; the gate asked at replay start only; reads gated |
+| T8 Train outbox (`TrainSyncServiceTests`) | Data gate closed: 0 `putSession` / `completeSession`, ops kept in order; a `delete` op goes. Library and session reads still go. Release flushes in order. A refusal between two ops stops the next data op. A session's `delete` drops its own held `put` and `complete` | The replay ignoring the gate; the gate asked at replay start only; reads gated; deletes held by consent; a held `put` sent after its session's `delete` |
+| | **Binding:** a demo-bound op is sent only through the mock, an account op only through the live client. With demo on, the account's ops wait. With demo off, demo's ops are never sent live | The client picked per call; an unbound op sent while demo is on |
 
 BGAppRefresh's reschedule isn't behind a seam (`BGTaskScheduler.shared`). The order in the handler is the pin, and the
 reviewer checks it.
@@ -397,20 +446,18 @@ reviewer checks it.
   service, so this is unlikely.
 - **One refused page per phone per event remains:** a bump inside the age limit, or a withdrawal elsewhere. R24 would
   remove the bump case. R26 asks that such a page is never stored.
-- **Demo holds Train's outbox.**
-  - A session finished in demo waits, without the mock's completion, until demo is off. Then it goes to the account
-    like any queued op (today's behaviour for ops that cross modes).
-  - Check the Train UI tests that run in demo (UISmoke). The fix is the test's expectation, not an exception in the
-    gate.
-- **Warn-mode gates hold uploads.** This was chosen to fail closed. Before the beta opens, accounts without a code stop
-  syncing until they redeem one.
-- **Deletes are held with everything else:** activity, night and session `DELETE`s. A delete sends no health data,
-  and holding it keeps data on the platform the user wants gone. This is today's A2 behaviour, kept. Whether deletes
-  should bypass the policy rule is a question for privacy and the platform (R25).
-- **Release vs Debug.** The rule is the same. Debug flag overrides and `-RyftFlags` don't touch the policy. Demo mode
-  (the simulator's default, every UI test) holds everything but activities, so only unit tests exercise the open paths.
-  STATUS needs a device check: a background wake with a stale record, offline, then online, and one before the first
-  unlock after a reboot.
+- **Deletes refused for consent repeat.**
+  - Until R25 lands, a `DELETE` the platform refuses for consent is sent again on every outbox trigger: app active,
+    reconnect, a save. It has no body.
+  - If the platform keeps refusing, the row stays a tombstone on the phone, and its platform copy stays until consent
+    or R25.
+- **Unbound Train ops from before this build** count as the account's. One queued while demo was on, before the
+  update, goes live once demo is off. That's today's behaviour, and it can't be told apart afterwards.
+- **Release vs Debug.** The rule is the same. Debug flag overrides and `-RyftFlags` don't touch the policy.
+  - Demo mode (the simulator's default, every UI test) holds HealthKit sync and opens the rest against the mock, so
+    the account paths are exercised only by unit tests.
+  - STATUS needs device checks: a background wake with a stale record, offline, then online; one before the first
+    unlock after a reboot; and a delete after an in-app withdrawal.
 - **Follow-up outside P2: a smaller first page in background runs.** Today a refusal can cost a full page (up to
   20,000 records). A background process could send `SyncEngine.minimumPageSize` records first and size up only after
   that page was accepted, so a refusal costs a probe.
@@ -421,7 +468,7 @@ The design works with today's contract. These are open, for `docs/API_REQUESTS.m
 - **R23** (open): activity and manual-sleep writes refused for an outdated consent. It still matters, because the
   platform's refusal is what limits the one page.
 - **R24**: optional.
-- **R25** and **R26**: needed for the Train rule and for the refused page.
+- **R25** and **R26**: needed for the Train rule, deletes and the refused page.
 
 > **R24 — Announce a privacy-policy bump before it applies.** (P2, 2026-10-26; not blocking)
 > - **Why.** A new `privacy_policy_version` applies to `POST /v1/sync` at once. A phone that read `/v1/config` up to
@@ -433,13 +480,17 @@ The design works with today's contract. These are open, for `docs/API_REQUESTS.m
 >   refresh push with the gate (e.g. `"gate": "consent_required"`), so the account's other phones hold without sending
 >   a page.
 
-> **R25 — Consent on Train writes, and training data received without it.** (P2, 2026-10-26)
+> **R25 — Consent on Train writes; deletes without consent; training data received without it.** (P2, 2026-10-26)
 > - **Why.** The app treats training logs as health data (Art. 9): body weight, effort, notes, and their use in strain
->   and recovery scoring. It holds `PUT /v1/sessions/{id}`, `POST /v1/sessions/{id}/complete`,
->   `DELETE /v1/sessions/{id}` and `POST /v1/train/import` until the account has consented to the policy in force.
-> - **(1) Refuse without consent.** Please answer these with `403 consent_required` for a missing or outdated consent,
->   as `POST /v1/sync` does. Please say whether a `DELETE` is exempt (erasure without consent).
-> - **(2) Check the data already received.** Please check whether training data was stored for accounts without a
+>   and recovery scoring. It holds `PUT /v1/sessions/{id}`, `POST /v1/sessions/{id}/complete` and
+>   `POST /v1/train/import` until the account has consented to the policy in force.
+> - **(1) Refuse writes without consent.** Please answer these with `403 consent_required` for a missing or outdated
+>   consent, as `POST /v1/sync` does.
+> - **(2) Accept deletes without consent.** The app sends `DELETE` on `/v1/sessions/{id}`, `/v1/activities/{id}` and
+>   `/v1/sleep/manual/{day}` without a current consent, because erasure is in the user's interest (Art. 17). Please
+>   accept them regardless of consent. Today the app records a `consent_required` answer to a `DELETE` as a refusal and
+>   keeps the delete queued.
+> - **(3) Check the data already received.** Please check whether training data was stored for accounts without a
 >   consent at the time, and say what happens to it.
 
 > **R26 — A refused body is never stored, and consent is checked before the body is read.** (P2, 2026-10-26)
