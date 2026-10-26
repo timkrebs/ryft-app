@@ -485,12 +485,6 @@ final class ImportFlowModel: Identifiable {
         finish(.close)
     }
 
-    /// I7: a job of another account can't be sent; the user discards it.
-    func discardJob() {
-        deps.uploader.discard()
-        finish(.close)
-    }
-
     func openPlan() {
         let id = job?.enrolledPlanID ?? job?.planIDs.first
         if job?.isFinished == true { deps.uploader.markResultSeen() }

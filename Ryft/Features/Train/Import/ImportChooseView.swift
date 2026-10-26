@@ -147,7 +147,8 @@ struct ImportChooseView: View {
         guard on, let name = model.currentPlanName else {
             return String(localized: "You can change this later in Plans.", comment: "Training import, step 3: no plan is active now.")
         }
-        return String(localized: "This replaces your current plan, “\(name)”, which is in week \(model.currentWeek ?? 1). It stays in My Plans and you can switch back.",
+        let week = model.currentWeek ?? 1
+        return String(localized: "This replaces your current plan, “\(name)”, which is in week \(week). It stays in My Plans and you can switch back.",
                       comment: "Training import, step 3 (C2): the active plan's name and its current week.")
     }
 

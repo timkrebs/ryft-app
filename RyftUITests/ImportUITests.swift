@@ -120,6 +120,32 @@ final class ImportUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Upper/Lower Base"].waitForExistence(timeout: wait), "the imported plan on Strain")
     }
 
+    /// V5 and I9: before the platform takes imports, step 5 offers to keep the import on this iPhone.
+    func testUploadsNotAvailableKeepTheImportOnThisIPhone() {
+        let app = launchDemo(extra: ["-uiTestImportFiles", "plans.csv,workouts.csv", "-RyftResetTrain", "YES",
+                                     "-importUploadsUnavailable", "YES"])
+        openImport(app)
+        app.buttons["import.choose"].tap()
+        tapContinue(app, "step 2")
+        tapContinue(app, "step 3")
+        XCTAssertTrue(app.buttons["import.accept"].waitForExistence(timeout: wait), "step 4")
+        app.buttons["import.accept"].tap()
+        let muscle = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'import.muscle.'")).firstMatch
+        XCTAssertTrue(muscle.waitForExistence(timeout: wait), "the new row's muscle menu")
+        revealAboveBar(muscle, in: app)
+        muscle.tap()
+        XCTAssertTrue(app.buttons["Hamstrings"].waitForExistence(timeout: wait), "the muscle groups")
+        app.buttons["Hamstrings"].tap()
+        tapContinue(app, "step 4")
+        let keep = app.buttons["import.keep"]
+        XCTAssertTrue(keep.waitForExistence(timeout: wait), "Keep on this iPhone")
+        XCTAssertTrue(waitUntil(keep, isEnabled: true), "Keep enabled")
+        keep.tap()
+        let result = app.staticTexts["import.result"]
+        XCTAssertTrue(result.waitForExistence(timeout: wait), "I9")
+        XCTAssertEqual(result.label, "Your import is saved on this iPhone.")
+    }
+
     /// D5: a file that isn't an export says so on step 2, with no Continue.
     func testUnsupportedFileSaysSo() {
         let app = launch(files: "garbage.txt")

@@ -154,7 +154,8 @@ struct ImportPreviewView: View {
                 dayCard(day, preview: preview, zone: build.zone)
             }
             if !preview.skippedExerciseNames.isEmpty {
-                Text(verbatim: String(localized: "Not imported (\(preview.skippedExerciseNames.count)): \(preview.skippedExerciseNames.joined(separator: ", "))",
+                let names = preview.skippedExerciseNames
+                Text(verbatim: String(localized: "Not imported (\(names.count)): \(names.joined(separator: ", "))",
                                       comment: "Training import, step 5: plan exercises left out in step 4; their count and names."))
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textSecondary)
@@ -175,11 +176,6 @@ struct ImportPreviewView: View {
                 Text(verbatim: day.name)
                     .font(.ryft(.headline))
                     .foregroundStyle(Theme.textPrimary)
-                if day.exercises.isEmpty {
-                    Text("No exercises (all skipped)", comment: "Training import, step 5: a plan day whose exercises were all left out.")
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textSecondary)
-                }
                 ForEach(day.exercises.sorted { $0.position < $1.position }) { exercise in
                     let last = preview.lastTime[exercise.id]
                     VStack(alignment: .leading, spacing: 2) {

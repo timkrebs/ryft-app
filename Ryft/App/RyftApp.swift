@@ -119,6 +119,8 @@ struct RyftApp: App {
         #if DEBUG
         // UI tests: `-RyftResetTrain YES` starts without sessions or a queue.
         if UserDefaults.standard.bool(forKey: "RyftResetTrain") { TrainStore.shared.wipe() }
+        // UI tests: `-importUploadsUnavailable YES`, the import before the platform's contract (V5).
+        ImportDemoFiles.applyLaunchArguments(to: env)
         #endif
     }
 

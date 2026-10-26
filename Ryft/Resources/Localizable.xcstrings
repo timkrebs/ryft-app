@@ -3706,17 +3706,6 @@
         }
       }
     },
-    "Discard import" : {
-      "comment" : "Training import I7.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Import verwerfen"
-          }
-        }
-      }
-    },
     "Discard this import?" : {
       "comment" : "Training import: the cancel confirmation's title (N1).",
       "localizations" : {
@@ -5640,17 +5629,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Keine Übung passt zu „%@“."
-          }
-        }
-      }
-    },
-    "No exercises (all skipped)" : {
-      "comment" : "Training import, step 5: a plan day whose exercises were all left out.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keine Übungen (alle übersprungen)"
           }
         }
       }
@@ -8317,6 +8295,17 @@
         }
       }
     },
+    "Sign in and pick the file again. Nothing is imported twice." : {
+      "comment" : "Training import I7: re-importing is safe, the ids are the same.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Melde dich an und wähle die Datei erneut. Nichts wird doppelt importiert."
+          }
+        }
+      }
+    },
     "Sign-in methods" : {
       "localizations" : {
         "de" : {
@@ -9637,13 +9626,13 @@
         }
       }
     },
-    "This import belongs to another account." : {
-      "comment" : "Training import I7.",
+    "This import can't continue." : {
+      "comment" : "Training import I7: signed out mid-upload.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dieser Import gehört zu einem anderen Konto."
+            "value" : "Dieser Import kann nicht weiterlaufen."
           }
         }
       }

@@ -23,6 +23,10 @@ struct ImportResultView: View {
         } bottom: {
             buttons
         }
+        // The result is shown: the resume row goes (a finished job stays readable until the next import).
+        .task(id: job?.isFinished) {
+            if job?.isFinished == true { model.deps.uploader.markResultSeen() }
+        }
         .onChange(of: job?.isFinished) { _, finished in
             guard finished == true, let job else { return }
             model.deps.announce(String(localized: "Import finished. \(ImportResultText.sentence(job))",
@@ -128,9 +132,13 @@ struct ImportResultView: View {
                 .accessibilityIdentifier("import.result")
             line(String(localized: "It uploads when importing is available for your account.", comment: "Training import I9."))
         case .waitingForAccount:
+            // A final 401 or an account deletion: the job goes with the account's data, so nothing resumes it.
             header(String(localized: "Importing…", comment: "Training import I2."))
-            InlineMessage(message: String(localized: "This import belongs to another account.", comment: "Training import I7."),
-                          systemImage: "person.crop.circle.badge.exclamationmark")
+            InlineMessage(message: String(localized: "This import can't continue.", comment: "Training import I7: signed out mid-upload."),
+                          systemImage: "person.crop.circle.badge.exclamationmark",
+                          details: job.lastFailure?.details,
+                          caption: String(localized: "Sign in and pick the file again. Nothing is imported twice.",
+                                          comment: "Training import I7: re-importing is safe, the ids are the same."))
         }
     }
 
@@ -301,15 +309,13 @@ struct ImportResultView: View {
             ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done") { model.done() }
         case .paused(.gated)?:
             // The gate's sheet lives on the tab bar: close the cover so it can show; the import resumes once it's open.
-            ImportPrimaryButton(title: String(localized: "Continue in RYFT", comment: "Training import I8: close the import so the consent or invite step can show."),
+            ImportPrimaryButton(title: String(localized: "Continue in RYFT",
+                                              comment: "Training import I8: close the import so the consent or invite step can show."),
                                 identifier: "import.continueInApp") {
                 model.finish(.close)
             }
         case .paused(.waitingForAccount)?:
-            secondary(String(localized: "Discard import", comment: "Training import I7."), identifier: "import.discardJob",
-                      role: .destructive) {
-                model.discardJob()
-            }
+            ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done") { model.done() }
         default:
             EmptyView()
         }
@@ -429,7 +435,7 @@ enum ImportResultText {
     .previewEnvironment()
 }
 
-#Preview("Step 6 · another account · light") {
+#Preview("Step 6 · signed out mid-upload · light") {
     NavigationStack {
         ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(
             MockTrainImport.status(.paused(.waitingForAccount)))))

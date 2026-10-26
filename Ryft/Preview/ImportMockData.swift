@@ -239,21 +239,22 @@ enum ImportMockData {
                                                  setCount: setCount, skippedSetCount: skipped, volumeKg: volume,
                                                  clockChange: index == 5 ? .repeatedLocalTime : nil))
         }
-        func pe(_ n: Int, _ e: Exercise, _ position: Int, _ sets: Int, _ lo: Int, _ hi: Int, kg: Double?) -> PlanExercise {
+        func pe(_ n: Int, _ e: Exercise, _ position: Int, _ sets: Int, _ reps: ClosedRange<Int>, kg: Double?) -> PlanExercise {
             let kind: TargetKind = e.loadType == .bodyweight ? .bodyweight : kg == nil ? .rpe : .kg
-            return PlanExercise(id: MockTrain.uuid(31, n), exercise: e, position: position, sets: sets, repsMin: lo, repsMax: hi,
+            return PlanExercise(id: MockTrain.uuid(31, n), exercise: e, position: position, sets: sets, repsMin: reps.lowerBound,
+                                repsMax: reps.upperBound,
                                 targetKind: kind, targetValue: kind == .bodyweight ? nil : kg ?? 8,
                                 restSec: e.kind == .barbell ? 180 : 90)
         }
         let upper = PlanDay(id: MockTrain.uuid(32, 1), dayIndex: 0, name: "Upper", exercises: [
-            pe(1, MockTrain.bench, 0, 4, 6, 8, kg: 60), pe(2, MockTrain.row, 1, 4, 8, 8, kg: nil),
-            pe(3, MockTrain.ohp, 2, 3, 8, 8, kg: nil), pe(4, MockTrain.pulldown, 3, 3, 10, 12, kg: 52.5),
-            pe(5, MockTrain.dip, 4, 3, 8, 8, kg: nil),
+            pe(1, MockTrain.bench, 0, 4, 6...8, kg: 60), pe(2, MockTrain.row, 1, 4, 8...8, kg: nil),
+            pe(3, MockTrain.ohp, 2, 3, 8...8, kg: nil), pe(4, MockTrain.pulldown, 3, 3, 10...12, kg: 52.5),
+            pe(5, MockTrain.dip, 4, 3, 8...8, kg: nil),
         ])
         let lower = PlanDay(id: MockTrain.uuid(32, 2), dayIndex: 1, name: "Lower", exercises: [
-            pe(6, MockTrain.squat, 0, 4, 5, 5, kg: 87.5), pe(7, MockTrain.rdl, 1, 3, 8, 8, kg: nil),
-            pe(8, MockTrain.legPress, 2, 3, 10, 10, kg: 120), pe(9, MockTrain.legCurl, 3, 3, 12, 12, kg: nil),
-            pe(10, MockTrain.calfRaise, 4, 4, 15, 15, kg: nil),
+            pe(6, MockTrain.squat, 0, 4, 5...5, kg: 87.5), pe(7, MockTrain.rdl, 1, 3, 8...8, kg: nil),
+            pe(8, MockTrain.legPress, 2, 3, 10...10, kg: 120), pe(9, MockTrain.legCurl, 3, 3, 12...12, kg: nil),
+            pe(10, MockTrain.calfRaise, 4, 4, 15...15, kg: nil),
         ])
         let plan = Plan(id: MockTrain.uuid(33, 1), name: planName, goal: .general, weeks: 6, daysPerWeek: 2,
                         description: "", progression: .linear, isBuiltin: false, days: [upper, lower])
@@ -311,7 +312,16 @@ enum ImportMockData {
 /// day demo data already has a workout (a duplicate for step 5).
 enum ImportDemoFiles {
     static let argument = "uiTestImportFiles"
+    /// `-importUploadsUnavailable YES`: demo's platform doesn't publish the import yet (V5, "Keep on this iPhone").
+    static let unavailableArgument = "importUploadsUnavailable"
     static let planName = "Upper/Lower Base"
+
+    /// At launch (Debug): demo's in-memory platform as the launch arguments ask.
+    @MainActor
+    static func applyLaunchArguments(to env: AppEnvironment) {
+        guard UserDefaults.standard.bool(forKey: unavailableArgument), let demo = env.demoAPI as? MockPlatformAPI else { return }
+        demo.trainImportSource.publishesTrainImport = false
+    }
 
     /// The names asked for at launch; nil without the argument.
     static var requested: [String]? {

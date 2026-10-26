@@ -102,7 +102,8 @@ struct ImportStepScaffold<Content: View, Bottom: View>: View {
         case .result:
             ToolbarItem(placement: .cancellationAction) {
                 Button {
-                    model.finish(.close)
+                    // A finished result counts as seen; an unfinished job continues.
+                    model.done()
                 } label: {
                     Text("Close")
                 }
