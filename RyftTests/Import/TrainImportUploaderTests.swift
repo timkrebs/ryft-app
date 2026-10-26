@@ -27,6 +27,11 @@ struct TrainImportUploaderBatchTests {
         #expect(status.sessions == ImportItemCounts(total: 120, done: 120) && status.plans == ImportItemCounts(total: 7, done: 7))
         #expect(status.exercises.done == 2 && status.progress == 1)
         #expect(status.planIDs == plans.map(\.id))
+        // What a result reopened from the resume row shows: sets imported, the plans by name.
+        #expect(status.setsDone == 360)
+        #expect(status.planSummaries.map(\.name) == plans.map(\.name))
+        #expect(status.planSummaries.map(\.state) == Array(repeating: .done, count: 7))
+        #expect(status.planSummaries.first?.weeks == 6 && status.planSummaries.first?.daysPerWeek == 1)
         // The custom exercises are in the library cache.
         #expect(h.persistence.exercise(id: H.custom(1).id) != nil)
     }
@@ -62,6 +67,7 @@ struct TrainImportUploaderBatchTests {
         #expect(await h.run(ImportUploadPlan(sessions: sessions)))
         let status = try #require(h.uploader.status)
         #expect(status.phase == .finished && status.sessions == ImportItemCounts(total: 3, done: 2, rejected: 1))
+        #expect(status.setsDone == 6)
         #expect(status.rejected.map(\.id) == [sessions[1].id])
         #expect(status.rejected.first?.reason == "exercise not found" && status.rejected.first?.title == "Pull")
         #expect(status.rejected.first?.date == sessions[1].startedAt)
@@ -136,6 +142,7 @@ struct TrainImportUploaderBatchTests {
         #expect(await h.run(ImportUploadPlan(plans: [plan], enrolPlanID: plan.id)))
         #expect(h.live.count("enroll") == 0)
         #expect(h.uploader.status?.phase == .finished && h.uploader.status?.enrolledPlanID == nil)
+        #expect(h.uploader.status?.planSummaries.map(\.state) == [.rejected])
     }
 
     /// A session whose plan was refused goes without its plan links.

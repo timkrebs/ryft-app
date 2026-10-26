@@ -127,6 +127,7 @@ final class MockTrainImportSource: TrainImportAPI, @unchecked Sendable {
 /// Step 6 and the resume row in each state (ui.md §12.1), for previews.
 enum MockTrainImport {
     static let createdAt = Date(timeIntervalSince1970: 1_792_400_000)
+    static let planID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0x40, 0, 0x80, 0, 0, 0, 0, 0, 0, 1))
 
     static func status(_ phase: ImportJobStatus.Phase, sessions done: Int = 8, of total: Int = 12,
                        rejected: Int = 0) -> ImportJobStatus {
@@ -137,9 +138,10 @@ enum MockTrainImport {
         return ImportJobStatus(
             phase: phase, createdAt: createdAt, source: .alphaProgression, timeZoneID: "Europe/Berlin",
             exercises: ImportItemCounts(total: 1, done: 1), plans: ImportItemCounts(total: 1, done: 1),
-            sessions: ImportItemCounts(total: total, done: done, rejected: rejected),
+            sessions: ImportItemCounts(total: total, done: done, rejected: rejected), setsDone: done * 3,
+            planSummaries: [ImportPlanSummary(id: planID, name: "Upper/Lower", weeks: 6, daysPerWeek: 4, state: .done)],
             skipped: ImportSkipCounts(alreadyImported: 2, skippedSets: 3), rejected: rows, duplicatesFound: [],
-            lastFailure: nil, planIDs: [UUID()], enrolledPlanID: nil, resultSeen: false)
+            lastFailure: nil, planIDs: [planID], enrolledPlanID: nil, resultSeen: false)
     }
 
     static let uploading = status(.uploading)

@@ -1052,10 +1052,22 @@ final class TrainImportUploader {
             phase = .paused(livePause(env: env, account: current.account))
         }
         let sentPlans = plan.plans.map(\.id).filter { progress[$0]?.phase == .done }
+        let setsDone = plan.sessions.filter { progress[$0.id]?.phase == .done }
+            .reduce(0) { $0 + $1.exercises.reduce(0) { $0 + $1.sets.count } }
+        let planSummaries = plan.plans.map { item in
+            let state: ImportPlanSummary.State = switch progress[item.id]?.phase {
+            case .done?: .done
+            case .rejected?: .rejected
+            case .blocked?: .blocked
+            case .duplicate?, nil: .pending
+            }
+            return ImportPlanSummary(id: item.id, name: item.name, weeks: item.weeks, daysPerWeek: item.daysPerWeek, state: state)
+        }
         status = ImportJobStatus(
             phase: phase, createdAt: row.createdAt, source: ImportFormatID(rawValue: row.source), timeZoneID: row.timeZoneID,
             exercises: counts(plan.exercises.map(\.id)), plans: counts(plan.plans.map(\.id)),
-            sessions: counts(plan.sessions.map(\.id)), skipped: plan.skipped, rejected: rejected,
+            sessions: counts(plan.sessions.map(\.id)), setsDone: setsDone, planSummaries: planSummaries,
+            skipped: plan.skipped, rejected: rejected,
             duplicatesFound: duplicates, lastFailure: progress.lastFailure, planIDs: sentPlans,
             enrolledPlanID: progress.enrolledPlanID,
             resultSeen: row.resultSeen)
