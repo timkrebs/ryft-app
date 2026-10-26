@@ -346,7 +346,7 @@ Error row: `exclamationmark.circle` 14 pt `Theme.warning` + `callout` `textSecon
 ### 3.7 Add sleep sheet (S1 to S3)
 
 Same sheet frame, title "Add sleep", `.medium` detent (`.large` at AX sizes).
-- Explanation line (`callout`, `textSecondary`): "For last night, when no tracker recorded it."
+- Explanation line (`callout`, `textSecondary`): "For a night no tracker recorded." (any wake day the pickers allow)
 - Two rows: "Went to bed" (date + time) and "Woke up" (date + time), compact pickers. Defaults: bed = yesterday 23:00 (or the user's planned bedtime from the Sleep planner when set), wake = today 07:00, capped at now.
 - Live line: "Time asleep 8 h 00 min" `headline` `monospacedDigit` `textPrimary`; under it `caption` `textTertiary` "Time in bed. RYFT can't see your sleep stages for this entry."
 - Rules: wake after bed, 1 h to 16 h, wake not in the future. Reasons inline as 3.5.
@@ -379,7 +379,7 @@ Same sheet frame, title "Add sleep", `.medium` detent (`.large` at AX sizes).
 | saved local | Saved on this iPhone. It will upload when you're online. | Auf diesem iPhone gespeichert. Der Upload folgt, sobald du online bist. |
 | rejected | RYFT couldn't accept this activity. It is still saved on this iPhone. | RYFT konnte diese Aktivität nicht annehmen. Sie ist weiterhin auf diesem iPhone gespeichert. |
 | sleep title | Add sleep | Schlaf hinzufügen |
-| sleep intro | For last night, when no tracker recorded it. | Für letzte Nacht, wenn kein Tracker sie erfasst hat. |
+| sleep intro | For a night no tracker recorded. | Für eine Nacht, die kein Tracker erfasst hat. |
 | bed / wake | Went to bed · Woke up | Ins Bett gegangen · Aufgewacht |
 | asleep | Time asleep %@ | Schlafdauer %@ |
 | sleep note | It's marked “added by you”. If your tracker records this night later, RYFT uses the tracker's data instead. | Der Eintrag ist als „von dir hinzugefügt“ markiert. Erfasst dein Tracker diese Nacht später, nutzt RYFT stattdessen seine Daten. |

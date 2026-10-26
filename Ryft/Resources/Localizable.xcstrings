@@ -2609,13 +2609,13 @@
         }
       }
     },
-    "For last night, when no tracker recorded it." : {
-      "comment" : "Add sleep: what the sheet is for.",
+    "For a night no tracker recorded." : {
+      "comment" : "Add sleep: what the sheet is for, for any night.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Für letzte Nacht, wenn kein Tracker sie erfasst hat."
+            "value" : "Für eine Nacht, die kein Tracker erfasst hat."
           }
         }
       }

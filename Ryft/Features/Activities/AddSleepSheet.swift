@@ -77,7 +77,8 @@ struct AddSleepSheet: View {
 
     @ViewBuilder
     private var form: some View {
-        Text("For last night, when no tracker recorded it.")
+        // True for any wake day the pickers allow, not only last night.
+        Text("For a night no tracker recorded.", comment: "Add sleep: what the sheet is for, for any night.")
             .font(.ryft(.callout))
             .foregroundStyle(Theme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
