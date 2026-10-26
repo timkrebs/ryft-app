@@ -13,6 +13,10 @@ Commands:
     distribute --build N --group NAME [--notes FILE] [--external]
         Wait until build N has processed, set its "What to Test" (en-US and de-DE),
         add it to the beta group, and for an external group submit it for beta review.
+        An internal group with "access to all builds" gets every build by itself (App Store
+        Connect refuses a manual assignment), so the assignment is skipped; the notes are set.
+    --self-test
+        Check the internal-group logic against canned API answers (no network).
     latest-build
         Print the newest processed build number (the weekly job promotes it).
 """
@@ -124,6 +128,35 @@ def set_notes(build: str, notes: str):
                            "relationships": {"build": {"data": {"type": "builds", "id": build}}}}})
 
 
+INTERNAL_AUTO = "Internal gets every build automatically"
+
+
+def is_internal_refusal(detail: str) -> bool:
+    """App Store Connect's answer (409/422) to a manual assignment to an internal group."""
+    return "Cannot add internal group to a build" in detail
+
+
+def assign_to_group(group: dict, build: str):
+    """Add the build to the group. An internal group with access to all builds already has it.
+
+    Returns the text for the log's last line: what happened to the assignment.
+    """
+    attrs = group.get("attributes", {})
+    if attrs.get("isInternalGroup") and attrs.get("hasAccessToAllBuilds"):
+        print(INTERNAL_AUTO, flush=True)
+        return "added automatically"
+    try:
+        call("POST", f"/betaGroups/{group['id']}/relationships/builds",
+             {"data": [{"type": "builds", "id": build}]})
+    except SystemExit as e:
+        # Fallback for an internal group whose flag we didn't see as set.
+        if attrs.get("isInternalGroup") and is_internal_refusal(str(e)):
+            print(INTERNAL_AUTO, flush=True)
+            return "added automatically"
+        raise
+    return "added"
+
+
 def distribute(args):
     app = app_id()
     build = find_build(app, args.build)
@@ -133,8 +166,7 @@ def distribute(args):
     groups = call("GET", query("/betaGroups", **{"filter[app]": app, "filter[name]": args.group}))["data"]
     if not groups:
         raise SystemExit(f"No beta group named {args.group!r}")
-    call("POST", f"/betaGroups/{groups[0]['id']}/relationships/builds",
-         {"data": [{"type": "builds", "id": build}]})
+    assign_to_group(groups[0], build)
     if args.external:
         # 409 when this build was already submitted: fine.
         call("POST", "/betaAppReviewSubmissions",
@@ -152,7 +184,41 @@ def latest_build(_args):
     print(builds[0]["attributes"]["version"])
 
 
+def self_test(_args):
+    global call
+    real, calls = call, []
+
+    def fake(refuse):
+        def _call(method, path, body=None, ok=()):
+            calls.append((method, path))
+            if refuse:
+                raise SystemExit(f"{method} {path}: HTTP 422\n\"detail\" : \"Cannot add internal group to a build.\"")
+            return {}
+        return _call
+
+    try:
+        auto = {"id": "g", "attributes": {"isInternalGroup": True, "hasAccessToAllBuilds": True}}
+        manual = {"id": "g", "attributes": {"isInternalGroup": True, "hasAccessToAllBuilds": False}}
+        external = {"id": "g", "attributes": {"isInternalGroup": False, "hasAccessToAllBuilds": False}}
+        call = fake(False)
+        assert assign_to_group(auto, "b") == "added automatically" and calls == []
+        assert assign_to_group(manual, "b") == "added" and len(calls) == 1
+        assert assign_to_group(external, "b") == "added" and len(calls) == 2
+        call = fake(True)
+        assert assign_to_group(manual, "b") == "added automatically"  # fallback on the exact refusal
+        try:
+            assign_to_group(external, "b")
+            raise AssertionError("an external group's refusal must fail")
+        except SystemExit:
+            pass
+    finally:
+        call = real
+    print("testflight.py self-test: ok")
+
+
 def main():
+    if sys.argv[1:] == ["--self-test"]:
+        return self_test(None)
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(required=True)
     d = sub.add_parser("distribute")

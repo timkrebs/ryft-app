@@ -159,9 +159,12 @@ The script uses only the Python standard library; `openssl` signs the ES256 JWT.
 - `distribute --build N --group NAME [--notes FILE] [--external]`:
   1. waits until build N has processed (`VALID`, up to 60 min)
   2. sets What to Test in `en-US` and `de-DE`
-  3. adds the build to the group
+  3. adds the build to the group, except an internal group with "access to all builds": App Store
+     Connect adds every build there itself and refuses a manual assignment, so the script logs
+     "Internal gets every build automatically" and moves on
   4. with `--external`, submits it for beta review (an existing submission is fine)
 - `latest-build` prints the newest processed build number.
+- `--self-test` checks the internal-group logic offline.
 
 **Weekly notes:** the commits between the tag `testflight-external` (the last external
 build) and `build/<number>`. After distributing, the tag moves.
