@@ -124,8 +124,10 @@
 			</array>
 		</dict>
 	</array>
-	<!-- App code uses UserDefaults for its own settings only (CA92.1). No file
-	     timestamps, system boot time, disk space or active keyboards. -->
+	<!-- App code uses UserDefaults for its own settings only (CA92.1). File metadata only
+	     of files in its own app and App Group containers (C617.1): OrphanedStoreCleanup reads
+	     the size of the store files left behind by the App Group move before removing them.
+	     No system boot time, disk space or active keyboards. -->
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<dict>
@@ -134,6 +136,14 @@
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
 				<string>CA92.1</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>C617.1</string>
 			</array>
 		</dict>
 	</array>

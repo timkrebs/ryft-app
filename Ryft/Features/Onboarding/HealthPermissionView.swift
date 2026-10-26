@@ -228,6 +228,36 @@ final class OnboardingCoordinator {
         Self.gate(facts, path: path, write: write)
     }
 
+    /// What the activity uploader waits for (`ActivityUploader.gate`): `syncGate`, and stricter on the policy. Until
+    /// this phone knows which policy is in force (`policyVersionInForce`), a consent to an older one doesn't count
+    /// (`syncGate` lets it, for HealthKit data): a policy bumped for manual entries must hold queued and unparked rows
+    /// back (A2 privacy re-check A-1).
+    var uploadGate: UploadGate? {
+        guard !env.isDemo else { return nil }
+        if let gate = syncGate { return .gate(gate) }
+        guard let policy = policyVersionInForce else { return .policyUnknown }
+        return facts.consentVersion == policy ? nil : .gate(.consentRequired)
+    }
+
+    /// The privacy policy in force as this phone knows it, in one place for every gate that must fail closed on it
+    /// (`uploadGate`; `syncGate` later): this session's `GET /v1/config`, else the signed-in account's cached config
+    /// (`FlagStore`'s per-account document, wiped at sign-out), so a background launch that never runs `check()`
+    /// still knows it. Never another account's. Nil when neither is known.
+    var policyVersionInForce: String? {
+        if let version = config?.privacyPolicyVersion { return version }
+        // Read each time (only until this session's config arrives): the flags may cache a newer one any moment.
+        guard let account = env.auth.accountID else { return nil }
+        return env.persistence.document(FlagStore.Cached.self, key: FlagStore.cacheKey(account))?
+            .config.privacyPolicyVersion
+    }
+
+    /// Back online with the policy still unknown (an offline start): ask now rather than at the next activation, so
+    /// the uploads it holds go (RyftApp flushes when `uploadGate` clears).
+    func refreshPolicyIfUnknown() async {
+        guard config == nil, env.connectivity.isOnline, env.auth.isSignedIn, !env.isDemo else { return }
+        await check(force: true)
+    }
+
     // MARK: the policy
 
     /// The latest policy heard of (`ConsentState`), whatever its age: what the consent step shows and agrees to.
