@@ -86,8 +86,10 @@ enum OrphanedStoreCleanup {
         var finished: Bool { decision == .delete && failures == 0 }
     }
 
-    /// Core Data's folder beside a store for data kept outside it. No model has external storage, so it's at most
-    /// empty folders; with files in it, it stays (and counts as left over).
+    /// Core Data's folder beside a store for data kept outside it. The orphan is a store from before the App Group
+    /// move, when no model had external storage, so it's at most empty folders; with files in it, it stays (and counts
+    /// as left over). Since I5 the live store keeps `PendingImport.payload` there; the account wipe deletes those
+    /// rows one by one, so their files go with them.
     static let supportFolderName = ".Train_SUPPORT"
 
     /// Deletes the old store's files in `orphanFolder` when `decide` allows it and that folder isn't the open store's

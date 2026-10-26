@@ -292,9 +292,13 @@ final class ProfileViewModel {
         // makes it someone else's.
         let owner = AccountBinding(env)
         do {
+            // The import job of the binding the export started for (read now; decoded off the main actor).
+            let pendingImport = await PendingImportExport.make(persistence: env.persistence,
+                                                               account: ImportMappingStore(env: env).account)
             let archive = try await DataExport.archive(source: state.source, train: env.api,
                                                        rememberedMatches: ImportMappingStore(env: env).records(),
-                                                       activities: env.api, onPhone: env.activities)
+                                                       activities: env.api, onPhone: env.activities,
+                                                       pendingImport: pendingImport)
             guard owner.isCurrent(in: env) else { return }
             exported = ExportedFile(url: try DataExport.write(archive, to: exportFolder))
         } catch where error.isCancellation {
