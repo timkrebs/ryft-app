@@ -54,20 +54,45 @@ enum GuardTrack {
         return (SyntheticTrack.t0.addingTimeInterval(Double(up)), down.map { SyntheticTrack.t0.addingTimeInterval(Double($0)) })
     }
 
+    /// Which fixes report Core Location's Doppler speed.
+    enum Doppler {
+        case none
+        case all
+        /// A random share of the fixes.
+        case share(Double)
+        /// Missing in runs of `gap` fixes, a run starting with probability `1 − share` at each fix that has it.
+        case gaps(Int, share: Double)
+    }
+
     /// 1 Hz fixes from `SyntheticTrack.t0`: fix i is where second i ends, so second i moves at `speeds[i]`. With a
     /// seed, drifting noise: Gauss–Markov per axis (τ 60 s, σ = accuracy / 2) plus 0.4 m of white jitter. With
-    /// `doppler`, each fix reports Core Location's Doppler speed: the second's true speed (plus 0.3 m/s of noise with a
+    /// `doppler`, fixes report Core Location's Doppler speed: the second's true speed (plus 0.3 m/s of noise with a
     /// seed). Multipath doesn't move it, so a ghost keeps the true one.
     static func fixes(_ speeds: [Double], accuracy: Double = 5, seed: UInt64? = nil, sigma: Double? = nil,
-                      ghost: Ghost? = nil, doppler: Bool = false) -> [LocationFix] {
+                      ghost: Ghost? = nil, doppler: Doppler = .none) -> [LocationFix] {
         let clean = SyntheticTrack.fixes(speeds.map { SyntheticTrack.Segment(seconds: 1, speed: $0) }, accuracy: accuracy)
         let fixes = perturbed(clean, accuracy: accuracy, seed: seed, sigma: sigma, ghost: ghost)
-        guard doppler else { return fixes }
+        if case .none = doppler { return fixes }
         var rng = SeededGenerator(seed: (seed ?? 0) &+ 99)
+        var rolls = SeededGenerator(seed: (seed ?? 0) &+ 4242)
         let noise = seed == nil ? 0 : 0.3
+        var gapLeft = 0
         return fixes.enumerated().map { i, fix in
             let truth = speeds.isEmpty ? 0 : speeds[max(i - 1, 0)]
-            return fix.with(speed: max(0, truth + noise * rng.gaussian()))
+            let speed = max(0, truth + noise * rng.gaussian())
+            let roll = Double(rolls.next() % 10000) / 10000
+            var reports = true
+            switch doppler {
+            case .none, .all: break
+            case let .share(share): reports = roll < share
+            case let .gaps(gap, share):
+                if gapLeft == 0, roll >= share { gapLeft = gap }
+                if gapLeft > 0 {
+                    gapLeft -= 1
+                    reports = false
+                }
+            }
+            return fix.with(speed: reports ? speed : nil)
         }
     }
 

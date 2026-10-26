@@ -570,7 +570,8 @@ struct SpeedGateGuardTests {
     }
 
     /// A burst above the entry speed shorter than 3 s is held and then released: it counts as distance, without an
-    /// episode or a refused second; so does a burst still held when the user pauses or finishes. A burst of 3 s or more
+    /// episode or a refused second; so does a burst still held when the user pauses or finishes, or in a checkpoint
+    /// taken meanwhile. A burst of 3 s or more
     /// is the state, backdated to its first step, and what was held is refused.
     @Test func aShortBurstIsHeldAndReleased() throws {
         let short = GuardTrack.speeds([.hold(60, 3), Ramp(2, 3, 20), Ramp(2, 20, 3), .hold(60, 3)])
@@ -599,6 +600,10 @@ struct SpeedGateGuardTests {
             }
             let at = try #require(heldAt)
             #expect(free.distanceM > held.distanceM + 5, "a step is held at fix \(at)")
+            // A checkpoint now counts it too (review X3): a restore can't confirm it.
+            let saved = try #require(held.checkpoint)
+            #expect(abs(saved.distanceM - free.distanceM) < 0.01 && saved.diagnostics.tooFastSec == 0)
+            #expect(free.distanceM > held.distanceM + 5, "taking the checkpoint changes nothing live")
             if finish {
                 _ = held.finish(at: fixes[at].timestamp)
                 _ = free.finish(at: fixes[at].timestamp)
@@ -632,7 +637,7 @@ struct SpeedGateGuardTests {
         let speeds = GuardTrack.speeds([.hold(400, mover.speed)])
         for hop in [6 ... 10, 10 ... 20] {
             for seed in UInt64(1) ... 20 {
-                let clean = GuardTrack.fixes(speeds, seed: seed, doppler: true)
+                let clean = GuardTrack.fixes(speeds, seed: seed, doppler: .all)
                 let sliding = GuardTrack.sliding(clean, from: 100, until: 280, hop: hop, seed: seed)
                 let (p, events) = GuardTrack.record(Self.noAutoPause(mover.profile), sliding)
                 #expect(GuardTrack.tooFast(events).isEmpty && p.diagnostics.tooFastSec == 0, "\(hop) s, seed \(seed)")
@@ -650,14 +655,18 @@ struct SpeedGateGuardTests {
 
     /// The Doppler speed decides only when it's valid, for steps and for settle windows: "running" on a bike at 15 m/s,
     /// from a standing start (steps) and a flying start (the first window). It agrees above 0.9 × the limit (8.1 m/s);
-    /// a negative speed or a negative accuracy is no Doppler speed, and the filter decides alone.
+    /// a negative speed, a negative accuracy or one worse than 2 m/s (review X2) is no Doppler speed, and the filter
+    /// decides alone.
     @Test(arguments: [
         DopplerCase(name: "Doppler 15 m/s agrees", speed: 15, accuracy: 0.5, tooFast: true),
         DopplerCase(name: "Doppler 8.5 m/s agrees (0.94 × the limit)", speed: 8.5, accuracy: 0.5, tooFast: true),
         DopplerCase(name: "Doppler 7.7 m/s vetoes (0.86 × the limit)", speed: 7.7, accuracy: 0.5, tooFast: false),
         DopplerCase(name: "Doppler 3 m/s, accuracy unknown, vetoes", speed: 3, accuracy: nil, tooFast: false),
         DopplerCase(name: "invalid speed: the filter decides", speed: -1, accuracy: 0.5, tooFast: true),
-        DopplerCase(name: "invalid accuracy: the filter decides", speed: 3, accuracy: -1, tooFast: true)
+        DopplerCase(name: "invalid accuracy: the filter decides", speed: 3, accuracy: -1, tooFast: true),
+        DopplerCase(name: "Doppler 3 m/s ± 1.9 m/s vetoes", speed: 3, accuracy: 1.9, tooFast: false),
+        DopplerCase(name: "Doppler 3 m/s ± 2.1 m/s is too inaccurate: the filter decides", speed: 3, accuracy: 2.1,
+                    tooFast: true)
     ])
     func dopplerDecidesWhenValid(_ doppler: DopplerCase) {
         let standing = GuardTrack.speeds([Ramp(15, 0, 15), .hold(120, 15)])
@@ -807,5 +816,75 @@ struct SpeedGateGuardTests {
         if !entry.tooFast {
             #expect(abs(p.distanceM - GuardTrack.distance(speeds)) < 2, "\(p.distanceM - GuardTrack.distance(speeds)) m")
         }
+    }
+
+    /// Doppler missing on some fixes (review X1): a fix without a usable Doppler speed takes the last one for up to 8 s,
+    /// raised by 0.5 m/s² for its age, so the veto doesn't fail open on every gap. Sliding multipath (6–10 s slides,
+    /// 20 seeds × walk, hike, trail, run): with Doppler on 70 % of the fixes no false episode; on 30 % at most 4 in 80
+    /// runs; in 5-fix gaps (about 40 % missing) at most 8. Measured 0, 2 and 5; failing open: 4, 34 and 49.
+    @Test(arguments: [70, 30, 0])
+    func partialDopplerStillVetoesSlidingMultipath(percent: Int) {
+        let doppler: GuardTrack.Doppler = percent == 0 ? .gaps(5, share: 0.7) : .share(Double(percent) / 100)
+        let bound = [70: 0, 30: 4, 0: 8][percent] ?? 0
+        var episodes = 0
+        for mover in [Mover(name: "walk", profile: .walk, speed: 1.4), Mover(name: "hike", profile: .hike, speed: 1.0),
+                      Mover(name: "trail", profile: .trail, speed: 2.2), Mover(name: "run", profile: .run, speed: 3)] {
+            for seed in UInt64(1) ... 20 {
+                let clean = GuardTrack.fixes(GuardTrack.speeds([.hold(400, mover.speed)]), seed: seed, doppler: doppler)
+                let sliding = GuardTrack.sliding(clean, from: 100, until: 280, hop: 6 ... 10, seed: seed)
+                episodes += GuardTrack.tooFast(GuardTrack.record(Self.noAutoPause(mover.profile), sliding).events).count
+            }
+        }
+        #expect(episodes <= bound, "\(episodes) false episodes in 80 runs")
+    }
+
+    /// The held-over Doppler speed never holds back a real acceleration: with Doppler on 30 % of the fixes, or missing
+    /// in 5-fix gaps, the train after a run stays within 135 m and "running" on a bike says `.tooFast` within 4 s of
+    /// passing 9 m/s, over 20 seeds. Without the age allowance a stale reading from the slow start vetoed them: +171 m
+    /// and 7 s late. Measured: +112 … +127 m, +2 … +3 s.
+    @Test(arguments: [30, 0])
+    func aHeldOverDopplerSpeedDoesNotHoldBackAnAcceleration(percent: Int) throws {
+        let doppler: GuardTrack.Doppler = percent == 0 ? .gaps(5, share: 0.7) : .share(Double(percent) / 100)
+        let run = GuardTrack.speeds([.hold(300, 3), Ramp(2, 3, 0)])
+        let train = GuardTrack.speeds([.hold(120, 0), Ramp(47, 0, 33), .hold(300, 33), Ramp(33, 33, 0), .hold(60, 0)])
+        let bike = GuardTrack.speeds([Ramp(15, 0, 15), .hold(120, 15)])
+        let passes = try #require(GuardTrack.crossings(bike, limit: 9)).above
+        for seed in UInt64(1) ... 20 {
+            let ride = GuardTrack.record(.gps(.run, barometer: false),
+                                         GuardTrack.fixes(run + train, seed: seed, doppler: doppler)).pipeline
+            let still = run + Array(repeating: 0.0, count: train.count)
+            let baseline = GuardTrack.record(.gps(.run, barometer: false),
+                                             GuardTrack.fixes(still, seed: seed, doppler: doppler)).pipeline
+            #expect(ride.distanceM - baseline.distanceM <= 135, "seed \(seed): +\(ride.distanceM - baseline.distanceM) m")
+            let events = GuardTrack.record(.gps(.run, barometer: false), GuardTrack.fixes(bike, seed: seed, doppler: doppler)).events
+            let since = try #require(GuardTrack.tooFast(events).first, "seed \(seed)")
+            #expect(since.timeIntervalSince(passes) <= 4, "seed \(seed): \(since.timeIntervalSince(passes)) s")
+        }
+    }
+
+    /// Doppler vetoes entering the state only: during a real episode the filter's speed decides when steps count again,
+    /// so braking doesn't add the filter's lag (Doppler falls below the limit first). The train with Doppler on every
+    /// fix adds what it adds without (noiseless +128 m at 5 m); vetoing in the episode too added up to +141 m.
+    @Test func dopplerDoesNotEndAnEpisode() throws {
+        let run = GuardTrack.speeds([.hold(300, 3), Ramp(2, 3, 0)])
+        let train = GuardTrack.speeds([.hold(120, 0), Ramp(47, 0, 33), .hold(300, 33), Ramp(33, 33, 0), .hold(60, 0)])
+        let without = GuardTrack.record(.gps(.run, barometer: false), GuardTrack.fixes(run + train)).pipeline
+        let with = GuardTrack.record(.gps(.run, barometer: false), GuardTrack.fixes(run + train, doppler: .all)).pipeline
+        #expect(abs(with.distanceM - without.distanceM) < 0.5, "\(with.distanceM) m, without Doppler \(without.distanceM) m")
+        #expect(with.diagnostics.tooFastEpisodes == 1)
+    }
+
+    /// A step is judged by its mean ground speed also in the 10 s of position steps after an auto-resume (review X4): a
+    /// runner stops for 30 s, then a ride pulls away at 1.5 m/s² to 15 m/s. The entry speed is crossed inside that
+    /// window; judged by the speed at the step's end, the state would start a second earlier (98 s) and 13 m more
+    /// would be refused.
+    @Test func positionStepsAreJudgedByTheirMeanSpeed() throws {
+        let speeds = GuardTrack.speeds([.hold(60, 3), .hold(30, 0), Ramp(10, 0, 15), .hold(30, 15)])
+        let (p, events) = GuardTrack.record(.gps(.run, autoPause: true, barometer: false), GuardTrack.fixes(speeds))
+        let resumed = try #require(events.compactMap { if case let .autoResumed(since) = $0 { since } else { nil } }.first)
+        let since = try #require(GuardTrack.tooFast(events).first)
+        #expect(since.timeIntervalSince(resumed) < 10, "inside the position steps")
+        #expect(since == SyntheticTrack.t0.addingTimeInterval(99))
+        #expect(abs(p.distanceM - 239.1) < 1, "\(p.distanceM) m")
     }
 }

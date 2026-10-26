@@ -279,6 +279,20 @@ struct TrackPipeline: Sendable {
         /// When a fix has a valid Doppler speed, a step (or window) counts as too fast only if that speed is also above
         /// this share of the limit: sliding multipath moves the positions and the filter, not the Doppler speed.
         var dopplerShareOfLimit = 0.9
+        /// A fix without a usable Doppler speed takes the last one for up to this long, raised by
+        /// `dopplerHoldoverAcceleration` per second of its age: Core Location leaves the speed out on some fixes, and a
+        /// veto that failed open on each of them let sliding multipath through (review X1). The allowance keeps a
+        /// stale, slow reading from vetoing a real acceleration (a train at 0.7 m/s² outruns it within seconds); a slide
+        /// doesn't speed the user up, so for a walker the veto holds the full 8 s (1.4 + 8 × 0.5 = 5.4 m/s, the walking
+        /// veto's threshold). Measured on 6–10 s slides with Doppler on 30 % of the fixes: 34 false episodes in 80 runs
+        /// without the holdover, 10 with 5 s, 2 with this; 8 s without the allowance cost a train +171 m and "running"
+        /// on a bike a `.tooFast` 7 s late.
+        var dopplerHoldover: TimeInterval = 8
+        var dopplerHoldoverAcceleration = 0.5
+        /// A Doppler speed whose accuracy is worse than this, m/s, counts as unknown (review X2). Absolute, because
+        /// it's the receiver's velocity solution that degrades, whatever the sport: 2 m/s keeps a slow sport's veto
+        /// clear (a walk at 1.4 m/s against 5.4 m/s), while 0.3 × the limit would accept ±11 m/s on a road bike.
+        var maxDopplerAccuracy = 2.0
 
         static let standard = Tuning()
     }
@@ -431,6 +445,8 @@ struct TrackPipeline: Sendable {
     /// Steps and spans the limit refused while the state is unconfirmed: the state confirms them as too fast, or a
     /// slow step (Pause, Finish) releases them.
     private var heldTooFast: [Step] = []
+    /// The last usable Doppler speed and when, for fixes without one (`Tuning.dopplerHoldover`). Memory only.
+    private var lastDoppler: (time: Date, speed: Double)?
 
     init(configuration: Configuration) {
         self.configuration = configuration
@@ -499,6 +515,13 @@ struct TrackPipeline: Sendable {
 
     /// The checkpoint state (part of `RecordingHeader`); nil before Start.
     var checkpoint: Resume? {
+        guard heldTooFast.isEmpty else {
+            // A restore can't confirm what's held: the checkpoint counts it as distance, as Pause and Finish do.
+            var released = self
+            var ignored: [PipelineEvent] = []
+            released.releaseHeld(&ignored)
+            return released.checkpoint
+        }
         guard let start else { return nil }
         return Resume(start: start, pauses: pauses, distanceM: distanceM, splits: splits,
                       splitStartMovingSec: splitStartMoving, splitStartAscentM: splitStartAscent,
@@ -763,6 +786,7 @@ struct TrackPipeline: Sendable {
         if let last = lastAccepted, t <= last.time { return reject(.outOfOrder) }
         if let latestSeen, t < latestSeen.addingTimeInterval(-tuning.staleAfter) { return reject(.stale) }
         observe(t)
+        let fixDoppler = doppler(of: fix)
         // The last settled point: a provisional re-init keeps it as its anchor (design §3.3 step 4).
         let settled = settling == nil ? stepFrom : nil
         let limit = configuration.profile.maxSpeed ?? .infinity
@@ -791,11 +815,11 @@ struct TrackPipeline: Sendable {
             if speedGated || rejectedRunHadSpeedGate { diagnostics.speedGateReinits += 1 }
             events.append(.reinitialised)
             beginProvisional(from: settled)
-            beginSettling(with: fix)
+            beginSettling(with: fix, doppler: fixDoppler)
         case .initialised:
-            beginSettling(with: fix)
+            beginSettling(with: fix, doppler: fixDoppler)
         case .updated:
-            settling?.fixes.append((t, fix.coordinate, fix.isStationary, fix.dopplerSpeed))
+            settling?.fixes.append((t, fix.coordinate, fix.isStationary, fixDoppler))
         }
         rejectedRunHadSpeedGate = false
         if let here = kalman.position, settling != nil {
@@ -834,7 +858,7 @@ struct TrackPipeline: Sendable {
                 step = bridge(from: (window.firstFiltered, window.fixes[0].time), to: (position, t), gap: gap,
                               stationary: fix.isStationary, &events)
             }
-            beginSettling(with: fix)
+            beginSettling(with: fix, doppler: fixDoppler)
         } else if let window = settling, t.timeIntervalSince(window.since) >= tuning.settleWindow,
                   window.fixes.count >= tuning.settleMinFixes || t.timeIntervalSince(window.since) >= 3 * tuning.settleWindow
                   || window.fixes.count >= 64 {
@@ -866,7 +890,7 @@ struct TrackPipeline: Sendable {
                 }
                 // The sport's limit applies to the step's mean ground speed, at any reported accuracy, with hysteresis,
                 // when Core Location's Doppler speed (if the fix has one) agrees.
-                fast = mean > tooFastThreshold && dopplerAgrees(fix.dopplerSpeed) && !fix.isStationary
+                fast = mean > tooFastThreshold && dopplerAgrees(fixDoppler) && !fix.isStationary
                 limitSide = (fast, from.time)
             }
             // Core Location says the phone isn't moving: nothing accrues, even with auto-pause off.
@@ -875,12 +899,12 @@ struct TrackPipeline: Sendable {
             // After a gap long enough to reset the velocity, the gap is bridged above and the next seconds settle
             // like a start: the velocity converges again, and the position came mostly from this one fix.
             if let previousFixTime, t.timeIntervalSince(previousFixTime) > kalman.tuning.velocityResetAfter {
-                beginSettling(with: fix)
+                beginSettling(with: fix, doppler: fixDoppler)
             }
         } else if outcome == .updated, settling == nil, stepFrom == nil, let previousFixTime,
                   t.timeIntervalSince(previousFixTime) > kalman.tuning.velocityResetAfter {
             // The same without a step to bridge (the first fix after Start or a resume, after a silent GPS).
-            beginSettling(with: fix)
+            beginSettling(with: fix, doppler: fixDoppler)
         }
         guard state != .ready else { return events }
 
@@ -1038,9 +1062,8 @@ struct TrackPipeline: Sendable {
     }
 
     /// Starts a settle window at this fix (`Tuning.settleWindow`): a (re)initialised filter, or a reset velocity.
-    private mutating func beginSettling(with fix: LocationFix) {
-        settling = Settling(since: fix.timestamp,
-                            fixes: [(fix.timestamp, fix.coordinate, fix.isStationary, fix.dopplerSpeed)],
+    private mutating func beginSettling(with fix: LocationFix, doppler: Double?) {
+        settling = Settling(since: fix.timestamp, fixes: [(fix.timestamp, fix.coordinate, fix.isStationary, doppler)],
                             firstFiltered: kalman.position, lastFiltered: kalman.position)
         positionStepsUntil = nil
     }
@@ -1202,10 +1225,26 @@ struct TrackPipeline: Sendable {
         return tooFastSince == nil ? max(limit * tuning.tooFastEnterFactor, limit + tuning.tooFastEnterMargin) : limit
     }
 
-    /// Whether Core Location's Doppler speed agrees that the movement is too fast (`Tuning.dopplerShareOfLimit`);
-    /// without a valid one the filter decides alone.
+    /// The Doppler speed a fix stands for: its own when it's valid and accurate to `Tuning.maxDopplerAccuracy`, else
+    /// the last such one within `Tuning.dopplerHoldover`, plus the allowance for its age (the fastest the user could
+    /// be by now); nil without either.
+    private mutating func doppler(of fix: LocationFix) -> Double? {
+        if let speed = fix.dopplerSpeed, (fix.speedAccuracy ?? 0) <= tuning.maxDopplerAccuracy {
+            lastDoppler = (fix.timestamp, speed)
+            return speed
+        }
+        guard let last = lastDoppler, fix.timestamp.timeIntervalSince(last.time) <= tuning.dopplerHoldover else {
+            return nil
+        }
+        return last.speed + tuning.dopplerHoldoverAcceleration * fix.timestamp.timeIntervalSince(last.time)
+    }
+
+    /// Whether Core Location's Doppler speed lets the state be entered (`Tuning.dopplerShareOfLimit`); without a usable
+    /// one the filter decides alone. It vetoes entering only: multipath can't make a movement too fast, but once a
+    /// real episode runs, the filter's speed (not the Doppler speed falling ahead of it on braking) decides when the
+    /// steps count again, so a stop doesn't add the filter's lag.
     private func dopplerAgrees(_ doppler: Double?) -> Bool {
-        guard let doppler, let limit = configuration.profile.maxSpeed else { return true }
+        guard tooFastSince == nil, let doppler, let limit = configuration.profile.maxSpeed else { return true }
         return doppler > tuning.dopplerShareOfLimit * limit
     }
 
