@@ -113,10 +113,14 @@ struct RyftApp: App {
         WorkoutLauncher.isRestoring = { AuthService.shared.state == .restoring }
         TrainCoordinator.shared.onActiveChange = { WorkoutLauncher.updateShortcutItems(resume: $0) }
         WorkoutLauncher.updateShortcutItems(resume: TrainCoordinator.shared.active != nil)
+        // "Open in" never interrupts a workout: the file waits (ui.md E7).
+        screens.importer.isWorkoutActive = { TrainCoordinator.shared.active != nil }
         Self.configureAppearance()
         #if DEBUG
         // UI tests: `-RyftResetTrain YES` starts without sessions or a queue.
         if UserDefaults.standard.bool(forKey: "RyftResetTrain") { TrainStore.shared.wipe() }
+        // UI tests: `-importUploadsUnavailable YES`, the import before the platform's contract (V5).
+        ImportDemoFiles.applyLaunchArguments(to: env)
         #endif
     }
 
@@ -150,6 +154,8 @@ struct RyftApp: App {
                     env.catalogStore.accountChanged()
                     // Its last requests and a report's draft too: nothing of A's goes out as B.
                     screens.profile.accountChanged(from: old)
+                    // A file opened while signed out is shown now; another account's import flow goes.
+                    Task { await screens.importer.accountChanged(signedIn: new != nil) }
                     // The previous account's reminders and alarms go; this one's come back.
                     Task { await screens.bedtime.accountChanged() }
                     sync.accountChanged()
@@ -179,6 +185,8 @@ struct RyftApp: App {
                         TrainImportUploader.forgetDemo(in: env.persistence)
                     }
                     screens.trainImport.accountChanged()
+                    // The import flow and any file it holds stay with the side they arrived on.
+                    screens.importer.demoModeChanged()
                     Task { await screens.featureFlags?.refresh(force: true) }
                 }
                 // A restore that ended signed out: a start asked for during it doesn't wait for a sign-in.
@@ -244,6 +252,11 @@ struct RyftApp: App {
                 // ryft://train/session — the rest timer Live Activity; everything else
                 // (universal links, ryft://…, the auth callback) goes through the router.
                 .onOpenURL { url in
+                    // "Open in RYFT" from Files or the Share sheet: a file, never a route (design §9).
+                    if url.isFileURL {
+                        Task { await screens.importer.open([url]) }
+                        return
+                    }
                     if trainCoordinator.handle(url) { return }
                     Task {
                         if await screens.router.open(url) { return }
@@ -458,7 +471,10 @@ struct RootView: View {
                 // splash opens the launch barrier.
                 switch auth.state {
                 case .restoring: SplashView().transition(.opacity)
-                case .signedOut: WelcomeView().transition(.opacity).onAppear(perform: LaunchSignpost.screenAppeared)
+                case .signedOut:
+                    WelcomeView()
+                        .safeAreaInset(edge: .top) { importSignInNote }
+                        .transition(.opacity).onAppear(perform: LaunchSignpost.screenAppeared)
                 // The account's first run waits for the platform's answer: no flash of the tabs.
                 case .signedIn where onboarding.holdsFirstRun: SplashView().transition(.opacity)
                 case .signedIn where onboarding.flowStep != nil:
@@ -510,8 +526,22 @@ struct RootView: View {
             .onDisappear { WorkoutLauncher.tabsDisappeared() }
     }
 
+    /// E6: a file opened while signed out waits in memory for the sign-in.
+    @ViewBuilder
+    private var importSignInNote: some View {
+        if screens.importer.hasFileForSignIn {
+            InlineMessage(message: String(localized: "Your file is ready. Sign in to continue.",
+                                          comment: "Training import E6: a file was opened while signed out."),
+                          systemImage: "doc.text")
+                .padding(.horizontal, Theme.Metrics.screenPadding)
+        }
+    }
+
     private var tabBar: some View {
         tabView
+            // The training import: one cover for My Plans, Profile → Data and "Open in" (ui.md §2).
+            .fullScreenCover(item: Bindable(screens.importer).flow) { ImportFlowView(model: $0) }
+            .sheet(isPresented: Bindable(screens.importer).showsUnavailable) { ImportUnavailableSheet() }
             // From now on this account's gates are sheets, not the full-screen flow.
             .onAppear { onboarding.reachedTabs() }
             // A gate after the first run (policy updated, consent withdrawn): over the
