@@ -5,8 +5,9 @@
   the re-init counts both gates
 - Amended: 2026-10-24, amendment 2 (A3a.2): a re-init is provisional until its settle window closes; the sport's
   limit applies to the filter's speed, with a `.tooFast` state
-- Revised: 2026-10-26, after the code review: the too-fast state enters above an entry speed and holds refused steps
-  until it confirms; a valid Doppler speed vetoes entering it (end of amendment 2)
+- Revised: 2026-10-26, after the code review: a re-init in a window without an anchor anchors at the window's start,
+  and a gap inside a provisional window is bridged from the anchor; the too-fast state enters above an entry speed and
+  holds refused steps until it confirms; a valid Doppler speed vetoes entering it (end of amendment 2)
 - Deciders: ios-lead, on ios-architect's proposal; sync-engineer implements (A3)
 - Applies to: `Ryft/Activities/Recording/TrackPipeline.swift`, `KalmanTrack.swift`, `Geodesy.swift`,
   `Ryft/Activities/Sport.swift` (per-sport parameters)
@@ -367,6 +368,9 @@ Two causes:
        to the window's first position. The straight line counts if its speed is at most `maxSpeed`; a train's
        doesn't.
    - **The anchor is dropped** by Start, Pause, a resume, Finish, a velocity reset or a gap inside the window.
+   - *Revised by "Revision after the code review (2026-10-26): the anchor in a window, and gaps" below. Inside a window
+     without an anchor, a re-init anchors at the window's start; a gap inside a provisional window, a velocity reset
+     included, is bridged from the anchor instead of dropping it.*
    - **While a chain is open,** `gpsQuality` says `.weak` (ui.md G4: "Distance may be low"): the fixes disagree with
      each other.
    - **Nothing restores a filter, and nothing copies one.**
@@ -453,6 +457,60 @@ stateDiagram-v2
 - a passenger in a car or train with "Running": one episode over the fast part, and at most about 120 m added per
   stop (*revised: about 135 m, the entry speed below*);
 - a walk between tall buildings: re-inits, spans, weak-GPS time, and the distance against a measured course.
+
+### Revision after the code review (2026-10-26): the anchor in a window, and gaps
+
+- Status: built by the review fixes (`ee974c0`, reviews S3, N-d and N-e) and recorded here so this ADR matches the
+  code. The lead confirms with the PR (`activities: speed-gate guard`).
+- **Revises** decision 4's "The anchor" and "The anchor is dropped". The rest of decision 4 stands.
+- **Numbers** are the implementer's noiseless tests at `c33883f` (`GuardTrack`: "running" at 3 m/s, a 60 m ghost at a
+  falsely good 10 m), not the probe.
+
+**Why.**
+- **A re-init inside a window without an anchor lost the window.** The anchor was the last *settled* position, and
+  inside Start's window, or one opened by a velocity reset, there's none. The re-init had no span to fill, and the
+  window's fixes before it were lost: a 3-fix ghost 3, 6 or 9 s after Start cost −24, −33 or −42 m; 4 s after a 20 s
+  tunnel, −27 m.
+- **A gap inside a provisional window dropped the span.** The span and the silence after it were lost together: a
+  3-fix ghost followed by 16 s without fixes cost −18 m.
+
+**Decision:**
+1. **An anchor at the window's start** (review S3). A re-init inside a window that has no anchor (Start's, or one
+   opened by a velocity reset or a gap) anchors at the window's first filtered position and its time. The anchor's
+   speed is the Theil–Sen line through the window's fixes so far, when there are 3 or more.
+   - **One re-init, the anchor at most 10 s before it:** the span is dead-reckoned at that line speed, between the
+     dead-band and `maxSpeed`, as for a settled anchor.
+   - **Fewer than 3 fixes** (no line), **a chain, or a longer span:** the gap rule from the anchor to the new window's
+     first position.
+2. **A gap inside a provisional window is bridged from the anchor** (review N-e). A gap over 10 s, a velocity reset
+   included, runs the gap rule in one straight line from the anchor to the fix after the gap: the span and the silence
+   together. The anchor ends as one bridged span, or dropped when the line is below the dead-band or above `maxSpeed`.
+   A fresh window starts at that fix. Without an anchor the line runs from the window's first position, as before.
+3. **What drops an anchor:** Pause, a manual resume and Finish. Nothing is filled across them. An anchor exists only
+   while recording or auto-paused: a re-init while paused keeps none.
+4. **A checkpoint counts an open anchor as dropped** (review N-d). A restore can't fill the span, so each anchor ends
+   exactly once in the restored counts. The live pipeline keeps it and still fills the span.
+
+**Measured** (noiseless):
+
+| Case | A3a.2 before the review | Now | Spans: dead-reckoned / bridged / dropped |
+| --- | --- | --- | --- |
+| A 3-fix ghost 3, 6 or 9 s after Start | −24 / −33 / −42 m | within 1 m | 0 / 1 / 0 |
+| A 14-fix ghost after 5 fixes of Start's window | not measured | within 1 m | 2 / 0 / 0 |
+| A 3-fix ghost 4 s after a 20 s tunnel | −27 m | within 1 m | 0 / 1 / 0 |
+| A 3-fix ghost, then 16 s without fixes | −18 m | within 1 m; one bridged gap | 0 / 1 / 0 |
+
+**Good:**
+- **A ghost costs no distance in any settle window,** with or without a settled position before it.
+- **A dropout inside a ghost's window keeps the span.** Like any gap, it's one straight line.
+
+**Costs:**
+- **A line through 3 or 4 fixes is rough.** Dead reckoning trusts it for at most 10 s, capped by `maxSpeed` (risk 3).
+- **A straight line cuts corners,** as every bridged gap does.
+
+**Tests** (`SpeedGateGuardTests`): `aGhostInTheStartWindowLosesNothing`, `aLongGhostInTheStartWindowIsDeadReckoned`,
+`aGhostAfterATunnelLosesNothing`, `aGapInsideTheWindowIsBridgedFromTheAnchor`, `aGhostWhilePausedKeepsNoAnchor`,
+`aCheckpointCountsAnOpenAnchorAsDropped`.
 
 ### Revision after the code review (2026-10-26): the entry speed and held steps
 
