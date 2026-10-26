@@ -617,11 +617,15 @@ final class AuthService {
         // stop.
         deletingAccount = account
         defer { deletingAccount = nil }
+        let changesAtStart = accountChanges
         onAccountDeletionStart?()
         let result: AccountDeleted
         do {
             result = try await deleteRemoteAccount()
         } catch {
+            // The account changed meanwhile, or the call was cancelled (a switch cuts its retries short): whoever is
+            // here now didn't ask, so no message.
+            guard !error.isCancellation, accountChanges == changesAtStart else { return false }
             // 503 (after APIClient's retries) means nothing was deleted.
             errorMessage = (error as? APIError)?.status == 503
                 ? String(localized: "RYFT couldn't delete your account just now. Nothing was deleted. Try again in a moment.")
@@ -631,10 +635,13 @@ final class AuthService {
         }
         let reason = SignOutReason.accountDeleted(background: !result.authUserDeleted)
         if session == nil {
-            // The session ended while the platform deleted (a concurrent final 401): the deletion's wipe runs anyway,
-            // whatever ran before it.
-            signOutNotice = reason.notice
-            wipe(Wipe(reason: reason, account: account))
+            // The session ended while the platform deleted (a concurrent final 401), and nothing else happened since:
+            // the deletion's notice and wipe. If another account came and went meanwhile, the notice isn't its, and a
+            // wipe would take what it parked: the deleted account's data already went when its session ended.
+            if accountChanges == changesAtStart + 1 {
+                signOutNotice = reason.notice
+                wipe(Wipe(reason: reason, account: account))
+            }
         } else if session?.user.id.uuidString == account {
             await signOut(reason: reason)
         }

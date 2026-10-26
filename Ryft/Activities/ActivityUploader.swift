@@ -13,6 +13,16 @@ import Observation
 import UIKit
 import os
 
+/// Why activity uploads wait (`ActivityUploader.gate`, `OnboardingCoordinator.uploadGate`).
+enum UploadGate: Equatable, Sendable {
+    /// Something only the user or the platform can settle: no consent to the policy in force, an enforced invite
+    /// gate, the account not known yet.
+    case gate(APIErrorCode)
+    /// The policy in force isn't known on this phone yet (no config fetched this session or cached for the
+    /// account): being online settles it.
+    case policyUnknown
+}
+
 /// The upload queue for own activities and nights. The queue is the rows themselves: a row needs uploading while
 /// `localRevision > confirmedRevision` or while it's a tombstone (`ActivityStore.unconfirmed()`), so state lives in
 /// one place and survives relaunches. The uploader adds what only it knows: in flight, offline, retrying, gated,
@@ -83,7 +93,7 @@ final class ActivityUploader {
     /// policy in force, an enforced invite gate, the account or the policy not known yet). While it names one,
     /// nothing is sent. **Closed until the app connects it** (ScreenModels), so no path can upload without consent;
     /// tests open it explicitly.
-    @ObservationIgnored var gate: @MainActor () -> APIErrorCode? = { .consentRequired }
+    @ObservationIgnored var gate: @MainActor () -> UploadGate? = { .gate(.consentRequired) }
     /// Jitter source (tests: `{ $0.lowerBound }`).
     @ObservationIgnored var random: (ClosedRange<Double>) -> Double = { .random(in: $0) }
 
@@ -95,8 +105,8 @@ final class ActivityUploader {
     private(set) var backoffs: [Item: Backoff] = [:]
     /// The platform doesn't take uploads yet (a `404` on `PUT`): nothing is sent until the app is active again.
     private var notAvailable = false
-    /// A gate refused the last request (a `403` with a code), or `gate` held the queue: tried again on the next
-    /// trigger.
+    /// A gate refused the last request (a `403` with a code): tried again on the next trigger. (`gate` is asked
+    /// live.)
     private var gated = false
     /// The last transient failure had no answer at all: a reconnect retries at once.
     private var lostConnection = false
@@ -278,10 +288,7 @@ final class ActivityUploader {
             return nil
         }
         // Consent and the invite gate first, as for HealthKit data.
-        guard !isHeldByGate else {
-            gated = true
-            return nil
-        }
+        guard !isHeldByGate else { return nil }
         guard env.connectivity.isOnline else { return nil }
         if let replay {
             flushAgain = true
@@ -315,10 +322,7 @@ final class ActivityUploader {
         var passedOver = Set<Item>()
         while generation == self.generation, !Task.isCancelled {
             // Consent can be withdrawn while the queue runs: the next item waits for it.
-            if isHeldByGate {
-                gated = true
-                return .stopped
-            }
+            if isHeldByGate { return .stopped }
             guard let item = next(excluding: passedOver) else { return .done }
             let outcome: Outcome
             switch item {
@@ -567,8 +571,14 @@ final class ActivityUploader {
         let backoff = backoffs[item]
         if let lastAttempt, let backoff, backoff.failures >= Self.failedAfter { return .failed(lastAttempt) }
         guard let env, env.api.publishesActivities, !notAvailable else { return .pending(.notAvailableYet) }
-        if gated || isHeldByGate { return .pending(.gated) }
-        if !env.connectivity.isOnline { return .pending(.offline) }
+        let online = env.connectivity.isOnline
+        if gated || isHeldByGate {
+            // Only the policy version is missing, and only being online brings it: say offline. Missing consent or
+            // an invite stays "gated" (being online won't help).
+            if !gated, !online, gate() == .policyUnknown, !env.auth.isDeletingAccount { return .pending(.offline) }
+            return .pending(.gated)
+        }
+        if !online { return .pending(.offline) }
         if let backoff, backoff.due > env.clock.now() { return .pending(.retrying(at: backoff.due)) }
         return .pending(.queued)
     }

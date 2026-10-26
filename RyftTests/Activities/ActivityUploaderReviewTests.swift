@@ -15,7 +15,7 @@ struct ActivityUploaderGateTests {
         let h = UploadHarness()
         let gate = Gate()
         gate.code = .consentRequired
-        h.uploader.gate = { gate.code }
+        h.uploader.gate = { gate.code.map(UploadGate.gate) }
         let id = try #require(h.save())
         let night = h.night()
         h.store.saveSleep(day: night.day, bed: night.bed, wake: night.wake)
@@ -33,7 +33,7 @@ struct ActivityUploaderGateTests {
 
     @Test func theInviteGateHoldsTheQueueToo() async throws {
         let h = UploadHarness()
-        h.uploader.gate = { .inviteRequired }
+        h.uploader.gate = { .gate(.inviteRequired) }
         _ = try #require(h.save())
         await h.uploader.flush(userInitiated: true)
         #expect(h.puts() == 0)
@@ -42,7 +42,7 @@ struct ActivityUploaderGateTests {
     @Test func consentWithdrawnMidQueueStopsBeforeTheNextItem() async throws {
         let h = UploadHarness()
         let gate = Gate()
-        h.uploader.gate = { gate.code }
+        h.uploader.gate = { gate.code.map(UploadGate.gate) }
         let hold = RequestHold()
         h.platform.beforeWrite = { await hold.wait() }
         let first = try #require(h.save(minutesAgo: 120))
@@ -55,6 +55,21 @@ struct ActivityUploaderGateTests {
         #expect(h.puts() == 1)
         #expect(h.uploader.state(of: first) == .confirmed) // its answer still counts
         #expect(h.uploader.state(of: second) == .pending(.gated))
+    }
+
+    @Test func withOnlyThePolicyUnknownOfflineSaysOfflineAndMissingConsentSaysGated() async throws {
+        let h = UploadHarness(online: false)
+        var hold: UploadGate? = .policyUnknown
+        h.uploader.gate = { hold }
+        let id = try #require(h.save())
+        #expect(h.uploader.state(of: id) == .pending(.offline)) // being online settles it
+        hold = .gate(.consentRequired)
+        #expect(h.uploader.state(of: id) == .pending(.gated)) // being online won't help
+        h.env.connectivityMonitor.update(true)
+        hold = .policyUnknown
+        #expect(h.uploader.state(of: id) == .pending(.gated)) // online, still waiting for the config
+        await h.uploader.flush(userInitiated: true)
+        #expect(h.puts() == 0)
     }
 
     @Test func theGateIsClosedUntilTheAppConnectsIt() async throws {
