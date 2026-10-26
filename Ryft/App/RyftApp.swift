@@ -68,15 +68,25 @@ struct RyftApp: App {
         _screens = State(initialValue: screens)
         // Sign-out first deletes this phone's push registration, while the session still works.
         AuthService.shared.beforeSignOut = { [push = screens.push] in await push.signOut() }
+        // Activities: another account's rows go and the upload stops inside the sign-in, sign-out or wipe itself,
+        // before anything reads (design.md §8.4).
+        state.bindAccountHooks(.shared)
         // A build without its platform values stops here (Debug) or shows only the
         // misconfigured-build screen (Release, RootView). Never a fallback host.
         PlatformConfig.checkAtLaunch()
         // Background refresh, the backfill (in addition to HealthKit delivery) and the nightly
         // cache compaction.
         BackgroundWork.register(coordinator: coordinator, backlogBytes: { SyncService.shared.backlogBytes },
-                                afterRefresh: { [bedtime = screens.bedtime] in await bedtime.refresh() }) {
-            [repository = state.repository] in repository.compact()
-        }
+                                afterRefresh: { [bedtime = screens.bedtime, uploader = state.env.uploader] in
+                                    await bedtime.refresh()
+                                    // Activities and nights still to send, on the background session.
+                                    await APIClient.$runsInBackground.withValue(true) { await uploader.flush() }
+                                },
+                                compact: { [repository = state.repository, activities = state.env.activities] in
+                                    repository.compact()
+                                    // Rows a session expiry parked more than 30 days ago.
+                                    activities.deleteExpiredParked()
+                                })
         // HealthKit wakes the app for deliveries, possibly in a background launch where the
         // scene's tasks don't run: the observers exist before launch finishes. Only for an
         // account that has seen the Health explanation (bootstrap covers the first time).
@@ -135,6 +145,8 @@ struct RyftApp: App {
                     (env.flags as? FlagStore)?.switchAccount(new)
                     guard new != nil else { return }
                     Task { await screens.featureFlags?.refresh(force: true) }
+                    // This account's activities and nights waiting on this iPhone (a sign-in after an expiry).
+                    Task { await env.uploader.flush() }
                     // A link that arrived signed out; this account's push registration.
                     screens.router.openPending()
                     Task { await screens.push.refresh() }
@@ -153,6 +165,8 @@ struct RyftApp: App {
                 // A gate the platform reported (a 403 with a code, or X-RYFT-Gate): what's missing now.
                 .onChange(of: APIStatus.shared.gates) { _, _ in
                     Task { await screens.onboarding.check(force: true) }
+                    // Uploads a gate held try again once it's passed.
+                    Task { await env.uploader.flush() }
                 }
                 // A flag flip that arrived meanwhile takes effect as the next screen appears.
                 .onChange(of: state.selectedTab) { _, _ in (env.flags as? FlagStore)?.applyPending() }
@@ -169,6 +183,8 @@ struct RyftApp: App {
                 // passed; below the work the user waits for.
                 .task(priority: .utility) {
                     await LaunchSignpost.afterFirstFrame()
+                    // Activities a session expiry parked more than 30 days ago go (design.md §8.4).
+                    env.activities.deleteExpiredParked()
                     // The tracker catalog: decoded off the main actor, its cached download re-validated.
                     await env.catalogStore.load()
                     await screens.featureFlags?.run()
@@ -244,6 +260,11 @@ struct RyftApp: App {
                     await LaunchSignpost.afterFirstFrame()
                     await WorkoutHealthExport.shared.appBecameActive(now: .now)
                 }
+                // Activities and nights still to send ("not available yet" is asked again).
+                Task(priority: .utility) {
+                    await LaunchSignpost.afterFirstFrame()
+                    await env.uploader.appBecameActive()
+                }
             } else if phase == .background {
                 // What failed in the last 1.5 s is still waiting for its coalesced save: write it
                 // before iOS may suspend (or kill) the app.
@@ -252,6 +273,8 @@ struct RyftApp: App {
                 // left of an import goes to the backfill task.
                 _ = BackgroundWork.finishInBackground(coordinator: coordinator, app: UIApplication.shared,
                                                       backlogBytes: { sync.backlogBytes })
+                // An activity upload in flight finishes too; the rest waits for the next trigger.
+                env.uploader.finishInBackground(app: UIApplication.shared)
                 BackgroundWork.scheduleRefresh()
                 BackgroundWork.scheduleCompaction()
             }

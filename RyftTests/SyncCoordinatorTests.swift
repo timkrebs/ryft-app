@@ -825,7 +825,7 @@ private func readGraph(api: MockPlatformAPI = MockPlatformAPI(), online: Bool = 
 @MainActor
 private func testAuth(_ client: MockAuthClient) -> AuthService {
     AuthService(client: client, defaults: UserDefaults(suiteName: "ryft.test.auth.\(UUID().uuidString)") ?? .standard,
-                wipeLocalData: {}, deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                wipeLocalData: { _ in }, deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
                 postAppleAuthorization: { _ in })
 }
 
@@ -1895,5 +1895,102 @@ struct ReadRecordSuspensionTests {
         let (env, _, _) = readGraph()
         env.reads.savePendingNow()
         #expect((env.persistence as? TrainStore)?.documentFetchedAt(key: ReadScheduler.documentKey) == nil)
+    }
+}
+
+/// `.daysChanged` (A2: an activity or a night the platform confirmed; the training import's I5 too).
+@Suite("Sync coordinator: days changed elsewhere")
+@MainActor
+struct SyncCoordinatorDaysChangedTests {
+    @Test func itSkipsTheUploadWaitsForScoringThenRefreshes() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let run = Task { await c.run(.daysChanged(days: ["2026-10-17"])) }
+        #expect(await eventually { clock.pendingSleeps == 1 }) // the scoring wait, before any ask
+        #expect(steps.events.isEmpty)
+        clock.advance(by: .seconds(3))
+        let outcome = await run.value
+        #expect(Array(steps.events.prefix(2)) == ["poll", "days:2026-10-17"])
+        #expect(!steps.events.contains("upload"))
+        #expect(outcome.touched == ["2026-10-17"] && outcome.polls == 1 && outcome.attempts == 0)
+        #expect(steps.phases.contains(.awaitingScores))
+        #expect(SyncCoordinator.Trigger.daysChanged(days: []).priority == .utility)
+    }
+
+    @Test func inTheBackgroundItLeavesTheRefreshToThePush() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        let outcome = await SyncCoordinator(steps: steps, clock: clock, inBackground: true)
+            .run(.daysChanged(days: ["2026-10-17"]))
+        #expect(steps.events.isEmpty && outcome.polls == 0 && !outcome.cancelled)
+        #expect(steps.phases.last == .done)
+    }
+
+    @Test func aPushForItsDayEndsTheWait() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.scored = []
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let run = Task { await c.run(.daysChanged(days: ["2026-10-17"])) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        let pushed = await c.run(.silentPush(days: ["2026-10-17"]))
+        let outcome = await run.value
+        #expect(pushed == outcome && outcome.polls == 0)
+        #expect(steps.events.first == "days:2026-10-17" && !steps.events.contains("poll"))
+    }
+
+    @Test func itCoalescesWithAPushIntoOneWaitForAllTheDays() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.scored = [true, true]
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let first = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        let push = Task { await c.run(.silentPush(days: ["2026-10-15"])) }
+        #expect(await queued(c, .silentPush(days: ["2026-10-15"])))
+        let changed = Task { await c.run(.daysChanged(days: ["2026-10-16"])) }
+        #expect(await queued(c, .daysChanged(days: ["2026-10-15", "2026-10-16"])))
+        clock.advance(by: .seconds(3))
+        _ = await first.value
+        // The rerun: no upload, one wait, then both days.
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(3))
+        let rerun = await changed.value
+        #expect(await push.value == rerun)
+        #expect(rerun.touched == ["2026-10-15", "2026-10-16"] && rerun.polls == 1)
+        #expect(steps.count("upload") == 1)
+        #expect(steps.events.contains("days:2026-10-15,2026-10-16"))
+    }
+
+    @Test func behindAnUploadTriggerItsDaysRideAlong() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.scored = [true, true]
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let first = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        let changed = Task { await c.run(.daysChanged(days: ["2026-10-15"])) }
+        #expect(await queued(c, .daysChanged(days: ["2026-10-15"])))
+        let delivery = Task { await c.run(.healthKit) } // an upload trigger wins the merge
+        #expect(await queued(c, .healthKit))
+        clock.advance(by: .seconds(3))
+        _ = await first.value
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(3))
+        let rerun = await delivery.value
+        #expect(await changed.value == rerun)
+        #expect(steps.count("upload") == 2)
+        #expect(rerun.touched == ["2026-10-19", "2026-10-15"]) // uploaded, then the activity's day
+        #expect(steps.events.last { $0.hasPrefix("days:") } == "days:2026-10-19,2026-10-15")
+    }
+
+    /// Polls the coordinator until its rerun's trigger is `trigger` (a task's call has reached the actor).
+    private func queued(_ c: SyncCoordinator, _ trigger: SyncCoordinator.Trigger) async -> Bool {
+        for _ in 0..<10_000 {
+            if await c.queuedRunTrigger == trigger { return true }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return false
     }
 }

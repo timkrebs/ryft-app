@@ -28,7 +28,10 @@ struct NonceTests {
 @MainActor
 @Suite("AuthService")
 struct AuthServiceTests {
-    final class Wipes { var calls = 0 }
+    final class Wipes {
+        var calls = 0
+        var last: AuthService.Wipe?
+    }
 
     private let defaults = UserDefaults(suiteName: "ryft.tests.\(UUID().uuidString)")!
     private let wipes = Wipes()
@@ -43,7 +46,7 @@ struct AuthServiceTests {
         let wipes = self.wipes, codes = self.appleCodes
         // Developer API key mode lives in the simulator's real defaults; these tests are about sessions.
         Settings.shared.apiKeyMode = false
-        return AuthService(client: client, defaults: defaults, wipeLocalData: { wipes.calls += 1 },
+        return AuthService(client: client, defaults: defaults, wipeLocalData: { wipes.calls += 1; wipes.last = $0 },
                            deleteRemoteAccount: deleteRemote,
                            postAppleAuthorization: { code in
                                codes.sent.append(code)
@@ -80,7 +83,7 @@ struct AuthServiceTests {
 
     @Test func unconfiguredClientExplainsInsteadOfCrashing() async {
         Settings.shared.apiKeyMode = false
-        let auth = AuthService(client: nil, defaults: defaults, wipeLocalData: {},
+        let auth = AuthService(client: nil, defaults: defaults, wipeLocalData: { _ in },
                                deleteRemoteAccount: { AuthServiceTests.deleted })
         #expect(!auth.isConfigured)
         await auth.logIn(email: "a@b.de", password: "0123456789")
@@ -332,6 +335,25 @@ struct AuthServiceTests {
         await settle()
         #expect(auth.state == .signedOut)
         #expect(auth.signOutNotice != nil)
+    }
+
+    @Test func aWipeSaysWhyAndOnlyAnExpiryParks() async {
+        let id = Session.preview().user.id.uuidString
+        let auth = make(MockAuthClient(session: .preview()))
+        await auth.rejectedAfterRefresh()
+        #expect(wipes.calls == 1)
+        #expect(wipes.last == AuthService.Wipe(reason: .sessionExpired, account: id) && wipes.last?.parking == id)
+        #expect(AuthService.Wipe(reason: .user, account: id).parking == nil)
+        #expect(AuthService.Wipe(reason: .accountDeleted(background: true), account: id).parking == nil)
+        #expect(AuthService.Wipe(reason: nil, account: id).parking == nil)
+    }
+
+    @Test func aUserLogOutIsNotReadAsAnExpiry() async {
+        let auth = make(MockAuthClient(session: .preview()))
+        await settle()
+        await auth.signOut() // the SDK's own `.signedOut` event may be applied first
+        await settle()
+        #expect(wipes.calls == 1 && wipes.last?.reason == .user && wipes.last?.parking == nil)
     }
 
     @Test func ordinaryLogOutHasNoNotice() async {

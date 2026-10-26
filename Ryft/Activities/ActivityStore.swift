@@ -106,11 +106,7 @@ final class ActivityStore {
     /// The account's manual sleep for the night that ends on `day`, if any.
     func manualSleep(onDay day: String) -> ManualSleepSnapshot? {
         _ = revision
-        guard let account else { return nil }
-        let key = LocalManualSleep.key(account: account, day: day)
-        var d = FetchDescriptor<LocalManualSleep>(predicate: #Predicate { $0.key == key && $0.account == account })
-        d.fetchLimit = 1
-        return fetch(d).first?.snapshot
+        return sleepRow(day)?.snapshot
     }
 
     // MARK: documents
@@ -139,21 +135,49 @@ final class ActivityStore {
             row[keyPath: keyPath] = value
             changed = true
         }
+        // A sport this build doesn't know (an adopted row) shows as Other: keeping Other keeps the platform's value.
+        let keepsSport = row.unknownSport != nil && draft.sport == .other
         switch row.origin {
         case .manual:
-            set(\.sportRaw, draft.sport.rawValue)
+            if !keepsSport { set(\.sportRaw, draft.sport.rawValue) }
             set(\.start, draft.start)
             set(\.end, Optional(draft.end))
             set(\.movingSec, max(0, draft.end.timeIntervalSince(draft.start)))
             set(\.distanceM, draft.distanceM)
         case .recorded:
-            if draft.sport.family == row.sport.family { set(\.sportRaw, draft.sport.rawValue) }
+            if !keepsSport, draft.sport.family == row.sport.family { set(\.sportRaw, draft.sport.rawValue) }
         }
         set(\.perceivedEffort, draft.perceivedEffort)
         set(\.notes, draft.notes)
         guard changed else { return row.snapshot }
         row.localRevision += 1
         row.updatedAt = now
+        // A new revision is a new request: the platform's refusal of the last one no longer applies.
+        row.lastAttemptData = nil
+        return wrote(row)
+    }
+
+    /// Edit or delete of one of the platform's activities this iPhone has no row for (recorded or added on another
+    /// device, or compacted here): its copy becomes a confirmed row of the account (revision 1 of 1), which
+    /// `update(_:_:)` and `tombstone(_:)` then change as usual. An existing row of the account is returned as it is.
+    /// Nil when signed out, for an origin this build doesn't know (read-only, code nit 7), or when another account
+    /// holds the id (its row is never overwritten).
+    @discardableResult
+    func adopt(_ activity: SportActivity) -> LocalActivitySnapshot? {
+        guard let account, activity.isEditable else { return nil }
+        if let row = row(activity.id) { return row.snapshot }
+        let id = activity.id
+        var taken = FetchDescriptor<LocalActivity>(predicate: #Predicate { $0.id == id })
+        taken.fetchLimit = 1
+        guard fetch(taken).isEmpty else { return nil }
+        let row = LocalActivity(id: id, account: account, sport: activity.sport, origin: activity.origin,
+                                start: activity.start, end: activity.end, movingSec: activity.movingSec,
+                                distanceM: activity.distanceM, ascentM: activity.ascentM, descentM: activity.descentM,
+                                perceivedEffort: activity.perceivedEffort, notes: activity.notes ?? "",
+                                splits: activity.splits, localRevision: 1, confirmedRevision: 1, createdAt: now)
+        if let unknown = activity.unknownSport { row.sportRaw = unknown }
+        row.updatedAt = activity.clientUpdatedAt
+        context.insert(row)
         return wrote(row)
     }
 
@@ -196,7 +220,159 @@ final class ActivityStore {
         revision += 1
     }
 
+    /// The last failed request for a row (Details; a refusal makes it "failed" until Retry or an edit), or nil
+    /// to clear it. The uploader's call; it doesn't change the revision.
+    func recordFailure(_ id: UUID, _ attempt: UploadAttempt?) {
+        guard let row = row(id) else { return }
+        let data = attempt.flatMap { WireCoding.encode($0) }
+        guard row.lastAttemptData != data else { return }
+        row.lastAttemptData = data
+        _ = wrote(row)
+    }
+
+    /// Every row of the account, oldest first: documents, tombstones and recordings ("Export my data").
+    func allSnapshots() -> [LocalActivitySnapshot] {
+        _ = revision
+        guard let account else { return [] }
+        let d = FetchDescriptor<LocalActivity>(predicate: #Predicate { $0.account == account },
+                                               sortBy: [SortDescriptor(\.createdAt)])
+        return fetch(d).map(\.snapshot)
+    }
+
+    // MARK: manual sleep
+
+    /// Add sleep, or its edit: the night that ends on `day`, at the next revision (the first is 1). A deleted
+    /// night comes back. No change, no new revision. Nil when signed out.
+    @discardableResult
+    func saveSleep(day: String, bed: Date, wake: Date) -> ManualSleepSnapshot? {
+        guard let account else { return nil }
+        guard let night = sleepRow(day) else {
+            let night = LocalManualSleep(day: day, account: account, bed: bed, wake: wake)
+            context.insert(night)
+            return wrote(night)
+        }
+        guard night.bed != bed || night.wake != wake || night.deletedAt != nil else { return night.snapshot }
+        night.bed = bed
+        night.wake = wake
+        night.deletedAt = nil
+        night.localRevision += 1
+        night.lastAttemptData = nil
+        return wrote(night)
+    }
+
+    /// Delete a night: a tombstone until the platform confirms the `DELETE` (the uploader then calls
+    /// `removeSleep`). False when the account has no night for `day`.
+    @discardableResult
+    func tombstoneSleep(day: String) -> Bool {
+        guard let night = sleepRow(day) else { return false }
+        if night.deletedAt == nil { night.deletedAt = now }
+        night.lastAttemptData = nil
+        _ = wrote(night)
+        return true
+    }
+
+    /// The platform answered 2xx to the night's `PUT` of `revision` (as `confirm(_:revision:)`). The row stays:
+    /// My Day marks the platform's copy "added by you" by it (until API request R11).
+    @discardableResult
+    func confirmSleep(day: String, revision sent: Int) -> Bool {
+        guard let night = sleepRow(day) else { return false }
+        let confirmed = min(sent, night.localRevision)
+        guard confirmed > night.confirmedRevision else { return true }
+        night.confirmedRevision = confirmed
+        if confirmed == night.localRevision { night.lastAttemptData = nil }
+        _ = wrote(night)
+        return true
+    }
+
+    /// Deletes the account's night for `day`: a confirmed `DELETE`, or a delete of a night never sent.
+    func removeSleep(day: String) {
+        guard let night = sleepRow(day) else { return }
+        context.delete(night)
+        store.save()
+        revision += 1
+    }
+
+    /// As `recordFailure(_:_:)`, for a night.
+    func recordSleepFailure(day: String, _ attempt: UploadAttempt?) {
+        guard let night = sleepRow(day) else { return }
+        let data = attempt.flatMap { WireCoding.encode($0) }
+        guard night.lastAttemptData != data else { return }
+        night.lastAttemptData = data
+        _ = wrote(night)
+    }
+
+    /// The account's nights the platform hasn't confirmed (edits and deletes), by day.
+    func unconfirmedSleeps() -> [ManualSleepSnapshot] {
+        manualSleeps().filter(\.needsUpload)
+    }
+
+    /// Every night the account added on this iPhone, by day ("Export my data").
+    func manualSleeps() -> [ManualSleepSnapshot] {
+        _ = revision
+        guard let account else { return [] }
+        let d = FetchDescriptor<LocalManualSleep>(predicate: #Predicate { $0.account == account },
+                                                  sortBy: [SortDescriptor(\.day)])
+        return fetch(d).map(\.snapshot)
+    }
+
     // MARK: accounts
+
+    /// How long a session expiry keeps an account's unconfirmed rows (design.md §8.4). An account deleted on the
+    /// web looks exactly like an expiry (a final `401`), so this limit is what removes its data from the phone.
+    static let parkingLimit: TimeInterval = 30 * 86_400
+
+    /// The same account signed in again after its session expired: its parked rows and nights are its own again
+    /// (the uploader then sends them). Always the account's store. Returns how many came back.
+    @discardableResult
+    func unpark(account: String) -> Int {
+        let context = liveStore.context
+        let rows = fetch(FetchDescriptor<LocalActivity>(predicate: #Predicate { $0.account == account && $0.parkedAt != nil }),
+                         in: context)
+        let nights = fetch(FetchDescriptor<LocalManualSleep>(predicate: #Predicate { $0.account == account && $0.parkedAt != nil }),
+                           in: context)
+        guard !rows.isEmpty || !nights.isEmpty else { return 0 }
+        for row in rows { row.parkedAt = nil }
+        for night in nights { night.parkedAt = nil }
+        liveStore.save()
+        revision += 1
+        return rows.count + nights.count
+    }
+
+    /// Rows and nights parked longer than `parkingLimit`, whoever's, with their chunks (keys first once A3b seals
+    /// them). At launch and in the nightly compaction. Returns how many rows and nights went.
+    @discardableResult
+    func deleteExpiredParked() -> Int {
+        let context = liveStore.context
+        let cutoff = now.addingTimeInterval(-Self.parkingLimit)
+        let rows = fetch(FetchDescriptor<LocalActivity>(predicate: #Predicate { $0.parkedAt != nil }), in: context)
+            .filter { ($0.parkedAt ?? .distantFuture) < cutoff }
+        let nights = fetch(FetchDescriptor<LocalManualSleep>(predicate: #Predicate { $0.parkedAt != nil }), in: context)
+            .filter { ($0.parkedAt ?? .distantFuture) < cutoff }
+        guard !rows.isEmpty || !nights.isEmpty else { return 0 }
+        for row in rows {
+            let id = row.id, owner = row.account
+            try? context.delete(model: ActivityTrackChunk.self,
+                                where: #Predicate { $0.activityID == id && $0.account == owner })
+            context.delete(row)
+        }
+        for night in nights { context.delete(night) }
+        liveStore.save()
+        revision += 1
+        return rows.count + nights.count
+    }
+
+    /// What signing out of `account` would delete without the platform having it (the confirmation, §8.4):
+    /// activities and nights not confirmed, recordings not saved. Always the account's store, whatever the Demo
+    /// data switch says. 0 for nil.
+    func unconfirmedCount(ofAccount account: String?) -> Int {
+        _ = revision
+        guard let account else { return 0 }
+        let context = liveStore.context
+        let rows = fetch(FetchDescriptor<LocalActivity>(predicate: #Predicate { $0.account == account }), in: context)
+        let nights = fetch(FetchDescriptor<LocalManualSleep>(predicate: #Predicate { $0.account == account }),
+                           in: context)
+        return rows.filter(\.isUnconfirmedOrRecording).count + nights.filter(\.isUnconfirmed).count
+    }
 
     /// Deletes every activity row, chunk and manual sleep of any account but `account` (nil: of every account),
     /// parked or not. Called when another account signs in, before anything reads (A2 wires
@@ -249,6 +425,20 @@ final class ActivityStore {
         store.save()
         revision += 1
         return row.snapshot
+    }
+
+    private func sleepRow(_ day: String) -> LocalManualSleep? {
+        guard let account else { return nil }
+        let key = LocalManualSleep.key(account: account, day: day)
+        var d = FetchDescriptor<LocalManualSleep>(predicate: #Predicate { $0.key == key && $0.account == account })
+        d.fetchLimit = 1
+        return fetch(d).first
+    }
+
+    private func wrote(_ night: LocalManualSleep) -> ManualSleepSnapshot {
+        store.save()
+        revision += 1
+        return night.snapshot
     }
 
     private func fetch<T: PersistentModel>(_ descriptor: FetchDescriptor<T>, in context: ModelContext? = nil) -> [T] {

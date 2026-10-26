@@ -319,7 +319,9 @@ final class AppState {
         pullPhases?.cancel()
         env.reads.reset()
         if isDemo { repository.clear() } else { repository.invalidate() }
-        // Activities typed in demo mode, on the phone and on the demo platform, go with the account or the switch.
+        // Activities typed in demo mode, on the phone and on the demo platform, go with the account or the switch,
+        // and so does an upload of them (or of the account's) in flight.
+        env.uploader.accountChanged()
         env.activities.accountChanged()
         (env.demoAPI as? MockPlatformAPI)?.activitySource.reset()
         readsChanged(.record)
@@ -330,6 +332,42 @@ final class AppState {
     /// gives the read record to the account now signed in (never what failed while signed out).
     func accountChanged(from old: String?) {
         if old != nil { reset() } else { env.reads.reset() }
+    }
+
+    // MARK: accounts: activities (design.md §8.4)
+
+    /// RyftApp: `auth`'s account hooks run these, inside the sign-in, sign-out or wipe itself.
+    func bindAccountHooks(_ auth: AuthService) {
+        auth.onAccountWillChange = { [weak self] from, to, reason in
+            self?.accountWillChange(from: from, to: to, reason: reason)
+        }
+        auth.onWipe = { [weak self] wipe in self?.wiped(wipe) }
+    }
+
+    /// Before the new session (or none) is published, so before the first upload and My Day's first read: another
+    /// account's activities, nights and chunks go, parked or not, purged by the incoming id (never
+    /// `activities.account`, which is demo data's while it's on); the same account's parked rows come back; and
+    /// nothing in flight or cached of the previous account survives (`forgetActivityState`).
+    func accountWillChange(from old: String?, to new: String?, reason: AuthService.SignOutReason?) {
+        if let new {
+            env.activities.purge(notBelongingTo: new)
+            env.activities.unpark(account: new)
+        }
+        forgetActivityState()
+    }
+
+    /// Inside every wipe (sign-out, expiry, deletion, another account), a runloop before `accountChanged(from:)`.
+    func wiped(_ wipe: AuthService.Wipe) {
+        forgetActivityState()
+    }
+
+    /// The uploader stops (answers in flight are dropped), decoded read models go (the wipe changed the store
+    /// underneath), demo data's activities start over on the phone and on the demo platform (A1 review, N-3).
+    private func forgetActivityState() {
+        env.uploader.accountChanged()
+        repository.invalidate()
+        env.activities.accountChanged()
+        (env.demoAPI as? MockPlatformAPI)?.activitySource.reset()
     }
 
     /// `PATCH /v1/me`; a failure is the caller's to show (the setting's form, inline).

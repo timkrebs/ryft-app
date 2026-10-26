@@ -254,8 +254,13 @@ extension MyDayInput {
         let sleep = includingSleep ? activities.manualSleep(onDay: key) : nil
         let sessions = store.completedSessions(from: start, to: end).map(\.summary)
         let missing = includingSleep && sleep == nil && detail.map(MyDayAssembler.mayMissNight) == true
-        return MyDayInput(day: key, server: .dayDetail(detail, activities: server), local: local,
-                          localSessions: sessions, localSleep: sleep, nightGap: missing && nightGap())
+        // The uploader knows more than the rows: offline, retrying, gated, failed, not available yet.
+        let uploader = state.env.uploader
+        let uploads = Dictionary(local.filter(\.needsUpload).map { ($0.id, uploader.state(for: $0)) },
+                                 uniquingKeysWith: { first, _ in first })
+        return MyDayInput(day: key, server: .dayDetail(detail, activities: server), local: local, uploads: uploads,
+                          localSessions: sessions, localSleep: sleep,
+                          sleepUpload: sleep.map(uploader.sleepState(for:)), nightGap: missing && nightGap())
     }
 
     /// A row needs a tracker's name: the day has workouts (a merged activity names its workout's tracker).

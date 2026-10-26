@@ -43,6 +43,8 @@ final class AppEnvironment {
     /// Activities and manual sleep on this iPhone until the platform confirms them, scoped to the account
     /// (`persistence`'s store; demo data's own in memory).
     lazy var activities = ActivityStore(env: self)
+    /// Sends those activities and nights to the platform, and their deletes (`activities`' rows are its queue).
+    lazy var uploader = ActivityUploader(env: self, store: activities)
     /// Fixed for previews (on) and tests (off); live follows the Demo data switch.
     private let demoOverride: Bool?
 

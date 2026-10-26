@@ -608,6 +608,19 @@ final class Repository {
         changed(.activities)
     }
 
+    /// The day whose cached list holds activity `id`, if any: the day an edit moves it from (rescored too). Only
+    /// lists that mention it are decoded.
+    func cachedDay(ofActivity id: UUID) -> String? {
+        let needle = Data(id.uuidString.utf8)
+        let prefix = Self.activitiesPrefix
+        let docs = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key.starts(with: prefix) })
+        for row in (try? context.fetch(docs)) ?? [] where row.data.range(of: needle) != nil {
+            guard WireCoding.decode([SportActivity].self, row.data)?.contains(where: { $0.id == id }) == true else { continue }
+            return String(row.key.dropFirst(prefix.count))
+        }
+        return nil
+    }
+
     /// A deleted activity (the platform confirmed the `DELETE`): out of every cached day.
     func forget(activity id: UUID) {
         guard removeCached(id, keeping: nil) else { return }

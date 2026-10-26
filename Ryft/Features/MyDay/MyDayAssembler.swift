@@ -118,6 +118,8 @@ struct MyDayInput: Equatable {
     var localSessions: [SessionSummary] = []
     /// A night the user added for this day, until the platform confirms it.
     var localSleep: ManualSleepSnapshot?
+    /// The uploader's word on that night (offline, retrying, failed); without one, the row's own.
+    var sleepUpload: UploadState?
     /// T1's night gap (`TodayStates.nightGap`): the tracker's night is only late, so "No sleep recorded" waits.
     var nightGap = false
 }
@@ -222,8 +224,8 @@ enum MyDayAssembler {
         let span = max(0, a.end.timeIntervalSince(a.start))
         return MyDayItem(id: "activity.\(a.id.uuidString)", kind: .activity(a.id), symbol: a.sport.symbol,
                          title: a.sport.name, start: a.start, end: a.end, duration: a.movingSec > 0 ? a.movingSec : span,
-                         distanceM: a.distanceM, strain: strain(a), sources: sources, upload: upload, editable: true,
-                         mergedWorkout: workout?.id)
+                         distanceM: a.distanceM, strain: strain(a), sources: sources, upload: upload,
+                         editable: a.isEditable, mergedWorkout: workout?.id)
     }
 
     private static func recording(_ r: LocalActivitySnapshot, now: Date) -> MyDayItem {
@@ -316,7 +318,8 @@ enum MyDayAssembler {
                              title: String(localized: "Sleep"), start: local.bed, end: local.wake,
                              duration: max(0, local.wake.timeIntervalSince(local.bed)), distanceM: nil,
                              strain: .notApplicable, sources: [.addedByYou],
-                             upload: local.needsUpload ? .pending(.queued) : .confirmed, editable: true)
+                             upload: input.sleepUpload ?? (local.needsUpload ? .pending(.queued) : .confirmed),
+                             editable: true)
         }
         if let server, !(local?.isTombstone == true && serverIsManual) {
             let manual = serverIsManual && local?.isTombstone == false

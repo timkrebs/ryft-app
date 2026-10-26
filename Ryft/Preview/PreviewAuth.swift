@@ -174,7 +174,7 @@ extension AuthService {
     static func preview(signedIn: Bool = true, provider: String = "apple") -> AuthService {
         AuthService(client: MockAuthClient(session: signedIn ? .preview(provider: provider) : nil),
                     defaults: UserDefaults(suiteName: "ryft.preview.auth") ?? .standard,
-                    wipeLocalData: {},
+                    wipeLocalData: { _ in },
                     deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
                     postAppleAuthorization: { _ in })
     }

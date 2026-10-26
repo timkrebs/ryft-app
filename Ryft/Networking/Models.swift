@@ -2200,7 +2200,11 @@ struct ActivitySplit: Codable, Hashable, Sendable {
 /// screen's memory. Its descriptions and mirror leave out the route, the samples and the notes (design.md §8.3).
 struct SportActivity: Codable, Hashable, Identifiable, Sendable {
     let id: UUID
-    var sport: Sport
+    /// `.other` for a value this build doesn't know; `unknownSport` keeps what was sent. Choosing a sport drops it.
+    var sport: Sport {
+        didSet { unknownSport = nil }
+    }
+    /// `.manual` for a value this build doesn't know; `unknownOrigin` keeps what was sent.
     var origin: ActivityOrigin
     var start: Date
     var end: Date
@@ -2227,12 +2231,19 @@ struct SportActivity: Codable, Hashable, Identifiable, Sendable {
     var mergedWith: UUID?
     /// Values not specified yet (API request R2).
     var scoringState: String?
+    // Not wire fields: what an unknown `sport` or `origin` said, so nothing this build can't name is lost on a round
+    // trip (A1 review, code nit 7; API request R21). The cache and a `PUT` send them back as received.
+    /// The `sport` as sent, when this build doesn't know it (`sport` is then `.other`).
+    private(set) var unknownSport: String?
+    /// The `origin` as sent, when this build doesn't know it (`origin` is then `.manual`): such an activity is
+    /// read-only here (`isEditable`), since this build can't tell which fields it may change.
+    private(set) var unknownOrigin: String?
 
     init(id: UUID, sport: Sport, origin: ActivityOrigin, start: Date, end: Date, movingSec: Double,
          distanceM: Double? = nil, ascentM: Double? = nil, descentM: Double? = nil, perceivedEffort: Int? = nil,
          notes: String? = nil, splits: [ActivitySplit]? = nil, route: String? = nil, hrSamples: [HRPoint]? = nil,
          clientUpdatedAt: Date, strain: Double? = nil, strainSource: StrainSource? = nil, hrSource: String? = nil,
-         mergedWith: UUID? = nil, scoringState: String? = nil) {
+         mergedWith: UUID? = nil, scoringState: String? = nil, unknownSport: String? = nil) {
         self.id = id
         self.sport = sport
         self.origin = origin
@@ -2253,7 +2264,13 @@ struct SportActivity: Codable, Hashable, Identifiable, Sendable {
         self.hrSource = hrSource
         self.mergedWith = mergedWith
         self.scoringState = scoringState
+        // Only for `.other`: any other sport is one this build knows.
+        self.unknownSport = sport == .other ? unknownSport : nil
     }
+
+    /// Manual and recorded activities can be edited and deleted (design.md §7.3); one whose `origin` this build
+    /// doesn't know can't.
+    var isEditable: Bool { unknownOrigin == nil }
 
     enum CodingKeys: String, CodingKey {
         case id, sport, origin, start, end, movingSec, distanceM, ascentM, descentM, perceivedEffort, notes, splits
@@ -2263,8 +2280,12 @@ struct SportActivity: Codable, Hashable, Identifiable, Sendable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
-        sport = try c.decode(Sport.self, forKey: .sport)
-        origin = try c.decode(ActivityOrigin.self, forKey: .origin)
+        let sportValue = try c.decode(String.self, forKey: .sport)
+        sport = Sport(rawValue: sportValue) ?? .other
+        unknownSport = Sport(rawValue: sportValue) == nil ? sportValue : nil
+        let originValue = try c.decode(String.self, forKey: .origin)
+        origin = ActivityOrigin(rawValue: originValue) ?? .manual
+        unknownOrigin = ActivityOrigin(rawValue: originValue) == nil ? originValue : nil
         start = try c.decode(Date.self, forKey: .start)
         end = try c.decode(Date.self, forKey: .end)
         movingSec = try c.decode(Double.self, forKey: .movingSec)
@@ -2285,12 +2306,12 @@ struct SportActivity: Codable, Hashable, Identifiable, Sendable {
         scoringState = try c.decodeIfPresent(String.self, forKey: .scoringState)
     }
 
-    /// Everything but `route` and `hr_samples`: the cached copy.
+    /// Everything but `route` and `hr_samples`: the cached copy. An unknown `sport` or `origin` as received.
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
-        try c.encode(sport, forKey: .sport)
-        try c.encode(origin, forKey: .origin)
+        try c.encode(unknownSport ?? sport.rawValue, forKey: .sport)
+        try c.encode(unknownOrigin ?? origin.rawValue, forKey: .origin)
         try c.encode(start, forKey: .start)
         try c.encode(end, forKey: .end)
         try c.encode(movingSec, forKey: .movingSec)
@@ -2362,8 +2383,9 @@ struct SportActivityPut: Encodable, Sendable {
         let a = activity
         var c = encoder.container(keyedBy: Keys.self)
         try c.encode(a.id, forKey: .id)
-        try c.encode(a.sport, forKey: .sport)
-        try c.encode(a.origin, forKey: .origin)
+        // A sport this build doesn't know goes back as it came, unless the user picked one.
+        try c.encode(a.unknownSport ?? a.sport.rawValue, forKey: .sport)
+        try c.encode(a.unknownOrigin ?? a.origin.rawValue, forKey: .origin)
         try c.encode(a.start, forKey: .start)
         try c.encode(a.end, forKey: .end)
         try c.encode(a.movingSec, forKey: .movingSec)

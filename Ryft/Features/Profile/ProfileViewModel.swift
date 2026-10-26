@@ -97,6 +97,18 @@ final class ProfileViewModel {
     var accountErrorDetails: String? { auth.errorDetails }
 
     func logOut() async { await auth.signOut() }
+
+    /// Activities and nights on this iPhone the platform hasn't confirmed, recordings not saved: what logging out
+    /// would delete. Above 0, the confirmation lists them and offers "Send first" (design.md §8.4).
+    var unconfirmedActivities: Int { env.activities.unconfirmedCount(ofAccount: auth.accountID) }
+
+    /// "Send first": the queue goes up, waited for 10 s at most (it goes on after that). Returns what's still
+    /// unconfirmed; 0 means logging out loses nothing. In demo mode the account's rows can't be sent (demo data's
+    /// client is in use), so nothing changes.
+    func sendUnconfirmedActivities() async -> Int {
+        if !env.isDemo { await env.uploader.flush(upTo: ActivityUploader.sendFirstLimit) }
+        return unconfirmedActivities
+    }
     func deleteAccount() async {
         let account = auth.accountID
         await auth.deleteAccount()
@@ -236,7 +248,8 @@ final class ProfileViewModel {
         defer { exporting = false }
         do {
             let archive = try await DataExport.archive(source: state.source, train: env.api,
-                                                       rememberedMatches: ImportMappingStore(env: env).records())
+                                                       rememberedMatches: ImportMappingStore(env: env).records(),
+                                                       activities: env.api, onPhone: env.activities)
             exported = ExportedFile(url: try DataExport.write(archive))
         } catch where error.isCancellation {
             return

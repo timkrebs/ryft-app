@@ -52,6 +52,8 @@ final class ScreenModels {
         sleep = SleepViewModel(state: state)
         strain = StrainViewModel(state: state, store: store)
         myDay = MyDayViewModel(state: state, store: store) { [today] in TodayStates.nightGap(today.facts) != nil }
+        // A confirmed activity or night: into the read model, and its days rescored through the sync pipeline.
+        state.env.uploader.connect(repository: state.repository, coordinator: coordinator)
         insights = InsightsViewModel(state: state, journal: journal)
         router = DeepLinkRouter(state: state, sleep: sleep, strain: strain, insights: insights, onboarding: onboarding)
         let env = state.env
