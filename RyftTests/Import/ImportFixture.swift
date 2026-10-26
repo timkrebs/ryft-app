@@ -32,7 +32,7 @@ enum ImportFixture {
     static let allKinds: [ImportWarning.Kind] = [
         .unrecognisedLine, .lineTooLong, .invalidText, .outsideBlock, .missingTableHeader(assumed: .kg),
         .missingTableHeader(assumed: .lb), .unsupportedColumns, .unreadableNumber, .implausibleValue, .unreadableDate,
-        .unreadableDuration, .meridiemConflict, .duplicateInFiles, .limitReached, .legacyEncoding, .duplicateDay,
+        .unreadableDuration, .meridiemConflict, .duplicateInFiles, .duplicatePlanInFiles, .limitReached, .legacyEncoding, .duplicateDay,
         .nonexistentLocalTime,
         .repeatedLocalTime, .durationAssumed, .overPlatformLimit, .assistedLoad,
     ]

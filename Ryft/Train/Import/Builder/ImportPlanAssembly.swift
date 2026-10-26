@@ -37,8 +37,9 @@ enum ImportPlanAssembly {
     }
 
     private static func draft(_ file: ImportedPlan, index: Int, context: ImportBuildContext) -> Draft {
-        let id = ImportIDs.plan(account: context.account, source: context.source, name: file.name,
-                                startDate: file.startDate)
+        let id = context.planIDs.indices.contains(index)
+            ? context.planIDs[index]
+            : ImportIDs.plan(account: context.account, source: context.source, name: file.name, startDate: file.startDate)
         let choice = context.decisions.plans.indices.contains(index) ? context.decisions.plans[index] : ImportPlanChoice()
         var links = Links()
         var days: [PlanDay] = []

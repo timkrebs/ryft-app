@@ -95,13 +95,64 @@ struct TrainImportUploaderBatchTests {
     @Test func aRefusedRequestRefusesItsItemsAndTheRestGoesOn() async throws {
         let h = H()
         let sessions = H.sessions(60)
-        h.live.failNext = APIError.http(422, "invalid", requestID: "req-422")
+        // A refusal that isn't about the items (not 400 or 422): nothing to split.
+        h.live.failNext = APIError.http(409, "conflict", requestID: "req-409")
         #expect(await h.run(ImportUploadPlan(sessions: sessions)))
         let status = try #require(h.uploader.status)
         #expect(status.sessions == ImportItemCounts(total: 60, done: 10, rejected: 50))
-        #expect(Set(status.rejected.map(\.requestID)) == ["req-422"])
-        #expect(status.lastFailure?.status == 422 && status.lastFailure?.requestID == "req-422")
+        #expect(Set(status.rejected.map(\.requestID)) == ["req-409"])
+        #expect(status.lastFailure?.status == 409 && status.lastFailure?.requestID == "req-409")
         #expect(status.phase == .finished)
+    }
+
+    /// One `422` for a whole request: it's split, and as nothing is refused alone, everything goes.
+    @Test func aPassingRefusalIsSplitAndEverythingGoes() async throws {
+        let h = H()
+        h.live.failNext = APIError.http(422, "invalid", requestID: "req-422")
+        #expect(await h.run(ImportUploadPlan(sessions: H.sessions(60))))
+        #expect(h.uploader.status?.sessions == ImportItemCounts(total: 60, done: 60))
+        // 50 refused (not stored), then 25, then the limit doubles back to 50: the other 35.
+        #expect(h.requests.map(\.sessionIDs.count) == [25, 35])
+    }
+
+    /// A request refused as a whole (`422`) is split until the one item it refuses is alone: the other 49 go, and
+    /// Retry sends only that one.
+    @Test func aWholeRequestRefusalIsSplitDownToTheItem() async throws {
+        let h = H()
+        let sessions = H.sessions(50)
+        let bad = sessions[30].id
+        h.live.trainImportSource.refuseRequestsWith = [bad]
+        #expect(await h.run(ImportUploadPlan(sessions: sessions)))
+        let status = try #require(h.uploader.status)
+        #expect(status.phase == .finished)
+        #expect(status.sessions == ImportItemCounts(total: 50, done: 49, rejected: 1))
+        #expect(status.rejected.map(\.id) == [bad] && status.rejected.first?.requestID == "req-422")
+        let requests = h.requests
+        #expect(requests.filter { $0.refused && !$0.sessionIDs.contains(bad) }.isEmpty)
+        #expect(requests.filter { !$0.refused }.flatMap(\.sessionIDs).count == 49)
+        // Halves down to the one: 50, 25 of them containing it, and so on (never a request per item).
+        #expect(requests.map(\.sessionIDs.count).prefix(3) == [50, 25, 25])
+        #expect(requests.count < 25)
+        h.live.trainImportSource.refuseRequestsWith = []
+        let before = requests.count
+        await h.uploader.retryRejected()
+        #expect(h.requests.dropFirst(before).map(\.sessionIDs) == [[bad]])
+        #expect(h.uploader.status?.hasRejected == false)
+    }
+
+    /// Every request refused: after three items refused alone, splitting stops and the rest is refused as a whole,
+    /// instead of one request per item.
+    @Test func aRefusalOfEverythingStopsSplitting() async throws {
+        let h = H()
+        let sessions = H.sessions(50)
+        h.live.failure = APIError.http(422, "exercise unknown", requestID: "req-422")
+        #expect(await h.run(ImportUploadPlan(sessions: sessions)))
+        // 50, 25, 12, 6, 3, then three alone, then the 47 left as one request.
+        #expect(h.live.count("importTraining") == 9)
+        #expect(h.uploader.status?.sessions == ImportItemCounts(total: 50, rejected: 50))
+        h.live.failure = nil
+        await h.uploader.retryRejected()
+        #expect(h.uploader.status?.sessions.done == 50)
     }
 
     /// A custom exercise the platform refuses blocks what uses it; the rest goes.
@@ -287,6 +338,46 @@ struct TrainImportUploaderResumeTests {
         #expect(h.requests.map(\.sessionIDs.count) == [50])
         #expect(h.uploader.status?.phase == .paused(.gated(.gate(.consentRequired))))
         #expect(h.uploader.status?.sessions.done == 50)
+    }
+
+    /// A `403` with a code this build doesn't know (or none) holds too: nothing is refused (ADR 0008, held, never dropped).
+    @Test(arguments: [APIError.http(403, "forbidden", requestID: "req-403"),
+                      APIError.http(403, "beta", requestID: "req-403", code: .inviteRequired)])
+    func anyForbiddenHoldsTheJob(_ error: APIError) async throws {
+        let h = H()
+        h.live.failure = error
+        let sessions = H.sessions(120)
+        #expect(await h.run(ImportUploadPlan(sessions: sessions)))
+        let status = try #require(h.uploader.status)
+        #expect(status.sessions.pending == 120 && status.rejected.isEmpty)
+        #expect(status.phase == .paused(.gated(error.code.map(UploadGate.gate) ?? .policyUnknown)))
+        #expect(status.lastFailure?.requestID == "req-403")
+        #expect(h.live.count("importTraining") == 1)
+        h.live.failure = nil
+        await h.uploader.resume()
+        #expect(h.uploader.status?.phase == .finished)
+    }
+
+    /// The enrolment's `403` holds as well; the job waits for it.
+    @Test func aForbiddenEnrolmentHolds() async throws {
+        let h = H()
+        let plan = H.plan(1)
+        let live = h.live
+        h.live.trainImportSource.beforeImport = { live.failNext = APIError.http(403, "forbidden") }
+        #expect(await h.run(ImportUploadPlan(plans: [plan], enrolPlanID: plan.id)))
+        #expect(h.uploader.status?.phase == .paused(.gated(.policyUnknown)))
+        #expect(h.uploader.status?.enrolledPlanID == nil)
+        h.live.trainImportSource.beforeImport = nil
+        await h.uploader.resume()
+        #expect(h.uploader.status?.enrolledPlanID == plan.id)
+    }
+
+    /// `Retry-After` is honoured up to the backoff's ceiling of an hour.
+    @Test func retryAfterIsCappedAtAnHour() async throws {
+        let h = H()
+        h.live.failNext = APIError.http(503, "busy", requestID: "req-503", retryAfter: 7_200)
+        #expect(await h.run(ImportUploadPlan(sessions: H.sessions(1))))
+        #expect(h.uploader.status?.phase == .paused(.retrying(at: h.clock.now().addingTimeInterval(3_600))))
     }
 
     /// A `403` with a code from the platform holds the job like the gate.
@@ -521,6 +612,74 @@ struct TrainImportUploaderJobTests {
         await h.uploader.importDuplicatesFound()
         #expect(h.requests.last?.sessionIDs == [sessions[1].id])
         #expect(h.uploader.status?.duplicatesFound.isEmpty == true && h.uploader.status?.sessions.done == 3)
+    }
+
+    /// After an offline preview a plan already in RYFT is kept as RYFT's copy, and sessions lose their links into
+    /// days and rows that copy doesn't have.
+    @Test func aKeptPlansMissingDaysLoseTheirLinks() async throws {
+        let h = H()
+        let plan = H.plan(1)
+        var linked = H.sessions(2)
+        for index in linked.indices {
+            linked[index].planDayId = plan.days.first?.id
+            linked[index].exercises[0].planExerciseId = plan.days.first?.exercises.first?.id
+        }
+        // RYFT's copy: the user replaced the day.
+        var edited = plan
+        edited.days = [PlanDay(id: ImportBuildFixture.id(41_000), dayIndex: 0, name: "B", exercises: plan.days[0].exercises.map {
+            PlanExercise(id: ImportBuildFixture.id(42_000), exercise: $0.exercise, position: 0, sets: 3, repsMin: 5, repsMax: 5,
+                         targetKind: .rpe, targetValue: 8, restSec: 180)
+        })]
+        _ = try await h.live.importTraining(encoded: APIClient.jsonEncoder.encode(
+            TrainImportRequest(source: .alphaProgression, plans: [edited], sessions: [])))
+        let before = h.requests.count
+        #expect(await h.run(ImportUploadPlan(plans: [plan], sessions: linked), duplicatesChecked: false))
+        #expect(h.requests.dropFirst(before).flatMap(\.planIDs).isEmpty) // RYFT's copy is kept
+        let stored = h.live.trainImportSource.sessions.filter { s in linked.contains { $0.id == s.id } }
+        #expect(stored.count == 2)
+        #expect(stored.compactMap(\.planDayId).isEmpty && stored.flatMap(\.exercises).compactMap(\.planExerciseId).isEmpty)
+        #expect(h.live.trainImportSource.plan(id: plan.id) == edited)
+    }
+
+    /// The same day, but a row the copy no longer has: only that row's link goes.
+    @Test func unlinkedDropsOnlyWhatIsMissing() {
+        let plan = H.plan(1)
+        var session = H.sessions(1, exercises: 2)[0]
+        session.planDayId = plan.days.first?.id
+        session.exercises[0].planExerciseId = plan.days.first?.exercises.first?.id
+        session.exercises[1].planExerciseId = ImportBuildFixture.id(43_000)
+        let row = TrainImportUploader.unlinked(session, days: [], rows: [ImportBuildFixture.id(43_000)])
+        #expect(row.planDayId == plan.days.first?.id)
+        #expect(row.exercises.map(\.planExerciseId) == [plan.days.first?.exercises.first?.id, nil])
+        let day = TrainImportUploader.unlinked(session, days: [plan.days[0].id], rows: [])
+        #expect(day.planDayId == nil && day.exercises.compactMap(\.planExerciseId).isEmpty)
+        #expect(TrainImportUploader.unlinked(session, days: [], rows: []) == session)
+    }
+
+    /// A late answer for a job that was discarded and replaced never marks the new job's items.
+    @Test func aLateAnswerNeverMarksTheNextJob() async throws {
+        let h = H()
+        let sessions = H.sessions(2)
+        let first = RequestHold(), second = RequestHold()
+        let calls = Counter()
+        h.live.trainImportSource.finishesCancelledRequests = true
+        h.live.trainImportSource.beforeImport = {
+            calls.add() // one request at a time: the count is this request's number
+            if calls.value == 1 { await first.wait() } else { await second.wait() }
+        }
+        #expect(await h.start(ImportUploadPlan(sessions: sessions)))
+        #expect(await eventually { first.waiting == 1 })
+        h.uploader.discard()
+        #expect(await h.start(ImportUploadPlan(sessions: sessions)))
+        #expect(await eventually { second.waiting == 1 })
+        // The old request's answer refuses the first session; the new one's accepts both.
+        h.live.trainImportSource.rejectIDs = [sessions[0].id: "stale"]
+        first.release()
+        #expect(await eventually { h.requests.count == 1 })
+        h.live.trainImportSource.rejectIDs = [:]
+        second.release()
+        #expect(await eventually { h.uploader.status?.phase == .finished })
+        #expect(h.uploader.status?.rejected.isEmpty == true && h.uploader.status?.sessions.done == 2)
     }
 
     /// What the account already has, read as the preview reads it.

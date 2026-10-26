@@ -9763,6 +9763,17 @@
         }
       }
     },
+    "This plan is in another picked file too and is imported once" : {
+      "comment" : "Import note, after \"Line N\": the same plan in two picked files.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Plan steht auch in einer anderen gewählten Datei und wird einmal importiert"
+          }
+        }
+      }
+    },
     "This replaces your copy, including edits." : {
       "comment" : "Training import, step 3: after Replace with the file's version.",
       "localizations" : {

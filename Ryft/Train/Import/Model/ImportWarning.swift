@@ -11,6 +11,8 @@ struct ImportWarning: Equatable, Sendable {
         case unrecognisedLine, lineTooLong, invalidText, outsideBlock, missingTableHeader(assumed: WeightUnit)
         case unsupportedColumns, unreadableNumber, implausibleValue, unreadableDate, unreadableDuration
         case meridiemConflict, duplicateInFiles, limitReached
+        /// A plan with the same content as one in another picked file (the same file picked twice): imported once.
+        case duplicatePlanInFiles
         /// Not UTF-8 and no BOM: the whole file was read as Windows-1252 (a note on line 1).
         case legacyEncoding
         /// A plan names the same day number twice; both days are kept.
@@ -46,6 +48,7 @@ extension ImportWarning.Kind {
         case .unreadableDuration: "unreadableDuration"
         case .meridiemConflict: "meridiemConflict"
         case .duplicateInFiles: "duplicateInFiles"
+        case .duplicatePlanInFiles: "duplicatePlanInFiles"
         case .limitReached: "limitReached"
         case .legacyEncoding: "legacyEncoding"
         case .duplicateDay: "duplicateDay"
@@ -61,8 +64,8 @@ extension ImportWarning.Kind {
     /// (ui.md §5); the rest are lines that couldn't be read.
     var isNote: Bool {
         switch self {
-        case .missingTableHeader, .meridiemConflict, .duplicateInFiles, .nonexistentLocalTime, .repeatedLocalTime,
-             .durationAssumed, .assistedLoad, .overPlatformLimit, .limitReached, .legacyEncoding:
+        case .missingTableHeader, .meridiemConflict, .duplicateInFiles, .duplicatePlanInFiles, .nonexistentLocalTime,
+             .repeatedLocalTime, .durationAssumed, .assistedLoad, .overPlatformLimit, .limitReached, .legacyEncoding:
             true
         case .unrecognisedLine, .lineTooLong, .invalidText, .outsideBlock, .unsupportedColumns, .unreadableNumber,
              .implausibleValue, .unreadableDate, .unreadableDuration, .duplicateDay:
@@ -104,6 +107,9 @@ extension ImportWarning.Kind {
         case .duplicateInFiles:
             LocalizedStringResource("This workout is in another picked file too and is imported once",
                                     comment: "Import warning, after \"Line N\".")
+        case .duplicatePlanInFiles:
+            LocalizedStringResource("This plan is in another picked file too and is imported once",
+                                    comment: "Import note, after \"Line N\": the same plan in two picked files.")
         case .limitReached:
             LocalizedStringResource("Some items were left out: this file is over RYFT's import limits",
                                     comment: "Import warning, after \"Line N\".")

@@ -30,7 +30,8 @@ struct PendingImportSchemaUpgradeTests {
                                 + TrainStore.readModels + TrainStore.activityModels)
             let names = schema.entities.map(\.name)
             #expect(!names.contains("PendingImport"))
-            let configuration = ModelConfiguration(name, schema: schema, isStoredInMemoryOnly: false)
+            let configuration = ModelConfiguration(name, schema: schema, isStoredInMemoryOnly: false,
+                                                   groupContainer: .automatic, cloudKitDatabase: .none)
             files.append(configuration.url)
             let container = try ModelContainer(for: schema, configurations: configuration)
             let context = container.mainContext
@@ -40,7 +41,9 @@ struct PendingImportSchemaUpgradeTests {
             try context.save()
         }
 
-        let configuration = ModelConfiguration(name, schema: TrainStore.schema, isStoredInMemoryOnly: false)
+        // As `TrainStore.init` opens its own: by name, the App Group when there is one, never CloudKit.
+        let configuration = ModelConfiguration(name, schema: TrainStore.schema, isStoredInMemoryOnly: false,
+                                               groupContainer: .automatic, cloudKitDatabase: .none)
         let container = try ModelContainer(for: TrainStore.schema, configurations: configuration)
         #expect(container.configurations.first?.url == files.first)
         let context = container.mainContext

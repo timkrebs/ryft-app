@@ -6,8 +6,9 @@ import UIKit
 /// Profile → Data → Export my data: everything the platform holds for the
 /// account as one JSON file (`/v1/me`, `/v1/days`, `/v1/workouts`,
 /// `/v1/sessions`, `/v1/activities`), plus what the app keeps for it: the
-/// training import's remembered matches, and the activities and nights on this
-/// iPhone the platform hasn't confirmed. Shared through the system share sheet.
+/// training import's remembered matches and its job not uploaded yet, and the
+/// activities and nights on this iPhone the platform hasn't confirmed. Shared
+/// through the system share sheet.
 /// Not an Apple rule — GDPR art. 15 and 20 (access, data portability).
 enum DataExport {
     struct Archive: Encodable {
@@ -27,6 +28,8 @@ enum DataExport {
         /// Nights the user added on this iPhone ("Add sleep"), confirmed or not. Which of the platform's nights
         /// were added by hand isn't in its days yet (API request R11).
         var manualSleep: [ManualNight] = []
+        /// The training import's job, while some of it isn't on the platform yet (its done items are in `sessions`).
+        var pendingImport: PendingImportExport?
     }
 
     /// One activity the platform hasn't confirmed, as this iPhone would send it.
@@ -58,7 +61,7 @@ enum DataExport {
     @MainActor
     static func archive(source: RyftDataSource, train: TrainDataSource, rememberedMatches: [ImportMappingRecord] = [],
                         activities: ActivitiesAPI? = nil, onPhone: ActivityStore? = nil,
-                        now: Date = .now) async throws -> Archive {
+                        pendingImport: PendingImportExport? = nil, now: Date = .now) async throws -> Archive {
         // The rows on this iPhone are the account's the export started for, whoever is signed in when it ends.
         let phoneAccount = onPhone?.account
         let user = try await source.me()
@@ -97,6 +100,7 @@ enum DataExport {
             archive.unconfirmedActivities = onPhone.allSnapshots(ofAccount: phoneAccount).compactMap(UnconfirmedActivity.init)
             archive.manualSleep = onPhone.manualSleeps(ofAccount: phoneAccount).map(ManualNight.init)
         }
+        archive.pendingImport = pendingImport
         return archive
     }
 

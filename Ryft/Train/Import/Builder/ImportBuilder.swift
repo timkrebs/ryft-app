@@ -7,6 +7,10 @@ enum ImportBuilder {
     /// A plan's name and a session's title: the platform's limits.
     static let maxPlanNameLength = 80
     static let maxTitleLength = 120
+    /// How far the account's sessions are read beyond the import's first and last day. Ids use the wall clock, but
+    /// the platform files a session by its instant: imported again in another zone (UTC−12 … UTC+14, up to 26 hours
+    /// apart), an edge day's session lies outside that day's window there and would come back as new.
+    static let existingPadding: TimeInterval = 2 * 86_400
 
     /// The ids and days the preview asks the platform about (`TrainImportUploader.checkExisting(_:)`). Cheap: ids only,
     /// no mapping.
@@ -28,7 +32,8 @@ enum ImportBuilder {
             let start = resolver.startOfDay(first)
             // The end of the last day: the start of the next one (a day may have 23 or 25 hours).
             let next = LocalDate.after(last).map(resolver.startOfDay) ?? start.addingTimeInterval(86_400)
-            range = start...max(start, next.addingTimeInterval(-1))
+            let end = max(start, next.addingTimeInterval(-1))
+            range = start.addingTimeInterval(-existingPadding)...end.addingTimeInterval(existingPadding)
         }
         return ImportExistingQuery(account: decisions.account, planIDs: planIDs(of: bundle, account: account),
                                    sessionIDs: sessionIDs, days: days, range: range, zone: decisions.zone)
@@ -138,9 +143,17 @@ enum ImportBuilder {
 
     // MARK: ids (ADR 0007)
 
-    /// One per plan of the bundle, in its order.
+    /// One per plan of the bundle, in its order. Plans whose names fold the same and that start on the same date (or
+    /// have none) are told apart by their occurrence, in the bundle's order (ADR 0007, Amendment 2).
     static func planIDs(of bundle: ImportBundle, account: UUID) -> [UUID] {
-        bundle.plans.map { ImportIDs.plan(account: account, source: bundle.format, name: $0.name, startDate: $0.startDate) }
+        var seen: [String: Int] = [:]
+        return bundle.plans.map { plan in
+            let key = SourceExerciseKey.fold(plan.name) + ImportIDs.separator + (plan.startDate?.key ?? "")
+            let occurrence = seen[key, default: 0]
+            seen[key] = occurrence + 1
+            return ImportIDs.plan(account: account, source: bundle.format, name: plan.name, startDate: plan.startDate,
+                                  occurrence: occurrence)
+        }
     }
 
     /// One per session of the bundle, in its order. Two sessions with the same start are told apart by their
