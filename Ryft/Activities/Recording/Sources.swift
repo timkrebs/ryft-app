@@ -16,13 +16,18 @@ struct LocationFix: Sendable, Equatable {
     let horizontalAccuracy: Double
     /// Metres; nil or negative means no valid altitude.
     let verticalAccuracy: Double?
-    /// Metres per second as reported by the source; nil when unknown. The pipeline uses its own filter's speed.
+    /// Metres per second as reported by the source (Core Location's Doppler speed); nil when unknown, negative when
+    /// invalid. The pipeline measures with its own filter's speed; it asks this one only whether "too fast" is real,
+    /// because multipath moves positions and not the Doppler speed (design §3.3).
     let speed: Double?
+    /// The speed's accuracy, metres per second; negative means the speed is invalid (`CLLocation.speedAccuracy`),
+    /// nil that the source didn't say.
+    let speedAccuracy: Double?
     /// `CLLocationUpdate.isStationary`: Core Location thinks the device isn't moving (and pauses its updates).
     let isStationary: Bool
 
     init(timestamp: Date, latitude: Double, longitude: Double, altitude: Double? = nil, horizontalAccuracy: Double,
-         verticalAccuracy: Double? = nil, speed: Double? = nil, isStationary: Bool = false) {
+         verticalAccuracy: Double? = nil, speed: Double? = nil, speedAccuracy: Double? = nil, isStationary: Bool = false) {
         self.timestamp = timestamp
         self.latitude = latitude
         self.longitude = longitude
@@ -30,10 +35,18 @@ struct LocationFix: Sendable, Equatable {
         self.horizontalAccuracy = horizontalAccuracy
         self.verticalAccuracy = verticalAccuracy
         self.speed = speed
+        self.speedAccuracy = speedAccuracy
         self.isStationary = isStationary
     }
 
     var coordinate: Coordinate { Coordinate(latitude: latitude, longitude: longitude) }
+
+    /// The Doppler speed when the source reported a valid one: finite, not negative, and with an accuracy that isn't
+    /// negative (an unknown accuracy doesn't invalidate it).
+    var dopplerSpeed: Double? {
+        guard let speed, speed.isFinite, speed >= 0, (speedAccuracy ?? 0) >= 0 else { return nil }
+        return speed
+    }
 }
 
 extension LocationFix: LocationRedacting {

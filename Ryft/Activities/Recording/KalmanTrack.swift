@@ -8,6 +8,11 @@ import Foundation
 ///   (continuous model, so a variable Δt scales correctly).
 /// - Innovation gate at 3.5σ (Mahalanobis distance over both axes). A rejected fix leaves the state untouched;
 ///   three rejections in a row re-initialise at the third measurement (a real jump, a tunnel exit).
+/// - Association (ADR 0003 amendment 2, decision 2): after a rejection, a fix the gate would accept still counts as
+///   rejected when it lies nearer the last rejected fix, moved on at the filter's velocity, than the prediction. It
+///   belongs to the rejected run, so a gate that aged open can't take a ghost with a kick to the velocity.
+/// - A re-init takes the rejected run's velocity (decision 3): the line from its first fix to the third, when the
+///   middle one lies on it within the accuracies; else 0. A filter restarted on a train or a flying start follows it.
 /// - Δt over 15 s resets the velocity variance before predicting, so the next fix sets the velocity again.
 ///
 /// Pure and `Sendable`; a few dozen floating-point operations and no allocation per fix.
@@ -36,8 +41,22 @@ struct KalmanTrack: Sendable, LocationRedacting {
         case updated
         /// The innovation was beyond the gate; the state is unchanged.
         case rejected(sigmas: Double)
-        /// The gate rejected `reinitialiseAfter` fixes in a row: the filter restarted at this one.
+        /// The gates rejected `reinitialiseAfter` fixes in a row: the filter restarted at this one, with the rejected
+        /// run's velocity when its fixes lie on a line.
         case reinitialised
+    }
+
+    /// A fix of the current run of rejections. Memory only, like the plane; a coordinate renders nothing.
+    private struct Rejected: Sendable {
+        let time: Date
+        let coordinate: Coordinate
+        let accuracy: Double
+
+        init(_ fix: LocationFix) {
+            time = fix.timestamp
+            coordinate = fix.coordinate
+            accuracy = fix.horizontalAccuracy
+        }
     }
 
     /// One axis: position p (m), velocity v (m/s) and their covariance.
@@ -71,6 +90,13 @@ struct KalmanTrack: Sendable, LocationRedacting {
     /// The time of the last accepted (or initialising) fix.
     private(set) var lastTime: Date?
     private(set) var consecutiveRejections = 0
+    /// The run's first rejected fix, and its latest one after that (the middle fix of three).
+    private var runFirst: Rejected?
+    private var runLatest: Rejected?
+    /// The filter holds only its very first fix: no velocity and no history, so it can't tell which side of a
+    /// disagreement is the ghost (a coarse first fix is the outlier). Association waits for the first update, and a
+    /// fresh filter gates as before (ADR 0003 amendment 2, decision 1).
+    private var holdsOnlyFirstFix = false
 
     init(tuning: Tuning) {
         self.tuning = tuning
@@ -79,6 +105,14 @@ struct KalmanTrack: Sendable, LocationRedacting {
     /// The filtered position at `lastTime`.
     var position: Coordinate? {
         plane?.unproject(Displacement(east: east.p, north: north.p))
+    }
+
+    /// Where the filter expects a fix at `time`: the position moved on at the velocity (constant velocity). The
+    /// pipeline's speed gate measures from here (design §3.3 step 2).
+    func predictedPosition(at time: Date) -> Coordinate? {
+        guard let plane, let lastTime else { return nil }
+        let dt = max(time.timeIntervalSince(lastTime), 0)
+        return plane.unproject(Displacement(east: east.p + east.v * dt, north: north.p + north.v * dt))
     }
 
     /// The filtered velocity, east and north m/s.
@@ -108,16 +142,14 @@ struct KalmanTrack: Sendable, LocationRedacting {
     /// A fix another gate rejected (the pipeline's speed gate). It counts toward the re-initialisation like an
     /// innovation rejection: three in a row, by either gate, restart the filter at the third fix.
     mutating func rejectedElsewhere(_ fix: LocationFix) -> Outcome {
-        consecutiveRejections += 1
-        guard consecutiveRejections >= tuning.reinitialiseAfter else { return .rejected(sigmas: .infinity) }
-        initialise(at: fix, variance: pow(max(fix.horizontalAccuracy, tuning.minMeasurementSigma), 2))
-        return .reinitialised
+        reject(fix, variance: pow(max(fix.horizontalAccuracy, tuning.minMeasurementSigma), 2), sigmas: .infinity)
     }
 
     mutating func update(_ fix: LocationFix) -> Outcome {
         let r = pow(max(fix.horizontalAccuracy, tuning.minMeasurementSigma), 2)
         guard let plane, let lastTime else {
             initialise(at: fix, variance: r)
+            holdsOnlyFirstFix = true
             return .initialised
         }
         let dt = max(fix.timestamp.timeIntervalSince(lastTime), 0.001)
@@ -135,13 +167,9 @@ struct KalmanTrack: Sendable, LocationRedacting {
         let nuE = z.east - e.p, nuN = z.north - n.p
         let sE = e.pp + r, sN = n.pp + r
         let sigmas = (nuE * nuE / sE + nuN * nuN / sN).squareRoot()
-        if sigmas > tuning.gateSigmas {
-            consecutiveRejections += 1
-            if consecutiveRejections >= tuning.reinitialiseAfter {
-                initialise(at: fix, variance: r)
-                return .reinitialised
-            }
-            return .rejected(sigmas: sigmas)
+        if sigmas > tuning.gateSigmas || joinsRejectedRun(z, predicted: (e, n), plane: plane, at: fix.timestamp,
+                                                          innovation: nuE * nuE + nuN * nuN) {
+            return reject(fix, variance: r, sigmas: sigmas)
         }
         e.update(innovation: nuE, s: sE)
         n.update(innovation: nuN, s: sN)
@@ -149,8 +177,59 @@ struct KalmanTrack: Sendable, LocationRedacting {
         north = n
         self.lastTime = fix.timestamp
         consecutiveRejections = 0
+        runFirst = nil
+        runLatest = nil
+        holdsOnlyFirstFix = false
         reanchorIfFar()
         return .updated
+    }
+
+    /// One more rejection: noted for the run, or the re-init at the `reinitialiseAfter`-th.
+    private mutating func reject(_ fix: LocationFix, variance r: Double, sigmas: Double) -> Outcome {
+        consecutiveRejections += 1
+        guard consecutiveRejections >= tuning.reinitialiseAfter else {
+            if runFirst == nil { runFirst = Rejected(fix) } else { runLatest = Rejected(fix) }
+            return .rejected(sigmas: sigmas)
+        }
+        reinitialise(at: fix, variance: r)
+        return .reinitialised
+    }
+
+    /// Whether a fix lies nearer the last rejected fix, moved on at the predicted velocity, than the prediction: it
+    /// belongs to the rejected run. Only after a rejection; turns and stops cause none, so they never meet it.
+    private func joinsRejectedRun(_ z: Displacement, predicted: (east: Axis, north: Axis), plane: LocalTangentPlane,
+                                  at time: Date, innovation: Double) -> Bool {
+        guard !holdsOnlyFirstFix, consecutiveRejections > 0, let last = runLatest ?? runFirst else { return false }
+        let lag = time.timeIntervalSince(last.time)
+        let r = plane.project(last.coordinate)
+        let de = z.east - (r.east + predicted.east.v * lag), dn = z.north - (r.north + predicted.north.v * lag)
+        return de * de + dn * dn < innovation
+    }
+
+    /// Restarts at `fix` with the rejected run's velocity: the line from its first fix to this one, when the middle
+    /// fix lies on it within the accuracies (the sum of its own and the larger end's); else at rest, as `initialise`.
+    private mutating func reinitialise(at fix: LocationFix, variance r: Double) {
+        let first = runFirst, middle = runLatest
+        initialise(at: fix, variance: r)
+        holdsOnlyFirstFix = false
+        guard let first, let plane else { return }
+        // Over less than half a second the line is mostly the fixes' error.
+        let dt = fix.timestamp.timeIntervalSince(first.time)
+        guard dt > 0.5 else { return }
+        // In the new plane the fix is the origin: the velocity carries the first fix to it.
+        let a = plane.project(first.coordinate)
+        if let middle {
+            let f = middle.time.timeIntervalSince(first.time) / dt
+            let m = plane.project(middle.coordinate)
+            let off = Displacement(east: a.east * (1 - f) - m.east, north: a.north * (1 - f) - m.north)
+            guard off.length <= middle.accuracy + max(first.accuracy, fix.horizontalAccuracy) else { return }
+        }
+        // The two ends' variances over Δt², plus 1 (m/s)² for the motion's own change.
+        let vv = (pow(max(first.accuracy, tuning.minMeasurementSigma), 2) + r) / (dt * dt) + 1
+        east.v = -a.east / dt
+        north.v = -a.north / dt
+        east.vv = vv
+        north.vv = vv
     }
 
     private mutating func initialise(at fix: LocationFix, variance r: Double) {
@@ -160,6 +239,8 @@ struct KalmanTrack: Sendable, LocationRedacting {
         north = Axis(p: 0, v: 0, pp: r, pv: 0, vv: vv)
         lastTime = fix.timestamp
         consecutiveRejections = 0
+        runFirst = nil
+        runLatest = nil
     }
 
     /// Keeps the plane's scale error negligible: beyond 5 km the anchor moves to the current position. The
