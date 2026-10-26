@@ -2,3 +2,7 @@
 - [Integration branch](integration-branch.md) — pre-resolve multi-PR conflicts on one branch; its CI proves the combined state
 - [CI UI timeouts](ci-ui-timeouts.md) — tally + per-step breakdown before blaming a PR or the runner; timeouts aren't retried
 - [Device sessions](device-sessions.md) — user's own iPhone: start only when he says it's free; screenshot only with RYFT in front
+- [Strings catalog edits](strings-catalog-edits.md) — never re-serialise xcstrings; check --stat + semantic diff + trailer of every strings commit
+- [Public repo, personal data](public-repo-personal-data.md) — scan briefs/docs/fixtures against real files; redact to synthetic before commit
+- [No attribution lines](no-attribution-lines.md) — never a "Generated with Claude Code" footer or Co-Authored-By trailer; tell agents too
+- [Stacked branch after squash](stacked-branch-after-squash.md) — merging main can resurrect replaced code; diff merged tree vs branch head
