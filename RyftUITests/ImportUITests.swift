@@ -11,8 +11,9 @@ final class ImportUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// `-RyftResetTrain YES`: no saved import job and no remembered matches from an earlier run.
     private func launch(files: String) -> XCUIApplication {
-        launchDemo(extra: ["-uiTestImportFiles", files])
+        launchDemo(extra: ["-uiTestImportFiles", files, "-RyftResetTrain", "YES"])
     }
 
     /// Strain → My plans → New plan → Import from file, with both menu items there.
@@ -42,7 +43,20 @@ final class ImportUITests: XCTestCase {
         button.tap()
     }
 
+    /// Scrolls until `element` sits clear of the pinned bottom bar (an element under a `safeAreaInset` bar still
+    /// reports itself hittable, and the tap would land on the bar).
+    private func revealAboveBar(_ element: XCUIElement, in app: XCUIApplication) {
+        let limit = app.windows.firstMatch.frame.maxY - 220
+        var tries = 0
+        while element.frame.maxY > limit && tries < 10 {
+            app.swipeUp(velocity: .slow)
+            tries += 1
+        }
+    }
+
     private func waitUntil(_ element: XCUIElement, isEnabled: Bool) -> Bool {
+        // Already there: no predicate wait (each one polls for about 2 s).
+        if element.isEnabled == isEnabled { return true }
         let done = expectation(for: NSPredicate(format: "enabled == %@", NSNumber(value: isEnabled)), evaluatedWith: element)
         return XCTWaiter.wait(for: [done], timeout: wait) == .completed
     }
@@ -76,14 +90,14 @@ final class ImportUITests: XCTestCase {
         accept.tap()
         let muscle = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'import.muscle.'")).firstMatch
         XCTAssertTrue(muscle.waitForExistence(timeout: wait), "the new row's muscle menu")
-        app.reveal(muscle)
+        revealAboveBar(muscle, in: app)
         muscle.tap()
         let hamstrings = app.buttons["Hamstrings"]
         XCTAssertTrue(hamstrings.waitForExistence(timeout: wait), "the muscle groups")
         hamstrings.tap()
         let added = app.buttons["import.bodyweight.added"]
         XCTAssertTrue(added.waitForExistence(timeout: wait), "the bodyweight question")
-        app.reveal(added)
+        revealAboveBar(added, in: app)
         added.tap()
         waitForAbsence(of: left, timeout: wait, "nothing left to check")
         tapContinue(app, "step 4")
@@ -102,6 +116,8 @@ final class ImportUITests: XCTestCase {
         XCTAssertTrue(result.label.contains("1 set skipped"), result.label)
         let openPlan = app.buttons["import.openPlan"]
         XCTAssertTrue(openPlan.exists, "Open plan")
+        openPlan.tap()
+        XCTAssertTrue(app.navigationBars["Upper/Lower Base"].waitForExistence(timeout: wait), "the imported plan on Strain")
     }
 
     /// D5: a file that isn't an export says so on step 2, with no Continue.
@@ -122,7 +138,7 @@ final class ImportUITests: XCTestCase {
         tapContinue(app, "step 2")
         XCTAssertTrue(app.switches["import.makeActive"].waitForExistence(timeout: wait), "step 3")
         app.buttons["import.cancel"].tap()
-        let discard = app.buttons["import.discard"].exists ? app.buttons["import.discard"] : app.alerts.buttons["Discard"]
+        let discard = app.alerts.buttons["Discard"].firstMatch
         XCTAssertTrue(discard.waitForExistence(timeout: wait), "the discard alert")
         discard.tap()
         XCTAssertTrue(app.buttons["plans.newPlan"].waitForExistence(timeout: wait), "back on My plans")

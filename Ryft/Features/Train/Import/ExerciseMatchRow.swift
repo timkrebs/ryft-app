@@ -43,6 +43,7 @@ struct ExerciseMatchRow: View {
             Button(action: actions.open) { main }
                 .buttonStyle(PressableButtonStyle())
                 .accessibilityElement(children: .ignore)
+                .accessibilityAddTraits(.isButton)
                 .accessibilityLabel(Text(verbatim: spokenLabel))
                 .accessibilityHint(Text("Shows what you can do with this exercise",
                                         comment: "Training import, step 4, VoiceOver: a row opens its actions."))
