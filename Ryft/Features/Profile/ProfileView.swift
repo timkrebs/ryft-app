@@ -40,7 +40,10 @@ struct ProfileView: View {
             }
         }
         .safariSheet($legal)
-        .sheet(item: Bindable(model).exported) { ShareSheet(items: [$0.url]).presentationDetents([.medium, .large]) }
+        // The export file goes as soon as the share sheet is done with it (or closed by a swipe).
+        .sheet(item: Bindable(model).exported, onDismiss: { model.removeExportFiles() }) {
+            ShareSheet(items: [$0.url], completion: { model.removeExportFiles() }).presentationDetents([.medium, .large])
+        }
         .bodySettingSheet($editing, editor: model.bodySettings)
         .task { await model.refreshHealthStatus() }
         .confirmationDialog("Re-upload the last 90 days of Health data?", isPresented: $showResyncConfirm,
