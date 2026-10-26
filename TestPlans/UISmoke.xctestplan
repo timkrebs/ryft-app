@@ -27,7 +27,8 @@
         "DevicesUITests",
         "SyncCheckUITests",
         "CalibrationNoteUITests",
-        "MyDayUITests"
+        "MyDayUITests",
+        "AddActivityUITests\/testAddActivitySavesAPendingRowAddedByYouWithoutItsNotes"
       ],
       "target": {
         "containerPath": "container:Ryft.xcodeproj",
