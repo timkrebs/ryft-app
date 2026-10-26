@@ -248,15 +248,17 @@ struct ActivityUploaderErrorTests {
         #expect(h.puts() == 2 && h.uploader.state(of: id) == .confirmed)
     }
 
-    @Test func aCancelledRequestIsNeverARefusal() async throws {
+    @Test func aCancelledRequestIsNeverARefusalNorAFailure() async throws {
         let h = UploadHarness()
         let id = try #require(h.save())
         h.api.failNext = CancellationError()
         await h.uploader.flush()
-        #expect(h.store.snapshot(id: id)?.lastAttempt == nil)
-        #expect(h.uploader.state(of: id) == .pending(.queued))
+        // Recorded as possibly sent, not counted: no backoff, not failed.
+        #expect(h.store.snapshot(id: id)?.lastAttempt?.kind == .cancelled)
+        #expect(h.uploader.backoffs.isEmpty && h.uploader.state(of: id) == .pending(.queued))
         await h.uploader.flush()
         #expect(h.uploader.state(of: id) == .confirmed)
+        #expect(h.store.snapshot(id: id)?.lastAttempt == nil)
     }
 }
 
@@ -343,16 +345,20 @@ struct ActivityUploaderScopeTests {
         demo.now = { clock.now() }
         let defaults = try #require(UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)"))
         let settings = Settings(defaults: defaults)
-        settings.demoMode = true
         let env = AppEnvironment(settings: settings, health: MockHealthStore(), liveAPI: live, demoAPI: demo,
                                  auth: .preview(), persistence: TrainStore(inMemory: true), clock: clock,
                                  notifier: MockNotifier(), flags: StaticFlags([:]), connectivity: .preview(online: true),
                                  defaults: defaults)
+        let end = clock.now().addingTimeInterval(-3_600)
+        // The account's own row, saved before demo data goes on.
+        settings.demoMode = false
+        let liveRow = try #require(env.activities.save(manual: ActivityDraft(sport: .walking, start: end.addingTimeInterval(-1_800),
+                                                                              end: end))?.id)
+        settings.demoMode = true
         let hold = RequestHold()
         demo.activitySource.beforeWrite = { await hold.wait() }
-        let end = clock.now().addingTimeInterval(-3_600)
-        let draft = ActivityDraft(sport: .yoga, start: end.addingTimeInterval(-1_800), end: end)
-        let id = try #require(env.activities.save(manual: draft)?.id)
+        let demoRow = try #require(env.activities.save(manual: ActivityDraft(sport: .yoga, start: end.addingTimeInterval(-1_800),
+                                                                              end: end))?.id)
         #expect(env.activities.account == ActivityStore.demoAccount)
         let flush = Task { await env.uploader.flush() }
         #expect(await eventually { hold.waiting == 1 })
@@ -361,9 +367,31 @@ struct ActivityUploaderScopeTests {
         hold.release()
         await flush.value
         await env.uploader.flush()
-        #expect(live.count("putActivity") == 0)
+        // The live client got the account's row and only it; the demo client only the demo row.
+        #expect(live.activitySource.puts.map(\.id) == [liveRow])
+        #expect(demo.activitySource.puts.map(\.id) == [demoRow])
+        #expect(env.activities.snapshot(id: liveRow)?.confirmedRevision == 1)
         settings.demoMode = true
-        #expect(env.activities.snapshot(id: id)?.confirmedRevision == 0)
+        #expect(env.activities.snapshot(id: demoRow)?.confirmedRevision == 0) // the dropped answer confirmed nothing
+    }
+
+    @Test func aSecondFlushWhileARequestIsOutSendsNoSecondRequest() async throws {
+        let h = UploadHarness()
+        let hold = RequestHold()
+        h.platform.beforeWrite = { await hold.wait() }
+        _ = try #require(h.save(minutesAgo: 120))
+        _ = try #require(h.save(minutesAgo: 60))
+        let first = Task { await h.uploader.flush() }
+        #expect(await eventually { hold.waiting == 1 })
+        let second = Task { await h.uploader.flush() }
+        let third = Task { await h.uploader.flush(userInitiated: true) }
+        try? await Task.sleep(for: .milliseconds(50)) // a negative check: nothing more may start meanwhile
+        #expect(hold.waiting == 1 && h.puts() == 1)
+        hold.release()
+        await first.value
+        await second.value
+        await third.value
+        #expect(h.puts() == 2 && h.uploader.pendingCount == 0)
     }
 }
 
@@ -535,7 +563,9 @@ struct ActivityUploaderLifecycleTests {
         await flush.value
         #expect(app.ended.count == 1) // once, though both the expiry and the replay ended it
         let row = try #require(h.store.snapshot(id: id))
-        #expect(row.confirmedRevision == 0 && row.lastAttempt == nil) // queued, not refused
+        // Queued, not refused, not counted; and marked as possibly sent: a delete now goes to the platform.
+        #expect(row.confirmedRevision == 0 && row.lastAttempt?.kind == .cancelled && row.lastAttempt?.status == nil)
+        #expect(h.uploader.state(of: id) == .pending(.queued) && h.uploader.backoffs.isEmpty)
         h.platform.beforeWrite = nil
         await h.uploader.flush()
         #expect(h.store.snapshot(id: id)?.confirmedRevision == 1)

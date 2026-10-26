@@ -21,20 +21,26 @@ private final class AccountHarness {
     let env: AppEnvironment
     let state: AppState
     private(set) var wipes: [AuthService.Wipe] = []
+    /// Runs inside `DELETE /v1/me` (a concurrent 401 or refresh failure, scripted).
+    final class DuringDeletion: @unchecked Sendable { var run: (@MainActor @Sendable () async -> Void)? }
+    let duringDeletion = DuringDeletion()
 
     init(signedInAs account: UUID? = AccountHarness.a, demo: Bool = false, bindHooks: Bool = true) {
         let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
         let settings = Settings(defaults: defaults)
         settings.demoMode = demo
         client = MockAuthClient(session: account.map { .preview(id: $0) })
-        let persistence = persistence, clock = clock
+        let persistence = persistence, clock = clock, duringDeletion = duringDeletion
         var recorded: (AuthService.Wipe) -> Void = { _ in }
         auth = AuthService(client: client, settings: settings, defaults: defaults,
                            wipeLocalData: { wipe in
                                persistence.wipe(parkingActivitiesOf: wipe.parking, at: clock.now())
                                recorded(wipe)
                            },
-                           deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                           deleteRemoteAccount: {
+                               await duringDeletion.run?()
+                               return AccountDeleted(status: "deleted", authUserDeleted: true)
+                           },
                            postAppleAuthorization: { _ in })
         api.now = { clock.now() }
         env = AppEnvironment(settings: settings, health: MockHealthStore(), liveAPI: api, demoAPI: api, auth: auth,
@@ -298,6 +304,127 @@ struct AccountScopeTests {
         #expect(changes.map(\.0) == [AccountHarness.accountA, nil, AccountHarness.accountB])
         #expect(changes.map(\.1) == [nil, AccountHarness.accountB, nil])
         #expect(changes.map(\.2) == [.user, nil, .sessionExpired])
+    }
+}
+
+@Suite("Accounts: the A2 review (deletion, consent, launch, parked rows, export)")
+@MainActor
+struct AccountReviewTests {
+    @Test func aRefreshFailureDuringDeletionStillDeletesEverything() async {
+        let h = AccountHarness()
+        let a = AccountHarness.accountA
+        h.insert(a, chunks: 2)
+        h.insertNight(a, daysBack: 0)
+        // A concurrent final 401 while the platform deletes: the expiry path runs in the middle of the deletion. A
+        // row written under the account after that (as a recording's checkpoint keeps its own account) goes too.
+        h.duringDeletion.run = { [weak h] in
+            await h?.auth.rejectedAfterRefresh()
+            h?.insert(a, revision: 0, phase: "recording", chunks: 1)
+        }
+        #expect(await h.auth.deleteAccount())
+        #expect(h.rows().isEmpty && h.nights().isEmpty && h.chunks().isEmpty)
+        let nothingParked = h.wipes.allSatisfy { $0.parking == nil }
+        #expect(nothingParked && !h.wipes.isEmpty)
+        #expect(h.auth.signOutNotice == AuthService.SignOutReason.accountDeleted(background: false).notice)
+        #expect(h.env.activities.parkedCount() == 0)
+    }
+
+    @Test func aDeletionStopsTheUploadAndDropsTheAnswerInFlight() async throws {
+        let h = AccountHarness()
+        let hold = RequestHold()
+        h.api.activitySource.beforeWrite = { await hold.wait() }
+        let end = h.clock.now().addingTimeInterval(-600)
+        _ = try #require(h.env.activities.save(manual: ActivityDraft(sport: .yoga, start: end.addingTimeInterval(-900), end: end)))
+        let flush = Task { await h.env.uploader.flush() }
+        #expect(await eventually { hold.waiting == 1 })
+        let count = h.env.uploader.generation.count
+        var seenDuring: Int?
+        h.duringDeletion.run = { [weak h] in seenDuring = h?.env.uploader.generation.count }
+        #expect(await h.auth.deleteAccount())
+        #expect((seenDuring ?? 0) > count) // stopped before the platform was asked
+        hold.release()
+        await flush.value
+        #expect(h.rows().isEmpty)
+    }
+
+    @Test func theSameAccountsUnparkSendsNothingBeforeConsent() async {
+        let h = AccountHarness()
+        var gate: APIErrorCode? = .consentRequired
+        h.env.uploader.gate = { gate }
+        h.insert(AccountHarness.accountA)
+        await h.auth.rejectedAfterRefresh()
+        await h.signIn(AccountHarness.a)
+        #expect(h.rows().first?.parkedAt == nil)
+        await h.env.uploader.flush()
+        #expect(h.api.calls.isEmpty)
+        gate = nil
+        await h.env.uploader.flush()
+        #expect(h.api.activitySource.puts.count == 1)
+    }
+
+    @Test func signedInAtLaunchTheStoreIsPutRightOnce() {
+        let h = AccountHarness(bindHooks: false)
+        let a = AccountHarness.accountA
+        let other = h.insert(AccountHarness.accountB)
+        let parked = h.insert(a)
+        h.persistence.wipe(parkingActivitiesOf: a, at: h.clock.now()) // parked by an expiry before a kill
+        #expect(h.rows(of: a).first?.parkedAt != nil)
+        h.state.bindAccountHooks(h.auth) // the launch
+        let otherLeft = h.rows().contains { $0.id == other }
+        #expect(!otherLeft)
+        #expect(h.rows().map(\.id) == [parked] && h.rows().first?.parkedAt == nil)
+    }
+
+    @Test func parkedRowsCanBeCountedAndDeletedWhileSignedOut() async {
+        let h = AccountHarness()
+        let a = AccountHarness.accountA
+        h.insert(a, chunks: 2)
+        h.insert(a, revision: 1, confirmed: 1)
+        h.insertNight(a, daysBack: 0)
+        #expect(h.env.activities.parkedCount() == 0)
+        await h.auth.rejectedAfterRefresh()
+        #expect(h.env.activities.parkedCount() == 2) // the unconfirmed row and the night
+        #expect(h.env.activities.purgeParked() == 2)
+        #expect(h.env.activities.parkedCount() == 0)
+        #expect(h.rows().isEmpty && h.nights().isEmpty && h.chunks().isEmpty)
+    }
+
+    @Test func everyAccountChangeIsCountedSoABAIsNotTheSameAccount() async {
+        let h = AccountHarness()
+        let start = h.auth.accountChanges
+        await h.auth.signOut()
+        await h.signIn(AccountHarness.b)
+        await h.auth.signOut()
+        await h.signIn(AccountHarness.a)
+        #expect(h.auth.accountID == AccountHarness.accountA)
+        #expect(h.auth.accountChanges == start + 4)
+    }
+
+    @Test func theWipeForgetsThePreviousAccountsExport() async {
+        let h = AccountHarness()
+        var forgotten = 0
+        h.state.onForgetAccountState = { forgotten += 1 }
+        await h.auth.signOut()
+        #expect(forgotten >= 1)
+    }
+
+    @Test func theExportReadsThePhoneRowsOfTheAccountItStartedFor() async throws {
+        // No purge on B's sign-in here, so both accounts' rows stay in the store.
+        let h = AccountHarness(bindHooks: false)
+        let a = AccountHarness.accountA
+        let mine = h.insert(a)
+        h.insert(AccountHarness.accountB)
+        // While the platform's list is read, A's session expires and B signs in.
+        h.api.activitySource.beforeList = { @MainActor [weak h] in
+            guard let h else { return }
+            h.api.activitySource.beforeList = nil
+            await h.auth.signOut(reason: .sessionExpired)
+            await h.signIn(AccountHarness.b)
+        }
+        let archive = try await DataExport.archive(source: h.api, train: h.api, activities: h.api,
+                                                   onPhone: h.env.activities, now: h.clock.now())
+        #expect(h.auth.accountID == AccountHarness.accountB)
+        #expect(archive.unconfirmedActivities.map(\.activity.id) == [mine]) // A's, never B's
     }
 }
 

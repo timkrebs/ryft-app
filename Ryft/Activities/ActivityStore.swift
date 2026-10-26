@@ -62,6 +62,12 @@ final class ActivityStore {
     }
 
     private var context: ModelContext { store.context }
+
+    /// Where `account`'s rows live: demo data's store for `demoAccount` (only while it exists), else the account's.
+    private func storeHolding(_ account: String) -> Persistence {
+        if account == Self.demoAccount, let demo = demoStoreInstance { return demo }
+        return liveStore
+    }
     private var now: Date { clock.now() }
 
     // MARK: reads
@@ -182,7 +188,8 @@ final class ActivityStore {
     }
 
     /// Delete: the row stays as a tombstone until the platform confirms the `DELETE` (the uploader then calls
-    /// `remove`). False for another account's id.
+    /// `remove`). Its notes go at once: a `DELETE` needs only the id (privacy review N3). False for another
+    /// account's id.
     @discardableResult
     func tombstone(_ id: UUID) -> Bool {
         guard let row = row(id) else { return false }
@@ -190,6 +197,7 @@ final class ActivityStore {
             row.deletedAt = now
             row.updatedAt = now
         }
+        row.notes = ""
         _ = wrote(row)
         return true
     }
@@ -230,13 +238,18 @@ final class ActivityStore {
         _ = wrote(row)
     }
 
-    /// Every row of the account, oldest first: documents, tombstones and recordings ("Export my data").
+    /// Every row of the account, oldest first: documents, tombstones and recordings.
     func allSnapshots() -> [LocalActivitySnapshot] {
+        account.map(allSnapshots(ofAccount:)) ?? []
+    }
+
+    /// The same for `account`, whoever is signed in now ("Export my data" reads the account it started for):
+    /// demo data's own store for `demoAccount`, else the account's store.
+    func allSnapshots(ofAccount account: String) -> [LocalActivitySnapshot] {
         _ = revision
-        guard let account else { return [] }
         let d = FetchDescriptor<LocalActivity>(predicate: #Predicate { $0.account == account },
                                                sortBy: [SortDescriptor(\.createdAt)])
-        return fetch(d).map(\.snapshot)
+        return fetch(d, in: storeHolding(account).context).map(\.snapshot)
     }
 
     // MARK: manual sleep
@@ -285,8 +298,10 @@ final class ActivityStore {
     }
 
     /// Deletes the account's night for `day`: a confirmed `DELETE`, or a delete of a night never sent.
-    func removeSleep(day: String) {
-        guard let night = sleepRow(day) else { return }
+    /// `onlyIfDeleted`: only while it's still a tombstone (a confirmed `DELETE` mustn't take a night added again
+    /// meanwhile).
+    func removeSleep(day: String, onlyIfDeleted: Bool = false) {
+        guard let night = sleepRow(day), !onlyIfDeleted || night.deletedAt != nil else { return }
         context.delete(night)
         store.save()
         revision += 1
@@ -306,13 +321,17 @@ final class ActivityStore {
         manualSleeps().filter(\.needsUpload)
     }
 
-    /// Every night the account added on this iPhone, by day ("Export my data").
+    /// Every night the account added on this iPhone, by day.
     func manualSleeps() -> [ManualSleepSnapshot] {
+        account.map(manualSleeps(ofAccount:)) ?? []
+    }
+
+    /// The same for `account`, whoever is signed in now ("Export my data").
+    func manualSleeps(ofAccount account: String) -> [ManualSleepSnapshot] {
         _ = revision
-        guard let account else { return [] }
         let d = FetchDescriptor<LocalManualSleep>(predicate: #Predicate { $0.account == account },
                                                   sortBy: [SortDescriptor(\.day)])
-        return fetch(d).map(\.snapshot)
+        return fetch(d, in: storeHolding(account).context).map(\.snapshot)
     }
 
     // MARK: accounts
@@ -349,6 +368,12 @@ final class ActivityStore {
         let nights = fetch(FetchDescriptor<LocalManualSleep>(predicate: #Predicate { $0.parkedAt != nil }), in: context)
             .filter { ($0.parkedAt ?? .distantFuture) < cutoff }
         guard !rows.isEmpty || !nights.isEmpty else { return 0 }
+        deleteWithChunks(rows, nights, in: context)
+        return rows.count + nights.count
+    }
+
+    /// The account store's rows (keys first once A3b seals chunks, then the chunks) and nights.
+    private func deleteWithChunks(_ rows: [LocalActivity], _ nights: [LocalManualSleep], in context: ModelContext) {
         for row in rows {
             let id = row.id, owner = row.account
             try? context.delete(model: ActivityTrackChunk.self,
@@ -358,6 +383,27 @@ final class ActivityStore {
         for night in nights { context.delete(night) }
         liveStore.save()
         revision += 1
+    }
+
+    /// Rows and nights a session expiry parked on this iPhone, whoever's (signed out, Welcome says so and offers
+    /// to delete them: `purgeParked()`). Always the account's store.
+    func parkedCount() -> Int {
+        _ = revision
+        let context = liveStore.context
+        let rows = (try? context.fetchCount(FetchDescriptor<LocalActivity>(predicate: #Predicate { $0.parkedAt != nil }))) ?? 0
+        let nights = (try? context.fetchCount(FetchDescriptor<LocalManualSleep>(predicate: #Predicate { $0.parkedAt != nil }))) ?? 0
+        return rows + nights
+    }
+
+    /// "Delete from this iPhone": every parked row and night, with its chunks (keys first once A3b seals them),
+    /// whoever's. Returns how many rows and nights went.
+    @discardableResult
+    func purgeParked() -> Int {
+        let context = liveStore.context
+        let rows = fetch(FetchDescriptor<LocalActivity>(predicate: #Predicate { $0.parkedAt != nil }), in: context)
+        let nights = fetch(FetchDescriptor<LocalManualSleep>(predicate: #Predicate { $0.parkedAt != nil }), in: context)
+        guard !rows.isEmpty || !nights.isEmpty else { return 0 }
+        deleteWithChunks(rows, nights, in: context)
         return rows.count + nights.count
     }
 
