@@ -16,42 +16,19 @@ final class MyDayUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    /// `openDaysBack`: `-RyftOpenMyDay <n>` pushes the full screen on that day once Today has loaded (Debug).
     private func launch(openDaysBack: Int? = nil) -> XCUIApplication {
-        let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
-        var arguments = ["-demoMode", "YES", "-RyftTab", "today", "-appearance", "dark", "-coachMarks.today.done", "YES",
-                         "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        if let openDaysBack { arguments += ["-RyftOpenMyDay", "\(openDaysBack)"] }
-        app.launchArguments = arguments
-        app.launch()
-        return app
+        launchDemo(openMyDayDaysBack: openDaysBack)
     }
 
-    private func element(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {
-        app.descendants(matching: .any)[identifier]
-    }
+    private func element(_ app: XCUIApplication, _ identifier: String) -> XCUIElement { app.element(identifier) }
 
     private func elements(_ app: XCUIApplication, identifierPrefix prefix: String) -> XCUIElementQuery {
-        app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix))
+        app.elements(identifierPrefix: prefix)
     }
 
-    /// Scrolls Today until `element` can be tapped.
-    private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
-        var tries = 0
-        while !element.isHittable && tries < 10 {
-            app.swipeUp()
-            tries += 1
-        }
-    }
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication) { app.reveal(element) }
 
-    /// `yyyy-MM-dd`, `back` days before today, in the device's time zone (as the app writes day strings).
-    private func day(daysBack back: Int) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Calendar.current.date(byAdding: .day, value: -back, to: Date()) ?? Date())
-    }
+    private func day(daysBack back: Int) -> String { dayString(daysBack: back) }
 
     // MARK: the card
 

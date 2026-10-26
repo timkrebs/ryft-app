@@ -15,30 +15,17 @@ final class AddActivityUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    /// The full My Day screen on `day` days back. `extra`: more launch arguments (a flag override).
     private func launch(extra: [String] = []) -> XCUIApplication {
-        let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
-        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "today", "-appearance", "dark", "-coachMarks.today.done", "YES",
-                               "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-RyftOpenMyDay", "0"] + extra
-        app.launch()
-        return app
+        launchDemo(openMyDayDaysBack: 0, extra: extra)
     }
 
     /// `activities.manual` off for this launch (Debug: the saved overrides, which beat demo's remote config).
     private static let manualOff = ["-flags.overrides", "<dict><key>activities.manual</key><false/></dict>"]
 
-    /// `yyyy-MM-dd`, `back` days before today, as the app writes day strings.
-    private func day(daysBack back: Int) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Calendar.current.date(byAdding: .day, value: -back, to: Date()) ?? Date())
-    }
+    private func day(daysBack back: Int) -> String { dayString(daysBack: back) }
 
     private func waitForAbsence(of element: XCUIElement, _ message: String) {
-        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: element)
-        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: wait), .completed, message)
+        waitForAbsence(of: element, timeout: wait, message)
     }
 
     // MARK: My Day
