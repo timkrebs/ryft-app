@@ -17,6 +17,12 @@
       ]
     },
     "defaultTestExecutionTimeAllowance": 180,
+    "environmentVariableEntries": [
+      {
+        "key": "SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH",
+        "value": "4"
+      }
+    ],
     "targetForVariableExpansion": {
       "containerPath": "container:Ryft.xcodeproj",
       "identifier": "589CA62357E07E34FDA39AC9",

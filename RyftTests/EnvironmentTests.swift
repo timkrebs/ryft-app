@@ -15,7 +15,10 @@ private func samples(_ n: Int, _ type: SampleType = .heartRate) -> HealthDelta {
 /// expectation fails instead of hanging the run. Bounded by time, not by a number of
 /// yields: on a loaded CI runner (parallel tests) thousands of yields pass before
 /// work on another executor gets a thread. 30 s: the whole plan queues on the main
-/// actor at its start, which a CI runner took 12 s to work through.
+/// actor at its start, which a CI runner took 12 s to work through. That backlog is now
+/// bounded at its source: the test plans cap Swift Testing's parallelism
+/// (`SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH`), so each poll here waits behind a
+/// few main-actor test bodies, not behind every test of the plan (see docs/CI.md).
 @MainActor
 func eventually(timeout: Duration = .seconds(30), _ condition: () -> Bool) async -> Bool {
     let deadline = ContinuousClock.now + timeout
