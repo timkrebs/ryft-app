@@ -1,4 +1,4 @@
-.PHONY: config build test icon fonts screenshots lint check-entitlements strings style format archive trackers
+.PHONY: config build test icon fonts screenshots ui-shots lint check-entitlements strings style format archive trackers
 
 # Ryft.xcodeproj is the source of truth (CLAUDE.md): change targets, capabilities
 # and packages in Xcode itself.
@@ -27,6 +27,16 @@ fonts:
 
 screenshots:
 	scripts/screenshots.sh
+
+# The training import's screens rendered from the preview mocks (RyftTests/Import/ImportScreenshotTests.swift), once in
+# English and once in German, as PNGs in build/ui-shots/<screen>-<state>-<lang>-<light|dark>-<default|ax3|ax5>.png.
+# Not the App Store shots (`make screenshots`). Sets the simulator's language per run and restores it afterwards.
+# Another simulator: make ui-shots SIM=<udid from `xcrun simctl list devices available`>
+SIM ?= FDDDD545-8023-4439-9742-8DEAB9341106
+UI_SHOTS := build/ui-shots
+
+ui-shots: config
+	sh scripts/ui-shots.sh $(SIM) $(UI_SHOTS) $(DERIVED)
 
 # The string catalog from the last build's extracted strings (what Xcode does on build;
 # for sessions without it). Then `make lint` lists what needs German.
