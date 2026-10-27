@@ -16,6 +16,8 @@ Store "What's New".
 - Sleep need broken down (baseline, strain, debt, nap credit), sleep quality and
   restorative sleep, bedtime consistency, and a sleep planner for tonight.
 - Strength training: plans, a live session with rest timer, records and history.
+- Import plans and workouts from another training app's CSV export (read on your iPhone; only what you confirm is
+  sent). Not switched on yet.
 - Morning journal ("How was yesterday?") and how habits change the morning after.
 - Notifications for the morning score, scored workouts, records and missing data, with
   quiet hours.
