@@ -150,12 +150,16 @@ struct ImportResultView: View {
                                           comment: "Training import I8: a consent or invite step holds the upload.")
                               + " " + ImportResultText.keptLimits)
         case .notAvailable:
-            header(String(localized: "Ready", comment: "Training import I9."))
+            // Calm and final for now: no error styling, no Try again. RYFT asks again when the app opens.
+            header(String(localized: "Saved on this iPhone", comment: "Training import I9: importing isn't available for the account (403 import_not_enabled)."),
+                   systemImage: "tray.and.arrow.down")
             Text("Your import is saved on this iPhone.", comment: "Training import I9.")
                 .font(.ryft(.headline))
                 .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("import.result")
-            line(String(localized: "It uploads when importing is available for your account.", comment: "Training import I9."))
+            line(String(localized: "Importing isn't available for your account right now. RYFT checks again when you open the app, and sends it once it is.",
+                        comment: "Training import I9: not an error, nothing to do."))
             line(ImportResultText.keptLimits)
         case .held:
             // A 403 this build doesn't know: nothing for the user to answer, so no consent or gate words.
@@ -228,8 +232,13 @@ struct ImportResultView: View {
                 ForEach(job.planSummaries.filter { $0.state == .done }) { plan in
                     StatRow(title: "Plan", value: ImportResultText.plan(plan))
                 }
-                StatRow(title: "Workouts imported", value: "\(job.sessions.done)")
-                if job.sessions.done > 0 {
+                StatRow(title: "Workouts imported", value: "\(job.sessionsImported)")
+                if job.leftAsIs > 0 {
+                    StatRow(title: "Left as it is in RYFT", value: "\(job.leftAsIs)",
+                            detail: String(localized: "You changed these in RYFT, so your version stays.",
+                                           comment: "Training import I3: newer_on_server, why the file's version was not applied."))
+                }
+                if job.sessionsImported > 0 {
                     StatRow(title: "Sets imported", value: "\(job.setsDone)")
                 }
                 if job.skipped.skippedSets > 0 {
@@ -244,7 +253,7 @@ struct ImportResultView: View {
         }
         if job.hasRejected { rejected(job) }
         if !job.duplicatesFound.isEmpty { duplicatesFound(job) }
-        if job.sessions.done > 0 {
+        if job.sessionsImported > 0 {
             Text("Past strain on these days is being recalculated. It may take a minute to show.",
                  comment: "Training import I3: after history was imported.")
                 .font(.ryft(.caption))
@@ -258,22 +267,7 @@ struct ImportResultView: View {
             disclosure(String(localized: "Not imported (\(job.rejected.count))", comment: "Training import I4: the list's header."),
                        isOpen: $showsRejected)
             if showsRejected {
-                ForEach(job.rejected) { item in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(verbatim: [item.date.map(Fmt.date), item.title].compactMap { $0 }.joined(separator: " · "))
-                            .font(.ryft(.callout))
-                            .foregroundStyle(Theme.textPrimary)
-                        Text(verbatim: ImportResultText.reason(item))
-                            .font(.ryft(.caption))
-                            .foregroundStyle(Theme.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .accessibilityElement(children: .combine)
-                }
-                if let details = job.lastFailure?.details ?? job.rejected.compactMap(\.requestID).first.map({ "Request ID \($0)" }) {
-                    InlineMessage(message: String(localized: "Rejected by the server", comment: "Training import I4: a reason."),
-                                  systemImage: "exclamationmark.circle", details: details)
-                }
+                ForEach(job.rejected) { ImportRejectionRow(item: $0) }
             }
         }
     }
@@ -405,11 +399,15 @@ enum ImportResultText {
     /// "Imported 1 plan and 12 workouts · 3 sets skipped (no weight or reps)", and the I4 and nothing-new variants.
     static func sentence(_ job: ImportJobStatus) -> String {
         var parts: [String] = []
-        if job.plans.done > 0 { parts.append(String(localized: "\(job.plans.done) plans", comment: "Training import: a count of plans.")) }
-        if job.sessions.done > 0 {
-            parts.append(String(localized: "\(job.sessions.done) workouts", comment: "Training import: a count of workouts."))
+        if job.plansImported > 0 { parts.append(String(localized: "\(job.plansImported) plans", comment: "Training import: a count of plans.")) }
+        if job.sessionsImported > 0 {
+            parts.append(String(localized: "\(job.sessionsImported) workouts", comment: "Training import: a count of workouts."))
         }
         guard let first = parts.first else {
+            if job.leftAsIs > 0 {
+                return String(localized: "Nothing new: what's in the file is already in RYFT or stays as you changed it",
+                              comment: "Training import I3: everything was already there or newer_on_server.")
+            }
             return String(localized: "Nothing new: everything in the file was already in RYFT", comment: "Training import I3.")
         }
         let what = parts.count > 1
@@ -445,12 +443,7 @@ enum ImportResultText {
     }
 
     /// A refused item's reason in plain words.
-    static func reason(_ item: ImportItemSummary) -> String {
-        if item.blocked {
-            return String(localized: "The exercise wasn't found", comment: "Training import I4: a reason.")
-        }
-        return item.reason ?? String(localized: "Rejected by the server", comment: "Training import I4: a reason.")
-    }
+    static func reason(_ item: ImportItemSummary) -> String { ImportRejectionText.reason(item) }
 }
 
 #if DEBUG
@@ -498,6 +491,36 @@ enum ImportResultText {
         ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.savedOnPhone)))
     }
     .previewEnvironment()
+}
+
+#Preview("Step 6 · not available · light · AX5") {
+    NavigationStack {
+        ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.savedOnPhone)))
+    }
+    .previewEnvironment(scheme: .light)
+    .environment(\.dynamicTypeSize, .accessibility5)
+}
+
+#Preview("Step 6 · left as it is · dark") {
+    NavigationStack { ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.leftAsIsDone))) }
+        .previewEnvironment()
+}
+
+#Preview("Step 6 · left as it is · light · AX5") {
+    NavigationStack { ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.leftAsIsDone))) }
+        .previewEnvironment(scheme: .light)
+        .environment(\.dynamicTypeSize, .accessibility5)
+}
+
+#Preview("Step 6 · rejected by reason · dark") {
+    NavigationStack { ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.mixedRejections))) }
+        .previewEnvironment()
+}
+
+#Preview("Step 6 · rejected by reason · light · AX5") {
+    NavigationStack { ImportResultView(model: ImportMockData.flow(.result, uploader: ImportMockData.uploader(MockTrainImport.mixedRejections))) }
+        .previewEnvironment(scheme: .light)
+        .environment(\.dynamicTypeSize, .accessibility5)
 }
 
 #Preview("Step 6 · waiting for consent · dark") {

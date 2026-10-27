@@ -200,19 +200,34 @@ enum MockTrainImport {
     static let planID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0x40, 0, 0x80, 0, 0, 0, 0, 0, 0, 1))
 
     static func status(_ phase: ImportJobStatus.Phase, sessions done: Int = 8, of total: Int = 12,
-                       rejected: Int = 0) -> ImportJobStatus {
-        let rows = (0..<rejected).map { index in
+                       rejected: Int = 0, leftAsIs: Int = 0, items: [ImportItemSummary]? = nil) -> ImportJobStatus {
+        let rows = items ?? (0..<rejected).map { index in
             ImportItemSummary(id: UUID(), kind: .session, title: "Upper", date: createdAt.addingTimeInterval(Double(-index) * 86_400),
-                              reason: "exercise not found", requestID: "01JB7Z3Q8M", blocked: false)
+                              reason: "exercise not found", requestID: "01JB7Z3Q8M", blocked: false, code: "unknown_exercise")
         }
         return ImportJobStatus(
             phase: phase, createdAt: createdAt, source: .alphaProgression, timeZoneID: "Europe/Berlin",
             exercises: ImportItemCounts(total: 1, done: 1), plans: ImportItemCounts(total: 1, done: 1),
-            sessions: ImportItemCounts(total: total, done: done, rejected: rejected), setsDone: done * 3,
+            sessions: ImportItemCounts(total: total, done: done, rejected: rows.count), setsDone: max(0, done - leftAsIs) * 3,
             planSummaries: [ImportPlanSummary(id: planID, name: "Upper/Lower", weeks: 6, daysPerWeek: 4, state: .done)],
             skipped: ImportSkipCounts(alreadyImported: 2, skippedSets: 3), rejected: rows, duplicatesFound: [],
-            lastFailure: nil, planIDs: [planID], enrolledPlanID: nil, resultSeen: false)
+            lastFailure: nil, planIDs: [planID], enrolledPlanID: nil, resultSeen: false,
+            leftAsIs: leftAsIs, leftAsIsSessions: leftAsIs)
     }
+
+    /// One refused item per code the platform answers, with a request ID and a message (Details).
+    static let rejectionSamples: [ImportItemSummary] = [
+        ("invalid", "set 2 reps out of range"), ("unknown_exercise", "exercise not found"),
+        ("unknown_plan_reference", "plan day not found"), ("id_taken", "id belongs to another item"),
+        ("newer_on_server", "changed in the app"), ("future_code", "something new"), (nil, "")
+    ].enumerated().map { index, pair in
+        ImportItemSummary(id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0x50, 0, 0x80, 0, 0, 0, 0, 0, 0, UInt8(index))),
+                          kind: .session, title: "Upper", date: createdAt.addingTimeInterval(Double(-index) * 86_400),
+                          reason: pair.1.isEmpty ? nil : pair.1, requestID: "01JB7Z3Q8M\(index)", blocked: false, code: pair.0)
+    }
+
+    static let mixedRejections = status(.finished, sessions: 9, of: 16, items: Array(rejectionSamples.prefix(4)))
+    static let leftAsIsDone = status(.finished, sessions: 12, of: 12, leftAsIs: 3)
 
     static let uploading = status(.uploading)
     static let done = status(.finished, sessions: 12, of: 12)

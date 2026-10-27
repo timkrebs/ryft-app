@@ -1244,6 +1244,7 @@ final class TrainImportUploader {
         let setsDone = plan.sessions.filter { progress[$0.id]?.phase == .done && progress[$0.id]?.result != Self.newerOnServer }
             .reduce(0) { $0 + $1.exercises.reduce(0) { $0 + $1.sets.count } }
         let leftAsIs = progress.items.values.filter { $0.phase == .done && $0.result == Self.newerOnServer }.count
+        let leftAsIsSessions = plan.sessions.filter { progress[$0.id]?.phase == .done && progress[$0.id]?.result == Self.newerOnServer }.count
         let planSummaries = plan.plans.map { item in
             let state: ImportPlanSummary.State = switch progress[item.id]?.phase {
             case .done?: .done
@@ -1260,7 +1261,7 @@ final class TrainImportUploader {
             skipped: plan.skipped, rejected: rejected,
             duplicatesFound: duplicates, lastFailure: progress.lastFailure, planIDs: sentPlans,
             enrolledPlanID: progress.enrolledPlanID,
-            resultSeen: row.resultSeen, leftAsIs: leftAsIs)
+            resultSeen: row.resultSeen, leftAsIs: leftAsIs, leftAsIsSessions: leftAsIsSessions)
     }
 
     /// Why nothing runs, when no pass has said so yet (a job loaded at launch).

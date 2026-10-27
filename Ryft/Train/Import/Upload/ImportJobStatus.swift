@@ -43,6 +43,13 @@ struct ImportJobStatus: Equatable, Sendable {
     /// Plans and sessions the platform left as they are because they were changed in the app since (`newer_on_server`):
     /// not imported again, and not a failure. They are not in `rejected` and not in `setsDone`.
     var leftAsIs = 0
+    /// Of `leftAsIs`, the sessions (the rest are plans). `sessions.done` counts them as done, but they were not imported.
+    var leftAsIsSessions = 0
+
+    /// Workouts written now or before, not those left as they are.
+    var sessionsImported: Int { max(0, sessions.done - leftAsIsSessions) }
+    /// Plans written now or before, not those left as they are.
+    var plansImported: Int { max(0, plans.done - max(0, leftAsIs - leftAsIsSessions)) }
 
     var isFinished: Bool { phase == .finished }
     var hasRejected: Bool { !rejected.isEmpty }

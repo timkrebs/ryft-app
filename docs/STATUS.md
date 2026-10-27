@@ -73,7 +73,9 @@
   only on `tryAgain()`):
   - device check of the live call against a platform with `train.import` on (429 `import_in_progress`, 403
     `import_not_enabled`, a rejected item's request ID in Details);
-  - UI for `leftAsIs` (`newer_on_server`: "left as it is in RYFT") and the rejected items' `code` is still to do;
+  - U2 built the UI for `leftAsIs` ("left as it is in RYFT"), the rejected items' `code` with Request ID in Details, and the
+    calm "saved on this iPhone" state; new strings wait for localization-editor, and the step-1 privacy text still says
+    "never uploaded or stored" (the sent-later job is stored up to 30 days);
   - the Info.plist CSV document type and `LSSupportsOpeningDocumentsInPlace` ship with the flag-on PR;
   - device checks: "Open in" from Mail and Files, an iCloud file not yet downloaded, a batch finishing in the background;
   - privacy-policy lines: the import is read on the device, an unsent import is kept up to 30 days, `import_source` is
