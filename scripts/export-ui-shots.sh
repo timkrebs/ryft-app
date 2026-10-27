@@ -24,9 +24,14 @@ for bundle in "$@"; do
     xcrun xcresulttool export attachments --path "$bundle" --output-path "$raw/export" >/dev/null
     # "<name>_<repetition>_<uuid>.png" is the suggested file name; the test's own name is what stands before the suffix.
     jq -r '.[].attachments[] | select(.suggestedHumanReadableName | endswith(".png"))
-           | [.exportedFileName, (.suggestedHumanReadableName | sub("_[0-9]+_[0-9A-Fa-f-]{36}\\.png$"; ""))] | @tsv' \
+           | [.exportedFileName, (.suggestedHumanReadableName | sub("(_[0-9]+_[0-9A-Fa-f-]{36})?\\.png$"; ""))] | @tsv' \
         "$raw/export/manifest.json" |
         while IFS="$(printf '\t')" read -r file name; do
+            # Two shots with one name (e.g. a language that didn't apply) would overwrite each other silently.
+            if [ -e "$out/$name.png" ]; then
+                echo "duplicate screenshot name: $name (from $bundle)" >&2
+                exit 1
+            fi
             cp "$raw/export/$file" "$out/$name.png"
         done
     count=$(jq '[.[].attachments[] | select(.suggestedHumanReadableName | endswith(".png"))] | length' "$raw/export/manifest.json")

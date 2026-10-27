@@ -30,13 +30,13 @@ screenshots:
 
 # The training import's screens rendered from the preview mocks (RyftTests/Import/ImportScreenshotTests.swift), once in
 # English and once in German, as PNGs in build/ui-shots/<screen>-<state>-<lang>-<light|dark>-<default|ax3|ax5>.png.
-# Not the App Store shots (`make screenshots`). Sets the simulator's language per run and restores it afterwards.
-# Another simulator: make ui-shots SIM=<udid from `xcrun simctl list devices available`>
-SIM ?= FDDDD545-8023-4439-9742-8DEAB9341106
+# Not the App Store shots (`make screenshots`). Runs on a throwaway simulator of SHOT_DEVICE (deleted afterwards).
+# Another device type: make ui-shots SHOT_DEVICE='iPhone 17'
+SHOT_DEVICE ?= iPhone 18 Pro
 UI_SHOTS := build/ui-shots
 
 ui-shots: config
-	sh scripts/ui-shots.sh $(SIM) $(UI_SHOTS) $(DERIVED)
+	sh scripts/ui-shots.sh '$(SHOT_DEVICE)' $(UI_SHOTS) $(DERIVED)
 
 # The string catalog from the last build's extracted strings (what Xcode does on build;
 # for sessions without it). Then `make lint` lists what needs German.

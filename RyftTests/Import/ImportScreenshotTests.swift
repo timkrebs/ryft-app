@@ -8,17 +8,18 @@ extension Tag {
     @Tag static var screenshots: Self
 }
 
-/// One language takes about 45 s (50 windows), too long for the Unit plan: only `make ui-shots` turns it on
-/// (`xcodebuild` forwards `TEST_RUNNER_RYFT_SCREENSHOTS=1` into the test process). At file scope: the suite's own
-/// trait can't name a member of the suite (a circular macro reference).
+/// One language takes about 30 s (50 windows, one at a time), too long for the Unit plan: only `make ui-shots` turns
+/// it on (`xcodebuild` forwards `TEST_RUNNER_RYFT_SCREENSHOTS=1` into the test process). At file scope: the suite's
+/// own trait can't name a member of the suite (a circular macro reference).
 private let importScreenshotsEnabled = ProcessInfo.processInfo.environment["RYFT_SCREENSHOTS"] == "1"
 
 /// Renders the training import's screens from the preview mocks and attaches a PNG per screen, state, appearance and
 /// text size to the test results, for a human to read (ui.md §12). The only assertion is that a render exists and has a
-/// size: there are no reference images. `make ui-shots` runs it once per language (`-testLanguage`); the language in
-/// each name is the process's, because `String(localized:)` follows the process and not `\.locale`.
+/// size: there are no reference images. `scripts/ui-shots.sh` runs it once per language on a simulator set to that
+/// language; the language in each name is the localization the app's strings resolve to (`String(localized:)` follows
+/// the process, not `\.locale`). Serialized: each shot owns the app's window scene while it renders.
 @MainActor
-@Suite("Import screenshots", .tags(.screenshots), .enabled(if: importScreenshotsEnabled))
+@Suite("Import screenshots", .tags(.screenshots), .serialized, .enabled(if: importScreenshotsEnabled))
 struct ImportScreenshotTests {
     /// A screen in one of its states, as the previews build it.
     enum Screen: String, CaseIterable, Sendable {
@@ -144,9 +145,14 @@ struct ImportScreenshotTests {
 
     @Test("Render and attach", arguments: shots)
     func rendersAndAttaches(_ shot: Shot) async throws {
-        // The localization the app's strings resolve to (what `-testLanguage` changes), not `Locale.current`.
+        // The localization the app's strings resolve to, not `Locale.current`. When the script names the language it
+        // set, a language that didn't apply fails here instead of yielding English shots under another name.
         let language = Bundle.main.preferredLocalizations.first ?? "und"
-        let image = try #require(await Self.render(shot))
+        if let expected = ProcessInfo.processInfo.environment["RYFT_SHOT_LANG"] {
+            try #require(language == expected, "the app resolves strings in \(language), not \(expected)")
+        }
+        let scene = try #require(await Self.windowScene(), "the test host has no window scene")
+        let image = try #require(await Self.render(shot, in: scene))
         #expect(image.size.width > 0 && image.size.height > 0)
         Attachment.record(image, named: shot.name(language: language), as: .png)
     }
@@ -155,9 +161,19 @@ struct ImportScreenshotTests {
 
     private static let width: CGFloat = 402
 
+    /// The host app's scene; the first test can start before it connects. A window without a scene can't present
+    /// alerts or sheets.
+    private static func windowScene() async -> UIWindowScene? {
+        for _ in 0..<100 {
+            if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first { return scene }
+            await pump(0.05)
+        }
+        return nil
+    }
+
     /// The screen in a window of the app's process, so navigation bars, alerts and sheets are real; nil if it can't
     /// be drawn.
-    private static func render(_ shot: Shot) async -> UIImage? {
+    private static func render(_ shot: Shot, in scene: UIWindowScene) async -> UIImage? {
         let height = shot.screen.isModal ? TextSize.standard.height : shot.size.height
         let root = shot.screen.view(scheme: shot.scheme).environment(\.dynamicTypeSize, shot.size.dynamicType)
         let host = UIHostingController(rootView: root)
@@ -165,14 +181,15 @@ struct ImportScreenshotTests {
         host.view.backgroundColor = .clear
 
         let frame = CGRect(x: 0, y: 0, width: width, height: height)
-        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-        let window = scene.map(UIWindow.init(windowScene:)) ?? UIWindow(frame: frame)
+        let window = UIWindow(windowScene: scene)
         window.frame = frame
         window.windowLevel = .alert + 1
         window.overrideUserInterfaceStyle = shot.dark ? .dark : .light
         window.rootViewController = host
         window.isHidden = false
         defer {
+            // An alert or sheet still presented would keep the host and its flow model alive past the test.
+            host.presentedViewController?.dismiss(animated: false)
             window.isHidden = true
             window.rootViewController = nil
         }
