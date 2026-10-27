@@ -171,8 +171,9 @@ struct ImportResultView: View {
                           details: job.lastFailure?.details,
                           caption: ImportResultText.keptLimits)
         case .needsAttention:
-            // The platform refused everything in the last pass; the rest is still pending.
-            header(String(localized: "Importing…", comment: "Training import I2."))
+            // The platform refused everything in the last pass; the rest is still pending. Not "Importing…": nothing
+            // moves until Try again (ui.md I4, the resume row's "Import needs attention").
+            header(String(localized: "Some items weren't imported", comment: "Training import I4."))
             progress(job, paused: true)
             InlineMessage(message: String(localized: "Some items weren't accepted, so the upload stopped.",
                                           comment: "Training import: the platform refused every request of the last pass."),

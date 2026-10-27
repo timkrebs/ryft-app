@@ -14,21 +14,20 @@ struct DateRangeControl: View {
     let isEmpty: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Picker(selection: $preset) {
-                ForEach(ImportSelection.RangePreset.allCases) { Text(verbatim: $0.title).tag($0) }
-            } label: {
-                Text("Range", comment: "Training import, step 3: the history range picker.")
-                    .font(.ryft(.body))
-                    .foregroundStyle(Theme.textPrimary)
+            if typeSize.isAccessibilitySize {
+                accessibilityRangeMenu
+            } else {
+                rangePicker
+                    .pickerStyle(.menu)
+                    .tint(Theme.accent)
+                    .frame(minHeight: 44)
+                    .accessibilityValue(Text(verbatim: "\(preset.title), \(result)"))
+                    .accessibilityIdentifier("import.range")
             }
-            .pickerStyle(.menu)
-            .tint(Theme.accent)
-            .frame(minHeight: 44)
-            .accessibilityValue(Text(verbatim: "\(preset.title), \(result)"))
-            .accessibilityIdentifier("import.range")
             if preset == .custom {
                 VStack(spacing: 4) {
                     DatePicker(selection: binding($from), in: dateLimits, displayedComponents: .date) {
@@ -61,6 +60,41 @@ struct DateRangeControl: View {
         .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: result)
     }
 
+    private var rangePicker: some View {
+        Picker(selection: $preset) {
+            ForEach(ImportSelection.RangePreset.allCases) { Text(verbatim: $0.title).tag($0) }
+        } label: {
+            Text("Range", comment: "Training import, step 3: the history range picker.")
+                .font(.ryft(.body))
+                .foregroundStyle(Theme.textPrimary)
+        }
+    }
+
+    /// At accessibility sizes the system's menu button was squeezed into a narrow column and wrapped per character:
+    /// the same picker behind a full-width label of our own that wraps by word and grows downwards.
+    private var accessibilityRangeMenu: some View {
+        Menu {
+            rangePicker.pickerStyle(.inline)
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(verbatim: preset.title)
+                    .font(.ryft(.body))
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.ryft(.callout))
+                    .accessibilityHidden(true)
+            }
+            .foregroundStyle(Theme.accent)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityLabel(Text("Range", comment: "Training import, step 3: the history range picker."))
+        .accessibilityValue(Text(verbatim: "\(preset.title), \(result)"))
+        .accessibilityIdentifier("import.range")
+    }
+
     private var dateLimits: ClosedRange<Date> {
         limits.lowerBound.date(in: zone)...max(limits.lowerBound.date(in: zone), limits.upperBound.date(in: zone))
     }
@@ -83,4 +117,19 @@ struct DateRangeControl: View {
         }
     }
     return SchemePair { Demo() }
+}
+
+#Preview("Date range · AX5", traits: .sizeThatFitsLayout) {
+    struct Demo: View {
+        @State var preset = ImportSelection.RangePreset.allTime
+        @State var from = ImportMockData.day(2026, 3, 2)
+        @State var to = ImportMockData.day(2026, 4, 27)
+        var body: some View {
+            DateRangeControl(preset: $preset, from: $from, to: $to,
+                             limits: ImportMockData.day(2026, 3, 2)...ImportMockData.day(2026, 4, 27),
+                             zone: ImportMockData.zone, result: "10 workouts from 2 Mar to 27 Apr 2026", isEmpty: false)
+        }
+    }
+    return SchemePair { Demo() }
+        .environment(\.dynamicTypeSize, .accessibility5)
 }
