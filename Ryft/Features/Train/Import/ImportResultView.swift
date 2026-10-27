@@ -174,7 +174,7 @@ struct ImportResultView: View {
                                           comment: "Training import: the platform refused every request of the last pass."),
                           systemImage: "exclamationmark.circle",
                           details: job.lastFailure?.details,
-                          retry: { await model.deps.uploader.resume() },
+                          retry: { await model.deps.uploader.tryAgain() },
                           caption: String(localized: "The rest of your import is kept on this iPhone. Try again to send it.",
                                           comment: "Training import: Try again sends the pending rest.")
                               + " " + ImportResultText.keptLimits,
@@ -198,7 +198,7 @@ struct ImportResultView: View {
             InlineMessage(message: String(localized: "The upload paused.", comment: "Training import I5."),
                           systemImage: "wifi.exclamationmark",
                           details: job.lastFailure?.details,
-                          retry: { await model.deps.uploader.resume() },
+                          retry: { await model.deps.uploader.tryAgain() },
                           caption: (seconds.map { $0 > 0
                               ? String(localized: "Trying again in \($0) seconds", comment: "Training import I5: a Retry-After countdown.")
                               : String(localized: "Your import is kept on this iPhone. RYFT retries when the connection is back.",

@@ -27,8 +27,36 @@ final class MockTrainImportSource: TrainImportAPI, @unchecked Sendable {
     private var refusing: Set<UUID> = []
     private var finishesCancelled = false
     private var holdHook: (@Sendable () async -> Void)?
+    private var codes: [UUID: String] = [:]
+    private var busyAnswers = 0
+    private var disabled = false
+    private var stubborn = false
 
     init() {}
+
+    /// `unknown_plan_reference` answers also a session sent without plan references (a platform that disagrees twice).
+    var refusesUnlinkedSessions: Bool {
+        get { lock.withLock { stubborn } }
+        set { lock.withLock { stubborn = newValue } }
+    }
+
+    /// The `code` a `rejectIDs` item is answered with (default `invalid`), e.g. `newer_on_server`, `unknown_plan_reference`.
+    var rejectCodes: [UUID: String] {
+        get { lock.withLock { codes } }
+        set { lock.withLock { codes = newValue } }
+    }
+
+    /// The next this many requests are answered `429 import_in_progress` (`Retry-After: 10`), nothing processed.
+    var importInProgressAnswers: Int {
+        get { lock.withLock { busyAnswers } }
+        set { lock.withLock { busyAnswers = newValue } }
+    }
+
+    /// `403 import_not_enabled`: the flag is off for the account.
+    var notEnabled: Bool {
+        get { lock.withLock { disabled } }
+        set { lock.withLock { disabled = newValue } }
+    }
 
     /// False: a platform before the contract (`TrainImportAPI.publishesTrainImport`).
     var publishesTrainImport: Bool {
@@ -88,10 +116,22 @@ final class MockTrainImportSource: TrainImportAPI, @unchecked Sendable {
             await hook()
             if !finishesCancelledRequests { try Task.checkCancellation() }
         }
+        if notEnabled { throw APIError.http(403, "import is not enabled", requestID: "req-403", code: .importNotEnabled) }
+        let busy = lock.withLock { () -> Bool in
+            guard busyAnswers > 0 else { return false }
+            busyAnswers -= 1
+            return true
+        }
+        if busy {
+            throw APIError.http(429, "another import is running", requestID: "req-429", code: .importInProgress, retryAfter: 10)
+        }
         guard body.count <= 1 << 20 else { throw APIError.http(413, "request body too large") }
         let request = try APIClient.jsonDecoder.decode(Body.self, from: body)
         guard request.plans.count <= 5, request.sessions.count <= 50 else {
             throw APIError.http(413, "too many items")
+        }
+        guard request.sessions.reduce(0, { $0 + $1.exercises.reduce(0) { $0 + $1.sets.count } }) <= 2_500 else {
+            throw APIError.http(422, "at most 2500 sets per request", requestID: "req-422")
         }
         let refused = refuseRequestsWith
         if !refused.isDisjoint(with: request.plans.map(\.id) + request.sessions.map(\.id)) {
@@ -109,21 +149,24 @@ final class MockTrainImportSource: TrainImportAPI, @unchecked Sendable {
                 results.append(answer(.plan, plan.id, old: storedPlans[plan.id], new: plan) { storedPlans[plan.id] = plan })
             }
             for session in request.sessions where !omitted.contains(session.id) {
-                results.append(answer(.session, session.id, old: storedSessions[session.id], new: session) {
+                // `unknown_plan_reference` holds only while the session still names a plan day or row (T5).
+                let linked = session.planDayId != nil || session.exercises.contains { $0.planExerciseId != nil }
+                let refuses = codes[session.id] != "unknown_plan_reference" || linked || stubborn
+                results.append(answer(.session, session.id, old: storedSessions[session.id], new: session, rejects: refuses) {
                     storedSessions[session.id] = session
                 })
             }
             let days = Set(request.sessions.filter { storedSessions[$0.id] != nil }
                 .map { DayFormat.string(from: $0.startedAt) })
-            return TrainImportResponse(results: results, daysTouched: days.sorted())
+            return TrainImportResponse(results: results, daysTouched: days.sorted(), requestID: "mock-req-\(log.count)")
         }
     }
 
     /// In the lock.
-    private func answer<T: Equatable>(_ kind: ImportKind, _ id: UUID, old: T?, new: T,
+    private func answer<T: Equatable>(_ kind: ImportKind, _ id: UUID, old: T?, new: T, rejects: Bool = true,
                                       store: () -> Void) -> ImportResult {
-        if let reason = rejected[id] {
-            return ImportResult(kind: kind, id: id, status: .rejected, code: "invalid", message: reason)
+        if rejects, let reason = rejected[id] {
+            return ImportResult(kind: kind, id: id, status: .rejected, code: codes[id] ?? "invalid", message: reason)
         }
         let status: ImportStatus = old == nil ? .created : old == new ? .unchanged : .updated
         store()

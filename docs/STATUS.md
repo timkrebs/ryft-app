@@ -69,9 +69,11 @@
   - a process cold-launched in the background before the first unlock keeps the in-memory fallback store and holds
     all uploads until it's relaunched, even in the foreground. Device check; consider reopening the durable store
     on unlock.
-- **Training import, before C2 makes the upload live:**
-  - `.needsAttention` resumes on every automatic trigger (app active, reconnect, sign-in, gate); it should resume only on
-    the user's Try again;
+- **Training import, before the flag turns on** (U1 wired the live `POST /v1/train/import`; `.needsAttention` now resumes
+  only on `tryAgain()`):
+  - device check of the live call against a platform with `train.import` on (429 `import_in_progress`, 403
+    `import_not_enabled`, a rejected item's request ID in Details);
+  - UI for `leftAsIs` (`newer_on_server`: "left as it is in RYFT") and the rejected items' `code` is still to do;
   - the Info.plist CSV document type and `LSSupportsOpeningDocumentsInPlace` ship with the flag-on PR;
   - device checks: "Open in" from Mail and Files, an iCloud file not yet downloaded, a batch finishing in the background;
   - privacy-policy lines: the import is read on the device, an unsent import is kept up to 30 days, `import_source` is

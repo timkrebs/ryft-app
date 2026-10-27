@@ -5,8 +5,11 @@
 //            ──▶ POST /v1/plans/{id}/enroll ──▶ done: library refresh, the days rescored
 //   per item: created · unchanged · updated ──▶ done · rejected ──▶ listed, Retry · not named 3× ──▶ rejected
 //   413 ──▶ half the sessions per request · other 4xx ──▶ that request's items rejected, the rest goes on
-//   transport · 408 · 429 · 5xx ──▶ paused, backoff 30 s · 2 min · 10 min · 1 h (Retry-After) · 403 + code ──▶ gated
-//   no contract (C2) or train.import off ──▶ "saved on this iPhone"
+//   transport · 408 · 5xx ──▶ paused, backoff 30 s · 2 min · 10 min · 1 h (Retry-After) · 403 + code ──▶ gated
+//   429 import_in_progress ──▶ paused for Retry-After (10 s), the same request again; other 429 ──▶ Retry-After
+//   403 import_not_enabled · train.import off ──▶ "saved on this iPhone"
+//   unknown_plan_reference ──▶ the session again without plan links, once · newer_on_server ──▶ left as is, not a failure
+//   needsAttention ──▶ only tryAgain() continues it, no automatic trigger
 import Foundation
 import Observation
 import SwiftData
@@ -23,8 +26,8 @@ import UIKit
 ///   for once per pass (`ConsentState.revalidate`).
 /// - **Idempotent:** every id is derived (ADR 0007), so a request whose answer was lost is sent again and answers
 ///   `unchanged`; progress is stored after each request, so a relaunch goes on where it stopped.
-/// - **Before the contract** (`TrainImportAPI.publishesTrainImport == false`) or with `train.import` off, nothing is
-///   sent: the job is "saved on this iPhone".
+/// - **Without uploads** (`TrainImportAPI.publishesTrainImport == false`, `train.import` off, or the platform's `403
+///   import_not_enabled`), nothing is sent: the job is "saved on this iPhone".
 /// - **Never `LocalSession`, the outbox or Apple Health** (ADR 0007 §4).
 @MainActor
 @Observable
@@ -32,6 +35,10 @@ final class TrainImportUploader {
     /// ≤ 50 sessions and ≤ 5 plans per request (T9); sessions are halved after a `413`.
     static let sessionsPerRequest = 50
     static let plansPerRequest = 5
+    /// ≤ 2,500 sets in all the sessions of a request (the platform answers `422` above it).
+    static let setsPerRequest = 2_500
+    /// `Retry-After` of `429 import_in_progress` when the answer has none.
+    static let importInProgressWait: TimeInterval = 10
     /// A request body stays under the platform's 1 MiB with room for headers.
     static let maxBodyBytes = (1 << 20) - (16 << 10)
     /// A job that isn't done is removed after this long (design §7).
@@ -89,6 +96,9 @@ final class TrainImportUploader {
     @ObservationIgnored private var failures = 0
     @ObservationIgnored private var retryAt: Date?
     @ObservationIgnored private var lostConnection = false
+    /// The platform answered `403 import_not_enabled` for this binding: nothing is sent until the app starts again or
+    /// the account changes.
+    @ObservationIgnored private var notEnabledByPlatform = false
     @ObservationIgnored private var pass: Task<Void, Never>?
     @ObservationIgnored private var passID: UUID?
     @ObservationIgnored private var passAgain = false
@@ -132,7 +142,7 @@ final class TrainImportUploader {
     /// iPhone" (V5).
     var uploadsAvailable: Bool {
         guard let env, let account = currentAccount else { return false }
-        return client(for: account, env: env).publishesTrainImport && env.flags.isOn(.trainImport)
+        return client(for: account, env: env).publishesTrainImport && env.flags.isOn(.trainImport) && !notEnabledByPlatform
     }
 
     /// A pass is sending now.
@@ -239,21 +249,33 @@ final class TrainImportUploader {
 
     // MARK: triggers
 
-    /// Continue: app active, reconnect, sign-in, the gate opening. Waits for the pass (a running one goes round once
-    /// more); a pass still backing off isn't started early.
+    /// Continue, on an automatic trigger: app active, reconnect, sign-in, the gate opening, a backoff ending. Waits for
+    /// the pass (a running one goes round once more); a pass still backing off isn't started early. A job that
+    /// `needsAttention` is left as it is: only `tryAgain()` continues that.
     func resume() async {
         await reload()
         guard let pass = startPass(userInitiated: false) else { return }
         await pass.value
     }
 
-    /// "Retry N" and "Try again": the rejected and blocked items go back to pending and are sent now, without
-    /// waiting out a backoff; the rest isn't resubmitted.
+    /// "Try again" (the user's tap): continues a job that needs attention, and anything else that waits, now and without
+    /// waiting out a backoff. The one way out of `ImportPause.needsAttention`.
+    func tryAgain() async {
+        await reload()
+        await clearNeedsAttention()
+        guard let pass = startPass(userInitiated: true) else { return }
+        await pass.value
+    }
+
+    /// "Retry N": the rejected and blocked items go back to pending and are sent now, without waiting out a backoff;
+    /// the rest isn't resubmitted. The user's tap, so it also continues a job that needs attention.
     func retryRejected() async {
         await reload()
         guard var current = loaded else { return }
         current.progress.items = current.progress.items.filter { $0.value.phase != .rejected && $0.value.phase != .blocked }
         current.progress.unanswered = [:]
+        current.progress.resentWithoutLinks = []
+        current.progress.needsAttention = false
         loaded = current
         await store(current.progress, finished: nil)
         guard let pass = startPass(userInitiated: true) else { return }
@@ -265,6 +287,7 @@ final class TrainImportUploader {
         await reload()
         guard var current = loaded else { return }
         current.progress.items = current.progress.items.filter { $0.value.phase != .duplicate }
+        current.progress.needsAttention = false
         loaded = current
         await store(current.progress, finished: nil)
         guard let pass = startPass(userInitiated: true) else { return }
@@ -303,6 +326,7 @@ final class TrainImportUploader {
         loaded = nil
         resetRetry()
         pause = nil
+        notEnabledByPlatform = false
         status = nil
         Task { [weak self] in await self?.reload() }
     }
@@ -447,6 +471,12 @@ final class TrainImportUploader {
 
     private func startPass(userInitiated: Bool) -> Task<Void, Never>? {
         guard env != nil, let current = loaded, current.account == currentAccount else { return nil }
+        // Every refused request of the last pass: an automatic trigger doesn't send them all again; only Try again does.
+        if !userInitiated, current.progress.needsAttention, Self.hasWork(current) {
+            pause = .needsAttention
+            refreshStatus()
+            return pass
+        }
         if userInitiated { makeDue() }
         if let pass {
             passAgain = true
@@ -503,7 +533,7 @@ final class TrainImportUploader {
     private func run(_ generation: Generation, revalidated: inout Bool) async {
         guard let env, let current = loaded, let account = generation.account, current.account == account else { return }
         let api = client(for: account, env: env)
-        guard env.flags.isOn(.trainImport), api.publishesTrainImport else {
+        guard env.flags.isOn(.trainImport), api.publishesTrainImport, !notEnabledByPlatform else {
             stop(.notAvailable)
             return
         }
@@ -551,7 +581,7 @@ final class TrainImportUploader {
                 refusedAlone += 1
                 if !acceptedInPass, refusedAlone >= Self.maxRefusedAlone {
                     ImportLog.logger.info("Import: every request refused, \(refusedAlone, privacy: .public) alone; the rest waits")
-                    stop(.needsAttention)
+                    await stopNeedingAttention()
                     return
                 }
             case .sent, .fewerSessions: continue
@@ -591,6 +621,23 @@ final class TrainImportUploader {
         pause = reason
         activity = nil
         refreshStatus()
+    }
+
+    /// Every request of the pass was refused: stored, so no automatic trigger (and no relaunch) sends them again.
+    private func stopNeedingAttention() async {
+        if var current = loaded {
+            current.progress.needsAttention = true
+            loaded = current
+            await store(current.progress, finished: nil)
+        }
+        stop(.needsAttention)
+    }
+
+    private func clearNeedsAttention() async {
+        guard var current = loaded, current.progress.needsAttention else { return }
+        current.progress.needsAttention = false
+        loaded = current
+        await store(current.progress, finished: nil)
     }
 
     // MARK: duplicates at upload (design §6)
@@ -748,13 +795,20 @@ final class TrainImportUploader {
             // And links into RYFT's copy of a plan where that copy no longer has the day or row.
             let missing = Set(current.progress.missingLinks.compactMap(UUID.init(uuidString:)))
             let limit = min(max(1, row.sessionsPerRequest), (itemLimit ?? .max) - plans.count)
+            let resent = Set(current.progress.resentWithoutLinks)
+            var sets = 0
             for session in current.plan.sessions where current.progress.isPending(session.id) {
                 if let by = blocker(session.exercises.map(\.exerciseId)) {
                     blocked[session.id] = by
                     continue
                 }
                 guard sessions.count < limit else { break }
-                sessions.append(Self.unlinked(session, days: failedDays.union(missing), rows: missing))
+                // At most 2,500 sets in all (one session has at most 300): the next session waits for the next request.
+                let count = session.exercises.reduce(0) { $0 + $1.sets.count }
+                guard sessions.isEmpty || sets + count <= Self.setsPerRequest else { break }
+                sets += count
+                let linked = Self.unlinked(session, days: failedDays.union(missing), rows: missing)
+                sessions.append(resent.contains(session.id.uuidString) ? Self.withoutPlanLinks(linked) : linked)
             }
         }
         if !blocked.isEmpty {
@@ -780,6 +834,19 @@ final class TrainImportUploader {
         copy.exercises = copy.exercises.map { exercise in
             var copy = exercise
             if dropDay || copy.planExerciseId.map(rows.contains) == true { copy.planExerciseId = nil }
+            return copy
+        }
+        return copy
+    }
+
+    /// The session without any plan reference (`plan_day_id`, every `plan_exercise_id`): what T5 resends after the platform
+    /// answered `unknown_plan_reference`.
+    static func withoutPlanLinks(_ session: TrainSession) -> TrainSession {
+        var copy = session
+        copy.planDayId = nil
+        copy.exercises = copy.exercises.map { exercise in
+            var copy = exercise
+            copy.planExerciseId = nil
             return copy
         }
         return copy
@@ -862,19 +929,32 @@ final class TrainImportUploader {
         guard var current = loaded, current.jobID == jobID else { return }
         let sent = Set(ids)
         var counts: [String: Int] = [:]
+        // Sessions sent again without their plan references (T5): pending, but they were answered.
+        var resending = Set<UUID>()
+        // `results[].id` is matched as a UUID value (the platform writes lower case; `UUID` equality ignores case).
         for result in answer.results where sent.contains(result.id) && current.progress.isPending(result.id) {
+            var label = result.status.rawValue
             switch result.status {
             case .created, .unchanged, .updated:
                 current.progress[result.id] = ImportJobProgress.Item(phase: .done, result: result.status.rawValue)
+            case .rejected where result.code == Self.newerOnServer:
+                // Changed in the app since the import last wrote it: left as it is, "already there", not a failure.
+                current.progress[result.id] = ImportJobProgress.Item(phase: .done, result: Self.newerOnServer)
+                label = Self.newerOnServer
+            case .rejected where result.code == Self.unknownPlanReference && result.kind == .session
+                && !current.progress.resentWithoutLinks.contains(result.id.uuidString):
+                current.progress.resentWithoutLinks.append(result.id.uuidString)
+                resending.insert(result.id)
+                label = "resend"
             case .rejected:
                 current.progress[result.id] = ImportJobProgress.Item(phase: .rejected, reason: result.message,
-                                                                  requestID: answer.requestID)
+                                                                     code: result.code, requestID: answer.requestID)
             }
-            counts[result.status.rawValue, default: 0] += 1
+            counts[label, default: 0] += 1
             current.progress.unanswered[result.id.uuidString] = nil
         }
         var unanswered = 0
-        for id in ids where current.progress.isPending(id) {
+        for id in ids where current.progress.isPending(id) && !resending.contains(id) {
             unanswered += 1
             let times = (current.progress.unanswered[id.uuidString] ?? 0) + 1
             if times >= Self.maxUnanswered {
@@ -895,6 +975,9 @@ final class TrainImportUploader {
         await store(current.progress, finished: nil)
     }
 
+    private static let newerOnServer = "newer_on_server"
+    private static let unknownPlanReference = "unknown_plan_reference"
+
     /// Items the platform refused (or that can't be sent): kept with the request's status and ID until Retry.
     private func refuse(_ ids: [UUID], reason: String?, error: Error?, job jobID: UUID) async {
         guard var current = loaded, current.jobID == jobID else { return }
@@ -914,11 +997,20 @@ final class TrainImportUploader {
 
     /// What a failed request means (API.md → Errors). True: the pass goes on (the items were refused).
     private func failed(_ ids: [UUID], _ error: Error, job jobID: UUID) async -> Bool {
-        if error as? TrainImportError == .notPublished || (error as? APIError)?.status == 404 {
+        let api = error as? APIError
+        if api?.status == 404 {
             stop(.notAvailable)
             return false
         }
-        let api = error as? APIError
+        // The flag is off for the account (API.md → Errors): nothing to retry, no gate to answer. The job is kept as
+        // "saved on this iPhone" and nothing more is sent until the app starts again.
+        if api?.status == 403, api?.code == .importNotEnabled {
+            record(failure(error))
+            notEnabledByPlatform = true
+            ImportLog.logger.info("Import: not enabled for this account, request \(api?.requestID ?? "-", privacy: .public)")
+            stop(.notAvailable)
+            return false
+        }
         // Every `403` holds, without a code this build knows too: health data waits, never dropped (ADR 0008). Only
         // the gates the user can answer (consent, the invite) are `gated`; any other is `held`.
         if api?.status == 403 {
@@ -1027,17 +1119,27 @@ final class TrainImportUploader {
 
     private func transientFailure(_ error: Error?) {
         let api = error as? APIError
-        failures += 1
-        let step = Self.backoff[min(failures, Self.backoff.count) - 1].timeInterval
-        var wait = step + random(0...(step * Self.jitter))
-        // `Retry-After` is honoured up to the backoff's ceiling (1 h): a larger one waits for a later trigger.
-        if let retryAfter = api?.retryAfter {
-            wait = max(wait, min(TimeInterval(retryAfter), Self.backoff[Self.backoff.count - 1].timeInterval))
+        let ceiling = Self.backoff[Self.backoff.count - 1].timeInterval
+        let wait: TimeInterval
+        let inProgress = api?.code == .importInProgress
+        let said = api?.status == 429 ? (api?.retryAfter.map(TimeInterval.init) ?? (inProgress ? Self.importInProgressWait : nil)) : nil
+        if let said {
+            // The platform says when: `Retry-After` (10 s for `import_in_progress` when it sent none; that answer also
+            // processed nothing, so the same request goes again). It's a wait, not a failure: no backoff step, and for
+            // `import_in_progress` no failure recorded for Details. A rate limit without the header backs off as a 5xx.
+            wait = min(said, ceiling)
+        } else {
+            failures += 1
+            let step = Self.backoff[min(failures, Self.backoff.count) - 1].timeInterval
+            var timed = step + random(0...(step * Self.jitter))
+            // `Retry-After` is honoured up to the backoff's ceiling (1 h): a larger one waits for a later trigger.
+            if let retryAfter = api?.retryAfter { timed = max(timed, min(TimeInterval(retryAfter), ceiling)) }
+            wait = timed
         }
         let due = (env?.clock.now() ?? Date()).addingTimeInterval(wait)
         retryAt = due
         lostConnection = error.map { _ in api?.status == nil } ?? false
-        if let error { record(failure(error)) }
+        if let error, !inProgress { record(failure(error)) }
         ImportLog.logger.info("""
         Import paused: \(error.map { FailureKind.of($0).rawValue } ?? "check", privacy: .public), status \
         \(api?.status ?? 0, privacy: .public), request \(api?.requestID ?? "-", privacy: .public)
@@ -1112,7 +1214,7 @@ final class TrainImportUploader {
             switch item.phase {
             case .rejected, .blocked:
                 rejected.append(ImportItemSummary(id: id, kind: kind, title: title, date: date, reason: item.reason,
-                                                  requestID: item.requestID, blocked: item.phase == .blocked))
+                                                  requestID: item.requestID, blocked: item.phase == .blocked, code: item.code))
             case .duplicate:
                 duplicates.append(ImportItemSummary(id: id, kind: kind, title: title, date: date, reason: nil,
                                                     requestID: nil, blocked: false))
@@ -1128,6 +1230,8 @@ final class TrainImportUploader {
             phase = .finished
         } else if pass != nil, let activity {
             phase = activity == .preparing ? .preparing : .uploading
+        } else if pass == nil, progress.needsAttention {
+            phase = .paused(.needsAttention)
         } else if let pause {
             phase = .paused(pause)
         } else if pass != nil {
@@ -1136,8 +1240,10 @@ final class TrainImportUploader {
             phase = .paused(livePause(env: env, account: current.account))
         }
         let sentPlans = plan.plans.map(\.id).filter { progress[$0]?.phase == .done }
-        let setsDone = plan.sessions.filter { progress[$0.id]?.phase == .done }
+        // Imported now (or before): not what was left as it is because it was changed in the app since.
+        let setsDone = plan.sessions.filter { progress[$0.id]?.phase == .done && progress[$0.id]?.result != Self.newerOnServer }
             .reduce(0) { $0 + $1.exercises.reduce(0) { $0 + $1.sets.count } }
+        let leftAsIs = progress.items.values.filter { $0.phase == .done && $0.result == Self.newerOnServer }.count
         let planSummaries = plan.plans.map { item in
             let state: ImportPlanSummary.State = switch progress[item.id]?.phase {
             case .done?: .done
@@ -1154,12 +1260,14 @@ final class TrainImportUploader {
             skipped: plan.skipped, rejected: rejected,
             duplicatesFound: duplicates, lastFailure: progress.lastFailure, planIDs: sentPlans,
             enrolledPlanID: progress.enrolledPlanID,
-            resultSeen: row.resultSeen)
+            resultSeen: row.resultSeen, leftAsIs: leftAsIs)
     }
 
     /// Why nothing runs, when no pass has said so yet (a job loaded at launch).
     private func livePause(env: AppEnvironment, account: String) -> ImportPause {
-        if !env.flags.isOn(.trainImport) || !client(for: account, env: env).publishesTrainImport { return .notAvailable }
+        if !env.flags.isOn(.trainImport) || !client(for: account, env: env).publishesTrainImport || notEnabledByPlatform {
+            return .notAvailable
+        }
         if !env.connectivity.isOnline { return .offline }
         if let hold = gate(.data) { return .gated(hold) }
         return .retrying(at: retryAt)

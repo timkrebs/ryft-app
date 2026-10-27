@@ -448,7 +448,8 @@ final class APIClient: RyftDataSource {
     /// The request with an already encoded JSON body (or none).
     func exchange(_ method: String, path: String, encodedBody: Data?, contentEncoding: String? = nil, base: URL? = nil,
                   accepting: Set<Int> = [],
-                  unavailableRetries: Int = APIClient.maxUnavailableRetries) async throws -> Answer {
+                  unavailableRetries: Int = APIClient.maxUnavailableRetries,
+                  retriesRateLimit: Bool = true) async throws -> Answer {
         guard let root = base ?? baseURL ?? settings.apiURL, root.host != nil,
               let url = URL(string: path, relativeTo: root) else {
             throw APIError.notConfigured
@@ -534,7 +535,7 @@ final class APIClient: RyftDataSource {
                 continue
             case 401:
                 try await retryStep { await tokens.rejectedAfterRefresh() }
-            case 429 where !rateLimited && !single:
+            case 429 where retriesRateLimit && !rateLimited && !single:
                 rateLimited = true
                 let wait = min(retryAfter ?? 1, Self.maxRateLimitWait)
                 APIStatus.log.notice("429 on \(method, privacy: .public) \(redactedPath(path), privacy: .public); retrying in \(wait) s")
