@@ -44,7 +44,9 @@
   - the Add activity and My Day UI tests pass on the phone (12/12, demo mode).
 - **Health permission:** iOS asked again for read access to Workouts on that launch. The app's requested types haven't changed
   since the scaffold, so the phone's own permission had been reset; the user answered it.
-- **Tue 20 Oct now lists the Garmin run 7 times** (6 last week). The day reads "7 activities · 63.3 km".
+- **Tue 20 Oct now lists the Garmin run 7 times** (6 last week). The day reads "7 activities · 63.3 km". Apple Health
+  holds it once: Garmin rewrites the workout under new UUIDs and the platform keeps the deleted copies (API_REQUESTS →
+  Sync performance §2).
 
 ### Simulator-only
 - My Day's layouts (dark, light, en, de, AX3, AX5).
@@ -105,23 +107,29 @@
   - runtime warnings seen on the device (Charts `UnitPoint` anchor; `onChange(of: SyncLine)` firing more than once per frame).
 
 ### Needs you
-1. **Apple Health → Browse → Activity → Workouts, Tue 20 Oct, 5:23 PM run:** it now shows 7 times in My Day (6 last week).
-   Once or several times in Apple Health? Then I file the platform dedupe request.
-2. **Relay to the platform session:** `docs/API_REQUESTS.md` → Tracker setup §5, Activities R1–R26, Training import
-   T1–T13 (the import endpoint `POST /v1/train/import` is what C2 waits for).
-3. **Training import:**
-   - a German Alpha Progression export, to confirm the German tokens;
-   - does Alpha Progression export the time a workout was recorded, or re-render it in the phone's current zone?
-   - 13 workout blocks vs the brief's 12.
-4. **ryftapp.de:** serve `trackers.json` at `2026-10-23.1`; add the privacy-policy lines (manual activities and sleep,
-   remembered exercise matches, the import read on the device and kept up to 30 days, `import_source`).
-5. **TestFlight External:** build `20261026.173827` (with P2) is with Internal. Say when to promote it; the weekly
-   workflow then needs your approval in the `external-testflight` environment.
-6. **iOS 17/18:** Xcode 27.1 no longer offers those simulators. Before the App Store 1.0: an iOS 17/18 device, or an
-   older Xcode side by side, for the O1 upgrade and P1 date checks.
-7. **Housekeeping:** close PR #17 (superseded by #18); review Dependabot's #60; delete the merged `fix/a2-review` branch.
-8. **Usage:** the Sonnet-based agents hit the weekly limit and the account its monthly spend limit (resets Oct 28,
-   23:00); I4's UI validation is partial because of it.
+Updated 2026-10-27 with the user's answers.
+1. **Relay to the platform session:** `docs/work/2026-10-27-website/platform-brief.md`. It covers:
+   - `trackers.json` on ryftapp.de;
+   - one new privacy-policy version with every pending line;
+   - the duplicate-workout bug (`API_REQUESTS.md` → Sync performance §2, confirmed: Apple Health holds the Tue 20 Oct
+     run once, My Day shows it 7 times);
+   - Tracker setup §5, Activities R1–R26, Training import T1–T13 (`POST /v1/train/import` unblocks C2).
+
+   The site lives in `plattform/web`, which the app session doesn't edit.
+2. **Training import:** these questions are about the **Alpha Progression** app, not RYFT (RYFT's import is still behind
+   `train.import`):
+   - a CSV exported with Alpha Progression set to German, to confirm the German tokens;
+   - after you change the phone's time zone, do the exported workout times stay as recorded, or shift?
+   - 13 workout blocks in the sample vs the brief's 12.
+3. **TestFlight External:** on hold until the training import is live in the app (user, 2026-10-27). Build
+   `20261026.173827` stays with Internal.
+4. **iOS 17/18:** the user's iPhone runs iOS 27.0.1, so it doesn't cover these. The app still declares iOS 17. Choose:
+   test on an iOS 17/18 device (or an older Xcode's simulators), or raise the minimum iOS before the App Store 1.0.
+5. **Usage:** agent work resumes after the limits reset (Oct 28, 23:00) or are raised. The full I4 UI validation is
+   first.
+
+Done on 2026-10-27: Apple Health has the run once (now filed as the bug above); #17 closed; Dependabot #60 reviewed
+(the pinned SHA is the v4.39.1 tag), approved, auto-merge on; `fix/a2-review` deleted.
 
 ## Consent gates know the policy in force (P2, `fix/consent-gates`, ADR 0008)
 
