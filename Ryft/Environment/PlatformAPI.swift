@@ -2,9 +2,9 @@ import Foundation
 
 /// The whole platform surface (`../plattform/docs/API.md`): what screens read
 /// (`RyftDataSource`), Train (`TrainDataSource`), activities (`ActivitiesAPI`, a draft
-/// until the contract is published), and the calls services make.
-/// `APIClient` is the live implementation, `MockPlatformAPI` the in-memory one.
-protocol PlatformAPI: RyftDataSource, TrainDataSource, ActivitiesAPI {
+/// until the contract is published), the training import (`TrainImportAPI`, a draft until C2), and the calls
+/// services make. `APIClient` is the live implementation, `MockPlatformAPI` the in-memory one.
+protocol PlatformAPI: RyftDataSource, TrainDataSource, ActivitiesAPI, TrainImportAPI {
     /// `POST /v1/sync`; the body is a `SyncRequest`, encoded by `SyncEngine` off the main actor,
     /// gzipped when `contentEncoding` is `"gzip"`.
     func sync(encoded body: Data, contentEncoding: String?) async throws -> SyncResponse
@@ -154,6 +154,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         // Never in a Release demo before the release PR that adds the location background mode and turns
         // recording on (design.md §8.5, §10 → Flags): App Review can open demo data.
         on += [.activitiesRecording, .activityLiveHR]
+        // The training import, until the PR that turns it on for accounts.
+        on += [.trainImport]
         #endif
         return Dictionary(uniqueKeysWithValues: on.map { ($0.rawValue, true) })
     }()
@@ -190,6 +192,8 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     /// Activities and manual sleep (`ActivitiesAPI`): empty and scored at once by default (tests); the demo
     /// graphs pass `MockActivitiesSource.demoSource()`.
     let activitySource: MockActivitiesSource
+    /// The training import's batch endpoint (`TrainImportAPI`); what it stored is listed with the sessions and plans.
+    let trainImportSource: MockTrainImportSource
     private(set) var mePatches: [UserPatch] = []
 
     private(set) var calls: [String] = []
@@ -198,10 +202,11 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     private(set) var appleCodes: [String] = []
 
     init(screens: RyftDataSource = MockDataSource.shared, train: TrainDataSource = MockTrainSource.shared,
-         activities: MockActivitiesSource = MockActivitiesSource()) {
+         activities: MockActivitiesSource = MockActivitiesSource(), trainImport: MockTrainImportSource? = nil) {
         self.screens = screens
         self.train = train
         activitySource = activities
+        trainImportSource = trainImport ?? MockTrainImportSource()
         #if DEBUG
         faults = FaultInjection.parse(UserDefaults.standard.string(forKey: "RyftFault"))
         #endif
@@ -537,8 +542,19 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     func exerciseHistory(id: UUID) async throws -> ExerciseHistory {
         try enter("exerciseHistory"); return try await train.exerciseHistory(id: id)
     }
-    func plans() async throws -> PlansOverview { try enter("plans"); return try await train.plans() }
-    func plan(id: UUID) async throws -> Plan { try enter("plan"); return try await train.plan(id: id) }
+    func plans() async throws -> PlansOverview {
+        try enter("plans")
+        var overview = try await train.plans()
+        // Imported plans are the user's own.
+        let imported = trainImportSource.plans.filter { plan in !overview.mine.contains { $0.id == plan.id } }
+        overview.mine += imported.sorted { $0.name < $1.name }.map(PlanSummary.init)
+        return overview
+    }
+    func plan(id: UUID) async throws -> Plan {
+        try enter("plan")
+        if let imported = trainImportSource.plan(id: id) { return imported }
+        return try await train.plan(id: id)
+    }
     func savePlan(_ p: Plan) async throws -> Plan { try enter("savePlan"); return try await train.savePlan(p) }
     func deletePlan(id: UUID) async throws { try enter("deletePlan"); try await train.deletePlan(id: id) }
     func enroll(planID: UUID) async throws -> Enrollment {
@@ -547,9 +563,16 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     func pauseEnrollment() async throws { try enter("pauseEnrollment"); try await train.pauseEnrollment() }
     func planToday() async throws -> PlanToday? { try enter("planToday"); return try await train.planToday() }
     func sessions(from: Date, to: Date) async throws -> [SessionSummary] {
-        try enter("sessions"); return try await train.sessions(from: from, to: to)
+        try enter("sessions")
+        let logged = try await train.sessions(from: from, to: to)
+        let imported = trainImportSource.summaries(from: from, to: to).filter { s in !logged.contains { $0.id == s.id } }
+        return (logged + imported).sorted { $0.startedAt > $1.startedAt }
     }
-    func session(id: UUID) async throws -> TrainSession { try enter("session"); return try await train.session(id: id) }
+    func session(id: UUID) async throws -> TrainSession {
+        try enter("session")
+        if let imported = trainImportSource.session(id: id) { return imported }
+        return try await train.session(id: id)
+    }
     func putSession(_ s: TrainSession) async throws -> SessionPutResult {
         try enter("putSession"); return try await train.putSession(s)
     }
@@ -557,6 +580,14 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
         try enter("completeSession"); return try await train.completeSession(id: id, body)
     }
     func deleteSession(id: UUID) async throws { try enter("deleteSession"); try await train.deleteSession(id: id) }
+
+    // MARK: training import (draft)
+
+    var publishesTrainImport: Bool { trainImportSource.publishesTrainImport }
+
+    func importTraining(encoded body: Data) async throws -> TrainImportResponse {
+        try enter("importTraining"); return try await trainImportSource.importTraining(encoded: body)
+    }
 
     // MARK: activities (draft)
 

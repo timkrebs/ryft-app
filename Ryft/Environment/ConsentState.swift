@@ -6,8 +6,8 @@ import Foundation
 import Observation
 import UIKit
 
-/// Why an upload waits (`OnboardingCoordinator.gate(_:path:write:)`, asked by `SyncService`, `ActivityUploader` and
-/// `TrainSyncService`).
+/// Why an upload waits (`OnboardingCoordinator.gate(_:path:write:)`, asked by `SyncService`, `ActivityUploader`,
+/// `TrainSyncService` and `TrainImportUploader`).
 enum UploadGate: Equatable, Sendable {
     /// Something only the user or the platform can settle: no consent to the policy in force, an enforced invite
     /// gate, the account not known yet.
@@ -38,7 +38,8 @@ enum UploadPath: Sendable {
     case activities
     /// Train's outbox (`TrainSyncService`): every op bound to its account or demo.
     case train
-    /// The training import's batch (`POST /v1/train/import`, not built yet).
+    /// The training import (`TrainImportUploader`: `POST /v1/exercises`, `POST /v1/train/import`, the enrolment):
+    /// every request bound to its account or demo, every `403` held.
     case trainImport
 }
 

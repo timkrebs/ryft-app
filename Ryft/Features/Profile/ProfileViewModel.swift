@@ -268,8 +268,11 @@ final class ProfileViewModel {
     func demoModeChanged(_ on: Bool) {
         // Demo data's flags are its own: off again, the account's cached flags, never demo's.
         (env.flags as? FlagStore)?.setDemo(on)
-        // What was matched in demo's training import was never this account's.
-        if !on { ImportMappingStore.forgetDemo(in: env.persistence) }
+        // What was matched in demo's training import was never this account's, and neither is its upload.
+        if !on {
+            ImportMappingStore.forgetDemo(in: env.persistence)
+            TrainImportUploader.forgetDemo(in: env.persistence)
+        }
     }
 
     // MARK: export
@@ -289,9 +292,13 @@ final class ProfileViewModel {
         // makes it someone else's.
         let owner = AccountBinding(env)
         do {
+            // The import job of the binding the export started for (read now; decoded off the main actor).
+            let pendingImport = await PendingImportExport.make(persistence: env.persistence,
+                                                               account: ImportMappingStore(env: env).account)
             let archive = try await DataExport.archive(source: state.source, train: env.api,
                                                        rememberedMatches: ImportMappingStore(env: env).records(),
-                                                       activities: env.api, onPhone: env.activities)
+                                                       activities: env.api, onPhone: env.activities,
+                                                       pendingImport: pendingImport)
             guard owner.isCurrent(in: env) else { return }
             exported = ExportedFile(url: try DataExport.write(archive, to: exportFolder))
         } catch where error.isCancellation {

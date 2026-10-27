@@ -489,6 +489,8 @@ struct ProfileView: View {
             }
             .accessibilityIdentifier("profile.syncDetails")
 
+            // The training import: in, then Export: out (ui.md §3.2).
+            ImportProfileRows()
             if model.canExport {
                 PrimaryButton(title: "Export my data", style: .secondary, busy: model.exporting) { await model.export() }
                     .accessibilityHint(Text("Creates a JSON file of your scores, workouts and sessions to share or save"))

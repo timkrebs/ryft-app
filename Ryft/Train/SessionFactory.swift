@@ -68,7 +68,7 @@ enum SessionFactory {
     }
 
     /// Heavier lifts rest longer.
-    static func defaultRest(for ex: Exercise) -> Int {
+    nonisolated static func defaultRest(for ex: Exercise) -> Int {
         switch ex.kind {
         case .barbell: return 180
         case .dumbbell, .kettlebell, .bodyweight: return 90

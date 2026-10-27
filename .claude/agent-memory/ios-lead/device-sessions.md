@@ -16,6 +16,12 @@ The user sometimes connects his personal iPhone so checks can run on a real devi
 - **Calls:** another app can still be on screen, e.g. a call in picture-in-picture. Check
   `devicectl device info processes` for call services and ask if they're present. They can also idle without a call.
 - If a capture shows anything that isn't RYFT, delete it at once, don't describe it, and tell him.
+- A successful launch doesn't prove RYFT is on screen. The display can be off or locked, or another app can be in front.
+  - Check the capture's pixel size before opening it: RYFT is portrait-only (1206×2622 on his iPhone 16 Pro).
+  - A landscape size means delete it unopened (2026-10-23: a `--payload-url` launch captured a black landscape screen).
+- **Notifications:** another app's notification banner can land in any capture (2026-10-26: a messenger banner over
+  My Day). Before the first screenshot, ask him to turn on Do Not Disturb or a Focus for the session. If a banner
+  slips through, delete that capture and any taken in the same batch without opening them.
 - App arguments go after `--`:
   `devicectl device process launch --device <id> --terminate-existing dev.timkrebs.ryft -- -RyftFlags devices.setup …`.
 - Use Debug launch arguments (`-RyftFlags`, `-RyftTrackers`, `-RyftScreen`) that never persist to his account.

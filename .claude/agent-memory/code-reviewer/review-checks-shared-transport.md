@@ -42,3 +42,7 @@ wake and is lost if the suspended app is jettisoned. Sign-out dropping it is fin
 
 Known red test (2026-10-22): `PullToRefreshTests.thePullReturnsAfterThreeSecondsAtMost` (`state.isLoading`, SyncCoordinatorTests
 :1268) fails on `d9fc265` too (2/3 locally, 10/10 on a T1 branch run): pre-existing, not a branch regression — check main first.
+
+Screen-level `.refreshable` (My Day A1 part 2, 2026-10-23): awaiting more after `screens.pullToRefresh()` (e.g.
+`load(day, force: true)`) bypasses `AppState.spinnerCap` (3 s), and `.latest` on today joins phase 2's flight or sends
+a second `GET /v1/days/{today}`. Ask for activities-only / capped follow-ups.

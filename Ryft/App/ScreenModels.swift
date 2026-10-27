@@ -30,6 +30,10 @@ final class ScreenModels {
     let devices: TrackerSelectionStore
     /// My Day (`today.my_day`): the card on Today and its full screen.
     let myDay: MyDayViewModel
+    /// The training import's upload (`train.import`): step 6, the resume row on My Plans and in Profile → Data.
+    let trainImport: TrainImportUploader
+    /// The training import's flow (`train.import`): one cover for My Plans, Profile → Data and "Open in".
+    let importer: ImportCoordinator
     private let state: AppState
     private let sync: SyncService
     /// Train's outbox (the app's; nil in tests and previews that don't upload sessions).
@@ -55,6 +59,8 @@ final class ScreenModels {
             trainSync.gate = { [onboarding] in onboarding.uploadGate(for: .train, write: $0) }
             trainSync.revalidatePolicy = { [consent = state.env.consent] in try await consent.revalidate() }
         }
+        trainImport = TrainImportUploader(env: state.env, library: library, coordinator: coordinator)
+        trainImport.gate = { [onboarding] in onboarding.uploadGate(for: .trainImport, write: $0) }
         // The launch check's sync status reaches the sync (an operator's re-sync request).
         onboarding.statusReceived = { [sync] in sync.receive($0) }
         push = PushRegistrar(env: state.env)
@@ -68,6 +74,12 @@ final class ScreenModels {
         state.env.uploader.connect(repository: state.repository, coordinator: coordinator)
         insights = InsightsViewModel(state: state, journal: journal)
         router = DeepLinkRouter(state: state, sleep: sleep, strain: strain, insights: insights, onboarding: onboarding)
+        importer = ImportCoordinator(env: state.env, library: library, uploader: trainImport,
+                                     showStrain: { [state] in state.selectedTab = .strain },
+                                     openRoute: { [state, strain] route in
+                                         strain.requestedRoute = route
+                                         state.selectedTab = .strain
+                                     })
         let env = state.env
         featureFlags = (env.flags as? FlagStore).map { store in
             FeatureFlags(flags: store, clock: env.clock) {
@@ -107,7 +119,8 @@ final class ScreenModels {
             guard let trainSync else { return }
             Task { await trainSync.flush() }
         case .trainImport:
-            break // the import's upload isn't built yet: it asks at its own start
+            let uploader = trainImport
+            Task { await uploader.resume() }
         }
     }
 

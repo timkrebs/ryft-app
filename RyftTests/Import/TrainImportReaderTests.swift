@@ -127,17 +127,62 @@ struct TrainImportReaderTests {
         #expect(single.warnings.map(\.at) == [SourceLine(file: 4, line: 1)])
     }
 
+    /// The same plans file picked twice: one plan, and a note at the dropped copy's first line.
+    @Test func theSamePlansFileTwiceIsOnePlan() async throws {
+        let files = try [ImportFixture.file("ap-plans"), ImportFixture.file("ap-plans")]
+        let bundle = try await TrainImportReader.read(files)
+        #expect(bundle.plans.count == 1 && bundle.plans.first?.source == SourceLine(file: 0, line: 1))
+        #expect(bundle.warnings == [ImportWarning(at: SourceLine(file: 1, line: 1), kind: .duplicatePlanInFiles)])
+        let build = try ImportBuildFixture.build(bundle, ImportBuildFixture.decisions())
+        #expect(build.uploadPlan(including: build.defaultIncluded).plans.count == 1)
+    }
+
+    /// Identical means the same content RYFT builds: a name that folds the same is the same plan; a different day,
+    /// row, set count, rep range, week count or start date is another plan, which keeps its own id.
+    @Test func onlyIdenticalPlansAreKeptOnce() throws {
+        let row = ImportedPlanExercise(order: 1, name: "Deadlift", equipment: "Barbell", sets: 3, targetReps: 5...5)
+        func plan(name: String = "Upper/Lower", weeks: Int? = 6, start: String? = "2026-02-02", day: String = "Pull",
+                  row: ImportedPlanExercise = row) -> ImportBundle {
+            let file = ImportedPlan(name: name, weeks: weeks, startDate: start.flatMap(ImportBuildFixture.date),
+                                    days: [ImportedDay(number: 1, name: day, exercises: [row])], source: SourceLine(file: 0, line: 1))
+            return ImportBuildFixture.bundle([], plans: [file])
+        }
+        let base = plan()
+        #expect(base.merging(plan(name: "upper lower").inFile(1)).plans.count == 1)
+        #expect(base.merging(plan(day: "PULL").inFile(1)).plans.count == 1)
+        var other = row
+        other.sets = 4
+        var reps = row
+        reps.targetReps = 5...8
+        var equipment = row
+        equipment.equipment = "Dumbbell"
+        let different = [plan(name: "Upper"), plan(weeks: 8), plan(start: nil), plan(day: "Push"), plan(row: other),
+                         plan(row: reps), plan(row: equipment)]
+        for variant in different {
+            let merged = base.merging(variant.inFile(1))
+            #expect(merged.plans.count == 2 && merged.warnings.isEmpty)
+        }
+        // Same name, different content: two plans with two ids.
+        let two = base.merging(plan(row: other).inFile(1))
+        let build = try ImportBuildFixture.build(two, ImportBuildFixture.decisions())
+        #expect(Set(build.uploadPlan(including: build.defaultIncluded).plans.map(\.id)).count == 2)
+    }
+
     @Test func thePickedFilesAreCappedInNumberAndSize() async throws {
         let plans = try ImportFixture.file("ap-plans")
         await #expect(throws: ImportError.tooManyFiles(count: 7)) {
             try await TrainImportReader.read(Array(repeating: plans, count: 7))
         }
+        // Six picks are accepted. They're one file six times, so its plan is kept once and the other five copies are
+        // notes (`merging` keeps one copy of an identical plan).
         let six = try await TrainImportReader.read(Array(repeating: plans, count: 6))
-        #expect(six.plans.count == 6)
+        #expect(six.plans.count == 1)
+        #expect(six.warnings.map(\.kind) == Array(repeating: .duplicatePlanInFiles, count: 5))
+        #expect(six.warnings.map(\.at.file) == [1, 2, 3, 4, 5])
         var limits = ImportLimits.standard
         limits.maxTotalBytes = plans.data.count * 2
         let two = try await TrainImportReader.read([plans, plans], limits: limits)
-        #expect(two.plans.count == 2)
+        #expect(two.plans.count == 1 && two.warnings.map(\.kind) == [.duplicatePlanInFiles])
         await #expect(throws: ImportError.tooLarge(bytes: plans.data.count * 3)) {
             try await TrainImportReader.read([plans, plans, plans], limits: limits)
         }
