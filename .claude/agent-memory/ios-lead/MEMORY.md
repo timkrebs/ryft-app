@@ -6,3 +6,4 @@
 - [Public repo, personal data](public-repo-personal-data.md) — scan briefs/docs/fixtures against real files; redact to synthetic before commit
 - [No attribution lines](no-attribution-lines.md) — never a "Generated with Claude Code" footer or Co-Authored-By trailer; tell agents too
 - [Stacked branch after squash](stacked-branch-after-squash.md) — merging main can resurrect replaced code; diff merged tree vs branch head
+- [External TestFlight hold](external-testflight-hold.md) — no External promotion until the training import is live (2026-10-27)
