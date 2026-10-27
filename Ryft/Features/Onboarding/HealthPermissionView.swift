@@ -334,7 +334,7 @@ final class OnboardingCoordinator {
             case .consentRequired?:
                 apiStatus.resolved(.inviteRequired)
                 consent.refused(.consentRequired, at: env.clock.now())
-            case .inviteRequired?:
+            case .inviteRequired?, .importInProgress?, .importNotEnabled?:
                 break
             }
         }

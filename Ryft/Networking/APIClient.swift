@@ -66,7 +66,7 @@ enum APIError: LocalizedError {
     }
 
     /// A `403` with a gate code: route to the invite or consent screen, never show it as a failure.
-    var gate: APIErrorCode? { status == 403 ? code : nil }
+    var gate: APIErrorCode? { status == 403 && code?.isGate == true ? code : nil }
 
     /// `422`: well-formed but invalid (a field, a value, a day not editable).
     /// Shown inline next to what caused it; never retried, never a sign-out.
@@ -327,7 +327,7 @@ final class APIClient: RyftDataSource {
     static func gates(_ response: HTTPURLResponse) -> Set<APIErrorCode> {
         guard let value = response.value(forHTTPHeaderField: "X-RYFT-Gate") else { return [] }
         return Set(value.split(separator: ",").compactMap {
-            APIErrorCode(rawValue: $0.trimmingCharacters(in: .whitespaces))
+            APIErrorCode(rawValue: $0.trimmingCharacters(in: .whitespaces)).flatMap { $0.isGate ? $0 : nil }
         })
     }
 
