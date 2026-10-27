@@ -626,7 +626,7 @@ final class TrainImportUploader {
             guard let entry = existing.plans[plan.id] else { continue }
             // RYFT's copy may have been edited: it's kept (the preview couldn't offer "Replace"), and sessions keep only
             // the links into days and rows that copy still has (as the preview's `linkablePlan` does).
-            updated.progress[plan.id] = ImportJobProgress.Item(phase: .done, result: TrainImportItemResult.Status.unchanged.rawValue)
+            updated.progress[plan.id] = ImportJobProgress.Item(phase: .done, result: ImportStatus.unchanged.rawValue)
             let kept = Set((entry?.days ?? []).flatMap { [$0.id] + $0.exercises.map(\.id) })
             for day in plan.days {
                 for id in [day.id] + day.exercises.map(\.id) where !kept.contains(id) { missing.insert(id.uuidString) }
@@ -634,7 +634,7 @@ final class TrainImportUploader {
         }
         updated.progress.missingLinks = missing.sorted()
         for id in existing.sessionIDs where updated.progress.isPending(id) {
-            updated.progress[id] = ImportJobProgress.Item(phase: .done, result: TrainImportItemResult.Status.unchanged.rawValue)
+            updated.progress[id] = ImportJobProgress.Item(phase: .done, result: ImportStatus.unchanged.rawValue)
         }
         let candidates = pending.filter { updated.progress.isPending($0.id) }.compactMap { session -> DuplicateDetector.Candidate? in
             guard let key = dayKey(session.startedAt) else { return nil }
@@ -666,7 +666,7 @@ final class TrainImportUploader {
         do {
             let saved = try await api.createExercise(exercise)
             guard isCurrent(generation, job: jobID), var current = loaded else { return false }
-            current.progress[exercise.id] = ImportJobProgress.Item(phase: .done, result: TrainImportItemResult.Status.created.rawValue)
+            current.progress[exercise.id] = ImportJobProgress.Item(phase: .done, result: ImportStatus.created.rawValue)
             loaded = current
             // Demo's exercises live on the demo platform only: never in the account's library cache.
             if current.account != ImportMappingStore.demoAccount { (env?.persistence as? TrainStore)?.cache(exercises: [saved]) }
@@ -790,13 +790,13 @@ final class TrainImportUploader {
         guard let current = loaded, let row = job(id: current.jobID) else { return .stop }
         let jobID = current.jobID
         if !batch.blocked.isEmpty { await store(current.progress, finished: nil) }
-        let source = ImportFormatID(rawValue: row.source)
+        guard let wireSource = TrainImportSource(rawValue: row.source) else { return .stop }
         // Measured: fewer sessions until the body fits; one item alone that doesn't fit is refused.
         var plans = batch.plans, sessions = batch.sessions
         var body: Data?
         while true {
             let signpost = ImportLog.signposter.beginInterval("encode-batch", id: ImportLog.signposter.makeSignpostID())
-            let encoded = await Self.encodeRequest(TrainImportRequest(source: source, plans: plans, sessions: sessions))
+            let encoded = await Self.encodeRequest(TrainImportRequest(source: wireSource, plans: plans, sessions: sessions))
             ImportLog.signposter.endInterval("encode-batch", signpost)
             guard isCurrent(generation, job: jobID) else { return .stop }
             guard let encoded else { return .stop }
@@ -867,7 +867,7 @@ final class TrainImportUploader {
             case .created, .unchanged, .updated:
                 current.progress[result.id] = ImportJobProgress.Item(phase: .done, result: result.status.rawValue)
             case .rejected:
-                current.progress[result.id] = ImportJobProgress.Item(phase: .rejected, reason: result.reason,
+                current.progress[result.id] = ImportJobProgress.Item(phase: .rejected, reason: result.message,
                                                                   requestID: answer.requestID)
             }
             counts[result.status.rawValue, default: 0] += 1

@@ -104,7 +104,7 @@ final class MockTrainImportSource: TrainImportAPI, @unchecked Sendable {
         return lock.withLock {
             log.append(Request(source: request.source, planIDs: request.plans.map(\.id),
                                sessionIDs: request.sessions.map(\.id), bytes: body.count))
-            var results: [TrainImportItemResult] = []
+            var results: [ImportResult] = []
             for plan in request.plans where !omitted.contains(plan.id) {
                 results.append(answer(.plan, plan.id, old: storedPlans[plan.id], new: plan) { storedPlans[plan.id] = plan })
             }
@@ -120,12 +120,14 @@ final class MockTrainImportSource: TrainImportAPI, @unchecked Sendable {
     }
 
     /// In the lock.
-    private func answer<T: Equatable>(_ kind: TrainImportItemResult.Kind, _ id: UUID, old: T?, new: T,
-                                      store: () -> Void) -> TrainImportItemResult {
-        if let reason = rejected[id] { return TrainImportItemResult(kind: kind, id: id, status: .rejected, reason: reason) }
-        let status: TrainImportItemResult.Status = old == nil ? .created : old == new ? .unchanged : .updated
+    private func answer<T: Equatable>(_ kind: ImportKind, _ id: UUID, old: T?, new: T,
+                                      store: () -> Void) -> ImportResult {
+        if let reason = rejected[id] {
+            return ImportResult(kind: kind, id: id, status: .rejected, code: "invalid", message: reason)
+        }
+        let status: ImportStatus = old == nil ? .created : old == new ? .unchanged : .updated
         store()
-        return TrainImportItemResult(kind: kind, id: id, status: status)
+        return ImportResult(kind: kind, id: id, status: status)
     }
 
     /// Imported sessions as `GET /v1/sessions` lists them.

@@ -332,7 +332,11 @@ struct AuthServiceTests {
         let auth = make(client)
         await settle()
         client.emit(.signedOut, nil)
-        await settle()
+        // The observation task runs on its own schedule; on a loaded CI runner 20 yields aren't always enough.
+        for _ in 0..<200 where auth.state != .signedOut || auth.signOutNotice == nil {
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(5))
+        }
         #expect(auth.state == .signedOut)
         #expect(auth.signOutNotice != nil)
     }
