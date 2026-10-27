@@ -3147,13 +3147,13 @@
         }
       }
     },
-    "Choose the CSV files exported from Alpha Progression: the plans file, the workouts file, or both. RYFT reads them on this iPhone. The files themselves are never uploaded or stored." : {
+    "Choose the CSV files exported from Alpha Progression: the plans file, the workouts file, or both. The file is read on your iPhone and is never uploaded. Only the workouts and plans you confirm are sent, and each imported workout is stored with the name of the app the file came from." : {
       "comment" : "Training import, step 1. Alpha Progression is a data source, named factually.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Wähle die CSV-Dateien aus dem Alpha-Progression-Export: die Plan-Datei, die Workout-Datei oder beide. RYFT liest sie auf diesem iPhone. Die Dateien selbst werden nie hochgeladen oder gespeichert."
+            "value" : "Wähle die CSV-Dateien aus dem Alpha-Progression-Export: die Plan-Datei, die Workout-Datei oder beide. Die Datei wird auf deinem iPhone gelesen und nie hochgeladen. Gesendet werden nur die Workouts und Pläne, die du bestätigst, und zu jedem importierten Workout wird der Name der App gespeichert, aus der die Datei stammt."
           }
         }
       }
@@ -3240,6 +3240,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Code"
+          }
+        }
+      }
+    },
+    "Code %@" : {
+      "comment" : "Training import, Details: the platform's code for the item.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code %@"
           }
         }
       }
@@ -4735,6 +4746,17 @@
         }
       }
     },
+    "Importing isn't available for your account right now. RYFT checks again when you open the app, and sends it once it is." : {
+      "comment" : "Training import I9: not an error, nothing to do.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importieren ist für dein Konto gerade nicht verfügbar. RYFT prüft es beim nächsten Öffnen der App erneut und sendet den Import, sobald es geht."
+          }
+        }
+      }
+    },
     "Importing isn't available on this account yet" : {
       "comment" : "Training import E10: Open in with the import off.",
       "localizations" : {
@@ -4880,6 +4902,28 @@
         }
       }
     },
+    "It uses an exercise RYFT doesn't know." : {
+      "comment" : "Training import I4: the platform's code unknown_exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Er verwendet eine Übung, die RYFT nicht kennt."
+          }
+        }
+      }
+    },
+    "It points to a plan day RYFT doesn't have." : {
+      "comment" : "Training import I4: the platform's code unknown_plan_reference.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Er verweist auf einen Plantag, den es in RYFT nicht gibt."
+          }
+        }
+      }
+    },
     "It uploads when importing is available for your account." : {
       "comment" : "Training import I9.",
       "localizations" : {
@@ -5011,13 +5055,13 @@
         }
       }
     },
-    "Kept on this iPhone for up to 30 days. Signing out removes it." : {
+    "Kept on this iPhone for up to 30 days. Signing out or deleting your account removes it." : {
       "comment" : "Training import: the limits of a saved import (TrainImportUploader.retention, the sign-out wipe).",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Er bleibt bis zu 30 Tage auf diesem iPhone. Beim Abmelden wird er gelöscht."
+            "value" : "Er bleibt bis zu 30 Tage auf diesem iPhone. Beim Abmelden oder Löschen deines Kontos wird er entfernt."
           }
         }
       }
@@ -5261,6 +5305,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dein Ruhepuls-Ausgangswert entsteht: %1$lld von %2$lld Nächten."
+          }
+        }
+      }
+    },
+    "Left as it is in RYFT" : {
+      "comment" : "Training import I3: the stat row for newer_on_server, the file's version was not applied.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In RYFT belassen"
+          }
+        }
+      }
+    },
+    "Left as it is in RYFT. You changed it there." : {
+      "comment" : "Training import: newer_on_server, the app's version is kept; not an error.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "So belassen, wie es in RYFT ist. Du hast es dort geändert."
           }
         }
       }
@@ -5782,6 +5848,17 @@
         }
       }
     },
+    "Message: %@" : {
+      "comment" : "Training import, Details: the platform's message for the item.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Meldung: %@"
+          }
+        }
+      }
+    },
     "Message" : {
       "localizations" : {
         "de" : {
@@ -6262,6 +6339,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Seit %2$@ nichts Neues von %1$@. Trag sie und lass sie in der Nähe deines iPhones, damit sie synchronisiert."
+          }
+        }
+      }
+    },
+    "Nothing new: what's in the file is already in RYFT or stays as you changed it" : {
+      "comment" : "Training import I3: everything was already there or newer_on_server.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nichts Neues: Was in der Datei steht, ist schon in RYFT oder bleibt so, wie du es geändert hast"
           }
         }
       }
@@ -7042,17 +7130,6 @@
         }
       }
     },
-    "Ready" : {
-      "comment" : "Training import I9.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bereit"
-          }
-        }
-      }
-    },
     "Recalculating your baselines" : {
       "comment" : "Note under Today's gauge while the platform recalculates the baselines (row D).",
       "localizations" : {
@@ -7092,17 +7169,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Das Laden von %@ hat nicht geklappt."
-          }
-        }
-      }
-    },
-    "Rejected by the server" : {
-      "comment" : "Training import I4: a reason.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vom Server abgelehnt"
           }
         }
       }
@@ -7228,6 +7294,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Anfrage-ID"
+          }
+        }
+      }
+    },
+    "Request ID %@" : {
+      "comment" : "Training import, Details: the X-Request-ID of the answer.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anfrage-ID %@"
           }
         }
       }
@@ -7385,6 +7462,17 @@
         }
       }
     },
+    "RYFT already has a different item with the same ID." : {
+      "comment" : "Training import I4: the platform's code id_taken.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT hat bereits einen anderen Eintrag mit derselben ID."
+          }
+        }
+      }
+    },
     "RYFT can import exports from Alpha Progression. “%@” doesn't look like one." : {
       "comment" : "Training import D5; the file's name. Alpha Progression is a data source, named factually.",
       "localizations" : {
@@ -7520,6 +7608,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT konnte diese Meldung nicht annehmen. Kopiere deine Nachricht und versuch es später erneut."
+          }
+        }
+      }
+    },
+    "RYFT didn't accept this one." : {
+      "comment" : "Training import I4: a refusal with no code this build knows.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT hat diesen Eintrag nicht angenommen."
           }
         }
       }
@@ -7762,6 +7861,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Speichere die Dateien aus der anderen App in Dateien und wähle sie dann hier aus."
+          }
+        }
+      }
+    },
+    "Saved on this iPhone" : {
+      "comment" : "Training import I9: importing isn't available for the account (403 import_not_enabled).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf diesem iPhone gespeichert"
           }
         }
       }
@@ -8561,6 +8671,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Einiges wurde ausgelassen: Diese Datei überschreitet die Import-Grenzen von RYFT"
+          }
+        }
+      }
+    },
+    "Some of its values are missing or out of range." : {
+      "comment" : "Training import I4: the platform's code invalid.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einige Werte fehlen oder liegen außerhalb des erlaubten Bereichs."
           }
         }
       }
@@ -19926,6 +20047,17 @@
           "stringUnit" : {
             "state" : "machine_translated",
             "value" : "Gestern"
+          }
+        }
+      }
+    },
+    "You changed these in RYFT, so your version stays." : {
+      "comment" : "Training import I3: newer_on_server, why the file's version was not applied.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du hast sie in RYFT geändert, deshalb bleibt deine Version."
           }
         }
       }

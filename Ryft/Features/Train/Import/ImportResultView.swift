@@ -431,7 +431,7 @@ enum ImportResultText {
 
     /// What "kept on this iPhone" means (privacy S2): how long, and what removes it.
     static var keptLimits: String {
-        String(localized: "Kept on this iPhone for up to 30 days. Signing out removes it.",
+        String(localized: "Kept on this iPhone for up to 30 days. Signing out or deleting your account removes it.",
                comment: "Training import: the limits of a saved import (TrainImportUploader.retention, the sign-out wipe).")
     }
 

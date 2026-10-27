@@ -3,6 +3,37 @@
 Newest first. Paste the entry into App Store Connect → TestFlight → the build → What to
 Test (English and German).
 
+## Next build — training import from a CSV file (en + de)
+
+**When the training import is switched on (`train.import`):**
+- en: Import a plan and your workout history from the CSV files of Alpha Progression: My Plans → New plan → Import from file,
+  or Profile → Data → Import training data. Choose the plans file, the workouts file or both. RYFT shows what it will import
+  before anything is sent; only what you confirm is sent. The file is read on your iPhone and is never uploaded.
+
+  Try: export the CSV files from Alpha Progression, save them to Files, choose them here, and check the preview. You can close
+  the app during an upload; it continues while RYFT is open. Each item that RYFT leaves out says why, and Details shows the
+  request ID.
+
+  Don't expect: every set to come across (sets without weight or reps are skipped and counted), workouts already in RYFT to
+  change (they stay as they are, and so does a change you made in RYFT), or importing to be available on every account yet.
+  If it isn't available for yours, the import stays on your iPhone and RYFT checks again when you open the app. An import
+  that hasn't been sent is kept on your iPhone for up to 30 days; signing out or deleting your account removes it.
+
+- de: Importiere einen Plan und deine Workout-Historie aus den CSV-Dateien von Alpha Progression: Meine Pläne → Neuer Plan →
+  Aus Datei importieren, oder Profil → Daten → Trainingsdaten importieren. Wähle die Plan-Datei, die Workout-Datei oder beide.
+  Bevor etwas gesendet wird, zeigt RYFT, was importiert wird; gesendet wird nur, was du bestätigst. Die Datei wird auf deinem
+  iPhone gelesen und nie hochgeladen.
+
+  Probier aus: Exportiere die CSV-Dateien aus Alpha Progression, speichere sie unter Dateien, wähle sie hier aus und prüfe die
+  Vorschau. Du kannst die App während eines Imports schließen; er läuft weiter, solange RYFT geöffnet ist. Jeder Eintrag, den
+  RYFT auslässt, sagt dir warum, und unter Details steht die Anfrage-ID.
+
+  Erwarte nicht: dass jeder Satz übernommen wird (Sätze ohne Gewicht oder Wiederholungen werden übersprungen und gezählt), dass
+  sich schon in RYFT vorhandene Workouts ändern (sie bleiben, wie sie sind, und das gilt auch für eine Änderung, die du in RYFT
+  gemacht hast), oder dass der Import für jedes Konto schon verfügbar ist. Ist er für dein Konto nicht verfügbar, bleibt der
+  Import auf deinem iPhone, und RYFT prüft es beim nächsten Öffnen der App erneut. Ein Import, der noch nicht gesendet wurde,
+  bleibt bis zu 30 Tage auf deinem iPhone; beim Abmelden oder Löschen deines Kontos wird er entfernt.
+
 ## Next build — tracker setup (en + de)
 
 **What's new (live in this build):**
