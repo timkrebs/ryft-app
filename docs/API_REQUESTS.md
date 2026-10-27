@@ -131,6 +131,13 @@ for the platform; nothing here is sent before the platform says it takes it.
    up without the HealthKit UUID (workouts already use it as `id`), so a record deleted in
    Apple Health, or rewritten by a watch app, stays on the platform. The app now collects
    the anchored reads' `deletedObjects` per account (bounded) and keeps them for this.
+   - **Confirmed bug, 2026-10-27, now the priority of this section.** A Garmin run that Apple Health holds once
+     (checked by the user) shows 7 times in My Day: 6 on 2026-10-20, 7 a week later. The day reads "7 activities ·
+     63.3 km". Garmin Connect rewrites its workouts in Apple Health under a new UUID and deletes the old one. The
+     app uploads each new UUID as a new workout, and the deleted copies stay on the platform. My Day already shows
+     one row per workout id, so these are 7 distinct ids from the platform.
+   - **Also needed:** a one-off cleanup of the copies uploaded before the app began collecting `deletedObjects`
+     (e.g. same user, source, activity type, start and end), since the app can't name those ids.
    - **Proposal:** `Sample.id` and `SleepSegment.id` (uuid?, the HealthKit sample's UUID;
      records without one keep today's uniqueness), and on `SyncRequest`
      `deleted: [{"kind": "sample" | "sleep" | "workout", "id": uuid}]`. The platform
