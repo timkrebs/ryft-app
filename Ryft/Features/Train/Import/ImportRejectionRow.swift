@@ -29,10 +29,10 @@ enum ImportRejectionText {
             return String(localized: "Some of its values are missing or out of range.",
                           comment: "Training import I4: the platform's code invalid.")
         case .unknownExercise:
-            return String(localized: "It uses an exercise RYFT doesn't know.",
+            return String(localized: "This item uses an exercise RYFT doesn't know.",
                           comment: "Training import I4: the platform's code unknown_exercise.")
         case .unknownPlanReference:
-            return String(localized: "It points to a plan day RYFT doesn't have.",
+            return String(localized: "This item points to a plan day RYFT doesn't have.",
                           comment: "Training import I4: the platform's code unknown_plan_reference.")
         case .idTaken:
             return String(localized: "RYFT already has a different item with the same ID.",

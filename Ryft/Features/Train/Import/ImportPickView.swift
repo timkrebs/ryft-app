@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Step 1 (ui.md §4): choose the plans file, the workouts file or both. Nothing is parsed before the files are read,
-/// and the files are never uploaded or stored.
+/// and the files themselves are never uploaded or stored; only the confirmed import is kept on this iPhone, for at most
+/// 30 days, until it is uploaded.
 struct ImportPickView: View {
     let model: ImportFlowModel
 

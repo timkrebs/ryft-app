@@ -4902,35 +4902,24 @@
         }
       }
     },
-    "It uses an exercise RYFT doesn't know." : {
+    "This item uses an exercise RYFT doesn't know." : {
       "comment" : "Training import I4: the platform's code unknown_exercise.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Er verwendet eine Übung, die RYFT nicht kennt."
+            "value" : "Dieser Eintrag verwendet eine Übung, die RYFT nicht kennt."
           }
         }
       }
     },
-    "It points to a plan day RYFT doesn't have." : {
+    "This item points to a plan day RYFT doesn't have." : {
       "comment" : "Training import I4: the platform's code unknown_plan_reference.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Er verweist auf einen Plantag, den es in RYFT nicht gibt."
-          }
-        }
-      }
-    },
-    "It uploads when importing is available for your account." : {
-      "comment" : "Training import I9.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Er wird hochgeladen, sobald Importe für dein Konto verfügbar sind."
+            "value" : "Dieser Eintrag verweist auf einen Plantag, den es in RYFT nicht gibt."
           }
         }
       }

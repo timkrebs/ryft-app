@@ -62,6 +62,8 @@ final class TrainImportUploader {
     @ObservationIgnored var gate: @MainActor (UploadWrite) -> UploadGate? = { _ in .gate(.consentRequired) }
     /// Jitter source (tests: `{ $0.lowerBound }`).
     @ObservationIgnored var random: (ClosedRange<Double>) -> Double = { .random(in: $0) }
+    /// Tests: runs while the "needs attention" flag is being written, to land a Try again in that gap.
+    @ObservationIgnored var attentionStoreHook: (@MainActor () async -> Void)?
 
     /// The current binding's job; nil when there's none (or nothing is signed in).
     private(set) var status: ImportJobStatus?
@@ -96,8 +98,8 @@ final class TrainImportUploader {
     @ObservationIgnored private var failures = 0
     @ObservationIgnored private var retryAt: Date?
     @ObservationIgnored private var lostConnection = false
-    /// The platform answered `403 import_not_enabled` for this binding: nothing is sent until the app starts again or
-    /// the account changes.
+    /// The platform answered `403 import_not_enabled` for this binding: nothing is sent until the app becomes active
+    /// again (one probe per activation) or the account changes.
     @ObservationIgnored private var notEnabledByPlatform = false
     @ObservationIgnored private var pass: Task<Void, Never>?
     @ObservationIgnored private var passID: UUID?
@@ -345,6 +347,8 @@ final class TrainImportUploader {
     func appBecameActive() async {
         purge()
         pause = pause == .notAvailable ? nil : pause
+        // `import_not_enabled` is asked again once per activation: the next pass probes, a `403` latches it again.
+        notEnabledByPlatform = false
         await resume()
     }
 
@@ -392,6 +396,7 @@ final class TrainImportUploader {
 
     /// The current binding's job into memory (its plan decoded off the main actor), or none.
     private func reload() async {
+        purge(unfinishedOnly: true)
         if let reloading {
             await reloading.value
             return
@@ -427,14 +432,16 @@ final class TrainImportUploader {
         reloading = nil
     }
 
-    private func purge() {
+    /// `unfinishedOnly`: only jobs past `retention` go (what every send checks first); a finished job stays until
+    /// the app becomes active, so the result screen keeps its status.
+    private func purge(unfinishedOnly: Bool = false) {
         guard let env else { return }
         let now = env.clock.now()
         let rows = (try? env.persistence.context.fetch(FetchDescriptor<PendingImport>())) ?? []
         var removed = 0
         for row in rows {
             let expired: Bool = if let finished = row.finishedAt {
-                row.resultSeen || now.timeIntervalSince(finished) >= Self.finishedRetention
+                !unfinishedOnly && (row.resultSeen || now.timeIntervalSince(finished) >= Self.finishedRetention)
             } else {
                 now.timeIntervalSince(row.createdAt) >= Self.retention
             }
@@ -470,6 +477,8 @@ final class TrainImportUploader {
     // MARK: the pass
 
     private func startPass(userInitiated: Bool) -> Task<Void, Never>? {
+        // A job past its 30 days is never sent, whichever trigger comes first (the purge may not have run yet).
+        purge(unfinishedOnly: true)
         guard env != nil, let current = loaded, current.account == currentAccount else { return nil }
         // Every refused request of the last pass: an automatic trigger doesn't send them all again; only Try again does.
         if !userInitiated, current.progress.needsAttention, Self.hasWork(current) {
@@ -531,6 +540,7 @@ final class TrainImportUploader {
 
     /// One pass: what can go now goes, in order, until it's done or something stops it.
     private func run(_ generation: Generation, revalidated: inout Bool) async {
+        purge(unfinishedOnly: true) // a backoff or a repeat round may have outlasted the retention
         guard let env, let current = loaded, let account = generation.account, current.account == account else { return }
         let api = client(for: account, env: env)
         guard env.flags.isOn(.trainImport), api.publishesTrainImport, !notEnabledByPlatform else {
@@ -625,12 +635,24 @@ final class TrainImportUploader {
 
     /// Every request of the pass was refused: stored, so no automatic trigger (and no relaunch) sends them again.
     private func stopNeedingAttention() async {
-        if var current = loaded {
-            current.progress.needsAttention = true
-            loaded = current
-            await store(current.progress, finished: nil)
+        guard var current = loaded else {
+            stop(.needsAttention)
+            return
         }
-        stop(.needsAttention)
+        let jobID = current.jobID, generation = generation
+        current.progress.needsAttention = true
+        loaded = current
+        await attentionStoreHook?()
+        await store(current.progress, finished: nil)
+        guard generation == self.generation, let now = loaded, now.jobID == jobID else { return }
+        if now.progress.needsAttention {
+            stop(.needsAttention)
+            return
+        }
+        // Try again came in while the flag was being written: its clear is the later word. The stored flag follows it
+        // (the two writes may have finished in either order) and the pass goes round once more.
+        await store(now.progress, finished: nil)
+        passAgain = true
     }
 
     private func clearNeedsAttention() async {
@@ -857,7 +879,12 @@ final class TrainImportUploader {
         guard let current = loaded, let row = job(id: current.jobID) else { return .stop }
         let jobID = current.jobID
         if !batch.blocked.isEmpty { await store(current.progress, finished: nil) }
-        guard let wireSource = TrainImportSource(rawValue: row.source) else { return .stop }
+        guard let wireSource = TrainImportSource(rawValue: row.source) else {
+            // Written by this app, so this can't happen short of a damaged store: refused (Retry shows it), never a silent stop.
+            ImportLog.logger.error("Import job with an unknown source; its items are refused")
+            await refuse(batch.plans.map(\.id) + batch.sessions.map(\.id), reason: nil, error: nil, job: jobID)
+            return isCurrent(generation, job: jobID) ? .sent : .stop
+        }
         // Measured: fewer sessions until the body fits; one item alone that doesn't fit is refused.
         var plans = batch.plans, sessions = batch.sessions
         var body: Data?
@@ -1023,8 +1050,9 @@ final class TrainImportUploader {
             // Never a refusal: the items stay pending for the next pass.
             return false
         case .gate:
-            record(failure(error))
-            stop(api?.code.map { ImportPause.gated(.gate($0)) } ?? .held)
+            // Only a `403` is a gate, and every `403` was held above.
+            assertionFailure("FailureKind.gate without a 403")
+            stop(.held)
             return false
         case .signedOut:
             record(failure(error))

@@ -588,6 +588,31 @@ struct TrainImportUploaderJobTests {
         #expect(h.jobs().isEmpty && h.uploader.status == nil)
     }
 
+    /// The reconnect (or any trigger) can come before the app's purge: a job past its 30 days is never sent.
+    @Test func anExpiredJobIsNotSentByAnyTrigger() async throws {
+        let h = H(online: false)
+        #expect(await h.run(ImportUploadPlan(sessions: H.sessions(2))))
+        h.clock.advance(by: .seconds(30 * 86_400))
+        h.connectivity.update(true)
+        await h.uploader.resume() // what the reconnect does, with no appBecameActive before it
+        #expect(h.live.count("importTraining") == 0)
+        #expect(h.jobs().isEmpty && h.uploader.status == nil)
+        // A relaunch finds none either.
+        let again = h.relaunch()
+        await again.resume()
+        #expect(h.live.count("importTraining") == 0 && again.status == nil)
+    }
+
+    /// One day short of the limit still goes.
+    @Test func aJobInsideThirtyDaysIsSentOnReconnect() async throws {
+        let h = H(online: false)
+        #expect(await h.run(ImportUploadPlan(sessions: H.sessions(2))))
+        h.clock.advance(by: .seconds(30 * 86_400 - 1))
+        h.connectivity.update(true)
+        await h.uploader.resume()
+        #expect(h.uploader.status?.phase == .finished)
+    }
+
     @Test func aFinishedJobGoesOnceSeenOrAfterSevenDays() async throws {
         let h = H()
         #expect(await h.run(ImportUploadPlan(sessions: H.sessions(1))))

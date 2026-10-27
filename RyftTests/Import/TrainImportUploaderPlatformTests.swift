@@ -85,7 +85,8 @@ struct TrainImportUploaderPlatformTests {
     // MARK: 403
 
     /// The flag is off for the account: not retried, not a gate, no consent or invite screen; the job is kept as "saved
-    /// on this iPhone" and nothing more is sent, not even on the next activation.
+    /// on this iPhone" and nothing more is sent until the app is opened again: then one probe, and if the platform still
+    /// says no, it stops again (no hammering by reconnects or resumes in between).
     @Test func importNotEnabledStopsCleanly() async throws {
         let h = H()
         h.live.trainImportSource.notEnabled = true
@@ -97,10 +98,30 @@ struct TrainImportUploaderPlatformTests {
         #expect(status.sessions == ImportItemCounts(total: 3) && !status.hasRejected)
         #expect(!h.uploader.uploadsAvailable)
         #expect(h.jobs().count == 1)
-        await h.uploader.appBecameActive()
+        await h.uploader.resume()
         await h.uploader.resume()
         #expect(h.live.count("importTraining") == 1)
         #expect(h.uploader.status?.phase == .paused(.notAvailable))
+        // Opening the app asks once; still not enabled: latched again.
+        await h.uploader.appBecameActive()
+        #expect(h.live.count("importTraining") == 2)
+        #expect(h.uploader.status?.phase == .paused(.notAvailable) && !h.uploader.uploadsAvailable)
+        await h.uploader.resume()
+        #expect(h.live.count("importTraining") == 2)
+    }
+
+    /// The platform enables imports for the account while the app runs: the next activation finds it and the job goes.
+    @Test func importEnabledLaterIsFoundOnTheNextActivation() async throws {
+        let h = H()
+        h.live.trainImportSource.notEnabled = true
+        #expect(await h.run(ImportUploadPlan(sessions: H.sessions(2))))
+        #expect(h.uploader.status?.phase == .paused(.notAvailable))
+        h.live.trainImportSource.notEnabled = false
+        await h.uploader.resume()
+        #expect(h.uploader.status?.phase == .paused(.notAvailable)) // not before the app is opened
+        await h.uploader.appBecameActive()
+        #expect(h.uploader.status?.phase == .finished)
+        #expect(h.uploader.uploadsAvailable)
     }
 
     /// Consent is asked for: the job holds behind the consent gate (the user answers it), and goes again, unchanged,
@@ -287,6 +308,29 @@ struct TrainImportUploaderPlatformTests {
         #expect(again.status?.sessions == ImportItemCounts(total: 50, done: 47, rejected: 3))
         #expect(again.status?.phase == .finished)
         #expect(h.live.count("importTraining") > sent)
+    }
+
+    /// Try again lands while the pass is still writing "needs attention": it isn't lost (the flag cleared, nothing sent,
+    /// the pause set), and neither the app nor a relaunch comes back needing attention.
+    @Test func tryAgainDuringTheAttentionWriteIsNotLost() async throws {
+        let h = H()
+        h.live.failure = APIError.http(422, "exercise unknown", requestID: "req-422")
+        var again: Task<Void, Never>?
+        let uploader = h.uploader
+        uploader.attentionStoreHook = {
+            h.live.failure = nil // the platform would take everything now
+            uploader.attentionStoreHook = nil
+            again = Task { await uploader.tryAgain() }
+            for _ in 0..<100 { await Task.yield() }
+        }
+        #expect(await h.run(ImportUploadPlan(sessions: H.sessions(50))))
+        await again?.value
+        #expect(again != nil)
+        #expect(await eventually { h.uploader.status?.phase == .finished })
+        #expect(h.uploader.status?.sessions == ImportItemCounts(total: 50, done: 47, rejected: 3))
+        let relaunched = h.relaunch()
+        await relaunched.resume()
+        #expect(relaunched.status?.phase == .finished)
     }
 
     /// Try again also leaves the backoff of a transient pause at once (a user tap, not a trigger).
