@@ -14,6 +14,8 @@ struct ImportPickView: View {
                     .foregroundStyle(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
+                // The localization key is the full sentence; splitting it would change the key.
+                // swiftlint:disable:next line_length
                 Text("Choose the CSV files exported from Alpha Progression: the plans file, the workouts file, or both. The file is read on your iPhone and is never uploaded. Only the workouts and plans you confirm are sent, and each imported workout is stored with the name of the app the file came from.",
                      comment: "Training import, step 1. Alpha Progression is a data source, named factually.")
                     .font(.ryft(.callout))
