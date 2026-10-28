@@ -15,6 +15,19 @@ Before the first external build, the platform must be live:
 `scripts/build-number.sh` with the UTC build time, `yyyyMMdd.HHmmss`. Numbers therefore
 only go up, and both paths can be mixed freely.
 
+**From CI (usual):**
+- **Nightly** (`nightly.yml`, 01:00 UTC): archives `main` and uploads it to **Internal** when
+  anything landed since the last build, with the commits as What to Test. The version stays
+  whatever `VERSION` says; only the build number moves.
+- **Weekly** (`weekly.yml`, Mondays 07:00 Berlin): hands the newest processed build to
+  **External** with the week's commits, after you approve the `external-testflight`
+  environment. No rebuild.
+- **A new version:** `make release BUMP=minor` (or `patch`, `major`, or `VERSION=X.Y.Z`) on a
+  clean, up-to-date `main` opens the PR `release: X.Y.Z` (`VERSION` raised, CHANGELOG's
+  Unreleased moved under it). Merge it when green; `release.yml` then tags `vX.Y.Z` and
+  uploads that tag to **Internal**. `DRY_RUN=1 make release BUMP=minor` shows what it would do.
+  Details: `docs/CI.md` → Versions and build numbers.
+
 **Option A, Terminal:** `make archive` (Release, version from `VERSION`, build number
 from `scripts/build-number.sh`). It checks the fonts and `make lint` (including `check-entitlements`)
 first. Then upload `build/export/Ryft.ipa` with Organizer → Distribute App, or with
@@ -129,8 +142,9 @@ Testers can send diagnostics directly from the app without leaving to email or a
 
 ## 6. Every new build
 
-1. Raise the build number. `make archive` does it, so does CI. Keep the version at
-   `1.0.0` during the beta.
+1. Raise the build number. `make archive` does it, so does CI. Raise the version only with
+   `make release` (above), never by editing `VERSION` in a feature PR: a merged `VERSION`
+   change is what tags and uploads a release.
 2. Add an entry to `docs/TESTFLIGHT_NOTES.md` (en + de) and paste it into What to Test.
 3. Upload, wait for processing, add the build to **Internal**, check it, then add it to
    **External**.

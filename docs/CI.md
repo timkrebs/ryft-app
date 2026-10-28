@@ -16,7 +16,7 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
 | `ios.yml` | every PR, every push to `main`; 00:30 UTC nightly, or manually | `make lint` (strings), `make style` (SwiftFormat, SwiftLint), build-for-testing with warnings as errors, test plans `Unit` + `UISmoke` (nightly: `Full`), coverage floor, API contract |
 | `nightly.yml` | 01:00 UTC daily, or manually | archive `main`, upload, TestFlight group **Internal**; skipped when nothing landed since the last build. A manual run takes optional `notes` (max 4000 characters, English block then German: the script sends one text to `en-US` and `de-DE`) instead of the commit list: `gh workflow run nightly.yml -f notes="$(cat notes.txt)"` |
 | `weekly.yml` | Mondays 07:00 Europe/Berlin, or manually | the newest processed build to group **External**, with the week's commits as What to Test (a manual run can pass `notes` as in `nightly.yml`), submitted for beta review |
-| `release.yml` | manually | bump `VERSION`, commit, tag `vX.Y.Z`, archive the tag, upload, group **Internal** |
+| `release.yml` | a push to `main` that changes `VERSION` (a merged `make release` PR) | tag `vX.Y.Z` on that commit, archive the tag, upload, group **Internal**; see [Versions](#versions-and-build-numbers) |
 | `_testflight.yml` | called by nightly and release | the shared archive → upload → distribute job |
 
 ## The self-hosted Mac
@@ -144,12 +144,27 @@ xcconfigs from the examples.
   the two parts as integers, and keeping them small avoids tools that choke on a 14-digit
   number. Each uploaded build is tagged `build/<number>`.
 - **Marketing version** (`MARKETING_VERSION`): the committed `VERSION` file, passed on
-  the xcodebuild command line, so the pbxproj isn't edited. Only `release.yml` raises it:
-  - patch, minor (default) or major, or an explicit `X.Y.Z`
-  - commits `release: X.Y.Z`, tags `vX.Y.Z` and builds that tag
-
-  If `main` is protected, allow `github-actions[bot]` to push, or run the release from a
-  branch.
+  the xcodebuild command line, so the pbxproj isn't edited. It changes only through a
+  release PR, because `main`'s ruleset takes nothing else (a PR, linear history, the checks
+  `Lint`, `Build, unit tests, UI smoke` and `PR title`, no bypass):
+  1. **Start, on your Mac:** from a clean, up-to-date `main`,
+     `make release BUMP=patch|minor|major` (or `make release VERSION=X.Y.Z`).
+     `scripts/release.sh` computes the version (it must be above `VERSION`), refuses if the
+     tag `vX.Y.Z` or the branch exists, and creates `release/vX.Y.Z` with `VERSION` raised and
+     `CHANGELOG.md`'s Unreleased entries moved under `## [X.Y.Z] - <date>`. It pushes the branch
+     and opens the PR `release: X.Y.Z` with your `gh` login. `DRY_RUN=1` shows the commit and the
+     PR text, then puts `main` back without pushing.
+  2. **Checks and merge:** the PR runs the required checks because a person opened it. A PR
+     opened by a workflow with `GITHUB_TOKEN` starts no workflows, so its checks would never
+     run; that's why the first half stays on your Mac. Merge it like any other PR (squash).
+  3. **After the merge:** `release.yml` runs on the push to `main` that changed `VERSION`. It
+     refuses a version that isn't a raise (a reverted release PR) and a `vX.Y.Z` tag on another
+     commit, tags the merge commit, and calls `_testflight.yml` for that tag: group **Internal**,
+     What to Test "RYFT X.Y.Z" plus the commits since the previous `v*` tag. A re-run finds its
+     own tag and carries on. The tag push uses `GITHUB_TOKEN`, as the `build/<number>` tags do.
+  - It shares the concurrency group `testflight` with the nightly, so it waits for an upload
+    in progress.
+  - A hotfix from a `release/X.Y` branch isn't covered yet: `release.yml` only watches `main`.
 - `make archive` (local) reads `VERSION` and uses the same build-number script.
 
 ## TestFlight distribution (`scripts/testflight.py`)
