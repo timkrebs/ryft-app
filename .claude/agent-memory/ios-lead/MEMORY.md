@@ -5,4 +5,5 @@
 - [Strings catalog edits](strings-catalog-edits.md) — never re-serialise xcstrings; check --stat + semantic diff + trailer of every strings commit
 - [Public repo, personal data](public-repo-personal-data.md) — scan briefs/docs/fixtures against real files; redact to synthetic before commit
 - [No attribution lines](no-attribution-lines.md) — never a "Generated with Claude Code" footer or Co-Authored-By trailer; tell agents too
+- [Hosted test language](hosted-test-language.md) — -testLanguage didn't localize hosted renders; set sim AppleLanguages, no parallel, boot before spawn
 - [Stacked branch after squash](stacked-branch-after-squash.md) — merging main can resurrect replaced code; diff merged tree vs branch head

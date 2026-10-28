@@ -4,8 +4,8 @@ User-visible changes to the RYFT iOS app. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/) (see `docs/RELEASING.md`).
 
-Add a line under **Unreleased** in the PR that makes the change. `release.yml` moves
-these lines under the new version. They become the GitHub Release notes and the App
+Add a line under **Unreleased** in the PR that makes the change. `make release` moves
+these lines under the new version (`docs/CI.md` → Versions and build numbers). They become the GitHub Release notes and the App
 Store "What's New".
 
 ## [Unreleased]
