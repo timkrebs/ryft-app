@@ -49,14 +49,23 @@ struct InlineMessage: View {
     @State private var retrying = false
     @State private var showDetails = false
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// 15 pt at the default size, growing with the message's callout text.
+    @ScaledMetric(relativeTo: .callout) private var iconSize: CGFloat = 15
 
     private var hasTextButtons: Bool { retry != nil || details != nil || onDetails != nil }
+
+    /// A button row's 44 pt targets leave room under their labels at default sizes; at accessibility sizes a label is
+    /// taller than its target and would sit on the card's edge.
+    private var bottomPadding: CGFloat {
+        guard hasTextButtons, !showDetails else { return 14 }
+        return typeSize.isAccessibilitySize ? 14 : 2
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: iconSize, weight: .medium))
                     .foregroundStyle(Theme.textSecondary)
                     .padding(.top, 1)
                     .accessibilityHidden(true)
@@ -89,8 +98,7 @@ struct InlineMessage: View {
         }
         .padding(.horizontal, 14)
         .padding(.top, 14)
-        // A button row's 44 pt targets already leave room under their labels.
-        .padding(.bottom, hasTextButtons && !showDetails ? 2 : 14)
+        .padding(.bottom, bottomPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)

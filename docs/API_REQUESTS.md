@@ -3,25 +3,30 @@
 What the iOS app needs that `../plattform/docs/API.md` does not (yet) provide.
 The platform agent owns the contract; the app never invents fields silently.
 
-## Training import (open, 2026-10-23)
+## Training import (closed, 2026-10-27)
 
-The app parses a CSV export of another training app on the device and sends structured plans and sessions to `POST /v1/train/import` (platform brief `../plattform/CLAUDE_FOLLOWUP_TRAIN_IMPORT.md`). These follow from the app's design (`docs/work/2026-10-23-train-csv-import/design.md` §13) and should be settled while the contract is written.
+All thirteen questions (T1–T13) from the app's design (`docs/work/2026-10-23-train-csv-import/design.md` §13) are
+answered in the platform's API.md → "Training import: answers to T1–T13" (anchor `training-import-answers`; on branch
+`feat/train-import-api` until the platform PR merges). Nothing is open. Where the answer differs from what the app asked for, it is noted.
 
-| # | Request |
-| --- | --- |
-| T1 | **Origin belongs to the endpoint.** Every session in `POST /v1/train/import` is an import, so the request carries no per-session `origin`. `Session` and `SessionSummary` responses carry `origin` (`app` \| `import`) and `import_source` (string?), so history can label them. |
-| T2 | **No `skipped` flag is needed.** The app doesn't send sets that weren't done; it counts them on the device. If the platform wants them anyway, `completed_at: null` already means "planned, not done". |
-| T3 | **Bodyweight keeps today's convention.** For `load_type: bodyweight`, `weight_kg` is the added load and `Session.bodyweight_kg` the body weight; no `bodyweight` / `added_kg` set fields. Please confirm that `weight_kg: null` and `0` mean the same for a bodyweight set. |
-| T4 | **Assisted sets.** Files can log assistance as a negative load (`-20`). `weight_kg` is clamped to 0–500, so the app imports reps only. Is a negative added load, or an `assist_kg`, planned? |
-| T5 | **Order within a request.** Plans are stored before the same request's sessions, so `plan_day_id` / `plan_exercise_id` may point into the batch. Are these ids validated (`422` when unknown)? |
-| T6 | **Imported sessions never move an enrolment,** even with the active plan's `plan_day_id`, and send no `SESSION_SCORED` or `PR` push. |
-| T7 | **The rescore answer.** The response carries `days_touched` and `scoring.expected_within_sec`, as `SyncResponse` does. Those days stay in `GET /v1/me/sync` → `pending_days` until rescored, and the silent refresh push is sent for them. |
-| T8 | **Enrolling where the user is.** `POST /v1/plans/{id}/enroll` takes an optional `{ "started_at": timestamp?, "current_week": int?, "current_day_index": int? }` (defaults: now, 1, 0). Until then the app offers only "start today". |
-| T9 | **Limits under Conventions.** The 1 MiB body limit of `POST /v1/train/import`; ≤ 50 sessions and ≤ 5 plans per request; the status when a second import starts while one is running (`429` with `Retry-After`, please). |
-| T10 | **"Identical content"** for the no-op is compared without server fields (`updated_at`, scoring). The app derives `completed_at` and `updated_at` from the session's start and duration, so sending a session again gives `unchanged`. |
-| T11 | **Bodyweight plan targets.** API.md says `target_value` is `null` for `target_kind: bodyweight`, but the plan builder accepts an added load there (`PlanValidation.swift:70`). Which is right? The import sends `null`. |
-| T12 | **Archived custom exercises.** Does `POST /v1/exercises` with an archived custom exercise's id un-archive it? |
-| T13 | **Every item of a request is named in `results`,** whatever its status (`unchanged` too). The app keeps an item it doesn't find pending and sends it again; after three answers without it, it lists it as not imported. And please send `X-Request-ID` on the `2xx` answer too, so a `rejected` item can show it in Details. |
+| # | Question | Answer (API.md anchor) |
+| --- | --- | --- |
+| T1 | Origin belongs to the endpoint | Yes; `origin`/`import_source` in the request is `400`, the app encodes them absent (`#t1`) |
+| T2 | No `skipped` flag | Yes; a sent set was done, `completed_at: null` is `invalid` in an import (`#t2`) |
+| T3 | Bodyweight convention, `null` = `0` | Confirmed; stored as sent, compared as equal (`#t3`) |
+| T4 | Assisted sets | `assist_kg` 0–200 on `Set` instead of a negative load (`#t4`); the app's import of it is a follow-up |
+| T5 | Plan references in a batch | Validated, but a `rejected` item `unknown_plan_reference` rather than `422`; resend the session without references (`#t5`) |
+| T6 | No enrolment move, no push | Confirmed (`#t6`) |
+| T7 | Rescore answer | `days_touched` + `scoring` as in `SyncResponse` (`#t7`) |
+| T8 | Enrol where the user is | `EnrollPost` on `POST /v1/plans/{id}/enroll` (`#t8`); mirrored in C2 |
+| T9 | Limits and the second import | In Conventions: 1 MiB, ≤ 5 plans, ≤ 50 sessions, `429 import_in_progress` + `Retry-After: 10` (`#t9`) |
+| T10 | "Identical content" | Server fields excluded, everything else compared; `newer_on_server` protects edits (`#t10`) |
+| T11 | Bodyweight plan target | Docs were wrong; `null` or added kg 0–500 (`#t11`) |
+| T12 | Archived custom exercise | `POST /v1/exercises` un-archives it (`#t12`) |
+| T13 | One result per item; `X-Request-ID` on `2xx` | Both hold: "One entry per submitted item" under the endpoint, and Conventions → Request IDs (`#t13`) |
+
+Also confirmed in the platform's Conventions → UUIDs: every id in the import body is parsed as a UUID (upper case is
+fine); `results[].id` comes back lower case, so the app matches by `UUID` value.
 
 ## Activities and My Day (open, 2026-10-22)
 

@@ -69,22 +69,31 @@
   - a process cold-launched in the background before the first unlock keeps the in-memory fallback store and holds
     all uploads until it's relaunched, even in the foreground. Device check; consider reopening the durable store
     on unlock.
-- **Training import, before C2 makes the upload live:**
-  - `.needsAttention` resumes on every automatic trigger (app active, reconnect, sign-in, gate); it should resume only on
-    the user's Try again;
-  - the Info.plist CSV document type and `LSSupportsOpeningDocumentsInPlace` ship with the flag-on PR;
-  - device checks: "Open in" from Mail and Files, an iCloud file not yet downloaded, a batch finishing in the background;
-  - privacy-policy lines: the import is read on the device, an unsent import is kept up to 30 days, `import_source` is
-    stored;
-  - a full UI validation of I4 (AX5, light, paused and saved states), the German step-4 title at AX3, the AX5 density of
-    step 4, and privacy's discard wording ("Exercises, plans and workouts already sent stay in RYFT.").
+- **Training import (C2, U1–U3, I6 done; `train.import` still off, nothing merged):** the contract is mirrored (#66), the
+  upload calls the real `POST /v1/train/import` (429 `import_in_progress` waits `Retry-After`; 403 `import_not_enabled`
+  holds the job as "saved on this iPhone" and probes once per app activation; per-item rejections keep their code and the
+  request ID, shown in Details; `newer_on_server` is "left as it is"). `.needsAttention` resumes only on Try again
+  (tested, also after relaunch). A job older than 30 days is never sent. Verified: Unit plan (1860 tests) on the
+  iPhone 17 simulator against a URLProtocol stub and the mock platform. **Not verified against a real platform.**
+  - still to do before the flag goes on:
+    - the Info.plist CSV document type and `LSSupportsOpeningDocumentsInPlace` (own flag-on change);
+    - **ui-validator could not run** (no way to tap through the flow or read screenshots in that session): I4 at AX5 and in
+      light, paused and saved states, the new result states, the German step-4 title at AX3, step 4's density at AX5, and
+      the discard wording ("Nothing more is uploaded from it. Anything already imported stays in RYFT. The file itself is
+      not changed.") are checked by string and code only;
+    - device checks: "Open in" from Mail and Files, an iCloud file not yet downloaded, a batch finishing in the background,
+      the live call against a platform with the flag on;
+    - privacy text (ryftapp.de, platform PR #61): it says "only the workouts and plans you confirm are sent", but the
+      upload also creates custom exercises from the file (`POST /v1/exercises`, names only). The platform text should say
+      so ("…and the exercises they use"); the app text mirrors #61 and should follow;
+    - the app doesn't send `assist_kg` yet (assisted sets import reps only); a follow-up now that T4 is answered;
+    - ask the platform to confirm `ImportResult.message` never echoes file values (Details shows it, cut at 200 chars).
 - **Release tooling before the App Store 1.0:**
   - `release.yml` can't produce 1.0.0: an unchanged version makes the commit fail, and its push to `main` is rejected by
     the ruleset;
   - `docs/RELEASING.md` is missing, and `docs/APP_STORE.md` is stale;
   - `weekly.yml`'s 07:00 Berlin gate skips delayed runs;
   - an iOS 17/18 check, which Xcode 27.1 can't run on simulators.
-- **C2** the training-import contract mirror once the platform publishes `POST /v1/train/import`, then **I6** docs.
 - **A3b** recorder, checkpoints and vault (plus the speed-gate nits N1–N3, Doppler mapping), **A4** (with the detail's map
   and charts, per-mile splits), **A5–A7**, **C1** once API.md publishes Activities.
 - **O2** "sign-out removes everything":
