@@ -54,6 +54,7 @@ Store "What's New".
   include diagnostics.
 
 ### Changed
+- A new app icon and RYFT mark: three orbits, three moons.
 - Your baseline sleep need and maximum heart rate can be changed where you see them: in
   onboarding, from the sleep need on Sleep, and in Profile → Sleep and Body. A change saves
   at once; past days are rescored when you ask.

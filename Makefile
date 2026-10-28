@@ -1,4 +1,4 @@
-.PHONY: config build test icon fonts screenshots ui-shots lint check-entitlements strings style format archive trackers
+.PHONY: config build test icon mark-svg check-mark-svg fonts screenshots ui-shots lint check-entitlements strings style format archive trackers
 
 # Ryft.xcodeproj is the source of truth (CLAUDE.md): change targets, capabilities
 # and packages in Xcode itself.
@@ -17,10 +17,33 @@ build: config
 test: config
 	xcodebuild -scheme Ryft -testPlan Unit -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 
-icon:
+# The mark's tools compile the app's own geometry (Ryft/Design/RyftMark.swift) plus the icon's tile, colours
+# and scale (scripts/icon-spec.swift), so the icons and SVGs can't drift from what the app draws.
+MARK_SOURCES := scripts/icon-spec.swift Ryft/Design/RyftMark.swift
+ICON_COMPARE := build/icon-compare
+
+.build/render-icon: scripts/render-icon.swift $(MARK_SOURCES)
 	mkdir -p .build
-	swiftc -parse-as-library -o .build/render-icon scripts/render-icon.swift Ryft/Design/RyftMark.swift
+	swiftc -parse-as-library -o $@ $^
+
+.build/mark-svg: scripts/mark-svg.swift $(MARK_SOURCES)
+	mkdir -p .build
+	swiftc -parse-as-library -o $@ $^
+
+# The three 1024 icons into the asset catalog with the outer ring spanning 0.963 of the tile (the reference's),
+# and for comparison the same three at 0.963 and at 0.80 (nearer Apple's icon grid) into build/icon-compare/.
+icon: .build/render-icon
+	mkdir -p $(ICON_COMPARE)
 	.build/render-icon
+	.build/render-icon --suffix -0.963 $(ICON_COMPARE)
+	.build/render-icon --ring-span 0.80 --suffix -0.80 $(ICON_COMPARE)
+
+# design/ryft-mark.svg and design/ryft-app-icon-{light,dark}.svg from the Swift geometry.
+mark-svg: .build/mark-svg
+	.build/mark-svg
+
+check-mark-svg: .build/mark-svg
+	.build/mark-svg --check
 
 fonts:
 	scripts/fetch-fonts.sh
@@ -45,8 +68,9 @@ strings: build
 
 # String catalogs complete in English and German, nothing stale; the bundled tracker catalog current; the GPS
 # fixture tracks match scripts/make-tracks.py; the built-in exercise snapshot matches the platform's seed (only
-# where ../plattform is checked out); the import's source-key golden file agrees with an independent fold (ADR 0007).
-lint: check-entitlements
+# where ../plattform is checked out); the import's source-key golden file agrees with an independent fold (ADR 0007);
+# the mark's SVGs match the Swift geometry (needs swiftc, i.e. macOS).
+lint: check-entitlements check-mark-svg
 	python3 scripts/lint-strings.py
 	python3 scripts/check-shared-types.py
 	python3 scripts/trackers.py --self-test

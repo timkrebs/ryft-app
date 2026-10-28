@@ -1,4 +1,30 @@
-# Status — 2026-10-26
+# Status — 2026-10-28
+
+## New orbit mark and app icon (design/new-orbit-mark)
+
+Plan: `docs/work/2026-10-28-new-orbit-mark/plan.md`. Reference: `../docs/briefs/assets/2026-10-28-new-app-icon-reference.jpg`.
+
+**Done**
+- `RyftMark` draws the new mark (three rings, three dots) from `RyftMarkGeometry` (100-box), with an optical-size rule
+  below 39.6 pt (stroke ≥ 1.25 pt; dots and air grow by √k; inner ring dropped below 22 pt); every caller
+  unchanged. `RyftMarkGeometryTests` pin the nominal numbers and keep every arc ≥ 15° from 18 pt up.
+- App icons (Light = Graphite on Mist, Dark = Mist on Graphite, Tinted = white on black; 1024², no alpha) from
+  `make icon`. The outer ring spans 0.963 of the tile, as in the reference (mark frame 1081.7 px; ring 18.9 px and
+  the 65° dot 15.7 px from the tile edge). `make icon` also writes the three at 0.963 and at 0.80 (frame 898.6 px)
+  into `build/icon-compare/` to compare.
+- `design/ryft-mark.svg` and `design/ryft-app-icon-{light,dark}.svg` generated from the same numbers
+  (`make mark-svg`); `make lint` checks they're current (`check-mark-svg`). Tile, colours and scale live in
+  `scripts/icon-spec.swift`, shared by both tools.
+- The widget's AppIcon set has no images and the widget target sets no app icon name: left alone.
+
+**Simulator / preview only**
+- The mark in RyftHeader (`Header`, dark and light), Today (`Today · dark`, `Today · light`) and the import card.
+  The icons were checked as rendered PNGs, not on a home screen.
+
+**Open**
+- The user checks the icon on his home screen (light, dark, tinted; 0.963 against the 0.80 compare render, and
+  the 65° dot against the squircle's bottom edge).
+- `design/brand-board.png` still shows the old mark; the 2026-10-28 brief supersedes it until it's redrawn.
 
 ## Session 2026-10-23 → 26: activities, calibration, training import, consent gates, CI and TestFlight
 
