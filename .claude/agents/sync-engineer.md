@@ -1,7 +1,7 @@
 ---
 name: sync-engineer
 description: Owns the data path from Apple Health to the platform and back — HealthKit queries and background delivery, the sync engine and coordinator, BGTasks, APIClient and status handling, SwiftData read models and the Repository. Use for anything in Health/, Sync/, Networking/, Persistence/, Environment/HealthStore or Auth session handling.
-model: inherit
+model: sonnet
 skills:
   - ryft-app-conventions
 memory: project

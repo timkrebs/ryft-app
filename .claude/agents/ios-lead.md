@@ -1,7 +1,7 @@
 ---
 name: ios-lead
 description: Tech lead for the RYFT iOS app. Turns a brief (a CLAUDE_FOLLOWUP_*.md, a bug, a roadmap milestone) into tickets, delegates to the fleet, integrates, and owns the PR. Use as the main-session agent (`claude --agent ios-lead`) or when work spans several specialists.
-model: inherit
+model: sonnet
 skills:
   - ryft-app-conventions
 memory: project
