@@ -53,8 +53,11 @@ final class SessionController: Identifiable {
     /// Ends the undo window (`clock.sleep`), then commits: the held upload goes.
     @ObservationIgnored var undoTask: Task<Void, Never>?
     @ObservationIgnored var noticeTask: Task<Void, Never>?
-    /// The forward plan save of "Also change the plan" (true: saved), so Undo can wait for it.
-    @ObservationIgnored var planTask: Task<Bool, Never>?
+    /// The last plan save of "Also change the plan" or of its Undo; each one waits for the one before. A forward
+    /// save returns the plan as it was before it (nil: nothing was saved), which its Undo saves back.
+    @ObservationIgnored var planTask: Task<Plan?, Never>?
+    /// Replaces taken back with Undo (by `ReplaceUndo.id`): their late plan saves change nothing more.
+    @ObservationIgnored var undoneReplaces: Set<UUID> = []
     /// The keypad's field when Replace was chosen (the sheet closes the keypad); Undo puts it back.
     @ObservationIgnored var focusBeforeReplace: SetFocus?
 
@@ -121,9 +124,11 @@ final class SessionController: Identifiable {
         followRest()
     }
 
+    /// Finish, discard or an account change: an open undo goes without a write (nothing commits it later).
     func stop() {
         ticker?.cancel()
         ticker = nil
+        dropUndo()
     }
 
     // MARK: derived

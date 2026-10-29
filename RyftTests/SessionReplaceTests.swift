@@ -242,15 +242,19 @@ struct SessionReplaceTests {
     @Test func undoWithinTheWindowNeverUploadsTheReplacedState() async throws {
         let rig = ReplaceRig()
         rig.complete(2, of: rig.x)
+        // An earlier edit's PUT is queued too: it waits with the replace (TrainSyncService.hold).
+        rig.controller.toggleCheck(rig.row.orderedSets[0], in: rig.row)
         await rig.controller.replaceExercise(rig.x, with: rig.incline)
         rig.clock.advance(by: .seconds(2))
+        await rig.sync.flush()
+        #expect(rig.controller.undo != nil)
+        #expect(!rig.api.calls.contains("putSession"), "no PUT at all while the undo window is open")
         rig.controller.undoReplace()
-        // Whatever goes up now is the restored document: no Y, no new exercise id.
-        if let doc = await rig.uploaded() {
-            #expect(!doc.exercises.contains { $0.exerciseId == rig.incline.id })
-            #expect(doc.exercises.count == 4)
-        }
-        #expect(rig.api.calls.filter { $0 == "putSession" }.count <= 1)
+        // What goes up now is the restored document: no Y, no new exercise id.
+        let doc = try #require(await rig.uploaded())
+        #expect(!doc.exercises.contains { $0.exerciseId == rig.incline.id })
+        #expect(doc.exercises.count == 4)
+        #expect(rig.api.calls.filter { $0 == "putSession" }.count == 1)
     }
 
     @Test func nothingIsQueuedBeforeTheWindowEnds() async {

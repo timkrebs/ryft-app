@@ -7,6 +7,7 @@
 //   offline    ──▶ ops stay queued; NWPathMonitor (and app active) replays them
 //   gate       ──▶ PUT and complete wait for consent to the policy in force; DELETE goes without it (ADR 0008)
 //   binding    ──▶ every op is its account's or demo's, and goes only through that binding's client
+//   hold       ──▶ a session's PUT and complete wait while a replace can be undone (`hold`/`release`)
 //
 // Nothing here touches HealthKit; sessions aren't written to Health in v1.
 import Foundation
@@ -52,6 +53,9 @@ final class TrainSyncService {
     private var replayID: UUID?
     /// The op being sent right now; a change meanwhile queues a fresh `put`.
     private var inFlightSeq: Int?
+    /// Sessions whose uploads wait: a replace's undo window is open, so a quick Undo never reaches the server
+    /// (ADR 0009, `SessionController.replace`). Their ops stay queued, in order; other sessions' go.
+    private var holds: Set<UUID> = []
     private var flushAgain = false
     /// Which account (`accountChanged()`) and which store contents (`TrainStore.wipe()`) a replay works
     /// for: an answer that arrives after either moved is dropped. The wipe moves it at once, in the
@@ -97,6 +101,14 @@ final class TrainSyncService {
 
     // MARK: changes
 
+    /// The session's `PUT`s and completion wait (queued ones from earlier edits too) until `release`.
+    func hold(_ sessionID: UUID) { holds.insert(sessionID) }
+
+    /// The undo window is over (committed, undone or dropped). The caller queues the upload it wants, if any.
+    func release(_ sessionID: UUID) { holds.remove(sessionID) }
+
+    func isHeld(_ sessionID: UUID) -> Bool { holds.contains(sessionID) }
+
     /// After every set change: persist now, upload after a quiet 2 s.
     func sessionChanged(_ s: LocalSession) {
         s.updatedAt = .now
@@ -141,6 +153,7 @@ final class TrainSyncService {
         isFlushing = false
         flushAgain = false
         inFlightSeq = nil
+        holds = []
         lastCompletion = nil
         lastError = nil
         refreshCount()
@@ -265,6 +278,11 @@ final class TrainSyncService {
         defer { if generation == self.generation { heldAt = held } }
         while generation == self.generation, let op = store.pendingOps().first(where: { !passedOver.contains($0.seq) }) {
             let write: UploadWrite = op.kind == .delete ? .erasure : .data
+            // Its undo window is open: this session's ops wait; the ones after them (other sessions') may go.
+            if write == .data, holds.contains(op.sessionId) {
+                passedOver.insert(op.seq)
+                continue
+            }
             if write == .data, held != nil {
                 passedOver.insert(op.seq)
                 continue
@@ -383,6 +401,8 @@ final class TrainSyncService {
                                                 deletedExerciseIDs: Set(s.deletedExerciseIDs))
                 s.apply(merged, names: store.exercise(id:), in: store.context)
                 store.save()
+                // Replaced meanwhile and still undoable: the next round would send that. The op waits, queued.
+                guard !holds.contains(s.id) else { throw CancellationError() }
                 doc = s.wire
             }
         }

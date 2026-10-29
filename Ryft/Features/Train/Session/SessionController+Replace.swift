@@ -7,8 +7,10 @@ import OSLog
 //   nothing done (warm-ups count) ──▶ the row is mutated in place: same id and set ids, new exercise, no plan link
 //   some sets done                ──▶ split: the done sets stay on the old row (with its plan link), its open sets
 //                                     are tombstoned, a new row right after it gets as many fresh sets
-//   either                        ──▶ saved now; the upload waits for the undo window (5 s, 10 s with VoiceOver),
-//                                     `pause()` or another edit, so a quick Undo never reaches the server
+//   either                        ──▶ saved now; the session's uploads are held (TrainSyncService.hold) for the
+//                                     undo window (5 s, 10 s with VoiceOver or Switch Control), `pause()` or an
+//                                     edit of that row, so a quick Undo never reaches the server
+//   plan saves                    ──▶ one after another (`planTask`); after Finish they save the plan only
 
 extension SessionController {
     /// What a replace does with the exercise's sets.
@@ -84,8 +86,10 @@ struct ReplaceUndo: Identifiable {
     /// The row a split inserted.
     let inserted: UUID?
     let focus: SetFocus?
-    /// The plan before "Also change the plan" changed it.
-    let planBefore: Plan?
+    /// "Also change the plan": its save, which returns the plan as it was before (nil: nothing saved).
+    let planSave: Task<Plan?, Never>?
+    /// The account and store contents it was made for: after a sign-out it is never committed.
+    let generation: TrainSyncService.Generation
 
     /// The replaced row or the one it inserted.
     func touches(_ exerciseID: UUID?) -> Bool {
@@ -139,7 +143,8 @@ struct SessionTargets: Equatable {
         self.kg = min(max(kg + Self.kgStep * direction, Self.kgRange.lowerBound), Self.kgRange.upperBound)
     }
 
-    mutating func stepRest(_ direction: Int, in range: ClosedRange<Int> = 15...600) {
+    /// In 15 s steps over the range API.md allows (0–900 s): a plan's 900 shows as 900, and "−" goes to 885.
+    mutating func stepRest(_ direction: Int, in range: ClosedRange<Int> = Self.rest) {
         restSec = Self.clamp(restSec + Self.restStep * direction, range)
     }
 
@@ -152,6 +157,19 @@ extension SessionController {
     nonisolated static let undoWindowVoiceOver: Duration = .seconds(10)
     nonisolated static let noticeWindow: Duration = .seconds(5)
     private static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "train.replace")
+
+    /// The undo window for the assistive technology in use: the toast is reached by swiping or scanning.
+    nonisolated static func undoWindow(voiceOver: Bool, switchControl: Bool) -> Duration {
+        voiceOver || switchControl ? undoWindowVoiceOver : undoWindow
+    }
+
+    /// Still the running workout: not finishing, completed or discarded. Late tasks touch the session only then.
+    var isUnderway: Bool {
+        switch phase {
+        case .finishing, .completed, .discarded: false
+        default: true
+        }
+    }
 
     // MARK: replace
 
@@ -194,7 +212,7 @@ extension SessionController {
         let kind = replaceKind(for: ex)
         // Read before the row changes: an in-place replace drops the plan link.
         let option = alsoChangePlan ? planChangeOption(for: ex) : nil
-        let plan = option?.isAvailable == true ? before.planExerciseId.flatMap { library?.editablePlan(containing: $0) } : nil
+        let changesPlan = option?.isAvailable == true && before.planExerciseId != nil
 
         let target: LocalSessionExercise
         var inserted: UUID?
@@ -207,24 +225,26 @@ extension SessionController {
             inserted = target.id
         }
         target.lastTime = library?.cachedLastTime(for: new.id) ?? []
+        // Held from this step on: no upload (an earlier edit's queued one neither) carries the replace yet.
+        sync.hold(self.id)
         store.save()
         refreshActivity()
 
-        let id = UUID()
-        undo = ReplaceUndo(id: id, expiresAt: clock.now().addingTimeInterval(window.timeInterval),
+        let undoID = UUID()
+        var planSave: Task<Plan?, Never>?
+        if changesPlan, let pe = before.planExerciseId {
+            planSave = changePlan(replacing: pe, with: new, undoID: undoID, dayName: option?.dayName ?? "")
+        }
+        undo = ReplaceUndo(id: undoID, expiresAt: clock.now().addingTimeInterval(window.timeInterval),
                            message: Self.message(replacedWith: new.name, kind: kind, oldName: before.name,
-                                                 planDay: plan == nil ? nil : option?.dayName),
+                                                 planDay: planSave == nil ? nil : option?.dayName),
                            restoredName: before.name, newName: new.name, before: before, inserted: inserted, focus: focusBefore,
-                           planBefore: plan)
+                           planSave: planSave, generation: sync.generation)
         undoTask?.cancel()
         undoTask = Task { [weak self, clock] in
             do { try await clock.sleep(for: window) } catch { return }
-            guard let self, self.undo?.id == id else { return }
+            guard let self, self.undo?.id == undoID else { return }
             self.commitUndo()
-        }
-        var planSave: Task<Bool, Never>?
-        if let plan, let pe = before.planExerciseId {
-            planSave = changePlan(plan, replacing: pe, with: new, undoID: id, dayName: option?.dayName ?? "")
         }
         await loadLastTime(row: target.id, exerciseID: new.id)
         _ = await planSave?.value
@@ -234,10 +254,11 @@ extension SessionController {
     /// Restored sets get a fresh `updatedAt`: Undo is a new edit, so it wins over a server copy of the replace.
     func undoReplace() {
         guard let u = undo else { return }
-        undoTask?.cancel()
-        undoTask = nil
-        undo = nil
-        guard let x = session.exercises.first(where: { $0.id == u.before.id }) else { return }
+        dropUndo()
+        undoneReplaces.insert(u.id)
+        // Signed out or another account since: the session isn't there to restore.
+        guard u.generation == sync.generation, isUnderway,
+              let x = session.exercises.first(where: { $0.id == u.before.id }) else { return }
         let now = Date.now
 
         if let yID = u.inserted, let y = session.exercises.first(where: { $0.id == yID }) {
@@ -258,7 +279,7 @@ extension SessionController {
         x.restSec = b.restSec
         x.supersetGroup = b.supersetGroup
         // After a plan change the old plan exercise exists again only once the plan is saved back.
-        x.planExerciseId = u.planBefore == nil ? b.planExerciseId : nil
+        x.planExerciseId = u.planSave == nil ? b.planExerciseId : nil
         x.targetSets = b.targetSets
         x.targetRepsMin = b.targetRepsMin
         x.targetRepsMax = b.targetRepsMax
@@ -286,17 +307,21 @@ extension SessionController {
         store.save()
         edited()
 
-        if let planBefore = u.planBefore {
-            revertPlan(to: planBefore, row: x.id, link: b.planExerciseId, name: b.name)
+        if let forward = u.planSave {
+            revertPlan(after: forward, row: x.id, link: b.planExerciseId, name: b.name)
         }
     }
 
     /// The window is over (or the app went to the background): the replace stays and its upload goes.
     func commitUndo() {
-        undoTask?.cancel()
-        undoTask = nil
-        guard undo != nil else { return }
-        undo = nil
+        guard let u = undo else {
+            undoTask?.cancel()
+            undoTask = nil
+            return
+        }
+        dropUndo()
+        // Signed out or another account since (the store is wiped): nothing is written or queued.
+        guard u.generation == sync.generation, isUnderway else { return }
         sync.sessionChanged(session)
     }
 
@@ -310,10 +335,13 @@ extension SessionController {
         dropUndo()
     }
 
+    /// The undo goes and the session's uploads aren't held any more; the caller queues the one it wants.
     func dropUndo() {
         undoTask?.cancel()
         undoTask = nil
+        guard undo != nil else { return }
         undo = nil
+        sync.release(id)
     }
 
     /// Finish or discard: nothing is held back any more (Finish uploads the whole session itself).
@@ -467,57 +495,83 @@ extension SessionController {
     }
 
     /// §5: links to the old plan exercise go first (a session `PUT` naming a deleted one is a 422), then the plan
-    /// is saved with a new plan exercise for the new lift. A failed save puts the links back.
-    private func changePlan(_ plan: Plan, replacing pe: UUID, with new: Exercise, undoID: UUID,
-                            dayName: String) -> Task<Bool, Never>? {
+    /// is saved with a new plan exercise for the new lift. A failed save puts the links back. The save waits for the
+    /// plan save before it and reads the cached plan only then, so two quick changes both stay.
+    private func changePlan(replacing pe: UUID, with new: Exercise, undoID: UUID,
+                            dayName: String) -> Task<Plan?, Never>? {
         guard let library else { return nil }
         let unlinked = session.exercises.filter { $0.planExerciseId == pe }.map(\.id)
         for ex in session.exercises where ex.planExerciseId == pe { ex.planExerciseId = nil }
         store.save()
-        planTask = Task { [weak self] in
-            let last = await library.lastTime(for: new.id)
-            let kg = Self.planKg(from: last)
-            let ok = await library.savePlan(Self.replacing(pe, with: new, kg: kg, in: plan))
-            guard let self else { return ok }
-            if ok {
-                Self.log.info("Plan exercise replaced from the session")
-                if kg == nil, Self.target(of: pe, in: plan)?.targetKind == .kg, self.undo?.id == undoID {
-                    self.undo?.message = String(
-                        localized: "Replaced with \(new.name). Changed in your plan from the next \(dayName) day. Check its target weight there.",
-                        comment: "Undo toast: exercise replaced in workout and plan; no history, so the plan kept the old weight. 1: exercise, 2: day.")
-                }
-            } else {
-                Self.log.error("Plan change after a replace failed")
-                for id in unlinked {
-                    guard let ex = self.session.exercises.first(where: { $0.id == id }), ex.exerciseId != new.id
-                    else { continue }
-                    ex.planExerciseId = pe
-                }
-                self.store.save()
-                let failed = String(localized: "Replaced with \(new.name). Your plan couldn't be changed.",
-                                    comment: "Undo toast: the exercise was replaced in the workout, but saving the plan failed. 1: new exercise.")
-                if self.undo?.id == undoID {
-                    self.undo?.message = failed
-                } else if self.session.exercises.contains(where: { $0.exerciseId == new.id }) {
-                    // The window is over and the replace stands (after an Undo there is nothing to say).
-                    self.show(notice: failed)
+        let previous = planTask, generation = sync.generation
+        let task = Task<Plan?, Never> { [weak self] in
+            _ = await previous?.value
+            guard let self, self.sync.generation == generation else { return nil }
+            // Taken back before its turn: nothing to save (the Undo relinks).
+            guard !self.undoneReplaces.contains(undoID) else { return nil }
+            var saved: Plan?
+            if let plan = library.editablePlan(containing: pe) {
+                let kg = Self.planKg(from: await library.lastTime(for: new.id))
+                if await library.savePlan(Self.replacing(pe, with: new, kg: kg, in: plan)) {
+                    saved = plan
+                    if kg == nil, Self.target(of: pe, in: plan)?.targetKind == .kg { self.noteNoWeight(new, dayName, undoID) }
                 }
             }
-            return ok
+            // After Finish (or a sign-out) the plan is all a plan task changes.
+            guard self.sync.generation == generation, self.isUnderway else { return saved }
+            if saved != nil {
+                Self.log.info("Plan exercise replaced from the session")
+            } else {
+                Self.log.error("Plan change after a replace failed")
+                self.planChangeFailed(new, links: unlinked, to: pe, undoID: undoID)
+            }
+            return saved
         }
-        return planTask
+        planTask = task
+        return task
+    }
+
+    /// The plan kept the old weight (no history for the new lift): the toast says to check it.
+    private func noteNoWeight(_ new: Exercise, _ dayName: String, _ undoID: UUID) {
+        guard undo?.id == undoID else { return }
+        undo?.message = String(
+            localized: "Replaced with \(new.name). Changed in your plan from the next \(dayName) day. Check its target weight there.",
+            comment: "Undo toast: exercise replaced in workout and plan; no history, so the plan kept the old weight. 1: exercise, 2: day.")
+    }
+
+    /// The links come back (on rows that don't have the new exercise), and the toast or a notice says so.
+    private func planChangeFailed(_ new: Exercise, links: [UUID], to pe: UUID, undoID: UUID) {
+        for id in links {
+            guard let ex = session.exercises.first(where: { $0.id == id }), ex.exerciseId != new.id else { continue }
+            ex.planExerciseId = pe
+        }
+        store.save()
+        let failed = String(localized: "Replaced with \(new.name). Your plan couldn't be changed.",
+                            comment: "Undo toast: the exercise was replaced in the workout, but saving the plan failed. 1: new exercise.")
+        if undo?.id == undoID {
+            undo?.message = failed
+        } else if !undoneReplaces.contains(undoID) {
+            // The window is over and the replace stands (after its Undo there is nothing to say).
+            show(notice: failed)
+        }
     }
 
     /// Undo after a plan change: once the forward save is over, the plan goes back too, and the row's link with it.
-    private func revertPlan(to planBefore: Plan, row: UUID, link: UUID?, name: String) {
+    /// Queued like every plan save, so a replace right after the Undo reads the plan as it was put back.
+    private func revertPlan(after forward: Task<Plan?, Never>, row: UUID, link: UUID?, name: String) {
         guard let library else { return }
-        let forward = planTask
-        Task { [weak self] in
-            let changed = await forward?.value ?? false
-            let ok = changed ? await library.savePlan(planBefore) : true
-            guard let self else { return }
-            if ok, let ex = self.session.exercises.first(where: { $0.id == row }),
-               ex.exerciseId == planBefore.exerciseID(of: link) {
+        let previous = planTask, generation = sync.generation
+        planTask = Task { [weak self] in
+            let before = await forward.value
+            _ = await previous?.value
+            guard let self, self.sync.generation == generation else { return nil }
+            var ok = true
+            if let before { ok = await library.savePlan(before) }
+            // After Finish only the plan goes back: the finished session isn't written or uploaded again.
+            guard self.sync.generation == generation, self.isUnderway else { return nil }
+            // The row gets its link back once the plan holds that plan exercise for its exercise again.
+            if ok, let link, let ex = self.session.exercises.first(where: { $0.id == row }),
+               ex.exerciseId == library.editablePlan(containing: link)?.exerciseID(of: link) {
                 ex.planExerciseId = link
                 self.store.save()
                 self.edited()
@@ -526,6 +580,7 @@ extension SessionController {
                 self.show(notice: String(localized: "Restored \(name). Your plan still has the new exercise.",
                                          comment: "Toast after Undo: the workout is back, but the plan could not be changed back. 1: exercise name."))
             }
+            return nil
         }
     }
 
@@ -549,10 +604,10 @@ extension SessionController {
         case .inPlace:
             return String(localized: "Replaced with \(new)", comment: "Undo toast after replacing an exercise. 1: new exercise.")
         case .split(1, _):
-            return String(localized: "Replaced with \(new). Your done set stays as \(oldName).",
+            return String(localized: "Replaced with \(new). Your done set stays with \(oldName).",
                           comment: "Undo toast after replacing an exercise with one set done. 1: new exercise, 2: old exercise.")
         case .split(let done, _):
-            return String(localized: "Replaced with \(new). Your \(done) done sets stay as \(oldName).",
+            return String(localized: "Replaced with \(new). Your \(done) done sets stay with \(oldName).",
                           comment: "Undo toast after replacing an exercise with several sets done. 1: new exercise, 2: number of sets, 3: old exercise.")
         }
     }
