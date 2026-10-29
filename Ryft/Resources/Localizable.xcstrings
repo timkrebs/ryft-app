@@ -10992,6 +10992,17 @@
         }
       }
     },
+    "You must be at least 16 to use RYFT." : {
+      "comment" : "Consent screen: the minimum age (Art. 8 GDPR, Germany).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du musst mindestens 16 Jahre alt sein, um RYFT zu nutzen."
+          }
+        }
+      }
+    },
     "You're in the middle of another import. Opening this file starts over." : {
       "comment" : "Training import E8.",
       "localizations" : {

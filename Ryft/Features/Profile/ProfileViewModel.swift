@@ -724,10 +724,8 @@ final class BodySettingsEditor {
 
     var birthYear: Int? { user?.birthYear }
 
-    /// The years the platform takes: 1920 to this year − 13, newest first.
-    var birthYears: [Int] {
-        Array(stride(from: OnboardingCoordinator.latestBirthYear(now: env.clock.now()), through: 1920, by: -1))
-    }
+    /// The years offered: 1920 to this year − 16 (the minimum age), newest first.
+    var birthYears: [Int] { OnboardingCoordinator.birthYears(now: env.clock.now()) }
 
     /// `PATCH /v1/me {birth_year}`: the estimate follows unless max HR is set by hand. A
     /// failure stays beside the picker (`birthYearError`).
