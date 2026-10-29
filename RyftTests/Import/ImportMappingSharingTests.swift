@@ -44,4 +44,15 @@ struct ImportMappingSharingTests {
         #expect(state.content(state.rows[3]).alsoUsedFor == [])
         #expect(state.leftToCheck == 0)
     }
+
+    /// A suggestion still waiting for its tap counts: the user sees the collision before accepting it.
+    @Test func aCheckRowCollidesWithAMatchedRow() {
+        let state = ImportMappingState(rows: [
+            Self.row("Fly", .check(Self.reverse.id), suggestion: Self.reverse.id),
+            Self.row("Reverse Fly", .matched(Self.reverse.id), suggestion: Self.reverse.id),
+        ], exercises: [Self.reverse.id: Self.reverse])
+        #expect(state.content(state.rows[0]).alsoUsedFor == ["Reverse Fly · Machine"])
+        #expect(state.content(state.rows[1]).alsoUsedFor == ["Fly · Machine"])
+        #expect(state.leftToCheck == 1)
+    }
 }

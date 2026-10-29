@@ -3,13 +3,16 @@ import Testing
 @testable import Ryft
 
 /// "Last time" per occurrence (beta feedback 2, §4): the platform concatenates every occurrence of an exercise in the
-/// last session; each plan row of that exercise gets its own run. Synthetic sets only.
+/// last session; each plan row of that exercise gets its own run, but only when runs and rows match one to one.
+/// Synthetic sets only; like the platform's list, completed working sets only (no warm-ups).
 @Suite("Last time per occurrence")
 struct LastTimeOccurrenceTests {
-    /// A run of working sets from `start`, reps 10, 9, 8 …, at `kg`.
-    static func run(_ kg: Double, count: Int, from start: Int = 0) -> [SessionSet] {
-        (0..<count).map { i in SessionSet(setIndex: start + i, reps: 10 - i, weightKg: kg) }
+    /// Working sets at `indexes`, reps 10, 9, 8 …, at `kg`.
+    static func run(_ kg: Double, _ indexes: [Int]) -> [SessionSet] {
+        indexes.enumerated().map { i, index in SessionSet(setIndex: index, reps: 10 - i, weightKg: kg) }
     }
+
+    static func run(_ kg: Double, count: Int) -> [SessionSet] { run(kg, Array(0..<count)) }
 
     static func row(_ exercise: Exercise, _ position: Int, sets: Int = 3) -> PlanExercise {
         PlanExercise(exercise: exercise, position: position, sets: sets, repsMin: 8, repsMax: 12, targetKind: .rpe,
@@ -46,29 +49,36 @@ struct LastTimeOccurrenceTests {
         #expect(LastTimeOccurrence.sets(first + second, for: late, in: day) == second)
     }
 
-    /// More rows than the last session had occurrences: the later rows get the last run.
-    @Test func moreRowsThanRuns() {
-        let first = Self.run(40, count: 3)
-        let second = Self.run(30, count: 2)
-        let sets = first + second
-        #expect(LastTimeOccurrence.sets(sets, occurrence: 1, of: 3) == second)
-        #expect(LastTimeOccurrence.sets(sets, occurrence: 2, of: 3) == second)
-        // One run for two rows: both get it.
-        #expect(LastTimeOccurrence.sets(first, occurrence: 1, of: 2) == first)
+    /// Gaps from left-out sets: the working sets still restart, so the split holds.
+    @Test func completedOnlyGapsStillSplit() {
+        let first = Self.run(40, [1, 2, 4]) // warm-up 0 and an unfinished set 3 left out
+        let second = Self.run(30, [2, 3, 4]) // two warm-ups left out
+        #expect(LastTimeOccurrence.runs(first + second) == [first, second])
+        #expect(LastTimeOccurrence.sets(first + second, occurrence: 1, of: 2) == second)
+    }
+
+    /// A gap that lets the second occurrence start above where the first ended merges the runs: both rows get the
+    /// joint list, never a wrong half.
+    @Test func mergedRunsKeepTheJointList() {
+        let sets = Self.run(40, [0, 1]) + Self.run(30, [2, 3, 4])
+        #expect(LastTimeOccurrence.runs(sets).count == 1)
+        #expect(LastTimeOccurrence.sets(sets, occurrence: 0, of: 2) == sets)
+        #expect(LastTimeOccurrence.sets(sets, occurrence: 1, of: 2) == sets)
+    }
+
+    /// Three rows, two runs (one occurrence merged or missing): every row keeps the joint list.
+    @Test func moreRowsThanRunsKeepTheJointList() {
+        let sets = Self.run(40, count: 3) + Self.run(30, count: 2)
+        for k in 0..<3 { #expect(LastTimeOccurrence.sets(sets, occurrence: k, of: 3) == sets) }
         #expect(LastTimeOccurrence.sets([], occurrence: 1, of: 2) == [])
     }
 
-    /// A warm-up inside a run doesn't start a new one; the next occurrence's warm-up does.
-    @Test func warmUpsInsideARun() {
-        let first = [SessionSet(setIndex: 0, reps: 8, weightKg: 20, isWarmup: true)] + Self.run(40, count: 3, from: 1)
-        let second = [SessionSet(setIndex: 0, reps: 8, weightKg: 15, isWarmup: true),
-                      SessionSet(setIndex: 1, reps: 6, weightKg: 20, isWarmup: true)] + Self.run(30, count: 3, from: 2)
-        let sets = first + second
-        #expect(LastTimeOccurrence.runs(sets) == [first, second])
-        #expect(LastTimeOccurrence.sets(sets, occurrence: 1, of: 2) == second)
-        // Warm-ups the platform already left out: the working sets still restart.
-        let working = Self.run(40, count: 3, from: 1) + Self.run(30, count: 3, from: 2)
-        #expect(LastTimeOccurrence.runs(working).map(\.count) == [3, 3])
+    /// Two sets with one index (a 409 merge keeps both) split a run: more runs than rows, so the joint list.
+    @Test func duplicateIndexKeepsTheJointList() {
+        let sets = Self.run(40, [0, 1, 1, 2]) + Self.run(30, count: 3)
+        #expect(LastTimeOccurrence.runs(sets).count == 3)
+        #expect(LastTimeOccurrence.sets(sets, occurrence: 0, of: 2) == sets)
+        #expect(LastTimeOccurrence.sets(sets, occurrence: 1, of: 2) == sets)
     }
 
     // MARK: Through the session

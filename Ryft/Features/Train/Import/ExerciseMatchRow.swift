@@ -105,7 +105,7 @@ struct ExerciseMatchRow: View {
         return layout {
             VStack(alignment: .leading, spacing: 5) {
                 (Text(verbatim: row.source.name).foregroundStyle(Theme.textPrimary)
-                    + Text(verbatim: row.source.equipment.map { " · \($0)" } ?? "").foregroundStyle(Theme.textSecondary))
+                    + Text(verbatim: row.source.equipmentSuffix).foregroundStyle(Theme.textSecondary))
                     .font(.ryft(.body))
                     .fixedSize(horizontal: false, vertical: true)
                 if let name = content.matchName {
@@ -205,7 +205,9 @@ struct ExerciseMatchRow: View {
     /// "Also used for “Reverse Fly · Machine”": another row of the file maps to the same RYFT exercise.
     private var alsoUsedForText: String? {
         guard !content.alsoUsedFor.isEmpty else { return nil }
-        let names = content.alsoUsedFor.map { "“\($0)”" }.formatted(.list(type: .and))
+        let names = content.alsoUsedFor.map { name in
+            String(localized: "“\(name)”", comment: "A name quoted inside a sentence, e.g. an exercise from an imported file.")
+        }.formatted(.list(type: .and))
         return String(localized: "Also used for \(names)",
                       comment: "Training import, step 4: other rows of the file map to the same RYFT exercise; the file's exercise names.")
     }
@@ -250,11 +252,6 @@ extension ImportMappingState {
                                         dropsPlusLoad: dropsPlusLoad(row),
                                         alsoUsedFor: sharing(row).map(\.source.displayName))
     }
-}
-
-extension ImportedExerciseSource {
-    /// "Reverse Fly · Machine", as the row's title shows it.
-    var displayName: String { equipment.map { "\(name) · \($0)" } ?? name }
 }
 
 #Preview("Match rows", traits: .sizeThatFitsLayout) {

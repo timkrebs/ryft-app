@@ -12248,9 +12248,39 @@
       "comment" : "Train session, an exercise's Last time line: sets not listed after the first five.",
       "localizations" : {
         "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "+%lld weitere"
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld weiterer"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld weitere"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld more"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld more"
+                }
+              }
+            }
           }
         }
       }
@@ -12298,6 +12328,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "„%1$@“ bei %2$@: Ist das Zusatzgewicht oder dein Körpergewicht?"
+          }
+        }
+      }
+    },
+    "“%@”" : {
+      "comment" : "A name quoted inside a sentence, e.g. an exercise from an imported file.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„%@“"
           }
         }
       }

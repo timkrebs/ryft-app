@@ -220,7 +220,7 @@ struct ExerciseCard: View {
         .accessibilityHidden(true)
     }
 
-    /// "97.5 × 5, 97.5 × 4"; past five sets "…, 80 × 5 +2 more", never a silent cut.
+    /// "97.5 × 5, 97.5 × 4"; past five sets "…, 80 × 5, +2 more", never a silent cut.
     private var lastTimeText: String? {
         let sets = exercise.lastTime.filter { !$0.isWarmup }
         guard !sets.isEmpty else { return nil }
@@ -234,7 +234,7 @@ struct ExerciseCard: View {
         }.joined(separator: ", ")
         let more = sets.count - shown
         guard more > 0 else { return list }
-        return list + " " + String(localized: "+\(more) more",
+        return list + ", " + String(localized: "+\(more) more",
                                    comment: "Train session, an exercise's Last time line: sets not listed after the first five.")
     }
 }

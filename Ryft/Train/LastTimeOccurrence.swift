@@ -2,14 +2,20 @@ import Foundation
 
 /// "Last time" for one plan row when a day holds the same exercise more than once (beta feedback 2, §4).
 ///
-/// The platform's `last_time` for a plan target is every working set of that `exercise_id` in the newest completed
-/// session, ordered by the session exercise's position, then `set_index`, and concatenated: two rows of one exercise
-/// both got the joint list, and their ghosts with it. Each session exercise numbers its sets from 0 (the app renumbers
-/// them on delete), so a new occurrence starts where `set_index` stops increasing. The k-th row of the exercise (by
-/// position) gets the k-th run; rows past the last run get the last run; a day with the exercise once keeps the list
-/// as it came. Pure; a stand-in until the platform returns `last_time` per occurrence.
+/// The platform's `last_time` for a plan target is the completed working sets of that `exercise_id` in the newest
+/// completed session, ordered by the session exercise's position, then `set_index`, and concatenated: two rows of one
+/// exercise both got the joint list, and their ghosts with it. Each session exercise numbers its sets from 0, so a new
+/// occurrence usually starts where `set_index` stops increasing. The list is split only when that gives exactly as many
+/// runs as the day has rows of the exercise; then the k-th row (by position) gets the k-th run. Otherwise every row
+/// keeps the joint list, as before: a wrong split is worse than none. Known limits, all falling back to the joint list:
+/// - Warm-ups and unfinished sets are left out, so `set_index` has gaps; an occurrence that starts above where the
+///   previous one ended merges with it (fewer runs than rows).
+/// - An occurrence with no completed working sets isn't in the list at all (fewer runs than rows).
+/// - Two sets with one `set_index` (a 409 merge keeps both, `SessionMerge.mergeSets` sorts the tie) split a run (more
+///   runs than rows).
+/// Pure; a stand-in until the platform returns `last_time` per occurrence (`docs/API_REQUESTS.md`).
 enum LastTimeOccurrence {
-    /// `sets` split where `set_index` doesn't increase. Warm-ups stay in their run.
+    /// `sets` split where `set_index` doesn't increase.
     static func runs(_ sets: [SessionSet]) -> [[SessionSet]] {
         var out: [[SessionSet]] = []
         for set in sets {
@@ -22,12 +28,13 @@ enum LastTimeOccurrence {
         return out
     }
 
-    /// The run for occurrence `index` (0-based) of `count` rows of one exercise.
+    /// The sets for occurrence `index` (0-based) of `count` rows of one exercise: its run when the runs and rows
+    /// match one to one, else the whole list.
     static func sets(_ sets: [SessionSet], occurrence index: Int, of count: Int) -> [SessionSet] {
         guard count > 1 else { return sets }
         let runs = runs(sets)
-        guard let last = runs.last else { return [] }
-        return runs.indices.contains(index) ? runs[index] : last
+        guard runs.count == count, runs.indices.contains(index) else { return sets }
+        return runs[index]
     }
 
     /// The last time for `row`, given its target's `lastTime` and every row of its day.
