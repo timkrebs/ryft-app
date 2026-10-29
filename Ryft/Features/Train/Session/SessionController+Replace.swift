@@ -484,7 +484,7 @@ extension SessionController {
                 if kg == nil, Self.target(of: pe, in: plan)?.targetKind == .kg, self.undo?.id == undoID {
                     self.undo?.message = String(
                         localized: "Replaced with \(new.name). Changed in your plan from the next \(dayName) day. Check its target weight there.",
-                        comment: "Undo toast after replacing an exercise and its plan entry; the new exercise has no history, so the plan kept the old weight. 1: new exercise, 2: plan day name, e.g. Upper.")
+                        comment: "Undo toast: exercise replaced in workout and plan; no history, so the plan kept the old weight. 1: exercise, 2: day.")
                 }
             } else {
                 Self.log.error("Plan change after a replace failed")
@@ -516,7 +516,8 @@ extension SessionController {
             let changed = await forward?.value ?? false
             let ok = changed ? await library.savePlan(planBefore) : true
             guard let self else { return }
-            if ok, let ex = self.session.exercises.first(where: { $0.id == row }), ex.exerciseId == planBefore.exerciseID(of: link) {
+            if ok, let ex = self.session.exercises.first(where: { $0.id == row }),
+               ex.exerciseId == planBefore.exerciseID(of: link) {
                 ex.planExerciseId = link
                 self.store.save()
                 self.edited()

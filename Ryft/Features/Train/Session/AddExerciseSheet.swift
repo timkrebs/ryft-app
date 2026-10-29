@@ -107,8 +107,7 @@ struct AddExerciseSheet: View {
             .background(Theme.background.ignoresSafeArea())
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
                         prompt: Text("Search exercises"))
-            .navigationTitle(replacing.map { Text("Replace \($0.name)", comment: "Title of the sheet that replaces an exercise mid-workout. 1: exercise name.") }
-                             ?? Text(title))
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -135,6 +134,12 @@ struct AddExerciseSheet: View {
                 alsoChangePlan = false
             }
         }
+    }
+
+    private var navigationTitle: Text {
+        guard let replacing else { return Text(title) }
+        return Text("Replace \(replacing.name)",
+                    comment: "Title of the sheet that replaces an exercise mid-workout. 1: exercise name.")
     }
 
     private func row(_ e: Exercise) -> some View {

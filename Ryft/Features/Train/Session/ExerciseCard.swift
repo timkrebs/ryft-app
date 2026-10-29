@@ -14,6 +14,8 @@ struct SetRow: View {
     @State private var swipe: CGFloat = 0
     @State private var swipeAxis: Axis?
     @State private var swipeStart: CGFloat = 0
+    /// When a sideways drag last ended: the tap a button sees at its end isn't one.
+    @State private var swipeEndedAt: Date = .distantPast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private static let revealWidth: CGFloat = 88
 
@@ -61,7 +63,7 @@ struct SetRow: View {
     private var row: some View {
         HStack(spacing: 6) {
             Button {
-                controller.toggleWarmup(set)
+                tap { controller.toggleWarmup(set) }
             } label: {
                 Text(set.isWarmup ? "W" : "\(number)")
                     .font(.ryftNumber(size: 17))
@@ -80,7 +82,7 @@ struct SetRow: View {
                 .frame(maxWidth: 64)
 
             Button {
-                controller.toggleCheck(set, in: exercise)
+                tap { controller.toggleCheck(set, in: exercise) }
             } label: {
                 Image(systemName: "checkmark")
                     .font(.system(size: 20, weight: .bold))
@@ -127,11 +129,22 @@ struct SetRow: View {
             }
             .onEnded { _ in
                 defer { swipeAxis = nil }
+                if swipeAxis == .horizontal { swipeEndedAt = .now }
                 guard swipeAxis == .horizontal else { return }
                 withAnimation(reduceMotion ? nil : Theme.Motion.quick) {
                     swipe = swipe < -Self.revealWidth / 2 ? -Self.revealWidth : 0
                 }
             }
+    }
+
+    /// A row button's action, unless the touch was a swipe; on an open row a tap only closes it.
+    private func tap(_ action: () -> Void) {
+        guard swipeAxis != .horizontal, Date.now.timeIntervalSince(swipeEndedAt) > 0.35 else { return }
+        if swipe < 0 {
+            withAnimation(reduceMotion ? nil : Theme.Motion.quick) { swipe = 0 }
+            return
+        }
+        action()
     }
 
     /// A set with values (or checked) asks first; an empty one goes at once.
@@ -164,7 +177,7 @@ struct SetRow: View {
         let focused = controller.focus == SetFocus(setID: set.id, field: f)
         let shown = focused ? (controller.buffer.isEmpty ? nil : controller.displayBuffer) : value
         return Button {
-            controller.edit(set, f)
+            tap { controller.edit(set, f) }
         } label: {
             Text(shown ?? ghost ?? Fmt.placeholder)
                 .font(.ryftNumber(size: 22))
