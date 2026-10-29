@@ -27,7 +27,6 @@ import UIKit
         }
     }
 
-
     /// Rows of the 3 x 3 matrix applied to (r, g, b).
     private static let deficiencies: [(String, [CGFloat])] = [
         ("protanopia", [0.152286, 1.052583, -0.204868, 0.114503, 0.786281, 0.099216, -0.003882, -0.048116, 1.051998]),
@@ -89,7 +88,7 @@ import UIKit
                 HStack(spacing: 8) {
                     OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .medium)
                     OrbitGauge(mode: .assembling, size: .medium)
-                    OrbitGauge(mode: .pending(previous: 71), size: .medium)
+                    OrbitGauge(mode: .pending(previous: .previewScored), size: .medium)
                 }
             }
             // The 44 pt check: the app icon's tile (mark on Graphite / Mist, as scripts/icon-spec.swift) beside the
