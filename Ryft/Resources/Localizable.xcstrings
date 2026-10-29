@@ -4902,8 +4902,28 @@
         }
       }
     },
-    "Learning your HRV baseline: %lld of %lld nights. No resting heart rate has reached RYFT yet, so recovery uses HRV and sleep." : {},
-    "Learning your resting heart rate baseline: %lld of %lld nights. No HRV has reached RYFT yet, so recovery uses resting heart rate and sleep." : {},
+    "Learning your HRV baseline: %lld of %lld nights. No resting heart rate has reached RYFT yet, so recovery uses HRV and sleep." : {
+      "comment" : "Note under Today's gauge: only HRV fills, no resting HR arrived. Arguments: nights so far, nights needed (7).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein HRV-Ausgangswert entsteht: %1$lld von %2$lld Nächten. Bei RYFT sind noch keine Ruhepuls-Werte angekommen, deshalb nutzt die Erholung HRV und Schlaf."
+          }
+        }
+      }
+    },
+    "Learning your resting heart rate baseline: %lld of %lld nights. No HRV has reached RYFT yet, so recovery uses resting heart rate and sleep." : {
+      "comment" : "Note under Today's gauge: only resting HR fills, no HRV arrived. Arguments: nights so far, nights needed (7).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Ruhepuls-Ausgangswert entsteht: %1$lld von %2$lld Nächten. Bei RYFT sind noch keine HRV-Werte angekommen, deshalb nutzt die Erholung Ruhepuls und Schlaf."
+          }
+        }
+      }
+    },
     "This item uses an exercise RYFT doesn't know." : {
       "comment" : "Training import I4: the platform's code unknown_exercise.",
       "localizations" : {
