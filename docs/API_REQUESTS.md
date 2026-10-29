@@ -79,6 +79,17 @@ is the auth session, and `Set` is `SessionSet` as in the mirror.
    its own merges).
    - **Proposal:** a tombstone, `"deleted": true` on the set, or
      `DELETE /v1/sessions/{id}/sets/{set_id}`.
+   - **Same for exercises (2026-10-29).** The same merge keeps an *exercise* the body
+     leaves out, and its sets with it. A user who removes an exercise, or replaces one
+     before doing a set (ticket T1), leaves a server row that still counts at finish
+     (a sets-less row also makes that exercise's next "Last time" empty). That
+     contradicts Train #1 / `API.md`, which say completion replaces the document whole.
+     The app can't observe this either; it rests on reading `train.Merge` (called at
+     `backend/internal/store/train.go:498`).
+   - **Proposal (extended):** exercise tombstones next to the set ones
+     (`"deleted": true` on the exercise, or `DELETE /v1/sessions/{id}/exercises/{exercise_id}`),
+     and on completion the documented behaviour: the body is the whole document, so
+     rows it leaves out are dropped.
 2. **A paused enrolment in `GET /v1/plans`.** `active` is "the active enrolment,
    or `null`", so after `DELETE /v1/plans/enrollment` the app can't tell which plan
    was paused. It remembers the plan id locally to offer Resume, which re-enrols
@@ -96,6 +107,32 @@ is the auth session, and `Set` is `SessionSet` as in the mirror.
      have the platform link a workout to its session by `session_id` (the external UUID)
      instead of creating a `ryft-session` workout. Then a second phone would see it as the
      session's too.
+6. **Progression fallback counts an unlinked exercise twice (needed, P2, 2026-10-29).**
+   `PlanExerciseAttempts` counts a session exercise with `plan_exercise_id: null` as an
+   attempt for every plan exercise of the session's plan day with the same
+   `exercise_id` (`backend/internal/store/train.go:848`). When a user replaces planned
+   exercise A by B mid-session and B is also planned that day, the app sends one B row
+   linked to B's plan exercise and one B row with `plan_exercise_id: null` on the same
+   `plan_day_id`. Both count for B, so `NextTargetKG`
+   (`backend/internal/scoring/strength.go:476`) sees two attempts from one session and
+   can step up, or deload, twice. Which one of the two it counts first is arbitrary.
+   The app can't observe progression itself; this request rests on reading the platform
+   code at the lines above.
+   - **Proposal:** the fallback applies only when no exercise of the same session names
+     that plan exercise. Sessions without links (older apps, unmapped imports) keep
+     today's behaviour.
+   - **Screens affected:** Train > Today and the plan's next targets, after a replaced
+     exercise.
+7. **A movement pattern on `Exercise` (nice to have, 2026-10-29).** For "Similar" in the
+   replace sheet. Muscles alone can't tell a press from a fly. Until then the app ranks
+   by muscles, load type and kind (`Ryft/Train/ExerciseSimilarity.swift`).
+   - **Proposal:** `movement_pattern` (string?, **open** like `equipment`, the app must
+     tolerate unknown values), e.g. `horizontal_press`, `incline_press`,
+     `vertical_press`, `horizontal_pull`, `vertical_pull`, `squat`, `hinge`, `lunge`,
+     `fly`, `curl`, `triceps_extension`, `raise`, `carry`. Set on built-ins, optional on
+     `POST /v1/exercises`. The app ranks same-pattern exercises first and falls back to
+     muscles.
+   - **Screens affected:** the replace-exercise sheet in an active session.
 
 ## Charts and gauges (open, 2026-10-19)
 
