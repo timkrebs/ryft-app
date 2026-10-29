@@ -81,6 +81,9 @@ Store "What's New".
   until you agree. Deleting an activity, a night or a workout reaches RYFT even without it.
 
 ### Fixed
+- Train: when a plan day has the same exercise twice, each card shows its own sets from last time, not both
+  lists joined; a long "Last time" ends in "+N more" instead of being cut at five. The training import says when
+  two exercises from the file map to one RYFT exercise.
 - Today names your tracker's app as you know it ("Garmin Connect", not Apple Health's "Connect"). In
   the morning it says when your night hasn't reached Apple Health yet, with the app to open, instead
   of "Scoring your latest data"; scoring that takes longer than usual says so, with Details.
