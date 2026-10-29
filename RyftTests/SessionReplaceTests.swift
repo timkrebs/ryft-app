@@ -172,7 +172,7 @@ struct SessionReplaceTests {
         rig.x.orderedSets[2].isWarmup = true
         await rig.controller.replaceExercise(rig.x, with: rig.incline)
         let y = rig.session.orderedExercises[2]
-        #expect(y.orderedSets.map(\.isWarmup) == [true, false])
+        #expect(y.orderedSets.map(\.isWarmup) == [false, true, false], "3 open sets, the flag stays on the middle one")
     }
 
     // MARK: the order of the list and the wire
@@ -316,7 +316,7 @@ struct SessionReplaceTests {
         case "toggleSuperset": c.toggleSuperset(y)
         default: c.move(from: IndexSet(integer: 0), to: 2)
         }
-        #expect(c.undo == nil, edit)
+        #expect(c.undo == nil, "\(edit)")
     }
 
     @Test func anEditToTheOldRowOfASplitDropsTheUndoToo() async throws {
@@ -413,12 +413,21 @@ struct SessionReplaceTests {
         #expect(rig.x.exerciseId == rig.incline.id, "the session still changes")
     }
 
-    @Test func aFailedPlanSaveRestoresTheSessionLink() async {
+    @Test func aFailedPlanSaveOnASplitGivesTheOldRowItsLinkBack() async {
         let rig = ReplaceRig()
+        rig.complete(2, of: rig.x)
         rig.library.saveSucceeds = false
         await rig.controller.replaceExercise(rig.x, with: rig.incline, alsoChangePlan: true)
         #expect(rig.library.savedPlans.count == 1)
         #expect(rig.x.planExerciseId == rig.peBench)
+    }
+
+    @Test func aFailedPlanSaveInPlaceLeavesTheReplacementUnlinked() async {
+        let rig = ReplaceRig()
+        rig.library.saveSucceeds = false
+        await rig.controller.replaceExercise(rig.x, with: rig.incline, alsoChangePlan: true)
+        #expect(rig.library.savedPlans.count == 1)
+        #expect(rig.x.planExerciseId == nil, "ADR 0009: a replacement never carries the old plan link")
     }
 
     @Test func undoRevertsThePlanChangeAndRelinksAfterTheSave() async throws {
