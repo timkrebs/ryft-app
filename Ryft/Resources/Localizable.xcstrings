@@ -268,10 +268,86 @@
       }
     },
     "%@, completed. %lld sets, best %@." : {
-      "comment" : "VoiceOver: a collapsed exercise, e.g. Bench press, completed. 4 sets, best 6 reps at 80 kilograms."
+      "comment" : "VoiceOver: a collapsed exercise, e.g. Bench press, completed. 4 sets, best 6 reps at 80 kilograms.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, erledigt. %lld Satz, Bestwert %@."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, erledigt. %lld Sätze, Bestwert %@."
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, completed. %lld set, best %@."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, completed. %lld sets, best %@."
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "%@, completed. %lld sets." : {
-      "comment" : "VoiceOver: a collapsed exercise without values, e.g. Plank, completed. 3 sets."
+      "comment" : "VoiceOver: a collapsed exercise without values, e.g. Plank, completed. 3 sets.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, erledigt. %lld Satz."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, erledigt. %lld Sätze."
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, completed. %lld set."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, completed. %lld sets."
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "%@, now matched. %lld left to check." : {
       "comment" : "Training import, VoiceOver: a row was resolved; the rows still blocking.",
@@ -594,7 +670,105 @@
       }
     },
     "%lld exercises · %lld sets" : {
-      "comment" : "Under All sets done: how many exercises and checked sets, e.g. 5 exercises · 17 sets."
+      "comment" : "Under All sets done: how many exercises and checked sets, e.g. 5 exercises · 17 sets.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@exercises@ · %#@sets@"
+          },
+          "substitutions" : {
+            "exercises" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Übung"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Übungen"
+                    }
+                  }
+                }
+              }
+            },
+            "sets" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Satz"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Sätze"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@exercises@ · %#@sets@"
+          },
+          "substitutions" : {
+            "exercises" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg exercise"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg exercises"
+                    }
+                  }
+                }
+              }
+            },
+            "sets" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg set"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg sets"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "%lld failed" : {
       "localizations" : {
@@ -1353,7 +1527,45 @@
       }
     },
     "%lld sets · best %@" : {
-      "comment" : "A collapsed exercise in a workout: sets done and the best set, e.g. 4 sets · best 80 × 6."
+      "comment" : "A collapsed exercise in a workout: sets done and the best set, e.g. 4 sets · best 80 × 6.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Satz · Bestwert %@"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Sätze · Bestwert %@"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld set · best %@"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld sets · best %@"
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "%lld to check" : {
       "comment" : "Training import, step 4: the count line.",
@@ -2308,10 +2520,26 @@
       }
     },
     "All sets done" : {
-      "comment" : "Card at the end of a workout once every set is checked off."
+      "comment" : "Card at the end of a workout once every set is checked off.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Sätze erledigt"
+          }
+        }
+      }
     },
     "All sets done. Finish workout available at the bottom." : {
-      "comment" : "VoiceOver announcement when the last set of a workout is checked off."
+      "comment" : "VoiceOver announcement when the last set of a workout is checked off.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Sätze erledigt. Unten findest du „Workout beenden“."
+          }
+        }
+      }
     },
     "All sports" : {
       "comment" : "Sport picker: every sport, alphabetically.",
@@ -4055,7 +4283,15 @@
       }
     },
     "Expands the sets" : {
-      "comment" : "VoiceOver hint on a collapsed exercise in a workout."
+      "comment" : "VoiceOver hint on a collapsed exercise in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt die Sätze"
+          }
+        }
+      }
     },
     "Export my data first" : {
       "localizations" : {
@@ -4924,19 +5160,59 @@
       }
     },
     "Jump to next exercise" : {
-      "comment" : "Profile → Training toggle: after the last set of an exercise, the workout scrolls to the next one."
+      "comment" : "Profile → Training toggle: after the last set of an exercise, the workout scrolls to the next one.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zur nächsten Übung springen"
+          }
+        }
+      }
     },
     "Jumps to the next set when you finish an exercise." : {
-      "comment" : "Footer under the Profile → Training toggle \"Jump to next exercise\"."
+      "comment" : "Footer under the Profile → Training toggle \"Jump to next exercise\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Springt zum nächsten Satz, wenn du eine Übung abschließt."
+          }
+        }
+      }
     },
     "Minus 15" : {
-      "comment" : "Voice Control name of the rest bar's −15 button."
+      "comment" : "Voice Control name of the rest bar's −15 button.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minus 15"
+          }
+        }
+      }
     },
     "Next set." : {
-      "comment" : "VoiceOver: said with the set row the user does next in a workout."
+      "comment" : "VoiceOver: said with the set row the user does next in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nächster Satz."
+          }
+        }
+      }
     },
     "Plus 15" : {
-      "comment" : "Voice Control name of the rest bar's +15 button."
+      "comment" : "Voice Control name of the rest bar's +15 button.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plus 15"
+          }
+        }
+      }
     },
     "This item uses an exercise RYFT doesn't know." : {
       "comment" : "Training import I4: the platform's code unknown_exercise.",
@@ -10196,7 +10472,15 @@
       }
     },
     "Training" : {
-      "comment" : "Profile: the section with training preferences (Jump to next exercise)."
+      "comment" : "Profile: the section with training preferences (Jump to next exercise).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Training"
+          }
+        }
+      }
     },
     "Training exports are usually well under 1 MB. Is this the right file?" : {
       "comment" : "Training import P4.",
