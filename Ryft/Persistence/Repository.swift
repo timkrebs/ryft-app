@@ -747,56 +747,31 @@ final class Repository {
 
 // MARK: - widget snapshot
 
-/// What the readiness widget shows, written into the App Group container by the app.
-/// Keep identical to `RyftWidgets/ReadinessSnapshot.swift`: the widget decodes this JSON.
-struct ReadinessSnapshot: Codable, Equatable {
-    enum Kind: String, Codable {
-        /// Today's readiness.
-        case score
-        /// The night is being scored.
-        case pending
-        /// No night has arrived for today.
-        case waitingForSleep
-        /// Fewer than 7 nights behind the baselines.
-        case calibrating
-    }
-
-    /// The day it's about, `yyyy-MM-dd`; another day on the widget is "waiting for sleep".
-    var day: String
-    var kind: Kind
-    var readiness: Int?
-    /// The latest readiness before `day`, dimmed while the night isn't scored.
-    var previousReadiness: Int?
-    /// While calibrating.
-    var baselineNights: Int?
-    var updatedAt: Date
-    /// Tonight's bedtime (Bedtime & wake): "Bed by 22:41" in the evening.
-    var bedtime: Date?
-
-    static let appGroup = "group.dev.timkrebs.ryft"
-    static let widgetKind = "ReadinessWidget"
-
-    static var sharedFile: URL? {
-        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)?
-            .appendingPathComponent("readiness.json")
-    }
-
-    /// Today's gauge as `TodayPresentation.decide` picked it, in the widget's kinds (the JSON is
-    /// unchanged): today's readiness; a night pending or awaited, or another day's readiness,
-    /// dimmed; the baselines; `nil` with nothing scored at all. The latest readiness before today
-    /// goes along in every kind: tomorrow shows it dimmed until its night is scored (`asOf`).
+/// The app's half of the widget's snapshot (`Shared/ReadinessSnapshot.swift`): what Today decided, written into the
+/// App Group container when it changed.
+extension ReadinessSnapshot {
+    /// Today's gauge as `TodayPresentation.decide` picked it, in the widget's kinds: today's readiness; a night
+    /// pending or awaited, or another day's readiness, dimmed; the baselines; `nil` with nothing scored at all. The
+    /// latest readiness before today goes along in every kind: tomorrow shows it dimmed until its night is scored
+    /// (`asOf`). The orbit is `OrbitGaugeMode(p)`'s: the tiles' scores and what a baselines count counts.
     static func make(day: String, presentation p: TodayPresentation, now: Date,
                      bedtime: Date? = nil) -> ReadinessSnapshot? {
+        let mode = OrbitGaugeMode(p)
         var s = ReadinessSnapshot(day: day, kind: .waitingForSleep, readiness: nil, previousReadiness: p.previousReadiness,
-                                  baselineNights: nil, updatedAt: now, bedtime: bedtime.flatMap { $0 > now ? $0 : nil })
+                                  baselineNights: nil, updatedAt: now, bedtime: bedtime.flatMap { $0 > now ? $0 : nil },
+                                  orbit: Orbit(recovery: p.tiles.recovery, sleepPerformance: p.tiles.source?.sleepPerformance,
+                                               strain: p.tiles.source?.strain, counted: mode.calibration?.signal))
         switch p.gauge {
         case .readiness(let readiness?) where !p.tiles.isEarlierDay:
             s.kind = .score
             s.readiness = readiness
+            // S2: the baselines still learning beside the readiness.
+            s.baselineNights = mode.calibration?.nights
         case .readiness:
-            // Row D from an earlier day (the widget has no note; its readiness is the latest one), or
-            // no readiness: the last one, dimmed.
-            break
+            // Row D from an earlier day (the widget has no note; its readiness is the latest one), or no readiness:
+            // the last one, dimmed. The orbit only when the tiles show that day (D); otherwise they show today's
+            // unscored night, not the dimmed readiness's day.
+            if !p.tiles.isEarlierDay { s.orbit = nil }
         case .baselines(let nights):
             s.kind = .calibrating
             s.baselineNights = nights
@@ -828,10 +803,12 @@ struct ReadinessSnapshot: Codable, Equatable {
         WidgetCenter.shared.reloadTimelines(ofKind: widgetKind)
     }
 
-    /// Everything but `updatedAt`.
-    private var shown: [String?] {
-        [day, kind.rawValue, readiness.map(String.init), previousReadiness.map(String.init), baselineNights.map(String.init),
-         bedtime.map { String($0.timeIntervalSince1970) }]
+    /// Everything but `updatedAt`: every field counts, so a file written before a new field (the orbit) is
+    /// rewritten by the first publish after the update.
+    private var shown: ReadinessSnapshot {
+        var s = self
+        s.updatedAt = .distantPast
+        return s
     }
 
     static let encoder: JSONEncoder = {

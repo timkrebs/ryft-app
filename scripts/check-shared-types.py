@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""The app and the widget extension don't share a source file (that needs a second target membership, set in
-Xcode by the user), so a few types exist twice and must stay identical: what one target encodes, the other decodes.
+"""What the app and the widget extension share, kept in step (make lint).
 
+`Shared/` is compiled by both targets (ADR 0010). Its rules:
+- Swift only, importing Foundation, CoreGraphics and SwiftUI only.
+- No user-facing strings: each target's catalog owns its copy, the wrappers add text and accessibility.
+- Colours by asset name: every colorset `Shared/` names is in both asset catalogs, with the same Contents.json.
+
+Types that predate `Shared/` still exist twice and must stay identical (each moves into `Shared/` when next touched):
 - `RestTimerAttributes`: the whole struct (ActivityKit matches it by name and Codable shape).
 - `OpenWorkoutIntent`: its `static let` declarations (the system performs the app's copy).
 - `WakeAlarmMetadata`: the declaration (AlarmKit's attributes carry it).
-- `ReadinessSnapshot`: its stored properties and `Kind` cases (the JSON the widget reads).
 """
+import json
 import os
 import re
 import sys
@@ -64,20 +69,60 @@ same("WakeAlarmMetadata", "Ryft/Features/Sleep/SleepPlannerViewModel.swift", "Ry
      lambda t: [l for l in code(t) if l.startswith("struct WakeAlarmMetadata")])
 
 
-def snapshot_shape(text):
-    body = block(text, "struct ReadinessSnapshot")
-    if body is None:
-        return None
-    kind = block(body, "enum Kind")
-    stored = [l for l in code(body.replace(kind or "", "")) if re.match(r"^(var|let) \w+: [^{=]+$", l)]
-    return code(kind or "") + stored
+# MARK: Shared/
+
+SHARED = "Shared"
+ALLOWED_IMPORTS = {"Foundation", "CoreGraphics", "SwiftUI"}
+# A user-facing string or an accessibility text: the wrappers' job, with their own catalogs.
+USER_FACING = re.compile(r'String\(localized|NSLocalizedString|LocalizedStringKey|LocalizedStringResource|\bText\(|\bLabel\('
+                         r'|\.accessibility(Label|Value|Hint)\(|\.navigationTitle\(|\.help\(')
+APP_CATALOG, WIDGET_CATALOG = "Ryft/Assets.xcassets", "RyftWidgets/Assets.xcassets"
 
 
-same("ReadinessSnapshot", "Ryft/Persistence/Repository.swift", "RyftWidgets/ReadinessSnapshot.swift", snapshot_shape)
+def without_comments(text):
+    """Swift without `//` and `/* */` comments; string literals kept (good enough for these rules)."""
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return "\n".join(line.split("//")[0] for line in text.splitlines())
+
+
+def check_shared():
+    if not os.path.isdir(SHARED):
+        return
+    colours = set()
+    for root, _, files in os.walk(SHARED):
+        for name in sorted(files):
+            path = os.path.join(root, name)
+            if name == ".DS_Store":
+                continue
+            if not name.endswith(".swift"):
+                problems.append(f"{path}: Shared/ holds Swift only (both targets would bundle it)")
+                continue
+            src = without_comments(read(path))
+            for module in re.findall(r"^[ \t]*(?:@\w+[ \t]+)*import[ \t]+(?:(?:struct|class|enum|protocol|func|var|let|typealias)[ \t]+)?(\w+)",
+                                 src, flags=re.M):
+                if module not in ALLOWED_IMPORTS:
+                    problems.append(f"{path}: imports {module}; Shared/ allows {', '.join(sorted(ALLOWED_IMPORTS))}")
+            for n, line in enumerate(src.splitlines(), 1):
+                if USER_FACING.search(line):
+                    problems.append(f"{path}:{n}: a user-facing string in Shared/ (ADR 0010): {line.strip()}")
+                if re.search(r"\bTheme\.", line):
+                    problems.append(f"{path}:{n}: Theme in Shared/; name colours by asset (OrbitGaugePalette)")
+            colours.update(re.findall(r'\bColor\("(\w+)"\)', src))
+    for name in sorted(colours):
+        a = os.path.join(APP_CATALOG, f"{name}.colorset", "Contents.json")
+        b = os.path.join(WIDGET_CATALOG, f"{name}.colorset", "Contents.json")
+        missing = [p for p in (a, b) if not os.path.exists(p)]
+        if missing:
+            problems.append(f"colorset {name} (named in Shared/): missing {', '.join(missing)}")
+        elif json.loads(read(a)) != json.loads(read(b)):
+            problems.append(f"colorset {name}: {a} and {b} differ")
+
+
+check_shared()
 
 for p in problems:
     print(p)
 if problems:
-    print(f"\n{len(problems)} shared type(s) out of step.")
+    print(f"\n{len(problems)} problem(s) with what the app and the widget share.")
     sys.exit(1)
-print("Shared types: app and widget copies match.")
+print("Shared: Shared/ follows ADR 0010, colorsets and the remaining copies match.")
