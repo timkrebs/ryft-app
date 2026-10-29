@@ -17,7 +17,11 @@ struct SetFocus: Hashable {
 final class SessionController: Identifiable {
     let session: LocalSession
     let sync: TrainSyncService
-    private var store: TrainStore { sync.store }
+    var store: TrainStore { sync.store }
+    /// "Now" and waits (the undo window, the jump to the next exercise): tests move it by hand.
+    let clock: AppClock
+    /// Last time for a replacement and the plan for "Also change the plan"; nil in previews without a library.
+    let library: SessionLibrary?
 
     /// The workout's phase (`LiveSessionMachine`): active, resting, paused, finishing,
     /// completed or discarded. The rest timer moves it between active and resting.
@@ -40,14 +44,19 @@ final class SessionController: Identifiable {
     private var ticker: Task<Void, Never>?
     private let liveActivity: RestActivityController?
 
+    // MARK: replace and undo state (SessionController+Replace.swift)
+
     nonisolated var id: UUID { sessionID }
     private nonisolated let sessionID: UUID
 
     /// `liveActivity` is nil in previews and tests.
-    init(session: LocalSession, sync: TrainSyncService, liveActivity: RestActivityController?) {
+    init(session: LocalSession, sync: TrainSyncService, liveActivity: RestActivityController?,
+         clock: AppClock = SystemClock(), library: SessionLibrary? = nil) {
         self.session = session
         self.sessionID = session.id
         self.sync = sync
+        self.clock = clock
+        self.library = library
         self.liveActivity = liveActivity
         rest = RestTimer(endsAt: session.restEndsAt, total: session.restTotal, now: .now)
         machine = LiveSessionMachine.make { [weak self] to, _ in self?.phase = to }
@@ -68,9 +77,11 @@ final class SessionController: Identifiable {
     /// What the lock screen says comes next, so a change that doesn't move it sends nothing.
     private var lastActivityNext: String?
 
+    // MARK: jump-to-next state (SessionController+Advance.swift)
+
     /// After an edit (a set checked, unchecked, added, deleted or changed; an exercise added,
     /// removed or moved): the lock screen's next set follows.
-    private func refreshActivity() {
+    func refreshActivity() {
         guard nextLabel() != lastActivityNext else { return }
         if rest.isRunning { persistRest(exercise: nil) } else { showWorkout() }
     }
@@ -152,7 +163,7 @@ final class SessionController: Identifiable {
     }
 
     /// Within a superset the partner comes next; otherwise the first open set.
-    private func nextUp(after ex: LocalSessionExercise?) -> (exercise: LocalSessionExercise, set: LocalSet)? {
+    func nextUp(after ex: LocalSessionExercise?) -> (exercise: LocalSessionExercise, set: LocalSet)? {
         if let ex, let group = ex.supersetGroup {
             let partners = exercises.filter { $0.supersetGroup == group }
             if let i = partners.firstIndex(where: { $0.id == ex.id }) {
@@ -206,13 +217,13 @@ final class SessionController: Identifiable {
         edited()
     }
 
-    private func changed(_ set: LocalSet) {
+    func changed(_ set: LocalSet) {
         set.updatedAt = .now
         edited()
     }
 
     /// Any change: the upload follows (debounced), and the lock screen's next set.
-    private func edited() {
+    func edited() {
         sync.sessionChanged(session)
         refreshActivity()
     }
@@ -378,12 +389,12 @@ final class SessionController: Identifiable {
     }
 
     /// A superset left with one exercise isn't one any more.
-    private func ungroup(_ group: Int, leaving ex: LocalSessionExercise) {
+    func ungroup(_ group: Int, leaving ex: LocalSessionExercise) {
         let rest = exercises.filter { $0.supersetGroup == group && $0.id != ex.id }
         if rest.count < 2 { rest.forEach { $0.supersetGroup = nil } }
     }
 
-    private func renumber() {
+    func renumber() {
         for (i, ex) in exercises.enumerated() { ex.position = i }
     }
 
