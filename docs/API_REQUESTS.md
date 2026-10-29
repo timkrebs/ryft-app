@@ -320,6 +320,21 @@ not moving after 1 day." The tester wears a Garmin. App brief: `CLAUDE_FOLLOWUP_
      `calibrating_reason` kept or a new field saying HRV is absent. If that's not the plan, document why `no_hrv` must stay
      calibrating, so the app copy can say so.
 
+6. **(New 2026-10-29, priority: medium) Calibration: `no_hrv` before 7 days of data when no source has ever delivered HRV.**
+   - **Why.** `no_hrv` needs `W >= 7` (API.md, `calibrating_reason`, rule 3). Before that, an account whose watch never writes
+     HRV to Apple Health (e.g. a Garmin, whose app does not share HRV) gets `short_history` with H = 0 for the whole first
+     week, and the app can't tell "HRV will come" from "HRV never comes". Seen in the beta with a Garmin: weeks of scored days without any HRV.
+     Screens affected: Today (the baseline counter and the learning note), the Today widget.
+   - **What (ask).** Decide `no_hrv` (or a new hint) earlier when the account has never received any HRV sample from any
+     source, e.g. after N >= 3 days with data, H = 0 and no HRV on the day. The platform picks the rule and documents it in
+     `calibrating_reason`. `calibrating_reason` is a closed enum, so a new value needs /v2; a hint would be a new optional
+     field (e.g. a bool on `DailyScore`). Reusing `no_hrv` needs no new shape.
+   - **What the app does meanwhile.**
+     - It counts the filling signal (resting HR, n of 7) with a note.
+     - It shows the "no HRV" state (N1) at once when the user's tracker setup says the source doesn't share HRV.
+     - Otherwise it still shows "0 of 7" when both counts are 0 and the day has neither signal.
+   - **Old clients.** An earlier `no_hrv` makes them show N1 earlier, which is correct. A new optional field is ignored.
+
 **Corrections to the evidence commands in the brief (from the debugger, T0):**
 - `scripts/user.sh <id>` prints `with HRV N` (`days_with_hrv_14d`) and the newest record per kind, not
   `User.sources`. Use `scripts/beta_report.sh` for source kinds.

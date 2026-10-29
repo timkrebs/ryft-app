@@ -36,11 +36,16 @@ enum ReadinessCopy {
         guard let score else { return sentence(for: ReadinessState?.none) }
         let unscored = score.standing == .unscored
         if !unscored, score.calibrating, !score.waitingEndsCalibration {
-            // N1: the platform's readiness, from what arrived; N2: no night yet, so no readiness.
-            guard score.readiness != nil else { return sentence(for: .calibrating, baselineReady: true) }
-            return String(localized: "Readiness from the signals that reached RYFT.",
-                          comment: "Today's sentence: a baseline can't fill (no HRV or resting HR), readiness is from the signals that arrived.")
+            return blockedSentence(readiness: score.readiness)
         }
         return sentence(for: score.resolvedState, nightsToGo: score.nightsToGo, baselineReady: unscored || !score.calibrating)
+    }
+
+    /// A baseline waiting won't fill (N1 / N2, `no_*` or known early from the tracker setup): never nights to go.
+    static func blockedSentence(readiness: Int?) -> String {
+        // N1: the platform's readiness, from what arrived; N2: no night yet, so no readiness.
+        guard readiness != nil else { return sentence(for: .calibrating, baselineReady: true) }
+        return String(localized: "Readiness from the signals that reached RYFT.",
+                      comment: "Today's sentence: a baseline can't fill (no HRV or resting HR), readiness is from the signals that arrived.")
     }
 }

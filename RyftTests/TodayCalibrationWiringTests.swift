@@ -13,14 +13,15 @@ struct TodayCalibrationWiringTests {
     private func dayKey(_ offset: Int) -> String { DayFormat.string(from: DayFormat.shift(now, days: offset)) }
 
     /// API.md's example 3 (`no_hrv`, H 0, R 24, readiness 74) over 30 scored days without HRV; `reason` swaps it.
-    private func model(devicesSetup: Bool, trackers: [String], reason: CalibratingReason? = .noHrv) -> TodayViewModel {
+    private func model(devicesSetup: Bool, trackers: [String], reason: CalibratingReason? = .noHrv,
+                       hrv: Double? = nil) -> TodayViewModel {
         let env = AppEnvironment.test(clock: TestClock(now: now), flags: [.devicesSetup: devicesSetup])
         let state = AppState(env: env)
         state.history = (1...30).reversed().map { offset in
             DailyScore(day: dayKey(-offset), readiness: 70, recovery: 60, strain: 8, rhr: 52, baselineDays: 0,
                        calibrating: true, computedAt: DayFormat.shift(now, days: -offset), scoringState: .scored)
         }
-        let today = DailyScore(day: dayKey(0), readiness: 74, state: .calibrating, recovery: 72, strain: 0.9, rhr: 52,
+        let today = DailyScore(day: dayKey(0), readiness: 74, state: .calibrating, recovery: 72, strain: 0.9, hrvMs: hrv, rhr: 52,
                                baselineDays: 0, calibrating: true, computedAt: now, scoringState: .scored,
                                baselineHrvDays: 0, baselineRhrDays: 24, calibratingReason: reason)
         state.today = DayDetail(score: today, sleep: nil, workouts: [])
@@ -41,10 +42,22 @@ struct TodayCalibrationWiringTests {
         let off = model(devicesSetup: false, trackers: ["garmin"])
         #expect(!off.facts.devicesSetup && off.facts.trackers.isEmpty)
         #expect(off.gaugeNote == .blocked(CalibrationBlocker(signals: [.hrv], source: .unknown, link: nil)))
-        // Only a row whose note names the tracker reads the choice (and the catalog): not short history, not legacy.
+        // Only a row whose note may name the tracker reads the choice (and the catalog): not a short history whose
+        // signals are arriving (the day has its HRV), not legacy.
         for reason in [CalibratingReason.shortHistory, nil] {
-            let other = model(devicesSetup: true, trackers: ["garmin"], reason: reason)
+            let other = model(devicesSetup: true, trackers: ["garmin"], reason: reason, hrv: 46)
             #expect(other.facts.devicesSetup && other.facts.trackers.isEmpty, "\(String(describing: reason))")
         }
+    }
+
+    /// F3: a short history without any HRV reads the choice too, and Garmin's catalog entry makes it N1 now.
+    @Test func aShortHistoryWithoutHRVReadsTheChoice() {
+        let early = model(devicesSetup: true, trackers: ["garmin"], reason: .shortHistory)
+        #expect(early.facts.trackers.map(\.id) == ["garmin"])
+        #expect(early.gaugeNote == .blocked(CalibrationBlocker(signals: [.hrv], source: .notShared(app: "Garmin Connect"),
+                                                               link: .setup(trackerID: "garmin", app: "Garmin Connect"))))
+        #expect(early.sentence == String(localized: "Readiness from the signals that reached RYFT."))
+        let off = model(devicesSetup: false, trackers: ["garmin"], reason: .shortHistory)
+        #expect(off.facts.trackers.isEmpty)
     }
 }

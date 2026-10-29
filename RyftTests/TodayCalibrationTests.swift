@@ -12,6 +12,8 @@ struct CalibrationOutcome: Equatable, CustomStringConvertible {
     var gauge: TodayPresentation.Gauge?
     var note: TodayPresentation.Note?
     var tilesCalibrating = false
+    /// Recovery shows "—" (beside the baselines counter, F3).
+    var recoveryWithheld = false
     var showsDelta = false
     /// `nil`: the widget has no snapshot (the first import).
     var widget: ReadinessSnapshot.Kind?
@@ -67,7 +69,7 @@ private func facts(_ today: DailyScore?, prior: [DailyScore], trackers: [Tracker
 private func outcome(_ f: TodayScoreFacts) -> CalibrationOutcome {
     let p = TodayPresentation.decide(f)
     return CalibrationOutcome(row: p.row, gauge: p.gauge, note: p.note, tilesCalibrating: p.tiles.calibrating,
-                   showsDelta: p.showsDelta,
+                   recoveryWithheld: p.tiles.withholdsRecovery, showsDelta: p.showsDelta,
                    widget: ReadinessSnapshot.make(day: f.day, presentation: p, now: Date(timeIntervalSince1970: 1_792_650_000))?.kind)
 }
 
@@ -76,7 +78,8 @@ private func outcome(_ f: TodayScoreFacts) -> CalibrationOutcome {
 @Suite("Today: the calibration decision (design.md §7 rev. 2 §6)")
 struct TodayCalibrationDecisionTests {
     private static func s1(_ nights: Int) -> CalibrationOutcome {
-        CalibrationOutcome(row: .calibrating, gauge: .baselines(nights: nights), note: nil, tilesCalibrating: true, widget: .calibrating)
+        CalibrationOutcome(row: .calibrating, gauge: .baselines(nights: nights), note: nil, tilesCalibrating: true,
+                           recoveryWithheld: true, widget: .calibrating)
     }
     private static func s2(_ readiness: Int, nights: Int, _ signals: [CalibrationSignal]) -> CalibrationOutcome {
         CalibrationOutcome(row: .calibrating, gauge: .readiness(readiness),
@@ -92,8 +95,11 @@ struct TodayCalibrationDecisionTests {
 
     static let cases: [CalibrationDecideCase] = [
         // ex 1: H 3, R 5, bd 3, short_history, readiness 80
-        CalibrationDecideCase(name: "ex 1, 3 prior days: S1 counts baseline_days",
-                   facts: facts(example(1, readiness: 80), prior: prior(3)), expected: s1(3)),
+        // F3: a readiness from the platform is the gauge however short the history, with the learning note.
+        CalibrationDecideCase(name: "ex 1, 3 prior days: S2's readiness and note, not a counter beside a score",
+                   facts: facts(example(1, readiness: 80), prior: prior(3)), expected: s2(80, nights: 3, [.hrv, .restingHR])),
+        CalibrationDecideCase(name: "ex 1, 3 prior days, no readiness: S1 counts baseline_days",
+                   facts: facts(example(1), prior: prior(3)), expected: s1(3)),
         CalibrationDecideCase(name: "ex 1, 30 prior days: S2 learns both, no delta",
                    facts: facts(example(1, readiness: 80), prior: prior(30)), expected: s2(80, nights: 3, [.hrv, .restingHR])),
         CalibrationDecideCase(name: "ex 1, 30 prior days, no readiness today: S1",
@@ -119,9 +125,13 @@ struct TodayCalibrationDecisionTests {
                                      widget: .waitingForSleep)),
         // ex 4 / 5: a signal just appeared
         CalibrationDecideCase(name: "ex 4, first HRV morning: S2 learns HRV",
-                   facts: facts(example(4, readiness: 78), prior: prior(30)), expected: s2(78, nights: 0, [.hrv])),
+                   facts: facts(example(4, readiness: 78, hrv: 46, rhr: 52), prior: prior(30)), expected: s2(78, nights: 0, [.hrv])),
+        // The HRV is on the day: it's arriving, whatever the catalog says about Garmin, so never N1 early.
+        CalibrationDecideCase(name: "ex 4 with Garmin chosen: still S2, the day has its HRV",
+                   facts: facts(example(4, readiness: 78, hrv: 46, rhr: 52), prior: prior(30), trackers: garmin, flag: true),
+                   expected: s2(78, nights: 0, [.hrv])),
         CalibrationDecideCase(name: "ex 5, first resting-HR morning: S2 learns resting HR",
-                   facts: facts(example(5, readiness: 78), prior: prior(30)), expected: s2(78, nights: 0, [.restingHR])),
+                   facts: facts(example(5, readiness: 78, hrv: 45, rhr: 53), prior: prior(30)), expected: s2(78, nights: 0, [.restingHR])),
         // ex 6: no resting HR although the tracker should send it
         CalibrationDecideCase(name: "ex 6, Garmin without resting HR: N1 unexpected, Check sync",
                    facts: facts(example(6, readiness: 70, hrv: 45), prior: prior(30), trackers: garmin, flag: true),
@@ -343,10 +353,11 @@ struct CalibrationBandWordTests {
     }
 
     private static let cases: [BandCase] = [
-        BandCase(name: "S2 hides it", today: example(4, readiness: 78), prior: prior(30), keepsBand: false),
+        BandCase(name: "S2 hides it", today: example(4, readiness: 78, hrv: 46, rhr: 52), prior: prior(30), keepsBand: false),
         BandCase(name: "N1 hides it", today: example(3, readiness: 74, rhr: 52), prior: prior(30), keepsBand: false),
         BandCase(name: "N2 hides it (no readiness)", today: example(3, rhr: 52), prior: prior(30), keepsBand: false),
-        BandCase(name: "S1 shows the baselines gauge", today: example(1, readiness: 80), prior: prior(3), keepsBand: true),
+        BandCase(name: "S1 shows the baselines gauge", today: example(1), prior: prior(3), keepsBand: true),
+        BandCase(name: "S2 over a short history hides it (F3)", today: example(1, readiness: 80), prior: prior(3), keepsBand: false),
         BandCase(name: "row A keeps it", today: example(8, readiness: 77, hrv: 50, rhr: 51), prior: prior(30, vitals: 30), keepsBand: true),
         BandCase(name: "L (needs vitals) keeps it",
                  today: DailyScore(day: day, readiness: 70, recovery: 68, baselineDays: 0, calibrating: true,

@@ -1,0 +1,22 @@
+[
+  { "day": "2026-10-22", "readiness": 71, "state": "calibrating", "recovery": 71, "strain": 6.8,
+    "sleep_actual_min": 410, "hrv_ms": null, "rhr": 54.0, "resp_rate": 15.1, "spo2": 95.8,
+    "hrv_baseline_ms": null, "rhr_baseline": 55.2, "baseline_days": 0, "baseline_hrv_days": 0, "baseline_rhr_days": 3,
+    "calibrating": true, "calibrating_reason": "short_history",
+    "details": {}, "computed_at": "2026-10-22T06:40:11.000000Z", "scoring_state": "scored", "model_version": "2026.10.1" },
+  { "day": "2026-10-22", "readiness": 71, "state": "calibrating", "recovery": 71, "strain": 6.8,
+    "sleep_actual_min": 410, "hrv_ms": null, "rhr": 54.0, "resp_rate": 15.1, "spo2": 95.8,
+    "hrv_baseline_ms": null, "rhr_baseline": 55.2, "baseline_days": 0, "baseline_hrv_days": 0, "baseline_rhr_days": 12,
+    "calibrating": true, "calibrating_reason": "no_hrv",
+    "details": {}, "computed_at": "2026-10-22T06:40:11.000000Z", "scoring_state": "scored", "model_version": "2026.10.1" },
+  { "day": "2026-10-22", "readiness": 71, "state": "calibrating", "recovery": 71, "strain": 6.8,
+    "sleep_actual_min": 410, "hrv_ms": null, "rhr": 54.0, "resp_rate": 15.1, "spo2": 95.8,
+    "hrv_baseline_ms": null, "rhr_baseline": 55.2, "baseline_days": 0, "baseline_hrv_days": null, "baseline_rhr_days": null,
+    "calibrating": true, "calibrating_reason": null,
+    "details": {}, "computed_at": "2026-10-21T06:40:11.000000Z", "scoring_state": "scored", "model_version": "2026.10.1" },
+  { "day": "2026-10-22", "readiness": 71, "state": "calibrating", "recovery": 71, "strain": 6.8,
+    "sleep_actual_min": 410, "hrv_ms": null, "rhr": 54.0, "resp_rate": 15.1, "spo2": 95.8,
+    "hrv_baseline_ms": null, "rhr_baseline": 55.2, "baseline_days": 0, "baseline_hrv_days": 0, "baseline_rhr_days": 12,
+    "calibrating": true, "calibrating_reason": null,
+    "details": {}, "computed_at": "2026-10-21T06:40:11.000000Z", "scoring_state": "scored", "model_version": "2026.10.1" }
+]
