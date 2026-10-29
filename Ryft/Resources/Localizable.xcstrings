@@ -8656,6 +8656,17 @@
         }
       }
     },
+    "Show rest timer" : {
+      "comment" : "VoiceOver action on the rest bar's small pill (large text sizes): shows the full rest timer.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pausentimer zeigen"
+          }
+        }
+      }
+    },
     "Showing data from" : {
       "localizations" : {
         "de" : {

@@ -5,7 +5,7 @@ import SwiftUI
 /// At AX sizes it can shrink to a one-line pill (`pill`); a tap on the pill asks for the full bar (`onExpand`).
 ///
 /// VoiceOver: a container. The time and the next set are one adjustable element (swipe up/down = ±15 s, actions
-/// for ±15 s and Skip; only the pill has a default action, its expand); −15, +15 and Skip are buttons of their own,
+/// for ±15 s and Skip, and on the pill one more to show the full bar); −15, +15 and Skip are buttons of their own,
 /// which Voice Control can name.
 struct RestBar: View {
     var controller: SessionController
@@ -77,7 +77,7 @@ struct RestBar: View {
         HStack(spacing: 12) {
             ring(at: date)
             time(at: date)
-                .modifier(RestTimeElement(controller: controller, date: date, onActivate: onExpand))
+                .modifier(RestTimeElement(controller: controller, date: date, onExpand: onExpand))
             Spacer(minLength: 0)
             skipButton.fixedSize()
         }
@@ -221,24 +221,27 @@ struct RestBar: View {
 
 /// The time and the next set as one VoiceOver element, every modifier on this one level: label "Rest timer", value
 /// "1 minute, 35 seconds left. Next: …" (in 5 s steps, so it doesn't chatter), adjustable by ±15 s, actions for
-/// ±15 s and Skip. Only the pill gets a default action (its expand): an explicit default action makes SwiftUI add
-/// the button trait, and the full bar's element should read as adjustable only.
+/// ±15 s and Skip; on the pill a named action shows the full bar. No default action: SwiftUI would add the button
+/// trait, and the element should read as adjustable only.
 private struct RestTimeElement: ViewModifier {
     var controller: SessionController
     var date: Date
-    var onActivate: (() -> Void)?
+    var onExpand: (() -> Void)?
 
     @ViewBuilder func body(content: Content) -> some View {
-        if let onActivate {
-            element(content).accessibilityAction(.default) { onActivate() }
+        if let onExpand {
+            element(content)
+                .accessibilityAction(named: Text("Show rest timer",
+                                                 comment: "VoiceOver action on the rest bar's small pill (large text sizes): shows the full rest timer.")) { onExpand() }
         } else {
-            element(content).accessibilityRemoveTraits(.isButton)
+            element(content)
         }
     }
 
     private func element(_ content: Content) -> some View {
         content
             .accessibilityElement(children: .ignore)
+            .accessibilityRemoveTraits(.isButton)
             .accessibilityLabel(Text("Rest timer"))
             .accessibilityValue(Text(Self.value(remaining: controller.rest.remaining(at: date),
                                                 next: controller.nextLabel())))
