@@ -220,17 +220,23 @@ struct ExerciseCard: View {
         .accessibilityHidden(true)
     }
 
-    /// "97.5 × 5, 97.5 × 4".
+    /// "97.5 × 5, 97.5 × 4"; past five sets "…, 80 × 5, +2 more", never a silent cut.
     private var lastTimeText: String? {
         let sets = exercise.lastTime.filter { !$0.isWarmup }
         guard !sets.isEmpty else { return nil }
-        return sets.prefix(5).map { s in
+        let shown = 5
+        let list = sets.prefix(shown).map { s in
             switch (s.weightKg, s.reps) {
-            case let (kg?, r?): return "\(Fmt.kgNumber(kg)) × \(r)"
+            // No-break spaces keep a set ("80 × 5") on one line when the list wraps.
+            case let (kg?, r?): return "\(Fmt.kgNumber(kg))\u{00A0}×\u{00A0}\(r)"
             case let (nil, r?): return "\(r)"
             default: return Fmt.placeholder
             }
         }.joined(separator: ", ")
+        let more = sets.count - shown
+        guard more > 0 else { return list }
+        return list + ", " + String(localized: "+\(more) more",
+                                   comment: "Train session, an exercise's Last time line: sets not listed after the first five.")
     }
 }
 
