@@ -2375,6 +2375,9 @@
         }
       }
     },
+    "Also used for %@" : {
+      "comment" : "Training import, step 4: other rows of the file map to the same RYFT exercise; the file's exercise names."
+    },
     "Always yours" : {
       "localizations" : {
         "de" : {
@@ -12232,6 +12235,9 @@
           }
         }
       }
+    },
+    "+%lld more" : {
+      "comment" : "Train session, an exercise's Last time line: sets not listed after the first five."
     },
     "+2.5 kg after every set is done; the same weight after a miss; 10 % lighter after three misses." : {
       "comment" : "Help text for the progression of a plan.",
