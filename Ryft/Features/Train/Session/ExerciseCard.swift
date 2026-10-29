@@ -136,6 +136,7 @@ struct ExerciseCard: View {
                 ForEach(Array(sets.enumerated()), id: \.element.id) { i, set in
                     SetRow(controller: controller, set: set, exercise: exercise, number: i + 1, count: sets.count)
                         .id(set.id) // scroll anchor for the keypad
+                        .currentSetHighlight(controller.currentSetID == set.id)
                 }
                 Button {
                     controller.addSet(to: exercise)

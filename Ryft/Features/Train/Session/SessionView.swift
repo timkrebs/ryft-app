@@ -8,6 +8,13 @@ struct SessionView: View {
     @Environment(TrainCoordinator.self) private var coordinator
     @Environment(TrainSyncService.self) private var sync
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// AX sizes: the rest bar shrinks to a pill once the list is scrolled during a rest…
+    @State private var restBarScrolledAway = false
+    /// …and a tap on the pill shows it whole for a moment.
+    @State private var restBarPeek = false
 
     @State private var showsAdd = false
     @State private var showsReorder = false
@@ -34,11 +41,16 @@ struct SessionView: View {
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .background { controller.pause() } else if phase == .active { controller.resume() }
                 }
+            // Pinned outside the list, so a jump never scrolls the timer away (ui.md §6).
+            if controller.rest.phase != .idle {
+                RestBar(controller: controller, pill: restBarIsPill, onExpand: { restBarPeek = true })
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+                    .transition(.opacity)
+            }
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 14) {
-                        RestTimerView(controller: controller)
-                            .animation(Theme.Motion.standard, value: controller.rest.phase)
                         if !sync.isOnline {
                             Label("Offline — every set is saved on this phone and syncs later.",
                                   systemImage: "wifi.slash")
@@ -50,6 +62,10 @@ struct SessionView: View {
                         if controller.exercises.isEmpty {
                             InlineMessage(message: String(localized: "An empty session. Add your first exercise."),
                                           systemImage: "dumbbell")
+                        }
+                        if controller.isAllDone {
+                            AllSetsDoneCard(exercises: controller.exercises.count,
+                                            sets: controller.session.completedSetCount) { confirmFinish = true }
                         }
                         Button {
                             showsAdd = true
@@ -63,16 +79,20 @@ struct SessionView: View {
                                 .foregroundStyle(Theme.textSecondary)
                                 .frame(minHeight: 44)
                         }
+                        Color.clear.frame(height: 1).id(Self.endAnchor)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
                     .padding(.bottom, 24)
+                    .animation(Theme.Motion.respecting(reduceMotion), value: controller.collapsed)
                 }
                 .scrollDismissesKeyboard(.never)
+                .modifier(ManualScrollReporter { userScrolled() })
                 .onChange(of: controller.focus) { _, focus in
                     guard let focus else { return }
                     withAnimation { proxy.scrollTo(focus.setID, anchor: .center) }
                 }
+                .onChange(of: controller.advance?.id) { _, _ in jump(to: controller.advance, with: proxy) }
                 .onAppear {
                     if let focus = controller.focus { proxy.scrollTo(focus.setID, anchor: .center) }
                 }
@@ -83,6 +103,14 @@ struct SessionView: View {
             }
         }
         .animation(Theme.Motion.quick, value: controller.focus == nil)
+        .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.standard), value: restBarState)
+        .onChange(of: controller.rest.isRunning) { _, _ in restBarScrolledAway = false }
+        .task(id: restBarPeek) {
+            // A tap on the pill shows the whole bar for 4 s.
+            guard restBarPeek else { return }
+            try? await Task.sleep(for: .seconds(4))
+            restBarPeek = false
+        }
         .background(Theme.background.ignoresSafeArea())
         .modifier(KeepsScreenAwake())
         .sensoryFeedback(.success, trigger: controller.setsChecked)
@@ -210,18 +238,91 @@ struct SessionView: View {
         }
     }
 
+    /// A finished exercise folds into one row after its last set (jump to next); a tap opens it again.
+    @ViewBuilder
     private func card(for ex: LocalSessionExercise) -> some View {
-        ExerciseCard(controller: controller, exercise: ex,
-                     onPlates: {
-                         let kg = ex.orderedSets.last { $0.weightKg != nil }?.weightKg ?? ex.targetKg ?? 60
-                         plates = PlateRequest(kg: kg, fromKeypad: false)
-                     },
-                     onHistory: { historyFor = ExerciseRef(id: ex.exerciseId, name: ex.name) })
-            .id(ex.id)
+        Group {
+            if controller.isCollapsed(ex) {
+                CollapsedExerciseRow(exercise: ex) { controller.expand(ex) }
+            } else {
+                ExerciseCard(controller: controller, exercise: ex,
+                             onPlates: {
+                                 let kg = ex.orderedSets.last { $0.weightKg != nil }?.weightKg ?? ex.targetKg ?? 60
+                                 plates = PlateRequest(kg: kg, fromKeypad: false)
+                             },
+                             onHistory: { historyFor = ExerciseRef(id: ex.exerciseId, name: ex.name) })
+            }
+        }
+        .transition(.opacity)
+        .id(ex.id)
+    }
+
+    // MARK: jump to next
+
+    private static let endAnchor = "session.end"
+
+    /// Idle, running or over: the bar appears, changes or goes (not every ±15 s).
+    private var restBarState: Int {
+        switch controller.rest.phase {
+        case .idle: 0
+        case .running: 1
+        case .finished: 2
+        }
+    }
+
+    private var restBarIsPill: Bool {
+        typeSize.isAccessibilitySize && (restBarScrolledAway || controller.focus != nil) && !restBarPeek
+    }
+
+    private func userScrolled() {
+        controller.userScrolled()
+        if typeSize.isAccessibilitySize, controller.rest.isRunning, !restBarScrolledAway { restBarScrolledAway = true }
+    }
+
+    /// The controller decided: the next set goes to the top under the rest bar, or the list to its end.
+    private func jump(to request: AdvanceRequest?, with proxy: ScrollViewProxy) {
+        guard let request else { return }
+        let animation = Theme.Motion.respecting(reduceMotion, Theme.Motion.standard)
+        switch request.step {
+        case .stay:
+            return
+        case let .advance(_, to):
+            // A first set: the whole card, so its name and last time show above it.
+            let first = controller.exercises.first { $0.id == to.exerciseID }?.orderedSets.first?.id == to.setID
+            let target: UUID = first ? to.exerciseID : to.setID
+            withAnimation(animation) { proxy.scrollTo(target, anchor: .top) }
+            if UIAccessibility.isVoiceOverRunning { AccessibilityNotification.LayoutChanged().post() }
+        case .allDone:
+            withAnimation(animation) { proxy.scrollTo(Self.endAnchor, anchor: .bottom) }
+            if UIAccessibility.isVoiceOverRunning {
+                AccessibilityNotification.Announcement(String(
+                    localized: "All sets done. Finish workout available at the bottom.",
+                    comment: "VoiceOver announcement when the last set of a workout is checked off.")).post()
+            }
+        }
     }
 
     private func finish() async {
         await coordinator.finish(controller)
+    }
+}
+
+/// Tells the controller when the user (not `scrollTo`) moves the list: a jump waits 3 s after that.
+/// iOS 18 reports the scroll phase; iOS 17 sees the drag (a simultaneous gesture, so scrolling still wins).
+private struct ManualScrollReporter: ViewModifier {
+    var onScroll: () -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            content.onScrollPhaseChange { old, new in
+                // The finger on the list, and again when it lets go or the list coasts to a stop.
+                if new == .interacting || new == .decelerating || old == .interacting || old == .decelerating {
+                    onScroll()
+                }
+            }
+        } else {
+            content.simultaneousGesture(DragGesture(minimumDistance: 10).onChanged { _ in onScroll() })
+        }
     }
 }
 
