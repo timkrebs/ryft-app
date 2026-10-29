@@ -379,7 +379,8 @@ final class TrainSyncService {
             case .conflict(let server):
                 s.uploaded = true
                 s.uploadedTo = owner
-                let merged = SessionMerge.merge(local: s.wire, server: server, deletedSetIDs: Set(s.deletedSetIDs))
+                let merged = SessionMerge.merge(local: s.wire, server: server, deletedSetIDs: Set(s.deletedSetIDs),
+                                                deletedExerciseIDs: Set(s.deletedExerciseIDs))
                 s.apply(merged, names: store.exercise(id:), in: store.context)
                 store.save()
                 doc = s.wire

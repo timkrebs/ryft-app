@@ -175,11 +175,16 @@ struct TrainOutboxSchemaUpgradeTests {
         let sessions = try context.fetch(FetchDescriptor<LocalSession>())
         #expect(sessions.map(\.id) == [session] && sessions.first?.uploaded == true && sessions.first?.uploadedTo == nil)
         #expect(sessions.first?.allSets.map(\.weightKg) == [100])
+        // Beta feedback 2 (ADR 0009): the exercise tombstones open empty.
+        #expect(sessions.first?.deletedExerciseIDs == [])
         // And it writes the new attributes.
         first.account = "account-a"
         sessions.first?.uploadedTo = "account-a"
+        let tombstone = UUID()
+        sessions.first?.deletedExerciseIDs = [tombstone]
         try context.save()
         #expect(try context.fetch(FetchDescriptor<LocalSession>()).first?.uploadedTo == "account-a")
+        #expect(try context.fetch(FetchDescriptor<LocalSession>()).first?.deletedExerciseIDs == [tombstone])
         #expect(try context.fetch(FetchDescriptor<PendingTrainOp>(sortBy: [SortDescriptor(\.seq)])).first?.account == "account-a")
     }
 }
