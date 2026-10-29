@@ -109,3 +109,16 @@ new `SessionAdvance.swift`. Conflicts are resolved once on an integration branch
     server, so it still counts at finish. This contradicts API_REQUESTS Train #1 / API.md, which say completion
     replaces the document whole. It's a platform bug, not an app workaround, and goes on the user's list for
     platform-lead. T1's `deletedExerciseIDs` fixes the local side, where a removed exercise came back after a 409.
+11. **T3 open points (sync-engineer's report):**
+    - **(1) Path L, long history, no readiness:** the HRV and resting-HR counter stays. It only shows on legacy rows,
+      and those turn into `no_hrv` rows once rescored. Recovery shows "—" beside it now. Follow-up only if it's seen
+      in the beta.
+    - **(2) First week with no signal at all:** filed as the platform request "`no_hrv` before 7 days" (C1).
+    - **(4) Widget says "Baselines n of 7" while counting resting-HR nights:** accepted for now. Naming the signal
+      needs a snapshot field in both shared copies, so it's a follow-up.
+    - **Build history:** 20261021.141128 = 2026-10-21 14:11 UTC. That is `main` at `1eb5192`, before both 9745392
+      (one-decision Today) and 7cae92f (`calibrating_reason`). The stuck 0/7 next to 71 % High is exactly that build's
+      behaviour.
+    - **The user's account on 20261028:** today's row is `no_hrv` → N1, with no counter.
+    - **Follow-up from the T4 review:** `ImportPlanAssembly.latestWeight` gives two source rows mapped to one exercise
+      the same kg target. Import ticket, not in this brief.
