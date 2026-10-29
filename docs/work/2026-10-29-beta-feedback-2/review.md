@@ -109,3 +109,11 @@ Fixes 1, 2 and 4: sent to the T2 developer.
 - Undo → Finish while the plan save is pending: the finished session keeps X without its plan link. The plan itself is
   reverted. Accepted; it follows from decision 1.
 - A plan save that fails after Finish is only logged (the screen is gone). Accepted.
+
+**T1 re-verified by code-reviewer at 31894ad (main merged in): all resolved, 89 tests pass.**
+- The upload hold is sound: it lives in memory only, every way out of the window releases it, a 409 while held keeps the
+  op queued, and an account change clears it.
+- The merge lost no catalog key; API_REQUESTS Train items are now 1–7.
+- New nit: the plan task awaits the history read between its checks and the save. Repeat the checks after the await.
+  Also: ADR 0009 still says Train #4 (it's #6). Both sent to the T1 developer.
+  Fixed in 600de37 (two tests: sign-out and Undo during the history read).
