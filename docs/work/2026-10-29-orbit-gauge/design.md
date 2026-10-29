@@ -1,0 +1,151 @@
+# OrbitGauge: design note (PR 1, the component)
+
+Component: `Ryft/Design/OrbitGauge.swift` (view, `OrbitArc`, `OrbitDot`, previews), `OrbitGaugeGeometry.swift` (numbers),
+`OrbitGaugeModel.swift` (`OrbitGaugeValues`, `OrbitGaugeMode`, `OrbitGaugeCalibration`; Foundation only, easy to move).
+Tests: `OrbitGaugeGeometryTests` (angles, spacing, sentence), `OrbitGaugeContrastTests` (the numbers below).
+Screenshots: `docs/work/2026-10-29-orbit-gauge/shots/`, produced by `make orbit-shots` (the `OrbitGaugeShotsTests` suite
+renders the same views as the `#Preview`s with `ImageRenderer`, light and dark; a simulator named `orbit-ui` by default).
+
+## 1. Geometry, and how it moved from the brief's numbers
+
+Reference drawing: `.large`, dial 160 pt, frame 172 pt. Radii are stroke centrelines. Everything scales by dial / 160
+with a floor (stroke 1.5 pt, dot radius 1.15 x stroke), the way `RyftMarkGeometry.metrics(forSide:)` does it.
+
+| Element | Brief (start) | Built | Why it moved |
+| --- | --- | --- | --- |
+| Outer orbit (Strain) | r about 80, stroke 6 | r 77, stroke 5.5 (outer edge 79.75) | the edge stays at the dial's 80; strokes lighter so the dots can grow |
+| Inner orbit | r about 50, stroke 6 | r 54, stroke 5.5 | even spacing: 23 pt outer to inner, 22 pt inner to centre (the mark's rings: 18.4 / 18.0 of 44) |
+| Centre ring | r about 16, stroke 5 | r 32, stroke 4.5 | the number lives inside it. A 16 pt ring holds nothing: "71" at 30 pt is 36 pt wide. The icon's own centre ring (13 pt at this scale) is the one real departure from the mark |
+| Dots | 9 pt | radius 9 (18 pt across), hollow outline 2 pt | at 9 pt across (first render, radius 7 was also tried) the dots read as thick arc ends, not as "you are here". 18 pt is 3.3 x the stroke; the icon's dots are 3.8 x |
+| Air around a dot | none | 2.5 pt cut out of the track around every dot | the mark breaks its ring where a dot sits; here the track ahead of the dot is cut the same way |
+| Caps | butt | round | the mark's caps are round; `MetricGauge`'s butt caps would make the 44 pt render read as a different object |
+| Inner start | both at 0 deg | 12.5 deg either side of the top (see below) | two dots on one spot |
+
+Frames equal `MetricGauge`'s outer frame (dial + 12): `.small` 84, `.medium` 124, `.large` 172, so nothing around the gauge
+moves. The dial is 72 / 112 / 160 (scale 0.45 / 0.70 / 1.0). `Size.custom(dial:)` exists for the widget's other families and
+for the 44 pt check; screens use the three.
+
+What the centre lost: `MetricGauge`'s mark, the "OVERALL READINESS" caption and "/ 100" do not fit inside a 59 pt ring. The
+gauge is the mark now, and the VoiceOver label carries the name. Open question for the lead: whether Today wants the caption
+above the gauge.
+
+Number: `ryftNumber(size: dial x 0.19)` (30 / 21 / 14 pt), tabular, fixed size (the gauge keeps its size under Dynamic Type),
+`minimumScaleFactor 0.6` so "100" fits. Below a dial of 56 pt the number is omitted: it would be under 10.5 pt.
+
+## 2. Mapping
+
+Angles are degrees clockwise from 12 o'clock; f is the fraction of the score's scale.
+
+| Score | Orbit | Direction | Start | Head at f | Whole |
+| --- | --- | --- | --- | --- | --- |
+| Recovery (teal, `Theme.accent`) | inner | counter-clockwise | -12.5 deg | -(12.5 + 155 f) | f = 1: 167.5 deg left of the top |
+| Sleep (`Theme.metricSleep`) | inner | clockwise | +12.5 deg | 12.5 + 155 f | f = 1: 167.5 deg right of the top |
+| Strain (`Theme.metricStrain`) | outer | clockwise | 0 deg | 360 f, f = strain / 21 | 21 = 359.99 deg (a closed ring) |
+| Readiness | centre ring + number | none | | | a full ring in the band colour |
+
+Change to the brief: Recovery and Sleep do not meet at exactly 180 deg. Both start at the top, so at 0 (and, at 100 %, at the
+bottom) their two dots would share a spot, and a missing Recovery and a missing Sleep would be one hollow dot. Each half starts
+12.5 deg from the vertical, so the two dots always keep 23 pt (a dot's width plus 5 pt of air) between them. The mapping stays
+linear and f = 0.5 is exactly 3 and 9 o'clock. The inner orbit now reads as the icon's middle ring: two dots, two arcs.
+
+Example (71 / 71 % / 88 % / 9.6): Recovery head at -122.5 deg (lower left), Sleep at 148.9 deg (lower right), Strain at
+164.6 deg, close to where the icon's outer dot sits (155 deg). 0 is a filled dot at the start with no arc; missing is a hollow dot.
+
+## 3. Colour and hollow-dot rules
+
+- Tracks: `Theme.surfaceRaised`, round caps; the inner orbit's tracks are two half rings (the gaps are where the dots start and
+  meet), the outer one a full ring.
+- Arc and dot: the orbit's metric colour, no gradient, no glow. Recovery is teal, Sleep indigo, Strain blue.
+- Missing score: a hollow dot at the start (2 pt outline in the orbit's colour, the track cut out of its inside), no arc. Zero is
+  a filled dot with no arc. A hollow dot never means "low".
+- Centre ring: `Theme.band(forScore:)` (teal / yellow / red at 67 / 34) with a readiness, `Theme.textPrimary` without one (and a
+  tertiary "-" inside). It is a ring, not an arc: the number is the readiness, the ring only carries its band.
+- Teal appears twice at a high band (Recovery and the centre ring). It stays one accent: they never carry different meanings.
+- Stubs (`.calibrating`, `.assembling`, `.pending`): tracks, a centre ring in the track colour and three hollow dots; PR 2 and 3 do the rest.
+
+## 4. The 44 pt check ("still the app icon")
+
+`shots/icon-44-{dark,light}.png`: the app icon's tile (the `RyftMark` at the icon's 0.963 ring span on Graphite / Mist, the
+same drawing as `scripts/icon-spec.swift`) beside two gauges (71 / 71 % / 88 % / 9.6 and 64 / 62 % / 55 % / 14) at a dial of 44 pt,
+and again at 88 pt. I judged it by looking at the 44 pt row at 1x and the 88 pt row at 3x, covering the colours (squint test) and
+comparing the silhouette: three concentric rings; two dots on the middle ring, one on the outer; the middle ring broken in
+two places, the outer ring ending in a dot.
+
+Verdict: yes, as the same object in colour. At 44 pt the stroke floor (1.5 pt) and the dot floor keep all three rings and three dots
+apart; the number is dropped below 56 pt, which makes the 44 pt render more like the icon, not less. Where it differs: the centre ring
+is 2.4 times the icon's (the number must fit), and the outer ring is only drawn up to the dot, with the rest as a faint track
+(the icon's is a bright ring broken once). A 64 / 55 % example with the outer dot at the left reads less like the icon than 71 / 88 %,
+whose dots fall near the icon's: the likeness depends on the day, the structure does not.
+
+## 5. Colour-blind check
+
+Simulated with the Machado 2009 matrices (severity 1.0) on the rendered shots: `shots/sizes-{protanopia,deuteranopia,tritanopia}-
+{dark,light}.png` (the CoreImage colour matrix is applied in sRGB-encoded values, an approximation; the simulator's own filter was
+not scriptable from `simctl`). Result: under protan and deutan vision the teal turns grey and Sleep and Strain both turn blue,
+so colour alone does not separate the three. Position and direction do, by construction: Strain is the only outer ring; Recovery
+is the inner arc that grows to the left of the top, Sleep the one that grows to the right. Nothing is encoded in colour only.
+The centre ring's band colour (teal / yellow / red) is also in the number and the band word under the gauge.
+
+## 6. VoiceOver
+
+One element, `accessibilityElement(children: .ignore)`; label "Overall readiness"; identifier from the caller (`identifier:`, default
+`orbitGauge`; Today passes `today.readinessGauge`); the caller's `accessibilityNote` is appended after a full stop, as `MetricGauge` does.
+
+Value (scored): "71, High. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21". A missing score is named, never skipped:
+"Sleep, no data". No readiness: "Overall readiness, no data. Recovery ...". Nothing at all: "No data". The other modes say
+"Not scored yet" until PR 2 / 3 write their sentences. German: "71, Hoch. Erholung 71 Prozent, Schlaf 88 Prozent, Belastung 9,6 von 21".
+Strings added: `Recovery %@ percent`, `Sleep %@ percent`, `Strain %@ of 21`, `%@, no data`, `Overall readiness, no data` (de, no en entries).
+
+Motion: a changed value moves the arcs and dots on `Theme.Motion.slow` (0.6 s, ease-out) from where they were, the number rolls with
+`numericText`. The first frame draws at the value (PR 3 owns the launch). Reduce Motion: no sweep and no roll; a new value cross-fades
+over 250 ms (`Theme.Motion.quick`). Nothing rotates on its own. Dynamic Type: the gauge does not scale (fixed 172 / 124 / 84 pt frames,
+fixed-size number); the captions around it do (`OrbitGauge · AX3` previews).
+
+## 6b. Contrast of each graphic on its track (WCAG 1.4.11, 3:1)
+
+Computed in `OrbitGaugeContrastTests` from the asset-catalog colours (relative luminance, resolved per appearance). Track =
+`surfaceRaised`; `shots/contrast.txt` has the raw output.
+
+| Graphic | Dark, on track | Dark, on background | Light, on track | Light, on background |
+| --- | --- | --- | --- | --- |
+| Recovery / high band (`accent`) | 6.97 | 10.09 | 3.97 | 4.54 |
+| Sleep (`metricSleep`) | 4.38 | 6.34 | 4.36 | 4.98 |
+| Strain (`metricStrain`) | 4.12 | 5.97 | 4.42 | 5.04 |
+| Moderate band (`warning`) | 7.69 | 11.14 | 4.03 | 4.61 |
+| Low band (`alert`) | 4.13 | 5.99 | 3.99 | 4.55 |
+| Centre ring without readiness (`textPrimary`) | | 15.59 | | 15.59 |
+
+All at least 3:1 (the lowest: light Recovery, 3.97). The track itself is 1.45:1 on the dark background and 1.14:1 on the light one:
+it is the empty scale, not information, and is the same as `MetricGauge`'s; the hollow dots (2 pt coloured outline) carry the
+"missing" state and have the contrast of the arc colours on the background. The number is `textPrimary` (15.59:1).
+
+## 7. Tried and rejected
+
+- Three concentric full rings with one arc each: a gauge, not the logo (the brief's own example).
+- The brief's dot size (9 pt across) and my first guess (radius 7): dots as thick arc ends; the icon's dots are the point of the mark.
+- Both inner halves from exactly 0 to 180 deg: two dots on one spot at 0 and at 100 %, and two hollow dots at the top overlapping.
+- Butt caps: tidy, but a different object from the icon at 44 pt.
+- A 16 pt centre ring with the number under the gauge: loses "the number inside" and the likeness of a small bright centre is not worth an extra line.
+- The mark (18 pt) and the "OVERALL READINESS" caption inside the centre ring: no room at 59 pt; the gauge is the mark.
+- Animating the first appearance from zero (as `MetricGauge` does): a launch effect that PR 3 owns, and it makes snapshots time-dependent.
+- Inner start inset 9 deg / 10 deg: the two end dots at 100 % kept 17 / 19 pt, less than the new dot's width plus air.
+
+## 8. Proposals for later PRs (the geometry leaves room)
+
+**PR 2, calibrating (7 segments).** The outer orbit becomes seven round-capped segments with the seam at the top, where the outer
+hollow dot sits: the segments start 9 deg after the top and end 9 deg before it (the dot's half-width plus its air), so the dot never
+cuts one; the 7 x 44.6 deg segments are separated by 5 deg (6.7 pt on r 77, 4 pt of air after the caps). `nights` of them in `Theme.accent`
+(the teal of the baselines, as `BaselineGauge`), the rest `surfaceRaised`, filling clockwise, one after another at 60 ms each (no motion
+under Reduce Motion). Inner orbit and centre ring stay tracks, the three dots hollow at their starts. "3 / 7" in the centre
+number's place at `.large` and `.medium` (`ryftNumber`, same size as the readiness), "of 7 nights" in the VoiceOver sentence. Path S2
+(readiness computed while the baseline is still learning): the scored gauge with the seven segments under the Strain arc at
+0.35 opacity would sit on the same radius as the arc, so they are only visible past its head; I expect that to be too faint
+at `.large` and unreadable at `.small`, so S2 keeps the note only, unless the lead wants the experiment. `OrbitGaugeCalibration.counted`
+already clamps nights to the requirement.
+
+**PR 4, strain band.** A rail inside the outer ring: radius 69.5, stroke 3, `butt` caps, `metricStrain` at 0.35, from the band's lower to
+upper end on the 0-21 scale (360 x v / 21 degrees). It sits in the corridor between the outer ring's inner edge (74.25) and the inner
+dots' outer edge (63), 3 pt clear of the first and 6.5 pt of the second, and the arc's dot passes over it. Past the band's upper end the
+arc is split into two `OrbitArc`s: up to the end in `metricStrain`, beyond it in `Theme.alert` mixed 60 / 40 with the strain hue
+(designer's first guess; to be tuned against 3:1 on the track, `alert` alone is 4.13 dark and 3.99 light), the dot taking the colour of
+its segment. `OrbitGaugeValues.strainBand` is already in the model and ignored by the drawing.
