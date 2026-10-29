@@ -78,6 +78,19 @@ final class SessionController: Identifiable {
     private var lastActivityNext: String?
 
     // MARK: jump-to-next state (SessionController+Advance.swift)
+    // Set only from that file (an extension elsewhere can't reach `private(set)`).
+
+    /// Cards collapsed after their last set; shown through `isCollapsed(_:)`. UI state, not persisted.
+    var collapsed: Set<UUID> = []
+    /// The latest jump for the view to perform (scroll, highlight).
+    var advance: AdvanceRequest?
+    /// Profile → Training → Jump to next exercise; the coordinator wires the setting.
+    @ObservationIgnored var jumpToNext: @MainActor () -> Bool = { true }
+    @ObservationIgnored var userExpanded: Set<UUID> = []
+    @ObservationIgnored var advanceTask: Task<Void, Never>?
+    @ObservationIgnored var lastManualScroll: Date?
+    /// The exercise of the last check: the current-set highlight follows its `nextUp(after:)`.
+    var lastCheckedExercise: UUID?
 
     /// After an edit (a set checked, unchecked, added, deleted or changed; an exercise added,
     /// removed or moved): the lock screen's next set follows.
@@ -180,6 +193,7 @@ final class SessionController: Identifiable {
     func toggleCheck(_ set: LocalSet, in ex: LocalSessionExercise) {
         if set.isCompleted {
             set.completedAt = nil
+            checkUndone(in: ex)
         } else {
             let g = ghost(for: set, in: ex)
             if set.reps == nil { set.reps = g.reps }
@@ -188,6 +202,7 @@ final class SessionController: Identifiable {
             setsChecked += 1
             if focus?.setID == set.id { focus = nil }
             startRest(after: ex)
+            scheduleAdvance(after: set, in: ex)
         }
         changed(set)
     }
@@ -299,7 +314,7 @@ final class SessionController: Identifiable {
     }
 
     /// kg → reps → the next set's kg.
-    func advance() {
+    func nextField() {
         guard let focus, let target = focusedSet else { return }
         let set = target.set, ex = target.exercise
         switch focus.field {
