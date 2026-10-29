@@ -267,7 +267,17 @@
         }
       }
     },
-    "%@, minimum. %@" : {},
+    "%@, minimum. %@" : {
+      "comment" : "VoiceOver value of a stepper at its lowest. 1: value, 2: why it can't go lower.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, Minimum. %@"
+          }
+        }
+      }
+    },
     "%@, now matched. %lld left to check." : {
       "comment" : "Training import, VoiceOver: a row was resolved; the rows still blocking.",
       "localizations" : {
@@ -1262,7 +1272,17 @@
         }
       }
     },
-    "%lld sets are done and stay." : {},
+    "%lld sets are done and stay." : {
+      "comment" : "Edit targets, under the sets stepper. 1: number of done sets.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Sätze sind erledigt und bleiben."
+          }
+        }
+      }
+    },
     "%lld sets skipped" : {
       "comment" : "Training import, step 5: sets with no weight or reps.",
       "localizations" : {
@@ -1787,7 +1807,17 @@
         }
       }
     },
-    "1 set is done and stays." : {},
+    "1 set is done and stays." : {
+      "comment" : "Edit targets, under the sets stepper.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 Satz ist erledigt und bleibt."
+          }
+        }
+      }
+    },
     "A 24-hour time with am or pm: RYFT used the 24-hour time" : {
       "comment" : "Import warning, after \"Line N\", e.g. for 16:41 pm.",
       "localizations" : {
@@ -2209,7 +2239,17 @@
         }
       }
     },
-    "Added weight (kg)" : {},
+    "Added weight (kg)" : {
+      "comment" : "Edit targets: extra load on a bodyweight exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zusatzgewicht (kg)"
+          }
+        }
+      }
+    },
     "Adding Sign in with Apple isn't switched on for RYFT yet. Try again later." : {
       "localizations" : {
         "de" : {
@@ -2299,7 +2339,17 @@
         }
       }
     },
-    "All exercises" : {},
+    "All exercises" : {
+      "comment" : "Section with the whole exercise library, below Similar.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Übungen"
+          }
+        }
+      }
+    },
     "All sports" : {
       "comment" : "Sport picker: every sport, alphabetically.",
       "localizations" : {
@@ -2380,7 +2430,17 @@
         }
       }
     },
-    "Also change the plan" : {},
+    "Also change the plan" : {
+      "comment" : "Toggle in the replace sheet: change the plan day too.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auch im Plan ändern"
+          }
+        }
+      }
+    },
     "Always yours" : {
       "localizations" : {
         "de" : {
@@ -2562,8 +2622,28 @@
         }
       }
     },
-    "Applies from the next %@ day." : {},
-    "Applies from the next %@ day. You're offline: the plan can only be changed online." : {},
+    "Applies from the next %@ day." : {
+      "comment" : "Under the Also change the plan toggle. 1: plan day name, e.g. Upper.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gilt ab dem nächsten %@-Tag."
+          }
+        }
+      }
+    },
+    "Applies from the next %@ day. You're offline: the plan can only be changed online." : {
+      "comment" : "Under the disabled Also change the plan toggle without a connection. 1: plan day name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gilt ab dem nächsten %@-Tag. Du bist offline: Der Plan lässt sich nur online ändern."
+          }
+        }
+      }
+    },
     "Apps and devices that sent data to RYFT in the last 30 days." : {
       "comment" : "Footnote of Seen in Apple Health.",
       "localizations" : {
@@ -2955,7 +3035,17 @@
         }
       }
     },
-    "Changes apply to this workout only. To change your plan, use Replace or the plan editor." : {},
+    "Changes apply to this workout only. To change your plan, use Replace or the plan editor." : {
+      "comment" : "Footer of the Edit targets sheet in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Änderungen gelten nur für dieses Training. Um deinen Plan zu ändern, nutze „Übung ersetzen“ oder den Plan-Editor."
+          }
+        }
+      }
+    },
     "Changing a setting doesn't rescore past days on its own." : {
       "localizations" : {
         "de" : {
@@ -3221,7 +3311,17 @@
         }
       }
     },
-    "Clear target weight" : {},
+    "Clear target weight" : {
+      "comment" : "VoiceOver: removes the target weight.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zielgewicht entfernen"
+          }
+        }
+      }
+    },
     "Clears your other choices" : {
       "comment" : "VoiceOver hint of the Just my iPhone tile.",
       "localizations" : {
@@ -3856,8 +3956,28 @@
         }
       }
     },
-    "Edit targets" : {},
-    "Edit targets…" : {},
+    "Edit targets" : {
+      "comment" : "Title of the sheet that edits one exercise's targets in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziele bearbeiten"
+          }
+        }
+      }
+    },
+    "Edit targets…" : {
+      "comment" : "Exercise menu in a workout: sets, reps, weight and rest for this workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziele bearbeiten…"
+          }
+        }
+      }
+    },
     "Edit trackers" : {
       "comment" : "VoiceOver label of Edit in Devices & sync.",
       "localizations" : {
@@ -3880,7 +4000,17 @@
         }
       }
     },
-    "Edits the notes" : {},
+    "Edits the notes" : {
+      "comment" : "VoiceOver hint on an exercise's notes in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bearbeitet die Notizen"
+          }
+        }
+      }
+    },
     "editSleep.title" : {
       "comment" : "The sleep sheet's title when editing a night the user added, between Cancel and Save: keep it short.",
       "localizations" : {
@@ -4915,25 +5045,215 @@
         }
       }
     },
-    "Notes for this exercise" : {},
-    "Notes: %@" : {},
-    "Offline. Showing your saved exercise library." : {},
-    "Replace %@" : {},
-    "Replace exercise…" : {},
-    "Replaced with %@" : {},
-    "Replaced with %@. Changed in your plan from the next %@ day." : {},
-    "Replaced with %@. Changed in your plan from the next %@ day. Check its target weight there." : {},
-    "Replaced with %@. Undo available." : {},
-    "Replaced with %@. Your %lld done sets stay as %@." : {},
-    "Replaced with %@. Your done set stays as %@." : {},
-    "Replaced with %@. Your plan couldn't be changed." : {},
-    "Restored %@." : {},
-    "Restored %@. Your plan still has the new exercise." : {},
-    "Sets with values can't be removed here. Delete them in the list." : {},
-    "Similar" : {},
-    "Target weight (kg)" : {},
-    "The new exercise continues with %lld sets." : {},
-    "The new exercise continues with 1 set." : {},
+    "Notes for this exercise" : {
+      "comment" : "Placeholder of an exercise's notes in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notizen zu dieser Übung"
+          }
+        }
+      }
+    },
+    "Notes: %@" : {
+      "comment" : "VoiceOver: an exercise's notes in a workout. 1: the notes.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notizen: %@"
+          }
+        }
+      }
+    },
+    "Offline. Showing your saved exercise library." : {
+      "comment" : "Caption in the replace sheet without a connection.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Offline. Du siehst deine gespeicherte Übungsbibliothek."
+          }
+        }
+      }
+    },
+    "Replace %@" : {
+      "comment" : "Title of the sheet that replaces an exercise mid-workout. 1: exercise name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ersetzen"
+          }
+        }
+      }
+    },
+    "Replace exercise…" : {
+      "comment" : "Exercise menu in a workout: pick another exercise for this one.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übung ersetzen…"
+          }
+        }
+      }
+    },
+    "Replaced with %@" : {
+      "comment" : "Undo toast after replacing an exercise. 1: new exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durch %@ ersetzt"
+          }
+        }
+      }
+    },
+    "Replaced with %@. Changed in your plan from the next %@ day." : {
+      "comment" : "Undo toast after replacing an exercise in the workout and in the plan. 1: new exercise, 2: plan day name, e.g. Upper.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durch %@ ersetzt. Im Plan ab dem nächsten %@-Tag geändert."
+          }
+        }
+      }
+    },
+    "Replaced with %@. Changed in your plan from the next %@ day. Check its target weight there." : {
+      "comment" : "Undo toast: exercise replaced in workout and plan; no history, so the plan kept the old weight. 1: exercise, 2: day.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durch %@ ersetzt. Im Plan ab dem nächsten %@-Tag geändert. Prüfe dort das Zielgewicht."
+          }
+        }
+      }
+    },
+    "Replaced with %@. Undo available." : {
+      "comment" : "VoiceOver when the replace toast appears. 1: new exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durch %@ ersetzt. Rückgängig möglich."
+          }
+        }
+      }
+    },
+    "Replaced with %@. Your %lld done sets stay as %@." : {
+      "comment" : "Undo toast after replacing an exercise with several sets done. 1: new exercise, 2: number of sets, 3: old exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durch %@ ersetzt. Deine %lld erledigten Sätze bleiben bei %@."
+          }
+        }
+      }
+    },
+    "Replaced with %@. Your done set stays as %@." : {
+      "comment" : "Undo toast after replacing an exercise with one set done. 1: new exercise, 2: old exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durch %@ ersetzt. Dein erledigter Satz bleibt bei %@."
+          }
+        }
+      }
+    },
+    "Replaced with %@. Your plan couldn't be changed." : {
+      "comment" : "Undo toast: the exercise was replaced in the workout, but saving the plan failed. 1: new exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durch %@ ersetzt. Dein Plan konnte nicht geändert werden."
+          }
+        }
+      }
+    },
+    "Restored %@." : {
+      "comment" : "VoiceOver after Undo of a replaced exercise. 1: exercise name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ wiederhergestellt."
+          }
+        }
+      }
+    },
+    "Restored %@. Your plan still has the new exercise." : {
+      "comment" : "Toast after Undo: the workout is back, but the plan could not be changed back. 1: exercise name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ wiederhergestellt. Dein Plan enthält noch die neue Übung."
+          }
+        }
+      }
+    },
+    "Sets with values can't be removed here. Delete them in the list." : {
+      "comment" : "Edit targets: the sets stepper can't go lower because a set has values.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sätze mit Werten kannst du hier nicht entfernen. Lösche sie in der Liste."
+          }
+        }
+      }
+    },
+    "Similar" : {
+      "comment" : "Section of exercises like the one being replaced.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ähnlich"
+          }
+        }
+      }
+    },
+    "Target weight (kg)" : {
+      "comment" : "Edit targets: the weight to lift.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zielgewicht (kg)"
+          }
+        }
+      }
+    },
+    "The new exercise continues with %lld sets." : {
+      "comment" : "Replace sheet: the picked exercise gets the remaining sets. 1: number of sets.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die neue Übung geht mit %lld Sätzen weiter."
+          }
+        }
+      }
+    },
+    "The new exercise continues with 1 set." : {
+      "comment" : "Replace sheet: the picked exercise gets the one remaining set.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die neue Übung geht mit 1 Satz weiter."
+          }
+        }
+      }
+    },
     "This item uses an exercise RYFT doesn't know." : {
       "comment" : "Training import I4: the platform's code unknown_exercise.",
       "localizations" : {
@@ -10294,7 +10614,17 @@
         }
       }
     },
-    "Undo" : {},
+    "Undo" : {
+      "comment" : "Toast button that takes back the last change, e.g. a replaced exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rückgängig"
+          }
+        }
+      }
+    },
     "Unlock your iPhone to check: Apple Health can't be read while it's locked." : {
       "localizations" : {
         "de" : {
@@ -11110,7 +11440,17 @@
         }
       }
     },
-    "Your %lld done sets stay as %@." : {},
+    "Your %lld done sets stay as %@." : {
+      "comment" : "Replace sheet, several sets already done. 1: number of sets, 2: the exercise being replaced.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine %lld erledigten Sätze bleiben bei %@."
+          }
+        }
+      }
+    },
     "Your account is being deleted. This activity is deleted with it." : {
       "comment" : "Activity detail: uploads stopped because the account is being deleted.",
       "localizations" : {
@@ -11217,7 +11557,17 @@
         }
       }
     },
-    "Your done set stays as %@." : {},
+    "Your done set stays as %@." : {
+      "comment" : "Replace sheet, one set already done. 1: the exercise being replaced.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein erledigter Satz bleibt bei %@."
+          }
+        }
+      }
+    },
     "Your file is ready. Sign in to continue." : {
       "comment" : "Training import E6: a file was opened while signed out.",
       "localizations" : {
