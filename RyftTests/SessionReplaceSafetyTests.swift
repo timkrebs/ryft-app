@@ -13,13 +13,20 @@ private final class GatedSessionLibrary: SessionLibrary {
     private(set) var savedPlans: [Plan] = []
     private var waiting: [CheckedContinuation<Void, Never>] = []
     private var opened = false
+    /// `lastTime` (the history GET) waits too while this is on.
+    var gatesLastTime = false
+    private var lastTimeWaiting: [CheckedContinuation<Void, Never>] = []
 
     init(plan: Plan) { self.plan = plan }
 
     var waitingSaves: Int { waiting.count }
+    var waitingLastTimes: Int { lastTimeWaiting.count }
 
     func cachedLastTime(for exerciseID: UUID) -> [SessionSet] { [] }
-    func lastTime(for exerciseID: UUID) async -> [SessionSet] { [] }
+    func lastTime(for exerciseID: UUID) async -> [SessionSet] {
+        if gatesLastTime { await withCheckedContinuation { lastTimeWaiting.append($0) } }
+        return []
+    }
     func editablePlan(containing planExerciseID: UUID) -> Plan? {
         guard let plan, plan.days.contains(where: { $0.exercises.contains { $0.id == planExerciseID } }) else { return nil }
         return plan
@@ -29,6 +36,14 @@ private final class GatedSessionLibrary: SessionLibrary {
         savedPlans.append(plan)
         if saveSucceeds { self.plan = plan }
         return saveSucceeds
+    }
+
+    /// Every waiting history request answers, and later ones don't wait.
+    func answerLastTime() {
+        gatesLastTime = false
+        let all = lastTimeWaiting
+        lastTimeWaiting = []
+        for c in all { c.resume() }
     }
 
     /// Every waiting save goes, and the ones after it don't wait.
@@ -163,6 +178,42 @@ struct SessionReplaceSafetyTests {
         #expect(slot(1, in: library.plan)?.exerciseId == rig.incline.id)
         #expect(slot(0, in: library.plan) == rig.plan.days[0].exercises[0])
         #expect(rig.row.planExerciseId == rig.peRow)
+    }
+
+    /// The plan task waits in the history GET for the new exercise (the replace's own "Last time" first).
+    private func replaceWaitingInTheHistoryGET(_ rig: ReplaceRig, _ c: SessionController,
+                                               _ library: GatedSessionLibrary) async -> Task<Void, Never> {
+        library.gatesLastTime = true
+        library.open()
+        let replacing = Task { await c.replaceExercise(rig.x, with: rig.incline, alsoChangePlan: true) }
+        await rig.settle { library.waitingLastTimes == 2 }
+        return replacing
+    }
+
+    @Test func aSignOutDuringTheHistoryRequestSendsNoPlan() async {
+        let rig = ReplaceRig()
+        let (c, library) = gated(rig)
+        defer { c.stop() }
+        let replacing = await replaceWaitingInTheHistoryGET(rig, c, library)
+        #expect(library.waitingLastTimes == 2, "the session's Last time and the plan's weight")
+        rig.sync.accountChanged()
+        library.answerLastTime()
+        await replacing.value
+        await rig.settle()
+        #expect(library.savedPlans.isEmpty, "no plan PUT for the next account")
+    }
+
+    @Test func anUndoDuringTheHistoryRequestSendsNoPlan() async {
+        let rig = ReplaceRig()
+        let (c, library) = gated(rig)
+        defer { c.stop() }
+        let replacing = await replaceWaitingInTheHistoryGET(rig, c, library)
+        c.undoReplace()
+        library.answerLastTime()
+        await replacing.value
+        await rig.settle { rig.x.planExerciseId != nil }
+        #expect(library.savedPlans.isEmpty, "neither the change nor its revert")
+        #expect(rig.x.planExerciseId == rig.peBench, "the link is back")
     }
 
     // MARK: 3 · no upload while the undo window is open

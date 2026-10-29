@@ -512,6 +512,8 @@ extension SessionController {
             var saved: Plan?
             if let plan = library.editablePlan(containing: pe) {
                 let kg = Self.planKg(from: await library.lastTime(for: new.id))
+                // A sign-out or an Undo during that request: no plan PUT (it would go with the next account's token).
+                guard self.sync.generation == generation, !self.undoneReplaces.contains(undoID) else { return nil }
                 if await library.savePlan(Self.replacing(pe, with: new, kg: kg, in: plan)) {
                     saved = plan
                     if kg == nil, Self.target(of: pe, in: plan)?.targetKind == .kg { self.noteNoWeight(new, dayName, undoID) }

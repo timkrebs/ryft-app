@@ -42,7 +42,7 @@ still names it is a 422.
 - No server leftovers from replacing in the common paths (in place; split; undo without other edits).
 - Done sets always stay with the exercise they were done on. A split counts as a missed attempt for the planned
   exercise (the target repeats).
-- The plan-day fallback double-counts when the replacement is also planned that day. Filed as Train #4 in
+- The plan-day fallback double-counts when the replacement is also planned that day. Filed as Train #6 in
   `docs/API_REQUESTS.md`; until then it is a known, rare inaccuracy.
 - Changing the plan drops the old plan exercise's explicit links. The fallback still finds them by day and exercise.
 - If the platform adds exercise and set tombstones (Train #1), points 5 and 6 can move to the wire and the local
