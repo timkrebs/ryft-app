@@ -62,7 +62,8 @@ enum SessionAdvance {
         guard let ex = input.exercises.first(where: { $0.id == input.checked.exerciseID }),
               !isOutOfOrder(input.checked.setID, in: ex) else { return .stay }
 
-        // A superset collapses as one, once every member is finished.
+        // Done = no open working set after this check, however the sets were ticked (a forgotten middle set too).
+        // A superset collapses as one, once every member is done.
         let members = ex.supersetGroup.map { group in input.exercises.filter { $0.supersetGroup == group } } ?? [ex]
         let finished = members.allSatisfy(\.isFinished)
         let collapse = finished
@@ -77,15 +78,44 @@ enum SessionAdvance {
         return .advance(collapse: collapse, to: next)
     }
 
-    /// Checking set 4 while set 2 is open, or set 1 after set 3 is done, isn't finishing in order (working sets only).
+    /// Not a step towards finishing in order: a warm-up, or a working set checked while an earlier one is still open
+    /// (set 4 with set 2 open). Checking the forgotten set 2 last is in order: it finishes the exercise.
     static func isOutOfOrder(_ setID: UUID, in ex: ExerciseState) -> Bool {
         let working = ex.sets.filter { !$0.isWarmup }
-        guard let i = working.firstIndex(where: { $0.id == setID }) else {
-            // A warm-up: out of order once a working set is done.
-            return working.contains(where: \.isCompleted)
+        guard let i = working.firstIndex(where: { $0.id == setID }) else { return true }
+        return working[..<i].contains { !$0.isCompleted }
+    }
+
+    /// What comes next, the one definition behind the jump, the highlight, the rest bar's "Next:" and the lock
+    /// screen: after `exerciseID` (the exercise just checked), a superset's partners first (A1 → B1 → A2), then the
+    /// exercise itself, then the list below it, wrapping to the top. An exercise with no open working set offers
+    /// nothing, not even an open warm-up; in one that is still open, its first open set (a warm-up if the user hasn't
+    /// done those yet). Without a checked exercise: from the top.
+    static func next(after exerciseID: UUID?, in exercises: [ExerciseState]) -> SetRef? {
+        func open(_ ex: ExerciseState) -> SetRef? {
+            guard !ex.isFinished, let set = ex.sets.first(where: { !$0.isCompleted }) else { return nil }
+            return SetRef(exerciseID: ex.id, setID: set.id)
         }
-        let openBefore = working[..<i].contains { !$0.isCompleted }
-        let doneAfter = working[(i + 1)...].contains(where: \.isCompleted)
-        return openBefore || doneAfter
+        guard let exerciseID, let i = exercises.firstIndex(where: { $0.id == exerciseID }) else {
+            return exercises.lazy.compactMap(open).first
+        }
+        let ex = exercises[i]
+        var order: [ExerciseState] = []
+        if let group = ex.supersetGroup {
+            let partners = exercises.filter { $0.supersetGroup == group }
+            if let j = partners.firstIndex(where: { $0.id == exerciseID }) {
+                order += partners[(j + 1)...] + partners[..<j]
+            }
+        }
+        order.append(ex)
+        order += exercises[(i + 1)...] + exercises[..<i]
+        return order.lazy.compactMap(open).first
+    }
+
+    /// Every working set is checked and at least one was (an empty session, or one with only open warm-ups left,
+    /// isn't "all done" in the first case and is in the second).
+    static func isAllDone(_ exercises: [ExerciseState]) -> Bool {
+        exercises.allSatisfy(\.isFinished)
+            && exercises.contains { ex in ex.sets.contains { !$0.isWarmup && $0.isCompleted } }
     }
 }

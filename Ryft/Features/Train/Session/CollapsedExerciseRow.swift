@@ -111,12 +111,15 @@ struct CollapsedExerciseRow: View {
 /// The set the user does next (ui.md §5): a stronger tint than a checked row and a 2 pt accent bar on the leading
 /// edge, so it isn't colour alone. No keypad, no focus change. VoiceOver hears "Next set." as the row's value.
 /// One view structure whether current or not, so the row (and its accessibility element) keeps its identity as
-/// the highlight moves.
+/// the highlight moves. Inside the session the row can also take VoiceOver focus after a jump (`SessionVoiceOverFocus`).
 struct CurrentSetHighlight: ViewModifier {
     let isCurrent: Bool
+    let setID: UUID
+
+    @Environment(\.sessionVoiceOverFocus) private var voiceOverFocus
 
     func body(content: Content) -> some View {
-        content
+        let highlighted = content
             .background {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(Theme.accent.opacity(isCurrent ? 0.10 : 0))
@@ -133,12 +136,30 @@ struct CurrentSetHighlight: ViewModifier {
             .accessibilityValue(isCurrent
                 ? Text("Next set.", comment: "VoiceOver: said with the set row the user does next in a workout.")
                 : Text(verbatim: ""))
+        // The environment is the same for every row of a screen, so this never switches a row's identity.
+        if let voiceOverFocus {
+            highlighted.accessibilityFocused(voiceOverFocus, equals: setID)
+        } else {
+            highlighted
+        }
+    }
+}
+
+/// The session screen's VoiceOver focus by set ID: after a jump, `SessionView` moves it to the target row.
+private struct SessionVoiceOverFocusKey: EnvironmentKey {
+    static let defaultValue: AccessibilityFocusState<UUID?>.Binding? = nil
+}
+
+extension EnvironmentValues {
+    var sessionVoiceOverFocus: AccessibilityFocusState<UUID?>.Binding? {
+        get { self[SessionVoiceOverFocusKey.self] }
+        set { self[SessionVoiceOverFocusKey.self] = newValue }
     }
 }
 
 extension View {
-    func currentSetHighlight(_ isCurrent: Bool) -> some View {
-        modifier(CurrentSetHighlight(isCurrent: isCurrent))
+    func currentSetHighlight(_ isCurrent: Bool, setID: UUID) -> some View {
+        modifier(CurrentSetHighlight(isCurrent: isCurrent, setID: setID))
     }
 }
 

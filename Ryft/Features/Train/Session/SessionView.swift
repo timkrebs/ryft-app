@@ -15,6 +15,8 @@ struct SessionView: View {
     @State private var restBarScrolledAway = false
     /// …and a tap on the pill shows it whole for a moment.
     @State private var restBarPeek = false
+    /// VoiceOver: after a jump, focus goes to the target set row (rows bind to it via `sessionVoiceOverFocus`).
+    @AccessibilityFocusState private var voiceOverFocus: UUID?
 
     @State private var showsAdd = false
     @State private var showsReorder = false
@@ -85,6 +87,7 @@ struct SessionView: View {
                     .padding(.top, 8)
                     .padding(.bottom, 24)
                     .animation(Theme.Motion.respecting(reduceMotion), value: controller.collapsed)
+                    .environment(\.sessionVoiceOverFocus, $voiceOverFocus)
                 }
                 .scrollDismissesKeyboard(.never)
                 .modifier(ManualScrollReporter { userScrolled() })
@@ -291,7 +294,7 @@ struct SessionView: View {
             let first = controller.exercises.first { $0.id == to.exerciseID }?.orderedSets.first?.id == to.setID
             let target: UUID = first ? to.exerciseID : to.setID
             withAnimation(animation) { proxy.scrollTo(target, anchor: .top) }
-            if UIAccessibility.isVoiceOverRunning { AccessibilityNotification.LayoutChanged().post() }
+            if UIAccessibility.isVoiceOverRunning { voiceOverFocus = to.setID }
         case .allDone:
             withAnimation(animation) { proxy.scrollTo(Self.endAnchor, anchor: .bottom) }
             if UIAccessibility.isVoiceOverRunning {

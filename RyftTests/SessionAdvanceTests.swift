@@ -43,10 +43,12 @@ struct SessionAdvanceTests {
         #expect(A.step(input([a.state, b.state], checked: checked, next: next)) == .stay)
     }
 
-    @Test func anOpenWarmUpDoesNotKeepAnExerciseOpen() {
+    @Test func anOpenWarmUpDoesNotKeepAnExerciseOpen() throws {
+        // `next` as the controller builds it (SessionAdvance.next), not by hand: the open warm-up is skipped.
         let a = ex(sets: 3, done: [1, 2], warmups: [0]), b = ex(sets: 1)
         let checked = A.SetRef(exerciseID: a.state.id, setID: a.ids[2])
-        let next = A.SetRef(exerciseID: b.state.id, setID: b.ids[0])
+        let next = try #require(A.next(after: a.state.id, in: [a.state, b.state]))
+        #expect(next == A.SetRef(exerciseID: b.state.id, setID: b.ids[0]))
         #expect(A.step(input([a.state, b.state], checked: checked, next: next))
                 == .advance(collapse: [a.state.id], to: next))
     }
@@ -97,12 +99,12 @@ struct SessionAdvanceTests {
                 == .stay)
     }
 
-    @Test func aCheckOutOfOrderThatFinishesTheExerciseStillStays() {
-        // Sets 2 and 3 done earlier, set 1 last: the order was broken, so no jump.
+    @Test func aForgottenSetThatFinishesTheExerciseAdvances() {
+        // Sets 2 and 3 done earlier, set 1 last: no open working set is left, so the exercise is done (lead D-c).
         let a = ex(sets: 3, done: [0, 1, 2]), b = ex(sets: 1)
         let next = A.SetRef(exerciseID: b.state.id, setID: b.ids[0])
         #expect(A.step(input([a.state, b.state], checked: .init(exerciseID: a.state.id, setID: a.ids[0]), next: next))
-                == .stay)
+                == .advance(collapse: [a.state.id], to: next))
     }
 
     @Test(arguments: [(2.9, false), (3.1, true), (0.0, false), (60.0, true)])

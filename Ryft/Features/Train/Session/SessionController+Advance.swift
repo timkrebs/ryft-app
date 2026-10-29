@@ -7,17 +7,47 @@ struct AdvanceRequest: Identifiable, Equatable {
     let step: SessionAdvance.Step
 }
 
-/// Jump to the next exercise (design.md §7): collapsed cards, the 0.6 s delay on the injected clock, manual scrolls.
+/// Jump to the next exercise (design.md §7, lead decisions D-a to D-d): what's next, collapsed cards, the 0.6 s
+/// delay on the injected clock, manual scrolls.
 extension SessionController {
+    // MARK: what's next (one definition)
+
+    /// The planner's view of the list: exercises in order, sets in `setIndex` order.
+    var advanceStates: [SessionAdvance.ExerciseState] { Self.states(of: exercises) }
+
+    static func states(of exercises: [LocalSessionExercise]) -> [SessionAdvance.ExerciseState] {
+        exercises.map { ex in
+            SessionAdvance.ExerciseState(id: ex.id, supersetGroup: ex.supersetGroup, sets: ex.orderedSets.map {
+                SessionAdvance.SetState(id: $0.id, isWarmup: $0.isWarmup, isCompleted: $0.isCompleted)
+            })
+        }
+    }
+
+    /// `SessionAdvance.next` mapped back to the models: behind `nextUp`, the highlight and the rest bar's "Next:".
+    func nextOpenSet(after exerciseID: UUID?) -> (exercise: LocalSessionExercise, set: LocalSet)? {
+        let list = exercises
+        guard let ref = SessionAdvance.next(after: exerciseID, in: Self.states(of: list)),
+              let ex = list.first(where: { $0.id == ref.exerciseID }),
+              let set = ex.sets.first(where: { $0.id == ref.setID }) else { return nil }
+        return (ex, set)
+    }
+
+    /// The set row the user does next: an open set the keypad is on, else `nextUp`. `nil` when nothing is open.
+    var currentSetID: UUID? {
+        if let focused = focusedSet, !focused.set.isCompleted { return focused.set.id }
+        return nextUp?.set.id
+    }
+
+    /// No open working set and at least one checked (D-b): the list ends in "All sets done" with Finish. Passive, so
+    /// it shows with the setting off too (D-d).
+    var isAllDone: Bool { SessionAdvance.isAllDone(advanceStates) }
+
+    // MARK: collapsed cards
+
     /// A finished card is shown collapsed. Derived, so a card that has an open working set again (an uncheck, a new
     /// set, an undo, a server copy) is never shown collapsed.
     func isCollapsed(_ ex: LocalSessionExercise) -> Bool {
         collapsed.contains(ex.id) && !ex.sets.contains { !$0.isWarmup && !$0.isCompleted }
-    }
-
-    /// The user dragged the list: no jump for the next 3 s.
-    func userScrolled() {
-        lastManualScroll = clock.now()
     }
 
     /// Tap on a collapsed row: open, and it stays open.
@@ -26,63 +56,76 @@ extension SessionController {
         userExpanded.insert(ex.id)
     }
 
-    /// The set row the user does next: an open set the keypad is on, else the next set after the last check.
-    /// `nil` when nothing is open.
-    var currentSetID: UUID? {
-        if let focused = focusedSet, !focused.set.isCompleted { return focused.set.id }
-        let after = lastCheckedExercise.flatMap { id in exercises.first { $0.id == id } }
-        return nextUp(after: after)?.set.id
+    // MARK: the delay
+
+    /// The user dragged the list: no jump for the next 3 s.
+    func userScrolled() {
+        lastManualScroll = clock.now()
     }
 
-    /// Every set is checked off: the list ends in "All sets done" with Finish.
-    var isAllDone: Bool { !exercises.isEmpty && nextUp == nil }
-
-    /// After a check: decide in 0.6 s, from the state then.
+    /// After a check: decide 0.6 s after the latest check, from the state then. Earlier checks inside the delay stay
+    /// pending, so their collapse isn't lost.
     func scheduleAdvance(after set: LocalSet, in ex: LocalSessionExercise) {
-        advanceTask?.cancel()
         lastCheckedExercise = ex.id
-        let checked = SessionAdvance.SetRef(exerciseID: ex.id, setID: set.id)
+        pendingChecks.removeAll { $0.exerciseID == ex.id }
+        pendingChecks.append(SessionAdvance.SetRef(exerciseID: ex.id, setID: set.id))
+        advanceTask?.cancel()
         advanceTask = Task { [weak self, clock] in
             do { try await clock.sleep(for: SessionAdvance.delay) } catch { return }
             guard !Task.isCancelled else { return }
-            self?.fireAdvance(checked)
+            self?.fireAdvance()
         }
     }
 
-    /// After an uncheck: no pending jump, and a collapsed card opens again.
+    /// After an uncheck: this exercise's pending work goes (others' stays), and a collapsed card opens again.
     func checkUndone(in ex: LocalSessionExercise) {
+        collapsed.remove(ex.id)
+        pendingChecks.removeAll { $0.exerciseID == ex.id }
+        if pendingChecks.isEmpty { cancelAdvance() }
+    }
+
+    /// The session stops (finish, discard, another session): nothing is published after it.
+    func cancelAdvance() {
         advanceTask?.cancel()
         advanceTask = nil
-        collapsed.remove(ex.id)
+        pendingChecks = []
     }
 
     /// The planner's input from the live state.
     func advanceInput(checked: SessionAdvance.SetRef) -> SessionAdvance.Input {
-        let states = exercises.map { ex in
-            SessionAdvance.ExerciseState(id: ex.id, supersetGroup: ex.supersetGroup, sets: ex.orderedSets.map {
-                SessionAdvance.SetState(id: $0.id, isWarmup: $0.isWarmup, isCompleted: $0.isCompleted)
-            })
-        }
-        let next = nextUp(after: exercises.first { $0.id == checked.exerciseID })
+        let states = advanceStates
         return SessionAdvance.Input(
-            exercises: states, checked: checked,
-            next: next.map { SessionAdvance.SetRef(exerciseID: $0.exercise.id, setID: $0.set.id) },
+            exercises: states, checked: checked, next: SessionAdvance.next(after: checked.exerciseID, in: states),
             keypadOpen: focus != nil, lastManualScroll: lastManualScroll, userExpanded: userExpanded,
             enabled: jumpToNext(), now: clock.now())
     }
 
-    private func fireAdvance(_ checked: SessionAdvance.SetRef) {
+    /// Every pending check collapses what it finished; the latest one decides where the list goes.
+    private func fireAdvance() {
         advanceTask = nil
-        // The set may have been unchecked or deleted meanwhile.
-        guard exercises.contains(where: { ex in ex.sets.contains { $0.id == checked.setID && $0.isCompleted } })
-        else { return }
-        let step = SessionAdvance.step(advanceInput(checked: checked))
-        switch step {
+        let checks = pendingChecks
+        pendingChecks = []
+        var collapse: [UUID] = []
+        var latest: SessionAdvance.Step = .stay
+        for ref in checks {
+            // The set may have been unchecked or deleted meanwhile.
+            guard exercises.contains(where: { ex in ex.sets.contains { $0.id == ref.setID && $0.isCompleted } })
+            else { continue }
+            let step = SessionAdvance.step(advanceInput(checked: ref))
+            if case let .advance(c, _) = step { collapse += c }
+            if case let .allDone(c) = step { collapse += c }
+            latest = step
+        }
+        var seen = Set<UUID>()
+        collapse = collapse.filter { seen.insert($0).inserted }
+        collapsed.formUnion(collapse)
+        switch latest {
         case .stay:
             return
-        case let .advance(collapse, _), let .allDone(collapse):
-            collapsed.formUnion(collapse)
+        case let .advance(_, to):
+            advance = AdvanceRequest(id: UUID(), step: .advance(collapse: collapse, to: to))
+        case .allDone:
+            advance = AdvanceRequest(id: UUID(), step: .allDone(collapse: collapse))
         }
-        advance = AdvanceRequest(id: UUID(), step: step)
     }
 }

@@ -88,6 +88,8 @@ final class SessionController: Identifiable {
     @ObservationIgnored var jumpToNext: @MainActor () -> Bool = { true }
     @ObservationIgnored var userExpanded: Set<UUID> = []
     @ObservationIgnored var advanceTask: Task<Void, Never>?
+    /// Checks waiting for the delay (the latest per exercise): a second check inside 0.6 s keeps the first's collapse.
+    @ObservationIgnored var pendingChecks: [SessionAdvance.SetRef] = []
     @ObservationIgnored var lastManualScroll: Date?
     /// The exercise of the last check: the current-set highlight follows its `nextUp(after:)`.
     var lastCheckedExercise: UUID?
@@ -124,6 +126,7 @@ final class SessionController: Identifiable {
     func stop() {
         ticker?.cancel()
         ticker = nil
+        cancelAdvance()
     }
 
     // MARK: derived
@@ -145,13 +148,8 @@ final class SessionController: Identifiable {
         ex.orderedSets.filter { !$0.isWarmup && $0.setIndex < set.setIndex }.count
     }
 
-    /// "Bench press · set 3 of 4" — the next set to do, in order (supersets alternate).
-    var nextUp: (exercise: LocalSessionExercise, set: LocalSet)? {
-        for ex in exercises {
-            if let set = ex.orderedSets.first(where: { !$0.isCompleted }) { return (ex, set) }
-        }
-        return nil
-    }
+    /// "Bench press · set 3 of 4" — the next set to do after the last check (`SessionAdvance.next`).
+    var nextUp: (exercise: LocalSessionExercise, set: LocalSet)? { nextUp(after: nil) }
 
     func nextLabel(after ex: LocalSessionExercise? = nil) -> String {
         guard !exercises.isEmpty else { return String(localized: "Add an exercise") }
@@ -175,17 +173,10 @@ final class SessionController: Identifiable {
         }
     }
 
-    /// Within a superset the partner comes next; otherwise the first open set.
+    /// After `ex` (default: the exercise checked last): a superset's partner first, then the list below, wrapping
+    /// to the top; an exercise without an open working set is skipped (`SessionAdvance.next`, lead decision D-a).
     func nextUp(after ex: LocalSessionExercise?) -> (exercise: LocalSessionExercise, set: LocalSet)? {
-        if let ex, let group = ex.supersetGroup {
-            let partners = exercises.filter { $0.supersetGroup == group }
-            if let i = partners.firstIndex(where: { $0.id == ex.id }) {
-                for partner in partners[(i + 1)...] + partners[..<i] {
-                    if let set = partner.orderedSets.first(where: { !$0.isCompleted }) { return (partner, set) }
-                }
-            }
-        }
-        return nextUp
+        nextOpenSet(after: ex?.id ?? lastCheckedExercise)
     }
 
     // MARK: sets
