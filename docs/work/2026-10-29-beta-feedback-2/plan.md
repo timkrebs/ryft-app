@@ -122,3 +122,15 @@ new `SessionAdvance.swift`. Conflicts are resolved once on an integration branch
     - **The user's account on 20261028:** today's row is `no_hrv` → N1, with no counter.
     - **Follow-up from the T4 review:** `ImportPlanAssembly.latestWeight` gives two source rows mapped to one exercise
       the same kg target. Import ticket, not in this brief.
+12. **T1 copy (localization-editor's notes):**
+    - German puts a space before the ellipsis ("Übung ersetzen …", "Ziele bearbeiten …"). The catalog does this
+      18 times and omits it 4 times. This overrides the brief's spelling.
+    - English: "Your done set stays with %@" instead of "stays as". The footer names the menu item, "Replace exercise".
+    - These go back with the T1 review fixes, so the keys change only once.
+13. **Merge order:** #72 (T4) first, because it's ready and small. Then T3, then T1, then T2 (via the integration
+    branch).
+14. **T2 copy:**
+    - "Finish workout" stays "Workout beenden", the existing German.
+    - The rest bar's "Next: %@" gets its own key, e.g. `train.rest.next` with the default "Next: %@" and a comment.
+      Today it shares a key with Today's day subheading, and that key's comment is wrong for the rest bar.
+    - This goes back with the T2 review fixes.

@@ -43,3 +43,69 @@ ui-validator: in progress.
 signal is counted (merged into #4). AX3 lower half not seen (asked of the owner).
 
 Fixes: sent to sync-engineer in one round.
+
+**T3 shipped as #73** after the main merge (incl. #72): 2508 test cases pass, lint passes. security-privacy-reviewer: no
+blockers; the one finding (a real count in the API request's text) generalised in 390b29c.
+
+## T2: jump to the next exercise (`feat/train-jump-next`)
+
+**code-reviewer on 7315e68 / 1097044 / 49c476f: no blockers.** Probes drove the real controller.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| 1 | An open warm-up is "next": jumps go back to it, "All sets done" never appears | One "next" for jump, highlight and "Next:": the first open working set after the checked exercise, wrapping. `isAllDone` = no open working set and at least one checked. |
+| 2 | A skipped set pulls the list back to the top after every later exercise | Covered by #1: forward first, then wrap. |
+| 3 | Voice Control can't reach −15 / +15 / Skip (`children: .ignore`) | `.contain`: the time is one adjustable element, and the three buttons are their own elements with input labels. |
+| 4 | VoiceOver focus is lost on collapse | `@AccessibilityFocusState` on the jump target. |
+| 5 | A VoiceOver double-tap may press +15 | Explicit default action or activation point. |
+| n | The pending jump isn't cancelled on finish or discard | Cancel in `stop()`, plus a test. |
+| n | A forgotten middle set doesn't collapse (design §7 rule 1) | The brief wins: done = no open working set after the check. |
+| n | A second quick check drops the first collapse; an uncheck cancels unrelated work | Accumulate; cancel per exercise. |
+| n | An empty session reads "All sets done" | Covered by the `isAllDone` definition. |
+| n | With the setting off, the highlight and all-done card still show | Intended: only automatic scroll and collapse stop. |
+| n | Profile → Training isn't flag-gated | Gate on `train.enabled`. |
+| n | Rest bar value reads "95 seconds" | `DateComponentsFormatter` `.full`. |
+| n | `currentSetID` is computed per row | Once per card. |
+
+Fixes: sent to the T2 developer in one round.
+
+## T1: replace and edit an exercise (`feat/train-replace-exercise`)
+
+**code-reviewer on 2d37fce…f501eee (tests 60faf18): no blockers; 48 tests pass; probes for 1–4.**
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| 1 | A plan revert after Finish calls `edited()`: a PUT on a completed session, and a new Live Activity | After finishing, completing or discarding, a plan task only saves the plan. |
+| 2 | Two quick plan changes: the second PUT (from a stale cache) undoes the first | Chain on `planTask`; read the cache inside the task. |
+| 3 | A PUT already queued sends the replaced state inside the undo window | Per-session hold in `TrainSyncService` while the window is open; ADR 0009 stands. |
+| 4 | An account change leaves the undo open; the commit writes to the wiped store | `stop()` drops the undo without writing. |
+| n | "Plan couldn't be changed" notice after Undo | Track the undo id. |
+| n | Rest stepper clamps to 600 | 0…900 (API.md). |
+| n | Toast has no escape action; Switch/Voice Control get 5 s | Escape action; 10 s for them too. |
+| n | No preview for `SessionToastOverlay`; no CHANGELOG line | Add both. |
+
+Integration note: in `SessionController.changed()`, keep T1's `dropUndo(touching:)` when merging T2
+(`anEditToTheAffectedRowDropsTheUndo` guards it).
+
+Fixes: sent to the T1 developer in one round.
+
+**T2 re-verified by code-reviewer on d14868e / f4cabb2: all 13 resolved.** New:
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| 1 | An earlier collapse applied without a scroll (latest step `.stay`) shifts rows under the thumb | Carry the collapses to the next step that scrolls; drop them on stop. |
+| 2 | Superset rest skip still counts open warm-ups | Same "open working set" predicate as `SessionAdvance`. |
+| 3 | T1 merge: keeping T1's `nextUp(after:)` body recurses with T2's `nextUp` | Integration: take T2's body. |
+| 4 | Lock screen gets the previous exercise's "next" first | Set `lastCheckedExercise` before `startRest`. |
+| 5 | A checked warm-up never jumps | Accepted (working sets only). |
+
+Fixes 1, 2 and 4: sent to the T2 developer.
+
+**T1 fixes in c1940dc / 7e80410** (65 focused tests, Unit plan 1930, 0 failed). Lead calls on what the developer raised:
+- Voice Control has no public detection API, so the 10 s window applies under VoiceOver and Switch Control only. Accepted:
+  the toast's Escape action and the Undo button stay reachable by name.
+- The Live Activity after Finish is skipped by the same `isUnderway` check that the tests cover; there's no seam to
+  observe it, and none added. Accepted.
+- Undo → Finish while the plan save is pending: the finished session keeps X without its plan link. The plan itself is
+  reverted. Accepted; it follows from decision 1.
+- A plan save that fails after Finish is only logged (the screen is gone). Accepted.
