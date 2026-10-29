@@ -97,6 +97,46 @@ is the auth session, and `Set` is `SessionSet` as in the mirror.
      instead of creating a `ryft-session` workout. Then a second phone would see it as the
      session's too.
 
+4. **`last_time` per occurrence when a day holds an exercise more than once.** (P2, 2026-10-29;
+   beta feedback round 2 §4, T4) **Why.** `PlanTarget.last_time` is built per `exercise_id`
+   (`LastWorkingSets`, called once per plan exercise in `GET /v1/plans/today`): every completed
+   working set of that exercise in the newest completed session, ordered by the session exercise's
+   position, then `set_index`. If a day has the same exercise on two rows (synthetic example: "Face
+   pull" twice, 3 sets each), and the last session logged it twice, both rows get the same 6 sets.
+   The card then shows the joint list (cut at five) and the ghost values of the second row come
+   from the first row's sets. Same-exercise rows are legal in the plan builder and arise from
+   imports too.
+   - **What.** No new field, only the content of `last_time`. For plan exercises that share an
+     `exercise_id` in the day, the k-th plan row (by `position`) gets the working sets of the k-th
+     `session_exercise` of that exercise in the last session (by position). If the last session's
+     `session_exercise` carries the same `plan_exercise_id` as the row, prefer that one. If the
+     session has fewer occurrences than the day has rows, the rows past the last occurrence get
+     the last occurrence (or `[]`, your choice; please say which in API.md). A day with the
+     exercise once is unchanged.
+   - **Screens.** Train: the session card's "Last time" line and its ghost values (from a plan
+     day); the plan day preview.
+   - **App stop-gap (branch `fix/train-last-time-occurrence`).** The app splits the concatenated
+     list where `set_index` stops increasing, and gives the k-th row of the exercise the k-th run
+     (rows past the last run get the last run). Limit: it is a heuristic. It is wrong when sets
+     were deleted so that indexes still rise across two occurrences, when one occurrence had no
+     working sets (the runs shift), and it cannot use `plan_exercise_id`. It is also a no-op once
+     you ship this: each row then gets one run and the split changes nothing.
+   - **Old clients.** Unchanged: they read `last_time` as before, and for a day with the exercise
+     once the content is identical.
+5. **Question, not a request: can an import move an untouched session row to another
+   `exercise_id`?** (2026-10-29) A future "re-map imported exercises" repair would need an
+   imported session's exercise rows to point to another exercise (a wrong match on import, e.g.
+   two source rows on one RYFT exercise). A resend of the same file today yields ids derived per
+   account and key, so we expect `unchanged` or, if the app touched the session, `newer_on_server`.
+   - **Question.** If a `POST /v1/train/import` item has the same session id but a changed
+     `exercise_id` on one or more rows, and the session is untouched since the import (no
+     `PUT`/edit by the app), does the server return `updated` and move the rows? Or is
+     `unchanged`/`newer_on_server` the answer regardless? If it is not possible, is there a
+     better way you would offer (a re-map endpoint, or deleting the imported sessions and
+     importing them again)?
+   - **Why we ask now.** To decide whether the repair is worth a design. Nothing in the app
+     depends on it yet.
+
 ## Charts and gauges (open, 2026-10-19)
 
 The Today / chart redesign asked for fields `API.md` doesn't have. The app doesn't
