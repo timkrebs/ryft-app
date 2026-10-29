@@ -109,43 +109,30 @@ struct CollapsedExerciseRow: View {
 }
 
 /// The set the user does next (ui.md §5): a stronger tint than a checked row and a 2 pt accent bar on the leading
-/// edge, so it isn't colour alone. No keypad, no focus change. VoiceOver hears "Next set." first.
+/// edge, so it isn't colour alone. No keypad, no focus change. VoiceOver hears "Next set." as the row's value.
+/// One view structure whether current or not, so the row (and its accessibility element) keeps its identity as
+/// the highlight moves.
 struct CurrentSetHighlight: ViewModifier {
     let isCurrent: Bool
 
     func body(content: Content) -> some View {
-        if isCurrent {
-            content
-                .background {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Theme.accent.opacity(0.10))
-                }
-                .overlay(alignment: .leading) {
-                    Capsule()
-                        .fill(Theme.accent)
-                        .frame(width: 2)
-                        .padding(.vertical, 10)
-                        .offset(x: -7) // in the card's padding, beside the set number
-                        .accessibilityHidden(true)
-                }
-                .modifier(NextSetLabel())
-        } else {
-            content
-        }
-    }
-}
-
-/// "Next set." before the row's own label (iOS 18 can prefix it; iOS 17 says it as the value).
-private struct NextSetLabel: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 18, *) {
-            content.accessibilityLabel { label in
-                Text("Next set.", comment: "VoiceOver prefix of the set row the user does next in a workout.")
-                label
+        content
+            .background {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Theme.accent.opacity(isCurrent ? 0.10 : 0))
             }
-        } else {
-            content.accessibilityValue(Text("Next set.", comment: "VoiceOver prefix of the set row the user does next in a workout."))
-        }
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(Theme.accent)
+                    .frame(width: 2)
+                    .padding(.vertical, 10)
+                    .offset(x: -7) // in the card's padding, beside the set number
+                    .opacity(isCurrent ? 1 : 0)
+                    .accessibilityHidden(true)
+            }
+            .accessibilityValue(isCurrent
+                ? Text("Next set.", comment: "VoiceOver: said with the set row the user does next in a workout.")
+                : Text(verbatim: ""))
     }
 }
 

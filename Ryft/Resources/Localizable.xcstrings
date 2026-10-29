@@ -4933,7 +4933,7 @@
       "comment" : "Voice Control name of the rest bar's −15 button."
     },
     "Next set." : {
-      "comment" : "VoiceOver prefix of the set row the user does next in a workout."
+      "comment" : "VoiceOver: said with the set row the user does next in a workout."
     },
     "Plus 15" : {
       "comment" : "Voice Control name of the rest bar's +15 button."

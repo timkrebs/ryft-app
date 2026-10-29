@@ -89,7 +89,6 @@ struct RestBar: View {
                 .trim(from: 0, to: controller.rest.fraction(at: date))
                 .stroke(Theme.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-                .animation(reduceMotion ? nil : Theme.ringAnimation, value: controller.rest.fraction(at: date))
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
