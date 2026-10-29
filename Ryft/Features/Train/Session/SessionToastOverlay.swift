@@ -37,3 +37,31 @@ struct SessionToastOverlay: View {
                    comment: "VoiceOver after Undo of a replaced exercise. 1: exercise name.")).post()
     }
 }
+
+private extension TrainPreview {
+    /// The live preview session with its first exercise's replace still undoable.
+    static func controllerWithUndo() -> SessionController {
+        let c = liveController()
+        let ex = c.exercises[0]
+        c.undo = ReplaceUndo(id: UUID(), expiresAt: .distantFuture,
+                             message: "Replaced with Dumbbell bench press. Your 2 done sets stay with \(ex.name).",
+                             restoredName: ex.name, newName: "Dumbbell bench press", before: ExerciseSnapshot(ex),
+                             inserted: nil, focus: nil, planSave: nil, generation: c.sync.generation)
+        return c
+    }
+
+    static func controllerWithNotice() -> SessionController {
+        let c = liveController()
+        c.notice = SessionNotice(message: "Restored Bench press. Your plan still has the new exercise.")
+        return c
+    }
+}
+
+#Preview("Session toast · undo and notice", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        VStack(spacing: 0) {
+            SessionToastOverlay(controller: TrainPreview.controllerWithUndo())
+            SessionToastOverlay(controller: TrainPreview.controllerWithNotice())
+        }
+    }
+}

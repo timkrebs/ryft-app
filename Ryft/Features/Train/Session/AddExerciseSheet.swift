@@ -195,9 +195,9 @@ struct AddExerciseSheet: View {
 
     static func doneLine(done: Int, name: String) -> String {
         done == 1
-            ? String(localized: "Your done set stays as \(name).",
+            ? String(localized: "Your done set stays with \(name).",
                      comment: "Replace sheet, one set already done. 1: the exercise being replaced.")
-            : String(localized: "Your \(done) done sets stay as \(name).",
+            : String(localized: "Your \(done) done sets stay with \(name).",
                      comment: "Replace sheet, several sets already done. 1: number of sets, 2: the exercise being replaced.")
     }
 

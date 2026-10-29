@@ -3035,7 +3035,7 @@
         }
       }
     },
-    "Changes apply to this workout only. To change your plan, use Replace or the plan editor." : {
+    "Changes apply to this workout only. To change your plan, use Replace exercise or the plan editor." : {
       "comment" : "Footer of the Edit targets sheet in a workout.",
       "localizations" : {
         "de" : {
@@ -3973,7 +3973,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ziele bearbeiten…"
+            "value" : "Ziele bearbeiten …"
           }
         }
       }
@@ -5095,7 +5095,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Übung ersetzen…"
+            "value" : "Übung ersetzen …"
           }
         }
       }
@@ -5144,7 +5144,7 @@
         }
       }
     },
-    "Replaced with %@. Your %lld done sets stay as %@." : {
+    "Replaced with %@. Your %lld done sets stay with %@." : {
       "comment" : "Undo toast after replacing an exercise with several sets done. 1: new exercise, 2: number of sets, 3: old exercise.",
       "localizations" : {
         "de" : {
@@ -5155,7 +5155,7 @@
         }
       }
     },
-    "Replaced with %@. Your done set stays as %@." : {
+    "Replaced with %@. Your done set stays with %@." : {
       "comment" : "Undo toast after replacing an exercise with one set done. 1: new exercise, 2: old exercise.",
       "localizations" : {
         "de" : {
@@ -11440,7 +11440,7 @@
         }
       }
     },
-    "Your %lld done sets stay as %@." : {
+    "Your %lld done sets stay with %@." : {
       "comment" : "Replace sheet, several sets already done. 1: number of sets, 2: the exercise being replaced.",
       "localizations" : {
         "de" : {
@@ -11557,7 +11557,7 @@
         }
       }
     },
-    "Your done set stays as %@." : {
+    "Your done set stays with %@." : {
       "comment" : "Replace sheet, one set already done. 1: the exercise being replaced.",
       "localizations" : {
         "de" : {

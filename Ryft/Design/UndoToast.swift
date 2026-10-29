@@ -44,6 +44,8 @@ struct UndoToast: View {
             if value.translation.height > 20 { onDismiss() }
         })
         .accessibilityElement(children: .contain)
+        // The two-finger Z (and Switch Control's Escape) close it, as a swipe down does.
+        .accessibilityAction(.escape) { onDismiss() }
         .onAppear {
             guard let announcement else { return }
             AccessibilityNotification.Announcement(announcement).post()
@@ -60,7 +62,7 @@ struct UndoToast: View {
     SchemePair {
         VStack(spacing: 12) {
             UndoToast(message: "Replaced with Dumbbell bench press", onUndo: {})
-            UndoToast(message: "Replaced with Dumbbell bench press. Your 2 done sets stay as Bench press.",
+            UndoToast(message: "Replaced with Dumbbell bench press. Your 2 done sets stay with Bench press.",
                       onUndo: {})
             UndoToast(message: "Restored Bench press. Your plan still has the new exercise.")
         }

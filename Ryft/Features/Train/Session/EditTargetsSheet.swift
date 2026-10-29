@@ -33,7 +33,7 @@ struct EditTargetsSheet: View {
                     repsSection
                     if showsWeight { weightSection }
                     restSection
-                    Text("Changes apply to this workout only. To change your plan, use Replace or the plan editor.",
+                    Text("Changes apply to this workout only. To change your plan, use Replace exercise or the plan editor.",
                          comment: "Footer of the Edit targets sheet in a workout.")
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textTertiary)
@@ -138,7 +138,8 @@ struct EditTargetsSheet: View {
     private var restSection: some View {
         TargetStepper(label: Text("Rest", comment: "Edit targets: rest between sets."),
                       value: Fmt.clock(TimeInterval(targets.restSec)),
-                      canDecrement: targets.restSec > 15, canIncrement: targets.restSec < 600,
+                      canDecrement: targets.restSec > SessionTargets.rest.lowerBound,
+                      canIncrement: targets.restSec < SessionTargets.rest.upperBound,
                       step: Double(SessionTargets.restStep)) {
             targets.stepRest($0)
         }

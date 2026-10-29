@@ -207,6 +207,7 @@ struct ExerciseCard: View {
     @State private var showsTargets = false
     @State private var showsNotes = false
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    @Environment(\.accessibilitySwitchControlEnabled) private var switchControl
 
     private var usesWeight: Bool { exercise.loadType == .weight || exercise.loadType == .bodyweight }
 
@@ -239,7 +240,7 @@ struct ExerciseCard: View {
         }
         .sheet(isPresented: $showsReplace) {
             AddExerciseSheet(replacing: replaceContext) { picked, alsoChangePlan in
-                let ex = exercise, window = voiceOver ? SessionController.undoWindowVoiceOver : SessionController.undoWindow
+                let ex = exercise, window = SessionController.undoWindow(voiceOver: voiceOver, switchControl: switchControl)
                 Task { await controller.replace(ex, with: picked, alsoChangePlan: alsoChangePlan, window: window) }
             }
             .presentationDetents([.large])
