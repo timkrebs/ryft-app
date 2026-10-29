@@ -47,6 +47,8 @@ final class ScreenModels {
         self.trainSync = trainSync
         let devices = TrackerSelectionStore(env: state.env)
         self.devices = devices
+        // The widget's calibration decides with the same tracker setup as Today's (F3).
+        state.repository.chosenTrackers = { [devices] in devices.trackers }
         onboarding = OnboardingCoordinator(state: state, apiStatus: apiStatus ?? .shared, devices: devices) {
             await coordinator.run(.userInitiated)
         }

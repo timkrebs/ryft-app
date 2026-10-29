@@ -4902,6 +4902,8 @@
         }
       }
     },
+    "Learning your HRV baseline: %lld of %lld nights. No resting heart rate has reached RYFT yet, so recovery uses HRV and sleep." : {},
+    "Learning your resting heart rate baseline: %lld of %lld nights. No HRV has reached RYFT yet, so recovery uses resting heart rate and sleep." : {},
     "This item uses an exercise RYFT doesn't know." : {
       "comment" : "Training import I4: the platform's code unknown_exercise.",
       "localizations" : {

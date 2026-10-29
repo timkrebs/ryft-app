@@ -1158,7 +1158,8 @@ struct TodayPresentationTests {
         for i in prior.indices.suffix(3) { prior[i].hrvMs = 55; prior[i].rhr = 50 }
         let p = decide(scoredWithoutReadiness, prior, .scored)
         #expect(p.row == .calibrating && p.gauge == .baselines(nights: 3)) // not today's baseline_days (0)
-        #expect(p.tiles == TodayPresentation.Tiles(source: scoredWithoutReadiness))
+        // F3: no recovery beside the counter.
+        #expect(p.tiles == TodayPresentation.Tiles(source: scoredWithoutReadiness, withholdsRecovery: true))
         #expect(p.note == .needsVitals && !p.showsDelta)
         #expect(p.previousReadiness == 76)
     }
@@ -1264,7 +1265,8 @@ struct TodayPresentationTests {
         #expect(b.sentence == String(localized: "Your baselines are still forming."))
         #expect(b.tileCaption == String(localized: "today.tile.calibrating", defaultValue: "calibrating"))
         #expect(b.recoveryCaption == b.tileCaption && b.recoveryBand == nil && !b.tilesDimmed)
-        #expect(b.recoveryText == Fmt.percent(75) && b.strainText == Fmt.strain(0.9))
+        // F3: the counter and a percentage don't stand side by side; Recovery is "—", the others stay.
+        #expect(b.recoveryText == Fmt.percent(Int?.none) && b.recovery == nil && b.strainText == Fmt.strain(0.9))
         #expect(b.gaugeNote == nil && b.gaugeSpokenNote == nil)
         // B, a long history without HRV: the platform's 80, no delta, today's tiles without "calibrating", the
         // reason under the gauge and read with it.
