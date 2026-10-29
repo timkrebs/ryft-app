@@ -6,7 +6,7 @@ Test (English and German).
 ## External build for friends — 1.0.0 (en + de)
 
 For the External group (public link + invite code). My Day needs the `today.myday` flag on. Each text stays under App
-Store Connect's 4,000 characters (en 1,422, de 1,661, the text between the `text` fences).
+Store Connect's 4,000 characters (en 1,480, de 1,727, the text between the `text` fences).
 
 **en**
 
@@ -19,7 +19,7 @@ WHAT TO TEST
 1. Sign up and enter the invite code you got from me.
 2. Read the consent screen and agree. Nothing is synced before you do.
 3. About you: choose your birth year (or skip). It gives an estimate of your maximum heart rate.
-4. Connect Apple Health and allow everything RYFT asks for.
+4. If RYFT asks what you wear, pick your watch or ring. Then connect Apple Health and allow everything RYFT asks for.
 5. The first import: RYFT loads your history from Apple Health. You can leave the app while it runs.
 6. Today shows "calibrating" at first. Wear your watch or ring to bed: after the first night you get real scores.
 7. My Day on Today: your sleep, workouts and activities for the day. Add an activity and check it appears.
@@ -44,7 +44,7 @@ WAS DU TESTEN KANNST
 1. Registriere dich und gib den Einladungscode ein, den du von mir bekommen hast.
 2. Lies die Einwilligung und stimme zu. Vorher wird nichts synchronisiert.
 3. Über dich: Wähle dein Geburtsjahr (oder überspringe es). Daraus wird deine maximale Herzfrequenz geschätzt.
-4. Verbinde Apple Health und erlaube alles, worum RYFT bittet.
+4. Fragt RYFT, was du trägst, wähle deine Uhr oder deinen Ring. Verbinde dann Apple Health und erlaube alles, worum RYFT bittet.
 5. Der erste Import: RYFT lädt deinen Verlauf aus Apple Health. Du kannst die App dabei verlassen.
 6. Heute zeigt zuerst „kalibriert noch“. Trag deine Uhr oder deinen Ring nachts: Nach der ersten Nacht bekommst du echte Werte.
 7. Mein Tag auf Heute: Schlaf, Workouts und Aktivitäten des Tages. Füge eine Aktivität hinzu und prüfe, ob sie erscheint.

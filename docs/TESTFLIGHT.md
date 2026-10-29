@@ -110,8 +110,8 @@ so no question appears.
 > Health store is fine).
 >
 > **New accounts** see: invite code → consent to health-data processing (it states the
-> minimum age of 16) → About you (birth year, 1920 to this year − 16; optional) → Apple
-> Health.
+> minimum age of 16) → About you (birth year, 1920 to this year − 16; optional) → What do
+> you wear? (if shown) → Apple Health.
 >
 > Sign in with Apple and email/password both work.
 >

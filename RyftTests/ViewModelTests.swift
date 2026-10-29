@@ -2387,6 +2387,13 @@ struct ProfilePrivacyTests {
         #expect(body.birthYear == nil && body.birthYears.first == OnboardingCoordinator.latestBirthYear(now: .now))
         #expect(body.birthYears.last == 1920)
 
+        // A year saved under the earlier rule (− 13) stays visible, the youngest offered is still − 16.
+        let latest = OnboardingCoordinator.latestBirthYear(now: .now)
+        state.user?.birthYear = latest + 2
+        #expect(body.birthYears.first == latest + 2 && body.birthYears.dropFirst().first == latest)
+        #expect(!body.birthYears.contains(latest + 1))
+        state.user?.birthYear = nil
+
         await body.setBirthYear(1990)
         #expect(body.birthYear == 1990 && state.user?.maxHrSource == .estimated)
         #expect(body.maxHRSourceText?.contains("1990") == true)

@@ -10,7 +10,8 @@ Plan: `../docs/work/2026-10-29-public-beta/plan.md`.
   the platform's old (− 13) and new (− 16) check. Tests: `birthYearsStopAtTheMinimumAgeOf16`,
   `aBirthYearUnder16IsRefusedWithTheRange`.
 - Consent screen: "You must be at least 16 to use RYFT." (en, de).
-- `docs/TESTFLIGHT_NOTES.md`: the External entry for friends (en 1,422 / de 1,661 characters).
+- `docs/TESTFLIGHT_NOTES.md`: the External entry for friends (en 1,480 / de 1,727 characters).
+- Profile keeps a birth year saved under the old rule (e.g. 2012) visible in its picker instead of a blank one.
 - `docs/TESTFLIGHT.md`: §3 the age and the new-account flow; §4 the demo account's consent after a new policy
   version, the review notes' data list (as on the consent screen), the age, and "What do you wear?".
 
@@ -21,6 +22,8 @@ Plan: `../docs/work/2026-10-29-public-beta/plan.md`.
 - `today.myday` on for the External testers (the notes ask them to try My Day).
 - App Store Connect: the age rating fits 16+; Test Information and Review Notes from `docs/TESTFLIGHT.md` §4.
 - `seed_demo.sh` again once the new privacy version (#61) is in force.
+- The platform: which time zone "this year" uses in the − 16 check. The app uses the phone's; in the first hour of
+  1 January (Berlin) a UTC check would refuse the newest year the app offers.
 - `make test` names an "iPhone 17 Pro" simulator that isn't installed on this Mac (iPhone 18 Pro was used).
 
 ## New orbit mark and app icon (design/new-orbit-mark)
