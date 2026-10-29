@@ -227,7 +227,8 @@ struct ExerciseCard: View {
         let shown = 5
         let list = sets.prefix(shown).map { s in
             switch (s.weightKg, s.reps) {
-            case let (kg?, r?): return "\(Fmt.kgNumber(kg)) × \(r)"
+            // No-break spaces keep a set ("80 × 5") on one line when the list wraps.
+            case let (kg?, r?): return "\(Fmt.kgNumber(kg))\u{00A0}×\u{00A0}\(r)"
             case let (nil, r?): return "\(r)"
             default: return Fmt.placeholder
             }
