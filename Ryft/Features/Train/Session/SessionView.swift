@@ -44,7 +44,7 @@ struct SessionView: View {
                     if phase == .background { controller.pause() } else if phase == .active { controller.resume() }
                 }
             // Pinned outside the list, so a jump never scrolls the timer away (ui.md §6).
-            if controller.rest.phase != .idle {
+            if restBarState != 0 {
                 RestBar(controller: controller, pill: restBarIsPill, onExpand: { restBarPeek = true })
                     .padding(.horizontal, 16)
                     .padding(.bottom, 8)
@@ -264,11 +264,12 @@ struct SessionView: View {
 
     private static let endAnchor = "session.end"
 
-    /// Idle, running or over: the bar appears, changes or goes (not every ±15 s).
+    /// Hidden, running or over: the bar appears, changes or goes (not every ±15 s). Once every set is done a running
+    /// rest is hidden (nothing comes next; the all-done card does); "Rest over" still shows until dismissed (ui.md §7).
     private var restBarState: Int {
         switch controller.rest.phase {
         case .idle: 0
-        case .running: 1
+        case .running: controller.isAllDone ? 0 : 1
         case .finished: 2
         }
     }

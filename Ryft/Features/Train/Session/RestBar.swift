@@ -5,8 +5,8 @@ import SwiftUI
 /// At AX sizes it can shrink to a one-line pill (`pill`); a tap on the pill asks for the full bar (`onExpand`).
 ///
 /// VoiceOver: a container. The time and the next set are one adjustable element (swipe up/down = ±15 s, actions
-/// for ±15 s and Skip, its own default action, so a double-tap never lands on a button); −15, +15 and Skip are
-/// buttons of their own, which Voice Control can name.
+/// for ±15 s and Skip; only the pill has a default action, its expand); −15, +15 and Skip are buttons of their own,
+/// which Voice Control can name.
 struct RestBar: View {
     var controller: SessionController
     var pill = false
@@ -45,16 +45,19 @@ struct RestBar: View {
                 if isLarge {
                     VStack(alignment: .leading, spacing: 2) {
                         time(at: date)
-                        nextText.lineLimit(isAX ? 3 : 2)
+                        nextText
+                            .lineLimit(isAX ? 3 : 2)
+                            // Its full height: inside the bar's HStack it would otherwise get one line.
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .modifier(RestTimeElement(controller: controller, date: date, onActivate: {}))
+                    .modifier(RestTimeElement(controller: controller, date: date))
                 } else {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
                             time(at: date)
                             nextText.lineLimit(1)
                         }
-                        .modifier(RestTimeElement(controller: controller, date: date, onActivate: {}))
+                        .modifier(RestTimeElement(controller: controller, date: date))
                         buttons
                     }
                 }
@@ -124,9 +127,12 @@ struct RestBar: View {
                comment: "The rest bar's next set, e.g. Next: Bench press · set 1 of 4.")
     }
 
+    /// AX3 and up: one full-width button per row. Otherwise −15 and +15 hug their label and Skip takes the rest,
+    /// so "Überspringen" fits.
+    private var stacksButtons: Bool { typeSize >= .accessibility3 }
+
     @ViewBuilder private var buttons: some View {
-        // AX3 and up: one full-width button per row.
-        let layout = typeSize >= .accessibility3
+        let layout = stacksButtons
             ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
         layout {
             adjustButton(by: -RestTimer.step)
@@ -145,12 +151,13 @@ struct RestBar: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .foregroundStyle(Theme.textPrimary)
-                .padding(.horizontal, 10)
-                .frame(maxWidth: .infinity, minHeight: buttonHeight)
+                .padding(.horizontal, 14)
+                .frame(minWidth: 64, maxWidth: stacksButtons ? .infinity : nil, minHeight: buttonHeight)
                 .background(Theme.surfaceRaised, in: Capsule())
                 .contentShape(Capsule().inset(by: -2))
         }
         .buttonStyle(PressableButtonStyle())
+        .fixedSize(horizontal: !stacksButtons, vertical: false)
         .accessibilityLabel(delta < 0 ? Text("Fifteen seconds less") : Text("Fifteen seconds more"))
         .accessibilityInputLabels(delta < 0
             ? [Text("Minus 15", comment: "Voice Control name of the rest bar's −15 button."), Text("Fifteen seconds less")]
@@ -164,7 +171,7 @@ struct RestBar: View {
             Text("Skip")
                 .font(.ryft(.headline))
                 .lineLimit(1)
-                .minimumScaleFactor(0.7) // "Überspringen" in German
+                .minimumScaleFactor(0.7) // a last resort for "Überspringen" in a narrow bar
                 .foregroundStyle(Theme.onAccent)
                 .padding(.horizontal, 12)
                 .frame(maxWidth: pill ? nil : .infinity, minHeight: buttonHeight)
@@ -191,7 +198,7 @@ struct RestBar: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Rest over")
                         .font(.ryft(.headline))
-                    Text(controller.nextLabel())
+                    Text(Self.nextLine(controller.nextLabel()))
                         .font(.ryft(.caption))
                         .lineLimit(isAX ? 3 : 1)
                 }
@@ -207,27 +214,35 @@ struct RestBar: View {
             .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
         }
         .buttonStyle(PressableButtonStyle())
-        .accessibilityLabel(Text("Rest over. \(controller.nextLabel())"))
+        .accessibilityLabel(Text("Rest over. \(Self.nextLine(controller.nextLabel()))"))
         .accessibilityHint(Text("Dismisses the banner"))
     }
 }
 
 /// The time and the next set as one VoiceOver element, every modifier on this one level: label "Rest timer", value
 /// "1 minute, 35 seconds left. Next: …" (in 5 s steps, so it doesn't chatter), adjustable by ±15 s, actions for
-/// ±15 s and Skip, and an explicit default action (the pill's expand; nothing on the full bar).
+/// ±15 s and Skip. Only the pill gets a default action (its expand): an explicit default action makes SwiftUI add
+/// the button trait, and the full bar's element should read as adjustable only.
 private struct RestTimeElement: ViewModifier {
     var controller: SessionController
     var date: Date
-    var onActivate: () -> Void
+    var onActivate: (() -> Void)?
 
-    func body(content: Content) -> some View {
+    @ViewBuilder func body(content: Content) -> some View {
+        if let onActivate {
+            element(content).accessibilityAction(.default) { onActivate() }
+        } else {
+            element(content).accessibilityRemoveTraits(.isButton)
+        }
+    }
+
+    private func element(_ content: Content) -> some View {
         content
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("Rest timer"))
             .accessibilityValue(Text(Self.value(remaining: controller.rest.remaining(at: date),
                                                 next: controller.nextLabel())))
             .accessibilityAddTraits(.updatesFrequently)
-            .accessibilityAction(.default) { onActivate() }
             .accessibilityAdjustableAction { direction in
                 switch direction {
                 case .increment: controller.adjustRest(by: RestTimer.step)
