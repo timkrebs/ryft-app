@@ -77,6 +77,7 @@ struct SessionView: View {
                     if let focus = controller.focus { proxy.scrollTo(focus.setID, anchor: .center) }
                 }
             }
+            .overlay(alignment: .bottom) { SessionToastOverlay(controller: controller) }
             if controller.focus != nil {
                 NumberPad(controller: controller) { kg in plates = PlateRequest(kg: kg, fromKeypad: true) }
                     .transition(.move(edge: .bottom))

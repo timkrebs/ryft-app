@@ -267,6 +267,7 @@
         }
       }
     },
+    "%@, minimum. %@" : {},
     "%@, now matched. %lld left to check." : {
       "comment" : "Training import, VoiceOver: a row was resolved; the rows still blocking.",
       "localizations" : {
@@ -1261,6 +1262,7 @@
         }
       }
     },
+    "%lld sets are done and stay." : {},
     "%lld sets skipped" : {
       "comment" : "Training import, step 5: sets with no weight or reps.",
       "localizations" : {
@@ -1785,6 +1787,7 @@
         }
       }
     },
+    "1 set is done and stays." : {},
     "A 24-hour time with am or pm: RYFT used the 24-hour time" : {
       "comment" : "Import warning, after \"Line N\", e.g. for 16:41 pm.",
       "localizations" : {
@@ -2206,6 +2209,7 @@
         }
       }
     },
+    "Added weight (kg)" : {},
     "Adding Sign in with Apple isn't switched on for RYFT yet. Try again later." : {
       "localizations" : {
         "de" : {
@@ -2295,6 +2299,7 @@
         }
       }
     },
+    "All exercises" : {},
     "All sports" : {
       "comment" : "Sport picker: every sport, alphabetically.",
       "localizations" : {
@@ -2375,6 +2380,7 @@
         }
       }
     },
+    "Also change the plan" : {},
     "Always yours" : {
       "localizations" : {
         "de" : {
@@ -2556,6 +2562,8 @@
         }
       }
     },
+    "Applies from the next %@ day." : {},
+    "Applies from the next %@ day. You're offline: the plan can only be changed online." : {},
     "Apps and devices that sent data to RYFT in the last 30 days." : {
       "comment" : "Footnote of Seen in Apple Health.",
       "localizations" : {
@@ -2947,6 +2955,7 @@
         }
       }
     },
+    "Changes apply to this workout only. To change your plan, use Replace or the plan editor." : {},
     "Changing a setting doesn't rescore past days on its own." : {
       "localizations" : {
         "de" : {
@@ -3212,6 +3221,7 @@
         }
       }
     },
+    "Clear target weight" : {},
     "Clears your other choices" : {
       "comment" : "VoiceOver hint of the Just my iPhone tile.",
       "localizations" : {
@@ -3846,6 +3856,8 @@
         }
       }
     },
+    "Edit targets" : {},
+    "Edit targets…" : {},
     "Edit trackers" : {
       "comment" : "VoiceOver label of Edit in Devices & sync.",
       "localizations" : {
@@ -3868,6 +3880,7 @@
         }
       }
     },
+    "Edits the notes" : {},
     "editSleep.title" : {
       "comment" : "The sleep sheet's title when editing a night the user added, between Cancel and Save: keep it short.",
       "localizations" : {
@@ -4902,6 +4915,25 @@
         }
       }
     },
+    "Notes for this exercise" : {},
+    "Notes: %@" : {},
+    "Offline. Showing your saved exercise library." : {},
+    "Replace %@" : {},
+    "Replace exercise…" : {},
+    "Replaced with %@" : {},
+    "Replaced with %@. Changed in your plan from the next %@ day." : {},
+    "Replaced with %@. Changed in your plan from the next %@ day. Check its target weight there." : {},
+    "Replaced with %@. Undo available." : {},
+    "Replaced with %@. Your %lld done sets stay as %@." : {},
+    "Replaced with %@. Your done set stays as %@." : {},
+    "Replaced with %@. Your plan couldn't be changed." : {},
+    "Restored %@." : {},
+    "Restored %@. Your plan still has the new exercise." : {},
+    "Sets with values can't be removed here. Delete them in the list." : {},
+    "Similar" : {},
+    "Target weight (kg)" : {},
+    "The new exercise continues with %lld sets." : {},
+    "The new exercise continues with 1 set." : {},
     "This item uses an exercise RYFT doesn't know." : {
       "comment" : "Training import I4: the platform's code unknown_exercise.",
       "localizations" : {
@@ -10262,6 +10294,7 @@
         }
       }
     },
+    "Undo" : {},
     "Unlock your iPhone to check: Apple Health can't be read while it's locked." : {
       "localizations" : {
         "de" : {
@@ -11077,6 +11110,7 @@
         }
       }
     },
+    "Your %lld done sets stay as %@." : {},
     "Your account is being deleted. This activity is deleted with it." : {
       "comment" : "Activity detail: uploads stopped because the account is being deleted.",
       "localizations" : {
@@ -11183,6 +11217,7 @@
         }
       }
     },
+    "Your done set stays as %@." : {},
     "Your file is ready. Sign in to continue." : {
       "comment" : "Training import E6: a file was opened while signed out.",
       "localizations" : {
