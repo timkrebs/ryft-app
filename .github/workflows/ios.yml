@@ -111,7 +111,7 @@ jobs:
           xcodebuild build-for-testing -scheme Ryft -destination "$DESTINATION" \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
             CODE_SIGNING_ALLOWED=NO RYFT_STRICT_WARNINGS=YES | tee build/build.log
-          ! grep -E "^/.*/(Ryft|RyftTests|RyftUITests|RyftWidgets)/.*: warning:" build/build.log
+          ! grep -E "^/.*/(Ryft|RyftTests|RyftUITests|RyftWidgets|Shared)/.*: warning:" build/build.log
       - name: Unit tests
         if: env.FULL != 'true'
         timeout-minutes: 15
