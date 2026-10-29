@@ -112,15 +112,18 @@ is the auth session, and `Set` is `SessionSet` as in the mirror.
      `session_exercise` carries the same `plan_exercise_id` as the row, prefer that one. If the
      session has fewer occurrences than the day has rows, the rows past the last occurrence get
      the last occurrence (or `[]`, your choice; please say which in API.md). A day with the
-     exercise once is unchanged.
+     exercise once is unchanged. Please also document the order of `last_time` in API.md (today
+     `ORDER BY position, set_index` in `LastWorkingSets`, an implementation detail the app relies on).
    - **Screens.** Train: the session card's "Last time" line and its ghost values (from a plan
      day); the plan day preview.
    - **App stop-gap (branch `fix/train-last-time-occurrence`).** The app splits the concatenated
-     list where `set_index` stops increasing, and gives the k-th row of the exercise the k-th run
-     (rows past the last run get the last run). Limit: it is a heuristic. It is wrong when sets
-     were deleted so that indexes still rise across two occurrences, when one occurrence had no
-     working sets (the runs shift), and it cannot use `plan_exercise_id`. It is also a no-op once
-     you ship this: each row then gets one run and the split changes nothing.
+     list where `set_index` stops increasing, and gives the k-th row of the exercise the k-th run,
+     only when the number of runs equals the number of rows; otherwise it keeps the joint list.
+     Limit: it is a heuristic. `last_time` keeps only completed working sets, so an occurrence that
+     starts with an unchecked or warm-up set after a short occurrence continues the previous run
+     (the two merge, and the app falls back to the joint list); an occurrence with no working sets
+     disappears; a duplicate `set_index` after a merge splits a run; and it cannot use
+     `plan_exercise_id`. It is a no-op once you ship this: each row then gets one run.
    - **Old clients.** Unchanged: they read `last_time` as before, and for a day with the exercise
      once the content is identical.
 5. **Question, not a request: can an import move an untouched session row to another
