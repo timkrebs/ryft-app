@@ -211,6 +211,9 @@ struct BaselineGauge: View {
     /// A long history short of heart-rate nights (`TodayPresentation.Note.needsVitals`): the caption
     /// says which nights count, never a bare "nights" beside a history of many.
     var countsHeartRateNights = false
+    /// Only one signal fills (F3: the note under the gauge says the other never arrived): `nights` are that
+    /// signal's, and caption and VoiceOver say so. No "Readiness appears…": the note says what recovery uses meanwhile.
+    var countedSignal: CalibrationSignal?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown = 0
@@ -252,22 +255,14 @@ struct BaselineGauge: View {
             }
             .frame(width: Self.diameter, height: Self.diameter)
             .padding(6)
-            Group {
-                if countsHeartRateNights {
-                    Text("Baselines · \(min(nights, required)) of \(required) nights with heart-rate data")
-                } else {
-                    Text("Baselines · \(min(nights, required)) of \(required) nights")
-                }
-            }
-            .font(.ryft(.caption))
-            .foregroundStyle(Theme.textSecondary)
-            .multilineTextAlignment(.center)
+            caption
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Baselines"))
-        .accessibilityValue(countsHeartRateNights
-            ? Text("\(min(nights, required)) of \(required) nights with heart-rate data. Readiness appears once the baselines are complete.")
-            : Text("\(min(nights, required)) of \(required) nights. Readiness appears once the baselines are complete."))
+        .accessibilityValue(spokenValue)
         .onAppear {
             // One segment after another, unless motion is reduced.
             if reduceMotion { shown = nights } else {
@@ -277,6 +272,38 @@ struct BaselineGauge: View {
             }
         }
         .onChange(of: nights) { shown = nights }
+    }
+
+    private var counted: Int { min(nights, required) }
+
+    /// "Baselines · 3 of 7 nights", and which nights count where that isn't all of them.
+    private var caption: Text {
+        switch countedSignal {
+        case .restingHR?:
+            return Text("Baselines · \(counted) of \(required) nights with resting heart rate",
+                        comment: "Under the baseline gauge when only resting heart rate fills (no HRV arrives): its nights, of 7.")
+        case .hrv?:
+            return Text("Baselines · \(counted) of \(required) nights with HRV",
+                        comment: "Under the baseline gauge when only HRV fills (no resting heart rate arrives): its nights, of 7.")
+        case nil:
+            if countsHeartRateNights { return Text("Baselines · \(counted) of \(required) nights with heart-rate data") }
+            return Text("Baselines · \(counted) of \(required) nights")
+        }
+    }
+
+    private var spokenValue: Text {
+        switch countedSignal {
+        case .restingHR?:
+            return Text("\(counted) of \(required) nights with resting heart rate.",
+                        comment: "VoiceOver value of the baseline gauge when only resting heart rate fills; the note under it says why.")
+        case .hrv?:
+            return Text("\(counted) of \(required) nights with HRV.",
+                        comment: "VoiceOver value of the baseline gauge when only HRV fills; the note under it says why.")
+        case nil:
+            return countsHeartRateNights
+                ? Text("\(counted) of \(required) nights with heart-rate data. Readiness appears once the baselines are complete.")
+                : Text("\(counted) of \(required) nights. Readiness appears once the baselines are complete.")
+        }
     }
 }
 
@@ -491,6 +518,18 @@ struct GaugeNoteLink: View {
                 GaugeNote(text: String(localized: "Baselines need heart-rate variability and resting heart rate from nights with your watch."),
                           systemImage: "info.circle")
             }
+        }
+    }
+}
+
+/// F3: only resting heart rate fills (no HRV arrives), no readiness yet: the gauge counts its nights and says so.
+#Preview("Baseline gauge · one signal", traits: .sizeThatFitsLayout) {
+    let progress = CalibrationProgress(nights: 3, signals: [.restingHR],
+                                       absent: CalibrationBlocker(signals: [.hrv], source: .unknown, link: nil))
+    SchemePair {
+        VStack(spacing: 8) {
+            BaselineGauge(nights: 3, countedSignal: .restingHR)
+            GaugeNote(text: progress.text, systemImage: "info.circle")
         }
     }
 }

@@ -681,3 +681,44 @@ struct SignOutConfirmationTests {
         #expect(h.env.activities.unconfirmedCount(ofAccount: nil) == 0)
     }
 }
+
+// MARK: - T3 re-review: the widget after a sign-out
+
+@Suite("Accounts: the widget keeps nothing of the account that left")
+@MainActor
+struct AccountWidgetWipeTests {
+    /// The widget's publish reads the store plus two values the store doesn't hold: `GET /v1/me/sync`'s word about
+    /// today and tonight's bedtime. A publish after the wipe (the tracker watch fires on sign-out, a background 401)
+    /// must carry neither of the old account's.
+    @Test func aSignOutLeavesNoStatusOrBedtimeForTheNextPublish() async throws {
+        let h = AccountHarness()
+        let now = h.clock.now()
+        let key = DayFormat.string(from: now)
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("readiness-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        h.state.repository.widgetFile = file
+        h.state.repository.reloadWidget = {}
+        func written() -> ReadinessSnapshot? {
+            (try? Data(contentsOf: file)).flatMap { try? ReadinessSnapshot.decoder.decode(ReadinessSnapshot.self, from: $0) }
+        }
+        // Account A: yesterday scored, today's night being scored, a bedtime tonight.
+        h.state.history = [DailyScore(day: DayFormat.string(from: DayFormat.shift(now, days: -1)), readiness: 76, recovery: 74,
+                                      baselineDays: 30, computedAt: now.addingTimeInterval(-86_400), scoringState: .scored)]
+        h.state.syncStatus = SyncStatus(gate: nil, lastSyncAt: now, lastSyncDevice: nil, latest: [:],
+                                        today: TodayState(day: key, state: .pending, scoredAt: nil, modelVersion: "x"),
+                                        pendingDays: [key], expectedWithinSec: 20, resyncRequestedAt: nil)
+        h.state.repository.tonightBedtime = now.addingTimeInterval(3 * 3_600)
+        h.state.repository.publishWidget()
+        let before = try #require(written())
+        #expect(before.kind == .pending && before.bedtime != nil && before.previousReadiness == 76)
+
+        await h.auth.signOut(reason: .user)
+        await h.settle()
+        #expect(h.state.syncStatus == nil && h.state.repository.todayStatus == nil)
+        #expect(h.state.repository.tonightBedtime == nil)
+        // The next publish (whatever starts it) has nothing of A: no status, no bedtime, no readiness.
+        h.state.repository.publishWidget()
+        let after = written()
+        #expect(after?.bedtime == nil && after?.kind != .pending && after?.previousReadiness == nil, "\(String(describing: after))")
+    }
+}

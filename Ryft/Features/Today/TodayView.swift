@@ -168,10 +168,13 @@ struct TodayView: View {
                 .accessibilityIdentifier("today.pendingGauge")
             case .calibrating(let nights):
                 VStack(spacing: 8) {
-                    // Over a long history without HRV the nights counted are the ones with heart-rate data.
-                    BaselineGauge(nights: nights, countsHeartRateNights: day.gaugeNote == .needsVitals)
+                    // Over a long history without HRV the nights counted are the ones with heart-rate data; with one
+                    // signal absent (F3), that of the other.
+                    BaselineGauge(nights: nights, countsHeartRateNights: day.gaugeNote == .needsVitals,
+                                  countedSignal: day.gaugeNote?.countedSignal)
                         .accessibilityIdentifier("today.baselineGauge")
-                    // Row B over a long history without HRV: why the nights don't fill.
+                    // Why the nights don't fill (row B over a long history without HRV), or why only one signal's
+                    // count (F3); read on its own after the gauge.
                     if let note = day.gaugeNote { noteBlock(note, readWithGauge: false) }
                 }
                 .padding(.vertical, 4)
@@ -764,6 +767,37 @@ struct OfflinePill: View {
 
 #Preview("Today · S2 learning HRV · light") {
     TodayView().previewEnvironment(.preview(scenario: .learningHRV), scheme: .light)
+}
+
+// MARK: F3: the counter counts what is filling, one story between gauge and tiles, N1 as soon as the setup knows
+
+#Preview("Today · S1 counting resting HR") {
+    TodayView().previewEnvironment(.preview(scenario: .learningRestingHR))
+}
+
+#Preview("Today · S1 counting resting HR · light") {
+    TodayView().previewEnvironment(.preview(scenario: .learningRestingHR), scheme: .light)
+}
+
+#Preview("Today · S1 counting resting HR · AX3") {
+    TodayView().previewEnvironment(.preview(scenario: .learningRestingHR))
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Today · S2 resting HR, readiness") {
+    TodayView().previewEnvironment(.preview(scenario: .learningRestingHRScored))
+}
+
+#Preview("Today · S2 resting HR, readiness · light") {
+    TodayView().previewEnvironment(.preview(scenario: .learningRestingHRScored), scheme: .light)
+}
+
+#Preview("Today · N1 early (Garmin, first week)") {
+    TodayView().previewEnvironment(.preview(scenario: .blockedEarly))
+}
+
+#Preview("Today · N1 early (Garmin, first week) · light") {
+    TodayView().previewEnvironment(.preview(scenario: .blockedEarly), scheme: .light)
 }
 
 #Preview("Today · E first import · light") {
