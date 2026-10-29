@@ -57,7 +57,9 @@ final class CalibrationNoteUITests: XCTestCase {
         let gauge = element(app, "today.readinessGauge")
         XCTAssertTrue(gauge.waitForExistence(timeout: 60), "the readiness gauge")
         let value = gauge.value as? String ?? ""
-        XCTAssertTrue(value.contains("No data") && value.contains("Garmin Connect"), "the empty gauge names it: \(value)")
+        // The orbit names what's missing ("Overall readiness, no data. Recovery, no data, …"), the note after it.
+        XCTAssertTrue(value.localizedCaseInsensitiveContains("no data") && value.contains("Garmin Connect"),
+                      "the empty gauge names it: \(value)")
         XCTAssertTrue(app.staticTexts["No readiness yet today. It appears once last night has synced."].exists)
         XCTAssertTrue(app.buttons["today.gaugeNote.link"].exists)
     }

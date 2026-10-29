@@ -1,6 +1,8 @@
 // Readiness on the home and lock screen: what Today shows, from the snapshot the app
-// writes into the App Group container after each refresh (`ReadinessSnapshot`). The app
-// reloads the widget when a new score lands; the timeline only turns the day over.
+// writes into the App Group container after each refresh (`Shared/ReadinessSnapshot.swift`).
+// A score is the orbit, the same drawing as Today's (`WidgetOrbitGauge`); the baselines and a
+// night being scored keep their own drawings until PR 2. The app reloads the widget when a new
+// score lands; the timeline only turns the day over.
 import SwiftUI
 import WidgetKit
 
@@ -55,7 +57,7 @@ struct ReadinessWidget: Widget {
 private struct WidgetBackground: View {
     @Environment(\.colorScheme) private var scheme
 
-    var body: some View { scheme == .dark ? Brand.graphite : Brand.mist }
+    var body: some View { Brand.background(scheme) }
 }
 
 struct ReadinessWidgetView: View {
@@ -78,8 +80,8 @@ enum Words {
     /// The gauge's band word on Today.
     static func band(_ readiness: Int) -> String {
         switch readiness {
-        case 67...: return String(localized: "High")
-        case 34...: return String(localized: "Moderate")
+        case OrbitGaugePalette.highFrom...: return String(localized: "High")
+        case OrbitGaugePalette.moderateFrom...: return String(localized: "Moderate")
         default: return String(localized: "Low")
         }
     }
@@ -102,16 +104,32 @@ enum Words {
         return status(s)
     }
 
+    /// "Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21": a missing score named as missing, never skipped.
+    static func scores(_ v: OrbitGaugeValues) -> String {
+        let noData = { (title: String) in String(localized: "\(title), no data") }
+        let percent = { (fraction: Double) in Int((fraction * 100).rounded()).formatted() }
+        return [
+            v.recoveryFraction.map { String(localized: "Recovery \(percent($0)) percent") } ?? noData(String(localized: "Recovery")),
+            v.sleepFraction.map { String(localized: "Sleep \(percent($0)) percent") } ?? noData(String(localized: "Sleep")),
+            v.strain.map { String(localized: "Strain \($0.formatted(.number.precision(.fractionLength(1)))) of 21") }
+                ?? noData(String(localized: "Strain")),
+        ].joined(separator: ", ")
+    }
+
     /// "Bed by 22:41".
     static func bedBy(_ bedtime: Date) -> String {
         String(localized: "Bed by \(bedtime.formatted(date: .omitted, time: .shortened))")
     }
 
-    /// For VoiceOver: the value and whether it's today's.
+    /// For VoiceOver: the value and whether it's today's; with the orbit, its three scores as Today reads them
+    /// ("Readiness 71, High. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21").
     static func spoken(_ s: ReadinessSnapshot?) -> String {
         guard let s else { return status(nil) }
         switch s.kind {
-        case .score: return s.readiness.map { String(localized: "Readiness \($0), \(band($0))") } ?? ""
+        case .score:
+            let readiness = s.readiness.map { String(localized: "Readiness \($0), \(band($0))") } ?? ""
+            guard let values = s.gauge?.scoredValues else { return readiness }
+            return readiness + ". " + scores(values)
         case .pending, .waitingForSleep:
             let prefix = status(s)
             guard let previous = s.previousReadiness else { return prefix }
@@ -123,14 +141,15 @@ enum Words {
 
 // MARK: - home screen
 
-/// The ring like Today's gauge: teal arc for a score; an outline with the last value dimmed
-/// while the night isn't scored; a segment per night while the baselines are learned.
+/// The gauge like Today's: the orbit for a score; an outline with the last value dimmed
+/// while the night isn't scored; a segment per night while the baselines are learned (PR 2
+/// turns those two into the orbit too).
 private struct SmallReadiness: View {
     let snapshot: ReadinessSnapshot?
     var bedtime: Date? = nil
     @Environment(\.colorScheme) private var scheme
 
-    private var ink: Color { scheme == .dark ? Brand.mist : Brand.graphite }
+    private var ink: Color { Brand.ink(scheme) }
 
     var body: some View {
         VStack(spacing: 6) {
@@ -139,15 +158,20 @@ private struct SmallReadiness: View {
                 .textCase(.uppercase)
                 .tracking(1.4)
                 .foregroundStyle(ink.opacity(0.6))
-            ZStack {
-                ring
-                Text(number)
-                    .font(.system(size: 32, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(isFinal ? ink : ink.opacity(0.4))
-                    .minimumScaleFactor(0.6)
+            if let snapshot, snapshot.kind == .score {
+                // `.small` is 84 pt, the ring's frame before it.
+                WidgetOrbitGauge(mode: snapshot.gauge, size: .small, readiness: snapshot.readiness)
+            } else {
+                ZStack {
+                    ring
+                    Text(number)
+                        .font(.system(size: 32, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(ink.opacity(0.4))
+                        .minimumScaleFactor(0.6)
+                }
+                .frame(width: 84, height: 84)
             }
-            .frame(width: 84, height: 84)
             if let bedtime {
                 Text(Words.bedBy(bedtime))
                     .font(.caption2.weight(.medium))
@@ -167,8 +191,6 @@ private struct SmallReadiness: View {
         .accessibilityLabel(Text(Words.spoken(snapshot) + (bedtime.map { ". " + Words.bedBy($0) } ?? "")))
     }
 
-    private var isFinal: Bool { snapshot?.kind == .score }
-
     private var number: String {
         switch snapshot?.kind {
         case .score: return snapshot?.readiness.map(String.init) ?? "–"
@@ -182,14 +204,6 @@ private struct SmallReadiness: View {
     private var ring: some View {
         let stroke: CGFloat = 5
         switch snapshot?.kind {
-        case .score:
-            ZStack {
-                Circle().stroke(ink.opacity(0.12), lineWidth: stroke)
-                Circle()
-                    .trim(from: 0, to: Double(snapshot?.readiness ?? 0) / 100)
-                    .stroke(Brand.teal, style: StrokeStyle(lineWidth: stroke, lineCap: .butt))
-                    .rotationEffect(.degrees(-90))
-            }
         case .calibrating:
             let n = ReadinessSnapshot.baselineNightsRequired
             ZStack {
@@ -217,9 +231,16 @@ private struct CircularReadiness: View {
 
     var body: some View {
         Group {
-            if snapshot?.kind == .score, let r = snapshot?.readiness {
-                Gauge(value: Double(r), in: 0...100) { Text(verbatim: "R") } currentValueLabel: { Text(verbatim: "\(r)") }
-                    .gaugeStyle(.accessoryCircularCapacity)
+            if let snapshot, snapshot.kind == .score, let r = snapshot.readiness {
+                // The orbit filling the circle; the frame's 6 pt on each side take the outer dot.
+                GeometryReader { g in
+                    let side = min(g.size.width, g.size.height)
+                    ZStack {
+                        AccessoryWidgetBackground()
+                        WidgetOrbitGauge(mode: snapshot.gauge, size: .custom(dial: max(side - 12, 0)), readiness: r)
+                    }
+                    .frame(width: g.size.width, height: g.size.height)
+                }
             } else if snapshot?.kind == .calibrating {
                 Gauge(value: Double(snapshot?.baselineNights ?? 0), in: 0...Double(ReadinessSnapshot.baselineNightsRequired)) {
                     Text(verbatim: "B")
@@ -245,6 +266,19 @@ private struct RectangularReadiness: View {
     var bedtime: Date? = nil
 
     var body: some View {
+        HStack(spacing: 8) {
+            if let snapshot, snapshot.kind == .score, snapshot.readiness != nil {
+                // The number is beside it: the orbit alone, the size of the app icon's 44 pt check.
+                WidgetOrbitGauge(mode: snapshot.gauge, size: .custom(dial: 44), readiness: snapshot.readiness, showsNumber: false)
+            }
+            lines
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(Words.spoken(snapshot) + (bedtime.map { ". " + Words.bedBy($0) } ?? "")))
+    }
+
+    private var lines: some View {
         VStack(alignment: .leading, spacing: 1) {
             Text("Readiness")
                 .font(.headline)
@@ -266,18 +300,32 @@ private struct RectangularReadiness: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(Words.spoken(snapshot) + (bedtime.map { ". " + Words.bedBy($0) } ?? "")))
     }
 }
 
-// MARK: - previews
+// MARK: - previews (synthetic values only: 71 / 71 % / 88 % / 9.6)
 
 extension ReadinessSnapshot {
     static func preview(_ kind: Kind) -> ReadinessSnapshot {
-        ReadinessSnapshot(day: dayString(.now), kind: kind, readiness: kind == .score ? 84 : nil,
-                          previousReadiness: 76, baselineNights: kind == .calibrating ? 3 : nil, updatedAt: .now,
-                          bedtime: Calendar.current.date(bySettingHour: 22, minute: 41, second: 0, of: .now))
+        ReadinessSnapshot(day: dayString(.now), kind: kind, readiness: kind == .score ? 71 : nil,
+                          previousReadiness: 64, baselineNights: kind == .calibrating ? 3 : nil, updatedAt: .now,
+                          bedtime: Calendar.current.date(bySettingHour: 22, minute: 41, second: 0, of: .now),
+                          orbit: Orbit(recovery: 71, sleepPerformance: 88, strain: 9.6))
+    }
+
+    /// A file the app wrote before the orbit: no `orbit` key, so the widget draws the tracks only.
+    static var previewBeforeOrbit: ReadinessSnapshot {
+        var s = preview(.score)
+        s.orbit = nil
+        return s
+    }
+
+    /// A watch without HRV and no sleep yet: Recovery from what was scored, Sleep a hollow dot.
+    static var previewSleepMissing: ReadinessSnapshot {
+        var s = preview(.score)
+        s.readiness = 64
+        s.orbit = Orbit(recovery: 62, sleepPerformance: nil, strain: 6.2)
+        return s
     }
 }
 
@@ -285,6 +333,8 @@ extension ReadinessSnapshot {
     ReadinessWidget()
 } timeline: {
     ReadinessEntry(date: .now, snapshot: .preview(.score))
+    ReadinessEntry(date: .now, snapshot: .previewSleepMissing)
+    ReadinessEntry(date: .now, snapshot: .previewBeforeOrbit)
     ReadinessEntry(date: .now, snapshot: .preview(.pending))
     ReadinessEntry(date: .now, snapshot: .preview(.calibrating))
     ReadinessEntry(date: .now, snapshot: nil)
@@ -301,31 +351,59 @@ extension ReadinessSnapshot {
     ReadinessWidget()
 } timeline: {
     ReadinessEntry(date: .now, snapshot: .preview(.score))
+    ReadinessEntry(date: .now, snapshot: .preview(.calibrating))
     ReadinessEntry(date: .now, snapshot: .preview(.waitingForSleep))
 }
 
-#Preview("Small · dark and light") {
-    HStack(spacing: 16) {
-        ForEach([ColorScheme.dark, .light], id: \.self) { scheme in
-            VStack(spacing: 16) {
-                ForEach([ReadinessSnapshot.Kind.score, .pending, .calibrating], id: \.self) { kind in
-                    SmallReadiness(snapshot: .preview(kind))
-                        .padding(16)
-                        .frame(width: 158, height: 158)
-                        .background(scheme == .dark ? Brand.graphite : Brand.mist, in: RoundedRectangle(cornerRadius: 22))
-                        .environment(\.colorScheme, scheme)
+#Preview("Inline", as: .accessoryInline) {
+    ReadinessWidget()
+} timeline: {
+    ReadinessEntry(date: .now, snapshot: .preview(.score))
+}
+
+/// The families side by side in dark and light, outside the system's widget chrome (for screenshots).
+struct ReadinessWidgetGallery: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            ForEach([ColorScheme.dark, .light], id: \.self) { scheme in
+                VStack(spacing: 16) {
+                    let snapshots: [ReadinessSnapshot] = [.preview(.score), .previewSleepMissing, .previewBeforeOrbit,
+                                                          .preview(.pending), .preview(.calibrating)]
+                    ForEach(snapshots.indices, id: \.self) { i in
+                        SmallReadiness(snapshot: snapshots[i])
+                            .padding(16)
+                            .frame(width: 158, height: 158)
+                            .background(Brand.background(scheme), in: RoundedRectangle(cornerRadius: 22))
+                    }
+                    CircularReadiness(snapshot: .preview(.score))
+                        .frame(width: 72, height: 72)
+                    RectangularReadiness(snapshot: .preview(.score))
+                        .padding(8)
+                        .frame(width: 170, height: 76)
+                        .background(Brand.background(scheme).opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
                 }
+                .padding(16)
+                .background(Brand.background(scheme).opacity(0.5))
+                .environment(\.colorScheme, scheme)
             }
         }
+        .padding()
     }
-    .padding()
+}
+
+#Preview("Families · dark and light") {
+    ReadinessWidgetGallery()
 }
 
 #Preview("Small · de") {
-    SmallReadiness(snapshot: .preview(.pending))
-        .padding(16)
-        .frame(width: 158, height: 158)
-        .background(Brand.graphite, in: RoundedRectangle(cornerRadius: 22))
-        .environment(\.colorScheme, .dark)
-        .environment(\.locale, Locale(identifier: "de"))
+    VStack(spacing: 16) {
+        ForEach([ReadinessSnapshot.Kind.score, .pending], id: \.self) { kind in
+            SmallReadiness(snapshot: .preview(kind))
+                .padding(16)
+                .frame(width: 158, height: 158)
+                .background(Brand.graphite, in: RoundedRectangle(cornerRadius: 22))
+        }
+    }
+    .environment(\.colorScheme, .dark)
+    .environment(\.locale, Locale(identifier: "de"))
 }
