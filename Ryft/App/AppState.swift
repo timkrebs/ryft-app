@@ -387,6 +387,10 @@ final class AppState {
     private func forgetActivityState() {
         env.uploader.accountChanged()
         repository.invalidate()
+        // What the widget takes from the account besides the store: its sync status and tonight's bedtime. After the
+        // invalidation, so a publish their change starts reads the wiped store, never a memo of the account.
+        syncStatus = nil
+        repository.tonightBedtime = nil
         env.activities.accountChanged()
         (env.demoAPI as? MockPlatformAPI)?.activitySource.reset()
         // The export of what was just wiped (privacy review 3).

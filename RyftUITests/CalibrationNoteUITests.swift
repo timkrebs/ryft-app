@@ -74,8 +74,8 @@ final class CalibrationNoteUITests: XCTestCase {
     }
 
     /// F3 at AX3 (`learningRestingHR`: only resting HR fills, no readiness): the gauge names the counted signal and
-    /// doesn't promise a readiness, and the note, its link and the tiles scroll into view unclipped. Recovery says
-    /// "No data, calibrating". Screenshots of both halves are kept as attachments.
+    /// doesn't promise a readiness, and the note, its link and the tiles scroll into view unclipped. Recovery and Sleep
+    /// say "No data, calibrating". Screenshots of both halves are kept as attachments.
     @MainActor
     func testAtAX3TheCountingStateScrollsToItsNoteAndTiles() throws {
         let app = launch("learningRestingHR", ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"])
@@ -90,6 +90,10 @@ final class CalibrationNoteUITests: XCTestCase {
         for _ in 0..<12 where !(recovery.exists && recovery.isHittable) { app.swipeUp() }
         XCTAssertTrue(recovery.isHittable, "the Recovery tile scrolls into view")
         XCTAssertEqual(recovery.value as? String, "No data, calibrating")
+        // No readiness means no night on the day: Sleep has no number either.
+        // (The tab bar has a "Sleep" button too: the tile is the one with a value.)
+        let sleepTile = app.buttons.matching(NSPredicate(format: "label == %@ AND value == %@", "Sleep", "No data, calibrating"))
+        XCTAssertTrue(sleepTile.firstMatch.exists, "the Sleep tile says No data, calibrating")
         keep(app, "today-ax3-tiles")
         for _ in 0..<12 where !(note.exists && note.isHittable) { app.swipeDown() }
         XCTAssertTrue(note.label.contains("Learning your resting heart rate baseline: 3 of 7 nights."), note.label)

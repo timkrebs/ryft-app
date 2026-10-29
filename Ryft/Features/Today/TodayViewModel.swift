@@ -205,10 +205,12 @@ final class TodayViewModel {
     var content: TodayContent {
         let f = facts
         let p = TodayPresentation.decide(f.scores)
-        // The opened detail's night belongs to its own row: only the day the detail was opened for.
+        // The opened detail's night belongs to its own row: only the day the detail was opened for, and never under a
+        // demo scenario, whose row stands for the whole day (a row without a night shows "–", not demo data's night).
+        let ownDetail = state.todayScenario == nil && state.today?.score.day == f.today?.day
         return TodayContent(facts: f, presentation: p, hero: TodayStates.hero(f, presentation: p),
                             hasDataSource: hasDataSource, readinessWeek: readinessWeek,
-                            detailSleepMin: state.today?.score.day == f.today?.day ? state.today?.sleep?.totalMin : nil)
+                            detailSleepMin: ownDetail ? state.today?.sleep?.totalMin : nil)
     }
     /// The import's slim row under the header, once a day is scored and the backfill goes on.
     var importRow: ImportProgress? { TodayStates.importRow(facts) }
@@ -1361,10 +1363,12 @@ enum TodayScenario: String, CaseIterable {
             f.engine.backfillDone = true
             f.hasScoredDay = true
             let scored = self != .learningRestingHR
-            // The platform sets readiness and recovery together: without one, neither.
+            // The platform makes a recovery, and so a readiness, from any of HRV, resting HR, breathing and sleep:
+            // a row without a readiness has none of them on the day.
             f.today = DailyScore(day: key, readiness: scored ? 71 : nil, state: .calibrating, recovery: scored ? 71 : nil,
                                  strain: 0.9,
-                                 sleepActualMin: 410, hrvMs: nil, rhr: 54, baselineDays: 0, calibrating: true,
+                                 sleepActualMin: scored ? 410 : nil, hrvMs: nil, rhr: scored ? 54 : nil, baselineDays: 0,
+                                 calibrating: true,
                                  computedAt: now.addingTimeInterval(-3_600), scoringState: .scored, baselineHrvDays: 0,
                                  baselineRhrDays: 3, calibratingReason: .shortHistory)
             // A new account: four scored days, resting HR on three of them, HRV on none.

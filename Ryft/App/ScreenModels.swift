@@ -52,9 +52,10 @@ final class ScreenModels {
         // The widget's calibration decides with the same tracker setup as Today's (F3), and is published again when
         // the choice or `devices.setup` changes (neither write goes through the repository).
         state.repository.chosenTrackers = { [devices] in devices.trackers }
+        // The raw ids, not `trackers`: that maps them through the catalog, which must not be decoded at launch.
         widgetSetupWatch = ObservationWatch(read: { [devices, flags = state.env.flags] in
             _ = flags.isOn(.devicesSetup)
-            _ = devices.trackers
+            _ = devices.selection?.trackers
         }, changed: { [repository = state.repository] in repository.publishWidget() })
         onboarding = OnboardingCoordinator(state: state, apiStatus: apiStatus ?? .shared, devices: devices) {
             await coordinator.run(.userInitiated)
