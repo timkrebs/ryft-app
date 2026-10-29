@@ -36,6 +36,8 @@ final class ScreenModels {
     let importer: ImportCoordinator
     private let state: AppState
     private let sync: SyncService
+    /// Republishes the widget when the tracker choice or `devices.setup` changes.
+    private let widgetSetupWatch: ObservationWatch
     /// Train's outbox (the app's; nil in tests and previews that don't upload sessions).
     private let trainSync: TrainSyncService?
 
@@ -47,8 +49,13 @@ final class ScreenModels {
         self.trainSync = trainSync
         let devices = TrackerSelectionStore(env: state.env)
         self.devices = devices
-        // The widget's calibration decides with the same tracker setup as Today's (F3).
+        // The widget's calibration decides with the same tracker setup as Today's (F3), and is published again when
+        // the choice or `devices.setup` changes (neither write goes through the repository).
         state.repository.chosenTrackers = { [devices] in devices.trackers }
+        widgetSetupWatch = ObservationWatch(read: { [devices, flags = state.env.flags] in
+            _ = flags.isOn(.devicesSetup)
+            _ = devices.trackers
+        }, changed: { [repository = state.repository] in repository.publishWidget() })
         onboarding = OnboardingCoordinator(state: state, apiStatus: apiStatus ?? .shared, devices: devices) {
             await coordinator.run(.userInitiated)
         }

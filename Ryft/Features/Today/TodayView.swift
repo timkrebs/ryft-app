@@ -168,10 +168,13 @@ struct TodayView: View {
                 .accessibilityIdentifier("today.pendingGauge")
             case .calibrating(let nights):
                 VStack(spacing: 8) {
-                    // Over a long history without HRV the nights counted are the ones with heart-rate data.
-                    BaselineGauge(nights: nights, countsHeartRateNights: day.gaugeNote == .needsVitals)
+                    // Over a long history without HRV the nights counted are the ones with heart-rate data; with one
+                    // signal absent (F3), that of the other.
+                    BaselineGauge(nights: nights, countsHeartRateNights: day.gaugeNote == .needsVitals,
+                                  countedSignal: day.gaugeNote?.countedSignal)
                         .accessibilityIdentifier("today.baselineGauge")
-                    // Row B over a long history without HRV: why the nights don't fill.
+                    // Why the nights don't fill (row B over a long history without HRV), or why only one signal's
+                    // count (F3); read on its own after the gauge.
                     if let note = day.gaugeNote { noteBlock(note, readWithGauge: false) }
                 }
                 .padding(.vertical, 4)

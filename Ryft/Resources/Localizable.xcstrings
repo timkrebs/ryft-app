@@ -1125,6 +1125,28 @@
         }
       }
     },
+    "%lld of %lld nights with HRV." : {
+      "comment" : "VoiceOver value of the baseline gauge when only HRV fills; the note under it says why.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %2$lld Nächten mit HRV."
+          }
+        }
+      }
+    },
+    "%lld of %lld nights with resting heart rate." : {
+      "comment" : "VoiceOver value of the baseline gauge when only resting heart rate fills; the note under it says why.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %2$lld Nächten mit Ruhepuls."
+          }
+        }
+      }
+    },
     "%lld of %lld nights. Readiness appears once the baselines are complete." : {
       "localizations" : {
         "de" : {
@@ -2791,6 +2813,28 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "Baselines · %lld of %lld nights with HRV" : {
+      "comment" : "Under the baseline gauge when only HRV fills (no resting heart rate arrives): its nights, of 7.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgangswerte · %1$lld von %2$lld Nächten mit HRV"
+          }
+        }
+      }
+    },
+    "Baselines · %lld of %lld nights with resting heart rate" : {
+      "comment" : "Under the baseline gauge when only resting heart rate fills (no HRV arrives): its nights, of 7.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgangswerte · %1$lld von %2$lld Nächten mit Ruhepuls"
           }
         }
       }
@@ -4920,6 +4964,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dein Ruhepuls-Ausgangswert entsteht: %1$lld von %2$lld Nächten. Bei RYFT sind noch keine HRV-Werte angekommen, deshalb nutzt die Erholung Ruhepuls und Schlaf."
+          }
+        }
+      }
+    },
+    "No data, %@" : {
+      "comment" : "VoiceOver value of a Today tile without a number, with the line under it, e.g. “No data, calibrating”.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Daten, %@"
           }
         }
       }

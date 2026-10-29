@@ -11,10 +11,13 @@ private let day = "2026-10-22"
 private let computed = Date(timeIntervalSince1970: 1_792_650_000)
 private let snapshotTime = Date(timeIntervalSince1970: 1_792_650_000)
 
-/// A `short_history` row: counts, the day's own signals, readiness and recovery.
-private func row(h: Int?, r: Int?, hrv: Double? = nil, rhr: Double? = nil, readiness: Int? = nil, recovery: Int? = 71,
-                 reason: CalibratingReason? = .shortHistory) -> DailyScore {
-    DailyScore(day: day, readiness: readiness, state: .calibrating, recovery: recovery, strain: 6.8, sleepActualMin: 410,
+/// A `short_history` row: counts, the day's own signals, readiness and recovery. The platform sets readiness iff
+/// recovery (`compute.go`), so recovery is readiness's value or nil; `impossibleRecovery` builds the one shape it never
+/// sends (a recovery without a readiness), only for the test that pins the defensive guard.
+private func row(h: Int?, r: Int?, hrv: Double? = nil, rhr: Double? = nil, readiness: Int? = nil,
+                 impossibleRecovery: Int? = nil, reason: CalibratingReason? = .shortHistory) -> DailyScore {
+    DailyScore(day: day, readiness: readiness, state: .calibrating, recovery: readiness ?? impossibleRecovery, strain: 6.8,
+               sleepActualMin: 410,
                hrvMs: hrv, rhr: rhr, baselineDays: min(h ?? 0, r ?? 0), calibrating: true, computedAt: computed,
                scoringState: .scored, baselineHrvDays: h, baselineRhrDays: r, calibratingReason: reason)
 }
@@ -183,6 +186,22 @@ struct TodayBaselineCounterTests {
         }
     }
 
+    /// The defensive guard: a recovery without a readiness is a shape the platform never sends (it sets both or
+    /// neither), but a cached or rolled-back row could carry one. Beside the counter it is still "—" and
+    /// "calibrating", on the short_history path and on path L.
+    @MainActor @Test func aRecoveryWithoutReadinessIsNeverBesideTheCounter() {
+        for impossible in [row(h: 0, r: 3, rhr: 54, impossibleRecovery: 74),
+                           row(h: nil, r: nil, impossibleRecovery: 74, reason: nil)] {
+            let f = facts(impossible)
+            let p = TodayPresentation.decide(f)
+            guard case .baselines = p.gauge else { Issue.record("expected the counter, got \(p.gauge)"); continue }
+            #expect(p.tiles.withholdsRecovery && p.tiles.source?.recovery == 74 && p.tiles.recovery == nil)
+            let content = Self.content(f)
+            #expect(content.recoveryText == Fmt.percent(Int?.none) && content.recoveryCaption == "calibrating")
+            #expect(content.recoveryBand == nil)
+        }
+    }
+
     // MARK: the note's words
 
     @Test func theFillingNoteSaysWhichAndWhy() {
@@ -202,6 +221,11 @@ struct TodayBaselineCounterTests {
             nights: 3, signals: [.restingHR], absent: CalibrationBlocker(signals: [.hrv], source: .unexpected, link: .checkSync)))
         #expect(check.link == .checkSync && check.isCalibration && !check.isBlocked)
         #expect(TodayPresentation.Note.learning(CalibrationProgress(nights: 3, signals: [.hrv])).link == nil)
+        // The gauge names the counted signal only when the other is absent.
+        #expect(check.countedSignal == .restingHR)
+        #expect(TodayPresentation.Note.learning(CalibrationProgress(nights: 3, signals: [.restingHR])).countedSignal == nil)
+        #expect(TodayPresentation.Note.blocked(Self.noHRV).countedSignal == nil)
+        #expect(TodayPresentation.Note.needsVitals.countedSignal == nil)
     }
 
     @Test func absentAndFillingSignals() {
@@ -304,6 +328,7 @@ struct TodayBaselineCounterTests {
         // The same row before its readiness: counting resting HR, Recovery "—" and "calibrating".
         var noReadiness = reported
         noReadiness.readiness = nil
+        noReadiness.recovery = nil // set together by the platform
         let counter = Self.content(facts(noReadiness))
         #expect(counter.hero == .calibrating(nights: 3))
         #expect(counter.recoveryText == Fmt.percent(Int?.none) && counter.recovery == nil)
@@ -354,6 +379,52 @@ struct TodayBaselineCounterTests {
         // A row whose signals all arrive doesn't read the choice.
         state.today = DayDetail(score: row(h: 2, r: 3, hrv: 48, rhr: 54), sleep: nil, workouts: [])
         #expect(state.repository.widgetFacts.trackers.isEmpty)
+    }
+
+    /// Review: the widget is published again when the tracker choice changes, not only on the next score write.
+    @MainActor @Test func choosingATrackerRepublishesTheWidget() async throws {
+        let noon = try #require(DayFormat.date(from: day)).addingTimeInterval(12 * 3_600)
+        let env = AppEnvironment.test(clock: TestClock(now: noon), flags: [.devicesSetup: true])
+        let state = AppState(env: env)
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("readiness-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        state.repository.widgetFile = file
+        state.repository.reloadWidget = {}
+        state.history = history(4, rhrDays: 3)
+        state.today = DayDetail(score: row(h: 0, r: 3, rhr: 54), sleep: nil, workouts: [])
+        let sync = SyncService.ungated(env: env)
+        let store = TrainStore(inMemory: true)
+        let screens = ScreenModels(state: state, sync: sync,
+                                   coordinator: SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: env.clock),
+                                   store: store, library: TrainLibrary(store: store, remote: { [api = env.api] in api }, restore: false),
+                                   apiStatus: APIStatus())
+        state.repository.publishWidget()
+        func written() -> ReadinessSnapshot? {
+            (try? Data(contentsOf: file)).flatMap { try? ReadinessSnapshot.decoder.decode(ReadinessSnapshot.self, from: $0) }
+        }
+        #expect(written()?.kind == .calibrating && written()?.baselineNights == 3)
+        screens.devices.set(["garmin"])
+        // The watch acts on the next main-actor turn: poll, no fixed sleep.
+        for _ in 0..<200 where written()?.kind == .calibrating { await Task.yield() }
+        #expect(written()?.kind == .waitingForSleep && written()?.baselineNights == nil, "N1 early: no counter")
+    }
+
+    /// The watch itself, over `devices.setup` flipping in a `FlagStore` (what `/v1/config` changes) and again after.
+    @MainActor @Test func theWatchFollowsTheFlag() async {
+        let defaults = UserDefaults(suiteName: "ryft.test.watch.\(UUID().uuidString)") ?? .standard
+        let flags = FlagStore(store: TrainStore(inMemory: true), defaults: defaults)
+        var calls = 0
+        let watch = ObservationWatch(read: { _ = flags.isOn(.devicesSetup) }, changed: { calls += 1 })
+        let on = !FeatureFlag.devicesSetup.compiledDefault
+        flags.apply(RemoteConfig(flags: [FeatureFlag.devicesSetup.rawValue: on], evaluatedAt: .now, ttlSec: 3_600,
+                                 privacyPolicyVersion: nil, privacyPolicyUrl: nil), fetchedAt: .now)
+        for _ in 0..<200 where calls == 0 { await Task.yield() }
+        #expect(calls == 1 && flags.isOn(.devicesSetup) == on)
+        // Still watching after the first change.
+        flags.setOverride(.devicesSetup, !on)
+        for _ in 0..<200 where calls == 1 { await Task.yield() }
+        #expect(calls == 2)
+        withExtendedLifetime(watch) {}
     }
 
     @MainActor private static func content(_ f: TodayScoreFacts) -> TodayContent {

@@ -1202,6 +1202,12 @@ extension TodayPresentation.Note {
         }
     }
 
+    /// The one signal a learning note counts while the other is absent (F3): the baselines gauge names it.
+    var countedSignal: CalibrationSignal? {
+        guard case .learning(let progress) = self, progress.absent != nil, progress.signals.count == 1 else { return nil }
+        return progress.signals.first
+    }
+
     /// N1 / N2: the sentence above says the readiness comes from the signals that arrived.
     var isBlocked: Bool {
         if case .blocked = self { return true }
@@ -1355,7 +1361,9 @@ enum TodayScenario: String, CaseIterable {
             f.engine.backfillDone = true
             f.hasScoredDay = true
             let scored = self != .learningRestingHR
-            f.today = DailyScore(day: key, readiness: scored ? 71 : nil, state: .calibrating, recovery: 71, strain: 0.9,
+            // The platform sets readiness and recovery together: without one, neither.
+            f.today = DailyScore(day: key, readiness: scored ? 71 : nil, state: .calibrating, recovery: scored ? 71 : nil,
+                                 strain: 0.9,
                                  sleepActualMin: 410, hrvMs: nil, rhr: 54, baselineDays: 0, calibrating: true,
                                  computedAt: now.addingTimeInterval(-3_600), scoringState: .scored, baselineHrvDays: 0,
                                  baselineRhrDays: 3, calibratingReason: .shortHistory)
