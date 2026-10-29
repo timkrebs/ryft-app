@@ -4,7 +4,7 @@ dark Strain: on track 4.12, on background 5.97
 dark band high (accent): on track 6.97, on background 10.09
 dark band moderate (warning): on track 7.69, on background 11.14
 dark band low (alert): on track 4.13, on background 5.99
-dark centre ring without readiness (textPrimary): on background 15.59
+dark centre ring without readiness (textTertiary): on background 5.25
 dark track on background 1.45
 light Recovery (accent): on track 3.97, on background 4.54
 light Sleep: on track 4.36, on background 4.98
@@ -12,5 +12,5 @@ light Strain: on track 4.42, on background 5.04
 light band high (accent): on track 3.97, on background 4.54
 light band moderate (warning): on track 4.03, on background 4.61
 light band low (alert): on track 3.99, on background 4.55
-light centre ring without readiness (textPrimary): on background 15.59
+light centre ring without readiness (textTertiary): on background 4.72
 light track on background 1.14

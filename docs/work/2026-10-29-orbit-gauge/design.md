@@ -58,8 +58,8 @@ Example (71 / 71 % / 88 % / 9.6): Recovery head at -122.5 deg (lower left), Slee
 - Arc and dot: the orbit's metric colour, no gradient, no glow. Recovery is teal, Sleep indigo, Strain blue.
 - Missing score: a hollow dot at the start (2 pt outline in the orbit's colour, the track cut out of its inside), no arc. Zero is
   a filled dot with no arc. A hollow dot never means "low".
-- Centre ring: `Theme.band(forScore:)` (teal / yellow / red at 67 / 34) with a readiness, `Theme.textPrimary` without one (and a
-  tertiary "-" inside). It is a ring, not an arc: the number is the readiness, the ring only carries its band.
+- Centre ring: `Theme.band(forScore:)` (teal / yellow / red at 67 / 34) with a readiness, `Theme.textTertiary` without one (and a
+  tertiary "-" inside; 5.25:1 dark, 4.72:1 light on the background). It is a ring, not an arc: the number is the readiness, the ring only carries its band.
 - Teal appears twice at a high band (Recovery and the centre ring). It stays one accent: they never carry different meanings.
 - Stubs (`.calibrating`, `.assembling`, `.pending`): tracks, a centre ring in the track colour and three hollow dots; PR 2 and 3 do the rest.
 
@@ -113,11 +113,13 @@ Computed in `OrbitGaugeContrastTests` from the asset-catalog colours (relative l
 | Strain (`metricStrain`) | 4.12 | 5.97 | 4.42 | 5.04 |
 | Moderate band (`warning`) | 7.69 | 11.14 | 4.03 | 4.61 |
 | Low band (`alert`) | 4.13 | 5.99 | 3.99 | 4.55 |
-| Centre ring without readiness (`textPrimary`) | | 15.59 | | 15.59 |
+| Centre ring without readiness (`textTertiary`, composited) | | 5.25 | | 4.72 |
 
 All at least 3:1 (the lowest: light Recovery, 3.97). The track itself is 1.45:1 on the dark background and 1.14:1 on the light one:
 it is the empty scale, not information, and is the same as `MetricGauge`'s; the hollow dots (2 pt coloured outline) carry the
 "missing" state and have the contrast of the arc colours on the background. The number is `textPrimary` (15.59:1).
+
+The edge preview labelled "0" had passed readiness 1; it now passes 0, and `readinessZeroIsZeroNotOne` covers the number and the spoken value.
 
 ## 7. Tried and rejected
 

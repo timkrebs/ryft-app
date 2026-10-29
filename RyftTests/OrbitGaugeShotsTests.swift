@@ -69,7 +69,7 @@ import UIKit
                         caption("sleep missing")
                     }
                     VStack {
-                        OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 1, recovery: 0, sleep: 0, strain: 0)), size: .medium)
+                        OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 0, recovery: 0, sleep: 0, strain: 0)), size: .medium)
                         caption("0")
                     }
                     VStack {

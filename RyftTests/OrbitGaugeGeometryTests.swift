@@ -64,6 +64,15 @@ import Testing
         #expect(OrbitGauge.Size.large.frame == 172)
     }
 
+    @Test func readinessZeroIsZeroNotOne() {
+        let v = OrbitGaugeValues(readiness: 0, recovery: 0, sleep: 0, strain: 0)
+        #expect(v.readiness == 0)
+        #expect(String(v.readiness ?? -1) == "0")
+        let s = OrbitGauge.spokenValue(v)
+        #expect(s.hasPrefix("0, "))
+        #expect(!s.hasPrefix("1, "))
+    }
+
     @Test func spokenValueNamesEveryScore() {
         let s = OrbitGauge.spokenValue(.previewScored)
         // The simulator's region decides the decimal separator: 9.6 or 9,6.

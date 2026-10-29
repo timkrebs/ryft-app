@@ -120,7 +120,7 @@ struct OrbitGauge: View {
             let d = m.centreRadius * 2 + m.centreStroke
             Circle()
                 .inset(by: m.centreStroke / 2)
-                .stroke(values.readiness.map { Theme.band(forScore: $0) } ?? Theme.textPrimary, lineWidth: m.centreStroke)
+                .stroke(values.readiness.map { Theme.band(forScore: $0) } ?? Theme.textTertiary, lineWidth: m.centreStroke)
                 .frame(width: d, height: d)
             if size.dial >= Self.minDialForNumber {
                 Text(values.readiness.map { String($0) } ?? Fmt.placeholder)
@@ -286,7 +286,7 @@ private struct OrbitCaption: View {
             }
             HStack(spacing: 8) {
                 VStack {
-                    OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 1, recovery: 0, sleep: 0, strain: 0)), size: .medium)
+                    OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 0, recovery: 0, sleep: 0, strain: 0)), size: .medium)
                     OrbitCaption(text: "0")
                 }
                 VStack {

@@ -49,8 +49,9 @@ import UIKit
                 #expect(onTrack >= 3, "\(name) \(title) on track")
                 #expect(onBackground >= 3, "\(name) \(title) on background")
             }
-            let primary = resolve(Theme.textPrimary, style)
-            lines.append("\(name) centre ring without readiness (textPrimary): on background \(String(format: "%.2f", ratio(primary, background)))")
+            let primary = over(resolve(Theme.textTertiary, style), background)
+            #expect(ratio(primary, background) >= 3, "\(name) centre ring without readiness")
+            lines.append("\(name) centre ring without readiness (textTertiary): on background \(String(format: "%.2f", ratio(primary, background)))")
             lines.append("\(name) track on background \(String(format: "%.2f", ratio(track, background)))")
         }
         print("ORBIT-CONTRAST\n" + lines.joined(separator: "\n"))
