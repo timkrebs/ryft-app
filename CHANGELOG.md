@@ -25,6 +25,8 @@ Store "What's New".
 - Beta onboarding: invite code, consent to health-data processing, birth year for a
   maximum heart-rate estimate. Profile → Privacy to see or withdraw the consent, and
   Profile → Sign-in methods to add Sign in with Apple to an email account.
+- RYFT is for people aged 16 and over: the consent screen says so, and onboarding and
+  Profile offer birth years up to this year − 16.
 - A readiness widget for the home and lock screen: today's readiness, or "Scoring your
   night…" until it's ready.
 - Start a strength workout from anywhere: Today (today's plan, or an empty workout or your

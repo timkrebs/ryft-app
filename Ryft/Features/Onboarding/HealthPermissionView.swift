@@ -484,9 +484,20 @@ final class OnboardingCoordinator {
         } message: { _ in nil }
     }
 
-    /// The youngest birth year the platform takes (`this year − 13`).
-    static func latestBirthYear(now: Date) -> Int {
-        Calendar.current.component(.year, from: now) - 13
+    /// RYFT's minimum age (Art. 8 GDPR, Germany). The platform checks `birth_year ≤ this year − 16`.
+    nonisolated static let minimumAge = 16
+
+    /// The oldest birth year offered (the platform's lower bound).
+    nonisolated static let earliestBirthYear = 1920
+
+    /// The youngest birth year offered (`this year − minimumAge`).
+    nonisolated static func latestBirthYear(now: Date) -> Int {
+        Calendar.current.component(.year, from: now) - minimumAge
+    }
+
+    /// Every birth year offered in onboarding and Profile, newest first.
+    nonisolated static func birthYears(now: Date) -> [Int] {
+        Array(stride(from: latestBirthYear(now: now), through: earliestBirthYear, by: -1))
     }
 
     func clearError() {
@@ -696,6 +707,12 @@ struct ConsentView: View {
                 ConsentPoint(symbol: "arrow.down.doc", title: "Always yours",
                              text: "Export or delete everything at any time in Profile. You can withdraw this consent in Profile → Privacy.")
             }
+            Text("You must be at least 16 to use RYFT.")
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("consent.minimumAge")
             Button {
                 legal = model.policyPage
             } label: {
@@ -778,9 +795,7 @@ struct AboutYouView: View {
     @State private var editing: BodySetting?
     @Environment(\.appEnvironment) private var env
 
-    private var years: [Int] {
-        Array(stride(from: OnboardingCoordinator.latestBirthYear(now: env.clock.now()), through: 1920, by: -1))
-    }
+    private var years: [Int] { OnboardingCoordinator.birthYears(now: env.clock.now()) }
 
     var body: some View {
         OnboardingScreen(symbol: "person.text.rectangle",

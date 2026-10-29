@@ -3,6 +3,61 @@
 Newest first. Paste the entry into App Store Connect → TestFlight → the build → What to
 Test (English and German).
 
+## External build for friends — 1.0.0 (en + de)
+
+For the External group (public link + invite code). My Day needs the `today.myday` flag on. Each text stays under App
+Store Connect's 4,000 characters (en 1,480, de 1,727, the text between the `text` fences).
+
+**en**
+
+```text
+Welcome to the RYFT beta, and thank you for testing!
+
+RYFT turns what your watch or ring writes to Apple Health into three daily numbers: recovery, strain and sleep, each measured against your own baseline. You must be at least 16 to use RYFT.
+
+WHAT TO TEST
+1. Sign up and enter the invite code you got from me.
+2. Read the consent screen and agree. Nothing is synced before you do.
+3. About you: choose your birth year (or skip). It gives an estimate of your maximum heart rate.
+4. If RYFT asks what you wear, pick your watch or ring. Then connect Apple Health and allow everything RYFT asks for.
+5. The first import: RYFT loads your history from Apple Health. You can leave the app while it runs.
+6. Today shows "calibrating" at first. Wear your watch or ring to bed: after the first night you get real scores.
+7. My Day on Today: your sleep, workouts and activities for the day. Add an activity and check it appears.
+
+WHAT'S KNOWN
+- Calibration takes a few days. Scores sharpen over the first week as RYFT learns your baseline.
+- Garmin doesn't share HRV with Apple Health, so readiness waits for it; recovery uses resting heart rate and sleep.
+- If last night hasn't reached Apple Health yet, Today says so. Open your tracker's app so it syncs, then pull to refresh.
+
+FEEDBACK
+Profile → About → Report a problem. Diagnostics are included if you leave them on (never health values), and reports wait while you're offline. Screenshots with TestFlight's feedback are welcome too.
+```
+
+**de**
+
+```text
+Willkommen in der RYFT-Beta, und danke, dass du testest!
+
+RYFT macht aus dem, was deine Uhr oder dein Ring in Apple Health schreibt, drei Werte pro Tag: Erholung, Belastung und Schlaf, jeweils gemessen an deinem eigenen Ausgangswert. Du musst mindestens 16 Jahre alt sein, um RYFT zu nutzen.
+
+WAS DU TESTEN KANNST
+1. Registriere dich und gib den Einladungscode ein, den du von mir bekommen hast.
+2. Lies die Einwilligung und stimme zu. Vorher wird nichts synchronisiert.
+3. Über dich: Wähle dein Geburtsjahr (oder überspringe es). Daraus wird deine maximale Herzfrequenz geschätzt.
+4. Fragt RYFT, was du trägst, wähle deine Uhr oder deinen Ring. Verbinde dann Apple Health und erlaube alles, worum RYFT bittet.
+5. Der erste Import: RYFT lädt deinen Verlauf aus Apple Health. Du kannst die App dabei verlassen.
+6. Heute zeigt zuerst „kalibriert noch“. Trag deine Uhr oder deinen Ring nachts: Nach der ersten Nacht bekommst du echte Werte.
+7. Mein Tag auf Heute: Schlaf, Workouts und Aktivitäten des Tages. Füge eine Aktivität hinzu und prüfe, ob sie erscheint.
+
+WAS BEKANNT IST
+- Die Kalibrierung dauert ein paar Tage. In der ersten Woche werden die Werte genauer, während RYFT deinen Ausgangswert lernt.
+- Garmin teilt HRV nicht mit Apple Health, darum wartet die Bereitschaft darauf; die Erholung nutzt Ruhepuls und Schlaf.
+- Ist die letzte Nacht noch nicht in Apple Health angekommen, sagt Heute das. Öffne die App deines Trackers, damit sie synchronisiert, und zieh dann zum Aktualisieren.
+
+FEEDBACK
+Profil → Über RYFT → Problem melden. Diagnosedaten gehen mit, wenn du sie eingeschaltet lässt (nie Gesundheitswerte), und ohne Verbindung wartet die Meldung. Screenshots über das Feedback von TestFlight sind auch willkommen.
+```
+
 ## Next build — training import from a CSV file (en + de)
 
 **When the training import is switched on (`train.import`):**

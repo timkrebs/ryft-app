@@ -2042,6 +2042,38 @@ struct OnboardingCoordinatorTests {
         #expect(model.flowStep == nil)
     }
 
+    /// Minimum age 16 (Art. 8 GDPR): the youngest year offered is this year − 16, valid under the
+    /// platform's old (− 13) and new (− 16) check alike.
+    @Test func birthYearsStopAtTheMinimumAgeOf16() throws {
+        let now = try #require(Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 29, hour: 12)))
+        let years = OnboardingCoordinator.birthYears(now: now)
+        #expect(OnboardingCoordinator.minimumAge == 16)
+        #expect(OnboardingCoordinator.latestBirthYear(now: now) == 2010)
+        #expect(years.first == 2010 && years.last == 1920 && years.count == 91)
+        #expect(!years.contains(2011) && !years.contains(1919))
+        // New Year's Eve and Day: the bound moves with the calendar year.
+        let eve = try #require(Calendar.current.date(from: DateComponents(year: 2026, month: 12, day: 31, hour: 23)))
+        let day = try #require(Calendar.current.date(from: DateComponents(year: 2027, month: 1, day: 1, hour: 0, minute: 1)))
+        #expect(OnboardingCoordinator.latestBirthYear(now: eve) == 2010)
+        #expect(OnboardingCoordinator.latestBirthYear(now: day) == 2011)
+    }
+
+    @Test func aBirthYearUnder16IsRefusedWithTheRange() async {
+        let api = MockPlatformAPI()
+        let (model, state, _) = onboarding(api)
+        await model.check()
+        let latest = OnboardingCoordinator.latestBirthYear(now: .now)
+
+        #expect(!(await model.saveAboutYou(birthYear: latest + 1)))
+        #expect(model.errorMessage == String(localized: "Choose a year between 1920 and \(latest)."))
+        #expect(state.user?.birthYear != latest + 1 && !model.aboutYouSaved)
+
+        #expect(!(await model.saveAboutYou(birthYear: 1919)))
+        #expect(await model.saveAboutYou(birthYear: 1920))
+        #expect(await model.saveAboutYou(birthYear: latest))
+        #expect(state.user?.birthYear == latest && model.errorMessage == nil)
+    }
+
     @Test func nothingSyncsBeforeConsent() async throws {
         let api = MockPlatformAPI()
         api.accountConsent = nil
@@ -2354,6 +2386,13 @@ struct ProfilePrivacyTests {
         #expect(body.maxHRSourceText == String(localized: "Default · add your birth year for an estimate"))
         #expect(body.birthYear == nil && body.birthYears.first == OnboardingCoordinator.latestBirthYear(now: .now))
         #expect(body.birthYears.last == 1920)
+
+        // A year saved under the earlier rule (− 13) stays visible, the youngest offered is still − 16.
+        let latest = OnboardingCoordinator.latestBirthYear(now: .now)
+        state.user?.birthYear = latest + 2
+        #expect(body.birthYears.first == latest + 2 && body.birthYears.dropFirst().first == latest)
+        #expect(!body.birthYears.contains(latest + 1))
+        state.user?.birthYear = nil
 
         await body.setBirthYear(1990)
         #expect(body.birthYear == 1990 && state.user?.maxHrSource == .estimated)

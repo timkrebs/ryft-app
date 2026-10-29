@@ -422,6 +422,7 @@ struct MockDataSource: RyftDataSource {
     /// The platform's rules: a baseline sent by hand becomes `manual`;
     /// `sleep_base_manual: false` goes back to the learned value (or 460). A birth year
     /// sets the Tanaka estimate unless max HR is manual; `max_hr_manual: false` returns to it.
+    /// A birth year outside 1920 … this year − 16 (the minimum age) is a `422`.
     func patchMe(_ p: UserPatch) async throws -> User {
         try await patchMe(p, on: MockData.user)
     }
@@ -430,6 +431,9 @@ struct MockDataSource: RyftDataSource {
     func patchMe(_ p: UserPatch, on u: User) async throws -> User {
         if p.sleepBaseMin != nil, p.sleepBaseManual == false { throw APIError.http(422, "conflicting baseline") }
         if p.maxHr != nil, p.maxHrManual == false { throw APIError.http(422, "conflicting max HR") }
+        if let y = p.birthYear, !OnboardingCoordinator.birthYears(now: .now).contains(y) {
+            throw APIError.http(422, "birth_year out of range")
+        }
         var base = u.sleepBaseMin, source = u.sleepBaseSource
         if let m = p.sleepBaseMin {
             base = m
