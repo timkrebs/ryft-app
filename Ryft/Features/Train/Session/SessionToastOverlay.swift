@@ -23,8 +23,9 @@ struct SessionToastOverlay: View {
                     .transition(UndoToast.transition(reduceMotion: reduceMotion))
             }
         }
+        // No height without a toast: the session list's inset is the toast's.
         .padding(.horizontal, 16)
-        .padding(.bottom, 8)
+        .padding(.bottom, controller.undo == nil && controller.notice == nil ? 0 : 8)
         .animation(reduceMotion ? nil : Theme.Motion.quick, value: controller.undo?.id)
         .animation(reduceMotion ? nil : Theme.Motion.quick, value: controller.notice?.id)
         .onDisappear { controller.commitUndo() }

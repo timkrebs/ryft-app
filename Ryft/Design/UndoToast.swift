@@ -15,11 +15,16 @@ struct UndoToast: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        HStack(spacing: 12) {
+        // At accessibility sizes the message gets the full width and Undo goes under it.
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .trailing, spacing: 4))
+            : AnyLayout(HStackLayout(spacing: 12))
+        layout {
             Text(message)
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textPrimary)
-                .lineLimit(typeSize.isAccessibilitySize ? 3 : 2)
+                // Not cut: the longest replace message takes three lines (four with a long exercise name).
+                .lineLimit(typeSize.isAccessibilitySize ? nil : 4)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if let onUndo {
@@ -27,6 +32,8 @@ struct UndoToast: View {
                     Text("Undo", comment: "Toast button that takes back the last change, e.g. a replaced exercise.")
                         .font(.ryft(.headline))
                         .foregroundStyle(Theme.accent)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                         .frame(minWidth: 44, minHeight: 44)
                         .contentShape(Rectangle())
                 }
@@ -75,4 +82,20 @@ struct UndoToast: View {
                   onUndo: {})
     }
     .dynamicTypeSize(.accessibility3)
+}
+
+#Preview("Undo toast · AX3 · German", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        UndoToast(message: "Durch Kurzhantel-Bankdrücken ersetzt. Im Plan ab dem nächsten Upper-Tag geändert.",
+                  onUndo: {})
+    }
+    .dynamicTypeSize(.accessibility3)
+    .environment(\.locale, Locale(identifier: "de"))
+}
+
+#Preview("Undo toast · plan, no history weight", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        UndoToast(message: "Replaced with Dumbbell bench press. Changed in your plan from the next Upper day. Check its target weight there.",
+                  onUndo: {})
+    }
 }

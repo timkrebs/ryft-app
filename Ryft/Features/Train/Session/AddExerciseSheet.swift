@@ -68,6 +68,14 @@ struct AddExerciseSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    // At accessibility sizes a pinned bar would leave room for about one row: it scrolls instead.
+                    if typeSize.isAccessibilitySize, let plan = replacing?.plan {
+                        planControl(plan)
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius,
+                                                                            style: .continuous))
+                    }
                     if let replacing {
                         replaceHeader(replacing)
                     }
@@ -113,7 +121,7 @@ struct AddExerciseSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if let plan = replacing?.plan { planBar(plan) }
+                if !typeSize.isAccessibilitySize, let plan = replacing?.plan { planBar(plan) }
             }
             .sheet(isPresented: $showsCustom) {
                 if let importDraft, let onImportDraft {
@@ -209,7 +217,18 @@ struct AddExerciseSheet: View {
                      comment: "Replace sheet: the picked exercise gets the remaining sets. 1: number of sets.")
     }
 
+    /// Pinned under the list at the default sizes.
     private func planBar(_ plan: PlanChangeOption) -> some View {
+        planControl(plan)
+            .padding(.horizontal, Theme.Metrics.screenPadding)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.surface.ignoresSafeArea(edges: .bottom))
+            .overlay(alignment: .top) { Rectangle().fill(Theme.separator).frame(height: Theme.Metrics.hairline) }
+    }
+
+    /// "Also change the plan" and its caption.
+    private func planControl(_ plan: PlanChangeOption) -> some View {
         let caption = plan.isAvailable
             ? String(localized: "Applies from the next \(plan.dayName) day.",
                      comment: "Under the Also change the plan toggle. 1: plan day name, e.g. Upper.")
@@ -231,11 +250,6 @@ struct AddExerciseSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityHidden(true)
         }
-        .padding(.horizontal, Theme.Metrics.screenPadding)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surface.ignoresSafeArea(edges: .bottom))
-        .overlay(alignment: .top) { Rectangle().fill(Theme.separator).frame(height: Theme.Metrics.hairline) }
     }
 
     private var filters: some View {
@@ -457,6 +471,20 @@ private extension ReplaceContext {
     AddExerciseSheet(replacing: .preview(split: true, plan: PlanChangeOption(dayName: "Upper", isAvailable: true))) { _, _ in }
         .environment(TrainPreview.library)
         .preferredColorScheme(.dark)
+}
+
+#Preview("Replace · plan · AX3 (toggle scrolls) · dark") {
+    AddExerciseSheet(replacing: .preview(split: true, plan: PlanChangeOption(dayName: "Upper", isAvailable: true))) { _, _ in }
+        .environment(TrainPreview.library)
+        .dynamicTypeSize(.accessibility3)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Replace · plan · AX3 (toggle scrolls) · light") {
+    AddExerciseSheet(replacing: .preview(split: true, plan: PlanChangeOption(dayName: "Upper", isAvailable: true))) { _, _ in }
+        .environment(TrainPreview.library)
+        .dynamicTypeSize(.accessibility3)
+        .preferredColorScheme(.light)
 }
 
 #Preview("Replace · plan, split · light") {

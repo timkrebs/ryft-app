@@ -267,6 +267,28 @@
         }
       }
     },
+    "%@, maximum" : {
+      "comment" : "VoiceOver value of an Edit targets stepper at its highest, e.g. 15:00 rest. 1: value.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, Maximum"
+          }
+        }
+      }
+    },
+    "%@, minimum" : {
+      "comment" : "VoiceOver value of an Edit targets stepper at its lowest. 1: value.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, Minimum"
+          }
+        }
+      }
+    },
     "%@, minimum. %@" : {
       "comment" : "VoiceOver value of a stepper at its lowest. 1: value, 2: why it can't go lower.",
       "localizations" : {

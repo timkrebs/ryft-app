@@ -20,6 +20,7 @@ struct EditTargetsSheet: View {
     }
 
     private var minSets: Int { controller.minSets(for: exercise) }
+    private static let title = Text("Edit targets", comment: "Title of the sheet that edits one exercise's targets in a workout.")
     private var showsWeight: Bool { exercise.loadType == .weight || exercise.loadType == .bodyweight }
 
     var body: some View {
@@ -42,9 +43,18 @@ struct EditTargetsSheet: View {
                 .padding(Theme.Metrics.screenPadding)
             }
             .background(Theme.background.ignoresSafeArea())
-            .navigationTitle(Text("Edit targets", comment: "Title of the sheet that edits one exercise's targets in a workout."))
+            .navigationTitle(Self.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // Between Cancel and Done at AX3 ("Ziele bearbeiten") the title shrinks rather than truncates.
+                ToolbarItem(placement: .principal) {
+                    Self.title
+                        .font(.ryft(.headline))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                        .accessibilityAddTraits(.isHeader)
+                }
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
@@ -93,7 +103,8 @@ struct EditTargetsSheet: View {
     }
 
     private var repsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        // The same gap as between the other steppers.
+        VStack(alignment: .leading, spacing: 20) {
             TargetStepper(label: Text("Reps from", comment: "Edit targets: the lower end of the rep range."),
                           value: targets.repsMin.map(String.init) ?? Fmt.placeholder,
                           canDecrement: (targets.repsMin ?? 2) > SessionTargets.reps.lowerBound,
@@ -186,10 +197,21 @@ private struct TargetStepper: View {
         }
     }
 
+    /// At the floor or the ceiling VoiceOver says so ("900 s, maximum"), with the floor's reason when there is one.
     private var accessibilityValue: String {
-        guard !canDecrement, let floorNote else { return value }
-        return String(localized: "\(value), minimum. \(floorNote)",
-                      comment: "VoiceOver value of a stepper at its lowest. 1: value, 2: why it can't go lower.")
+        if !canDecrement, let floorNote {
+            return String(localized: "\(value), minimum. \(floorNote)",
+                          comment: "VoiceOver value of a stepper at its lowest. 1: value, 2: why it can't go lower.")
+        }
+        if !canDecrement {
+            return String(localized: "\(value), minimum",
+                          comment: "VoiceOver value of an Edit targets stepper at its lowest. 1: value.")
+        }
+        if !canIncrement {
+            return String(localized: "\(value), maximum",
+                          comment: "VoiceOver value of an Edit targets stepper at its highest, e.g. 15:00 rest. 1: value.")
+        }
+        return value
     }
 
     private func key(_ direction: Int, enabled: Bool) -> some View {
