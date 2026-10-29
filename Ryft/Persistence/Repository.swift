@@ -501,15 +501,29 @@ final class Repository {
         if ReadinessSnapshot.publish(snapshot, to: file) { reloadWidget() }
     }
 
+    /// The tracker ids chosen in the setup (`TrackerSelectionStore.trackers`; `ScreenModels` connects it). None in
+    /// tests and previews that don't.
+    @ObservationIgnored var chosenTrackers: @MainActor () -> [String] = { [] }
+
     /// The facts Today decides from (`TodayViewModel.facts.scores`), read from the store: today's
-    /// row, `GET /v1/me/sync`'s word when it's about today, and the same history window.
+    /// row, `GET /v1/me/sync`'s word when it's about today, the same history window, and, for a row whose
+    /// calibration note may name it, the tracker setup (a counter on the widget only where Today has one, F3).
     var widgetFacts: TodayScoreFacts {
         let key = DayFormat.string(from: now)
         let today = score(key)
-        return TodayScoreFacts(day: key, today: today,
-                               scoringState: todayStatus?.day == key ? todayStatus?.state : today?.scoringState,
-                               prior: history(from: DayFormat.shift(now, days: -(AppState.historyDays - 1)), to: now)
-                                   .filter { $0.day < key })
+        var facts = TodayScoreFacts(day: key, today: today,
+                                    scoringState: todayStatus?.day == key ? todayStatus?.state : today?.scoringState,
+                                    prior: history(from: DayFormat.shift(now, days: -(AppState.historyDays - 1)), to: now)
+                                        .filter { $0.day < key })
+        facts.devicesSetup = env.flags.isOn(.devicesSetup)
+        if facts.devicesSetup, today?.calibrationNamesTracker == true {
+            let ids = chosenTrackers()
+            if !ids.isEmpty {
+                let catalog = env.trackerCatalog
+                facts.trackers = ids.compactMap(catalog.tracker)
+            }
+        }
+        return facts
     }
 
     /// The cached scores become exactly `scores` (previews, tests); opened details stay.

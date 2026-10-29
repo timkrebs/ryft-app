@@ -1136,6 +1136,28 @@
         }
       }
     },
+    "%lld of %lld nights with HRV." : {
+      "comment" : "VoiceOver value of the baseline gauge when only HRV fills; the note under it says why.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %2$lld Nächten mit HRV."
+          }
+        }
+      }
+    },
+    "%lld of %lld nights with resting heart rate." : {
+      "comment" : "VoiceOver value of the baseline gauge when only resting heart rate fills; the note under it says why.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %2$lld Nächten mit Ruhepuls."
+          }
+        }
+      }
+    },
     "%lld of %lld nights. Readiness appears once the baselines are complete." : {
       "localizations" : {
         "de" : {
@@ -2430,6 +2452,17 @@
         }
       }
     },
+    "Also used for %@" : {
+      "comment" : "Training import, step 4: other rows of the file map to the same RYFT exercise; the file's exercise names.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auch für %@ verwendet"
+          }
+        }
+      }
+    },
     "Also change the plan" : {
       "comment" : "Toggle in the replace sheet: change the plan day too.",
       "localizations" : {
@@ -2879,6 +2912,28 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "Baselines · %lld of %lld nights with HRV" : {
+      "comment" : "Under the baseline gauge when only HRV fills (no resting heart rate arrives): its nights, of 7.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgangswerte · %1$lld von %2$lld Nächten mit HRV"
+          }
+        }
+      }
+    },
+    "Baselines · %lld of %lld nights with resting heart rate" : {
+      "comment" : "Under the baseline gauge when only resting heart rate fills (no HRV arrives): its nights, of 7.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausgangswerte · %1$lld von %2$lld Nächten mit Ruhepuls"
           }
         }
       }
@@ -5041,6 +5096,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vor dem Hochladen prüft RYFT erneut. Workouts, die wie bereits erfasste aussehen, werden übersprungen und auf dem Ergebnisbildschirm aufgelistet. Dort kannst du sie trotzdem importieren."
+          }
+        }
+      }
+    },
+    "Learning your HRV baseline: %lld of %lld nights. No resting heart rate has reached RYFT yet, so recovery uses HRV and sleep." : {
+      "comment" : "Note under Today's gauge: only HRV fills, no resting HR arrived. Arguments: nights so far, nights needed (7).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein HRV-Ausgangswert entsteht: %1$lld von %2$lld Nächten. Bei RYFT sind noch keine Ruhepuls-Werte angekommen, deshalb nutzt die Erholung HRV und Schlaf."
+          }
+        }
+      }
+    },
+    "Learning your resting heart rate baseline: %lld of %lld nights. No HRV has reached RYFT yet, so recovery uses resting heart rate and sleep." : {
+      "comment" : "Note under Today's gauge: only resting HR fills, no HRV arrived. Arguments: nights so far, nights needed (7).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Ruhepuls-Ausgangswert entsteht: %1$lld von %2$lld Nächten. Bei RYFT sind noch keine HRV-Werte angekommen, deshalb nutzt die Erholung Ruhepuls und Schlaf."
+          }
+        }
+      }
+    },
+    "No data, %@" : {
+      "comment" : "VoiceOver value of a Today tile without a number, with the line under it, e.g. “No data, calibrating”.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Daten, %@"
           }
         }
       }
@@ -12618,6 +12706,47 @@
         }
       }
     },
+    "+%lld more" : {
+      "comment" : "Train session, an exercise's Last time line: sets not listed after the first five.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld weiterer"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld weitere"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld more"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld more"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "+2.5 kg after every set is done; the same weight after a miss; 10 % lighter after three misses." : {
       "comment" : "Help text for the progression of a plan.",
       "isCommentAutoGenerated" : true,
@@ -12661,6 +12790,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "„%1$@“ bei %2$@: Ist das Zusatzgewicht oder dein Körpergewicht?"
+          }
+        }
+      }
+    },
+    "“%@”" : {
+      "comment" : "A name quoted inside a sentence, e.g. an exercise from an imported file.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„%@“"
           }
         }
       }

@@ -15,6 +15,8 @@ struct ExerciseMatchRow: View {
         let bodyweightOptions: [BodyweightAnswer]
         let bodyweight: BodyweightAnswer?
         let dropsPlusLoad: Bool
+        /// The file's names of the other rows mapped to the same RYFT exercise.
+        var alsoUsedFor: [String] = []
     }
 
     struct Actions {
@@ -60,6 +62,10 @@ struct ExerciseMatchRow: View {
                     actions.skip()
                 }
                 .accessibilityIdentifier("import.row.\(index)")
+            if let shared = alsoUsedForText {
+                ImportNoteLine(systemImage: "arrow.triangle.merge", text: shared)
+                    .accessibilityIdentifier("import.shared.\(index)")
+            }
             if !content.questionOpen, let answer = content.bodyweight, let loadType = content.loadType,
                let plus = row.source.plusLoads {
                 answerTag(BodyweightText.title(answer, loadType: loadType, plus: plus))
@@ -99,7 +105,7 @@ struct ExerciseMatchRow: View {
         return layout {
             VStack(alignment: .leading, spacing: 5) {
                 (Text(verbatim: row.source.name).foregroundStyle(Theme.textPrimary)
-                    + Text(verbatim: row.source.equipment.map { " · \($0)" } ?? "").foregroundStyle(Theme.textSecondary))
+                    + Text(verbatim: row.source.equipmentSuffix).foregroundStyle(Theme.textSecondary))
                     .font(.ryft(.body))
                     .fixedSize(horizontal: false, vertical: true)
                 if let name = content.matchName {
@@ -196,6 +202,16 @@ struct ExerciseMatchRow: View {
         .accessibilityIdentifier("import.muscle.\(index)")
     }
 
+    /// "Also used for “Reverse Fly · Machine”": another row of the file maps to the same RYFT exercise.
+    private var alsoUsedForText: String? {
+        guard !content.alsoUsedFor.isEmpty else { return nil }
+        let names = content.alsoUsedFor.map { name in
+            String(localized: "“\(name)”", comment: "A name quoted inside a sentence, e.g. an exercise from an imported file.")
+        }.formatted(.list(type: .and))
+        return String(localized: "Also used for \(names)",
+                      comment: "Training import, step 4: other rows of the file map to the same RYFT exercise; the file's exercise names.")
+    }
+
     private var onlyIn: String? {
         switch (row.source.inPlan, row.source.inHistory) {
         case (true, false): String(localized: "Plan only", comment: "Training import, step 4: the exercise is only in the plan.")
@@ -233,7 +249,8 @@ extension ImportMappingState {
         return ExerciseMatchRow.Content(row: row, status: status(of: row), matchName: matchName,
                                         questionOpen: isQuestionOpen(row), loadType: loadType(of: row),
                                         bodyweightOptions: bodyweightOptions(row), bodyweight: bodyweightAnswer(row),
-                                        dropsPlusLoad: dropsPlusLoad(row))
+                                        dropsPlusLoad: dropsPlusLoad(row),
+                                        alsoUsedFor: sharing(row).map(\.source.displayName))
     }
 }
 
@@ -264,6 +281,27 @@ extension ImportMappingState {
         }
     }
     .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+/// Two rows of the file chosen onto one RYFT exercise: both say so, and both keep their choice.
+#Preview("Match rows · one exercise twice", traits: .sizeThatFitsLayout) {
+    let flow = ImportMockData.flow(.map) { flow in
+        let rows = flow.mapping?.rows ?? []
+        if rows.count > 1, let mapping = flow.mapping, let target = rows.lazy.compactMap(mapping.exercise(for:)).first {
+            flow.choose(rows[0].id, target)
+            flow.choose(rows[1].id, target)
+        }
+    }
+    let mapping = flow.mapping
+    return SchemePair {
+        VStack(spacing: 10) {
+            ForEach(Array((mapping?.rows ?? []).prefix(2).enumerated()), id: \.offset) { index, row in
+                if let mapping {
+                    ExerciseMatchRow(content: mapping.content(row), index: index, actions: .preview)
+                }
+            }
+        }
+    }
 }
 
 extension ExerciseMatchRow.Actions {
