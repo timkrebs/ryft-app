@@ -33,7 +33,7 @@ struct ProfileView: View {
                 sleepSection
                 privacy
                 data
-                training
+                if model.showsTraining { training }
                 if model.showsNotifications { notifications }
                 if screens.journal.isLive { journal }
                 appearance

@@ -3,6 +3,10 @@ import SwiftUI
 /// The rest timer, pinned under the session header outside the list (ui.md §6): ring, time, the next set,
 /// −15 / +15 / Skip. One home for the timer, so a jump to the next exercise never scrolls it away.
 /// At AX sizes it can shrink to a one-line pill (`pill`); a tap on the pill asks for the full bar (`onExpand`).
+///
+/// VoiceOver: a container. The time and the next set are one adjustable element (swipe up/down = ±15 s, actions
+/// for ±15 s and Skip, its own default action, so a double-tap never lands on a button); −15, +15 and Skip are
+/// buttons of their own, which Voice Control can name.
 struct RestBar: View {
     var controller: SessionController
     var pill = false
@@ -13,20 +17,19 @@ struct RestBar: View {
     @ScaledMetric(relativeTo: .title) private var timeSize: CGFloat = 28
 
     var body: some View {
-        Group {
-            switch controller.rest.phase {
-            case .idle:
-                EmptyView()
-            case .running:
-                TimelineView(.periodic(from: .now, by: 0.5)) { context in
-                    if pill { pillBar(at: context.date) } else { running(at: context.date) }
-                }
-                .modifier(RestBarAccessibility(controller: controller))
-            case .finished:
-                finished
+        switch controller.rest.phase {
+        case .idle:
+            EmptyView()
+        case .running:
+            TimelineView(.periodic(from: .now, by: 0.5)) { context in
+                if pill { pillBar(at: context.date) } else { running(at: context.date) }
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("session.restBar")
+        case .finished:
+            finished
+                .accessibilityIdentifier("session.restBar")
         }
-        .accessibilityIdentifier("session.restBar")
     }
 
     // MARK: running
@@ -44,12 +47,14 @@ struct RestBar: View {
                         time(at: date)
                         nextText.lineLimit(isAX ? 3 : 2)
                     }
+                    .modifier(RestTimeElement(controller: controller, date: date, onActivate: {}))
                 } else {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
                             time(at: date)
                             nextText.lineLimit(1)
                         }
+                        .modifier(RestTimeElement(controller: controller, date: date, onActivate: {}))
                         buttons
                     }
                 }
@@ -69,6 +74,7 @@ struct RestBar: View {
         HStack(spacing: 12) {
             ring(at: date)
             time(at: date)
+                .modifier(RestTimeElement(controller: controller, date: date, onActivate: onExpand))
             Spacer(minLength: 0)
             skipButton.fixedSize()
         }
@@ -105,12 +111,17 @@ struct RestBar: View {
     }
 
     private var nextText: some View {
-        Text("Next: \(controller.nextLabel())",
-             comment: "The rest bar's next set, e.g. Next: Bench press · set 1 of 4.")
+        Text(Self.nextLine(controller.nextLabel()))
             .font(.ryft(.caption))
             .foregroundStyle(Theme.textSecondary)
             .truncationMode(.tail)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// "Next: Bench press · set 1 of 4". Its own key: "Next: %@" elsewhere means the next plan day.
+    static func nextLine(_ label: String) -> String {
+        String(localized: "train.rest.next", defaultValue: "Next: \(label)",
+               comment: "The rest bar's next set, e.g. Next: Bench press · set 1 of 4.")
     }
 
     @ViewBuilder private var buttons: some View {
@@ -128,7 +139,7 @@ struct RestBar: View {
         Button {
             controller.adjustRest(by: delta)
         } label: {
-            // A true minus (U+2212); VoiceOver uses the bar's actions instead.
+            // A true minus (U+2212).
             Text(verbatim: delta < 0 ? "−15" : "+15")
                 .font(.ryft(.headline))
                 .monospacedDigit()
@@ -140,8 +151,10 @@ struct RestBar: View {
                 .contentShape(Capsule().inset(by: -2))
         }
         .buttonStyle(PressableButtonStyle())
-        .accessibilityInputLabels(delta < 0 ? [Text("Minus 15", comment: "Voice Control name of the rest bar's −15 button.")]
-                                            : [Text("Plus 15", comment: "Voice Control name of the rest bar's +15 button.")])
+        .accessibilityLabel(delta < 0 ? Text("Fifteen seconds less") : Text("Fifteen seconds more"))
+        .accessibilityInputLabels(delta < 0
+            ? [Text("Minus 15", comment: "Voice Control name of the rest bar's −15 button."), Text("Fifteen seconds less")]
+            : [Text("Plus 15", comment: "Voice Control name of the rest bar's +15 button."), Text("Fifteen seconds more")])
     }
 
     private var skipButton: some View {
@@ -159,6 +172,8 @@ struct RestBar: View {
                 .contentShape(Capsule().inset(by: -2))
         }
         .buttonStyle(PressableButtonStyle())
+        .accessibilityLabel(Text("Skip rest"))
+        .accessibilityInputLabels([Text("Skip"), Text("Skip rest")])
     }
 
     private var buttonHeight: CGFloat { typeSize >= .accessibility3 ? 48 : 44 }
@@ -197,30 +212,45 @@ struct RestBar: View {
     }
 }
 
-/// VoiceOver: the running bar is one element. Value = time left (in 5 s steps, so it doesn't chatter) and the next
-/// set; ±15 s and Skip are actions, and swiping up or down adjusts like a slider.
-private struct RestBarAccessibility: ViewModifier {
+/// The time and the next set as one VoiceOver element, every modifier on this one level: label "Rest timer", value
+/// "1 minute, 35 seconds left. Next: …" (in 5 s steps, so it doesn't chatter), adjustable by ±15 s, actions for
+/// ±15 s and Skip, and an explicit default action (the pill's expand; nothing on the full bar).
+private struct RestTimeElement: ViewModifier {
     var controller: SessionController
+    var date: Date
+    var onActivate: () -> Void
 
     func body(content: Content) -> some View {
-        TimelineView(.periodic(from: .now, by: 5)) { context in
-            let left = Int((controller.rest.remaining(at: context.date) / 5).rounded(.up)) * 5
-            content
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text("Rest timer"))
-                .accessibilityValue(Text("\(left) seconds left. Next: \(controller.nextLabel())"))
-        }
-        .accessibilityAddTraits(.updatesFrequently)
-        .accessibilityAdjustableAction { direction in
-            switch direction {
-            case .increment: controller.adjustRest(by: RestTimer.step)
-            case .decrement: controller.adjustRest(by: -RestTimer.step)
-            @unknown default: break
+        content
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("Rest timer"))
+            .accessibilityValue(Text(Self.value(remaining: controller.rest.remaining(at: date),
+                                                next: controller.nextLabel())))
+            .accessibilityAddTraits(.updatesFrequently)
+            .accessibilityAction(.default) { onActivate() }
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: controller.adjustRest(by: RestTimer.step)
+                case .decrement: controller.adjustRest(by: -RestTimer.step)
+                @unknown default: break
+                }
             }
-        }
-        .accessibilityAction(named: Text("Fifteen seconds less")) { controller.adjustRest(by: -RestTimer.step) }
-        .accessibilityAction(named: Text("Fifteen seconds more")) { controller.adjustRest(by: RestTimer.step) }
-        .accessibilityAction(named: Text("Skip rest")) { controller.skipRest() }
+            .accessibilityAction(named: Text("Fifteen seconds less")) { controller.adjustRest(by: -RestTimer.step) }
+            .accessibilityAction(named: Text("Fifteen seconds more")) { controller.adjustRest(by: RestTimer.step) }
+            .accessibilityAction(named: Text("Skip rest")) { controller.skipRest() }
+    }
+
+    /// "1 minute, 35 seconds left. Next: Bench press · set 1 of 4": the time rounded up to 5 s, spelled out in the
+    /// user's language.
+    static func value(remaining: TimeInterval, next: String) -> String {
+        let seconds = Int((remaining / 5).rounded(.up)) * 5
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .full
+        formatter.allowedUnits = seconds >= 60 ? [.minute, .second] : [.second]
+        formatter.zeroFormattingBehavior = .dropAll
+        let left = formatter.string(from: TimeInterval(max(seconds, 0))) ?? "\(seconds)"
+        return String(localized: "train.rest.value", defaultValue: "\(left) left. Next: \(next)",
+                      comment: "VoiceOver value of the rest timer, e.g. 1 minute, 35 seconds left. Next: Bench press · set 1 of 4.")
     }
 }
 

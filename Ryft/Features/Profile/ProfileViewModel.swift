@@ -251,6 +251,8 @@ final class ProfileViewModel {
     /// The preferences belong to a platform account. With `push.enabled` off the
     /// screen explains the rollout instead.
     var showsNotifications: Bool { auth.isSignedIn && !env.isDemo }
+    /// Profile → Training (Jump to next exercise) only where Train is on, like the other Train surfaces.
+    var showsTraining: Bool { env.flags.isOn(.trainEnabled) }
 
     // MARK: demo data
 
