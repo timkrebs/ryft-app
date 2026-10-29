@@ -90,6 +90,8 @@ final class SessionController: Identifiable {
     @ObservationIgnored var advanceTask: Task<Void, Never>?
     /// Checks waiting for the delay (the latest per exercise): a second check inside 0.6 s keeps the first's collapse.
     @ObservationIgnored var pendingChecks: [SessionAdvance.SetRef] = []
+    /// Collapses decided while the list stayed put: applied with the next jump, so rows never move under the thumb.
+    @ObservationIgnored var carriedCollapse: [UUID] = []
     @ObservationIgnored var lastManualScroll: Date?
     /// The exercise of the last check: the current-set highlight follows its `nextUp(after:)`.
     var lastCheckedExercise: UUID?
@@ -192,8 +194,9 @@ final class SessionController: Identifiable {
             set.completedAt = .now
             setsChecked += 1
             if focus?.setID == set.id { focus = nil }
-            startRest(after: ex)
+            // First: it sets the exercise checked last, so the rest's lock-screen "next" is right at once.
             scheduleAdvance(after: set, in: ex)
+            startRest(after: ex)
         }
         changed(set)
     }
@@ -412,11 +415,12 @@ final class SessionController: Identifiable {
     // MARK: rest timer
 
     private func startRest(after ex: LocalSessionExercise) {
-        // Inside a superset the partner follows straight away; rest after the round.
+        // Inside a superset the partner follows straight away while it has an open working set (an open warm-up
+        // doesn't count, as in `SessionAdvance`); rest after the round.
         if let group = ex.supersetGroup {
             let partners = exercises.filter { $0.supersetGroup == group }
             if let i = partners.firstIndex(where: { $0.id == ex.id }), i + 1 < partners.count,
-               partners[(i + 1)...].contains(where: { p in p.sets.contains { !$0.isCompleted } }) {
+               partners[(i + 1)...].contains(where: { p in p.sets.contains { !$0.isWarmup && !$0.isCompleted } }) {
                 skipRest()
                 return
             }

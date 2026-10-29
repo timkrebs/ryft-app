@@ -151,17 +151,60 @@ struct SessionNextUpTests {
 
     // MARK: timing
 
-    @Test func aSecondCheckInsideTheDelayKeepsTheFirstCollapse() async {
-        let r = rig([1, 2])
+    @Test func aCollapseWithoutAScrollWaitsForTheNextJump() async {
+        let r = rig([1, 3])
         let a = r.ex[0], b = r.ex[1]
         r.c.toggleCheck(a.orderedSets[0], in: a)        // A done…
         await drain()
-        r.c.toggleCheck(b.orderedSets[0], in: b)        // …and B1 right after, inside 0.6 s
+        r.c.toggleCheck(b.orderedSets[2], in: b)        // …and B3 inside 0.6 s: out of order, the list stays
         await drain()
         r.clock.advance(by: SessionAdvance.delay)
         await drain()
-        #expect(r.c.isCollapsed(a))
-        #expect(!r.c.isCollapsed(b))
+        #expect(r.c.advance == nil)
+        #expect(!r.c.isCollapsed(a))                    // no rows moving under the thumb
+        await check(r, b.orderedSets[0], in: b)
+        #expect(r.c.advance == nil && !r.c.isCollapsed(a))
+        await check(r, b.orderedSets[1], in: b)         // B done: everything collapses together with the jump
+        guard case let .allDone(collapse)? = r.c.advance?.step else { Issue.record("expected allDone"); return }
+        #expect(Set(collapse) == [a.id, b.id])
+        #expect(r.c.isCollapsed(a) && r.c.isCollapsed(b))
+    }
+
+    @Test func aCarriedCollapseIsDroppedWhenTheSessionStops() async {
+        let r = rig([1, 3])
+        let a = r.ex[0], b = r.ex[1]
+        r.c.toggleCheck(a.orderedSets[0], in: a)
+        await drain()
+        r.c.toggleCheck(b.orderedSets[2], in: b)
+        await drain()
+        r.clock.advance(by: SessionAdvance.delay)
+        await drain()
+        #expect(r.c.carriedCollapse == [a.id])
+        r.c.stop()
+        #expect(r.c.carriedCollapse.isEmpty)
+    }
+
+    // MARK: superset rest
+
+    @Test func anOpenWarmUpOfThePartnerDoesNotSkipTheRest() {
+        let r = rig([1, 2])
+        let a = r.ex[0], b = r.ex[1]
+        a.supersetGroup = 1
+        b.supersetGroup = 1
+        r.c.toggleWarmup(b.orderedSets[0])              // B: an open warm-up…
+        r.c.toggleCheck(b.orderedSets[1], in: b)        // …and its working set done
+        r.c.skipRest()
+        r.c.toggleCheck(a.orderedSets[0], in: a)        // A's last set: the round is over
+        #expect(r.c.rest.isRunning)
+    }
+
+    @Test func anOpenWorkingSetOfThePartnerStillSkipsTheRest() {
+        let r = rig([1, 1])
+        let a = r.ex[0], b = r.ex[1]
+        a.supersetGroup = 1
+        b.supersetGroup = 1
+        r.c.toggleCheck(a.orderedSets[0], in: a)        // B1 follows straight away
+        #expect(!r.c.rest.isRunning)
     }
 
     @Test func anUncheckCancelsOnlyItsOwnExercise() async {

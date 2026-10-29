@@ -80,8 +80,12 @@ extension SessionController {
     /// After an uncheck: this exercise's pending work goes (others' stays), and a collapsed card opens again.
     func checkUndone(in ex: LocalSessionExercise) {
         collapsed.remove(ex.id)
+        carriedCollapse.removeAll { $0 == ex.id }
         pendingChecks.removeAll { $0.exerciseID == ex.id }
-        if pendingChecks.isEmpty { cancelAdvance() }
+        if pendingChecks.isEmpty {
+            advanceTask?.cancel()
+            advanceTask = nil
+        }
     }
 
     /// The session stops (finish, discard, another session): nothing is published after it.
@@ -89,6 +93,7 @@ extension SessionController {
         advanceTask?.cancel()
         advanceTask = nil
         pendingChecks = []
+        carriedCollapse = []
     }
 
     /// The planner's input from the live state.
@@ -100,12 +105,14 @@ extension SessionController {
             enabled: jumpToNext(), now: clock.now())
     }
 
-    /// Every pending check collapses what it finished; the latest one decides where the list goes.
+    /// Every pending check collapses what it finished; the latest one decides where the list goes. When the latest
+    /// stays, nothing collapses yet: a collapse without a scroll would move rows under the thumb, so it is carried to
+    /// the next jump.
     private func fireAdvance() {
         advanceTask = nil
         let checks = pendingChecks
         pendingChecks = []
-        var collapse: [UUID] = []
+        var collapse = carriedCollapse
         var latest: SessionAdvance.Step = .stay
         for ref in checks {
             // The set may have been unchecked or deleted meanwhile.
@@ -118,6 +125,11 @@ extension SessionController {
         }
         var seen = Set<UUID>()
         collapse = collapse.filter { seen.insert($0).inserted }
+        if latest == .stay {
+            carriedCollapse = collapse
+            return
+        }
+        carriedCollapse = []
         collapsed.formUnion(collapse)
         switch latest {
         case .stay:
