@@ -391,6 +391,9 @@ struct TodayContent {
         return value.map(Double.init)
     }
 
+    /// The orbit Today draws for the `.score` hero, and the widget from the snapshot: `OrbitGaugeMode(p)`.
+    var orbit: OrbitGaugeMode { OrbitGaugeMode(presentation) }
+
     /// The band word under the readiness gauge: not where a calibration note takes its line (S2, N1); row A's,
     /// and path L's rows as before.
     var showsReadinessBand: Bool { presentation.note?.isCalibration != true }

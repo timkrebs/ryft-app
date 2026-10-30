@@ -26,6 +26,7 @@ struct DebugComponentCatalog: View {
             controls
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 28) {
+                    section("OrbitGauge") { orbits }
                     section("MetricGauge") { gauges }
                     section("RangeBar") { rangeBars }
                     section("DeltaLabel") { deltas }
@@ -77,6 +78,31 @@ struct DebugComponentCatalog: View {
     }
 
     // MARK: sections
+
+    /// Today's gauge in its modes and sizes (synthetic values). Calibrating and pending are stubs until PR 2.
+    private var orbits: some View {
+        let scored = OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)
+        return VStack(alignment: .leading, spacing: 18) {
+            OrbitGauge(mode: .scored(scored), size: .large,
+                       caption: OrbitGauge.Caption(title: String(localized: "Overall readiness"),
+                                                   delta: MetricDelta(current: 71, reference: 67)))
+            HStack(alignment: .top, spacing: 12) {
+                OrbitGauge(mode: .scored(scored), size: .medium)
+                // A watch without HRV, no sleep yet: Recovery from what was scored, Sleep a hollow dot.
+                OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 64, recovery: 0.62, strain: 6.2)), size: .medium)
+            }
+            HStack(spacing: 12) {
+                OrbitGauge(mode: .scored(scored), size: .small)
+                OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 100, recovery: 1, sleep: 1, strain: 21)), size: .small)
+                OrbitGauge(mode: .scored(.empty), size: .small)
+            }
+            HStack(spacing: 12) {
+                OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .small)
+                OrbitGauge(mode: .pending(previous: scored), size: .small)
+                OrbitGauge(mode: .scored(scored), size: .custom(dial: 44))
+            }
+        }
+    }
 
     private var gauges: some View {
         VStack(alignment: .leading, spacing: 18) {

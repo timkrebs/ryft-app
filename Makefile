@@ -1,4 +1,4 @@
-.PHONY: config build test icon mark-svg check-mark-svg fonts screenshots ui-shots lint check-entitlements strings style format archive trackers
+.PHONY: orbit-shots config build test icon mark-svg check-mark-svg fonts screenshots ui-shots lint check-entitlements strings style format archive trackers
 
 # Ryft.xcodeproj is the source of truth (CLAUDE.md): change targets, capabilities
 # and packages in Xcode itself.
@@ -114,3 +114,13 @@ archive: config lint
 	xcodebuild -exportArchive -archivePath $(ARCHIVE) -exportPath build/export \
 		-exportOptionsPlist scripts/ExportOptions.plist -allowProvisioningUpdates
 	@echo "Upload build/export/Ryft.ipa with Xcode Organizer or: xcrun altool --upload-app -f build/export/Ryft.ipa -t ios"
+
+# The OrbitGauge's screenshots (light and dark) and the contrast numbers into build/orbit-shots/, for the design note
+# (docs/work/2026-10-29-orbit-gauge/design.md). Runs the two Orbit test suites on the simulator named by ORBIT_DEVICE.
+ORBIT_DEVICE ?= iPhone 17
+ORBIT_SHOTS := $(abspath build/orbit-shots)
+orbit-shots: config
+	mkdir -p $(ORBIT_SHOTS)
+	TEST_RUNNER_ORBIT_SHOTS_DIR=$(ORBIT_SHOTS) xcodebuild -scheme Ryft -destination 'platform=iOS Simulator,name=$(ORBIT_DEVICE)' \
+		-derivedDataPath $(DERIVED) -only-testing:RyftTests/OrbitGaugeShotsTests -only-testing:RyftTests/OrbitGaugeContrastTests \
+		-only-testing:RyftTests/OrbitGaugeGeometryTests test
