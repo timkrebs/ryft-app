@@ -79,6 +79,17 @@ is the auth session, and `Set` is `SessionSet` as in the mirror.
    its own merges).
    - **Proposal:** a tombstone, `"deleted": true` on the set, or
      `DELETE /v1/sessions/{id}/sets/{set_id}`.
+   - **Same for exercises (2026-10-29).** The same merge keeps an *exercise* the body
+     leaves out, and its sets with it. A user who removes an exercise, or replaces one
+     before doing a set (ticket T1), leaves a server row that still counts at finish
+     (a sets-less row also makes that exercise's next "Last time" empty). That
+     contradicts Train #1 / `API.md`, which say completion replaces the document whole.
+     The app can't observe this either; it rests on reading `train.Merge` (called at
+     `backend/internal/store/train.go:498`).
+   - **Proposal (extended):** exercise tombstones next to the set ones
+     (`"deleted": true` on the exercise, or `DELETE /v1/sessions/{id}/exercises/{exercise_id}`),
+     and on completion the documented behaviour: the body is the whole document, so
+     rows it leaves out are dropped.
 2. **A paused enrolment in `GET /v1/plans`.** `active` is "the active enrolment,
    or `null`", so after `DELETE /v1/plans/enrollment` the app can't tell which plan
    was paused. It remembers the plan id locally to offer Resume, which re-enrols
@@ -96,6 +107,75 @@ is the auth session, and `Set` is `SessionSet` as in the mirror.
      have the platform link a workout to its session by `session_id` (the external UUID)
      instead of creating a `ryft-session` workout. Then a second phone would see it as the
      session's too.
+4. **`last_time` per occurrence when a day holds an exercise more than once.** (P2, 2026-10-29;
+   beta feedback round 2 §4, T4) **Why.** `PlanTarget.last_time` is built per `exercise_id`
+   (`LastWorkingSets`, called once per plan exercise in `GET /v1/plans/today`): every completed
+   working set of that exercise in the newest completed session, ordered by the session exercise's
+   position, then `set_index`. If a day has the same exercise on two rows (synthetic example: "Face
+   pull" twice, 3 sets each), and the last session logged it twice, both rows get the same 6 sets.
+   The card then shows the joint list (cut at five) and the ghost values of the second row come
+   from the first row's sets. Same-exercise rows are legal in the plan builder and arise from
+   imports too.
+   - **What.** No new field, only the content of `last_time`. For plan exercises that share an
+     `exercise_id` in the day, the k-th plan row (by `position`) gets the working sets of the k-th
+     `session_exercise` of that exercise in the last session (by position). If the last session's
+     `session_exercise` carries the same `plan_exercise_id` as the row, prefer that one. If the
+     session has fewer occurrences than the day has rows, the rows past the last occurrence get
+     the last occurrence (or `[]`, your choice; please say which in API.md). A day with the
+     exercise once is unchanged. Please also document the order of `last_time` in API.md (today
+     `ORDER BY position, set_index` in `LastWorkingSets`, an implementation detail the app relies on).
+   - **Screens.** Train: the session card's "Last time" line and its ghost values (from a plan
+     day); the plan day preview.
+   - **App stop-gap (branch `fix/train-last-time-occurrence`).** The app splits the concatenated
+     list where `set_index` stops increasing, and gives the k-th row of the exercise the k-th run,
+     only when the number of runs equals the number of rows; otherwise it keeps the joint list.
+     Limit: it is a heuristic. `last_time` keeps only completed working sets, so an occurrence that
+     starts with an unchecked or warm-up set after a short occurrence continues the previous run
+     (the two merge, and the app falls back to the joint list); an occurrence with no working sets
+     disappears; a duplicate `set_index` after a merge splits a run; and it cannot use
+     `plan_exercise_id`. It is a no-op once you ship this: each row then gets one run.
+   - **Old clients.** Unchanged: they read `last_time` as before, and for a day with the exercise
+     once the content is identical.
+5. **Question, not a request: can an import move an untouched session row to another
+   `exercise_id`?** (2026-10-29) A future "re-map imported exercises" repair would need an
+   imported session's exercise rows to point to another exercise (a wrong match on import, e.g.
+   two source rows on one RYFT exercise). A resend of the same file today yields ids derived per
+   account and key, so we expect `unchanged` or, if the app touched the session, `newer_on_server`.
+   - **Question.** If a `POST /v1/train/import` item has the same session id but a changed
+     `exercise_id` on one or more rows, and the session is untouched since the import (no
+     `PUT`/edit by the app), does the server return `updated` and move the rows? Or is
+     `unchanged`/`newer_on_server` the answer regardless? If it is not possible, is there a
+     better way you would offer (a re-map endpoint, or deleting the imported sessions and
+     importing them again)?
+   - **Why we ask now.** To decide whether the repair is worth a design. Nothing in the app
+     depends on it yet.
+
+6. **Progression fallback counts an unlinked exercise twice (needed, P2, 2026-10-29).**
+   `PlanExerciseAttempts` counts a session exercise with `plan_exercise_id: null` as an
+   attempt for every plan exercise of the session's plan day with the same
+   `exercise_id` (`backend/internal/store/train.go:848`). When a user replaces planned
+   exercise A by B mid-session and B is also planned that day, the app sends one B row
+   linked to B's plan exercise and one B row with `plan_exercise_id: null` on the same
+   `plan_day_id`. Both count for B, so `NextTargetKG`
+   (`backend/internal/scoring/strength.go:476`) sees two attempts from one session and
+   can step up, or deload, twice. Which one of the two it counts first is arbitrary.
+   The app can't observe progression itself; this request rests on reading the platform
+   code at the lines above.
+   - **Proposal:** the fallback applies only when no exercise of the same session names
+     that plan exercise. Sessions without links (older apps, unmapped imports) keep
+     today's behaviour.
+   - **Screens affected:** Train > Today and the plan's next targets, after a replaced
+     exercise.
+7. **A movement pattern on `Exercise` (nice to have, 2026-10-29).** For "Similar" in the
+   replace sheet. Muscles alone can't tell a press from a fly. Until then the app ranks
+   by muscles, load type and kind (`Ryft/Train/ExerciseSimilarity.swift`).
+   - **Proposal:** `movement_pattern` (string?, **open** like `equipment`, the app must
+     tolerate unknown values), e.g. `horizontal_press`, `incline_press`,
+     `vertical_press`, `horizontal_pull`, `vertical_pull`, `squat`, `hinge`, `lunge`,
+     `fly`, `curl`, `triceps_extension`, `raise`, `carry`. Set on built-ins, optional on
+     `POST /v1/exercises`. The app ranks same-pattern exercises first and falls back to
+     muscles.
+   - **Screens affected:** the replace-exercise sheet in an active session.
 
 ## Charts and gauges (open, 2026-10-19)
 
@@ -276,6 +356,21 @@ not moving after 1 day." The tester wears a Garmin. App brief: `CLAUDE_FOLLOWUP_
    - **Ask.** On a `no_hrv` row with R ≥ 7, end calibration (`calibrating: false`, `state` banded from readiness), with
      `calibrating_reason` kept or a new field saying HRV is absent. If that's not the plan, document why `no_hrv` must stay
      calibrating, so the app copy can say so.
+
+6. **(New 2026-10-29, priority: medium) Calibration: `no_hrv` before 7 days of data when no source has ever delivered HRV.**
+   - **Why.** `no_hrv` needs `W >= 7` (API.md, `calibrating_reason`, rule 3). Before that, an account whose watch never writes
+     HRV to Apple Health (e.g. a Garmin, whose app does not share HRV) gets `short_history` with H = 0 for the whole first
+     week, and the app can't tell "HRV will come" from "HRV never comes". Seen in the beta with a Garmin: weeks of scored days without any HRV.
+     Screens affected: Today (the baseline counter and the learning note), the Today widget.
+   - **What (ask).** Decide `no_hrv` (or a new hint) earlier when the account has never received any HRV sample from any
+     source, e.g. after N >= 3 days with data, H = 0 and no HRV on the day. The platform picks the rule and documents it in
+     `calibrating_reason`. `calibrating_reason` is a closed enum, so a new value needs /v2; a hint would be a new optional
+     field (e.g. a bool on `DailyScore`). Reusing `no_hrv` needs no new shape.
+   - **What the app does meanwhile.**
+     - It counts the filling signal (resting HR, n of 7) with a note.
+     - It shows the "no HRV" state (N1) at once when the user's tracker setup says the source doesn't share HRV.
+     - Otherwise it still shows "0 of 7" when both counts are 0 and the day has neither signal.
+   - **Old clients.** An earlier `no_hrv` makes them show N1 earlier, which is correct. A new optional field is ignored.
 
 **Corrections to the evidence commands in the brief (from the debugger, T0):**
 - `scripts/user.sh <id>` prints `with HRV N` (`days_with_hrv_14d`) and the newest record per kind, not

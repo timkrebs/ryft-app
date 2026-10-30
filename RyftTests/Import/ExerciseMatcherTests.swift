@@ -383,4 +383,19 @@ struct ExerciseMatcherTests {
         #expect(!sources.isEmpty)
         #expect(unmatched == [])
     }
+
+    // MARK: Two rows, one exercise (beta feedback 2, §4)
+
+    /// Incline and flat barbell bench, a machine fly and a machine reverse fly: four exercises by default. Two of them
+    /// on one RYFT exercise can only come from a choice or a remembered match, and step 4 then says so.
+    @Test func benchesAndFliesStayApart() throws {
+        let library = try MappingFixture.builtins()
+        let matcher = ExerciseMatcher(library: library, aliases: ExerciseAliases.bundled, remembered: [:])
+        let keys = [("Incline Bench Press", "Barbell"), ("Bench Press", "Barbell"), ("Machine Fly", "Machine"),
+                    ("Reverse Machine Fly", "Machine")].map { matcher.key(name: $0.0, equipment: $0.1) }
+        let ids = matcher.match(keys).map(\.exerciseID)
+        let slugs = ids.map { id in library.first { $0.id == id }?.slug }
+        #expect(slugs == ["incline-bench-press", "bench-press", "pec-deck", "reverse-pec-deck"])
+        #expect(Set(ids.compactMap { $0 }).count == 4)
+    }
 }

@@ -46,6 +46,21 @@ final class SessionController: Identifiable {
 
     // MARK: replace and undo state (SessionController+Replace.swift)
 
+    /// The last replace while it can still be undone (one level deep). Set only by the replace extension.
+    var undo: ReplaceUndo?
+    /// A short note without Undo ("Your plan couldn't be changed"); cleared after its window.
+    var notice: SessionNotice?
+    /// Ends the undo window (`clock.sleep`), then commits: the held upload goes.
+    @ObservationIgnored var undoTask: Task<Void, Never>?
+    @ObservationIgnored var noticeTask: Task<Void, Never>?
+    /// The last plan save of "Also change the plan" or of its Undo; each one waits for the one before. A forward
+    /// save returns the plan as it was before it (nil: nothing was saved), which its Undo saves back.
+    @ObservationIgnored var planTask: Task<Plan?, Never>?
+    /// Replaces taken back with Undo (by `ReplaceUndo.id`): their late plan saves change nothing more.
+    @ObservationIgnored var undoneReplaces: Set<UUID> = []
+    /// The keypad's field when Replace was chosen (the sheet closes the keypad); Undo puts it back.
+    @ObservationIgnored var focusBeforeReplace: SetFocus?
+
     nonisolated var id: UUID { sessionID }
     private nonisolated let sessionID: UUID
 
@@ -115,6 +130,7 @@ final class SessionController: Identifiable {
 
     /// The app went to the background mid-workout.
     func pause() {
+        commitUndo()
         machine.enter(.paused)
     }
 
@@ -125,10 +141,12 @@ final class SessionController: Identifiable {
         followRest()
     }
 
+    /// Finish, discard or an account change: an open undo goes without a write (nothing commits it later).
     func stop() {
         ticker?.cancel()
         ticker = nil
         cancelAdvance()
+        dropUndo()
     }
 
     // MARK: derived
@@ -215,6 +233,7 @@ final class SessionController: Identifiable {
     }
 
     func delete(_ set: LocalSet, from ex: LocalSessionExercise) {
+        dropUndo(touching: ex.id)
         session.deletedSetIDs.append(set.id)
         if focus?.setID == set.id { focus = nil }
         ex.sets.removeAll { $0.id == set.id }
@@ -227,6 +246,7 @@ final class SessionController: Identifiable {
     }
 
     func changed(_ set: LocalSet) {
+        dropUndo(touching: set.exercise?.id)
         set.updatedAt = .now
         edited()
     }
@@ -362,12 +382,15 @@ final class SessionController: Identifiable {
     // MARK: exercises
 
     func add(_ exercise: Exercise) {
+        dropUndo()
         SessionFactory.add(exercise, to: session, sets: 3, in: store)
         edited()
     }
 
     func remove(_ ex: LocalSessionExercise) {
+        dropUndo()
         session.deletedSetIDs.append(contentsOf: ex.sets.map(\.id))
+        session.deletedExerciseIDs.append(ex.id)
         if let group = ex.supersetGroup { ungroup(group, leaving: ex) }
         session.exercises.removeAll { $0.id == ex.id }
         store.context.delete(ex)
@@ -376,6 +399,7 @@ final class SessionController: Identifiable {
     }
 
     func move(from source: IndexSet, to destination: Int) {
+        dropUndo()
         var list = exercises
         list.move(fromOffsets: source, toOffset: destination)
         for (i, ex) in list.enumerated() { ex.position = i }
@@ -384,6 +408,7 @@ final class SessionController: Identifiable {
 
     /// Links an exercise with the one below it, or takes it out of its superset.
     func toggleSuperset(_ ex: LocalSessionExercise) {
+        dropUndo()
         if let group = ex.supersetGroup {
             ex.supersetGroup = nil
             ungroup(group, leaving: ex)
@@ -494,6 +519,7 @@ final class SessionController: Identifiable {
         guard machine.enter(.finishing) else { return nil }
         defer { machine.enter(.completed) }
         stop()
+        endUndo()
         rest.skip()
         liveActivity?.end()
         focus = nil
@@ -511,6 +537,7 @@ final class SessionController: Identifiable {
     func discard() {
         machine.enter(.discarded)
         stop()
+        endUndo()
         liveActivity?.end()
         sync.discard(session)
     }

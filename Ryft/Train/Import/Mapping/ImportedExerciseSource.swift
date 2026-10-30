@@ -12,6 +12,11 @@ struct ImportedExerciseSource: Equatable, Sendable {
     var plusLoads: PlusLoadSummary?
     /// Some sets log assistance (`-N`): imported as reps only (`.assistedLoad`).
     var hasAssistedSets = false
+
+    /// " · Machine" after the name; empty without equipment. Step 4's row title draws it in a second colour.
+    var equipmentSuffix: String { equipment.map { " · \($0)" } ?? "" }
+    /// "Reverse Fly · Machine": the row title as one string, for naming the row elsewhere ("Also used for …").
+    var displayName: String { name + equipmentSuffix }
 }
 
 extension ExerciseNormalizer {
