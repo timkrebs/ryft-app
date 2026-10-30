@@ -342,50 +342,78 @@ extension TodayHero {
     }
 }
 
-/// Consumes Today's once-per-process gauge entrance (architecture.md §4) where a gauge is shown: on the gauge's first
-/// appearance while the scene is active, or when the scene becomes active with the gauge already there (a cold launch
-/// can draw its first frames while the scene is still inactive; the entrance plays from those). Not at init: a
-/// process launched in the background (HealthKit delivery, `BGAppRefreshTask`) and opened later still plays it once.
-/// A gauge first drawn while the scene was in the background played unseen; it is built again when the scene comes
-/// forward, so the user sees the entrance. The import card shows no gauge and consumes nothing.
+/// The decisions behind Today's once-per-process gauge entrance (architecture.md §4), pure so every row is tested
+/// (`TodayGaugeEntranceTests`). A gauge consumes the flag on its first appearance while the scene is active, or when
+/// the scene becomes active with the gauge already there (a cold launch draws its first frames while still inactive;
+/// the entrance plays from those). Not at init: a process launched in the background (HealthKit delivery,
+/// `BGAppRefreshTask`) and opened later still plays it once. A gauge that played where nobody could see it (first
+/// drawn in the background, or the scene went to the background before it was ever active) is built again once when
+/// the scene comes forward. The import card shows no gauge and consumes nothing.
+enum TodayGaugeEntrance {
+    enum Event: Equatable {
+        /// The gauge appeared (built for the first time, or built again), in the scene phase passed with it.
+        case appeared
+        /// The scene changed to the phase passed with it while the gauge was there.
+        case phaseChanged
+    }
+
+    struct Outcome: Equatable {
+        /// Call `TodayViewModel.gaugeDidAssemble()`.
+        var consume = false
+        /// Build the gauge again: the new instance latches `.assemble` (the flag still holds) and plays it.
+        var rebuild = false
+        /// This instance has played (or is playing) its entrance unseen; the next phase forward builds it again.
+        var playedUnseen = false
+    }
+
+    /// `flag`: `TodayViewModel.assemblesGauge`. `phase`: the scene phase now (after the change, for `.phaseChanged`).
+    static func decide(flag: Bool, phase: ScenePhase, event: Event, playedUnseen: Bool) -> Outcome {
+        // Consumed: nothing plays again in this process, and nothing is remembered.
+        guard flag else { return Outcome() }
+        switch (event, phase) {
+        case (_, .background):
+            // Whatever this instance plays now, or has played while inactive, nobody sees.
+            return Outcome(playedUnseen: true)
+        case (.appeared, .active):
+            return Outcome(consume: true)
+        case (.appeared, _):
+            // Inactive: on screen (a cold launch's first frames); consumed when the scene becomes active.
+            return Outcome()
+        case (.phaseChanged, _) where playedUnseen:
+            // Once: the rebuilt instance consumes in its own `.appeared` (active) or at the next `.active`.
+            return Outcome(rebuild: true)
+        case (.phaseChanged, .active):
+            return Outcome(consume: true)
+        case (.phaseChanged, _):
+            return Outcome()
+        }
+    }
+}
+
+/// Applies `TodayGaugeEntrance.decide` where a gauge is shown; it decides nothing itself.
 private struct GaugeEntranceConsumer: ViewModifier {
     let model: TodayViewModel
     @Environment(\.scenePhase) private var scenePhase
-    /// The gauge's identity: bumped only to build again a gauge that played unseen in the background.
+    /// The gauge's identity: bumped only to build again a gauge that played unseen.
     @State private var run = 0
     @State private var playedUnseen = false
 
     func body(content: Content) -> some View {
         content
             // Inside the identity: a gauge built again appears again.
-            .onAppear(perform: appeared)
+            .onAppear { apply(.appeared, phase: scenePhase) }
             .id(run)
-            .onChange(of: scenePhase) { _, phase in sceneChanged(to: phase) }
+            .onChange(of: scenePhase) { _, phase in apply(.phaseChanged, phase: phase) }
     }
 
-    private func appeared() {
-        guard model.assemblesGauge else { return }
-        switch scenePhase {
-        case .active:
-            model.gaugeDidAssemble()
-        case .background:
-            playedUnseen = true
-        default:
-            // Inactive: on screen (a cold launch's first frames); consumed when the scene becomes active.
-            break
-        }
-        Self.log.debug("gauge entrance appeared, scene \(String(describing: scenePhase), privacy: .public)")
-    }
-
-    private func sceneChanged(to phase: ScenePhase) {
-        guard model.assemblesGauge, phase != .background else { return }
-        if playedUnseen {
-            // A new instance latches `.assemble` (the flag still holds) and consumes it in `appeared`, or here
-            // when the scene turns active.
-            playedUnseen = false
-            run += 1
-        } else if phase == .active {
-            model.gaugeDidAssemble()
+    private func apply(_ event: TodayGaugeEntrance.Event, phase: ScenePhase) {
+        let flag = model.assemblesGauge
+        let outcome = TodayGaugeEntrance.decide(flag: flag, phase: phase, event: event, playedUnseen: playedUnseen)
+        if outcome.playedUnseen != playedUnseen { playedUnseen = outcome.playedUnseen }
+        if outcome.rebuild { run += 1 }
+        if outcome.consume { model.gaugeDidAssemble() }
+        if flag {
+            Self.log.debug("gauge entrance \(String(describing: event), privacy: .public), scene \(String(describing: phase), privacy: .public)")
         }
     }
 
