@@ -35,11 +35,14 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
   so do runs for different PRs. A second runner on the same Mac (its own directory and
   service) would run two jobs at once.
 - **Awake for the nightly.** The 00:30 UTC run waits until the Mac is awake.
-- **Its simulator.** `scripts/ci-simulator.sh` creates a device for every job, "RYFT CI <run
+- **Its simulator.** `scripts/ci-simulator.sh` creates a device for every CI job, "RYFT CI <run
   id>-<attempt>", and never reuses one: a reused "RYFT CI" passed its first job and hung the
   next ones (2026-10-30). `scripts/ci-simulator-cleanup.sh` (an `if: always()` step) deletes it
   and its parallel-testing clones (they live in `~/Library/Developer/XCTestDevices`, 277 had
-  piled up), and any "RYFT CI*" device older than a day.
+  piled up), and any device named like ours ("RYFT CI", "RYFT CI local", "RYFT CI <run>-<attempt>")
+  older than a day. The step has a 3-minute limit and can't fail the job. A local run (no
+  `GITHUB_RUN_ID`) reuses one "RYFT CI local" device, so parallel sessions don't delete each
+  other's booted simulator.
 - **Load.** Builds on the Mac compete with whatever else it is doing. The test time limits
   (60 s per unit test, 3 minutes per UI test) were set for GitHub's runners.
 

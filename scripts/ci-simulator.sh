@@ -32,18 +32,31 @@ runtime, device = match
 print("ci-simulator: %s on iOS %s (%s)" % (device["name"], runtime["version"], runtime.get("buildversion", "?")), file=sys.stderr)
 print(device["identifier"], runtime["identifier"])
 ' "$want")
-# A device of its own for every job, never reused: the persistent "RYFT CI" device passed
-# its first job and hung the next ones ("test runner hung before establishing connection",
-# 2026-10-30, three times). The name is unique per workflow attempt, "RYFT CI <run id>-<attempt>"
-# (CI_SIM_NAME overrides it); a leftover of the same name is deleted first.
+# In CI, a device of its own for every job, never reused: the persistent "RYFT CI" device
+# passed its first job and hung the next ones ("test runner hung before establishing
+# connection", 2026-10-30, three times). The name is unique per workflow attempt,
+# "RYFT CI <run id>-<attempt>"; a leftover of the same name is deleted first, and
 # ci-simulator-cleanup.sh removes the device and its clones after the job.
-name="${CI_SIM_NAME:-RYFT CI ${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}"
-xcrun simctl list -j devices | python3 -c '
+# Locally (no GITHUB_RUN_ID) one "RYFT CI local" device is reused: deleting it per build would
+# pull a booted device out from under another session's tests. CI_SIM_NAME overrides both.
+if [ -n "${GITHUB_RUN_ID:-}" ] || [ -n "${CI_SIM_NAME:-}" ]; then
+  fresh=1
+  name="${CI_SIM_NAME:-RYFT CI ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT:-1}}"
+else
+  fresh=0
+  name="RYFT CI local"
+fi
+existing=$(xcrun simctl list -j devices | python3 -c '
 import json, sys
 for devices in json.load(sys.stdin)["devices"].values():
     for d in devices:
         if d["name"] == sys.argv[1]:
             print(d["udid"])
-' "$name" | while read -r old; do xcrun simctl delete "$old" || true; done
-udid=$(xcrun simctl create "$name" $pick)
+' "$name")
+if [ "$fresh" = 0 ] && [ -n "$existing" ]; then
+  udid=$(echo "$existing" | head -n 1)
+else
+  for old in $existing; do xcrun simctl delete "$old" || true; done
+  udid=$(xcrun simctl create "$name" "${pick% *}" "${pick#* }")
+fi
 echo "platform=iOS Simulator,id=$udid"
