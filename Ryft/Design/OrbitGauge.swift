@@ -51,6 +51,8 @@ struct OrbitGauge: View {
     /// Latched at the first appearance (`entrance` of the initialiser): this instance plays the entrance, once. Later
     /// values of the parameter are ignored, so Today consuming its flag right after the first frame cannot cut it short.
     @State private var staged: Bool
+    /// Latched with `staged`: `Entrance.assembleOverTracks`, the tracks were already on screen (Today's placeholder).
+    @State private var overTracks: Bool
     /// When the entrance started (its first appearance); the clock is the time since, read by a `TimelineView`, so no
     /// transaction animates anything but what the view draws from it (a layout change around the gauge is never
     /// dragged along for 850 ms).
@@ -74,9 +76,10 @@ struct OrbitGauge: View {
         self.identifier = identifier
         self.animatesFill = animatesFill
         self.breathes = breathes
-        self.frozenAt = entrance == .assemble ? frozenAt : nil
-        let plays = entrance == .assemble
+        let plays = entrance.plays
+        self.frozenAt = plays ? frozenAt : nil
         _staged = State(initialValue: plays)
+        _overTracks = State(initialValue: entrance == .assembleOverTracks)
         _entranceDone = State(initialValue: !plays)
         _lowPower = State(initialValue: plays && frozenAt == nil && ProcessInfo.processInfo.isLowPowerModeEnabled)
     }
@@ -125,8 +128,9 @@ struct OrbitGauge: View {
             // The arcs and the dots ride the same animation; the number rolls with it.
             .animation(reduceMotion ? Theme.Motion.quick : Theme.Motion.slow, value: mode)
             if let shownCaption {
-                captionLines(shownCaption)
-                    .opacity(captionOpacity(elapsed))
+                // Over the placeholder its caption title was already there: only what comes with the score fades in.
+                captionLines(shownCaption, titleOpacity: overTracks ? 1 : captionOpacity(elapsed),
+                             detailOpacity: captionOpacity(elapsed))
             }
         }
     }
@@ -177,10 +181,11 @@ struct OrbitGauge: View {
     @ViewBuilder
     private func shownDrawing(elapsed: Double) -> some View {
         if staged {
-            OrbitEntranceStage(elapsed: elapsed, reduced: reducesEntrance, done: entranceDone, mode: displayedMode,
-                               size: size, palette: .assets, settled: drawing, centre: centre)
+            OrbitEntranceStage(elapsed: elapsed, reduced: reducesEntrance, overTracks: overTracks, done: entranceDone,
+                               mode: displayedMode, size: size, palette: .assets,
+                               settled: drawing(marksOpacity: marksFade(elapsed)), centre: centre)
         } else {
-            drawing
+            drawing()
         }
     }
 
@@ -206,6 +211,13 @@ struct OrbitGauge: View {
         return OrbitEntranceFrame(seconds: elapsed).glide
     }
 
+    /// Reduce Motion or Low Power Mode over tracks already on screen: the marks and the number fade in, the tracks
+    /// stay. 1 otherwise, and once done, so the last frame is the static render.
+    private func marksFade(_ elapsed: Double) -> Double {
+        guard staged, overTracks, reducesEntrance, !entranceDone else { return 1 }
+        return OrbitEntranceFrame.eased(elapsed, 0, OrbitEntranceFrame.fadeDuration)
+    }
+
     /// On the first appearance only: the clock starts. The curves are in `OrbitEntranceFrame`.
     private func startEntrance() {
         guard staged, start == nil, frozenAt == nil else { return }
@@ -214,13 +226,15 @@ struct OrbitGauge: View {
 
     // MARK: drawing
 
-    private var drawing: some View {
+    /// `marksOpacity`: the marks and the number, not the tracks (`marksFade`); 1 in the static drawing.
+    private func drawing(marksOpacity: Double = 1) -> some View {
         OrbitGaugeDrawing(mode: displayedMode, size: size, palette: .assets, marks: { marks in
             // Pending: the dimmed marks breathe. One phase (no motion) otherwise.
             marks.phaseAnimator(mode.isPending && breathes && !reduceMotion ? [1.0, 0.75] : [1.0]) { marks, opacity in
                 marks.compositingGroup().opacity(opacity)
             } animation: { _ in .easeInOut(duration: 1.4) }
-        }, centre: { centre })
+                .opacity(marksOpacity)
+        }, centre: { centre.opacity(marksOpacity) })
     }
 
     @ViewBuilder
@@ -268,12 +282,13 @@ struct OrbitGauge: View {
     /// The caption as a section label (it scales with Dynamic Type; the gauge doesn't), then the band word and the
     /// change in one line when it fits; at large text sizes (German at AX3) the band word over the change, wrapping:
     /// never cut off.
-    private func captionLines(_ caption: Caption) -> some View {
+    private func captionLines(_ caption: Caption, titleOpacity: Double = 1, detailOpacity: Double = 1) -> some View {
         VStack(spacing: 4) {
             Text(caption.title)
                 .ryftLabelStyle()
                 .multilineTextAlignment(.center)
                 .neverBreaksAWord(caption.title)
+                .opacity(titleOpacity)
             let band = bandLabel(caption)
             if band != nil || caption.delta != nil {
                 ViewThatFits(in: .horizontal) {
@@ -291,6 +306,7 @@ struct OrbitGauge: View {
                     }
                     .multilineTextAlignment(.center)
                 }
+                .opacity(detailOpacity)
             }
         }
     }

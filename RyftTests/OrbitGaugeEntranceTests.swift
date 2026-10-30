@@ -35,6 +35,43 @@ import UIKit
         #expect(first == empty)
     }
 
+    // MARK: over tracks (Today replaces its placeholder)
+
+    @Test func overTracksEndsOnTheStaticRenderWithAndWithoutReduceMotion() {
+        for (name, mode) in Self.modes {
+            for scheme in [ColorScheme.dark, .light] {
+                for reduced in [false, true] {
+                    let still = png(OrbitGauge(mode: mode, size: .large, animatesFill: false, breathes: false)
+                                        .environment(\.orbitForcesReducedMotion, reduced), scheme: scheme)
+                    let end = png(OrbitGauge(mode: mode, size: .large, animatesFill: false, breathes: false,
+                                             entrance: .assembleOverTracks, frozenAt: OrbitEntranceFrame.end)
+                                    .environment(\.orbitForcesReducedMotion, reduced), scheme: scheme)
+                    #expect(still != nil && still == end, "\(name) \(scheme) reduced \(reduced)")
+                }
+            }
+        }
+    }
+
+    @Test func overTracksTheFirstFrameAlreadyHasTheTracks() {
+        let empty = png(Color.clear.frame(width: 172, height: 172), scheme: .dark)
+        for reduced in [false, true] {
+            let first = png(OrbitGauge(mode: .scored(.previewScored), size: .large, entrance: .assembleOverTracks,
+                                       frozenAt: 0).environment(\.orbitForcesReducedMotion, reduced), scheme: .dark)
+            let plain = png(OrbitGauge(mode: .scored(.previewScored), size: .large, entrance: .assemble, frozenAt: 0)
+                                .environment(\.orbitForcesReducedMotion, reduced), scheme: .dark)
+            #expect(first != nil && first != empty, "the tracks never vanish, reduced \(reduced)")
+            #expect(first != plain, "unlike the full entrance, reduced \(reduced)")
+        }
+        for track in [OrbitEntranceFrame.Track.strain, .inner, .centre] {
+            #expect(OrbitEntranceFrame(seconds: 0, overTracks: true).trim(track) == 1)
+            #expect(OrbitEntranceFrame(seconds: 0).trim(track) == 0)
+        }
+        // The rest of the timeline is the full entrance's.
+        let over = OrbitEntranceFrame(seconds: 0.4, overTracks: true), full = OrbitEntranceFrame(seconds: 0.4)
+        #expect(over.glide == full.glide)
+        for orbit in OrbitGaugeGeometry.Orbit.allCases { #expect(over.flight(orbit) == full.flight(orbit)) }
+    }
+
     @Test func noneIgnoresAFrozenClock() {
         let a = png(OrbitGauge(mode: .scored(.previewScored), size: .large), scheme: .dark)
         let b = png(OrbitGauge(mode: .scored(.previewScored), size: .large, entrance: .none, frozenAt: 0.1), scheme: .dark)

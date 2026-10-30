@@ -21,6 +21,9 @@ struct TodayView: View {
     @State private var calibrationLink: CalibrationLink?
     /// Check sync's model for that sheet: made on the tap, once, not on every redraw.
     @State private var linkCheck: TrackerCheckModel?
+    /// The empty orbit (data on its way) has been on screen while the gauge still assembles: the gauge with data then
+    /// assembles over its tracks (`TodayGaugeEntrance`).
+    @State private var gaugePlaceholderSeen = false
 
     var body: some View {
         // The day's facts and decision, read once for the whole body.
@@ -172,7 +175,7 @@ struct TodayView: View {
                     OrbitGauge(mode: day.orbit, size: .large,
                                caption: OrbitGauge.Caption(title: String(localized: "Baselines")),
                                identifier: "today.baselineGauge", entrance: gaugeEntrance(day.orbit))
-                        .modifier(GaugeEntranceConsumer(model: model, mode: day.orbit))
+                        .modifier(gaugeEntranceConsumer(day.orbit))
                     // Why the nights don't fill (row B over a long history without HRV), or why only one signal's
                     // count (F3); read on its own after the gauge.
                     if let note = day.gaugeNote { noteBlock(note, readWithGauge: false) }
@@ -196,7 +199,13 @@ struct TodayView: View {
     /// A gauge with something to show assembles until one has been seen in this process (`TodayGaugeEntrance`).
     /// A gauge latches this when it is built, so a later change (another hero row, a refresh) builds a plain one.
     private func gaugeEntrance(_ mode: OrbitGaugeMode) -> OrbitGauge.Entrance {
-        TodayGaugeEntrance.entrance(flag: model.assemblesGauge, mode: mode)
+        TodayGaugeEntrance.entrance(flag: model.assemblesGauge, mode: mode, placeholderSeen: gaugePlaceholderSeen)
+    }
+
+    private func gaugeEntranceConsumer(_ mode: OrbitGaugeMode) -> GaugeEntranceConsumer {
+        GaugeEntranceConsumer(model: model, mode: mode) {
+            if !gaugePlaceholderSeen { gaugePlaceholderSeen = true }
+        }
     }
 
     /// The orbit: readiness in the centre, Recovery and Sleep on the inner orbit, Strain on the outer; under it the
@@ -207,7 +216,7 @@ struct TodayView: View {
                                                showsBand: day.showsReadinessBand),
                    accessibilityNote: day.gaugeSpokenNote, identifier: "today.readinessGauge",
                    entrance: gaugeEntrance(day.orbit))
-            .modifier(GaugeEntranceConsumer(model: model, mode: day.orbit))
+            .modifier(gaugeEntranceConsumer(day.orbit))
     }
 
     /// A night not scored yet: the latest scored day's orbit, dimmed, breathing until scoring takes longer
@@ -218,7 +227,7 @@ struct TodayView: View {
             OrbitGauge(mode: day.orbit, size: .large, accessibilityNote: day.pendingSpokenNote,
                        identifier: "today.pendingGauge", breathes: !day.pendingIsStatic,
                        entrance: gaugeEntrance(day.orbit))
-                .modifier(GaugeEntranceConsumer(model: model, mode: day.orbit))
+                .modifier(gaugeEntranceConsumer(day.orbit))
             if let scored = day.pendingScoredDay {
                 Text(scored)
                     .font(.ryft(.caption))
@@ -373,6 +382,9 @@ enum TodayGaugeEntrance {
         var rebuild = false
         /// This instance has played (or is playing) its entrance unseen; the next time it is seen it is built again.
         var playedUnseen = false
+        /// A placeholder (nothing to show) is on screen while the flag holds: the gauge with something to show that
+        /// replaces it assembles over its tracks. Remembered by Today; never reset (the flag ends it).
+        var placeholderSeen = false
     }
 
     /// Something worth assembling: a day with at least one score, the baselines filling, or a pending night over a
@@ -386,17 +398,30 @@ enum TodayGaugeEntrance {
         }
     }
 
-    /// The gauge's entrance parameter: `.assemble` while the flag holds and the gauge has something to show.
-    static func entrance(flag: Bool, mode: OrbitGaugeMode) -> OrbitGauge.Entrance {
-        flag && hasSomethingToShow(mode) ? .assemble : .none
+    /// The gauge's entrance parameter: while the flag holds and the gauge has something to show, `.assemble`, or
+    /// `.assembleOverTracks` when it replaces a placeholder that was on screen (its tracks never vanish and trim in
+    /// again). `.none` otherwise.
+    static func entrance(flag: Bool, mode: OrbitGaugeMode, placeholderSeen: Bool = false) -> OrbitGauge.Entrance {
+        guard flag, hasSomethingToShow(mode) else { return .none }
+        return placeholderSeen ? .assembleOverTracks : .assemble
+    }
+
+    /// Whether the gauge's identity counts it as showable. Only while the flag holds: data that becomes showable then
+    /// makes a new instance, which latches the entrance. Once consumed it is fixed, so data that comes or goes later
+    /// animates the values in one instance (PR 1) instead of popping in. Consuming happens only on a showable gauge,
+    /// so the identity does not change at that moment.
+    static func identityShowable(flag: Bool, showable: Bool) -> Bool {
+        !flag || showable
     }
 
     /// `flag`: `TodayViewModel.assemblesGauge`. `showable`: `hasSomethingToShow` of the gauge's mode. `phase`: the
     /// scene phase now (after the change, for `.phaseChanged`).
     static func decide(flag: Bool, showable: Bool, phase: ScenePhase, event: Event, playedUnseen: Bool) -> Outcome {
         // Consumed: nothing plays again in this process, and nothing is remembered. Nothing to show: this gauge
-        // doesn't assemble and doesn't count; the one with data is a new instance and starts afresh.
-        guard flag, showable else { return Outcome() }
+        // doesn't assemble and doesn't count (the one with data is a new instance and starts afresh); on screen, it
+        // is a placeholder whose tracks the next gauge keeps.
+        guard flag else { return Outcome() }
+        guard showable else { return Outcome(placeholderSeen: phase != .background) }
         switch (event, phase) {
         case (_, .background):
             // Whatever this instance plays now, or has played while inactive, nobody sees.
@@ -423,15 +448,17 @@ enum TodayGaugeEntrance {
 /// Applies `TodayGaugeEntrance.decide` where a gauge is shown; it decides nothing itself.
 private struct GaugeEntranceConsumer: ViewModifier {
     let model: TodayViewModel
-    /// The gauge's mode: whether it has something to show is part of its identity.
+    /// The gauge's mode: whether it has something to show is part of its identity while the flag holds.
     let mode: OrbitGaugeMode
+    /// Today remembers that a placeholder was on screen (`Outcome.placeholderSeen`).
+    let placeholderSeen: () -> Void
     @Environment(\.scenePhase) private var scenePhase
     /// Bumped only to build again a gauge that played unseen.
     @State private var run = 0
     @State private var playedUnseen = false
 
-    /// The gauge's identity: a new instance when its data first becomes showable (it latches `.assemble` then, while
-    /// the flag holds), and when one that played unseen is built again.
+    /// The gauge's identity: a new instance when its data becomes showable while the flag holds (it latches its
+    /// entrance then; `TodayGaugeEntrance.identityShowable`), and when one that played unseen is built again.
     private struct Identity: Hashable {
         var run: Int
         var showable: Bool
@@ -443,7 +470,8 @@ private struct GaugeEntranceConsumer: ViewModifier {
         content
             // Inside the identity: a gauge built again appears again.
             .onAppear { apply(.appeared, phase: scenePhase) }
-            .id(Identity(run: run, showable: showable))
+            .id(Identity(run: run,
+                         showable: TodayGaugeEntrance.identityShowable(flag: model.assemblesGauge, showable: showable)))
             .onChange(of: scenePhase) { _, phase in apply(.phaseChanged, phase: phase) }
     }
 
@@ -454,6 +482,7 @@ private struct GaugeEntranceConsumer: ViewModifier {
         if outcome.playedUnseen != playedUnseen { playedUnseen = outcome.playedUnseen }
         if outcome.rebuild { run += 1 }
         if outcome.consume { model.gaugeDidAssemble() }
+        if outcome.placeholderSeen { placeholderSeen() }
         if flag {
             let what = "\(event) in \(phase), showable \(showable)"
             Self.log.debug("gauge entrance: \(what, privacy: .public)")

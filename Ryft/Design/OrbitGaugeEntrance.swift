@@ -10,6 +10,14 @@ extension OrbitGauge {
     enum Entrance: Hashable, Sendable {
         case none
         case assemble
+        /// The same entrance over tracks already on screen: Today replaces a placeholder (the empty orbit, drawn while
+        /// its data is on its way) with the gauge that has it. Tracks and the centre ring are there from the first
+        /// frame, never trimmed in again; the dots fly in, then the glide. Under Reduce Motion or Low Power Mode the
+        /// marks and the number fade in over the tracks.
+        case assembleOverTracks
+
+        /// This instance plays an entrance.
+        var plays: Bool { self != .none }
     }
 }
 
@@ -39,9 +47,13 @@ struct OrbitEntranceFrame: Equatable {
     }
 
     var seconds: Double
+    /// `Entrance.assembleOverTracks`: the tracks are drawn from the start (no trim).
+    var overTracks = false
 
-    /// How much of its track an orbit has drawn, 0...1: strain first, the inner orbit next, the centre ring last.
+    /// How much of its track an orbit has drawn, 0...1: strain first, the inner orbit next, the centre ring last. All
+    /// of it from the start over tracks already on screen.
     func trim(_ track: Track) -> Double {
+        if overTracks { return 1 }
         switch track {
         case .strain: return Self.eased(seconds, 0, 0.15)
         case .inner: return Self.eased(seconds, 0.05, 0.20)
@@ -84,6 +96,9 @@ struct OrbitEntranceFrame: Equatable {
 struct OrbitEntranceStage<Settled: View, Centre: View>: View {
     var elapsed: Double
     let reduced: Bool
+    /// `Entrance.assembleOverTracks`: the choreography's tracks are whole from the start; under `reduced` the caller
+    /// fades the marks inside `settled` and the stage leaves its opacity alone (the tracks never fade).
+    var overTracks = false
     /// The entrance has finished (its completion ran): the settled drawing, whatever `reduced` has become since
     /// (Reduce Motion turned off after a fade ended must not land on a frame of the choreography).
     var done = false
@@ -97,8 +112,9 @@ struct OrbitEntranceStage<Settled: View, Centre: View>: View {
     /// rebuilt on the way.
     var body: some View {
         if done || reduced || elapsed >= OrbitEntranceFrame.end {
+            let fades = reduced && !done && !overTracks
             settled
-                .opacity(done || !reduced ? 1 : OrbitEntranceFrame.eased(elapsed, 0, OrbitEntranceFrame.fadeDuration))
+                .opacity(fades ? OrbitEntranceFrame.eased(elapsed, 0, OrbitEntranceFrame.fadeDuration) : 1)
                 .transition(.identity)
         } else {
             choreography.transition(.identity)
@@ -108,7 +124,7 @@ struct OrbitEntranceStage<Settled: View, Centre: View>: View {
     // MARK: the choreography
 
     private var choreography: some View {
-        let frame = OrbitEntranceFrame(seconds: elapsed)
+        let frame = OrbitEntranceFrame(seconds: elapsed, overTracks: overTracks)
         let m = OrbitGaugeGeometry.metrics(forDial: size.dial)
         let values = mode.drawnValues
         let calibration = mode.calibratingValue
@@ -276,6 +292,19 @@ private struct EntranceReplay: View {
                     OrbitGauge(mode: .pending(previous: .previewScored), size: .small, breathes: false,
                                entrance: .assemble, frozenAt: t)
                 }
+            }
+        }
+    }
+}
+
+#Preview("OrbitGauge · entrance over tracks", traits: .sizeThatFitsLayout) {
+    // Today's placeholder (the empty orbit) first, then the gauge that replaces it frozen at t = 0, 0.25, 0.6 s and
+    // the end: the tracks are whole from the first frame, the dots fly in over them.
+    SchemePair {
+        HStack(spacing: 4) {
+            OrbitGauge(mode: .scored(.empty), size: .small)
+            ForEach([0.0, 0.25, 0.6, OrbitEntranceFrame.end], id: \.self) { t in
+                OrbitGauge(mode: .scored(.previewScored), size: .small, entrance: .assembleOverTracks, frozenAt: t)
             }
         }
     }

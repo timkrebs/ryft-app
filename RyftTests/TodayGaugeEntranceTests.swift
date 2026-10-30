@@ -81,6 +81,10 @@ struct TodayGaugeEntranceTests {
             #expect(TodayGaugeEntrance.hasSomethingToShow(mode) == shows, "\(name)")
             #expect(TodayGaugeEntrance.entrance(flag: true, mode: mode) == (shows ? .assemble : .none), "\(name)")
             #expect(TodayGaugeEntrance.entrance(flag: false, mode: mode) == .none, "consumed: \(name)")
+            #expect(TodayGaugeEntrance.entrance(flag: true, mode: mode, placeholderSeen: true)
+                        == (shows ? .assembleOverTracks : .none), "after a placeholder: \(name)")
+            #expect(TodayGaugeEntrance.entrance(flag: false, mode: mode, placeholderSeen: true) == .none,
+                    "consumed, after a placeholder: \(name)")
         }
     }
 
@@ -129,10 +133,10 @@ struct TodayGaugeEntranceTests {
                     // Flag consumed: nothing, in every phase and event, whatever was remembered.
                     rows.append(Row(name: "consumed, \(phase), \(event), unseen \(unseen): nothing", flag: false,
                                     phase: phase, event: event, playedUnseen: unseen, expected: Outcome()))
-                    // Nothing to show: never consumed, never played unseen, never rebuilt.
-                    rows.append(Row(name: "nothing to show, \(phase), \(event), unseen \(unseen): nothing",
-                                    showable: false, phase: phase, event: event, playedUnseen: unseen,
-                                    expected: Outcome()))
+                    // Nothing to show: never consumed, never played unseen, never rebuilt; a placeholder on screen.
+                    rows.append(Row(name: "nothing to show, \(phase), \(event), unseen \(unseen)", showable: false,
+                                    phase: phase, event: event, playedUnseen: unseen,
+                                    expected: Outcome(placeholderSeen: phase != .background)))
                 }
             }
         }
@@ -174,15 +178,33 @@ struct TodayGaugeEntranceTests {
     /// Plays the steps through `entrance` and `decide` the way `GaugeEntranceConsumer` does: a new instance (first
     /// appearance, a rebuild, data that becomes showable or empty) latches its entrance and appears in the current
     /// phase.
+    /// Every gauge instance built, in order, with the entrance it latched.
+    private struct Trace: Equatable {
+        var entrances: [OrbitGauge.Entrance] = []
+    }
+
     private func play(showable start: Bool = true, _ steps: [Step]) -> Run {
+        simulate(showable: start, steps).run
+    }
+
+    private func trace(showable start: Bool = true, _ steps: [Step]) -> Trace {
+        simulate(showable: start, steps).trace
+    }
+
+    /// Plays the steps through `entrance`, `identityShowable` and `decide` the way `GaugeEntranceConsumer` and Today do:
+    /// a new instance (first appearance, a rebuild, an identity change from `identityShowable`) latches its entrance
+    /// and appears in the current phase; `placeholderSeen` is remembered once set.
+    private func simulate(showable start: Bool, _ steps: [Step]) -> (run: Run, trace: Trace) {
         var run = Run()
-        var showable = start, unseen = false, phase = ScenePhase.inactive
+        var trace = Trace()
+        var showable = start, unseen = false, placeholderSeen = false, phase = ScenePhase.inactive
         var latched = OrbitGauge.Entrance.none
         var built = false
         func apply(_ event: Entrance.Event) {
             let outcome = Entrance.decide(flag: run.flag, showable: showable, phase: phase, event: event,
                                           playedUnseen: unseen)
             unseen = outcome.playedUnseen
+            if outcome.placeholderSeen { placeholderSeen = true }
             if outcome.rebuild {
                 run.rebuilds += 1
                 appear()
@@ -190,14 +212,15 @@ struct TodayGaugeEntranceTests {
             if outcome.consume {
                 run.flag = false
                 run.consumed += 1
-                run.consumedOnAnAssemblingGauge = latched == .assemble
+                run.consumedOnAnAssemblingGauge = latched.plays
             }
         }
         func appear() {
             built = true
             let mode: OrbitGaugeMode = showable ? .scored(OrbitGaugeValues(readiness: 71, strain: 9.6)) : .scored(.empty)
-            latched = Entrance.entrance(flag: run.flag, mode: mode)
-            if latched == .assemble { run.assemblingInstances += 1 }
+            latched = Entrance.entrance(flag: run.flag, mode: mode, placeholderSeen: placeholderSeen)
+            trace.entrances.append(latched)
+            if latched.plays { run.assemblingInstances += 1 }
             apply(.appeared)
         }
         for step in steps {
@@ -209,12 +232,13 @@ struct TodayGaugeEntranceTests {
                 phase = p
                 apply(.phaseChanged)
             case .data(let now):
-                guard now != showable else { continue }
+                let before = Entrance.identityShowable(flag: run.flag, showable: showable)
                 showable = now
-                appear()
+                // Same identity: the instance stays and only its values change (no appearance).
+                if built, Entrance.identityShowable(flag: run.flag, showable: now) != before { appear() }
             }
         }
-        return run
+        return (run, trace)
     }
 
     @Test func aColdLaunchConsumesWhenTheSceneTurnsActive() {
@@ -310,5 +334,53 @@ struct TodayGaugeEntranceTests {
                                         .data(showable: true)])
         #expect(run == Run(flag: false, consumed: 1, rebuilds: 0, consumedOnAnAssemblingGauge: true,
                            assemblingInstances: 2))
+    }
+
+    // MARK: over the placeholder's tracks, and the identity after consuming
+
+    @Test func theIdentityCountsShowableOnlyWhileTheFlagHolds() {
+        #expect(TodayGaugeEntrance.identityShowable(flag: true, showable: true))
+        #expect(!TodayGaugeEntrance.identityShowable(flag: true, showable: false))
+        #expect(TodayGaugeEntrance.identityShowable(flag: false, showable: true))
+        #expect(TodayGaugeEntrance.identityShowable(flag: false, showable: false))
+        // Consuming happens on a showable gauge only: the identity is the same before and after.
+        #expect(TodayGaugeEntrance.identityShowable(flag: true, showable: true)
+                    == TodayGaugeEntrance.identityShowable(flag: false, showable: true))
+    }
+
+    @Test func aPlaceholderThenContentAssemblesOverTheTracks() {
+        // Fresh install or demo mode: the empty orbit on screen, then the data (active, or still inactive).
+        #expect(trace(showable: false, [.appear(.inactive), .phase(.active), .data(showable: true)])
+                    == Trace(entrances: [.none, .assembleOverTracks]))
+        #expect(trace(showable: false, [.appear(.inactive), .data(showable: true), .phase(.active)])
+                    == Trace(entrances: [.none, .assembleOverTracks]))
+        let run = play(showable: false, [.appear(.inactive), .phase(.active), .data(showable: true)])
+        #expect(run == Run(flag: false, consumed: 1, consumedOnAnAssemblingGauge: true, assemblingInstances: 1))
+    }
+
+    @Test func contentFromTheFirstFrameGetsTheFullEntrance() {
+        #expect(trace(showable: true, [.appear(.inactive), .phase(.active)]) == Trace(entrances: [.assemble]))
+    }
+
+    @Test func aPlaceholderOnlyInTheBackgroundWasNotSeen() {
+        // Nobody saw the empty orbit: the gauge with data (rebuilt when it comes forward) draws its tracks in.
+        let steps: [Step] = [.appear(.background), .data(showable: true), .phase(.inactive), .phase(.active)]
+        #expect(trace(showable: false, steps) == Trace(entrances: [.none, .assemble, .assemble]))
+        // Seen before going to the background: the rebuilt gauge keeps the tracks the user last saw.
+        let seen: [Step] = [.appear(.inactive), .phase(.background), .data(showable: true), .phase(.inactive),
+                            .phase(.active)]
+        #expect(trace(showable: false, seen) == Trace(entrances: [.none, .assembleOverTracks, .assembleOverTracks]))
+    }
+
+    @Test func afterConsumingDataThatComesOrGoesKeepsTheInstance() {
+        // `.scored(.empty)` gaining a score later, or losing it: the values animate in one instance (PR 1).
+        let steps: [Step] = [.appear(.inactive), .phase(.active), .data(showable: false), .data(showable: true),
+                             .data(showable: false)]
+        #expect(trace(showable: true, steps) == Trace(entrances: [.assemble]))
+        let fromEmpty: [Step] = [.appear(.active), .data(showable: true), .data(showable: false),
+                                 .data(showable: true), .data(showable: false), .data(showable: true)]
+        let run = simulate(showable: false, fromEmpty)
+        #expect(run.trace == Trace(entrances: [.none, .assembleOverTracks]), "one new instance, at the first data")
+        #expect(run.run.consumed == 1)
     }
 }
