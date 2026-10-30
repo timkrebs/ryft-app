@@ -159,3 +159,31 @@ Not verified: the tab-switch replay (no tap driver; covered by the table), Low P
 - **First-launch frames** (`pr3-validate/fix-firstlaunch-*.png`): the static placeholder, then the entrance on the data.
 
 **Accepted, follow-up:** on a first launch in demo mode, the app's main thread stalls for about 400 ms after the demo data is seeded. The whole screen freezes, the status line included. It can land on the entrance, leaving the gauge blank for about 0.4 s or skipping the glide. It is pre-existing and app-wide (also in the validator's earlier recording), not caused by the gauge. Real first launches show the import card. → follow-up for the performance-profiler: the first-launch demo seeding stall.
+
+### Round 2 (6af8d48, designer): the clock moved to a `TimelineView`
+
+**Cause of the German AX3 drift** (the designer's inference, confirmed live by the ui-validator): the old clock was a `withAnimation(.linear(0.85))` transaction, which also animated an unrelated hero layout change. At AX3 the status line changes from 3 lines to 1 in the same update, so the ring slid slowly. The `TimelineView` clock animates nothing else. The caption, with its band and delta, now fades in with the glide, and `settled` keeps one identity.
+
+**code-reviewer: nothing blocking.**
+- The timeline pauses at done.
+- The start is captured once.
+- A tab switch or the background mid-entrance continues or settles, and never restarts.
+- `entranceDone` is set from `onChange`, so there's no update loop.
+- The PR 2 interplay is correct.
+- The identity scheme is correct.
+- A refresh never empties the hero.
+
+Nits:
+1. **The frozen AX3 test can't show a transaction drift.** Closed by the live recheck below instead.
+2. **The whole caption fades, title included, not only the band.** Kept, since "OVERALL READINESS" arriving with the score reads well; the comment and design.md are corrected (lead).
+3. **The arcs pop in on a showable flip after the flag is consumed.** → developer, round 3.
+
+**ui-validator re-check:**
+- **German and English AX3: fixed.** No overlap and no drift; the hero moves at once when the status line changes height (pre-existing).
+- **Fresh install: mostly fixed.** The placeholder is static and no longer consumes the flag, and the data instance assembles.
+- **Band with the score: fixed.**
+- **Regressions pass:** second launch, calibrating, pending, foreground return, Reduce Motion.
+
+New nit, which I treat as visible polish (demo mode is what App Review and TestFlight see):
+- When the data instance replaces the placeholder, frame 0 is empty, so the rings blink out and redraw (about 0.2 s; the whole stall on a fresh install).
+- → developer, round 3: replacing a placeholder starts over drawn tracks.
