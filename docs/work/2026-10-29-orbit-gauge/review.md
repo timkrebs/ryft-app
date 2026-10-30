@@ -46,3 +46,20 @@ Verified:
 - VoiceOver is one element per gauge, and the visible lines are hidden so nothing is read twice.
 
 Not verified: the widget previews (they need Xcode), the 60 ms step on video, the 44 pt icon likeness (PR 1's `icon-44-*` shots still apply; `.small` is unchanged apart from the modes), and live VoiceOver speech.
+
+### code-reviewer (7643988..690f077): no blocking findings
+
+Should-fix:
+1. **The fill goes empty after Reduce Motion is turned off.** The `.task(id:)` holds only the count, so `shownNights` stays nil, and on return to the app the gauge shows "3 / 7" over empty segments. → designer: put the step flag in the task id, and sync `shownNights` when not stepping.
+2. **The widget loses the previous readiness when the snapshot has no orbit** (rows A / N2, and a calibrating file turning over at midnight): small and circular show a dash although `previousReadiness` is known. → developer: `WidgetOrbitGauge(previousReadiness:)` as the fallback for the centre number. Lead decision: hollow dots beside a known number are fine. The locked path is unchanged.
+3. **`pendingScoredDay` / `pendingSpokenNote` are untested.** → developer: tests for yesterday, a gap day and no previous day.
+
+Nits:
+- The pure `stepFill` decision for a unit test → designer, if it's cheap.
+- A `calibratingValue` vs `calibration` doc cross-reference → designer.
+- A 202-character test line → developer.
+- The `TodayHero.calibrating(nights:)` payload is read only by tests. Left as is.
+
+Verified sound: the fill's grow, shrink, resume and cancel behaviour; `phaseAnimator` with a single phase doesn't churn; the Today mapping against the architecture §3 table; the catalog dict compare; the UI test identifiers kept; iOS 17 APIs.
+
+Fix round sent to the designer (OrbitGauge.swift, Shared) and the developer (RyftWidgets, ViewModelTests), on separate files.
