@@ -117,3 +117,41 @@ Fixes 1, 2 and 4: sent to the T2 developer.
 - New nit: the plan task awaits the history read between its checks and the save. Repeat the checks after the await.
   Also: ADR 0009 still says Train #4 (it's #6). Both sent to the T1 developer.
   Fixed in 600de37 (two tests: sign-out and Undo during the history read).
+
+**ui-validator on T2 (f4cabb2): no blockers.** Every state passes in dark/light, EN/DE, XL and AX3. Profile → Training is gated.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| S1 | German "Überspringen" is truncated in equal-width buttons | ±15 hug their content; Skip takes the rest. |
+| S2 | "Next: …" is cut to one line at AX3 | Wrap up to 3 lines. |
+| S3 | XCUI reports the rest time as a Button, not adjustable | Adjustable trait without `.isButton`; device check with VoiceOver on the user's list. |
+| N1 | Rest over drops "Next:" | Use `train.rest.next`. |
+| N2 | The bar stays pinned when all done | Hide it. |
+| N3 | Hard edge under the bar | Not in this ticket. |
+| N4 | German for the ±15 / Skip labels not reviewed | localization-editor pass before the PR. |
+| pre | AX3 letter-wrapping in the session header and set table | Follow-up ticket (pre-existing). |
+| pre | `-RyftResetTrain` crash in `WorkoutInProgressBanner` | Fixed by T1's f501eee; T2 gets it when main is merged in. |
+
+**ui-validator on T1 (31894ad): no blockers.** Replace, Undo, the menu, the 0 and 900 s limits, offline, built-in plan,
+swipe delete and decision 12's German copy pass.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| 1 | German "Rückgängig" breaks mid-word at AX3 | One line, fixed size; stacked layout at AX sizes. |
+| 2 | The plan toast without a history weight is cut at 2 lines | 3 lines (more at AX); copy unchanged. |
+| 3 | The pinned plan toggle leaves about one picker row at AX3 | Inside the scroll content at AX sizes. |
+| 4 | Stepper says "minimum" but never "maximum"; uneven gap | Both. |
+| 5 | "Ziele bearbeiten" truncates at AX3 | Inline title. |
+| 6 | An open swipe row stays open | Not this ticket. |
+| 7 | The toast covers the last row | Bottom inset while shown. |
+| ? | German delete confirmation not seen in one run | Developer reproduces it. |
+| pre | AX3 letter-wrapping in the header and set table | Follow-up ticket (same as T2's). |
+
+**T2 fixes in d43da76 / c6484b7** (58 Train-suite tests): carried collapses, warm-ups don't skip the superset rest, the
+schedule before the rest; S1 (Skip width), S2 (AX3 wrap), S3 on the full bar, N1, N2. On the pill the expand moves to a
+named action, so the time element is adjustable without the button trait (one new string).
+
+**T1 UI fixes in c1cc635 / 198d416** (61 focused tests, SessionReplaceUITests 2/2 incl. a new German delete test): Undo
+on one line, stacked at AX; the plan toast up to 4 lines (unlimited at AX); the plan toggle in the scroll content at AX;
+"maximum" on steppers; the title fits; the toast is a bottom inset. The German delete confirmation was the driver, not a
+bug. The AX3 plan toggle is re-validated by ui-validator (it needs an editable plan).
