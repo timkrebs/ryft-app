@@ -156,23 +156,21 @@ struct TodayView: View {
                     model.dismissPushPrompt()
                 }
                 .accessibilityIdentifier("today.importCard")
-            case .pending(let night):
+            case .pending:
                 // While scoring, asked again every 15 s, like the line: slow scoring stops the breathing.
                 let ticking = day.facts.scoringSince != nil
                 TimelineView(.periodic(from: .now, by: ticking ? 15 : 3_600)) { _ in
-                    let now = ticking ? model.content : day
-                    PendingGauge(previous: night.previousReadiness, previousDay: night.previousDay,
-                                 title: now.pendingTitle, detail: now.pendingDetail, breathes: !now.pendingIsStatic)
+                    pendingOrbit(ticking ? model.content : day)
                 }
                 .padding(.vertical, 4)
-                .accessibilityIdentifier("today.pendingGauge")
-            case .calibrating(let nights):
+            case .calibrating:
                 VStack(spacing: 8) {
-                    // Over a long history without HRV the nights counted are the ones with heart-rate data; with one
-                    // signal absent (F3), that of the other.
-                    BaselineGauge(nights: nights, countsHeartRateNights: day.gaugeNote == .needsVitals,
-                                  countedSignal: day.gaugeNote?.countedSignal)
-                        .accessibilityIdentifier("today.baselineGauge")
+                    // The outer orbit fills night by night. What it counts comes from the mapping (`OrbitGaugeMode
+                    // +Today`): the heart-rate nights over a long history without HRV, the one signal that fills
+                    // while the other is absent (F3), else any night.
+                    OrbitGauge(mode: day.orbit, size: .large,
+                               caption: OrbitGauge.Caption(title: String(localized: "Baselines")),
+                               identifier: "today.baselineGauge")
                     // Why the nights don't fill (row B over a long history without HRV), or why only one signal's
                     // count (F3); read on its own after the gauge.
                     if let note = day.gaugeNote { noteBlock(note, readWithGauge: false) }
@@ -200,6 +198,36 @@ struct TodayView: View {
                    caption: OrbitGauge.Caption(title: String(localized: "Overall readiness"), delta: day.readinessDelta,
                                                showsBand: day.showsReadinessBand),
                    accessibilityNote: day.gaugeSpokenNote, identifier: "today.readinessGauge")
+    }
+
+    /// A night not scored yet: the latest scored day's orbit, dimmed, breathing until scoring takes longer
+    /// than usual; the day it's from, then "Scoring your night…" and when to expect it. VoiceOver hears the title
+    /// and the day in the gauge's value; the line under them is read on its own.
+    private func pendingOrbit(_ day: TodayContent) -> some View {
+        VStack(spacing: 8) {
+            OrbitGauge(mode: day.orbit, size: .large, accessibilityNote: day.pendingSpokenNote,
+                       identifier: "today.pendingGauge", breathes: !day.pendingIsStatic)
+            if let scored = day.pendingScoredDay {
+                Text(scored)
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textTertiary)
+                    .accessibilityHidden(true)
+            }
+            VStack(spacing: 2) {
+                Text(day.pendingTitle)
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textPrimary)
+                    .accessibilityHidden(true)
+                // None while a card under the gauge says it (the night hint).
+                if !day.pendingDetail.isEmpty {
+                    Text(day.pendingDetail)
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// The note under the gauge and, under it, its link when there is one (a blocked baseline with
