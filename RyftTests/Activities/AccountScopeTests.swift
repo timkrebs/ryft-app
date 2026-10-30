@@ -711,6 +711,7 @@ struct AccountWidgetWipeTests {
         h.state.repository.publishWidget()
         let before = try #require(written())
         #expect(before.kind == .pending && before.bedtime != nil && before.previousReadiness == 76)
+        #expect(before.orbit?.recovery == 74, "A's orbit is seeded: \(String(describing: before.orbit))")
 
         await h.auth.signOut(reason: .user)
         await h.settle()
@@ -720,5 +721,8 @@ struct AccountWidgetWipeTests {
         h.state.repository.publishWidget()
         let after = written()
         #expect(after?.bedtime == nil && after?.kind != .pending && after?.previousReadiness == nil, "\(String(describing: after))")
+        // ... and none of A's scores on the orbit.
+        #expect(after?.orbit?.recovery == nil && after?.orbit?.sleepPerformance == nil && after?.orbit?.strain == nil,
+                "\(String(describing: after?.orbit))")
     }
 }

@@ -193,13 +193,13 @@ struct TodayView: View {
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: day.gaugeNote)
     }
 
-    /// Readiness on its 0–100 scale with band ticks, the band word and the change
-    /// against the days before (from the 7-day trend, row A only).
+    /// The orbit: readiness in the centre, Recovery and Sleep on the inner orbit, Strain on the outer; under it the
+    /// caption, the band word and the change against the days before (from the 7-day trend, row A only).
     private func readinessRing(_ day: TodayContent) -> some View {
-        MetricGauge(spec: .readiness, value: day.readiness, size: .large, delta: day.readinessDelta,
-                    title: String(localized: "Overall readiness"), showsMark: true,
-                    accessibilityNote: day.gaugeSpokenNote, showsBand: day.showsReadinessBand)
-            .accessibilityIdentifier("today.readinessGauge")
+        OrbitGauge(mode: day.orbit, size: .large,
+                   caption: OrbitGauge.Caption(title: String(localized: "Overall readiness"), delta: day.readinessDelta,
+                                               showsBand: day.showsReadinessBand),
+                   accessibilityNote: day.gaugeSpokenNote, identifier: "today.readinessGauge")
     }
 
     /// The note under the gauge and, under it, its link when there is one (a blocked baseline with

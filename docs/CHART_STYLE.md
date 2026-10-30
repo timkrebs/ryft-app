@@ -84,7 +84,8 @@ baseline (or to the window's mean). There is a selection haptic on each day chan
 | Component | Use |
 | --- | --- |
 | `TrendChart` | daily series |
-| `MetricGauge` | ring as instrument, 72 / 112 / 160 |
+| `OrbitGauge` | Today's readiness and the widget: the RYFT mark as a gauge, 72 / 112 / 160 (see below) |
+| `MetricGauge` | ring as instrument, 72 / 112 / 160 (the Strain tab) |
 | `RangeBar` | value within a personal range |
 | `DeltaLabel` | change against a reference |
 | `ZoneBar` | heart-rate-zone minutes |
@@ -92,3 +93,18 @@ baseline (or to the window's mean). There is a selection haptic on each day chan
 | `Hypnogram` | Sleep tab |
 
 Every component has dark and light `#Preview`s.
+
+### OrbitGauge
+
+The app icon's orbits carry the four scores; arc length is the score, the dot at its head is today. The centre ring is
+Readiness (its band colour, the number inside); the inner orbit carries Recovery (teal, counter-clockwise from the top)
+and Sleep performance (`metricSleep`, clockwise), each half starting 12.5° from the vertical so the two dots never meet;
+the outer orbit carries Strain (`metricStrain`, clockwise, 21 = a whole turn). Tracks are `surfaceRaised` with the air
+around each dot cut out, caps round. A missing score is a hollow dot at its start, never an arc and never a zero; zero
+is a filled dot with no arc. Nothing rotates on its own; a new value moves the arcs on `Theme.Motion.slow`, and under
+Reduce Motion it cross-fades. The number is omitted below a 56 pt dial. One VoiceOver element: "Overall readiness",
+then "71, High. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21", a missing score "Sleep, not scored".
+
+The drawing is shared with the widget (`Shared/OrbitGaugeDrawing.swift`, colours by asset name in
+`OrbitGaugePalette`, ADR 0010); `Ryft/Design/OrbitGauge.swift` adds the number, caption, VoiceOver and motion.
+Geometry, contrast and what was rejected: `docs/work/2026-10-29-orbit-gauge/design.md`.

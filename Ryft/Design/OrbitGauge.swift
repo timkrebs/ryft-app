@@ -1,0 +1,290 @@
+import SwiftUI
+
+/// The RYFT mark as the readiness gauge: the centre ring is Readiness (its number inside), the inner orbit
+/// carries Recovery (counter-clockwise from the top) and Sleep (clockwise), the outer orbit carries Strain
+/// (clockwise, 21 = a whole turn). Arc length is the score, the dot at its head is where you are today. A score
+/// that is missing is a hollow dot at the start, never an arc and never a zero. Nothing rotates on its own.
+///
+/// The app's wrapper around the shared `OrbitGaugeDrawing` (ADR 0010): the number in the app's font, the caption
+/// and band line under it, VoiceOver, the `Theme.Motion` value animation and Reduce Motion. Geometry, mapping and
+/// colours: `OrbitGaugeGeometry`, `OrbitGaugePalette`, docs/work/2026-10-29-orbit-gauge/design.md.
+struct OrbitGauge: View {
+    typealias Size = OrbitGaugeSize
+
+    /// What Today puts under the gauge: the caption ("OVERALL READINESS") and, under a readiness, the band word and
+    /// the change against the week (the line `MetricGauge` drew there). Shown at `.large` only.
+    struct Caption: Equatable {
+        var title: String
+        /// "vs 7 d", row A only.
+        var delta: MetricDelta?
+        /// Off where a calibration note takes the band word's line (S2, N1). Speech follows what is shown.
+        var showsBand = true
+    }
+
+    let mode: OrbitGaugeMode
+    var size: Size = .large
+    var caption: Caption?
+    /// Read after the value, e.g. a `GaugeNote` shown under the gauge ("Recalculating your baselines").
+    var accessibilityNote: String?
+    /// Today uses `today.readinessGauge`.
+    var identifier: String = "orbitGauge"
+
+    /// Below this dial the gauge is the mark only (VoiceOver still has the value); the widget uses the same.
+    static let minDialForNumber = OrbitGaugeGeometry.minDialForNumber
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var values: OrbitGaugeValues? { mode.scoredValues }
+    private var shownCaption: Caption? { size == .large ? caption : nil }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                drawing
+                    // Reduce Motion: no arc moves; a new value cross-fades (250 ms) instead.
+                    .id(reduceMotion ? AnyHashable(mode) : AnyHashable(0))
+                    .transition(.opacity)
+            }
+            .frame(width: size.frame, height: size.frame)
+            // The arcs and the dots ride the same animation; the number rolls with it.
+            .animation(reduceMotion ? Theme.Motion.quick : Theme.Motion.slow, value: mode)
+            if let shownCaption { captionLines(shownCaption) }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(caption?.title ?? String(localized: "Overall readiness")))
+        .accessibilityValue(Text(spokenValue))
+        .accessibilityIdentifier(identifier)
+    }
+
+    // MARK: drawing
+
+    private var drawing: some View {
+        OrbitGaugeDrawing(mode: mode, size: size, palette: .assets) {
+            if let values, size.dial >= Self.minDialForNumber {
+                Text(values.readiness.map { String($0) } ?? Fmt.placeholder)
+                    .font(.ryftNumber(size: size.dial * 0.19))
+                    .monospacedDigit()
+                    .foregroundStyle(values.readiness == nil ? Theme.textTertiary : Theme.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .contentTransition(reduceMotion ? .identity : .numericText(value: Double(values.readiness ?? 0)))
+            }
+        }
+    }
+
+    // MARK: caption
+
+    /// The caption as a section label (it scales with Dynamic Type; the gauge doesn't), then the band word and the
+    /// change in one line when it fits; at large text sizes (German at AX3) the band word over the change, wrapping:
+    /// never cut off.
+    private func captionLines(_ caption: Caption) -> some View {
+        VStack(spacing: 4) {
+            Text(caption.title)
+                .ryftLabelStyle()
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            let band = bandLabel(caption)
+            if band != nil || caption.delta != nil {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        bandText(band)
+                        if band != nil, caption.delta != nil {
+                            Text(verbatim: "·").font(.ryft(.caption)).foregroundStyle(Theme.textTertiary)
+                        }
+                        DeltaLabel(spec: .readiness, delta: caption.delta, reference: Self.deltaReference)
+                    }
+                    .lineLimit(1)
+                    VStack(spacing: 2) {
+                        bandText(band)
+                        DeltaLabel(spec: .readiness, delta: caption.delta, reference: Self.deltaReference)
+                    }
+                    .multilineTextAlignment(.center)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func bandText(_ band: String?) -> some View {
+        if let band {
+            Text(band)
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func bandLabel(_ caption: Caption) -> String? {
+        guard caption.showsBand, let readiness = values?.readiness else { return nil }
+        return MetricSpec.scoreBand(Double(readiness)).label
+    }
+
+    private static var deltaReference: String { String(localized: "vs 7 d") }
+
+    // MARK: VoiceOver
+
+    /// "71, High. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21." plus the note. A missing score is
+    /// named as not scored ("Sleep, not scored"), never skipped.
+    private var spokenValue: String {
+        let spoken: String
+        switch mode {
+        case .scored(let v, _):
+            spoken = Self.spokenValue(v, showsBand: caption?.showsBand ?? true, delta: caption?.delta)
+        case .calibrating, .assembling, .pending:
+            // PR 2 / PR 3 give these their own sentences.
+            spoken = String(localized: "Not scored yet")
+        }
+        return accessibilityNote.map { "\(spoken). \($0)" } ?? spoken
+    }
+
+    /// The readiness part ("71, High, Up 4 vs 7 d"), then the three scores.
+    static func spokenValue(_ v: OrbitGaugeValues, showsBand: Bool = true, delta: MetricDelta? = nil) -> String {
+        if v.isEmpty { return String(localized: "No data") }
+        let noData = { (title: String) in String(localized: "\(title), not scored") }
+        var scores: [String] = []
+        scores.append(v.recoveryFraction.map { String(localized: "Recovery \(Self.percent($0)) percent") }
+                      ?? noData(String(localized: "Recovery")))
+        scores.append(v.sleepFraction.map { String(localized: "Sleep \(Self.percent($0)) percent") }
+                      ?? noData(String(localized: "Sleep")))
+        scores.append(v.strain.map { String(localized: "Strain \(Self.strainText($0)) of 21") }
+                      ?? noData(String(localized: "Strain")))
+        let readiness: String
+        if let r = v.readiness {
+            var parts = [String(r)]
+            if showsBand { parts.append(MetricSpec.scoreBand(Double(r)).label) }
+            if let delta { parts.append(DeltaLabel.spoken(delta, spec: .readiness, reference: Self.deltaReference)) }
+            readiness = parts.joined(separator: ", ")
+        } else {
+            readiness = String(localized: "Overall readiness, no data")
+        }
+        return "\(readiness). \(scores.joined(separator: ", "))"
+    }
+
+    private static func percent(_ fraction: Double) -> String {
+        Int((fraction * 100).rounded()).formatted()
+    }
+
+    private static func strainText(_ v: Double) -> String {
+        v.formatted(.number.precision(.fractionLength(1)))
+    }
+}
+
+// MARK: previews (synthetic values only)
+
+extension OrbitGaugeValues {
+    /// 71 / 71 % / 88 % / 9.6, the values the previews, the screenshots and the tests share.
+    static let previewScored = OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)
+}
+
+private struct OrbitCaption: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.ryft(.caption))
+            .foregroundStyle(Theme.textSecondary)
+    }
+}
+
+#Preview("OrbitGauge · sizes", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        HStack(alignment: .center, spacing: 12) {
+            OrbitGauge(mode: .scored(.previewScored), size: .large)
+            VStack(spacing: 8) {
+                OrbitGauge(mode: .scored(.previewScored), size: .medium)
+                OrbitGauge(mode: .scored(.previewScored), size: .small)
+            }
+        }
+    }
+}
+
+#Preview("OrbitGauge · missing and edges", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        VStack(spacing: 12) {
+            HStack(spacing: 8) {
+                VStack { OrbitGauge(mode: .scored(OrbitGaugeValues()), size: .medium); OrbitCaption(text: "all missing") }
+                VStack {
+                    // A watch without HRV: Recovery from what the platform scored, no sleep yet.
+                    OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 64, recovery: 0.62, strain: 6.2)), size: .medium)
+                    OrbitCaption(text: "sleep missing")
+                }
+                VStack {
+                    OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 64, recovery: 0.62, sleep: 0.81)), size: .medium)
+                    OrbitCaption(text: "strain missing")
+                }
+            }
+            HStack(spacing: 8) {
+                VStack {
+                    OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 0, recovery: 0, sleep: 0, strain: 0)), size: .medium)
+                    OrbitCaption(text: "0")
+                }
+                VStack {
+                    OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 100, recovery: 1, sleep: 1, strain: 21)), size: .medium)
+                    OrbitCaption(text: "100")
+                }
+                VStack {
+                    OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 28, recovery: 0.24, sleep: 0.41, strain: 17.8)), size: .medium)
+                    OrbitCaption(text: "low")
+                }
+            }
+        }
+    }
+}
+
+#Preview("OrbitGauge · bands and stubs", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        VStack(spacing: 12) {
+            HStack(spacing: 8) {
+                OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 82, recovery: 0.8, sleep: 0.9, strain: 12)), size: .small)
+                OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 50, recovery: 0.5, sleep: 0.7, strain: 12)), size: .small)
+                OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 20, recovery: 0.2, sleep: 0.3, strain: 12)), size: .small)
+            }
+            HStack(spacing: 8) {
+                OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .small)
+                OrbitGauge(mode: .assembling, size: .small)
+                OrbitGauge(mode: .pending(previous: .previewScored), size: .small)
+            }
+        }
+    }
+}
+
+extension OrbitGauge.Caption {
+    /// Today's caption over the preview values: "OVERALL READINESS", then "High · ▲ +4 vs 7 d".
+    static var preview: OrbitGauge.Caption {
+        OrbitGauge.Caption(title: String(localized: "Overall readiness"), delta: MetricDelta(current: 71, reference: 67))
+    }
+}
+
+#Preview("OrbitGauge · Today caption", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        HStack(alignment: .top, spacing: 16) {
+            OrbitGauge(mode: .scored(.previewScored), size: .large, caption: .preview)
+            // S2 / N1: a calibration note takes the band word's line.
+            OrbitGauge(mode: .scored(.previewScored), size: .large,
+                       caption: OrbitGauge.Caption(title: String(localized: "Overall readiness"), showsBand: false))
+        }
+    }
+}
+
+#Preview("OrbitGauge · AX3", traits: .sizeThatFitsLayout) {
+    // The gauge keeps its size; the caption under it scales.
+    SchemePair {
+        VStack(spacing: 8) {
+            OrbitGauge(mode: .scored(.previewScored), size: .large, caption: .preview)
+            OrbitGauge(mode: .scored(.previewScored), size: .small)
+        }
+    }
+    .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("OrbitGauge · de · AX3", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        VStack(spacing: 8) {
+            OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 100, recovery: 1, sleep: 1, strain: 21)), size: .large,
+                       caption: .preview)
+            Text(OrbitGauge.spokenValue(OrbitGaugeValues(readiness: 71, recovery: 0.71, strain: 9.6)))
+                .font(.ryft(.caption)).foregroundStyle(Theme.textSecondary)
+        }
+    }
+    .environment(\.locale, Locale(identifier: "de"))
+    .environment(\.dynamicTypeSize, .accessibility3)
+}
