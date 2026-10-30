@@ -19550,13 +19550,13 @@
         }
       }
     },
-    "Strain %@ of 21, today's range %@ to %@" : {
-      "comment" : "OrbitGauge VoiceOver: Strain on its 0 to 21 scale with today's recommended range, e.g. 'Strain 9.6 of 21, today's range 8 to 13'. Unreachable until the platform serves the range (docs/API_REQUESTS.md, Charts and gauges #2); the gauge then names it. Arguments in order: strain, range start, range end.",
+    "Strain %@ of 21, today's recommended range %@ to %@" : {
+      "comment" : "OrbitGauge VoiceOver: Strain on its 0 to 21 scale, then today's recommended strain range, e.g. 'Strain 9.6 of 21, today's recommended range 8 to 13'. The range is the platform's recommendation for the day, not a goal the user sets: don't translate it as Ziel. Not reached in the app until the platform serves the range (docs/API_REQUESTS.md, Charts and gauges #2); previews and tests pass one. Arguments in order: strain, range start, range end.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Belastung %1$@ von 21, heutiger Bereich %2$@ bis %3$@"
+            "value" : "Belastung %1$@ von 21, heutiger empfohlener Bereich %2$@ bis %3$@"
           }
         }
       }

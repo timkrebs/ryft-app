@@ -405,7 +405,7 @@ struct OrbitGauge: View {
         guard let band = OrbitGaugeGeometry.clampedBand(band) else {
             return String(localized: "Strain \(strainText(strain)) of 21")
         }
-        return String(localized: "Strain \(strainText(strain)) of 21, today's range \(bandText(band.lowerBound)) to \(bandText(band.upperBound))")
+        return String(localized: "Strain \(strainText(strain)) of 21, today's recommended range \(bandText(band.lowerBound)) to \(bandText(band.upperBound))")
     }
 
     private static func bandText(_ v: Double) -> String {
