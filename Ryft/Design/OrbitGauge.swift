@@ -51,9 +51,10 @@ struct OrbitGauge: View {
     /// Latched at the first appearance (`entrance` of the initialiser): this instance plays the entrance, once. Later
     /// values of the parameter are ignored, so Today consuming its flag right after the first frame cannot cut it short.
     @State private var staged: Bool
-    /// The entrance's clock in seconds (`OrbitEntranceFrame`); the end value when nothing plays.
-    @State private var elapsed: Double
-    @State private var started = false
+    /// When the entrance started (its first appearance); the clock is the time since, read by a `TimelineView`, so no
+    /// transaction animates anything but what the view draws from it (a layout change around the gauge is never
+    /// dragged along for 850 ms).
+    @State private var start: Date?
     /// The entrance has run to its end (or never ran): the calibrating fill may start.
     @State private var entranceDone: Bool
     /// Low Power Mode is read once at the start; it is treated like Reduce Motion (plan.md decision 7).
@@ -76,7 +77,6 @@ struct OrbitGauge: View {
         self.frozenAt = entrance == .assemble ? frozenAt : nil
         let plays = entrance == .assemble
         _staged = State(initialValue: plays)
-        _elapsed = State(initialValue: plays ? (frozenAt ?? 0) : OrbitEntranceFrame.end)
         _entranceDone = State(initialValue: !plays)
         _lowPower = State(initialValue: plays && frozenAt == nil && ProcessInfo.processInfo.isLowPowerModeEnabled)
     }
@@ -88,19 +88,20 @@ struct OrbitGauge: View {
     private var shownCaption: Caption? { size == .large ? caption : nil }
 
     var body: some View {
-        VStack(spacing: 8) {
-            ZStack {
-                shownDrawing
-                    // Reduce Motion: no arc moves; a new value cross-fades (250 ms) instead.
-                    .id(reduceMotion ? AnyHashable(mode) : AnyHashable(0))
-                    .transition(.opacity)
+        Group {
+            if staged {
+                TimelineView(.animation(paused: frozenAt != nil || entranceDone)) { context in
+                    let seconds = clock(at: context.date)
+                    column(elapsed: seconds)
+                        .onChange(of: entranceIsOver(at: seconds)) { _, over in
+                            if over { entranceDone = true }
+                        }
+                }
+            } else {
+                column(elapsed: OrbitEntranceFrame.end)
             }
-            .frame(width: size.frame, height: size.frame)
-            // The arcs and the dots ride the same animation; the number rolls with it.
-            .animation(reduceMotion ? Theme.Motion.quick : Theme.Motion.slow, value: mode)
-            .onAppear(perform: startEntrance)
-            if let shownCaption { captionLines(shownCaption) }
         }
+        .onAppear(perform: startEntrance)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(spokenLabel))
         .accessibilityValue(Text(spokenValue))
@@ -108,6 +109,25 @@ struct OrbitGauge: View {
         .task(id: FillKey(counted: mode.calibratingValue?.counted, steps: animatesFill && !reduceMotion,
                           waiting: !entranceDone)) {
             await stepFill()
+        }
+    }
+
+    /// The gauge and its caption. `elapsed` is the entrance's clock (only read when `staged`).
+    private func column(elapsed: Double) -> some View {
+        VStack(spacing: 8) {
+            ZStack {
+                shownDrawing(elapsed: elapsed)
+                    // Reduce Motion: no arc moves; a new value cross-fades (250 ms) instead.
+                    .id(reduceMotion ? AnyHashable(mode) : AnyHashable(0))
+                    .transition(.opacity)
+            }
+            .frame(width: size.frame, height: size.frame)
+            // The arcs and the dots ride the same animation; the number rolls with it.
+            .animation(reduceMotion ? Theme.Motion.quick : Theme.Motion.slow, value: mode)
+            if let shownCaption {
+                captionLines(shownCaption)
+                    .opacity(captionOpacity(elapsed))
+            }
         }
     }
 
@@ -155,27 +175,41 @@ struct OrbitGauge: View {
 
     /// The static drawing, or the entrance stage whose last frame is that drawing. Fixed for the life of the view.
     @ViewBuilder
-    private var shownDrawing: some View {
+    private func shownDrawing(elapsed: Double) -> some View {
         if staged {
-            OrbitEntranceStage(elapsed: elapsed, reduced: reducesEntrance, done: entranceDone,
-                               mode: displayedMode, size: size,
-                               palette: .assets, settled: drawing, centre: centre)
+            OrbitEntranceStage(elapsed: elapsed, reduced: reducesEntrance, done: entranceDone, mode: displayedMode,
+                               size: size, palette: .assets, settled: drawing, centre: centre)
         } else {
             drawing
         }
     }
 
-    /// On the first appearance only: one linear animation of the clock, the curves are in `OrbitEntranceFrame`.
+    /// Seconds since the entrance started: the frozen moment of previews and tests, 0 before the first appearance.
+    private func clock(at date: Date) -> Double {
+        if let frozenAt { return frozenAt }
+        return start.map { max(date.timeIntervalSince($0), 0) } ?? 0
+    }
+
+    private var entranceDuration: Double {
+        reducesEntrance ? OrbitEntranceFrame.fadeDuration : OrbitEntranceFrame.end
+    }
+
+    private func entranceIsOver(at seconds: Double) -> Bool {
+        frozenAt == nil && start != nil && seconds >= entranceDuration
+    }
+
+    /// The band word and the change arrive with the score (the glide), never with the tracks. Full once done, and in
+    /// the static path, so the last frame is the static render.
+    private func captionOpacity(_ elapsed: Double) -> Double {
+        guard staged, !entranceDone else { return 1 }
+        if reducesEntrance { return OrbitEntranceFrame.eased(elapsed, 0, OrbitEntranceFrame.fadeDuration) }
+        return OrbitEntranceFrame(seconds: elapsed).glide
+    }
+
+    /// On the first appearance only: the clock starts. The curves are in `OrbitEntranceFrame`.
     private func startEntrance() {
-        guard staged, !started, frozenAt == nil else { return }
-        started = true
-        let duration = reducesEntrance ? OrbitEntranceFrame.fadeDuration : OrbitEntranceFrame.end
-        let animation: Animation = reducesEntrance ? Theme.Motion.quick : .linear(duration: duration)
-        withAnimation(animation, completionCriteria: .logicallyComplete) {
-            elapsed = duration
-        } completion: {
-            entranceDone = true
-        }
+        guard staged, start == nil, frozenAt == nil else { return }
+        start = Date()
     }
 
     // MARK: drawing

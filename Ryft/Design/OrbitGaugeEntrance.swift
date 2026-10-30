@@ -81,7 +81,7 @@ struct OrbitEntranceFrame: Equatable {
 /// The entrance drawn at one moment. `elapsed` is its animatable clock: a view animates it linearly and the curves
 /// above shape it; at its end (or in the fade, at `fadeDuration`) it draws what `settled` is, so the last frame is the
 /// static drawing and nothing swaps. `reduced`: a cross-fade of `settled` instead of the choreography.
-struct OrbitEntranceStage<Settled: View, Centre: View>: View, Animatable {
+struct OrbitEntranceStage<Settled: View, Centre: View>: View {
     var elapsed: Double
     let reduced: Bool
     /// The entrance has finished (its completion ran): the settled drawing, whatever `reduced` has become since
@@ -93,20 +93,13 @@ struct OrbitEntranceStage<Settled: View, Centre: View>: View, Animatable {
     let settled: Settled
     let centre: Centre
 
-    var animatableData: Double {
-        get { elapsed }
-        set { elapsed = newValue }
-    }
-
+    /// One identity for `settled` in the fade, at the end and after it, so the drawing and its breathing are never
+    /// rebuilt on the way.
     var body: some View {
-        if done {
-            settled.transition(.identity)
-        } else if reduced {
+        if done || reduced || elapsed >= OrbitEntranceFrame.end {
             settled
-                .opacity(min(max(elapsed / OrbitEntranceFrame.fadeDuration, 0), 1))
+                .opacity(done || !reduced ? 1 : OrbitEntranceFrame.eased(elapsed, 0, OrbitEntranceFrame.fadeDuration))
                 .transition(.identity)
-        } else if elapsed >= OrbitEntranceFrame.end {
-            settled.transition(.identity)
         } else {
             choreography.transition(.identity)
         }
@@ -123,10 +116,11 @@ struct OrbitEntranceStage<Settled: View, Centre: View>: View, Animatable {
         // Outside the bounds at every angle.
         let far = size.frame * 0.62
         let hasRing = values != nil
-        let positions = Dictionary(uniqueKeysWithValues: OrbitGaugeGeometry.Orbit.allCases.map { orbit -> (OrbitGaugeGeometry.Orbit, (degrees: Double, radius: CGFloat)) in
+        var positions: [OrbitGaugeGeometry.Orbit: (degrees: Double, radius: CGFloat)] = [:]
+        for orbit in OrbitGaugeGeometry.Orbit.allCases {
             let sweep = orbit.sweep(for: values.flatMap { orbit.fraction(of: $0) } ?? 0)
-            return (orbit, frame.dot(orbit, sweep: sweep, orbitRadius: m.radius(of: orbit), farRadius: far))
-        })
+            positions[orbit] = frame.dot(orbit, sweep: sweep, orbitRadius: m.radius(of: orbit), farRadius: far)
+        }
         let centreD = m.centreRadius * 2 + m.centreStroke
         return ZStack {
             // Tracks: the air around a dot is cut from its own orbit only, so a dot on its way in leaves no gap in
