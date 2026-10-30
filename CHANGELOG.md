@@ -54,6 +54,8 @@ Store "What's New".
   hours: what arrived and when, what your tracker doesn't share (that's normal), and the fix for what should
   arrive and doesn't. The check uploads nothing. Report a problem includes the check's result codes when you
   include diagnostics.
+- Replace an exercise during a workout (your done sets stay with the old one, with Undo and optionally in your
+  plan too), and edit its sets, reps, weight, rest and notes for this workout; swipe a set row to delete it.
 
 ### Changed
 - A new app icon and RYFT mark: three orbits, three moons.
