@@ -1,4 +1,73 @@
-# Status — 2026-10-29
+# Status — 2026-10-30
+
+## OrbitGauge: the logo becomes the readiness gauge (`CLAUDE_FOLLOWUP_ORBIT_GAUGE.md`)
+
+Plan, design note, architecture, review log and shots: `docs/work/2026-10-29-orbit-gauge/`.
+
+**Done**
+
+| PR | What |
+| --- | --- |
+| #76 | `OrbitGauge` replaces `MetricGauge` on Today and in the readiness widget. Readiness is in the centre, Recovery and Sleep on the inner orbit, Strain on the outer (0–21). The drawing is shared with the widget (`Shared/`, ADR 0010). The locked widget is a plain ring with "00" until unlocked. |
+| #78 | Calibrating: 7 segments fill night by night ("3 / 7"). Pending: the previous scored day dimmed, breathing, with "Last scored: …". `BaselineGauge` and `PendingGauge` are removed. |
+| #79 | The gauge assembles on a cold start in 0.85 s, once per launch, on a `TimelineView` clock; Reduce Motion and Low Power Mode get a 250 ms fade. No launch regression: main-thread busy is 854 → 842 ms (`perf-baseline.md`, `perf-branch.md`). |
+| #81 | The strain band: a rail for today's recommended range, and the arc turns alert past its upper end; VoiceOver says "above today's recommended range". **Hidden:** the platform has no per-day range yet, so production passes none and the gauge renders byte-identical to before. *Open: waiting for the merge.* |
+
+**Simulator and tests only**
+- Everything was checked in the simulator: previews, `ImageRenderer` pixel tests, contrast tests, VoiceOver strings in en and de, and cold-launch recordings in en/de × dark/light × standard/AX3 × Reduce Motion.
+- The 44 pt render reads as the app icon.
+
+**Open (Needs you)**
+- **On a device:**
+  - the widget on the locked Lock Screen and in StandBy;
+  - the tinted and clear home screens, including the calibrating and pending widgets;
+  - an Animation Hitches trace of a cold launch;
+  - the Reduce Motion and Low Power entrance, including Reduce Motion turned off in Settings while the app is open.
+- **Platform:** "Readiness → recommended strain range per day" (`DailyScore.strain_target_lo/hi`, `API_REQUESTS.md` → Charts and gauges #2). Once it exists, api-contract-keeper mirrors it, and one mapping line turns the band on. The Strain tab's `MetricGauge` target uses the same value.
+
+**Follow-ups (not blocking)**
+- **Demo mode, first launch:** an app-wide main-thread stall of about 400 ms after seeding. Pre-existing; for the performance-profiler.
+- **Light mode:** the first frame after launch is dark grey, because the launch screen is dark-first.
+- **Pending:** "Scoring your night" appears twice, in the status pill and under the gauge.
+- **Demo:** the Strain tile shows a raw value next to "calibrating".
+- **The widget's "Baselines n of 7"** doesn't name the signal it counts. That needs a snapshot field.
+- **The dark-mode strain rail** is at 2.3:1 on purpose. If it's too faint on a device, the next step is 0.6 (2.85:1).
+
+## Beta feedback 2 (`CLAUDE_FOLLOWUP_BETA_FEEDBACK_2.md`)
+
+Plan, design, investigation and review: `docs/work/2026-10-29-beta-feedback-2/`.
+
+**Done**
+
+| PR | What |
+| --- | --- |
+| #72 | "Last time" per exercise occurrence (§4): two of the same exercise in one workout no longer show identical lists. |
+| #73 | The baseline counter counts whichever signal is filling (F3): it no longer sticks at 0 / 7 for a Garmin user without HRV. |
+| #75 | Replace an exercise during a workout, and edit its sets, reps, weight, rest and notes (F1). Done sets stay with the old exercise; Undo; "also change the plan" for your own plans. Swipe a set row to delete it. |
+| #77 | Jump to the next exercise after its last set, with the rest timer as a compact bar pinned under the clock (F2). Profile → Training → Jump to next exercise, on by default. |
+
+All in en and de.
+
+**Open (Needs you)**
+- Reply to the three App Store Connect feedback entries once the build is out.
+- Check the history for incline against flat bench (§4).
+- N1 on Today with the Garmin account.
+- **On a device:**
+  - VoiceOver: the rest-time swipe, and the focus after a jump;
+  - Voice Control "Tap Skip";
+  - the 10 s Undo toast under VoiceOver and Switch Control;
+  - the Live Activity after Finish.
+
+**Follow-ups**
+- `pruneCollapsed()` at the top of `toggleCheck` (T2 review).
+- At AX3, the session header and the set-table columns wrap letter by letter.
+- `ImportPlanAssembly.latestWeight` gives two source rows mapped to one exercise the same kg target (import ticket).
+
+## CI: a fresh simulator per job (#80)
+
+The UI-test job hung before any test ran ("The test runner hung before establishing connection") on the one reused "RYFT CI" simulator. It happened on #76 five times, and also on #77, #79, #81 and `main` after #78. #80 creates a new simulator for every job and deletes it and its parallel-testing clones afterwards. Local runs reuse one "RYFT CI local". *Open: waiting for the merge.* Until it's in, the fix for a hang is to delete the "RYFT CI" device while no job runs, then rerun.
+
+**Runner housekeeping (Needs you, once):** `~/Library/Developer/XCTestDevices` held 277 leaked clones and the disk was at 90 %. See the command in the session's Needs-you list.
 
 ## Public beta readiness: minimum age 16 and the External notes (feat/beta-age-16)
 
