@@ -134,8 +134,13 @@ previews) applies one state on mock data for screenshots and the UI tests.
 container (`group.dev.timkrebs.ryft`). `Repository.publishWidget()` writes it after every
 days write and when `AppState.syncStatus` changes today's state (`ReadinessSnapshot.make`
 mirrors the hero's priority), and reloads the widget only when what it shows changed.
-`ReadinessSnapshot` exists in both targets (the folders can't share a file); its JSON
-shape is the contract. Only the live graph writes (`AppEnvironment.sharesWithWidget`).
+`ReadinessSnapshot` is one file both targets compile (`Shared/`, ADR 0010); its JSON shape
+is the contract, and it only gains optional keys. It carries the orbit's scores, so the
+widget draws Today's `OrbitGaugeMode` (`ReadinessSnapshot.gauge`). The file is written with
+`completeUntilFirstUserAuthentication` protection and excluded from backups. On a locked
+device the widget hides the values (the system's `.privacy` redaction): the orbit's tracks
+only, and VoiceOver says "Readiness". Only the live graph writes
+(`AppEnvironment.sharesWithWidget`).
 
 **Tests** (`ViewModelTests`). Each view model runs against `AppEnvironment.test` with a
 `MockPlatformAPI`, `MockHealthStore`, a `TestClock` and its own defaults suite and response

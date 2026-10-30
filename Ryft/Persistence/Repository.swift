@@ -775,6 +775,9 @@ extension ReadinessSnapshot {
         case .baselines(let nights):
             s.kind = .calibrating
             s.baselineNights = nights
+            // The counter draws no scores (and Recovery is withheld beside it): only what it counts, so a strain
+            // synced while calibrating doesn't reload the widget.
+            s.orbit = Orbit(counted: mode.calibration?.signal)
         case .pending(let night):
             s.kind = night.waitingForSleep ? .waitingForSleep : .pending
         case .firstImport:
@@ -793,8 +796,15 @@ extension ReadinessSnapshot {
             try? FileManager.default.removeItem(at: file)
             return true
         }
-        guard let data = try? encoder.encode(snapshot) else { return false }
-        return (try? data.write(to: file, options: .atomic)) != nil
+        guard let data = try? encoder.encode(snapshot),
+              (try? data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil
+        else { return false }
+        // Health scores: readable by the widget after the first unlock, never in a device backup.
+        var url = file
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? url.setResourceValues(values)
+        return true
     }
 
     /// Sign-out: the next account's readiness, or none, never this one's on the lock screen.

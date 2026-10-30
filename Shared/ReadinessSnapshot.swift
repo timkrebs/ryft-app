@@ -30,6 +30,23 @@ struct ReadinessSnapshot: Codable, Equatable {
         var strain: Double?
         /// With `baselineNights`: what the count counts.
         var counted: OrbitGaugeCalibration.Signal?
+
+        init(recovery: Int? = nil, sleepPerformance: Int? = nil, strain: Double? = nil,
+             counted: OrbitGaugeCalibration.Signal? = nil) {
+            self.recovery = recovery
+            self.sleepPerformance = sleepPerformance
+            self.strain = strain
+            self.counted = counted
+        }
+
+        /// A signal a later app adds decodes as nil here (an older widget), never as a failed snapshot.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            recovery = try c.decodeIfPresent(Int.self, forKey: .recovery)
+            sleepPerformance = try c.decodeIfPresent(Int.self, forKey: .sleepPerformance)
+            strain = try c.decodeIfPresent(Double.self, forKey: .strain)
+            counted = try? c.decodeIfPresent(OrbitGaugeCalibration.Signal.self, forKey: .counted)
+        }
     }
 
     /// The day it's about, `yyyy-MM-dd`; another day on the widget is "waiting for sleep".
@@ -99,6 +116,31 @@ struct ReadinessSnapshot: Codable, Equatable {
 
     private func calibration(nights: Int) -> OrbitGaugeCalibration {
         OrbitGaugeCalibration(nights: nights, required: Self.baselineNightsRequired, signal: orbit?.counted ?? .anyNight)
+    }
+
+    /// What VoiceOver may say about a snapshot, decided without words (each target's catalog has those): on a locked
+    /// device (`redacted`, the widget's `.privacy` redaction) only the widget's name, never a value.
+    enum Speech: Equatable {
+        /// Locked: "Readiness".
+        case name
+        /// No snapshot: "Open RYFT to see your readiness."
+        case openApp
+        /// Today's readiness and, when known, the orbit's scores.
+        case score(readiness: Int?, values: OrbitGaugeValues?)
+        /// A night pending or awaited, with the latest readiness.
+        case night(Kind, previous: Int?)
+        /// The baselines counting.
+        case baselines(nights: Int, required: Int)
+    }
+
+    static func speech(_ s: ReadinessSnapshot?, redacted: Bool) -> Speech {
+        if redacted { return .name }
+        guard let s else { return .openApp }
+        switch s.kind {
+        case .score: return .score(readiness: s.readiness, values: s.gauge?.scoredValues)
+        case .pending, .waitingForSleep: return .night(s.kind, previous: s.previousReadiness)
+        case .calibrating: return .baselines(nights: s.baselineNights ?? 0, required: baselineNightsRequired)
+        }
     }
 
     /// "Bed by 22:41" from 17:00 the evening before until bedtime (00:30 too).
