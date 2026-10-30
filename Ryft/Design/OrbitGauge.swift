@@ -405,6 +405,10 @@ struct OrbitGauge: View {
         guard let band = OrbitGaugeGeometry.clampedBand(band) else {
             return String(localized: "Strain \(strainText(strain)) of 21")
         }
+        // Above the band the sentence says so: the arc's colour is never the only carrier.
+        if OrbitGaugeGeometry.strainPastBandDegrees(strain: strain, band: band) != nil {
+            return String(localized: "Strain \(strainText(strain)) of 21, above today's recommended range \(bandText(band.lowerBound)) to \(bandText(band.upperBound))")
+        }
         return String(localized: "Strain \(strainText(strain)) of 21, today's recommended range \(bandText(band.lowerBound)) to \(bandText(band.upperBound))")
     }
 
@@ -525,7 +529,6 @@ private struct WidePair<Content: View>: View {
     }
 }
 
-
 #Preview("OrbitGauge · calibrating 0 / 3 / 7", traits: .sizeThatFitsLayout) {
     // Static (`animatesFill: false`): the previews and the shots never depend on time.
     WidePair {
@@ -579,11 +582,13 @@ extension OrbitGaugeValues {
     }
 }
 
-#Preview("OrbitGauge · strain band", traits: .sizeThatFitsLayout) {
-    // Synthetic band 8-13: strain 4.0 (below), 9.6 (inside), 16.5 (past), 9.6 without a band; large, medium, small.
-    WidePair {
+/// The strain band previews' content, internal so the shots render exactly what the previews show.
+struct OrbitBandPreviewGrid: View {
+    var body: some View {
+        // Synthetic band 8-13: strain 4.0 (below), 9.6 (inside), 16.5 (past), 9.6 without a band; large, medium, small.
         HStack(alignment: .top, spacing: 12) {
-            ForEach([(Optional(4.0), true), (9.6, true), (16.5, true), (9.6, false)], id: \.0) { strain, banded in
+            ForEach(Array([(Optional(4.0), true), (9.6, true), (16.5, true), (9.6, false)].enumerated()), id: \.offset) { _, entry in
+                let (strain, banded) = entry
                 VStack(spacing: 8) {
                     let values = banded ? OrbitGaugeValues.previewBanded(strain: strain)
                         : OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: strain)
@@ -596,17 +601,28 @@ extension OrbitGaugeValues {
     }
 }
 
-#Preview("OrbitGauge · strain band, other modes", traits: .sizeThatFitsLayout) {
-    // Pending with yesterday's band (dimmed), strain missing (rail only), calibrating (no band), the band's edges.
-    WidePair {
+struct OrbitBandPreviewModes: View {
+    var body: some View {
+        // Pending with yesterday's band (dimmed), strain missing (rail only), the band's upper end, a full ring,
+        // a band past the scale (clamped to 18-21), calibrating (no band).
         HStack(alignment: .top, spacing: 12) {
             OrbitGauge(mode: .pending(previous: .previewBanded(strain: 16.5)), size: .medium, breathes: false)
             OrbitGauge(mode: .scored(.previewBanded(strain: nil)), size: .medium)
             OrbitGauge(mode: .scored(.previewBanded(strain: 13)), size: .medium)
             OrbitGauge(mode: .scored(.previewBanded(strain: 21)), size: .medium)
+            OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6, strainBand: 18...40)),
+                       size: .medium)
             OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .medium, animatesFill: false)
         }
     }
+}
+
+#Preview("OrbitGauge · strain band", traits: .sizeThatFitsLayout) {
+    WidePair { OrbitBandPreviewGrid() }
+}
+
+#Preview("OrbitGauge · strain band, other modes", traits: .sizeThatFitsLayout) {
+    WidePair { OrbitBandPreviewModes() }
 }
 
 #Preview("OrbitGauge · strain band · AX3", traits: .sizeThatFitsLayout) {

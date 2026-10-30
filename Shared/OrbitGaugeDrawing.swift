@@ -143,7 +143,7 @@ struct OrbitGaugeMarks: View {
             // The strain band's rail under the outer orbit's marks; nothing without a band, a dial with room, or values.
             if let values, OrbitGaugeGeometry.drawsBandRail(values.strainBand, dial: dial) {
                 OrbitGaugeBandRail(band: values.strainBand, dial: dial, colour: palette.strain,
-                                   cut: (degrees: OrbitGaugeGeometry.Orbit.strain.headDegrees(for: values.strainFraction ?? 0),
+                                   cut: (start: 0, sweep: OrbitGaugeGeometry.Orbit.strain.sweep(for: values.strainFraction ?? 0),
                                          radius: m.outerRadius))
             }
             ForEach(OrbitGaugeGeometry.Orbit.allCases, id: \.self) { orbit in
@@ -151,7 +151,7 @@ struct OrbitGaugeMarks: View {
                     segments(calibration, m)
                 }
                 marks(orbit, fraction: values.flatMap { orbit.fraction(of: $0) },
-                      past: orbit == .strain ? values.flatMap { OrbitGaugeGeometry.strainPastBandDegrees(strain: $0.strain, band: $0.strainBand) } : nil,
+                      split: orbit == .strain ? values.flatMap { OrbitGaugeGeometry.strainSplitDegrees(band: $0.strainBand) } : nil,
                       m)
             }
             if let values {
@@ -179,21 +179,24 @@ struct OrbitGaugeMarks: View {
     }
 
     @ViewBuilder
-    private func marks(_ orbit: OrbitGaugeGeometry.Orbit, fraction: Double?, past: Double?,
+    private func marks(_ orbit: OrbitGaugeGeometry.Orbit, fraction: Double?, split: Double?,
                        _ m: OrbitGaugeGeometry.Metrics) -> some View {
         let colour = palette.colour(of: orbit)
         if let fraction {
-            if let past {
-                // Strain beyond today's band: the same arc, turned toward alert past the band's upper end.
+            if let split {
+                // A usable band: one structure whatever the strain is, so a change that crosses the band's end moves
+                // the arc and the dot's colour with it (`OrbitStrainArc`, `OrbitStrainDot`).
                 OrbitStrainArc(radius: m.radius(of: orbit), stroke: m.stroke(of: orbit),
-                               sweep: orbit.sweep(for: fraction), split: past, plain: colour, past: palette.strainPastBand)
+                               sweep: orbit.sweep(for: fraction), split: split, plain: colour, past: palette.strainPastBand)
+                OrbitStrainDot(radius: m.radius(of: orbit), sweep: orbit.sweep(for: fraction), dotRadius: m.dotRadius,
+                               split: split, plain: colour, past: palette.strainPastBand)
             } else {
                 OrbitArc(radius: m.radius(of: orbit), start: orbit.startDegrees, sweep: orbit.sweep(for: fraction))
                     .stroke(colour, style: StrokeStyle(lineWidth: m.stroke(of: orbit), lineCap: .round))
+                OrbitDot(radius: m.radius(of: orbit), start: orbit.startDegrees, sweep: orbit.sweep(for: fraction),
+                         dotRadius: m.dotRadius)
+                    .fill(colour)
             }
-            OrbitDot(radius: m.radius(of: orbit), start: orbit.startDegrees, sweep: orbit.sweep(for: fraction),
-                     dotRadius: m.dotRadius)
-                .fill(past == nil ? colour : palette.strainPastBand)
         } else {
             OrbitDot(radius: m.radius(of: orbit), start: orbit.startDegrees, sweep: 0, dotRadius: m.dotRadius)
                 .stroke(colour, lineWidth: m.hollowStroke)
@@ -224,14 +227,14 @@ extension OrbitGaugeGeometry.Orbit {
 // MARK: strain band (PR 4)
 
 /// The band's rail: a thin butt-capped arc inside the outer orbit, `metricStrain` at `bandRailOpacity`, with the air around
-/// the strain dot cut out of it the way the tracks are (`cut`: where the dot is, degrees and radius of its orbit).
+/// the strain dot cut out of it the way the tracks are (`cut`: the dot's start and sweep on its orbit, like the tracks').
 /// Draws nothing for an empty band.
 struct OrbitGaugeBandRail: View {
     let band: ClosedRange<Double>?
     let dial: CGFloat
     let colour: Color
     var opacity = OrbitGaugeGeometry.bandRailOpacity
-    let cut: (degrees: Double, radius: CGFloat)
+    let cut: (start: Double, sweep: Double, radius: CGFloat)
 
     var body: some View {
         let m = OrbitGaugeGeometry.metrics(forDial: dial)
@@ -239,7 +242,7 @@ struct OrbitGaugeBandRail: View {
             if let rail = OrbitGaugeGeometry.bandRail(for: band) {
                 OrbitArc(radius: m.bandRadius, start: rail.start, sweep: rail.sweep)
                     .stroke(colour.opacity(opacity), style: StrokeStyle(lineWidth: m.bandStroke, lineCap: .butt))
-                OrbitDot(radius: cut.radius, start: cut.degrees, sweep: 0, dotRadius: m.dotRadius + m.dotAir)
+                OrbitDot(radius: cut.radius, start: cut.start, sweep: cut.sweep, dotRadius: m.dotRadius + m.dotAir)
                     .fill(.black)
                     .blendMode(.destinationOut)
             }
@@ -248,10 +251,12 @@ struct OrbitGaugeBandRail: View {
     }
 }
 
-/// The strain arc beyond its band: one stroked arc drawn twice, `plain` up to `split` (degrees from the top) and `past`
-/// beyond it, each clipped to its side of a radial line, so the join is straight, the caps stay round at both ends and
-/// there is no fringe of one colour under the edge of the other.
-struct OrbitStrainArc: View {
+/// The strain arc with a band: one stroked arc drawn twice, `plain` up to `split` (the band's upper end, degrees from the
+/// top) and `past` beyond it, each clipped to its side of a radial line, so the join is straight, the caps stay round at
+/// both ends and there is no fringe of one colour under the edge of the other. Always this structure for a usable band,
+/// whatever the strain: it is `Animatable` in the sweep, so the past layer grows and shrinks with the arc and nothing swaps
+/// when a change crosses the band's end. Below the split the past layer is empty.
+struct OrbitStrainArc: View, Animatable {
     var radius: CGFloat
     var stroke: CGFloat
     var sweep: Double
@@ -259,25 +264,55 @@ struct OrbitStrainArc: View {
     var plain: Color
     var past: Color
 
+    var animatableData: Double {
+        get { sweep }
+        set { sweep = newValue }
+    }
+
     var body: some View {
         let arc = OrbitArc(radius: radius, start: 0, sweep: sweep)
             .stroke(style: StrokeStyle(lineWidth: stroke, lineCap: .round))
         ZStack {
             // The start cap reaches a few degrees before the top (it stays `plain`); the far end is under the dot.
             arc.foregroundStyle(plain).clipShape(OrbitWedge(from: -8, to: split))
-            arc.foregroundStyle(past).clipShape(OrbitWedge(from: split, to: min(sweep + 4, 357)))
+            if sweep > split {
+                arc.foregroundStyle(past).clipShape(OrbitWedge(from: split, to: min(sweep + 4, 357)))
+            }
         }
     }
 }
 
-/// A pie slice from the centre, `from` to `to` degrees clockwise from the top, larger than the rect.
+/// The strain dot with a band: `past` once its head is beyond `split`, `plain` before, decided from the animated sweep
+/// (it switches at the moment the head crosses the line, not at the end of the animation).
+struct OrbitStrainDot: View, Animatable {
+    var radius: CGFloat
+    var sweep: Double
+    var dotRadius: CGFloat
+    var split: Double
+    var plain: Color
+    var past: Color
+
+    var animatableData: Double {
+        get { sweep }
+        set { sweep = newValue }
+    }
+
+    var body: some View {
+        OrbitDot(radius: radius, start: 0, sweep: sweep, dotRadius: dotRadius)
+            .fill(sweep > split ? past : plain)
+    }
+}
+
+/// A pie slice from the centre, `from` to `to` degrees clockwise from the top, larger than the rect. Empty when `to` does
+/// not pass `from` (it would otherwise wrap the long way round).
 struct OrbitWedge: Shape {
     var from: Double
     var to: Double
 
     func path(in rect: CGRect) -> Path {
-        let centre = CGPoint(x: rect.midX, y: rect.midY)
         var p = Path()
+        guard to > from else { return p }
+        let centre = CGPoint(x: rect.midX, y: rect.midY)
         p.move(to: centre)
         p.addArc(center: centre, radius: hypot(rect.width, rect.height),
                  startAngle: .degrees(from - 90), endAngle: .degrees(to - 90), clockwise: false)

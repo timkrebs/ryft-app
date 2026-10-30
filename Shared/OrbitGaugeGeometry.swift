@@ -158,6 +158,10 @@ enum OrbitGaugeGeometry {
         return min(strain, OrbitGaugeValues.strainScale) > upper ? rail.end : nil
     }
 
+    /// The radial line where the strain arc may turn toward alert: the band's upper end, whether or not strain is past
+    /// it (the drawing is one structure and the line does not move with strain). nil: no usable band.
+    static func strainSplitDegrees(band: ClosedRange<Double>?) -> Double? { bandRail(for: band)?.end }
+
     /// The arc and dot's colour decision, for tests and the drawing alike.
     enum StrainTone: Equatable { case plain, pastBand }
 

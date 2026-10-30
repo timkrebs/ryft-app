@@ -304,3 +304,18 @@ the static drawing (the stage ends in `settled`); the entrance tests pass unchan
 
 **Rejected.** A 60 / 40 mix (mauve, dE 52 for deutan); a gradient along the arc (no clear "this is where the range ended"); a dashed rail
 (noise at medium); the rail on the outer track itself (it would hide the empty scale); keeping the rail at `.small`; 0.35 opacity (1.7:1).
+
+**Review round 1 (animation, cut-out, sentence).**
+- *One structure.* With a usable band the strain arc is always `OrbitStrainArc` + `OrbitStrainDot` (split = the band's upper end,
+  `strainSplitDegrees`), whatever the strain is; only a nil or unusable band keeps the old `OrbitArc` + `OrbitDot` (nil is byte-identical to
+  `main`: the 84-render hash check, repeated after this change, matches). Both are `Animatable` in the sweep, so the past layer grows and
+  shrinks with the arc and a change that crosses the band's end moves continuously, with no swap and no crossfade. `OrbitWedge` is empty
+  when `to <= from` (it used to wrap the long way: the whole arc turned `alert` mid-glide in the entrance).
+- *The dot's colour* is decided from the animated sweep: it switches at the instant its head crosses the split (hard switch, not a blend), on
+  the way up and the way down. In the entrance the dot position's degrees decide the same way.
+- *Rail cut-out* uses `start: 0, sweep:` like the tracks (it follows the dot's animation); in the entrance the cut sits at the dot's flying position.
+- *VoiceOver* says "above" when the arc has turned red (colour is not the only carrier): "Strain 16.5 of 21, above today's recommended range 8 to 13"
+  (key `Strain %@ of 21, above today's recommended range %@ to %@`). Inside or below: "Strain 9.6 of 21, today's recommended range 8 to 13".
+- *Rail opacity stays 0.5* (dark 2.33:1 on the background, light 2.09:1): it is the target's scale, the value is the arc, and the range is spoken; 0.6
+  would be 2.85 dark. Not changed, because the tests pin 0.5 and 3:1 is out of reach without competing with the arc.
+- *Shots* are rendered from the preview views themselves (`OrbitBandPreviewGrid`, `OrbitBandPreviewModes`); `pr4-entrance` adds t = 0.65 / 0.72 / 0.8 s.
