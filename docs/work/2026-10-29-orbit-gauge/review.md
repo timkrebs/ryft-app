@@ -144,3 +144,18 @@ Verified:
 - Reduce Motion fades only, and turning it off then returning shows the complete gauge.
 
 Not verified: the tab-switch replay (no tap driver; covered by the table), Low Power Mode, and the real device.
+
+### Round 2, developer (866cd23)
+
+- **Predicate:** `TodayGaugeEntrance.hasSomethingToShow`:
+  - scores: at least one value;
+  - calibrating: always;
+  - pending: a non-empty previous day.
+  - The no-data gauge is `.scored(.empty)`, so it is not showable.
+- **`decide`** takes `showable`; a non-showable gauge is never consumed, marked or rebuilt.
+- **Identity:** the gauge's `.id` includes `showable`, so the first showable content is a new instance that latches `.assemble`.
+- **The nit is fixed:** an appearance keeps `playedUnseen`, and an active appearance after an unseen play rebuilds.
+- **Tests:** 20 `TodayGaugeEntranceTests`. Unit: 2129 passed. UISmoke: 35 passed.
+- **First-launch frames** (`pr3-validate/fix-firstlaunch-*.png`): the static placeholder, then the entrance on the data.
+
+**Accepted, follow-up:** on a first launch in demo mode, the app's main thread stalls for about 400 ms after the demo data is seeded. The whole screen freezes, the status line included. It can land on the entrance, leaving the gauge blank for about 0.4 s or skipping the glide. It is pre-existing and app-wide (also in the validator's earlier recording), not caused by the gauge. Real first launches show the import card. → follow-up for the performance-profiler: the first-launch demo seeding stall.
