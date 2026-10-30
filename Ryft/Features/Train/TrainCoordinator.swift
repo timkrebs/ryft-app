@@ -30,6 +30,8 @@ final class TrainCoordinator {
     private let liveActivity: RestActivityController?
     /// The live session's "now" and waits (the undo window, the jump to the next exercise).
     private let clock: AppClock
+    /// Profile → Training → Jump to next exercise, read when a jump is due; tests replace it.
+    @ObservationIgnored var jumpToNext: @MainActor () -> Bool = { Settings.shared.jumpToNextExercise }
 
     init(sync: TrainSyncService? = nil, library: TrainLibrary? = nil, liveActivities: Bool = true,
          clock: AppClock = SystemClock()) {
@@ -141,6 +143,7 @@ final class TrainCoordinator {
         let controller = live?.session.id == s.id
             ? live
             : SessionController(session: s, sync: sync, liveActivity: liveActivity, clock: clock, library: library)
+        controller?.jumpToNext = jumpToNext
         if live !== controller { live?.stop() }
         // The start sheet must be gone before the full-screen session can appear.
         guard showsStart else {

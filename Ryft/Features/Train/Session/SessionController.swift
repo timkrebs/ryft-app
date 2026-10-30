@@ -93,6 +93,23 @@ final class SessionController: Identifiable {
     private var lastActivityNext: String?
 
     // MARK: jump-to-next state (SessionController+Advance.swift)
+    // Set only from that file (an extension elsewhere can't reach `private(set)`).
+
+    /// Cards collapsed after their last set; shown through `isCollapsed(_:)`. UI state, not persisted.
+    var collapsed: Set<UUID> = []
+    /// The latest jump for the view to perform (scroll, highlight).
+    var advance: AdvanceRequest?
+    /// Profile → Training → Jump to next exercise; the coordinator wires the setting.
+    @ObservationIgnored var jumpToNext: @MainActor () -> Bool = { true }
+    @ObservationIgnored var userExpanded: Set<UUID> = []
+    @ObservationIgnored var advanceTask: Task<Void, Never>?
+    /// Checks waiting for the delay (the latest per exercise): a second check inside 0.6 s keeps the first's collapse.
+    @ObservationIgnored var pendingChecks: [SessionAdvance.SetRef] = []
+    /// Collapses decided while the list stayed put: applied with the next jump, so rows never move under the thumb.
+    @ObservationIgnored var carriedCollapse: [UUID] = []
+    @ObservationIgnored var lastManualScroll: Date?
+    /// The exercise of the last check: the current-set highlight follows its `nextUp(after:)`.
+    var lastCheckedExercise: UUID?
 
     /// After an edit (a set checked, unchecked, added, deleted or changed; an exercise added,
     /// removed or moved): the lock screen's next set follows.
@@ -128,6 +145,7 @@ final class SessionController: Identifiable {
     func stop() {
         ticker?.cancel()
         ticker = nil
+        cancelAdvance()
         dropUndo()
     }
 
@@ -150,13 +168,8 @@ final class SessionController: Identifiable {
         ex.orderedSets.filter { !$0.isWarmup && $0.setIndex < set.setIndex }.count
     }
 
-    /// "Bench press · set 3 of 4" — the next set to do, in order (supersets alternate).
-    var nextUp: (exercise: LocalSessionExercise, set: LocalSet)? {
-        for ex in exercises {
-            if let set = ex.orderedSets.first(where: { !$0.isCompleted }) { return (ex, set) }
-        }
-        return nil
-    }
+    /// "Bench press · set 3 of 4" — the next set to do after the last check (`SessionAdvance.next`).
+    var nextUp: (exercise: LocalSessionExercise, set: LocalSet)? { nextUp(after: nil) }
 
     func nextLabel(after ex: LocalSessionExercise? = nil) -> String {
         guard !exercises.isEmpty else { return String(localized: "Add an exercise") }
@@ -180,17 +193,10 @@ final class SessionController: Identifiable {
         }
     }
 
-    /// Within a superset the partner comes next; otherwise the first open set.
+    /// After `ex` (default: the exercise checked last): a superset's partner first, then the list below, wrapping
+    /// to the top; an exercise without an open working set is skipped (`SessionAdvance.next`, lead decision D-a).
     func nextUp(after ex: LocalSessionExercise?) -> (exercise: LocalSessionExercise, set: LocalSet)? {
-        if let ex, let group = ex.supersetGroup {
-            let partners = exercises.filter { $0.supersetGroup == group }
-            if let i = partners.firstIndex(where: { $0.id == ex.id }) {
-                for partner in partners[(i + 1)...] + partners[..<i] {
-                    if let set = partner.orderedSets.first(where: { !$0.isCompleted }) { return (partner, set) }
-                }
-            }
-        }
-        return nextUp
+        nextOpenSet(after: ex?.id ?? lastCheckedExercise)
     }
 
     // MARK: sets
@@ -198,6 +204,7 @@ final class SessionController: Identifiable {
     func toggleCheck(_ set: LocalSet, in ex: LocalSessionExercise) {
         if set.isCompleted {
             set.completedAt = nil
+            checkUndone(in: ex)
         } else {
             let g = ghost(for: set, in: ex)
             if set.reps == nil { set.reps = g.reps }
@@ -205,6 +212,8 @@ final class SessionController: Identifiable {
             set.completedAt = .now
             setsChecked += 1
             if focus?.setID == set.id { focus = nil }
+            // First: it sets the exercise checked last, so the rest's lock-screen "next" is right at once.
+            scheduleAdvance(after: set, in: ex)
             startRest(after: ex)
         }
         changed(set)
@@ -244,6 +253,7 @@ final class SessionController: Identifiable {
 
     /// Any change: the upload follows (debounced), and the lock screen's next set.
     func edited() {
+        pruneCollapsed()
         sync.sessionChanged(session)
         refreshActivity()
     }
@@ -319,7 +329,7 @@ final class SessionController: Identifiable {
     }
 
     /// kg → reps → the next set's kg.
-    func advance() {
+    func nextField() {
         guard let focus, let target = focusedSet else { return }
         let set = target.set, ex = target.exercise
         switch focus.field {
@@ -431,11 +441,18 @@ final class SessionController: Identifiable {
     // MARK: rest timer
 
     private func startRest(after ex: LocalSessionExercise) {
-        // Inside a superset the partner follows straight away; rest after the round.
+        // The last working set: nothing follows, so no rest (no countdown on the lock screen, no "Rest over" later),
+        // and one still running from before stops.
+        if isAllDone {
+            skipRest()
+            return
+        }
+        // Inside a superset the partner follows straight away while it has an open working set (an open warm-up
+        // doesn't count, as in `SessionAdvance`); rest after the round.
         if let group = ex.supersetGroup {
             let partners = exercises.filter { $0.supersetGroup == group }
             if let i = partners.firstIndex(where: { $0.id == ex.id }), i + 1 < partners.count,
-               partners[(i + 1)...].contains(where: { p in p.sets.contains { !$0.isCompleted } }) {
+               partners[(i + 1)...].contains(where: { p in p.sets.contains { !$0.isWarmup && !$0.isCompleted } }) {
                 skipRest()
                 return
             }

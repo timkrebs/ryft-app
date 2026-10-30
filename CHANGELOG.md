@@ -34,6 +34,8 @@ Store "What's New".
   and a Control Center / Lock Screen control. A workout in progress is resumed, never doubled.
 - The workout on the Lock Screen and in the Dynamic Island for the whole session: elapsed time
   and the next set (e.g. "Bench press · set 3 of 4 · 5 × 80 kg"), the rest countdown between.
+- After the last set of an exercise the workout folds it into one line and scrolls to the next set (Profile →
+  Training → Jump to next exercise, on by default). The rest timer is a compact bar pinned under the clock.
 - Save your strength workouts to Apple Health, if you want: asked once after your first
   logged workout, and in Profile → Data. RYFT writes only the workout, nothing else, and
   not when your watch recorded the session too. The workout summary says where its heart

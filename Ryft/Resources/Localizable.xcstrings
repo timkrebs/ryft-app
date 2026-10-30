@@ -300,6 +300,88 @@
         }
       }
     },
+    "%@, completed. %lld sets, best %@." : {
+      "comment" : "VoiceOver: a collapsed exercise, e.g. Bench press, completed. 4 sets, best 6 reps at 80 kilograms.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, erledigt. %lld Satz, Bestwert %@."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, erledigt. %lld Sätze, Bestwert %@."
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, completed. %lld set, best %@."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, completed. %lld sets, best %@."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%@, completed. %lld sets." : {
+      "comment" : "VoiceOver: a collapsed exercise without values, e.g. Plank, completed. 3 sets.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, erledigt. %lld Satz."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, erledigt. %lld Sätze."
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, completed. %lld set."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, completed. %lld sets."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%@, now matched. %lld left to check." : {
       "comment" : "Training import, VoiceOver: a row was resolved; the rows still blocking.",
       "localizations" : {
@@ -613,6 +695,107 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld days"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld exercises · %lld sets" : {
+      "comment" : "Under All sets done: how many exercises and checked sets, e.g. 5 exercises · 17 sets.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@exercises@ · %#@sets@"
+          },
+          "substitutions" : {
+            "exercises" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Übung"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Übungen"
+                    }
+                  }
+                }
+              }
+            },
+            "sets" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Satz"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Sätze"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@exercises@ · %#@sets@"
+          },
+          "substitutions" : {
+            "exercises" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg exercise"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg exercises"
+                    }
+                  }
+                }
+              }
+            },
+            "sets" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg set"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg sets"
+                    }
+                  }
                 }
               }
             }
@@ -1402,6 +1585,47 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld sets skipped (no weight or reps)"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld sets · best %@" : {
+      "comment" : "A collapsed exercise in a workout: sets done and the best set, e.g. 4 sets · best 80 × 6.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Satz · Bestwert %@"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Sätze · Bestwert %@"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld set · best %@"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld sets · best %@"
                 }
               }
             }
@@ -2390,6 +2614,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Alle Übungen"
+          }
+        }
+      }
+    },
+    "All sets done" : {
+      "comment" : "Card at the end of a workout once every set is checked off.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Sätze erledigt"
+          }
+        }
+      }
+    },
+    "All sets done. Finish workout available at the bottom." : {
+      "comment" : "VoiceOver announcement when the last set of a workout is checked off.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Sätze erledigt. Unten findest du „Workout beenden“."
           }
         }
       }
@@ -4256,6 +4502,17 @@
         }
       }
     },
+    "Expands the sets" : {
+      "comment" : "VoiceOver hint on a collapsed exercise in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt die Sätze"
+          }
+        }
+      }
+    },
     "Export my data first" : {
       "localizations" : {
         "de" : {
@@ -5360,6 +5617,61 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Die neue Übung geht mit 1 Satz weiter."
+          }
+        }
+      }
+    },
+    "Jump to next exercise" : {
+      "comment" : "Profile → Training toggle: after the last set of an exercise, the workout scrolls to the next one.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zur nächsten Übung springen"
+          }
+        }
+      }
+    },
+    "Jumps to the next set when you finish an exercise." : {
+      "comment" : "Footer under the Profile → Training toggle \"Jump to next exercise\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Springt zum nächsten Satz, wenn du eine Übung abschließt."
+          }
+        }
+      }
+    },
+    "Minus 15" : {
+      "comment" : "Voice Control name of the rest bar's −15 button.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minus 15"
+          }
+        }
+      }
+    },
+    "Next set." : {
+      "comment" : "VoiceOver: said with the set row the user does next in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nächster Satz."
+          }
+        }
+      }
+    },
+    "Plus 15" : {
+      "comment" : "Voice Control name of the rest bar's +15 button.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plus 15"
           }
         }
       }
@@ -8817,6 +9129,17 @@
         }
       }
     },
+    "Show rest timer" : {
+      "comment" : "VoiceOver action on the rest bar's small pill (large text sizes): shows the full rest timer.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pausentimer zeigen"
+          }
+        }
+      }
+    },
     "Showing data from" : {
       "localizations" : {
         "de" : {
@@ -10639,6 +10962,53 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zu viele Versuche. Warte eine Stunde und versuche den Code dann erneut."
+          }
+        }
+      }
+    },
+    "train.rest.next" : {
+      "comment" : "The rest bar's next set, e.g. Next: Bench press · set 1 of 4.",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Als Nächstes: %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Next: %@"
+          }
+        }
+      }
+    },
+    "train.rest.value" : {
+      "comment" : "VoiceOver value of the rest timer, e.g. 1 minute, 35 seconds left. Next: Bench press · set 1 of 4.",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch %1$@. Als Nächstes: %2$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ left. Next: %2$@"
+          }
+        }
+      }
+    },
+    "Training" : {
+      "comment" : "Profile: the section with training preferences (Jump to next exercise).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Training"
           }
         }
       }
@@ -12623,24 +12993,6 @@
         }
       }
     },
-    "%lld seconds left. Next: %@" : {
-      "comment" : "A description of the remaining rest time and the next action available. The first argument is the remaining rest time in seconds. The second argument is the next action, such as \"Next: 10 min\" or \"Next: 15 min\".",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "Noch %1$lld Sekunden. Als Nächstes: %2$@"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$lld seconds left. Next: %2$@"
-          }
-        }
-      }
-    },
     "%lld sets checked off. Empty rows are dropped." : {
       "comment" : "A confirmation dialog that appears when the user taps the \"Finish workout\" button. The text describes the number of sets that have been checked off.",
       "isCommentAutoGenerated" : true,
@@ -12814,18 +13166,6 @@
         }
       }
     },
-    "+15 s" : {
-      "comment" : "A button to increase the rest time by 15 seconds.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "+15 s"
-          }
-        }
-      }
-    },
     "~%lld min" : {
       "comment" : "The duration of a day's workout.",
       "isCommentAutoGenerated" : true,
@@ -12901,18 +13241,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "−%@ für dein Nickerchen"
-          }
-        }
-      }
-    },
-    "−15 s" : {
-      "comment" : "A button to decrease the rest time by 15 seconds.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "−15 s"
           }
         }
       }

@@ -21,6 +21,7 @@
     {
       "selectedTests": [
         "StoreSmokeUITests",
+        "JumpToNextUITests",
         "TodayStatesUITests",
         "NotificationsUITests",
         "RefreshResilienceUITests",
