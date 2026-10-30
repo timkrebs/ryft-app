@@ -112,12 +112,16 @@ jobs:
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages \
             CODE_SIGNING_ALLOWED=NO RYFT_STRICT_WARNINGS=YES | tee build/build.log
           ! grep -E "^/.*/(Ryft|RyftTests|RyftUITests|RyftWidgets|Shared)/.*: warning:" build/build.log
+      # Each test step first removes its own result bundle. The self-hosted runner keeps its workspace, and a
+      # bundle from a timed-out step (main, 2026-10-29) was there when the next run reached it, so xcodebuild refused
+      # to start ("Existing file at -resultBundlePath").
       - name: Unit tests
         if: env.FULL != 'true'
         timeout-minutes: 15
         # TestPlans/Unit: parallel, random order, 60 s per test, coverage of Ryft.
         # No diagnostics collection: after a failure it waited 600 s on the simulator.
         run: |
+          rm -rf build/Unit.xcresult
           xcodebuild test-without-building -scheme Ryft -testPlan Unit -destination "$DESTINATION" \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages -collect-test-diagnostics never \
             -resultBundlePath build/Unit.xcresult
@@ -131,14 +135,16 @@ jobs:
         timeout-minutes: 15
         # TestPlans/UISmoke: a failing test is retried up to twice before it counts.
         run: |
+          rm -rf build/UISmoke.xcresult
           xcodebuild test-without-building -scheme Ryft -testPlan UISmoke -destination "$DESTINATION" \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages -collect-test-diagnostics never \
             -resultBundlePath build/UISmoke.xcresult
-      - name: Full test plan
+      - name: Full test pla
         if: env.FULL == 'true'
         timeout-minutes: 45
         # TestPlans/Full: every unit and UI test plus the performance tests.
         run: |
+          rm -rf build/Full.xcresult
           xcodebuild test-without-building -scheme Ryft -testPlan Full -destination "$DESTINATION" \
             -derivedDataPath build/DerivedData -clonedSourcePackagesDirPath build/SourcePackages -collect-test-diagnostics never \
             -resultBundlePath build/Full.xcresult
