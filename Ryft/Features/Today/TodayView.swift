@@ -171,8 +171,8 @@ struct TodayView: View {
                     // while the other is absent (F3), else any night.
                     OrbitGauge(mode: day.orbit, size: .large,
                                caption: OrbitGauge.Caption(title: String(localized: "Baselines")),
-                               identifier: "today.baselineGauge", entrance: gaugeEntrance)
-                        .modifier(GaugeEntranceConsumer(model: model))
+                               identifier: "today.baselineGauge", entrance: gaugeEntrance(day.orbit))
+                        .modifier(GaugeEntranceConsumer(model: model, mode: day.orbit))
                     // Why the nights don't fill (row B over a long history without HRV), or why only one signal's
                     // count (F3); read on its own after the gauge.
                     if let note = day.gaugeNote { noteBlock(note, readWithGauge: false) }
@@ -193,9 +193,11 @@ struct TodayView: View {
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: day.gaugeNote)
     }
 
-    /// Every gauge the hero shows assembles until one has been seen in this process (`GaugeEntranceConsumer`).
+    /// A gauge with something to show assembles until one has been seen in this process (`TodayGaugeEntrance`).
     /// A gauge latches this when it is built, so a later change (another hero row, a refresh) builds a plain one.
-    private var gaugeEntrance: OrbitGauge.Entrance { model.assemblesGauge ? .assemble : .none }
+    private func gaugeEntrance(_ mode: OrbitGaugeMode) -> OrbitGauge.Entrance {
+        TodayGaugeEntrance.entrance(flag: model.assemblesGauge, mode: mode)
+    }
 
     /// The orbit: readiness in the centre, Recovery and Sleep on the inner orbit, Strain on the outer; under it the
     /// caption, the band word and the change against the days before (from the 7-day trend, row A only).
@@ -204,8 +206,8 @@ struct TodayView: View {
                    caption: OrbitGauge.Caption(title: String(localized: "Overall readiness"), delta: day.readinessDelta,
                                                showsBand: day.showsReadinessBand),
                    accessibilityNote: day.gaugeSpokenNote, identifier: "today.readinessGauge",
-                   entrance: gaugeEntrance)
-            .modifier(GaugeEntranceConsumer(model: model))
+                   entrance: gaugeEntrance(day.orbit))
+            .modifier(GaugeEntranceConsumer(model: model, mode: day.orbit))
     }
 
     /// A night not scored yet: the latest scored day's orbit, dimmed, breathing until scoring takes longer
@@ -214,8 +216,9 @@ struct TodayView: View {
     private func pendingOrbit(_ day: TodayContent) -> some View {
         VStack(spacing: 8) {
             OrbitGauge(mode: day.orbit, size: .large, accessibilityNote: day.pendingSpokenNote,
-                       identifier: "today.pendingGauge", breathes: !day.pendingIsStatic, entrance: gaugeEntrance)
-                .modifier(GaugeEntranceConsumer(model: model))
+                       identifier: "today.pendingGauge", breathes: !day.pendingIsStatic,
+                       entrance: gaugeEntrance(day.orbit))
+                .modifier(GaugeEntranceConsumer(model: model, mode: day.orbit))
             if let scored = day.pendingScoredDay {
                 Text(scored)
                     .font(.ryft(.caption))
@@ -343,12 +346,18 @@ extension TodayHero {
 }
 
 /// The decisions behind Today's once-per-process gauge entrance (architecture.md §4), pure so every row is tested
-/// (`TodayGaugeEntranceTests`). A gauge consumes the flag on its first appearance while the scene is active, or when
-/// the scene becomes active with the gauge already there (a cold launch draws its first frames while still inactive;
-/// the entrance plays from those). Not at init: a process launched in the background (HealthKit delivery,
-/// `BGAppRefreshTask`) and opened later still plays it once. A gauge that played where nobody could see it (first
-/// drawn in the background, or the scene went to the background before it was ever active) is built again once when
-/// the scene comes forward. The import card shows no gauge and consumes nothing.
+/// (`TodayGaugeEntranceTests`).
+///
+/// - The entrance plays on the first gauge with something to show (`hasSomethingToShow`). A first launch or demo mode
+///   can draw Today before its data is there; that empty gauge never assembles and never counts. When the data
+///   arrives the gauge is a new instance (its identity includes `hasSomethingToShow`), which latches `.assemble`.
+/// - Consumed on that gauge's first appearance while the scene is active, or when the scene becomes active with the
+///   gauge already there (a cold launch draws its first frames while still inactive; the entrance plays from those).
+///   Not at init: a process launched in the background (HealthKit delivery, `BGAppRefreshTask`) and opened later
+///   still plays it once.
+/// - A gauge that played where nobody could see it (drawn in the background, or the scene went to the background
+///   before it was ever active) is built again once when it is next seen.
+/// - The import card shows no gauge and consumes nothing.
 enum TodayGaugeEntrance {
     enum Event: Equatable {
         /// The gauge appeared (built for the first time, or built again), in the scene phase passed with it.
@@ -362,25 +371,46 @@ enum TodayGaugeEntrance {
         var consume = false
         /// Build the gauge again: the new instance latches `.assemble` (the flag still holds) and plays it.
         var rebuild = false
-        /// This instance has played (or is playing) its entrance unseen; the next phase forward builds it again.
+        /// This instance has played (or is playing) its entrance unseen; the next time it is seen it is built again.
         var playedUnseen = false
     }
 
-    /// `flag`: `TodayViewModel.assemblesGauge`. `phase`: the scene phase now (after the change, for `.phaseChanged`).
-    static func decide(flag: Bool, phase: ScenePhase, event: Event, playedUnseen: Bool) -> Outcome {
-        // Consumed: nothing plays again in this process, and nothing is remembered.
-        guard flag else { return Outcome() }
+    /// Something worth assembling: a day with at least one score, the baselines filling, or a pending night over a
+    /// previous day with a score. Not the empty orbit (no data yet, the first import, a day with nothing scored, a
+    /// pending night without a previous day): tracks alone would assemble with no dots and then just fade in the arcs.
+    static func hasSomethingToShow(_ mode: OrbitGaugeMode) -> Bool {
+        switch mode {
+        case .scored(let values, _): return !values.isEmpty
+        case .calibrating: return true
+        case .pending(let previous): return previous.map { !$0.isEmpty } ?? false
+        }
+    }
+
+    /// The gauge's entrance parameter: `.assemble` while the flag holds and the gauge has something to show.
+    static func entrance(flag: Bool, mode: OrbitGaugeMode) -> OrbitGauge.Entrance {
+        flag && hasSomethingToShow(mode) ? .assemble : .none
+    }
+
+    /// `flag`: `TodayViewModel.assemblesGauge`. `showable`: `hasSomethingToShow` of the gauge's mode. `phase`: the
+    /// scene phase now (after the change, for `.phaseChanged`).
+    static func decide(flag: Bool, showable: Bool, phase: ScenePhase, event: Event, playedUnseen: Bool) -> Outcome {
+        // Consumed: nothing plays again in this process, and nothing is remembered. Nothing to show: this gauge
+        // doesn't assemble and doesn't count; the one with data is a new instance and starts afresh.
+        guard flag, showable else { return Outcome() }
         switch (event, phase) {
         case (_, .background):
             // Whatever this instance plays now, or has played while inactive, nobody sees.
             return Outcome(playedUnseen: true)
         case (.appeared, .active):
-            return Outcome(consume: true)
+            // Played unseen: build it again first (an appearance can come before the phase change); the new
+            // instance consumes on its own appearance.
+            return playedUnseen ? Outcome(rebuild: true) : Outcome(consume: true)
         case (.appeared, _):
-            // Inactive: on screen (a cold launch's first frames); consumed when the scene becomes active.
-            return Outcome()
+            // Inactive: on screen (a cold launch's first frames); consumed when the scene becomes active. Whatever
+            // was played unseen stays so until the rebuild.
+            return Outcome(playedUnseen: playedUnseen)
         case (.phaseChanged, _) where playedUnseen:
-            // Once: the rebuilt instance consumes in its own `.appeared` (active) or at the next `.active`.
+            // Once: the rebuilt instance consumes on its own appearance (active) or at the next `.active`.
             return Outcome(rebuild: true)
         case (.phaseChanged, .active):
             return Outcome(consume: true)
@@ -393,27 +423,40 @@ enum TodayGaugeEntrance {
 /// Applies `TodayGaugeEntrance.decide` where a gauge is shown; it decides nothing itself.
 private struct GaugeEntranceConsumer: ViewModifier {
     let model: TodayViewModel
+    /// The gauge's mode: whether it has something to show is part of its identity.
+    let mode: OrbitGaugeMode
     @Environment(\.scenePhase) private var scenePhase
-    /// The gauge's identity: bumped only to build again a gauge that played unseen.
+    /// Bumped only to build again a gauge that played unseen.
     @State private var run = 0
     @State private var playedUnseen = false
+
+    /// The gauge's identity: a new instance when its data first becomes showable (it latches `.assemble` then, while
+    /// the flag holds), and when one that played unseen is built again.
+    private struct Identity: Hashable {
+        var run: Int
+        var showable: Bool
+    }
+
+    private var showable: Bool { TodayGaugeEntrance.hasSomethingToShow(mode) }
 
     func body(content: Content) -> some View {
         content
             // Inside the identity: a gauge built again appears again.
             .onAppear { apply(.appeared, phase: scenePhase) }
-            .id(run)
+            .id(Identity(run: run, showable: showable))
             .onChange(of: scenePhase) { _, phase in apply(.phaseChanged, phase: phase) }
     }
 
     private func apply(_ event: TodayGaugeEntrance.Event, phase: ScenePhase) {
         let flag = model.assemblesGauge
-        let outcome = TodayGaugeEntrance.decide(flag: flag, phase: phase, event: event, playedUnseen: playedUnseen)
+        let outcome = TodayGaugeEntrance.decide(flag: flag, showable: showable, phase: phase, event: event,
+                                                playedUnseen: playedUnseen)
         if outcome.playedUnseen != playedUnseen { playedUnseen = outcome.playedUnseen }
         if outcome.rebuild { run += 1 }
         if outcome.consume { model.gaugeDidAssemble() }
         if flag {
-            Self.log.debug("gauge entrance \(String(describing: event), privacy: .public), scene \(String(describing: phase), privacy: .public)")
+            let what = "\(event) in \(phase), showable \(showable)"
+            Self.log.debug("gauge entrance: \(what, privacy: .public)")
         }
     }
 
