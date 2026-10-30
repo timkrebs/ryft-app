@@ -85,11 +85,21 @@ struct OrbitGaugeTracks: View {
 
     var body: some View {
         let m = OrbitGaugeGeometry.metrics(forDial: dial)
-        let values = mode?.scoredValues
+        let values = mode?.drawnValues
+        let calibration = mode?.calibratingValue
         ZStack {
             ForEach(OrbitGaugeGeometry.Orbit.allCases, id: \.self) { orbit in
-                OrbitArc(radius: m.radius(of: orbit), start: orbit.startDegrees, sweep: orbit.trackSweep)
-                    .stroke(palette.track, style: StrokeStyle(lineWidth: m.stroke(of: orbit), lineCap: .round))
+                if orbit == .strain, let calibration {
+                    // Seven segments instead of the one ring.
+                    ForEach(Array(OrbitGaugeGeometry.segments(required: calibration.required, dial: dial).enumerated()),
+                            id: \.offset) { _, segment in
+                        OrbitArc(radius: m.radius(of: orbit), start: segment.start, sweep: segment.sweep)
+                            .stroke(palette.track, style: StrokeStyle(lineWidth: m.stroke(of: orbit), lineCap: .round))
+                    }
+                } else {
+                    OrbitArc(radius: m.radius(of: orbit), start: orbit.startDegrees, sweep: orbit.trackSweep)
+                        .stroke(palette.track, style: StrokeStyle(lineWidth: m.stroke(of: orbit), lineCap: .round))
+                }
             }
             if mode != nil {
                 ForEach(OrbitGaugeGeometry.Orbit.allCases, id: \.self) { orbit in
@@ -100,7 +110,8 @@ struct OrbitGaugeTracks: View {
                         .blendMode(.destinationOut)
                 }
             }
-            if values == nil {
+            // Under the readiness ring only while it is dimmed (pending), so the dimmed ring sits on its track.
+            if values == nil || mode?.isPending == true {
                 let d = m.centreRadius * 2 + m.centreStroke
                 Circle()
                     .inset(by: m.centreStroke / 2)
@@ -113,17 +124,25 @@ struct OrbitGaugeTracks: View {
 }
 
 /// The marks of a mode: per orbit the arc and the filled dot of a present score, or the hollow dot of a missing
-/// one; the centre ring in the readiness band's colour when scored. The stubs draw three hollow dots.
+/// one; the centre ring in the readiness band's colour when scored. Calibrating adds the filled segments; pending
+/// draws the previous day's marks at `pendingOpacity`. The other modes draw three hollow dots.
 struct OrbitGaugeMarks: View {
     let mode: OrbitGaugeMode
     let dial: CGFloat
     let palette: OrbitGaugePalette
 
+    /// How much of its colour a pending gauge keeps. Intentionally secondary (design.md, PR 2): the numbers say what
+    /// it is, this says "not today's".
+    static let pendingOpacity = 0.6
+
     var body: some View {
         let m = OrbitGaugeGeometry.metrics(forDial: dial)
-        let values = mode.scoredValues
+        let values = mode.drawnValues
         ZStack {
             ForEach(OrbitGaugeGeometry.Orbit.allCases, id: \.self) { orbit in
+                if orbit == .strain, let calibration = mode.calibratingValue {
+                    segments(calibration, m)
+                }
                 marks(orbit, fraction: values.flatMap { orbit.fraction(of: $0) }, m)
             }
             if let values {
@@ -133,6 +152,20 @@ struct OrbitGaugeMarks: View {
                     .stroke(palette.band(forReadiness: values.readiness), lineWidth: m.centreStroke)
                     .frame(width: d, height: d)
             }
+        }
+        // One group, so a dot over its arc does not darken twice.
+        .compositingGroup()
+        .opacity(mode.isPending ? Self.pendingOpacity : 1)
+    }
+
+    /// The nights counted, clockwise from the seam, in the accent. An unfilled segment has no sweep, so a segment
+    /// that fills grows from its start (the app steps `nights` one at a time).
+    private func segments(_ calibration: OrbitGaugeCalibration, _ m: OrbitGaugeGeometry.Metrics) -> some View {
+        let counted = calibration.counted
+        return ForEach(Array(OrbitGaugeGeometry.segments(required: calibration.required, dial: dial).enumerated()),
+                       id: \.offset) { i, segment in
+            OrbitArc(radius: m.outerRadius, start: segment.start, sweep: i < counted ? segment.sweep : 0)
+                .stroke(palette.calibration, style: StrokeStyle(lineWidth: m.outerStroke, lineCap: .round))
         }
     }
 
@@ -149,6 +182,14 @@ struct OrbitGaugeMarks: View {
             OrbitDot(radius: m.radius(of: orbit), start: orbit.startDegrees, sweep: 0, dotRadius: m.dotRadius)
                 .stroke(colour, lineWidth: m.hollowStroke)
         }
+    }
+}
+
+extension OrbitGaugeMode {
+    /// The count of a calibrating gauge.
+    var calibratingValue: OrbitGaugeCalibration? {
+        if case .calibrating(let calibration) = self { return calibration }
+        return nil
     }
 }
 

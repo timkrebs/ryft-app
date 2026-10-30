@@ -114,6 +114,34 @@ enum OrbitGaugeGeometry {
                        dotRadius: dot, hollowStroke: max(2 * s, 1.25), dotAir: 2.5 * s)
     }
 
+    // MARK: calibrating segments
+
+    /// The calibrating gauge's outer orbit: `required` round-capped segments with the seam at the top, where the outer
+    /// orbit's hollow dot sits. Both numbers are VISIBLE distances, measured between the tips of the round caps:
+    /// the first segment's tip is `seamClearDegrees` after the top and the last one's that far before it (the dot's
+    /// half-width plus its air: 9 + 2.5 pt on r 77 = 8.6 deg), and neighbours are `segmentGapDegrees` apart.
+    /// The centrelines are therefore shortened by one cap (the stroke's half-width as an angle) at each end.
+    static let seamClearDegrees = 9.0
+    static let segmentGapDegrees = 5.0
+
+    /// One segment's centreline: starts at `start` (degrees clockwise from the top) and sweeps `sweep` degrees.
+    struct Segment: Equatable {
+        var start: Double
+        var sweep: Double
+    }
+
+    /// The segments, clockwise from the seam. `required` below 1 is treated as 1.
+    static func segments(required: Int, dial: CGFloat) -> [Segment] {
+        let n = max(required, 1)
+        let m = metrics(forDial: dial)
+        let cap = Double(m.outerStroke / 2 / m.outerRadius) * 180 / .pi
+        let visible = (360 - 2 * seamClearDegrees - Double(n - 1) * segmentGapDegrees) / Double(n)
+        let sweep = max(visible - 2 * cap, 0.5)
+        return (0..<n).map { i in
+            Segment(start: seamClearDegrees + cap + Double(i) * (visible + segmentGapDegrees), sweep: sweep)
+        }
+    }
+
     /// Point on an orbit for an angle, in a rect centred on `centre`.
     static func point(centre: CGPoint, radius: CGFloat, degrees: Double) -> CGPoint {
         let r = (degrees - 90) * .pi / 180

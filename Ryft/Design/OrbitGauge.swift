@@ -5,6 +5,9 @@ import SwiftUI
 /// (clockwise, 21 = a whole turn). Arc length is the score, the dot at its head is where you are today. A score
 /// that is missing is a hollow dot at the start, never an arc and never a zero. Nothing rotates on its own.
 ///
+/// Calibrating draws the outer orbit as seven segments that fill night by night (a count, "3 / 7", where the readiness
+/// number goes); pending draws the previous day's gauge dimmed and breathing. Both are in design.md, "PR 2".
+///
 /// The app's wrapper around the shared `OrbitGaugeDrawing` (ADR 0010): the number in the app's font, the caption
 /// and band line under it, VoiceOver, the `Theme.Motion` value animation and Reduce Motion. Geometry, mapping and
 /// colours: `OrbitGaugeGeometry`, `OrbitGaugePalette`, docs/work/2026-10-29-orbit-gauge/design.md.
@@ -28,11 +31,20 @@ struct OrbitGauge: View {
     var accessibilityNote: String?
     /// Today uses `today.readinessGauge`.
     var identifier: String = "orbitGauge"
+    /// Calibrating: the segments fill one after another (60 ms each) when the gauge appears and when `nights` grows.
+    /// Off, or under Reduce Motion, they are all at their count from the first frame. Snapshots and previews pass
+    /// `false`: nothing in them depends on time.
+    var animatesFill = true
+    /// Pending: the dimmed marks breathe (1.4 s) while the night is scored. Pass `false` once it takes longer than
+    /// usual (nothing implies progress), as `PendingGauge.breathes`. Always off under Reduce Motion.
+    var breathes = true
 
     /// Below this dial the gauge is the mark only (VoiceOver still has the value); the widget uses the same.
     static let minDialForNumber = OrbitGaugeGeometry.minDialForNumber
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Calibrating: the segments filled so far while they step in; nil before the first step.
+    @State private var shownNights: Int?
 
     private var values: OrbitGaugeValues? { mode.scoredValues }
     private var shownCaption: Caption? { size == .large ? caption : nil }
@@ -51,16 +63,51 @@ struct OrbitGauge: View {
             if let shownCaption { captionLines(shownCaption) }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(caption?.title ?? String(localized: "Overall readiness")))
+        .accessibilityLabel(Text(spokenLabel))
         .accessibilityValue(Text(spokenValue))
         .accessibilityIdentifier(identifier)
+        .task(id: mode.calibratingValue?.counted) { await stepFill() }
+    }
+
+    // MARK: calibrating fill
+
+    /// The mode the drawing gets: while calibrating, with the nights stepped in so far.
+    private var displayedMode: OrbitGaugeMode {
+        guard case .calibrating(var calibration) = mode, animatesFill, !reduceMotion else { return mode }
+        calibration.nights = min(shownNights ?? 0, calibration.counted)
+        return .calibrating(calibration)
+    }
+
+    /// One segment per 60 ms up to the count; a lower count is taken at once.
+    private func stepFill() async {
+        guard let target = mode.calibratingValue?.counted, animatesFill, !reduceMotion else { return }
+        var current = shownNights ?? 0
+        if target < current { shownNights = target; return }
+        shownNights = current
+        while current < target {
+            try? await Task.sleep(for: .milliseconds(60))
+            if Task.isCancelled { return }
+            current += 1
+            withAnimation(.easeOut(duration: 0.06)) { shownNights = current }
+        }
     }
 
     // MARK: drawing
 
     private var drawing: some View {
-        OrbitGaugeDrawing(mode: mode, size: size, palette: .assets) {
-            if let values, size.dial >= Self.minDialForNumber {
+        OrbitGaugeDrawing(mode: displayedMode, size: size, palette: .assets, marks: { marks in
+            // Pending: the dimmed marks breathe, as `PendingGauge`'s outline did. One phase (no motion) otherwise.
+            marks.phaseAnimator(mode.isPending && breathes && !reduceMotion ? [1.0, 0.75] : [1.0]) { marks, opacity in
+                marks.compositingGroup().opacity(opacity)
+            } animation: { _ in .easeInOut(duration: 1.4) }
+        }, centre: { centre })
+    }
+
+    @ViewBuilder
+    private var centre: some View {
+        if size.dial >= Self.minDialForNumber {
+            switch mode {
+            case .scored(let values, _):
                 Text(values.readiness.map { String($0) } ?? Fmt.placeholder)
                     .font(.ryftNumber(size: size.dial * 0.19))
                     .monospacedDigit()
@@ -68,8 +115,34 @@ struct OrbitGauge: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                     .contentTransition(reduceMotion ? .identity : .numericText(value: Double(values.readiness ?? 0)))
+            case .pending(let previous):
+                // Yesterday's number in the tertiary ink, or the dash: never a number that pretends to be today's.
+                Text(previous?.readiness.map { String($0) } ?? Fmt.placeholder)
+                    .font(.ryftNumber(size: size.dial * 0.19))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textTertiary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            case .calibrating(let calibration):
+                calibrationCount(calibration)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            case .assembling:
+                EmptyView()
             }
         }
+    }
+
+    /// "3 / 7" at the readiness number's size and style, the "/ 7" smaller and tertiary; from a 100 pt dial up.
+    /// Below it ("small") only the count: the seven segments around it already say "of 7", and the slot there is
+    /// 23 pt wide. The count is the one the segments draw (`counted`, never past the requirement), not the stepping.
+    private func calibrationCount(_ calibration: OrbitGaugeCalibration) -> Text {
+        let pointSize = size.dial * 0.19
+        let count = Text(verbatim: String(calibration.counted))
+            .font(.ryftNumber(size: pointSize)).monospacedDigit().foregroundStyle(Theme.textPrimary)
+        guard size.dial >= 100 else { return count }
+        return count + Text(verbatim: " / \(calibration.required)")
+            .font(.ryftNumber(size: pointSize * 0.55)).monospacedDigit().foregroundStyle(Theme.textTertiary)
     }
 
     // MARK: caption
@@ -125,16 +198,51 @@ struct OrbitGauge: View {
 
     /// "71, High. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21." plus the note. A missing score is
     /// named as not scored ("Sleep, not scored"), never skipped.
+    private var spokenLabel: String {
+        if case .calibrating = mode { return String(localized: "Baselines") }
+        return caption?.title ?? String(localized: "Overall readiness")
+    }
+
     private var spokenValue: String {
         let spoken: String
         switch mode {
         case .scored(let v, _):
             spoken = Self.spokenValue(v, showsBand: caption?.showsBand ?? true, delta: caption?.delta)
-        case .calibrating, .assembling, .pending:
-            // PR 2 / PR 3 give these their own sentences.
+        case .calibrating(let calibration):
+            spoken = Self.spokenValue(calibration)
+        case .pending(let previous):
+            spoken = Self.spokenPending(previous)
+        case .assembling:
+            // PR 3 gives it its own sentence.
             spoken = String(localized: "Not scored yet")
         }
         return accessibilityNote.map { "\(spoken). \($0)" } ?? spoken
+    }
+
+    /// "3 of 7 nights." and which nights count where that isn't all of them; the sentences `BaselineGauge` spoke.
+    /// The two signals that fill alone (F3) leave out "Readiness appears…": the note under the gauge says what
+    /// recovery uses meanwhile.
+    static func spokenValue(_ c: OrbitGaugeCalibration) -> String {
+        let counted = c.counted, required = c.required
+        switch c.signal {
+        case .restingHR:
+            return String(localized: "\(counted) of \(required) nights with resting heart rate.")
+        case .hrv:
+            return String(localized: "\(counted) of \(required) nights with HRV.")
+        case .heartRateNights:
+            return String(localized: "\(counted) of \(required) nights with heart-rate data. Readiness appears once the baselines are complete.")
+        case .anyNight:
+            return String(localized: "\(counted) of \(required) nights. Readiness appears once the baselines are complete.")
+        }
+    }
+
+    /// "Not scored yet. Last scored: 71. Recovery 71 percent, ..." or just "Not scored yet" without a previous day.
+    /// The day itself and "Scoring your night…" arrive as the gauge's `accessibilityNote`.
+    static func spokenPending(_ previous: OrbitGaugeValues?) -> String {
+        let notScored = String(localized: "Not scored yet")
+        guard let previous, !previous.isEmpty else { return notScored }
+        let last = String(localized: "Last scored: \(spokenValue(previous, showsBand: false))")
+        return "\(notScored). \(last)"
     }
 
     /// The readiness part ("71, High, Up 4 vs 7 d"), then the three scores.
@@ -239,12 +347,72 @@ private struct OrbitCaption: View {
                 OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 20, recovery: 0.2, sleep: 0.3, strain: 12)), size: .small)
             }
             HStack(spacing: 8) {
-                OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .small)
+                OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .small, animatesFill: false)
                 OrbitGauge(mode: .assembling, size: .small)
-                OrbitGauge(mode: .pending(previous: .previewScored), size: .small)
+                OrbitGauge(mode: .pending(previous: .previewScored), size: .small, breathes: false)
             }
         }
     }
+}
+
+/// Dark over light like `SchemePair`, wide enough for three large gauges side by side.
+private struct WidePair<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach([ColorScheme.dark, .light], id: \.self) { scheme in
+                content()
+                    .padding(20)
+                    .frame(maxWidth: .infinity)
+                    .background(Theme.background)
+                    .environment(\.colorScheme, scheme)
+            }
+        }
+        .frame(width: 600)
+    }
+}
+
+#Preview("OrbitGauge · calibrating 0 / 3 / 7", traits: .sizeThatFitsLayout) {
+    // Static (`animatesFill: false`): the previews and the shots never depend on time.
+    WidePair {
+        HStack(alignment: .top, spacing: 12) {
+            ForEach([0, 3, 7], id: \.self) { nights in
+                VStack(spacing: 8) {
+                    OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: nights)), size: .large, animatesFill: false)
+                    OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: nights)), size: .medium, animatesFill: false)
+                    OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: nights)), size: .small, animatesFill: false)
+                }
+            }
+        }
+    }
+}
+
+#Preview("OrbitGauge · pending, with and without previous", traits: .sizeThatFitsLayout) {
+    WidePair {
+        HStack(alignment: .top, spacing: 12) {
+            ForEach([true, false], id: \.self) { hasPrevious in
+                VStack(spacing: 8) {
+                    let mode = OrbitGaugeMode.pending(previous: hasPrevious ? .previewScored : nil)
+                    OrbitGauge(mode: mode, size: .large, breathes: false)
+                    OrbitGauge(mode: mode, size: .medium, breathes: false)
+                    OrbitGauge(mode: mode, size: .small, breathes: false)
+                }
+            }
+        }
+    }
+}
+
+#Preview("OrbitGauge · calibrating and pending · AX3", traits: .sizeThatFitsLayout) {
+    // The gauge keeps its size at accessibility sizes; only text around it scales. Spoken sentences below.
+    SchemePair {
+        VStack(spacing: 8) {
+            OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .large, animatesFill: false)
+            Text(OrbitGauge.spokenValue(OrbitGaugeCalibration(nights: 3)))
+                .font(.ryft(.caption)).foregroundStyle(Theme.textSecondary).multilineTextAlignment(.center)
+            OrbitGauge(mode: .pending(previous: .previewScored), size: .medium, breathes: false)
+        }
+    }
+    .environment(\.dynamicTypeSize, .accessibility3)
 }
 
 extension OrbitGauge.Caption {

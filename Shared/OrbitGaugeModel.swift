@@ -77,17 +77,33 @@ enum OrbitGaugeMode: Hashable, Sendable {
     /// The scores of the day. Fully drawn. `learning`: a readiness while the baselines still fill (S2); PR 2 decides
     /// whether the count is drawn, PR 1 ignores it.
     case scored(OrbitGaugeValues, learning: OrbitGaugeCalibration? = nil)
-    /// Baselines still learning: PR 2 draws the outer orbit as segments. Until then: tracks only.
+    /// Baselines still learning: the outer orbit is `required` segments, `counted` of them filled; inner orbit and
+    /// centre are tracks, the three dots hollow at their starts.
     case calibrating(OrbitGaugeCalibration)
     /// Launch: PR 3 moves it out of the mode (architecture.md §4). Never produced by a mapping. Until then: tracks only.
     case assembling
-    /// Last night is being scored; `previous` is the latest scored day before it (nil: none). PR 2 draws it
-    /// dimmed. Until then: tracks only.
+    /// Last night is being scored; `previous` is the latest scored day before it (nil: none), drawn dimmed. Without
+    /// one: tracks and hollow dots.
     case pending(previous: OrbitGaugeValues?)
 
-    /// The scores drawn in full, or nil for the stubs.
+    /// The scores of the day drawn in full, or nil: only `.scored` has any.
     var scoredValues: OrbitGaugeValues? {
         if case .scored(let values, _) = self { return values }
         return nil
+    }
+
+    /// The scores the drawing puts arcs and dots for: the day's, or while pending the previous day's (dimmed).
+    var drawnValues: OrbitGaugeValues? {
+        switch self {
+        case .scored(let values, _): return values
+        case .pending(let previous): return previous
+        case .calibrating, .assembling: return nil
+        }
+    }
+
+    /// Drawn dimmed, the previous day's scores waiting for today's.
+    var isPending: Bool {
+        if case .pending = self { return true }
+        return false
     }
 }
