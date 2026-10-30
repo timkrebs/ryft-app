@@ -195,4 +195,49 @@ import Testing
         #expect(spoken == "71, High. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21")
         #expect(OrbitGauge.spokenValue(OrbitGaugeValues()) == "No data")
     }
+
+    // MARK: the fill's next displayed count
+
+    @Test func notSteppingTakesTheTargetEvenFromNothingShown() {
+        // The Reduce Motion regression: nothing shown yet (nil) used to leave the segments empty under "3 / 7".
+        #expect(OrbitGauge.nextShown(current: nil, target: 3, steps: false) == 3)
+        #expect(OrbitGauge.nextShown(current: 1, target: 3, steps: false) == 3)
+        #expect(OrbitGauge.nextShown(current: 5, target: 3, steps: false) == 3)
+    }
+
+    @Test func steppingFromNothingShownGoesToOne() {
+        #expect(OrbitGauge.nextShown(current: nil, target: 3, steps: true) == 1)
+        #expect(OrbitGauge.nextShown(current: 0, target: 3, steps: true) == 1)
+    }
+
+    @Test func steppingAdvancesOneNightAndStopsAtTheTarget() {
+        #expect(OrbitGauge.nextShown(current: 2, target: 3, steps: true) == 3)
+        #expect(OrbitGauge.nextShown(current: 3, target: 3, steps: true) == 3)
+    }
+
+    @Test func aLowerTargetIsTakenAtOnce() {
+        #expect(OrbitGauge.nextShown(current: 5, target: 2, steps: true) == 2)
+        #expect(OrbitGauge.nextShown(current: 7, target: 0, steps: true) == 0)
+    }
+
+    @Test(arguments: [0, 1, 3, 7])
+    func steppingFromNilReachesTheTargetInExactlyThatManySteps(target: Int) {
+        var shown: Int?
+        var steps = 0
+        while shown != target {
+            shown = OrbitGauge.nextShown(current: shown, target: target, steps: true)
+            steps += 1
+            #expect(steps <= max(target, 1), "no more steps than nights")
+            if steps > 10 { break }
+        }
+        // Zero nights: one call lands on 0 at once.
+        #expect(shown == target)
+        #expect(steps == max(target, 1))
+    }
+
+    @Test func targetZeroIsZeroWhateverTheState() {
+        #expect(OrbitGauge.nextShown(current: nil, target: 0, steps: true) == 0)
+        #expect(OrbitGauge.nextShown(current: nil, target: 0, steps: false) == 0)
+        #expect(OrbitGauge.nextShown(current: 0, target: 0, steps: true) == 0)
+    }
 }
