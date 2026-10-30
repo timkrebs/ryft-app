@@ -67,7 +67,7 @@ All in en and de.
 
 The UI-test job hung before any test ran ("The test runner hung before establishing connection") on the one reused "RYFT CI" simulator. It happened on #76 five times, and also on #77, #79, #81 and `main` after #78. #80 creates a new simulator for every job and deletes it and its parallel-testing clones afterwards. Local runs reuse one "RYFT CI local". *Open: waiting for the merge.* Until it's in, the fix for a hang is to delete the "RYFT CI" device while no job runs, then rerun.
 
-**Runner housekeeping (Needs you, once):** `~/Library/Developer/XCTestDevices` held 277 leaked clones and the disk was at 90 %. See the command in the session's Needs-you list.
+**Runner housekeeping (Needs you, once):** `~/Library/Developer/XCTestDevices` held 277 leaked clones and the disk was at 90 %. These are only Xcode's throwaway test clones. While no CI job and no local test run is going: `xcrun simctl --set ~/Library/Developer/XCTestDevices delete all`.
 
 ## Public beta readiness: minimum age 16 and the External notes (feat/beta-age-16)
 
