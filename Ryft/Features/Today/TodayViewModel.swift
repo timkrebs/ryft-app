@@ -119,6 +119,20 @@ final class TodayViewModel {
     /// Sync details as a sheet from Today (the status line's tap).
     var showsSyncDetails = false
 
+    // MARK: the gauge's launch entrance (design.md §10, architecture.md §4)
+
+    /// The hero gauge assembles (`OrbitGauge.Entrance.assemble`) until the user has seen it once in this process.
+    /// No UserDefaults: `ScreenModels` builds this model once per process (background launches included), so a
+    /// foreground return, a tab switch back, a pull-to-refresh or a sign-out and sign-in find it consumed.
+    private(set) var assemblesGauge = true
+
+    /// A gauge has appeared on screen while the scene is active (Reduce Motion and Low Power Mode included: the
+    /// wrapper fades instead). The playing instance has latched its entrance, so this cannot cut it short.
+    func gaugeDidAssemble() {
+        guard assemblesGauge else { return }
+        assemblesGauge = false
+    }
+
     /// The signed-out card's action: back to Welcome to sign in again.
     func signIn() async {
         await env.auth.signOut(reason: .sessionExpired)

@@ -65,6 +65,7 @@ Store "What's New".
   the outer. The readiness widget on the home and lock screen draws the same orbit.
 - Today: while RYFT learns your baselines, the readiness orbit fills night by night; while last night is scored, it
   shows the previous day dimmed.
+- Today: the readiness orbit assembles when you open the app (a simple fade with Reduce Motion or Low Power Mode).
 - Your baseline sleep need and maximum heart rate can be changed where you see them: in
   onboarding, from the sleep need on Sleep, and in Profile → Sleep and Body. A change saves
   at once; past days are rescored when you ask.

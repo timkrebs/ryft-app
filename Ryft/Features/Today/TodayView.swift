@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 
 /// Greeting and the sync's status line, readiness gauge (or what's true while data is on
@@ -170,7 +171,8 @@ struct TodayView: View {
                     // while the other is absent (F3), else any night.
                     OrbitGauge(mode: day.orbit, size: .large,
                                caption: OrbitGauge.Caption(title: String(localized: "Baselines")),
-                               identifier: "today.baselineGauge")
+                               identifier: "today.baselineGauge", entrance: gaugeEntrance)
+                        .modifier(GaugeEntranceConsumer(model: model))
                     // Why the nights don't fill (row B over a long history without HRV), or why only one signal's
                     // count (F3); read on its own after the gauge.
                     if let note = day.gaugeNote { noteBlock(note, readWithGauge: false) }
@@ -191,13 +193,19 @@ struct TodayView: View {
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: day.gaugeNote)
     }
 
+    /// Every gauge the hero shows assembles until one has been seen in this process (`GaugeEntranceConsumer`).
+    /// A gauge latches this when it is built, so a later change (another hero row, a refresh) builds a plain one.
+    private var gaugeEntrance: OrbitGauge.Entrance { model.assemblesGauge ? .assemble : .none }
+
     /// The orbit: readiness in the centre, Recovery and Sleep on the inner orbit, Strain on the outer; under it the
     /// caption, the band word and the change against the days before (from the 7-day trend, row A only).
     private func readinessRing(_ day: TodayContent) -> some View {
         OrbitGauge(mode: day.orbit, size: .large,
                    caption: OrbitGauge.Caption(title: String(localized: "Overall readiness"), delta: day.readinessDelta,
                                                showsBand: day.showsReadinessBand),
-                   accessibilityNote: day.gaugeSpokenNote, identifier: "today.readinessGauge")
+                   accessibilityNote: day.gaugeSpokenNote, identifier: "today.readinessGauge",
+                   entrance: gaugeEntrance)
+            .modifier(GaugeEntranceConsumer(model: model))
     }
 
     /// A night not scored yet: the latest scored day's orbit, dimmed, breathing until scoring takes longer
@@ -206,7 +214,8 @@ struct TodayView: View {
     private func pendingOrbit(_ day: TodayContent) -> some View {
         VStack(spacing: 8) {
             OrbitGauge(mode: day.orbit, size: .large, accessibilityNote: day.pendingSpokenNote,
-                       identifier: "today.pendingGauge", breathes: !day.pendingIsStatic)
+                       identifier: "today.pendingGauge", breathes: !day.pendingIsStatic, entrance: gaugeEntrance)
+                .modifier(GaugeEntranceConsumer(model: model))
             if let scored = day.pendingScoredDay {
                 Text(scored)
                     .font(.ryft(.caption))
@@ -331,6 +340,56 @@ extension TodayHero {
         case .score: return 3
         }
     }
+}
+
+/// Consumes Today's once-per-process gauge entrance (architecture.md §4) where a gauge is shown: on the gauge's first
+/// appearance while the scene is active, or when the scene becomes active with the gauge already there (a cold launch
+/// can draw its first frames while the scene is still inactive; the entrance plays from those). Not at init: a
+/// process launched in the background (HealthKit delivery, `BGAppRefreshTask`) and opened later still plays it once.
+/// A gauge first drawn while the scene was in the background played unseen; it is built again when the scene comes
+/// forward, so the user sees the entrance. The import card shows no gauge and consumes nothing.
+private struct GaugeEntranceConsumer: ViewModifier {
+    let model: TodayViewModel
+    @Environment(\.scenePhase) private var scenePhase
+    /// The gauge's identity: bumped only to build again a gauge that played unseen in the background.
+    @State private var run = 0
+    @State private var playedUnseen = false
+
+    func body(content: Content) -> some View {
+        content
+            // Inside the identity: a gauge built again appears again.
+            .onAppear(perform: appeared)
+            .id(run)
+            .onChange(of: scenePhase) { _, phase in sceneChanged(to: phase) }
+    }
+
+    private func appeared() {
+        guard model.assemblesGauge else { return }
+        switch scenePhase {
+        case .active:
+            model.gaugeDidAssemble()
+        case .background:
+            playedUnseen = true
+        default:
+            // Inactive: on screen (a cold launch's first frames); consumed when the scene becomes active.
+            break
+        }
+        Self.log.debug("gauge entrance appeared, scene \(String(describing: scenePhase), privacy: .public)")
+    }
+
+    private func sceneChanged(to phase: ScenePhase) {
+        guard model.assemblesGauge, phase != .background else { return }
+        if playedUnseen {
+            // A new instance latches `.assemble` (the flag still holds) and consumes it in `appeared`, or here
+            // when the scene turns active.
+            playedUnseen = false
+            run += 1
+        } else if phase == .active {
+            model.gaugeDidAssemble()
+        }
+    }
+
+    private static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "today")
 }
 
 /// Where the calibration note's link goes (design.md §7 rev. 2 §2): the tracker's card, Check sync or Devices &
