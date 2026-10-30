@@ -79,7 +79,7 @@ struct DebugComponentCatalog: View {
 
     // MARK: sections
 
-    /// Today's gauge in its modes and sizes (synthetic values). Calibrating and pending are stubs until PR 2.
+    /// Today's gauge in its modes and sizes (synthetic values). Calibrating (the count fills the segments) and pending (the previous day, dimmed).
     private var orbits: some View {
         let scored = OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)
         return VStack(alignment: .leading, spacing: 18) {
@@ -97,9 +97,16 @@ struct DebugComponentCatalog: View {
                 OrbitGauge(mode: .scored(.empty), size: .small)
             }
             HStack(spacing: 12) {
-                OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .small)
-                OrbitGauge(mode: .pending(previous: scored), size: .small)
                 OrbitGauge(mode: .scored(scored), size: .custom(dial: 44))
+                OrbitGauge(mode: .pending(previous: nil), size: .small)
+                OrbitGauge(mode: .pending(previous: scored), size: .small)
+            }
+            // Calibrating: the nights counted of seven; the segments step in when it appears.
+            HStack(alignment: .top, spacing: 12) {
+                OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .medium)
+                OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 0)), size: .small)
+                OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 7)), size: .small)
+                OrbitGauge(mode: .pending(previous: scored), size: .medium)
             }
         }
     }

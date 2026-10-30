@@ -414,16 +414,6 @@
         }
       }
     },
-    "%@: %@" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@: %2$@"
-          }
-        }
-      }
-    },
     "%@ ✓" : {
       "comment" : "Setup card's features line: a feature that works, e.g. \"Strain ✓\" (a no-break space keeps the check with it).",
       "localizations" : {
@@ -3109,99 +3099,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ausgangswerte brauchen Herzfrequenzvariabilität und Ruhepuls aus Nächten mit deiner Uhr."
-          }
-        }
-      }
-    },
-    "Baselines · %lld of %lld nights" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ausgangswerte · %1$lld von %2$lld Nächten"
-          }
-        }
-      }
-    },
-    "Baselines · %lld of %lld nights with heart-rate data" : {
-      "comment" : "Under the baseline gauge when a long history lacks HRV and resting heart rate: nights with both, of 7.",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Baselines · %1$lld of %#@nights@"
-          },
-          "substitutions" : {
-            "nights" : {
-              "argNum" : 2,
-              "formatSpecifier" : "lld",
-              "variations" : {
-                "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%arg night with heart-rate data"
-                    }
-                  },
-                  "other" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%arg nights with heart-rate data"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ausgangswerte · %1$lld von %#@nights@"
-          },
-          "substitutions" : {
-            "nights" : {
-              "argNum" : 2,
-              "formatSpecifier" : "lld",
-              "variations" : {
-                "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%arg Nacht mit Herzfrequenzdaten"
-                    }
-                  },
-                  "other" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%arg Nächten mit Herzfrequenzdaten"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "Baselines · %lld of %lld nights with HRV" : {
-      "comment" : "Under the baseline gauge when only HRV fills (no resting heart rate arrives): its nights, of 7.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ausgangswerte · %1$lld von %2$lld Nächten mit HRV"
-          }
-        }
-      }
-    },
-    "Baselines · %lld of %lld nights with resting heart rate" : {
-      "comment" : "Under the baseline gauge when only resting heart rate fills (no HRV arrives): its nights, of 7.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ausgangswerte · %1$lld von %2$lld Nächten mit Ruhepuls"
           }
         }
       }
@@ -6004,6 +5901,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Letzte Anfragen"
+          }
+        }
+      }
+    },
+    "Last scored: %@" : {
+      "comment" : "Today, while last night is scored: the day the dimmed readiness orbit is from (\"Last scored: Yesterday\"); in VoiceOver, that day's readiness and scores.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zuletzt bewertet: %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last scored: %@"
           }
         }
       }

@@ -59,4 +59,45 @@ import UIKit
             try? lines.joined(separator: "\n").write(toFile: dir + "/contrast.txt", atomically: true, encoding: .utf8)
         }
     }
+
+    /// The calibration's filled segments are `Theme.accent` on the track and on the background (design.md, PR 2).
+    @Test func filledCalibrationSegmentsReachThreeToOneOnTrackAndBackground() {
+        for (name, style) in [("dark", UIUserInterfaceStyle.dark), ("light", .light)] {
+            let accent = resolve(OrbitGaugePalette.assets.calibration, style)
+            #expect(ratio(accent, resolve(Theme.surfaceRaised, style)) >= 3, "\(name) filled segment on its track")
+            #expect(ratio(accent, resolve(Theme.background, style)) >= 3, "\(name) filled segment on the background")
+            // The palette's calibration colour is the accent the other tests measure.
+            #expect(ratio(accent, resolve(Theme.accent, style)) < 1.001)
+        }
+    }
+
+    /// Pending draws the previous day at `pendingOpacity` on purpose below 3:1 in places (design.md, PR 2: "yesterday,
+    /// not today"; the number carries the value at >= 4.5:1 and VoiceOver says it). Pinning the constant makes raising or
+    /// lowering it a decision, not an accident; this is not an assertion that 0.6 reaches 3:1.
+    @Test func pendingOpacityIsPinnedAndIntentionallyBelowThreeToOne() {
+        #expect(OrbitGaugeMarks.pendingOpacity == 0.6)
+        var lines: [String] = []
+        for (name, style) in [("dark", UIUserInterfaceStyle.dark), ("light", .light)] {
+            let background = resolve(Theme.background, style)
+            let track = resolve(Theme.surfaceRaised, style)
+            for (title, colour) in [("accent", Theme.accent), ("sleep", Theme.metricSleep), ("strain", Theme.metricStrain)] {
+                var c = resolve(colour, style)
+                c.a = OrbitGaugeMarks.pendingOpacity
+                let onBackground = String(format: "%.2f", ratio(over(c, background), background))
+                let onTrack = String(format: "%.2f", ratio(over(c, track), track))
+                lines.append("\(name) pending \(title): background \(onBackground), over track \(onTrack)")
+            }
+            // The light-scheme Sleep and Strain arcs at 0.6 are the documented sub-3:1 case.
+            if style == .light {
+                for colour in [Theme.metricSleep, Theme.metricStrain] {
+                    var c = resolve(colour, style)
+                    c.a = OrbitGaugeMarks.pendingOpacity
+                    #expect(ratio(over(c, background), background) < 3)
+                }
+            }
+            // The previous day's number is text in textTertiary: that one must read.
+            #expect(ratio(over(resolve(Theme.textTertiary, style), background), background) >= 4.5, "\(name) pending number")
+        }
+        print("ORBIT-PENDING-CONTRAST\n" + lines.joined(separator: "\n"))
+    }
 }

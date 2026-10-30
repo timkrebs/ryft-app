@@ -105,6 +105,22 @@ is a filled dot with no arc. Nothing rotates on its own; a new value moves the a
 Reduce Motion it cross-fades. The number is omitted below a 56 pt dial. One VoiceOver element: "Overall readiness",
 then "71, High. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21", a missing score "Sleep, not scored".
 
+**Calibrating** (baselines still learning). The outer orbit becomes 7 round-capped segments, with the seam at the top
+under the hollow Strain dot. The tips are 9° from the top and 5° apart. Counted nights are `accent` and the rest are
+track, filling clockwise one segment every 60 ms (the final count at once under Reduce Motion). The inner orbit and the
+centre ring stay tracks, and all three dots are hollow. "3 / 7" takes the number's place ("3" alone at `.small`). The
+segments count whichever signal is filling, so the counter never sits still. VoiceOver: "Baselines", then "3 of 7
+nights…". A readiness that is already scored while the baseline still learns (S2) draws the plain scored orbit; the
+note under it says what's learning.
+
+**Pending** (last night is being scored). The previous scored day's orbit, its arcs and dots at 0.6 opacity. They
+breathe between 1.0 and 0.75 of that over 1.4 s, and are still once scoring takes longer than usual or under Reduce
+Motion. The tracks stay at full strength. The arcs are below 3:1 on purpose: they are yesterday's, and the number
+(`textTertiary`, ≥ 4.5:1) and VoiceOver ("Not scored yet. Last scored: …") carry the values. Without a previous day:
+tracks, hollow dots and a dash. Today names the day under the gauge ("Last scored: Yesterday").
+
+Captions never break a word: they wrap between words and shrink a word that is wider than the line.
+
 The drawing is shared with the widget (`Shared/OrbitGaugeDrawing.swift`, colours by asset name in
 `OrbitGaugePalette`, ADR 0010); `Ryft/Design/OrbitGauge.swift` adds the number, caption, VoiceOver and motion.
 Geometry, contrast and what was rejected: `docs/work/2026-10-29-orbit-gauge/design.md`.

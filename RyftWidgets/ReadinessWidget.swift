@@ -1,8 +1,8 @@
 // Readiness on the home and lock screen: what Today shows, from the snapshot the app
 // writes into the App Group container after each refresh (`Shared/ReadinessSnapshot.swift`).
-// A score is the orbit, the same drawing as Today's (`WidgetOrbitGauge`); the baselines and a
-// night being scored keep their own drawings until PR 2. The app reloads the widget when a new
-// score lands; the timeline only turns the day over.
+// The orbit, the same drawing as Today's (`WidgetOrbitGauge`) from the snapshot's `gauge`: the
+// scores, the baselines filling night by night, or the previous day dimmed while a night is
+// scored. The app reloads the widget when a new score lands; the timeline only turns the day over.
 import SwiftUI
 import WidgetKit
 
@@ -157,6 +157,14 @@ private extension RedactionReasons {
     var hidesValues: Bool { contains(.privacy) }
 }
 
+/// Whether a family draws the orbit for `s`: a readiness, the baselines counting, a night pending or awaited (the
+/// previous day dimmed, or tracks and hollow dots without one). Not without a snapshot, nor for a scored day without
+/// a readiness: those keep their symbol or their words. A locked device always draws it (tracks only).
+private func drawsOrbit(_ s: ReadinessSnapshot?) -> Bool {
+    guard let s else { return false }
+    return s.kind != .score || s.readiness != nil
+}
+
 /// A line slot in words: the constant placeholder on a locked device, else the band word or the status.
 private struct SlotLine: View {
     let slot: ReadinessSnapshot.TextSlot
@@ -176,9 +184,8 @@ private struct SlotLine: View {
 
 // MARK: - home screen
 
-/// The orbit for a score, as large as the tile allows (it is the mark: no header), with the band word under it; an
-/// outline with the last value dimmed while the night isn't scored; a segment per night while the baselines are
-/// learned (PR 2 turns those two into the orbit too).
+/// The orbit as large as the tile allows (it is the mark: no header): the scores with the band word under them, the
+/// baselines' segments with "Baselines 3 of 7", or the previous day dimmed with "Scoring your night…".
 private struct SmallReadiness: View {
     let snapshot: ReadinessSnapshot?
     var bedtime: Date?
@@ -189,26 +196,17 @@ private struct SmallReadiness: View {
     private var locked: Bool { redaction.hidesValues }
 
     var body: some View {
-        Group {
-            if snapshot?.kind == .score || locked {
-                orbit
-            } else {
-                legacy
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(Words.spoken(snapshot, bedtime: bedtime, redacted: locked)))
-    }
-
-    private var orbit: some View {
         VStack(spacing: 4) {
             GeometryReader { g in
                 let side = min(g.size.width, g.size.height)
-                WidgetOrbitGauge(mode: snapshot?.gauge, size: .custom(dial: max(side - 12, 0)), readiness: snapshot?.readiness)
+                WidgetOrbitGauge(mode: snapshot?.gauge, size: .custom(dial: max(side - 12, 0)), readiness: snapshot?.readiness,
+                                 previousReadiness: snapshot?.previousReadiness)
                     .frame(width: g.size.width, height: g.size.height)
             }
             caption
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(Words.spoken(snapshot, bedtime: bedtime, redacted: locked)))
     }
 
     /// Tonight's bedtime in the evening, else the band word or the status; one constant line when locked.
@@ -232,60 +230,6 @@ private struct SmallReadiness: View {
                 .privacySensitive()
         }
     }
-
-    /// The pending outline and the baselines' segments, under the "READINESS" header, until PR 2.
-    private var legacy: some View {
-        VStack(spacing: 6) {
-            Text("Readiness")
-                .font(.system(size: 9, weight: .medium))
-                .textCase(.uppercase)
-                .tracking(1.4)
-                .foregroundStyle(ink.opacity(0.6))
-            ZStack {
-                ring
-                Text(number)
-                    .font(.system(size: 32, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(ink.opacity(0.4))
-                    .minimumScaleFactor(0.6)
-                    .privacySensitive()
-            }
-            .frame(width: 84, height: 84)
-            caption
-        }
-    }
-
-    private var number: String {
-        switch snapshot?.kind {
-        case .score: return snapshot?.readiness.map(String.init) ?? "–"
-        case .calibrating: return "\(snapshot?.baselineNights ?? 0)"
-        case .pending, .waitingForSleep: return snapshot?.previousReadiness.map(String.init) ?? "–"
-        case nil: return "–"
-        }
-    }
-
-    @ViewBuilder
-    private var ring: some View {
-        let stroke: CGFloat = 5
-        switch snapshot?.kind {
-        case .calibrating:
-            let n = ReadinessSnapshot.baselineNightsRequired
-            ZStack {
-                ForEach(0..<n, id: \.self) { i in
-                    Circle()
-                        .trim(from: Double(i) / Double(n) + 0.008, to: Double(i + 1) / Double(n) - 0.008)
-                        .stroke(i < (snapshot?.baselineNights ?? 0) ? Brand.teal : ink.opacity(0.12),
-                                style: StrokeStyle(lineWidth: stroke, lineCap: .butt))
-                        .rotationEffect(.degrees(-90))
-                }
-            }
-        default:
-            ZStack {
-                Circle().strokeBorder(ink.opacity(0.35), lineWidth: 1)
-                Circle().strokeBorder(ink.opacity(0.35), lineWidth: 1).padding(stroke)
-            }
-        }
-    }
 }
 
 // MARK: - lock screen
@@ -298,25 +242,19 @@ private struct CircularReadiness: View {
 
     var body: some View {
         Group {
-            if (snapshot?.kind == .score && snapshot?.readiness != nil) || locked {
-                // The orbit filling the circle; the frame's 6 pt on each side take the outer dot.
+            if drawsOrbit(snapshot) || locked {
+                // The orbit filling the circle; the frame's 6 pt on each side take the outer dot. The baselines' count
+                // or the previous day's number (dimmed) in the centre.
                 GeometryReader { g in
                     let side = min(g.size.width, g.size.height)
                     ZStack {
                         AccessoryWidgetBackground()
                         WidgetOrbitGauge(mode: snapshot?.gauge, size: .custom(dial: max(side - 12, 0)),
-                                         readiness: snapshot?.readiness, prominentNumber: true)
+                                         readiness: snapshot?.readiness, previousReadiness: snapshot?.previousReadiness,
+                                         prominentNumber: true)
                     }
                     .frame(width: g.size.width, height: g.size.height)
                 }
-            } else if snapshot?.kind == .calibrating {
-                Gauge(value: Double(snapshot?.baselineNights ?? 0), in: 0...Double(ReadinessSnapshot.baselineNightsRequired)) {
-                    Text(verbatim: "B")
-                } currentValueLabel: {
-                    Text(verbatim: "\(snapshot?.baselineNights ?? 0)/\(ReadinessSnapshot.baselineNightsRequired)")
-                }
-                .gaugeStyle(.accessoryCircularCapacity)
-                .privacySensitive()
             } else {
                 ZStack {
                     AccessoryWidgetBackground()
@@ -339,11 +277,11 @@ private struct RectangularReadiness: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            // The number is beside it: the orbit alone, the size of the app icon's 44 pt check. Locked, always the
-            // tracks, so whether today is scored doesn't show either.
-            if locked || (snapshot?.kind == .score && snapshot?.readiness != nil) {
+            // The number or the status is beside it: the orbit alone, the size of the app icon's 44 pt check. Locked,
+            // always the tracks, so whether today is scored doesn't show either.
+            if locked || drawsOrbit(snapshot) {
                 WidgetOrbitGauge(mode: snapshot?.gauge, size: .custom(dial: 44), readiness: snapshot?.readiness,
-                                 showsNumber: false)
+                                 previousReadiness: snapshot?.previousReadiness, showsNumber: false)
             }
             lines
         }
@@ -413,6 +351,14 @@ extension ReadinessSnapshot {
         return s
     }
 
+    /// Waiting for the night with no orbit (row A's tiles, or a calibrating file turned over at midnight): the
+    /// tracks and hollow dots with the latest readiness, 64, dimmed in the centre.
+    static var previewWaitingWithoutOrbit: ReadinessSnapshot {
+        var s = preview(.waitingForSleep)
+        s.orbit = nil
+        return s
+    }
+
     /// Three digits: the number must still fit the centre ring.
     static var previewHundred: ReadinessSnapshot {
         var s = preview(.score)
@@ -437,6 +383,7 @@ extension ReadinessSnapshot {
     ReadinessEntry(date: .now, snapshot: .previewSleepMissing)
     ReadinessEntry(date: .now, snapshot: .previewBeforeOrbit)
     ReadinessEntry(date: .now, snapshot: .preview(.pending))
+    ReadinessEntry(date: .now, snapshot: .previewWaitingWithoutOrbit)
     ReadinessEntry(date: .now, snapshot: .preview(.calibrating))
     ReadinessEntry(date: .now, snapshot: nil)
 }
@@ -446,6 +393,7 @@ extension ReadinessSnapshot {
 } timeline: {
     ReadinessEntry(date: .now, snapshot: .preview(.score))
     ReadinessEntry(date: .now, snapshot: .preview(.pending))
+    ReadinessEntry(date: .now, snapshot: .preview(.calibrating))
 }
 
 #Preview("Circular", as: .accessoryCircular) {
@@ -454,6 +402,7 @@ extension ReadinessSnapshot {
     ReadinessEntry(date: .now, snapshot: .preview(.score))
     ReadinessEntry(date: .now, snapshot: .preview(.calibrating))
     ReadinessEntry(date: .now, snapshot: .preview(.waitingForSleep))
+    ReadinessEntry(date: .now, snapshot: .previewWaitingWithoutOrbit)
 }
 
 #Preview("Inline", as: .accessoryInline) {
@@ -469,7 +418,8 @@ struct ReadinessWidgetGallery: View {
             ForEach([ColorScheme.dark, .light], id: \.self) { scheme in
                 VStack(spacing: 16) {
                     let snapshots: [ReadinessSnapshot] = [.preview(.score), .previewHundred, .previewSleepMissing,
-                                                          .previewBeforeOrbit, .preview(.pending), .preview(.calibrating)]
+                                                          .previewBeforeOrbit, .preview(.pending), .previewWaitingWithoutOrbit,
+                                                          .preview(.calibrating)]
                     ForEach(snapshots.indices, id: \.self) { i in
                         SmallReadiness(snapshot: snapshots[i])
                             .padding(16)
@@ -482,10 +432,20 @@ struct ReadinessWidgetGallery: View {
                         CircularReadiness(snapshot: .previewHundred)
                             .frame(width: 68, height: 68)
                     }
-                    RectangularReadiness(snapshot: .preview(.score))
-                        .padding(8)
-                        .frame(width: 170, height: 76)
-                        .background(Brand.background(scheme).opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+                    HStack(spacing: 12) {
+                        CircularReadiness(snapshot: .preview(.calibrating))
+                            .frame(width: 68, height: 68)
+                        CircularReadiness(snapshot: .preview(.pending))
+                            .frame(width: 68, height: 68)
+                        CircularReadiness(snapshot: .previewWaitingWithoutOrbit)
+                            .frame(width: 68, height: 68)
+                    }
+                    ForEach([ReadinessSnapshot.Kind.score, .calibrating, .pending], id: \.self) { kind in
+                        RectangularReadiness(snapshot: .preview(kind))
+                            .padding(8)
+                            .frame(width: 170, height: 76)
+                            .background(Brand.background(scheme).opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+                    }
                     InlineReadiness(snapshot: .preview(.score))
                         .font(.caption)
                 }
@@ -551,7 +511,7 @@ struct ReadinessWidgetLockedGallery: View {
 
 #Preview("Small · de") {
     VStack(spacing: 16) {
-        ForEach([ReadinessSnapshot.Kind.score, .pending], id: \.self) { kind in
+        ForEach([ReadinessSnapshot.Kind.score, .pending, .calibrating], id: \.self) { kind in
             SmallReadiness(snapshot: .preview(kind))
                 .padding(16)
                 .frame(width: 158, height: 158)

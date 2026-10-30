@@ -391,7 +391,8 @@ struct TodayContent {
         return value.map(Double.init)
     }
 
-    /// The orbit Today draws for the `.score` hero, and the widget from the snapshot: `OrbitGaugeMode(p)`.
+    /// The orbit Today draws for the `.score`, `.calibrating` and `.pending` heroes, and the widget from the snapshot:
+    /// `OrbitGaugeMode(p)`.
     var orbit: OrbitGaugeMode { OrbitGaugeMode(presentation) }
 
     /// The band word under the readiness gauge: not where a calibration note takes its line (S2, N1); row A's,
@@ -483,7 +484,22 @@ struct TodayContent {
         return night.detail
     }
 
-    /// Slow scoring: the outline stops breathing, nothing implies progress.
+    /// Under the pending orbit: the day its dimmed scores are from ("Last scored: Yesterday"); nil without one.
+    var pendingScoredDay: String? {
+        guard case .pending(let night) = hero, let day = night.previousDay else { return nil }
+        return String(localized: "Last scored: \(Fmt.dayTitle(day, today: facts.now))")
+    }
+
+    /// What VoiceOver adds to the pending orbit's value after the previous day's scores: the title, and the day they
+    /// are from ("Scoring your night…. From Wednesday 28 October").
+    var pendingSpokenNote: String {
+        guard case .pending(let night) = hero else { return "" }
+        guard let day = night.previousDay else { return pendingTitle }
+        let date = day.formatted(.dateTime.weekday(.wide).day().month(.wide))
+        return pendingTitle + ". " + String(localized: "From \(date)")
+    }
+
+    /// Slow scoring: the dimmed orbit stops breathing, nothing implies progress.
     var pendingIsStatic: Bool {
         guard case .pending(let night) = hero, !night.waitingForSleep else { return false }
         return TodayStates.scoringSlow(facts)
@@ -551,9 +567,9 @@ struct TodaySyncFacts: Equatable {
 enum TodayHero: Equatable {
     /// The first import, before any day was scored: the "Setting up RYFT" card.
     case importing(ImportProgress)
-    /// Today's night isn't scored yet: the gauge in outline, with the day before dimmed.
+    /// Today's night isn't scored yet: the orbit of the latest scored day, dimmed.
     case pending(PendingNight)
-    /// Fewer than 7 nights behind the baselines: a ring segment per night.
+    /// Fewer than 7 nights behind the baselines: the outer orbit, a segment per night.
     case calibrating(nights: Int)
     case score
 }

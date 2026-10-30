@@ -784,6 +784,61 @@ struct TodayNightAndScoringTests {
         #expect(night.rawNight?.source == "Connect" && night.rawNightSource == "Garmin Connect")
     }
 
+    // MARK: the pending orbit's day (PR 2)
+
+    /// A scored day `daysAgo` before `now`, as the platform lists it.
+    private func scored(daysAgo: Int, now: Date) -> DailyScore {
+        DailyScore(day: DayFormat.string(from: DayFormat.shift(now, days: -daysAgo)), readiness: 76, state: .balanced,
+                   baselineDays: 30, calibrating: false, computedAt: now.addingTimeInterval(-86_400 * Double(daysAgo)),
+                   scoringState: .scored)
+    }
+
+    @Test func thePendingOrbitSaysYesterdayWhenYesterdayWasScored() throws {
+        let f = facts { $0.status = status(.pending, now: $0.now); $0.scoringSince = $0.now.addingTimeInterval(-10) }
+        let day = content(f)
+        #expect(day.pendingScoredDay == String(localized: "Last scored: \(String(localized: "Yesterday"))"))
+        // VoiceOver: the title, then the full date the dimmed scores are from.
+        let yesterday = try #require(DayFormat.date(from: DayFormat.string(from: DayFormat.shift(f.now, days: -1))))
+        let date = yesterday.formatted(.dateTime.weekday(.wide).day().month(.wide))
+        #expect(day.pendingSpokenNote
+                == String(localized: "Scoring your night…") + ". " + String(localized: "From \(date)"))
+    }
+
+    @Test func thePendingOrbitNamesTheDayAfterAGap() throws {
+        // Nothing scored yesterday: the dimmed scores are from two days back, by that day's title, not "Yesterday".
+        let f = facts {
+            $0.prior = [scored(daysAgo: 2, now: $0.now)]
+            $0.status = status(.pending, now: $0.now)
+            $0.scoringSince = $0.now.addingTimeInterval(-10)
+        }
+        let twoDaysBack = try #require(DayFormat.date(from: DayFormat.string(from: DayFormat.shift(f.now, days: -2))))
+        let title = Fmt.dayTitle(twoDaysBack, today: f.now)
+        #expect(title != String(localized: "Yesterday") && title != String(localized: "Today"))
+        let day = content(f)
+        #expect(day.pendingScoredDay == String(localized: "Last scored: \(title)"))
+        let date = twoDaysBack.formatted(.dateTime.weekday(.wide).day().month(.wide))
+        #expect(day.pendingSpokenNote.hasSuffix(String(localized: "From \(date)")))
+    }
+
+    @Test func thePendingOrbitWithoutAScoredDayOnlySaysTheTitle() {
+        // The first night being scored: nothing to dim, no day to name; VoiceOver hears the title alone.
+        let day = content(facts {
+            $0.prior = []
+            $0.hasScoredDay = false
+            $0.status = status(.pending, now: $0.now)
+            $0.scoringSince = $0.now.addingTimeInterval(-10)
+        })
+        #expect(day.pendingScoredDay == nil)
+        #expect(day.pendingSpokenNote == String(localized: "Scoring your night…"))
+        #expect(day.pendingSpokenNote == day.pendingTitle)
+    }
+
+    @Test func slowScoringIsWhatVoiceOverHearsFirst() {
+        let slow = content(facts { $0.status = status(.pending, now: $0.now); $0.scoringSince = $0.now.addingTimeInterval(-120) })
+        #expect(slow.pendingSpokenNote.hasPrefix(String(localized: "Still scoring your night") + ". "))
+        #expect(slow.pendingScoredDay == String(localized: "Last scored: \(String(localized: "Yesterday"))"))
+    }
+
     // MARK: through SyncService and the view model
 
     @Test func theWaitsStartStaysOnlyWhileThePlatformSaysPending() {

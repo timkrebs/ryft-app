@@ -16,13 +16,15 @@ struct OrbitGaugePalette {
     var high: Color
     var moderate: Color
     var low: Color
+    /// The filled calibration segments (`Theme.accent`, the teal of the baselines).
+    var calibration: Color
     /// The centre ring without a readiness (`Theme.textTertiary`).
     var noReadiness: Color
 
     /// The asset catalog's colours: the app's and, copied under the same names, the widget's.
     static let assets = OrbitGaugePalette(
         track: Color("SurfaceRaised"), recovery: Color("Accent"), sleep: Color("MetricSleep"),
-        strain: Color("MetricStrain"), high: Color("Accent"), moderate: Color("Warning"), low: Color("Alert"),
+        strain: Color("MetricStrain"), high: Color("Accent"), moderate: Color("Warning"), low: Color("Alert"), calibration: Color("Accent"),
         noReadiness: Color("TextTertiary"))
 
     /// The readiness bands' lower bounds, as `Theme.band(forScore:)` and `MetricSpec.scoreBand` draw them.

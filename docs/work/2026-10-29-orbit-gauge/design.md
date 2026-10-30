@@ -151,3 +151,58 @@ dots' outer edge (63), 3 pt clear of the first and 6.5 pt of the second, and the
 arc is split into two `OrbitArc`s: up to the end in `metricStrain`, beyond it in `Theme.alert` mixed 60 / 40 with the strain hue
 (designer's first guess; to be tuned against 3:1 on the track, `alert` alone is 4.13 dark and 3.99 light), the dot taking the colour of
 its segment. `OrbitGaugeValues.strainBand` is already in the model and ignored by the drawing.
+
+## 9. PR 2: calibrating and pending (as built)
+
+Shots: `shots/pr2-calibrating-{dark,light}.png` (0 / 3 / 7 nights at large, medium, small), `pr2-pending-{dark,light}.png`
+(with and without a previous day at the three sizes), `pr2-calibrating-3-large-*`, `pr2-pending-large-*`, `pr2-scored-reference-*`.
+Raw numbers: `shots/pr2-contrast.txt`. Compared with `design/brand-board.png`: the same thin rings and hollow orbit dots as the mark,
+teal as the only accent, nothing rotating; the filled segments are the one teal on the screen.
+
+**Segments (differs from section 8 in one number).** Section 8 measured 9 deg and 5 deg on the centrelines, which leaves 1.2 pt of air between
+two round caps at r 77 (the caps take 5.5 of the 6.7 pt). Both numbers are now the *visible* distances between cap tips, which is what
+the eye measures: the first tip is 9 deg after the top and the last 9 deg before it (the hollow Strain dot with its air spans 8.6 deg, so the dot
+never touches a segment), neighbours are 5 deg apart tip to tip. The centrelines are shortened by one cap (stroke / 2 / radius = 2.05 deg) at each
+end: 7 segments of 44.57 deg visible, 40.5 deg centreline, starting at 11.05 deg + n x 49.57 deg. `OrbitGaugeGeometry.segments(required:dial:)`
+returns them for any `required`; the number scales with the dial because the stroke does.
+
+**Number.** `.large` and `.medium` (dial of 100 pt or more): "3" in the readiness number's size and style (`ryftNumber`, 0.19 x dial,
+`textPrimary`), then " / 7" at 0.55 of it in `textTertiary`, one `Text`, `minimumScaleFactor` 0.6. `.small` (and any dial under 100 pt): the count
+only, "3": the centre slot is 23 pt wide there, "3 / 7" would drop to about 8 pt, and the seven segments around the number already say "of 7".
+The count is `OrbitGaugeCalibration.counted`, so a counter never reads past its requirement. 0 draws "0" and seven unfilled segments: the gauge
+can always move.
+
+**Fill motion.** The drawing is static and takes `counted` as given. The app wrapper steps the displayed count up one night per 60 ms
+(`OrbitGauge(animatesFill:)`, default true), each segment growing from its start over 60 ms (`easeOut`), when the gauge appears and when `nights`
+grows (a lower count is taken at once). Reduce Motion, or `animatesFill: false`, draws the count from the first frame. Previews and snapshots
+pass `false`, so nothing depends on time. The widget draws the static count.
+
+**Pending.** `.pending(previous:)` draws `previous` exactly as scored, with all marks (arcs, dots, centre ring) in one group at 0.6 opacity
+(`OrbitGaugeMarks.pendingOpacity`, shared, so the widget gets the same), tracks at full strength under them, the number in `textTertiary`
+(the previous day's, never in the primary ink). The app wrapper breathes the group between 1.0 and 0.75 of that (0.6 to 0.45 effective) on
+1.4 s `easeInOut`, the rhythm of `PendingGauge`'s outline; `breathes: false` holds it still (for "takes longer than usual"), and it
+is always still under Reduce Motion. Without a previous day: tracks, the three hollow dots (dimmed the same way) and a dash in the number's place.
+
+**S2** (readiness scored while the baselines still learn) draws the plain scored gauge; `learning` is not drawn (plan.md decision 3).
+
+**VoiceOver.** Calibrating: label "Baselines", value the sentences `BaselineGauge` spoke ("3 of 7 nights. Readiness appears once the baselines
+are complete.", and the three signal variants), so no new keys. Pending: "Not scored yet", then "Last scored: 71. Recovery 71 percent, Sleep 88
+percent, Strain 9.6 of 21." when there is a previous day, then the caller's `accessibilityNote` (the title and the date).
+
+### Contrast (WCAG 1.4.11 asks 3:1 for graphics)
+
+| Graphic | Dark | Light |
+| --- | --- | --- |
+| Filled segment (`accent`) on its track / on the background | 6.97 / 10.09 | 3.97 / 4.54 |
+| Unfilled segment (the track) on the background | 1.45 | 1.14 |
+| Pending accent arc, 0.6, on the background / over the track | 4.23 / 3.50 | 2.35 / 2.21 |
+| Pending sleep arc, 0.6 | 2.98 / 2.51 | 2.45 / 2.30 |
+| Pending strain arc, 0.6 | 2.85 / 2.41 | 2.47 / 2.33 |
+| Pending, trough of the breath (0.45), accent / sleep / strain | 2.87 / 2.17 / 2.10 | 1.86 / 1.91 / 1.93 |
+| Pending number (`textTertiary`) | 5.25 | 4.72 |
+
+The filled segments meet 3:1 in both schemes (the lowest is light, 3.97 on the track). The unfilled segments are the empty scale, as in the
+scored gauge (same colour as `MetricGauge`'s track): not information; the count in the middle and the filled segments carry it. The dimmed
+pending arcs are **below 3:1 on purpose** (1.9 to 4.2): they are "yesterday, not today" and must not compete with the number or look like a score of
+today. Nothing is carried by them alone: the previous day's number is 5.25 / 4.72 : 1, the arcs repeat it, and VoiceOver says it. Raising them to 3:1
+in light would need roughly 0.8 opacity or more (estimate, not measured), at which a pending gauge reads as a scored one. If the lead prefers 3:1, change `pendingOpacity` (one constant).
