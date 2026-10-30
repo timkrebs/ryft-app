@@ -157,6 +157,11 @@ jobs:
           name: test-results
           path: build/*.xcresult
           retention-days: 7
+      - name: Delete the simulator
+        # The job's device and its parallel-testing clones, plus any "RYFT CI*" device a
+        # crashed job left over for a day (docs/CI.md → The self-hosted Mac).
+        if: always()
+        run: sh scripts/ci-simulator-cleanup.sh
 
   # The platform's API.md examples decode with the app's models (scripts/contract).
   # On PRs that touch Ryft/Networking/ or the check itself, and every night, so a

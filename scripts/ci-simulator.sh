@@ -32,13 +32,18 @@ runtime, device = match
 print("ci-simulator: %s on iOS %s (%s)" % (device["name"], runtime["version"], runtime.get("buildversion", "?")), file=sys.stderr)
 print(device["identifier"], runtime["identifier"])
 ' "$want")
-# One per runtime and device type: reused on a machine that runs this again (locally, say).
-devtype=${pick% *}
-runtime=${pick#* }
-udid=$(xcrun simctl list -j devices available | python3 -c '
+# A device of its own for every job, never reused: the persistent "RYFT CI" device passed
+# its first job and hung the next ones ("test runner hung before establishing connection",
+# 2026-10-30, three times). The name is unique per workflow attempt, "RYFT CI <run id>-<attempt>"
+# (CI_SIM_NAME overrides it); a leftover of the same name is deleted first.
+# ci-simulator-cleanup.sh removes the device and its clones after the job.
+name="${CI_SIM_NAME:-RYFT CI ${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}"
+xcrun simctl list -j devices | python3 -c '
 import json, sys
-devices = json.load(sys.stdin)["devices"].get(sys.argv[1], [])
-print(next((d["udid"] for d in devices if d["name"] == "RYFT CI" and d.get("deviceTypeIdentifier") == sys.argv[2]), ""))
-' "$runtime" "$devtype")
-[ -n "$udid" ] || udid=$(xcrun simctl create "RYFT CI" $pick)
+for devices in json.load(sys.stdin)["devices"].values():
+    for d in devices:
+        if d["name"] == sys.argv[1]:
+            print(d["udid"])
+' "$name" | while read -r old; do xcrun simctl delete "$old" || true; done
+udid=$(xcrun simctl create "$name" $pick)
 echo "platform=iOS Simulator,id=$udid"
