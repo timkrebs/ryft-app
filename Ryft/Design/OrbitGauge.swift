@@ -203,8 +203,9 @@ struct OrbitGauge: View {
         frozenAt == nil && start != nil && seconds >= entranceDuration
     }
 
-    /// The band word and the change arrive with the score (the glide), never with the tracks. Full once done, and in
-    /// the static path, so the last frame is the static render.
+    /// The caption arrives with the score (the glide), never with the tracks: the title, band word and change in the full
+    /// entrance; over a placeholder's tracks the title is already there, so only the band word and change. Full once done,
+    /// and in the static path, so the last frame is the static render.
     private func captionOpacity(_ elapsed: Double) -> Double {
         guard staged, !entranceDone else { return 1 }
         if reducesEntrance { return OrbitEntranceFrame.eased(elapsed, 0, OrbitEntranceFrame.fadeDuration) }

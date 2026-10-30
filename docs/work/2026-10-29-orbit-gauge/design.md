@@ -213,7 +213,7 @@ Files: `Ryft/Design/OrbitGaugeEntrance.swift` (timings, `OrbitEntranceFrame`, `O
 `OrbitGauge.swift`. Shots: `shots/pr3-{scored,calibrating,pending}-{dark,light}.png`, each row t = 0, 0.25 s, 0.6 s, end (medium).
 Tests: `OrbitGaugeEntranceTests` (the last frame equals the static render byte for byte, in all three modes, dark and light).
 
-**API.** `OrbitGauge(mode:, ..., entrance: .none | .assemble)`. The view latches the value at its first appearance (`@State`),
+**API.** `OrbitGauge(mode:, ..., entrance: .none | .assemble | .assembleOverTracks)`. The view latches the value at its first appearance (`@State`),
 plays once per view instance and ignores later changes. `.assembling` is gone from `OrbitGaugeMode`: the mode is data. The first
 frame is already the entrance's frame 0 (empty), never the final state.
 
@@ -223,11 +223,20 @@ frame is already the entrance's frame 0 (empty), never the final state.
 | --- | --- | --- |
 | 1 | 0 to 250 ms | Tracks trim 0 to 1: outer 0-150, inner 50-200, centre ring 100-250 ms. |
 | 2 | 150 to 600 ms | The dots fly from 0.62 x the frame (outside its bounds) to their orbit's start and turn 40 degrees along it; strain, recovery, sleep 30 ms apart, all landed by 600 ms. |
-| 3 | 600 to 850 ms | Glide, `Theme.Motion.quick`'s 250 ms: arcs grow from the start, each dot goes from its turned position to the head of its arc (a missing score glides back to the start, hollow), the centre ring changes from its track to the band colour, the number fades in. Never before 600 ms. |
+| 3 | 600 to 850 ms | Glide, `Theme.Motion.quick`'s 250 ms: arcs grow from the start, each dot goes from its turned position to the head of its arc (a missing score glides back to the start, hollow), the centre ring changes from its track to the band colour, the number and the caption (title, band word, change) fade in. Never before 600 ms. |
 
 Total 850 ms, inside the 900 ms budget. Calibrating: the dots land hollow at their starts, the seven track segments trim in, and the PR 2
 fill (60 ms a night) starts when the entrance has ended (completion callback), so 3 of 7 reads as one more step. Pending: the dimmed marks
 (0.6) glide in, and the 1.4 s breathing starts at the last frame. No step 4 (plan.md decision 5).
+
+**Over the placeholder's tracks (review round 3).** On a first launch, and in demo mode, Today shows the no-data gauge (tracks,
+hollow dots, a dash, "OVERALL READINESS") until the scores arrive; the entrance plays on the first gauge with something to show
+(architecture §4). That gauge replaces the placeholder with `.assembleOverTracks`: its tracks, centre ring and caption title are at
+full strength from frame 0, so the rings never blink out; the dots fly in (step 2) and glide (step 3), and the band word and change
+fade in with the glide. Under Reduce Motion over tracks only the marks and the number fade.
+
+**The clock.** A `TimelineView(.animation)` reading the time since the first appearance, paused once done. Not a `withAnimation`
+transaction: that animated unrelated hero layout changes in the same update (the status line at AX3) along with it (review round 2).
 
 **Seam.** At 850 ms the stage draws the same `OrbitGaugeDrawing` the static path draws, with `.transition(.identity)`: no swap is visible.
 A track is cut for the air around a dot only on that dot's own orbit, so a dot flying in leaves no gap in the rings it crosses. Dots are not clipped
