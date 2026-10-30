@@ -38,3 +38,24 @@ accessibility-reviewer); performance-profiler for PR 3.
    2. The ios-developer adds the flag, the Today wiring and the UISmoke "number within 1.5 s" step, while the test-engineer writes tests in parallel.
    3. The performance-profiler measures `main`'s first-frame-to-content baseline now, and the branch once it's built.
 8. **PR 3: the UISmoke launch step gets 3 s, not 1.5 s.** XCUITest's first query after `launch()` takes about 1.15 s on an idle simulator, both with the entrance (9 runs, 1.13–1.19 s) and without it (8 runs, 1.15–1.28 s). So the brief's 1.5 s budget measures the harness and leaves 0.3 s of headroom; on the self-hosted runner (this Mac, often loaded) it would fail at random. The step keeps its purpose (the number is on screen right after launch, from frame 0) and attaches the timing. The "no slower than `main`" check is the profiler's comparison (`perf-baseline.md`, `perf-branch.md`).
+9. **PR 4: what "ship with the band hidden" means.** Checked again on 2026-10-30 (plattform 7f0f8db): `API.md` and `SCORING.md`
+   still have no per-day strain recommendation. PR 4 builds everything up to the data, and nothing invents the data:
+   - **The drawing** (ui-designer, design.md §8): the band rail inside the outer orbit; past the band's upper end, the arc and
+     dot shift toward `alert`. It is driven only by `OrbitGaugeValues.strainBand`. `nil` draws exactly today's gauge, and
+     tests pin that.
+   - **Previews and tests** use a synthetic band (8–13). Production passes `nil` on Today and in the widget. The snapshot
+     shape stays the same, because a field that is always empty would only widen the widget's contract.
+   - **VoiceOver:** once a band is present, the strain part says the range. That's one new string, en and de
+     (localization-editor). It's unreachable until the field exists, and it is listed as such in the catalog comment.
+   - **The request** (api-contract-keeper): `API_REQUESTS.md` → Charts and gauges #2 gets the brief's rationale and the
+     readiness-band link. It is renamed "Readiness → recommended strain range per day", and its consumers are listed (this
+     gauge, the Strain tab's `MetricGauge` target).
+   - **When the platform ships it:** api-contract-keeper mirrors `strain_target_lo/hi` with a fixture test, and one line in
+     `OrbitGaugeMode+Today` (plus the snapshot) passes it through. That follow-up isn't part of this PR.
+10. **PR 4: the order of work.**
+    1. The ui-designer (drawing, previews, design.md §11) and the api-contract-keeper (`API_REQUESTS.md`) work in parallel
+       on separate files.
+    2. Then the test-engineer writes geometry, colour and contrast, nil-parity and VoiceOver tests, while the
+       localization-editor reviews the string.
+    3. Reviews: code-reviewer and ui-validator. The performance-profiler is skipped: the band adds one stroke and touches
+       neither launch nor lists.

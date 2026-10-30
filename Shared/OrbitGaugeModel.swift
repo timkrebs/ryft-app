@@ -16,7 +16,8 @@ struct OrbitGaugeValues: Hashable, Sendable {
     var sleep: Double?
     /// Outer orbit, clockwise from the top, on the platform's 0–21 scale.
     var strain: Double?
-    /// Today's recommended strain range on the 0–21 scale. Not drawn yet (PR 4).
+    /// Today's recommended strain range on the 0–21 scale: drawn as a rail inside the outer orbit, with the arc shifting
+    /// toward alert past its upper end (PR 4, design.md §11). Production passes nil until the platform serves it.
     var strainBand: ClosedRange<Double>?
 
     static let strainScale = 21.0
