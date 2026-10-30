@@ -98,14 +98,14 @@ struct OrbitGauge: View {
     private func stepFill() async {
         guard let target = mode.calibratingValue?.counted else { return }
         let steps = animatesFill && !reduceMotion
-        guard steps, (shownNights ?? 0) <= target else { shownNights = target; return }
-        var current = shownNights ?? 0
-        shownNights = current
-        while current < target {
+        // Every decision is `nextShown`'s: a step of one night is animated after 60 ms, anything else (not stepping,
+        // a lower count, a target of 0) is taken at once.
+        while shownNights != target {
+            let next = Self.nextShown(current: shownNights, target: target, steps: steps)
+            guard steps, next == (shownNights ?? 0) + 1 else { shownNights = next; return }
             try? await Task.sleep(for: .milliseconds(60))
             if Task.isCancelled { return }
-            current = Self.nextShown(current: current, target: target, steps: true)
-            withAnimation(.easeOut(duration: 0.06)) { shownNights = current }
+            withAnimation(.easeOut(duration: 0.06)) { shownNights = next }
         }
     }
 

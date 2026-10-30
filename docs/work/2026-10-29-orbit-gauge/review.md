@@ -63,3 +63,16 @@ Nits:
 Verified sound: the fill's grow, shrink, resume and cancel behaviour; `phaseAnimator` with a single phase doesn't churn; the Today mapping against the architecture §3 table; the catalog dict compare; the UI test identifiers kept; iOS 17 APIs.
 
 Fix round sent to the designer (OrbitGauge.swift, Shared) and the developer (RyftWidgets, ViewModelTests), on separate files.
+
+### Re-verification of the fix round (6a90e5f, 60ca4e0, 2b0d27e)
+
+code-reviewer:
+- All three findings are fixed.
+- The fill doesn't replay on a foreground return, a tab switch or an unrelated re-render.
+- `neverBreaksAWord` was tested in isolation: German shrinks onto one line, English isn't shrunk at standard width, and empty titles are safe.
+
+Two nits, handled by the lead:
+1. **`stepFill` re-implemented `nextShown`'s guard**, so the test didn't prove the Reduce Motion sync. `stepFill` now takes every decision from `nextShown`.
+2. **No German AX3 proof in the shots.** Added the designer's renders as `shots/pr2-fix-caption-de-ax3-{baselines,readiness}.png`.
+
+The ui-validator's blocking finding (German AX3 caption) is closed by these renders.
