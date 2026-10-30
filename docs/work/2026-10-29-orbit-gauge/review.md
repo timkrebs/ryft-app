@@ -76,3 +76,38 @@ Two nits, handled by the lead:
 2. **No German AX3 proof in the shots.** Added the designer's renders as `shots/pr2-fix-caption-de-ax3-{baselines,readiness}.png`.
 
 The ui-validator's blocking finding (German AX3 caption) is closed by these renders.
+
+## PR 3 · `today: the gauge assembles on launch`
+
+Branch `feat/orbit-assemble`, from `main` c8dcf2a. Plan decisions 5–8.
+
+### security-privacy-reviewer (c8dcf2a..f53107f): no blocking findings
+
+- **The new debug log** carries the scene phase only (public, debug level).
+- **The locked widget** is unchanged.
+- **`OrbitGaugeMode`** isn't `Codable`, so removing `.assembling` can't break an old snapshot.
+- **The flag** lives in memory only.
+- **Nit:** `perf-baseline.md` committed the scratchpad path, which contains the local username. Scrubbed to `$SCRATCH` (4a08d4b).
+
+### code-reviewer (c8dcf2a..f53107f)
+
+Blocking:
+1. **Reduce Motion on at launch and later off freezes the gauge mid-entrance.** The fade ends with `elapsed` at 0.25; `reduced` is recomputed per render, so the stage then draws the choreography frozen at t = 0.25: no arcs, no number, and the dots over the greeting. → designer: end both paths on `OrbitEntranceFrame.end` (or draw `settled` once `entranceDone`), plus a test with `orbitForcesReducedMotion`.
+
+Should-fix:
+2. **The once-per-process decisions are untested.** They live in the private `GaugeEntranceConsumer`: appear in `.active`, `.background` played-unseen, the rebuild, inactive → active. → developer: a pure decision function plus a table test.
+
+Nits:
+3. **Inactive → background without ever being active** plays the entrance unseen and loses it. → developer, in the same function: mark it played-unseen when the scene goes to the background while the flag is set. Something covering Today at launch (import cover, gate sheet, alert) also plays it unseen: accepted, and architecture §4 now says so.
+4. **The UISmoke step checks the accessibility value,** which is final from frame 0. It's a smoke check, not proof that the number is drawn. Accepted, noted.
+5. **The log line repeats on each appearance while the flag is set.** Fine at debug level.
+
+Verified sound:
+- no replay on a foreground return, tab switch, pull-to-refresh or sign-out/in;
+- the latch survives the re-render after the flag is consumed;
+- the PR 2 fill and breathing start at the entrance's end;
+- one `withAnimation` clock, with nothing outliving 850 ms;
+- the static path is byte-identical;
+- iPhone only, so there's no multi-scene case.
+
+The fix round is held until the performance-profiler finishes measuring f53107f, so builds don't skew its numbers.

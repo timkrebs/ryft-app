@@ -124,7 +124,9 @@ exception. Add one render test of `OrbitGaugeDrawing` per mode.
 - **Consumed on the first appearance while `scenePhase == .active`, not at init.** A process launched in the background
   (HealthKit delivery, `BGAppRefreshTask`) and opened later still plays it once: the user hasn't seen Today yet.
   Foreground returns, tab switches and pull-to-refresh find it consumed. A launch onto another tab (deep link) plays it
-  on the first Today visit; accepted. Reduce Motion / Low Power consume it and fade.
+  on the first Today visit; accepted. Reduce Motion / Low Power consume it and fade. Something covering Today in the
+  first frames (the "Open in" import cover, a gate sheet, a system alert) lets it play unseen and consumes it;
+  accepted too (lead, PR 3 review), because detecting cover state on Today isn't worth one animation.
 - **Main actor.** The entrance is view state only: `TimelineView`/`withAnimation`, no tasks, no reads. Measure as the
   brief says.
 
