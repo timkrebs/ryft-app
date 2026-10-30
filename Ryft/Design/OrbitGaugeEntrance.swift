@@ -231,8 +231,10 @@ struct OrbitEntranceStage<Settled: View, Centre: View>: View {
                                  sweep: orbit.sweep(for: fraction) * glide)
                             .stroke(colour, style: StrokeStyle(lineWidth: m.stroke(of: orbit), lineCap: .round))
                     }
-                    // The dot turns with the arc once it is beyond the band.
-                    dotShape(position, m).fill(split.map { position.degrees > $0 } == true ? palette.strainPastBand : colour)
+                    // The dot turns with the arc once the arc's head is beyond the band (not the dot's flight angle,
+                    // which includes the 40° turn and would flash alert for a band ending below it).
+                    let sweep = orbit.sweep(for: fraction) * glide
+                    dotShape(position, m).fill(split.map { sweep > $0 } == true ? palette.strainPastBand : colour)
                         .opacity(min(frame.flight(orbit) * 4, 1))
                 } else {
                     dotShape(position, m).stroke(colour, lineWidth: m.hollowStroke)
