@@ -185,9 +185,23 @@ invent them; these are the stand-ins until the platform serves them.
 1. **Strain band on the score: `DailyScore.strain_band`.** A string (`light`,
    `moderate`, `high`, `all_out`) from the platform's own thresholds. Until then the app
    derives the band from `strain` at 10 / 14 / 18 (`MetricSpec.strainBand`).
-2. **Strain target: `DailyScore.strain_target_lo` / `strain_target_hi`.** Numbers on
-   the 0–21 scale: the range recommended for today given recovery. `MetricGauge` has
-   the target arc built in, but it stays empty until these exist.
+2. **Readiness → recommended strain range per day: `DailyScore.strain_target_lo` /
+   `strain_target_hi`.** Checked 2026-10-30 (plattform 7f0f8db): `API.md` and `SCORING.md`
+   have no per-day strain recommendation.
+   - **Why:** the readiness bands already tell people what to do with the day, in the
+     `MORNING_SCORE_BODY_*` push copy ("a good day for high strain" for `balanced`,
+     "keep the load moderate" for `strained`, "take it easy" for `depleted`). A full
+     outer orbit is strain 21, which is all-out rather than good, so the Today gauge
+     needs the range to show what today's budget is. The app won't invent the weights
+     that turn a readiness into a range.
+   - **Proposed shape:** two nullable numbers on `DailyScore`, on the 0–21 strain scale
+     with one decimal, `strain_target_lo ≤ strain_target_hi`. Both `null` when there is
+     no readiness or the `state` is `calibrating`; both set or both `null`.
+   - **Screens:** the Today `OrbitGauge` (the band on the outer track, and the arc
+     colour past the upper end; built and hidden) and the Strain tab's `MetricGauge`
+     target arc (built, empty).
+   - **How the app picks it up:** decode and a fixture test, then one mapping line into
+     `OrbitGaugeValues.strainBand`. Until then the band stays hidden.
 3. **Baseline spread: σ for HRV and resting HR.** For example `hrv_baseline_sd_ms` /
    `rhr_baseline_sd` on `DailyScore`, and `baseline_sd` on `GET /v1/trends` for `hrv`
    and `rhr`: the standard deviation over the same 30 days as the baseline. The
