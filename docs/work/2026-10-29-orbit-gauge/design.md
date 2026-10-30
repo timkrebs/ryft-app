@@ -300,7 +300,7 @@ colour change, no extra stroke); the 44 / 88 pt shots (`pr4-icon44`) still read 
 **Entrance.** The rail fades in with the tracks (0 to 250 ms, ease-out); the arc's split is in the glide; Reduce Motion fades it with the marks. The last frame is
 the static drawing (the stage ends in `settled`); the entrance tests pass unchanged.
 
-**VoiceOver.** "Strain 9.6 of 21, today's range 8 to 13" (key `Strain %@ of 21, today's range %@ to %@`); ends shown to at most one decimal; no band or an empty one: the old sentence.
+**VoiceOver.** "Strain 9.6 of 21, today's recommended range 8 to 13" (key `Strain %@ of 21, today's recommended range %@ to %@`); ends shown to at most one decimal; no band or an empty one: the old sentence.
 
 **Rejected.** A 60 / 40 mix (mauve, dE 52 for deutan); a gradient along the arc (no clear "this is where the range ended"); a dashed rail
 (noise at medium); the rail on the outer track itself (it would hide the empty scale); keeping the rail at `.small`; 0.35 opacity (1.7:1).
