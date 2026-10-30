@@ -42,9 +42,47 @@ struct OrbitGauge: View {
     /// Below this dial the gauge is the mark only (VoiceOver still has the value); the widget uses the same.
     static let minDialForNumber = OrbitGaugeGeometry.minDialForNumber
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    /// Previews only: `accessibilityReduceMotion` cannot be set in an environment.
+    @Environment(\.orbitForcesReducedMotion) private var forcedReduceMotion
+    private var reduceMotion: Bool { systemReduceMotion || forcedReduceMotion }
     /// Calibrating: the segments filled so far while they step in; nil before the first step.
     @State private var shownNights: Int?
+    /// Latched at the first appearance (`entrance` of the initialiser): this instance plays the entrance, once. Later
+    /// values of the parameter are ignored, so Today consuming its flag right after the first frame cannot cut it short.
+    @State private var staged: Bool
+    /// The entrance's clock in seconds (`OrbitEntranceFrame`); the end value when nothing plays.
+    @State private var elapsed: Double
+    @State private var started = false
+    /// The entrance has run to its end (or never ran): the calibrating fill may start.
+    @State private var entranceDone: Bool
+    /// Low Power Mode is read once at the start; it is treated like Reduce Motion (plan.md decision 7).
+    @State private var lowPower: Bool
+    /// Previews and tests: draw the entrance frozen at this many seconds; nothing animates.
+    private let frozenAt: Double?
+
+    /// `entrance: .assemble` plays the launch entrance once for this view instance, from its first frame, into the
+    /// real mode (design.md section 10). `frozenAt` is for previews and tests only.
+    init(mode: OrbitGaugeMode, size: Size = .large, caption: Caption? = nil, accessibilityNote: String? = nil,
+         identifier: String = "orbitGauge", animatesFill: Bool = true, breathes: Bool = true,
+         entrance: Entrance = .none, frozenAt: Double? = nil) {
+        self.mode = mode
+        self.size = size
+        self.caption = caption
+        self.accessibilityNote = accessibilityNote
+        self.identifier = identifier
+        self.animatesFill = animatesFill
+        self.breathes = breathes
+        self.frozenAt = entrance == .assemble ? frozenAt : nil
+        let plays = entrance == .assemble
+        _staged = State(initialValue: plays)
+        _elapsed = State(initialValue: plays ? (frozenAt ?? 0) : OrbitEntranceFrame.end)
+        _entranceDone = State(initialValue: !plays)
+        _lowPower = State(initialValue: plays && frozenAt == nil && ProcessInfo.processInfo.isLowPowerModeEnabled)
+    }
+
+    /// Reduce Motion or Low Power Mode: the entrance is a cross-fade.
+    private var reducesEntrance: Bool { reduceMotion || lowPower }
 
     private var values: OrbitGaugeValues? { mode.scoredValues }
     private var shownCaption: Caption? { size == .large ? caption : nil }
@@ -52,7 +90,7 @@ struct OrbitGauge: View {
     var body: some View {
         VStack(spacing: 8) {
             ZStack {
-                drawing
+                shownDrawing
                     // Reduce Motion: no arc moves; a new value cross-fades (250 ms) instead.
                     .id(reduceMotion ? AnyHashable(mode) : AnyHashable(0))
                     .transition(.opacity)
@@ -60,13 +98,15 @@ struct OrbitGauge: View {
             .frame(width: size.frame, height: size.frame)
             // The arcs and the dots ride the same animation; the number rolls with it.
             .animation(reduceMotion ? Theme.Motion.quick : Theme.Motion.slow, value: mode)
+            .onAppear(perform: startEntrance)
             if let shownCaption { captionLines(shownCaption) }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(spokenLabel))
         .accessibilityValue(Text(spokenValue))
         .accessibilityIdentifier(identifier)
-        .task(id: FillKey(counted: mode.calibratingValue?.counted, steps: animatesFill && !reduceMotion)) {
+        .task(id: FillKey(counted: mode.calibratingValue?.counted, steps: animatesFill && !reduceMotion,
+                          waiting: !entranceDone)) {
             await stepFill()
         }
     }
@@ -85,6 +125,8 @@ struct OrbitGauge: View {
     private struct FillKey: Hashable {
         var counted: Int?
         var steps: Bool
+        /// The entrance is still running: the segments start when it ends.
+        var waiting: Bool
     }
 
     /// The next displayed count: `target` at once when nothing steps or the count went down; otherwise one night
@@ -96,7 +138,7 @@ struct OrbitGauge: View {
 
     /// One segment per 60 ms up to the count; otherwise the state follows the count at once.
     private func stepFill() async {
-        guard let target = mode.calibratingValue?.counted else { return }
+        guard entranceDone, let target = mode.calibratingValue?.counted else { return }
         let steps = animatesFill && !reduceMotion
         // Every decision is `nextShown`'s: a step of one night is animated after 60 ms, anything else (not stepping,
         // a lower count, a target of 0) is taken at once.
@@ -106,6 +148,32 @@ struct OrbitGauge: View {
             try? await Task.sleep(for: .milliseconds(60))
             if Task.isCancelled { return }
             withAnimation(.easeOut(duration: 0.06)) { shownNights = next }
+        }
+    }
+
+    // MARK: entrance
+
+    /// The static drawing, or the entrance stage whose last frame is that drawing. Fixed for the life of the view.
+    @ViewBuilder
+    private var shownDrawing: some View {
+        if staged {
+            OrbitEntranceStage(elapsed: elapsed, reduced: reducesEntrance, mode: displayedMode, size: size,
+                               palette: .assets, settled: drawing, centre: centre)
+        } else {
+            drawing
+        }
+    }
+
+    /// On the first appearance only: one linear animation of the clock, the curves are in `OrbitEntranceFrame`.
+    private func startEntrance() {
+        guard staged, !started, frozenAt == nil else { return }
+        started = true
+        let duration = reducesEntrance ? OrbitEntranceFrame.fadeDuration : OrbitEntranceFrame.end
+        let animation: Animation = reducesEntrance ? Theme.Motion.quick : .linear(duration: duration)
+        withAnimation(animation, completionCriteria: .logicallyComplete) {
+            elapsed = duration
+        } completion: {
+            entranceDone = true
         }
     }
 
@@ -144,8 +212,6 @@ struct OrbitGauge: View {
                 calibrationCount(calibration)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
-            case .assembling:
-                EmptyView()
             }
         }
     }
@@ -229,9 +295,6 @@ struct OrbitGauge: View {
             spoken = Self.spokenValue(calibration)
         case .pending(let previous):
             spoken = Self.spokenPending(previous)
-        case .assembling:
-            // PR 3 gives it its own sentence.
-            spoken = String(localized: "Not scored yet")
         }
         return accessibilityNote.map { "\(spoken). \($0)" } ?? spoken
     }
@@ -375,7 +438,6 @@ private struct OrbitCaption: View {
             }
             HStack(spacing: 8) {
                 OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .small, animatesFill: false)
-                OrbitGauge(mode: .assembling, size: .small)
                 OrbitGauge(mode: .pending(previous: .previewScored), size: .small, breathes: false)
             }
         }

@@ -80,8 +80,6 @@ enum OrbitGaugeMode: Hashable, Sendable {
     /// Baselines still learning: the outer orbit is `required` segments, `counted` of them filled; inner orbit and
     /// centre are tracks, the three dots hollow at their starts.
     case calibrating(OrbitGaugeCalibration)
-    /// Launch: PR 3 moves it out of the mode (architecture.md §4). Never produced by a mapping. Until then: tracks only.
-    case assembling
     /// Last night is being scored; `previous` is the latest scored day before it (nil: none), drawn dimmed. Without
     /// one: tracks and hollow dots.
     case pending(previous: OrbitGaugeValues?)
@@ -97,7 +95,7 @@ enum OrbitGaugeMode: Hashable, Sendable {
         switch self {
         case .scored(let values, _): return values
         case .pending(let previous): return previous
-        case .calibrating, .assembling: return nil
+        case .calibrating: return nil
         }
     }
 

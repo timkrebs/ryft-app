@@ -64,7 +64,7 @@ struct WidgetOrbitGauge: View {
         switch mode {
         case .scored(let values, _)?: return values.readiness
         case .pending(let previous)?: return previous?.readiness ?? previousReadiness
-        case .calibrating?, .assembling?: return nil
+        case .calibrating?: return nil
         case nil: return readiness
         }
     }

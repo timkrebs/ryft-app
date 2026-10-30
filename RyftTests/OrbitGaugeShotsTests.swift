@@ -87,7 +87,6 @@ import UIKit
             write("stubs", scheme: scheme, dir: dir) {
                 HStack(spacing: 8) {
                     OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .medium)
-                    OrbitGauge(mode: .assembling, size: .medium)
                     OrbitGauge(mode: .pending(previous: .previewScored), size: .medium)
                 }
             }
