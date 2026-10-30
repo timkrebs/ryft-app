@@ -69,4 +69,28 @@ import UIKit
             }
         }
     }
+
+    // MARK: Reduce Motion changing while the entrance is under way or after it
+
+    private func stage(elapsed: Double, reduced: Bool, done: Bool) -> some View {
+        let mode = OrbitGaugeMode.scored(.previewScored)
+        return OrbitEntranceStage(elapsed: elapsed, reduced: reduced, done: done, mode: mode, size: .large,
+                                  palette: .assets, settled: OrbitGaugeDrawing(mode: mode, size: .large),
+                                  centre: EmptyView())
+    }
+
+    @Test func afterTheFadeTurningReduceMotionOffSettlesOnTheStaticDrawing() {
+        let still = png(OrbitGaugeDrawing(mode: .scored(.previewScored), size: .large), scheme: .dark)
+        // The fade ended at 0.25 s and `reduced` is false again: done, so never a frame of the choreography.
+        #expect(png(stage(elapsed: OrbitEntranceFrame.fadeDuration, reduced: false, done: true), scheme: .dark) == still)
+        // The bug it guards: not done, the same inputs drew the choreography at 0.25 s.
+        #expect(png(stage(elapsed: OrbitEntranceFrame.fadeDuration, reduced: false, done: false), scheme: .dark) != still)
+    }
+
+    @Test func reduceMotionTurnedOnMidChoreographyShowsTheSettledDrawing() {
+        let still = png(OrbitGaugeDrawing(mode: .scored(.previewScored), size: .large), scheme: .dark)
+        // Past the fade's length the opacity is already 1; the clock runs on to the end and `done` follows.
+        #expect(png(stage(elapsed: 0.4, reduced: true, done: false), scheme: .dark) == still)
+        #expect(png(stage(elapsed: OrbitEntranceFrame.end, reduced: true, done: true), scheme: .dark) == still)
+    }
 }

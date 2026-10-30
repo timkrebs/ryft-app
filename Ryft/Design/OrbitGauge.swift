@@ -157,7 +157,8 @@ struct OrbitGauge: View {
     @ViewBuilder
     private var shownDrawing: some View {
         if staged {
-            OrbitEntranceStage(elapsed: elapsed, reduced: reducesEntrance, mode: displayedMode, size: size,
+            OrbitEntranceStage(elapsed: elapsed, reduced: reducesEntrance, done: entranceDone,
+                               mode: displayedMode, size: size,
                                palette: .assets, settled: drawing, centre: centre)
         } else {
             drawing

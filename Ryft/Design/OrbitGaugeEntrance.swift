@@ -84,6 +84,9 @@ struct OrbitEntranceFrame: Equatable {
 struct OrbitEntranceStage<Settled: View, Centre: View>: View, Animatable {
     var elapsed: Double
     let reduced: Bool
+    /// The entrance has finished (its completion ran): the settled drawing, whatever `reduced` has become since
+    /// (Reduce Motion turned off after a fade ended must not land on a frame of the choreography).
+    var done = false
     let mode: OrbitGaugeMode
     let size: OrbitGaugeSize
     let palette: OrbitGaugePalette
@@ -96,7 +99,9 @@ struct OrbitEntranceStage<Settled: View, Centre: View>: View, Animatable {
     }
 
     var body: some View {
-        if reduced {
+        if done {
+            settled.transition(.identity)
+        } else if reduced {
             settled
                 .opacity(min(max(elapsed / OrbitEntranceFrame.fadeDuration, 0), 1))
                 .transition(.identity)
