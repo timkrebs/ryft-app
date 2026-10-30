@@ -35,8 +35,15 @@ struct OrbitGaugeBandRenderTests {
     private static let schemes: [(String, ColorScheme, UIUserInterfaceStyle)] = [("dark", .dark, .dark), ("light", .light, .light)]
     private static let band: ClosedRange<Double> = 8...13
 
-    private func render(_ mode: OrbitGaugeMode, _ size: OrbitGauge.Size, _ scheme: ColorScheme) -> Shot? {
-        let view = OrbitGauge(mode: mode, size: size, animatesFill: false, breathes: false)
+    private func render(_ mode: OrbitGaugeMode, _ size: OrbitGauge.Size, _ scheme: ColorScheme,
+                        entrance: OrbitGauge.Entrance = .none, frozenAt: Double? = nil) -> Shot? {
+        shot(OrbitGauge(mode: mode, size: size, animatesFill: false, breathes: false, entrance: entrance, frozenAt: frozenAt),
+             frame: size.frame, dial: size.dial, scheme)
+    }
+
+    /// Any view in a `frame` x `frame` box over the background, read as RGBA bytes at 3x.
+    private func shot<V: View>(_ content: V, frame: CGFloat, dial: CGFloat, _ scheme: ColorScheme) -> Shot? {
+        let view = content
             .background(Theme.background)
             .environment(\.colorScheme, scheme)
         let renderer = ImageRenderer(content: view)
@@ -48,7 +55,7 @@ struct OrbitGaugeBandRenderTests {
               let ctx = CGContext(data: &bytes, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-        return Shot(width: w, height: h, scale: 3, frame: size.frame, dial: size.dial, bytes: bytes)
+        return Shot(width: w, height: h, scale: 3, frame: frame, dial: dial, bytes: bytes)
     }
 
     private func rgb(_ colour: Color, _ style: UIUserInterfaceStyle) -> RGB {
@@ -87,8 +94,11 @@ struct OrbitGaugeBandRenderTests {
         #expect(a.bytes == b.bytes)
     }
 
-    /// A band that cannot be drawn takes the same path as no band at all: byte-identical, in every mode, size and scheme.
-    @Test func anUndrawableBandRendersByteIdenticalToNoBand() throws {
+    /// What this proves, and no more: an unusable band (outside the scale, one point, infinite) is treated as no band, in
+    /// every mode, size and scheme. Both sides take the same branch, so it does not prove that nil is unchanged from before
+    /// the band existed; that was checked once by hashing 84 renders on `main` and on the branch (design.md section 11),
+    /// and the `.small` test below is the in-suite case that runs the band code and still must equal nil.
+    @Test func anUnusableBandIsTreatedAsNoBand() throws {
         let undrawable: [(String, ClosedRange<Double>)] = [
             ("above the scale", 22...30), ("below the scale", -9 ... -1), ("one point", 10...10),
             ("infinite", -Double.infinity...Double.infinity), ("infinite upper", 8...Double.infinity),
@@ -207,6 +217,88 @@ struct OrbitGaugeBandRenderTests {
                 #expect(distance(shot.pixel(shot.onOrbit(69.5, degrees: degrees)), background) < 0.03,
                         "\(degrees), \(schemeName)")
             }
+        }
+    }
+
+    // MARK: the entrance with a band (the review's blocking bug)
+
+    /// During the glide the arc grows from the top; wherever the head is, what is behind the split is strain colour
+    /// and what is past it is alert, whatever the final strain is.
+    @Test(arguments: [0.65, 0.72, 0.8])
+    func midGlideTheArcInsideTheBandIsNeverAlert(_ t: Double) throws {
+        let split = try #require(G.strainSplitDegrees(band: Self.band))
+        let final = values(strain: 16.5, band: Self.band)
+        let glide = OrbitEntranceFrame(seconds: t).glide
+        let head = G.Orbit.strain.sweep(for: try #require(final.strainFraction)) * glide
+        #expect(glide > 0 && glide < 1, "t \(t) is mid-glide")
+        for (schemeName, scheme, style) in Self.schemes {
+            let shot = try #require(render(.scored(final), .large, scheme, entrance: .assemble, frozenAt: t))
+            let strain = rgb(Theme.metricStrain, style), alert = rgb(Theme.alert, style)
+            var sampled = 0, sampledPast = 0
+            for degrees in stride(from: 12.0, to: head - 6, by: 6.0) {
+                let p = shot.pixel(shot.onOrbit(77, degrees: degrees))
+                if degrees < split - 4 {
+                    sampled += 1
+                    #expect(distance(p, strain) < 0.08, "\(degrees) deg at t \(t) is strain, \(schemeName)")
+                    #expect(distance(p, alert) > 0.15, "\(degrees) deg at t \(t) is not alert, \(schemeName)")
+                } else if degrees > split + 4 {
+                    sampledPast += 1
+                    #expect(distance(p, alert) < 0.08, "\(degrees) deg at t \(t) is alert, \(schemeName)")
+                }
+            }
+            #expect(sampled > 0, "t \(t) samples the arc inside the band (head \(head))")
+            if head > split + 10 { #expect(sampledPast > 0) }
+        }
+    }
+
+    @Test func theEntrancesLastFrameEqualsTheStaticRenderWithABand() throws {
+        for strain in [4.0, 9.6, 16.5] as [Double] {
+            for (schemeName, scheme, _) in Self.schemes {
+                let still = try #require(render(.scored(values(strain: strain, band: Self.band)), .large, scheme))
+                let end = try #require(render(.scored(values(strain: strain, band: Self.band)), .large, scheme,
+                                              entrance: .assemble, frozenAt: OrbitEntranceFrame.end))
+                #expect(end.bytes == still.bytes, "strain \(strain), \(schemeName)")
+            }
+        }
+    }
+
+    // MARK: animatable sweep
+
+    @Test func theStrainArcAnimatesItsSweepAndTheSplitStaysPut() throws {
+        var arc = OrbitStrainArc(radius: 77, stroke: 11, sweep: 150, split: 222.86, plain: Theme.metricStrain, past: Theme.alert)
+        #expect(arc.animatableData == 150)
+        for (schemeName, scheme, style) in Self.schemes {
+            let before = try #require(shot(ZStack { arc }.frame(width: 172, height: 172), frame: 172, dial: 160, scheme))
+            arc.animatableData = 270
+            #expect(arc.sweep == 270)
+            let after = try #require(shot(ZStack { arc }.frame(width: 172, height: 172), frame: 172, dial: 160, scheme))
+            arc.animatableData = 150
+            let strain = rgb(Theme.metricStrain, style), alert = rgb(Theme.alert, style)
+            #expect(distance(before.pixel(before.onOrbit(77, degrees: 140)), strain) < 0.08, "\(schemeName)")
+            #expect(distance(before.pixel(before.onOrbit(77, degrees: 250)), alert) > 0.15, "no past layer below the split")
+            #expect(distance(after.pixel(after.onOrbit(77, degrees: 140)), strain) < 0.08)
+            #expect(distance(after.pixel(after.onOrbit(77, degrees: 215)), strain) < 0.08, "behind the line")
+            #expect(distance(after.pixel(after.onOrbit(77, degrees: 250)), alert) < 0.08, "past the line once swept")
+        }
+    }
+
+    @Test func theStrainDotTurnsAlertExactlyWhenItsHeadPassesTheSplit() throws {
+        let split = 222.86
+        var dot = OrbitStrainDot(radius: 77, sweep: split - 0.5, dotRadius: 9, split: split,
+                                 plain: Theme.metricStrain, past: Theme.alert)
+        #expect(dot.animatableData == split - 0.5)
+        for (schemeName, scheme, style) in Self.schemes {
+            let strain = rgb(Theme.metricStrain, style), alert = rgb(Theme.alert, style)
+            func centre(_ dot: OrbitStrainDot) throws -> RGB {
+                let s = try #require(shot(ZStack { dot }.frame(width: 172, height: 172), frame: 172, dial: 160, scheme))
+                return s.pixel(s.onOrbit(77, degrees: dot.sweep))
+            }
+            dot.animatableData = split - 0.5
+            #expect(distance(try centre(dot), strain) < 0.08, "just before, \(schemeName)")
+            dot.animatableData = split           // exactly at the line: not past
+            #expect(distance(try centre(dot), strain) < 0.08, "at the line, \(schemeName)")
+            dot.animatableData = split + 0.5
+            #expect(distance(try centre(dot), alert) < 0.08, "just after, \(schemeName)")
         }
     }
 }

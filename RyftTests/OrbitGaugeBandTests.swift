@@ -118,6 +118,35 @@ struct OrbitGaugeBandTests {
         #expect(G.strainTone(values(strain: 21, band: 0...20)) == .pastBand)
     }
 
+    // MARK: the split line
+
+    @Test func theSplitIsTheBandsUpperEndWhateverTheStrain() throws {
+        let split = try #require(G.strainSplitDegrees(band: Self.band))
+        #expect(abs(split - 222.86) < 0.01)
+        #expect(split == G.bandRail(for: Self.band)?.end)
+        // It does not take the strain: the drawing is one structure whether the arc is past it or not.
+        for strain in [4.0, 13.0, 16.5] as [Double] {
+            #expect(G.strainPastBandDegrees(strain: strain, band: Self.band) == (strain > 13 ? split : nil))
+        }
+        #expect(abs(try #require(G.strainSplitDegrees(band: 18...40)) - G.Orbit.strain.headDegrees(for: 1)) < 1e-9)
+        for band in [nil, 22...30, 10...10, -9 ... -1, -Double.infinity...Double.infinity] as [ClosedRange<Double>?] {
+            #expect(G.strainSplitDegrees(band: band) == nil)
+        }
+    }
+
+    // MARK: the wedge
+
+    @Test func aWedgeThatDoesNotPassItsStartIsEmpty() {
+        let rect = CGRect(x: 0, y: 0, width: 100, height: 100)
+        #expect(OrbitWedge(from: 10, to: 10).path(in: rect).isEmpty)
+        #expect(OrbitWedge(from: 200, to: 100).path(in: rect).isEmpty, "no wrap the long way round")
+        #expect(OrbitWedge(from: 0, to: -8).path(in: rect).isEmpty)
+        let wedge = OrbitWedge(from: 90, to: 180).path(in: rect)
+        #expect(!wedge.isEmpty)
+        // 3 to 6 o'clock from the centre: the lower right quadrant, never the left half.
+        #expect(wedge.boundingRect.minX >= 49 && wedge.boundingRect.minY >= 49)
+    }
+
     // MARK: 3. size rule
 
     @Test func noRailBelowNinetyPointsButOnMediumAndLarge() {
@@ -186,19 +215,16 @@ struct OrbitGaugeBandTests {
     @MainActor
     @Test func theRailsOpacityIsPinnedAndItsRatioStaysAboveTwo() {
         #expect(G.bandRailOpacity == 0.5)
-        var lines: [String] = []
         for (name, style) in Self.styles {
             var rail = resolve(OrbitGaugePalette.assets.strain, style)
             rail.a = G.bandRailOpacity
             let background = resolve(Theme.background, style)
             let onBackground = ratio(over(rail, background), background)
-            lines.append("\(name) band rail on background \(String(format: "%.2f", onBackground))")
             // Below 3:1 on purpose (design.md §11: the scale of the target, the arc carries the value); a floor
             // of 2.0 makes thinning it out a decision, not an accident.
             #expect(onBackground >= 2.0, "\(name) rail on the background: \(onBackground)")
             #expect(onBackground < 3, "\(name): documented as sub-3:1, so a change to this needs a design decision")
         }
-        print("ORBIT-BAND-CONTRAST\n" + lines.joined(separator: "\n"))
     }
 
     // MARK: 7. VoiceOver
@@ -213,6 +239,22 @@ struct OrbitGaugeBandTests {
         #expect(expected.hasPrefix("Strain 9") && expected.hasSuffix("range 8 to 13"), "whole ends without a decimal: \(expected)")
         #expect(OrbitGauge.spokenValue(.previewBanded(strain: 9.6)).hasSuffix(expected))
         #expect(OrbitGauge.spokenValue(.previewBanded(strain: 9.6)).hasPrefix("71, High. Recovery 71 percent, Sleep 88 percent, "))
+    }
+
+    @Test func aboveTheBandTheSentenceSaysAbove() {
+        let above = "Strain \(one(16.5)) of 21, above today's recommended range \(upToOne(8)) to \(upToOne(13))"
+        #expect(OrbitGauge.spokenStrain(16.5, band: Self.band) == above)
+        #expect(above.hasSuffix("above today's recommended range 8 to 13"))
+        #expect(OrbitGauge.spokenValue(.previewBanded(strain: 16.5)).hasSuffix(above))
+        #expect(OrbitGauge.spokenStrain(21, band: Self.band).contains("above today's"))
+        // Exactly at the upper end, and below or inside it: the plain range sentence.
+        for strain in [4.0, 9.6, 13.0] as [Double] {
+            let spoken = OrbitGauge.spokenStrain(strain, band: Self.band)
+            #expect(spoken == "Strain \(one(strain)) of 21, today's recommended range 8 to 13", "strain \(strain)")
+            #expect(!spoken.contains("above"))
+        }
+        // The clamped band decides: nothing is above 15...21.
+        #expect(!OrbitGauge.spokenStrain(21, band: 15...40).contains("above"))
     }
 
     @Test func theEndsShowAtMostOneDecimalAndFollowTheClamp() {
@@ -257,6 +299,12 @@ struct OrbitGaugeBandTests {
         #expect(strain == "9,6" && lo == "8" && hi == "13")
         #expect(String(format: template, locale: de, strain as NSString, lo as NSString, hi as NSString)
                 == "Belastung 9,6 von 21, heutiger empfohlener Bereich 8 bis 13")
+        let above = german.localizedString(forKey: "Strain %@ of 21, above today's recommended range %@ to %@",
+                                           value: "MISSING", table: nil)
+        #expect(above == "Belastung %1$@ von 21, über dem heutigen empfohlenen Bereich %2$@ bis %3$@")
+        let high = 16.5.formatted(.number.precision(.fractionLength(1)).locale(de))
+        #expect(String(format: above, locale: de, high as NSString, lo as NSString, hi as NSString)
+                == "Belastung 16,5 von 21, über dem heutigen empfohlenen Bereich 8 bis 13")
         // 0 to 1 fraction digits: a half shows, a whole number never gets ",0".
         #expect(8.5.formatted(.number.precision(.fractionLength(0...1)).locale(de)) == "8,5")
         #expect(!lo.contains(",0") && !hi.contains(",0"))
@@ -273,7 +321,8 @@ struct OrbitGaugeBandTests {
         let written = try #require(JSONSerialization.jsonObject(with: ReadinessSnapshot.encoder.encode(snapshot)) as? [String: Any])
         let orbit = try #require(written["orbit"] as? [String: Any])
         #expect(Set(orbit.keys) == ["recovery", "sleepPerformance", "strain"])
-        #expect(!String(decoding: try ReadinessSnapshot.encoder.encode(snapshot), as: UTF8.self).lowercased().contains("band"))
+        let encoded = try ReadinessSnapshot.encoder.encode(snapshot)
+        #expect(!(String(data: encoded, encoding: .utf8) ?? "band").lowercased().contains("band"))
         let expected = OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)
         #expect(snapshot.gauge?.scoredValues == expected)
         #expect(snapshot.gauge?.scoredValues?.strainBand == nil)
