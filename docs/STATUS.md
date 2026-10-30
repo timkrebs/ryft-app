@@ -62,6 +62,7 @@ All in en and de.
 - `pruneCollapsed()` at the top of `toggleCheck` (T2 review).
 - At AX3, the session header and the set-table columns wrap letter by letter.
 - `ImportPlanAssembly.latestWeight` gives two source rows mapped to one exercise the same kg target (import ticket).
+- Catalog: the German for "Learning your baseline — %lld nights to go." is still `machine_translated`; for the localization-editor to review. German says baseline three ways ("Ausgangswerte", "Basis" in the gauge's VoiceOver, "Grundbedarf" for sleep).
 
 ## CI: a fresh simulator per job (#80)
 

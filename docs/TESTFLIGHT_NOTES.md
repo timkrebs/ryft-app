@@ -5,7 +5,7 @@ Test (English and German).
 
 ## Next build — beta feedback 2 and the readiness orbit (en + de)
 
-Set the build number when it's uploaded. Character counts (the text between the `text` fences): en 2,217, de 2,513.
+Set the build number when it's uploaded. Character counts (the text between the `text` fences): en 2,199, de 2,489.
 
 **en**
 
@@ -24,7 +24,7 @@ WHAT'S NEW
 3. Jump to next exercise: after the last set, the exercise folds into one line and the next set scrolls up. Profile → Training → Jump to next exercise, on by default.
 4. The rest timer is a compact bar under the clock, with the next set below it.
 5. Last time: an exercise that appears twice in one workout shows its own last sets for each place.
-6. Today's baseline counter counts whichever signal is filling. If your tracker doesn't share HRV with Apple Health, as Garmin doesn't, the counter counts what does arrive, such as resting heart rate, instead of staying at 0 of 7.
+6. Today's baseline counter counts whichever signal is filling. If your tracker doesn't share HRV with Apple Health, the counter counts what does arrive, such as resting heart rate, instead of staying at 0 of 7.
 7. The readiness orbit: readiness in the centre, Recovery and Sleep on the inner ring, Strain on the outer. The home and Lock Screen widget draws the same orbit. On a locked iPhone it stays hidden until you unlock.
 8. While RYFT learns your baselines, the outer ring fills night by night ("3 / 7"). While last night is being scored, the orbit shows the previous day, dimmed ("Last scored: Yesterday").
 9. The orbit assembles when you open the app. With Reduce Motion or Low Power Mode it only fades in.
@@ -54,7 +54,7 @@ WAS NEU IST
 3. Zur nächsten Übung springen: Nach dem letzten Satz klappt die Übung auf eine Zeile zusammen, und der nächste Satz rückt nach oben. Profil → Training → „Zur nächsten Übung springen“, standardmäßig an.
 4. Die Pausenzeit ist eine kompakte Leiste unter der Uhr, darunter steht der nächste Satz.
 5. Letztes Mal: Kommt eine Übung zweimal in einem Training vor, zeigt jede Stelle ihre eigenen letzten Sätze.
-6. Der Zähler für die Ausgangswerte zählt, was gerade ankommt. Sendet dein Tracker HRV nicht an Apple Health, wie Garmin es nicht tut, zählt er zum Beispiel den Ruhepuls und bleibt nicht mehr bei 0 von 7 stehen.
+6. Der Zähler für die Ausgangswerte zählt, was gerade ankommt. Sendet dein Tracker HRV nicht an Apple Health, zählt er zum Beispiel den Ruhepuls und bleibt nicht mehr bei 0 von 7 stehen.
 7. Der Orbit: Die Bereitschaft steht in der Mitte, Erholung und Schlaf liegen auf dem inneren Ring, die Belastung auf dem äußeren. Das Widget auf dem Home- und dem Sperrbildschirm zeigt denselben Orbit. Auf einem gesperrten iPhone bleibt er verborgen, bis du entsperrst.
 8. Solange RYFT deine Ausgangswerte lernt, füllt sich der äußere Ring Nacht für Nacht („3 / 7“). Wird die letzte Nacht noch bewertet, zeigt der Orbit den Vortag abgeblendet („Zuletzt bewertet: Gestern“).
 9. Beim Öffnen der App setzt sich der Orbit zusammen. Bei „Bewegung reduzieren“ oder im Stromsparmodus blendet er nur ein.
