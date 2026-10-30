@@ -104,10 +104,15 @@ Plan: `docs/work/2026-10-28-new-orbit-mark/plan.md`. Reference: `../docs/briefs/
 - `RyftMark` draws the new mark (three rings, three dots) from `RyftMarkGeometry` (100-box), with an optical-size rule
   below 39.6 pt (stroke ≥ 1.25 pt; dots and air grow by √k; inner ring dropped below 22 pt); every caller
   unchanged. `RyftMarkGeometryTests` pin the nominal numbers and keep every arc ≥ 15° from 18 pt up.
-- App icons (Light = Graphite on Mist, Dark = Mist on Graphite, Tinted = white on black; 1024², no alpha) from
-  `make icon`. The outer ring spans 0.915 of the tile: 95 % of the reference's 0.963, which looked stretched to the
-  tile's edge on the user's home screen (2026-10-30). Mark frame 1027.8 px, ring 43.5 px from the tile edge.
-  `make icon` also writes the three at 0.915, 0.963 and 0.80 (frame 898.6 px) into `build/icon-compare/` to compare.
+- App icons (Light and Dark in the readiness gauge's colours on Mist / Graphite, Tinted = white on black and
+  monochrome; 1024², no alpha) from `make icon`. Strain = outer ring and dot (`MetricStrain`); the inner orbit splits at
+  the vertical: Sleep (`MetricSleep`) clockwise of the top with the dot at -76°, Recovery (`Accent`) counter-clockwise
+  with the dot at 180°; the centre ring is Readiness in the High band (`Accent`). Colours are read from
+  `Assets.xcassets` (light values on Light, dark values on Dark), each ≥ 4.5:1 on its tile (≥ 3:1 is checked by
+  `make icon`). The outer ring spans 0.869 of the tile: 95 % of the previous 0.915 (0.86925 rounded), which was 95 % of
+  the reference's 0.963. Mark frame 976.3 px. `make icon` also writes the mono 0.915 and the coloured 0.915, 0.963 and
+  0.80 and a dots-only variant into `build/icon-compare/`. `RyftMarkShape(part:)` draws one part; the in-app mark stays
+  monochrome.
 - `design/ryft-mark.svg` and `design/ryft-app-icon-{light,dark}.svg` generated from the same numbers
   (`make mark-svg`); `make lint` checks they're current (`check-mark-svg`). Tile, colours and scale live in
   `scripts/icon-spec.swift`, shared by both tools.
@@ -118,7 +123,7 @@ Plan: `docs/work/2026-10-28-new-orbit-mark/plan.md`. Reference: `../docs/briefs/
   The icons were checked as rendered PNGs, not on a home screen.
 
 **Open**
-- The user checks the 0.915 icon on his home screen (light, dark, tinted).
+- The user checks the coloured 0.869 icon on his home screen (light, dark, tinted).
 - `design/brand-board.png` still shows the old mark; the 2026-10-28 brief supersedes it until it's redrawn.
 
 ## Session 2026-10-23 → 26: activities, calibration, training import, consent gates, CI and TestFlight

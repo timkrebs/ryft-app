@@ -9,11 +9,15 @@
 //   --ring-span  the outer ring's span (outer edge to outer edge) / tile width; default
 //                IconSpec.defaultRingSpan (0.915, 95 % of the reference's 0.963)
 //   --suffix     appended to each file name, e.g. "-0.80" -> AppIcon-Light-0.80.png
+//   --dots       (comparison) monochrome rings, gauge-coloured dots only
+//   --mono       the mark in one colour (Graphite on Mist, Mist on Graphite) instead of the gauge colours
 //   dir          default Ryft/Assets.xcassets/AppIcon.appiconset
 //
-// Writes AppIcon-Light (Graphite on Mist, the default appearance), AppIcon-Dark (Mist on
-// Graphite) and AppIcon-Tinted (white on black, the grayscale source iOS tints). Exits 1 if a
-// dot would leave the tile or a written PNG has an alpha channel.
+// Writes AppIcon-Light (the default appearance: the mark in the gauge's light colours on Mist),
+// AppIcon-Dark (its dark colours on Graphite) and AppIcon-Tinted (white on black, monochrome: the
+// grayscale source iOS tints). The part colours come from the asset catalog (IconSpec). Run from
+// the repo root. Exits 1 if a dot would leave the tile, a colour is under 3:1 on its tile, or a
+// written PNG has an alpha channel.
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -25,7 +29,10 @@ struct RenderIcon {
     struct Variant {
         let name: String
         let background: CGColor
-        let mark: CGColor
+        /// The colour of each part of the mark.
+        let mark: (RyftMarkGeometry.Part) -> CGColor
+        /// Background and mark hex, for the contrast report; nil = tinted (no check).
+        let hexes: (background: String, mark: (RyftMarkGeometry.Part) -> String)?
     }
 
     static func color(_ hex: String) -> CGColor {
@@ -33,11 +40,21 @@ struct RenderIcon {
         return CGColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1)
     }
 
-    static let variants = [
-        Variant(name: "AppIcon-Light", background: color(IconSpec.mistHex), mark: color(IconSpec.graphiteHex)),
-        Variant(name: "AppIcon-Dark", background: color(IconSpec.graphiteHex), mark: color(IconSpec.mistHex)),
-        Variant(name: "AppIcon-Tinted", background: color("000000"), mark: color("FFFFFF")),
-    ]
+    static func variants(mono: Bool, dotsOnly: Bool = false) -> [Variant] {
+        func variant(_ name: String, background: String, mark: String, dark: Bool) -> Variant {
+            let dots: Set<RyftMarkGeometry.Part> = [.strainDot, .sleepDot, .recoveryDot]
+            let hex: (RyftMarkGeometry.Part) -> String = {
+                (mono || (dotsOnly && !dots.contains($0))) ? mark : IconSpec.partHex($0, dark: dark)
+            }
+            return Variant(name: name, background: color(background), mark: { color(hex($0)) },
+                           hexes: (background, hex))
+        }
+        return [
+            variant("AppIcon-Light", background: IconSpec.mistHex, mark: IconSpec.graphiteHex, dark: false),
+            variant("AppIcon-Dark", background: IconSpec.graphiteHex, mark: IconSpec.mistHex, dark: true),
+            Variant(name: "AppIcon-Tinted", background: color("000000"), mark: { _ in color("FFFFFF") }, hexes: nil),
+        ]
+    }
 
     static func fail(_ message: String) -> Never {
         FileHandle.standardError.write(Data("render-icon: \(message)\n".utf8))
@@ -47,6 +64,8 @@ struct RenderIcon {
     static func main() {
         var ringSpan = IconSpec.defaultRingSpan
         var suffix = ""
+        var mono = false
+        var dotsOnly = false
         var dir = "Ryft/Assets.xcassets/AppIcon.appiconset"
         var args = Array(CommandLine.arguments.dropFirst())
         while !args.isEmpty {
@@ -58,6 +77,10 @@ struct RenderIcon {
                 }
                 args.removeFirst()
                 ringSpan = value
+            case "--dots":
+                dotsOnly = true
+            case "--mono":
+                mono = true
             case "--suffix":
                 guard let value = args.first else { fail("--suffix needs a value") }
                 args.removeFirst()
@@ -81,17 +104,24 @@ struct RenderIcon {
         guard margin >= 0 else { fail("a dot leaves the tile by \(-margin) px") }
 
         let rect = CGRect(x: (tile - frame) / 2, y: (tile - frame) / 2, width: frame, height: frame)
-        let path = RyftMarkShape().path(in: rect).cgPath
-        for v in variants {
+        let paths = RyftMarkGeometry.Part.allCases.map { ($0, RyftMarkShape(part: $0).path(in: rect).cgPath) }
+        for v in variants(mono: mono, dotsOnly: dotsOnly) {
+            if let h = v.hexes {
+                for part in RyftMarkGeometry.Part.allCases {
+                    let ratio = IconSpec.contrast(h.mark(part), h.background)
+                    print(String(format: "  %@ %@ %@ on %@: %.2f:1", v.name, "\(part)", h.mark(part), h.background, ratio))
+                    guard ratio >= IconSpec.minContrast else { fail("\(part) is under 3:1 on the \(v.name) tile") }
+                }
+            }
             let url = URL(fileURLWithPath: dir).appendingPathComponent("\(v.name)\(suffix).png")
-            write(render(path, variant: v, side: Int(tile)), to: url)
+            write(render(paths, variant: v, side: Int(tile)), to: url)
             print("wrote \(url.path) (\(Int(tile))x\(Int(tile)), no alpha)")
         }
     }
 
     /// An opaque bitmap (App Store icons must not have an alpha channel), y pointing down like
     /// SwiftUI so the mark keeps its handedness.
-    static func render(_ path: CGPath, variant v: Variant, side: Int) -> CGImage {
+    static func render(_ paths: [(RyftMarkGeometry.Part, CGPath)], variant v: Variant, side: Int) -> CGImage {
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: space, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
@@ -101,9 +131,11 @@ struct RenderIcon {
         ctx.fill(CGRect(x: 0, y: 0, width: side, height: side))
         ctx.translateBy(x: 0, y: CGFloat(side))
         ctx.scaleBy(x: 1, y: -1)
-        ctx.addPath(path)
-        ctx.setFillColor(v.mark)
-        ctx.fillPath(using: .winding)
+        for (part, path) in paths {
+            ctx.addPath(path)
+            ctx.setFillColor(v.mark(part))
+            ctx.fillPath(using: .winding)
+        }
         guard let image = ctx.makeImage() else { fail("render failed for \(v.name)") }
         return image
     }

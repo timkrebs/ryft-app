@@ -30,13 +30,16 @@ ICON_COMPARE := build/icon-compare
 	mkdir -p .build
 	swiftc -parse-as-library -o $@ $^
 
-# The three 1024 icons into the asset catalog with the outer ring spanning 0.915 of the tile (95 % of the
-# reference's 0.963), and for comparison the same three at 0.915, 0.963 and 0.80 (nearer Apple's icon grid)
-# into build/icon-compare/.
+# The three 1024 icons into the asset catalog with the outer ring spanning 0.869 of the tile (95 % of the previous
+# 0.915; Light and Dark in the readiness gauge's colours, Tinted white on black), and for comparison into
+# build/icon-compare/: the monochrome mark at 0.915 and the coloured ones at 0.915, 0.963 and 0.80 (nearer Apple's
+# icon grid), plus the rings-monochrome, dots-coloured alternative at 0.869. The tools read the colours from Ryft/Assets.xcassets, so they run from the repo root.
 icon: .build/render-icon
 	mkdir -p $(ICON_COMPARE)
 	.build/render-icon
-	.build/render-icon --suffix -0.915 $(ICON_COMPARE)
+	.build/render-icon --mono --ring-span 0.915 --suffix -mono-0.915 $(ICON_COMPARE)
+	.build/render-icon --dots --suffix -dots-0.869 $(ICON_COMPARE)
+	.build/render-icon --ring-span 0.915 --suffix -0.915 $(ICON_COMPARE)
 	.build/render-icon --ring-span 0.963 --suffix -0.963 $(ICON_COMPARE)
 	.build/render-icon --ring-span 0.80 --suffix -0.80 $(ICON_COMPARE)
 

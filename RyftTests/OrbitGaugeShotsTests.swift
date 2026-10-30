@@ -44,6 +44,14 @@ import UIKit
         return UIImage(cgImage: cg)
     }
 
+    private func iconColour(_ part: RyftMarkGeometry.Part) -> Color {
+        switch part {
+        case .strainRing, .strainDot: return Theme.metricStrain
+        case .sleepArc, .sleepDot: return Theme.metricSleep
+        case .recoveryArc, .recoveryDot, .readinessRing: return Theme.accent
+        }
+    }
+
     private func caption(_ s: String) -> some View {
         Text(s).font(.ryft(.caption)).foregroundStyle(Theme.textSecondary)
     }
@@ -99,8 +107,13 @@ import UIKit
                         .background(RoundedRectangle(cornerRadius: side * 0.2237, style: .continuous)
                             .fill(scheme == .dark ? Theme.graphite : Theme.mist))
                         .frame(width: side, height: side)
-                        .overlay(RyftMark().foregroundStyle(scheme == .dark ? Theme.mist : Theme.graphite)
-                            .frame(width: side * 0.915 / 0.9116, height: side * 0.915 / 0.9116))
+                        .overlay(ZStack {
+                            // The icon's gauge colours (scripts/icon-spec.swift reads the same colour sets).
+                            ForEach(RyftMarkGeometry.Part.allCases, id: \.self) { part in
+                                RyftMarkShape(part: part).fill(iconColour(part))
+                            }
+                        }
+                        .frame(width: side * 0.869 / 0.9116, height: side * 0.869 / 0.9116))
                 }
                 VStack(spacing: 14) {
                     HStack(spacing: 20) {
