@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="RYFT">
   <rect width="1024" height="1024" fill="#0B0F0E"/>
-  <!-- outer ring spans 0.963 of the tile: the 100-box at 1081.74 px -->
-  <g transform="translate(-28.8688 -28.8688) scale(10.817376)">
+  <!-- outer ring spans 0.915 of the tile: the 100-box at 1027.82 px -->
+  <g transform="translate(-1.90961 -1.90961) scale(10.278192)">
     <g fill="none" stroke="#E8E7E3" stroke-width="3.16" stroke-linecap="round">
       <path d="M58.38 93.195A44 44 0 1 1 77.702 84.185"/>
       <path d="M65.837 29.887A25.6 25.6 0 1 1 26.653 60.501"/>

@@ -105,9 +105,9 @@ Plan: `docs/work/2026-10-28-new-orbit-mark/plan.md`. Reference: `../docs/briefs/
   below 39.6 pt (stroke ≥ 1.25 pt; dots and air grow by √k; inner ring dropped below 22 pt); every caller
   unchanged. `RyftMarkGeometryTests` pin the nominal numbers and keep every arc ≥ 15° from 18 pt up.
 - App icons (Light = Graphite on Mist, Dark = Mist on Graphite, Tinted = white on black; 1024², no alpha) from
-  `make icon`. The outer ring spans 0.963 of the tile, as in the reference (mark frame 1081.7 px; ring 18.9 px and
-  the 65° dot 15.7 px from the tile edge). `make icon` also writes the three at 0.963 and at 0.80 (frame 898.6 px)
-  into `build/icon-compare/` to compare.
+  `make icon`. The outer ring spans 0.915 of the tile: 95 % of the reference's 0.963, which looked stretched to the
+  tile's edge on the user's home screen (2026-10-30). Mark frame 1027.8 px, ring 43.5 px from the tile edge.
+  `make icon` also writes the three at 0.915, 0.963 and 0.80 (frame 898.6 px) into `build/icon-compare/` to compare.
 - `design/ryft-mark.svg` and `design/ryft-app-icon-{light,dark}.svg` generated from the same numbers
   (`make mark-svg`); `make lint` checks they're current (`check-mark-svg`). Tile, colours and scale live in
   `scripts/icon-spec.swift`, shared by both tools.
@@ -118,8 +118,7 @@ Plan: `docs/work/2026-10-28-new-orbit-mark/plan.md`. Reference: `../docs/briefs/
   The icons were checked as rendered PNGs, not on a home screen.
 
 **Open**
-- The user checks the icon on his home screen (light, dark, tinted; 0.963 against the 0.80 compare render, and
-  the 65° dot against the squircle's bottom edge).
+- The user checks the 0.915 icon on his home screen (light, dark, tinted).
 - `design/brand-board.png` still shows the old mark; the 2026-10-28 brief supersedes it until it's redrawn.
 
 ## Session 2026-10-23 → 26: activities, calibration, training import, consent gates, CI and TestFlight

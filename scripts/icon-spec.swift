@@ -9,11 +9,12 @@ enum IconSpec {
     static let tile = 1024.0
 
     /// How large the mark sits on the tile: the outer ring's span (outer edge to outer edge)
-    /// divided by the tile width. 0.963 is what the 2026-10-28 reference measures
-    /// (../docs/briefs/assets/2026-10-28-new-app-icon-reference.jpg): the ring almost touches
-    /// the tile, the squircle mask clips nothing because the ring is a circle. `make icon` also
-    /// renders 0.80 (closer to Apple's icon grid) into build/icon-compare/ to compare.
-    static let defaultRingSpan = 0.963
+    /// divided by the tile width. 0.915 is 95 % of the 2026-10-28 reference's 0.963
+    /// (../docs/briefs/assets/2026-10-28-new-app-icon-reference.jpg): on the home screen the
+    /// reference's ring looked stretched to the tile's edge (the user, 2026-10-30, on device).
+    /// `make icon` also renders 0.963 and 0.80 (closer to Apple's icon grid) into
+    /// build/icon-compare/ to compare.
+    static let defaultRingSpan = 0.915
 
     /// The outer ring's span in RyftMark's 100-box: its stroke-centreline diameter plus one
     /// stroke (half a stroke on either side), 2 x 44 + 3.16 = 91.16 with the 2026-10-28 numbers.
@@ -23,7 +24,7 @@ enum IconSpec {
     }
 
     /// Side of the mark's frame (its 100-box) in px for a ring span:
-    /// tile x ringSpan x 100 / 91.16, i.e. 1081.74 px at 0.963 on a 1024 tile.
+    /// tile x ringSpan x 100 / 91.16, i.e. 1027.82 px at 0.915 on a 1024 tile.
     static func markFrame(ringSpan: Double, tile: Double = tile) -> Double {
         tile * ringSpan * RyftMarkGeometry.box / outerSpanInBox
     }

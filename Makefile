@@ -30,12 +30,14 @@ ICON_COMPARE := build/icon-compare
 	mkdir -p .build
 	swiftc -parse-as-library -o $@ $^
 
-# The three 1024 icons into the asset catalog with the outer ring spanning 0.963 of the tile (the reference's),
-# and for comparison the same three at 0.963 and at 0.80 (nearer Apple's icon grid) into build/icon-compare/.
+# The three 1024 icons into the asset catalog with the outer ring spanning 0.915 of the tile (95 % of the
+# reference's 0.963), and for comparison the same three at 0.915, 0.963 and 0.80 (nearer Apple's icon grid)
+# into build/icon-compare/.
 icon: .build/render-icon
 	mkdir -p $(ICON_COMPARE)
 	.build/render-icon
-	.build/render-icon --suffix -0.963 $(ICON_COMPARE)
+	.build/render-icon --suffix -0.915 $(ICON_COMPARE)
+	.build/render-icon --ring-span 0.963 --suffix -0.963 $(ICON_COMPARE)
 	.build/render-icon --ring-span 0.80 --suffix -0.80 $(ICON_COMPARE)
 
 # design/ryft-mark.svg and design/ryft-app-icon-{light,dark}.svg from the Swift geometry.

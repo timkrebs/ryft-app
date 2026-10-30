@@ -100,7 +100,7 @@ import UIKit
                             .fill(scheme == .dark ? Theme.graphite : Theme.mist))
                         .frame(width: side, height: side)
                         .overlay(RyftMark().foregroundStyle(scheme == .dark ? Theme.mist : Theme.graphite)
-                            .frame(width: side * 0.963 / 0.9116, height: side * 0.963 / 0.9116))
+                            .frame(width: side * 0.915 / 0.9116, height: side * 0.915 / 0.9116))
                 }
                 VStack(spacing: 14) {
                     HStack(spacing: 20) {
