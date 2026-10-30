@@ -184,10 +184,85 @@ struct SessionNextUpTests {
         #expect(r.c.carriedCollapse.isEmpty)
     }
 
+    // MARK: stale collapses
+
+    /// X is carried, gets a new set, Z finishes, the setting goes off, X's new set is checked: X never collapses at
+    /// the tap.
+    @Test func aCardWithANewSetLeavesTheCarriedCollapse() async {
+        let r = rig([1, 3, 1])
+        let x = r.ex[0], b = r.ex[1], z = r.ex[2]
+        r.c.toggleCheck(x.orderedSets[0], in: x)
+        await drain()
+        r.c.toggleCheck(b.orderedSets[2], in: b)        // out of order: the list stays, X is carried
+        await drain()
+        r.clock.advance(by: SessionAdvance.delay)
+        await drain()
+        #expect(r.c.carriedCollapse == [x.id])
+
+        let added = r.c.addSet(to: x)
+        #expect(r.c.carriedCollapse.isEmpty)
+        await check(r, z.orderedSets[0], in: z)          // a jump: X is open again, so not collapsed with it
+        #expect(r.c.advance != nil)
+        #expect(!r.c.collapsed.contains(x.id))
+
+        r.c.jumpToNext = { false }
+        await check(r, added, in: x)
+        #expect(!r.c.isCollapsed(x))
+
+        r.c.jumpToNext = { true }                         // only a normal jump collapses it
+        let another = r.c.addSet(to: x)
+        await check(r, another, in: x)
+        #expect(r.c.isCollapsed(x))
+    }
+
+    /// A split collapses the old row (a pending check sees it finished); Undo brings its open sets back. Finishing
+    /// it later with the setting off doesn't collapse it.
+    @Test func anUndoneSplitDoesNotLeaveTheOldRowCollapsed() async {
+        let r = rig([4, 1])
+        let x = r.ex[0]
+        await check(r, x.orderedSets[0], in: x)
+        r.c.toggleCheck(x.orderedSets[1], in: x)        // pending while the split happens
+        await drain()
+        await r.c.replace(x, with: MockTrain.inclineDB)
+        r.clock.advance(by: SessionAdvance.delay)
+        await drain()
+        #expect(r.c.collapsed.contains(x.id))           // finished at fire time: the old row collapses
+
+        r.c.undoReplace()
+        #expect(x.orderedSets.filter { !$0.isCompleted }.count == 2)
+        #expect(!r.c.collapsed.contains(x.id))
+
+        r.c.jumpToNext = { false }
+        await check(r, x.orderedSets[2], in: x)
+        await check(r, x.orderedSets[3], in: x)
+        #expect(!r.c.isCollapsed(x))
+    }
+
+    // MARK: no rest after the last set
+
+    @Test func theLastWorkingSetStartsNoRest() async {
+        let r = rig([2])
+        let a = r.ex[0]
+        r.c.toggleWarmup(a.orderedSets[0])              // an open warm-up doesn't count
+        r.c.toggleCheck(a.orderedSets[1], in: a)
+        #expect(!r.c.rest.isRunning)
+        #expect(r.c.session.restEndsAt == nil)
+    }
+
+    @Test func theLastWorkingSetStopsARunningRest() async {
+        let r = rig([2])
+        let a = r.ex[0]
+        r.c.toggleCheck(a.orderedSets[0], in: a)
+        #expect(r.c.rest.isRunning)
+        r.c.toggleCheck(a.orderedSets[1], in: a)
+        #expect(!r.c.rest.isRunning)
+        #expect(r.c.session.restEndsAt == nil)
+    }
+
     // MARK: superset rest
 
     @Test func anOpenWarmUpOfThePartnerDoesNotSkipTheRest() {
-        let r = rig([1, 2])
+        let r = rig([1, 2, 1])                          // the third keeps the session going: a rest is due
         let a = r.ex[0], b = r.ex[1]
         a.supersetGroup = 1
         b.supersetGroup = 1

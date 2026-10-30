@@ -253,6 +253,7 @@ final class SessionController: Identifiable {
 
     /// Any change: the upload follows (debounced), and the lock screen's next set.
     func edited() {
+        pruneCollapsed()
         sync.sessionChanged(session)
         refreshActivity()
     }
@@ -440,6 +441,12 @@ final class SessionController: Identifiable {
     // MARK: rest timer
 
     private func startRest(after ex: LocalSessionExercise) {
+        // The last working set: nothing follows, so no rest (no countdown on the lock screen, no "Rest over" later),
+        // and one still running from before stops.
+        if isAllDone {
+            skipRest()
+            return
+        }
         // Inside a superset the partner follows straight away while it has an open working set (an open warm-up
         // doesn't count, as in `SessionAdvance`); rest after the round.
         if let group = ex.supersetGroup {

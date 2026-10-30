@@ -47,7 +47,20 @@ extension SessionController {
     /// A finished card is shown collapsed. Derived, so a card that has an open working set again (an uncheck, a new
     /// set, an undo, a server copy) is never shown collapsed.
     func isCollapsed(_ ex: LocalSessionExercise) -> Bool {
-        collapsed.contains(ex.id) && !ex.sets.contains { !$0.isWarmup && !$0.isCompleted }
+        collapsed.contains(ex.id) && !Self.hasOpenWorkingSet(ex)
+    }
+
+    static func hasOpenWorkingSet(_ ex: LocalSessionExercise) -> Bool {
+        ex.sets.contains { !$0.isWarmup && !$0.isCompleted }
+    }
+
+    /// After any edit: a card with an open working set again (a new set, an undo, new targets) leaves `collapsed` and
+    /// the carried collapse for good, so finishing it later collapses it only with a jump, never at the tap.
+    func pruneCollapsed() {
+        let open = Set(exercises.filter(Self.hasOpenWorkingSet).map(\.id))
+        guard !open.isEmpty else { return }
+        if !collapsed.isDisjoint(with: open) { collapsed.subtract(open) }
+        if carriedCollapse.contains(where: open.contains) { carriedCollapse.removeAll(where: open.contains) }
     }
 
     /// Tap on a collapsed row: open, and it stays open.
@@ -123,8 +136,10 @@ extension SessionController {
             if case let .allDone(c) = step { collapse += c }
             latest = step
         }
+        // Only cards finished now: one carried from earlier may have an open set again.
+        let finished = Set(exercises.filter { !Self.hasOpenWorkingSet($0) }.map(\.id))
         var seen = Set<UUID>()
-        collapse = collapse.filter { seen.insert($0).inserted }
+        collapse = collapse.filter { finished.contains($0) && seen.insert($0).inserted }
         if latest == .stay {
             carriedCollapse = collapse
             return
