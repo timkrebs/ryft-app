@@ -187,3 +187,17 @@ Nits:
 New nit, which I treat as visible polish (demo mode is what App Review and TestFlight see):
 - When the data instance replaces the placeholder, frame 0 is empty, so the rings blink out and redraw (about 0.2 s; the whole stall on a fresh install).
 - → developer, round 3: replacing a placeholder starts over drawn tracks.
+
+### Round 3 (296fdcc, developer)
+
+The entrance now assembles over the placeholder's tracks (`.assembleOverTracks`), and after the flag is consumed the identity stays fixed, so data that comes or goes animates.
+
+Live frames (`pr3-validate/r3-*`): the rings and caption title stay through the hand-off, a fresh install's stall freezes on full tracks, and content from frame 0 gets the full entrance. Unit: 2136 passed. UISmoke: 35 passed.
+
+**code-reviewer: OK.**
+- `placeholderSeen` is set only for a placeholder seen outside the background.
+- A background-only placeholder gets the full entrance.
+- The over-tracks Reduce Motion path can't get stuck.
+- The identity is stable when the flag is consumed, and PR 2 state is kept.
+
+Accepted nit: when the data arrives in a different hero row than the placeholder (calibrating or pending), the rows' 250 ms crossfade dips the kept tracks to about 75 %. A same-row hand-off swaps without a dip.
