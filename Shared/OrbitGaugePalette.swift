@@ -25,9 +25,6 @@ struct OrbitGaugePalette {
         strain: Color("MetricStrain"), high: Color("Accent"), moderate: Color("Warning"), low: Color("Alert"),
         noReadiness: Color("TextTertiary"))
 
-    /// The colorsets `assets` reads; the widget's catalog must have each of them.
-    static let assetNames = ["SurfaceRaised", "Accent", "MetricSleep", "MetricStrain", "Warning", "Alert", "TextTertiary"]
-
     /// The readiness bands' lower bounds, as `Theme.band(forScore:)` and `MetricSpec.scoreBand` draw them.
     static let highFrom = 67
     static let moderateFrom = 34

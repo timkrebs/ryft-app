@@ -11,30 +11,40 @@ struct WidgetOrbitGauge: View {
     var size: OrbitGaugeSize = .small
     /// The centre number when the mode is unknown; a scored mode brings its own.
     var readiness: Int?
-    /// The number inside the centre ring; off where it would be too small and the text beside it says it.
+    /// The number inside the centre ring; off where the text beside it says it.
     var showsNumber = true
+    /// The lock screen's circle: the number in the system's primary ink and a heavier weight.
+    var prominentNumber = false
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.widgetRenderingMode) private var renderingMode
+    @Environment(\.redactionReasons) private var redaction
 
-    /// Below this dial the number would be under 10 pt.
-    static let minDialForNumber: CGFloat = 52
+    /// On a locked device: the tracks only, no arcs, dots or number.
+    private var locked: Bool { redaction.contains(.privacy) }
 
     var body: some View {
-        OrbitGaugeDrawing(mode: mode, size: size, palette: palette, marks: { $0.widgetAccentable() }) {
-            if showsNumber, size.dial >= Self.minDialForNumber {
+        OrbitGaugeDrawing(mode: locked ? nil : mode, size: size, palette: palette, marks: { $0.widgetAccentable() }) {
+            if showsNumber, !locked, size.dial >= OrbitGaugeGeometry.minDialForNumber {
                 Text(verbatim: number.map(String.init) ?? "–")
-                    .font(.system(size: size.dial * 0.19, weight: .medium, design: .rounded))
+                    .font(.system(size: OrbitGaugeGeometry.numberPointSize(forDial: size.dial),
+                                  weight: prominentNumber ? .semibold : .medium, design: .rounded))
                     .monospacedDigit()
-                    .foregroundStyle(number == nil ? Brand.ink(scheme).opacity(0.4) : Brand.ink(scheme))
+                    .foregroundStyle(numberStyle)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
             }
         }
+        .privacySensitive()
         .accessibilityHidden(true)
     }
 
     private var number: Int? { mode?.scoredValues?.readiness ?? (mode == nil ? readiness : nil) }
+
+    private var numberStyle: AnyShapeStyle {
+        if prominentNumber { return AnyShapeStyle(number == nil ? .secondary : .primary) }
+        return AnyShapeStyle(number == nil ? Brand.ink(scheme).opacity(0.4) : Brand.ink(scheme))
+    }
 
     /// The app's colours in full colour. Tinted, clear and lock-screen renderings turn every colour into one ink
     /// whose opacity is all that's left: an opaque track would outshine the arcs, so it becomes faint.
@@ -52,6 +62,8 @@ struct WidgetOrbitGauge: View {
                 WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)))
                 WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 64, recovery: 0.62, strain: 6.2)))
                 WidgetOrbitGauge(mode: nil, readiness: 71)
+                WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 100, recovery: 1, sleep: 1, strain: 21)),
+                                 size: .custom(dial: 56), prominentNumber: true)
                 WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)),
                                  size: .custom(dial: 44), showsNumber: false)
             }

@@ -68,7 +68,7 @@ struct ReadinessWidgetView: View {
         switch family {
         case .accessoryCircular: CircularReadiness(snapshot: entry.shown)
         case .accessoryRectangular: RectangularReadiness(snapshot: entry.shown, bedtime: entry.bedtime)
-        case .accessoryInline: Text(Words.inline(entry.shown, bedtime: entry.bedtime))
+        case .accessoryInline: InlineReadiness(snapshot: entry.shown, bedtime: entry.bedtime)
         default: SmallReadiness(snapshot: entry.shown, bedtime: entry.bedtime)
         }
     }
@@ -86,7 +86,7 @@ enum Words {
         }
     }
 
-    /// Under the ring, or the rectangle's second line.
+    /// Under the gauge, or the rectangle's second line.
     static func status(_ s: ReadinessSnapshot?) -> String {
         guard let s else { return String(localized: "Open RYFT to see your readiness.") }
         switch s.kind {
@@ -104,15 +104,15 @@ enum Words {
         return status(s)
     }
 
-    /// "Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21": a missing score named as missing, never skipped.
+    /// "Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21": a missing score named as not scored, never skipped.
     static func scores(_ v: OrbitGaugeValues) -> String {
-        let noData = { (title: String) in String(localized: "\(title), no data") }
+        let notScored = { (title: String) in String(localized: "\(title), not scored") }
         let percent = { (fraction: Double) in Int((fraction * 100).rounded()).formatted() }
         return [
-            v.recoveryFraction.map { String(localized: "Recovery \(percent($0)) percent") } ?? noData(String(localized: "Recovery")),
-            v.sleepFraction.map { String(localized: "Sleep \(percent($0)) percent") } ?? noData(String(localized: "Sleep")),
+            v.recoveryFraction.map { String(localized: "Recovery \(percent($0)) percent") } ?? notScored(String(localized: "Recovery")),
+            v.sleepFraction.map { String(localized: "Sleep \(percent($0)) percent") } ?? notScored(String(localized: "Sleep")),
             v.strain.map { String(localized: "Strain \($0.formatted(.number.precision(.fractionLength(1)))) of 21") }
-                ?? noData(String(localized: "Strain")),
+                ?? notScored(String(localized: "Strain")),
         ].joined(separator: ", ")
     }
 
@@ -122,73 +122,108 @@ enum Words {
     }
 
     /// For VoiceOver: the value and whether it's today's; with the orbit, its three scores as Today reads them
-    /// ("Readiness 71, High. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21").
-    static func spoken(_ s: ReadinessSnapshot?) -> String {
-        guard let s else { return status(nil) }
-        switch s.kind {
-        case .score:
-            let readiness = s.readiness.map { String(localized: "Readiness \($0), \(band($0))") } ?? ""
-            guard let values = s.gauge?.scoredValues else { return readiness }
-            return readiness + ". " + scores(values)
-        case .pending, .waitingForSleep:
-            let prefix = status(s)
-            guard let previous = s.previousReadiness else { return prefix }
-            return prefix + " " + String(localized: "Last readiness \(previous).")
-        case .calibrating: return status(s)
+    /// ("Readiness 71, High. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21"), and tonight's bedtime. On a
+    /// locked device (`redacted`) only "Readiness" (`ReadinessSnapshot.speech`).
+    static func spoken(_ s: ReadinessSnapshot?, bedtime: Date? = nil, redacted: Bool = false) -> String {
+        let spoken: String
+        switch ReadinessSnapshot.speech(s, redacted: redacted) {
+        case .name: return String(localized: "Readiness")
+        case .openApp: spoken = status(nil)
+        case .score(let readiness, let values):
+            let r = readiness.map { String(localized: "Readiness \($0), \(band($0))") } ?? ""
+            spoken = values.map { r + ". " + scores($0) } ?? r
+        case .night(_, let previous):
+            spoken = status(s) + (previous.map { " " + String(localized: "Last readiness \($0).") } ?? "")
+        case .baselines:
+            spoken = status(s)
         }
+        return spoken + (bedtime.map { ". " + bedBy($0) } ?? "")
     }
+}
+
+/// The lock screen hides the values until the device is unlocked (`.privacy` redaction): the orbit's tracks only,
+/// the number and words redacted, VoiceOver "Readiness".
+private extension RedactionReasons {
+    var hidesValues: Bool { contains(.privacy) }
 }
 
 // MARK: - home screen
 
-/// The gauge like Today's: the orbit for a score; an outline with the last value dimmed
-/// while the night isn't scored; a segment per night while the baselines are learned (PR 2
-/// turns those two into the orbit too).
+/// The orbit for a score, as large as the tile allows (it is the mark: no header), with the band word under it; an
+/// outline with the last value dimmed while the night isn't scored; a segment per night while the baselines are
+/// learned (PR 2 turns those two into the orbit too).
 private struct SmallReadiness: View {
     let snapshot: ReadinessSnapshot?
-    var bedtime: Date? = nil
+    var bedtime: Date?
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.redactionReasons) private var redaction
 
     private var ink: Color { Brand.ink(scheme) }
+    private var locked: Bool { redaction.hidesValues }
 
     var body: some View {
+        Group {
+            if snapshot?.kind == .score || locked {
+                orbit
+            } else {
+                legacy
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(Words.spoken(snapshot, bedtime: bedtime, redacted: locked)))
+    }
+
+    private var orbit: some View {
+        VStack(spacing: 4) {
+            GeometryReader { g in
+                let side = min(g.size.width, g.size.height)
+                WidgetOrbitGauge(mode: snapshot?.gauge, size: .custom(dial: max(side - 12, 0)), readiness: snapshot?.readiness)
+                    .frame(width: g.size.width, height: g.size.height)
+            }
+            caption
+        }
+    }
+
+    @ViewBuilder
+    private var caption: some View {
+        if let bedtime {
+            Text(Words.bedBy(bedtime))
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(Brand.teal)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .privacySensitive()
+        } else {
+            Text(Words.status(snapshot))
+                .font(.caption2)
+                .foregroundStyle(ink.opacity(0.7))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.8)
+                .privacySensitive()
+        }
+    }
+
+    /// The pending outline and the baselines' segments, under the "READINESS" header, until PR 2.
+    private var legacy: some View {
         VStack(spacing: 6) {
             Text("Readiness")
                 .font(.system(size: 9, weight: .medium))
                 .textCase(.uppercase)
                 .tracking(1.4)
                 .foregroundStyle(ink.opacity(0.6))
-            if let snapshot, snapshot.kind == .score {
-                // `.small` is 84 pt, the ring's frame before it.
-                WidgetOrbitGauge(mode: snapshot.gauge, size: .small, readiness: snapshot.readiness)
-            } else {
-                ZStack {
-                    ring
-                    Text(number)
-                        .font(.system(size: 32, weight: .medium, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(ink.opacity(0.4))
-                        .minimumScaleFactor(0.6)
-                }
-                .frame(width: 84, height: 84)
+            ZStack {
+                ring
+                Text(number)
+                    .font(.system(size: 32, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(ink.opacity(0.4))
+                    .minimumScaleFactor(0.6)
+                    .privacySensitive()
             }
-            if let bedtime {
-                Text(Words.bedBy(bedtime))
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(Brand.teal)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            } else {
-                Text(Words.status(snapshot))
-                    .font(.caption2)
-                    .foregroundStyle(ink.opacity(0.7))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-                    .minimumScaleFactor(0.8)
-            }
+            .frame(width: 84, height: 84)
+            caption
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(Words.spoken(snapshot) + (bedtime.map { ". " + Words.bedBy($0) } ?? "")))
     }
 
     private var number: String {
@@ -228,16 +263,20 @@ private struct SmallReadiness: View {
 
 private struct CircularReadiness: View {
     let snapshot: ReadinessSnapshot?
+    @Environment(\.redactionReasons) private var redaction
+
+    private var locked: Bool { redaction.hidesValues }
 
     var body: some View {
         Group {
-            if let snapshot, snapshot.kind == .score, let r = snapshot.readiness {
+            if (snapshot?.kind == .score && snapshot?.readiness != nil) || locked {
                 // The orbit filling the circle; the frame's 6 pt on each side take the outer dot.
                 GeometryReader { g in
                     let side = min(g.size.width, g.size.height)
                     ZStack {
                         AccessoryWidgetBackground()
-                        WidgetOrbitGauge(mode: snapshot.gauge, size: .custom(dial: max(side - 12, 0)), readiness: r)
+                        WidgetOrbitGauge(mode: snapshot?.gauge, size: .custom(dial: max(side - 12, 0)),
+                                         readiness: snapshot?.readiness, prominentNumber: true)
                     }
                     .frame(width: g.size.width, height: g.size.height)
                 }
@@ -248,6 +287,7 @@ private struct CircularReadiness: View {
                     Text(verbatim: "\(snapshot?.baselineNights ?? 0)/\(ReadinessSnapshot.baselineNightsRequired)")
                 }
                 .gaugeStyle(.accessoryCircularCapacity)
+                .privacySensitive()
             } else {
                 ZStack {
                     AccessoryWidgetBackground()
@@ -257,13 +297,16 @@ private struct CircularReadiness: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(Words.spoken(snapshot)))
+        .accessibilityLabel(Text(Words.spoken(snapshot, redacted: locked)))
     }
 }
 
 private struct RectangularReadiness: View {
     let snapshot: ReadinessSnapshot?
-    var bedtime: Date? = nil
+    var bedtime: Date?
+    @Environment(\.redactionReasons) private var redaction
+
+    private var locked: Bool { redaction.hidesValues }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -275,7 +318,7 @@ private struct RectangularReadiness: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(Words.spoken(snapshot) + (bedtime.map { ". " + Words.bedBy($0) } ?? "")))
+        .accessibilityLabel(Text(Words.spoken(snapshot, bedtime: bedtime, redacted: locked)))
     }
 
     private var lines: some View {
@@ -287,19 +330,35 @@ private struct RectangularReadiness: View {
                 Text(verbatim: "\(r)")
                     .font(.system(.title2, design: .rounded).weight(.semibold))
                     .monospacedDigit()
+                    .privacySensitive()
                 Text(Words.band(r))
                     .font(.caption)
+                    .privacySensitive()
             } else {
                 Text(Words.status(snapshot))
                     .font(.callout)
                     .lineLimit(2)
+                    .privacySensitive()
             }
             if let bedtime {
                 Text(Words.bedBy(bedtime))
                     .font(.caption)
+                    .privacySensitive()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct InlineReadiness: View {
+    let snapshot: ReadinessSnapshot?
+    var bedtime: Date?
+    @Environment(\.redactionReasons) private var redaction
+
+    var body: some View {
+        Text(Words.inline(snapshot, bedtime: bedtime))
+            .privacySensitive()
+            .accessibilityLabel(Text(Words.spoken(snapshot, bedtime: bedtime, redacted: redaction.hidesValues)))
     }
 }
 
@@ -317,6 +376,14 @@ extension ReadinessSnapshot {
     static var previewBeforeOrbit: ReadinessSnapshot {
         var s = preview(.score)
         s.orbit = nil
+        return s
+    }
+
+    /// Three digits: the number must still fit the centre ring.
+    static var previewHundred: ReadinessSnapshot {
+        var s = preview(.score)
+        s.readiness = 100
+        s.orbit = Orbit(recovery: 100, sleepPerformance: 100, strain: 21)
         return s
     }
 
@@ -367,20 +434,26 @@ struct ReadinessWidgetGallery: View {
         HStack(alignment: .top, spacing: 16) {
             ForEach([ColorScheme.dark, .light], id: \.self) { scheme in
                 VStack(spacing: 16) {
-                    let snapshots: [ReadinessSnapshot] = [.preview(.score), .previewSleepMissing, .previewBeforeOrbit,
-                                                          .preview(.pending), .preview(.calibrating)]
+                    let snapshots: [ReadinessSnapshot] = [.preview(.score), .previewHundred, .previewSleepMissing,
+                                                          .previewBeforeOrbit, .preview(.pending), .preview(.calibrating)]
                     ForEach(snapshots.indices, id: \.self) { i in
                         SmallReadiness(snapshot: snapshots[i])
                             .padding(16)
                             .frame(width: 158, height: 158)
                             .background(Brand.background(scheme), in: RoundedRectangle(cornerRadius: 22))
                     }
-                    CircularReadiness(snapshot: .preview(.score))
-                        .frame(width: 72, height: 72)
+                    HStack(spacing: 12) {
+                        CircularReadiness(snapshot: .preview(.score))
+                            .frame(width: 72, height: 72)
+                        CircularReadiness(snapshot: .previewHundred)
+                            .frame(width: 68, height: 68)
+                    }
                     RectangularReadiness(snapshot: .preview(.score))
                         .padding(8)
                         .frame(width: 170, height: 76)
                         .background(Brand.background(scheme).opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+                    InlineReadiness(snapshot: .preview(.score))
+                        .font(.caption)
                 }
                 .padding(16)
                 .background(Brand.background(scheme).opacity(0.5))
@@ -393,6 +466,11 @@ struct ReadinessWidgetGallery: View {
 
 #Preview("Families · dark and light") {
     ReadinessWidgetGallery()
+}
+
+#Preview("Families · locked (values hidden)") {
+    ReadinessWidgetGallery()
+        .redacted(reason: .privacy)
 }
 
 #Preview("Small · de") {

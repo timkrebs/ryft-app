@@ -86,9 +86,22 @@ enum OrbitGaugeGeometry {
 
         /// Inside the centre ring: where the number lives.
         var centreInnerDiameter: CGFloat { 2 * centreRadius - centreStroke }
+
+        /// The number's width inside the centre ring: the inset scales with the dial, so a small dial keeps room.
+        var centreSlotWidth: CGFloat { centreInnerDiameter * 0.86 }
     }
 
     static let minStroke: CGFloat = 1.5
+
+    /// Below this dial the centre ring is too small for a number: the gauge is the mark only (VoiceOver and the text
+    /// beside it still say the value). The same in the app and the widget.
+    static let minDialForNumber: CGFloat = 56
+
+    /// A number size that fills the centre slot: two digits at full size (about 1.35 em in the rounded face), "100"
+    /// at about 0.7 of it, never under the 0.6 minimum scale. The widget's number; the app keeps its 0.19 x dial.
+    static func numberPointSize(forDial dial: CGFloat) -> CGFloat {
+        metrics(forDial: dial).centreSlotWidth / 1.4
+    }
 
     static func metrics(forDial dial: CGFloat) -> Metrics {
         let s = max(dial, 0) / referenceDial

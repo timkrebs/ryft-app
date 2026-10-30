@@ -29,8 +29,8 @@ struct OrbitGauge: View {
     /// Today uses `today.readinessGauge`.
     var identifier: String = "orbitGauge"
 
-    /// Below this dial the number would be under 10.5 pt: the gauge is the mark only (VoiceOver still has the value).
-    static let minDialForNumber: CGFloat = 56
+    /// Below this dial the gauge is the mark only (VoiceOver still has the value); the widget uses the same.
+    static let minDialForNumber = OrbitGaugeGeometry.minDialForNumber
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -74,15 +74,15 @@ struct OrbitGauge: View {
 
     // MARK: caption
 
-    /// The caption in `MetricGauge`'s title style, then the band word and the change in one line when it fits; at
-    /// large text sizes (German at AX3) the band word over the change, wrapping: never cut off.
+    /// The caption as a section label (it scales with Dynamic Type; the gauge doesn't), then the band word and the
+    /// change in one line when it fits; at large text sizes (German at AX3) the band word over the change, wrapping:
+    /// never cut off.
     private func captionLines(_ caption: Caption) -> some View {
         VStack(spacing: 4) {
             Text(caption.title)
-                .font(.ryftNumber(size: 9, weight: .medium))
-                .textCase(.uppercase)
-                .tracking(1.4)
-                .foregroundStyle(Theme.textSecondary)
+                .ryftLabelStyle()
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
             let band = bandLabel(caption)
             if band != nil || caption.delta != nil {
                 ViewThatFits(in: .horizontal) {
@@ -124,7 +124,7 @@ struct OrbitGauge: View {
     // MARK: VoiceOver
 
     /// "71, High. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21." plus the note. A missing score is
-    /// named as missing, never skipped.
+    /// named as not scored ("Sleep, not scored"), never skipped.
     private var spokenValue: String {
         let spoken: String
         switch mode {
@@ -140,7 +140,7 @@ struct OrbitGauge: View {
     /// The readiness part ("71, High, Up 4 vs 7 d"), then the three scores.
     static func spokenValue(_ v: OrbitGaugeValues, showsBand: Bool = true, delta: MetricDelta? = nil) -> String {
         if v.isEmpty { return String(localized: "No data") }
-        let noData = { (title: String) in String(localized: "\(title), no data") }
+        let noData = { (title: String) in String(localized: "\(title), not scored") }
         var scores: [String] = []
         scores.append(v.recoveryFraction.map { String(localized: "Recovery \(Self.percent($0)) percent") }
                       ?? noData(String(localized: "Recovery")))
@@ -247,12 +247,29 @@ private struct OrbitCaption: View {
     }
 }
 
+extension OrbitGauge.Caption {
+    /// Today's caption over the preview values: "OVERALL READINESS", then "High · ▲ +4 vs 7 d".
+    static var preview: OrbitGauge.Caption {
+        OrbitGauge.Caption(title: String(localized: "Overall readiness"), delta: MetricDelta(current: 71, reference: 67))
+    }
+}
+
+#Preview("OrbitGauge · Today caption", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        HStack(alignment: .top, spacing: 16) {
+            OrbitGauge(mode: .scored(.previewScored), size: .large, caption: .preview)
+            // S2 / N1: a calibration note takes the band word's line.
+            OrbitGauge(mode: .scored(.previewScored), size: .large,
+                       caption: OrbitGauge.Caption(title: String(localized: "Overall readiness"), showsBand: false))
+        }
+    }
+}
+
 #Preview("OrbitGauge · AX3", traits: .sizeThatFitsLayout) {
-    // The gauge keeps its size; the caption around it scales.
+    // The gauge keeps its size; the caption under it scales.
     SchemePair {
         VStack(spacing: 8) {
-            OrbitGauge(mode: .scored(.previewScored), size: .large)
-            Text("Moderate · 4 up on 7 d").font(.ryft(.caption)).foregroundStyle(Theme.textSecondary)
+            OrbitGauge(mode: .scored(.previewScored), size: .large, caption: .preview)
             OrbitGauge(mode: .scored(.previewScored), size: .small)
         }
     }
@@ -262,8 +279,10 @@ private struct OrbitCaption: View {
 #Preview("OrbitGauge · de · AX3", traits: .sizeThatFitsLayout) {
     SchemePair {
         VStack(spacing: 8) {
-            OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 100, recovery: 1, sleep: 1, strain: 21)), size: .large)
-            Text(OrbitGauge.spokenValue(.previewScored)).font(.ryft(.caption)).foregroundStyle(Theme.textSecondary)
+            OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 100, recovery: 1, sleep: 1, strain: 21)), size: .large,
+                       caption: .preview)
+            Text(OrbitGauge.spokenValue(OrbitGaugeValues(readiness: 71, recovery: 0.71, strain: 9.6)))
+                .font(.ryft(.caption)).foregroundStyle(Theme.textSecondary)
         }
     }
     .environment(\.locale, Locale(identifier: "de"))

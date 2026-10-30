@@ -79,7 +79,7 @@ import Testing
         #expect(s.hasPrefix("71, High. Recovery 71 percent, Sleep 88 percent, Strain 9"))
         #expect(s.hasSuffix(" of 21"))
         let missing = OrbitGauge.spokenValue(OrbitGaugeValues(readiness: 71, recovery: 0.71, strain: 9.6))
-        #expect(missing.contains("Sleep, no data"))
+        #expect(missing.contains("Sleep, not scored"))
         #expect(OrbitGauge.spokenValue(OrbitGaugeValues()) == "No data")
     }
 }

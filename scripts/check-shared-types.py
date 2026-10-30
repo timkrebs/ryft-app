@@ -4,6 +4,7 @@
 `Shared/` is compiled by both targets (ADR 0010). Its rules:
 - Swift only, importing Foundation, CoreGraphics and SwiftUI only.
 - No user-facing strings: each target's catalog owns its copy, the wrappers add text and accessibility.
+- No fonts: the app has Satoshi, the widget the system's face; each wrapper sets its own.
 - Colours by asset name: every colorset `Shared/` names is in both asset catalogs, with the same Contents.json.
 
 Types that predate `Shared/` still exist twice and must stay identical (each moves into `Shared/` when next touched):
@@ -107,6 +108,8 @@ def check_shared():
                     problems.append(f"{path}:{n}: a user-facing string in Shared/ (ADR 0010): {line.strip()}")
                 if re.search(r"\bTheme\.", line):
                     problems.append(f"{path}:{n}: Theme in Shared/; name colours by asset (OrbitGaugePalette)")
+                if re.search(r"\bFont\b|\.font\(|\.ryft(Number)?\(", line):
+                    problems.append(f"{path}:{n}: a font in Shared/ (ADR 0010); the wrappers set fonts: {line.strip()}")
             colours.update(re.findall(r'\bColor\("(\w+)"\)', src))
     for name in sorted(colours):
         a = os.path.join(APP_CATALOG, f"{name}.colorset", "Contents.json")

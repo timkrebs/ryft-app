@@ -57,7 +57,7 @@ struct OrbitGaugeDrawing<Marks: View, Centre: View>: View {
                 styleMarks(OrbitGaugeMarks(mode: mode, dial: size.dial, palette: palette))
             }
             centre
-                .frame(width: max(m.centreInnerDiameter - 10, 0))
+                .frame(width: max(m.centreSlotWidth, 0))
         }
         .frame(width: size.frame, height: size.frame)
     }

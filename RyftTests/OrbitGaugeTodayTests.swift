@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Testing
+import UIKit
 @testable import Ryft
 
 // OrbitGauge PR 1 (architecture.md §2, §3): Today's one mapping to the orbit, the widget's snapshot carrying the
@@ -167,6 +168,12 @@ struct OrbitGaugeSnapshotParityTests {
         noReasonNoReadiness.calibratingReason = nil
         c.append(OrbitParityCase(name: "D from yesterday", facts: facts(noReasonNoReadiness)))
         c.append(OrbitParityCase(name: "L-B long", facts: facts(noReasonNoReadiness, prior: prior(30, vitals: false))))
+        // N2: `no_hrv` and no night, so no readiness; the empty gauge on Today, the night awaited on the widget.
+        let n2 = DailyScore(day: day, state: .calibrating, strain: 4.2, baselineDays: 0, calibrating: true, computedAt: computed,
+                            scoringState: .scored, baselineHrvDays: 0, baselineRhrDays: 24, calibratingReason: .noHrv)
+        c.append(OrbitParityCase(name: "N2", facts: facts(n2)))
+        // A settled day the platform scored without a readiness (not calibrating, not scoring).
+        c.append(OrbitParityCase(name: "A, scored without a readiness", facts: facts(scored(readiness: nil))))
         // Every demo scenario behind the previews, over a scored day.
         let now = Calendar.current.date(bySettingHour: 7, minute: 30, second: 0, of: computed) ?? computed
         for scenario in TodayScenario.allCases {
@@ -177,8 +184,9 @@ struct OrbitGaugeSnapshotParityTests {
     }()
 
     /// The parity test (architecture.md §3): the widget's mode from the JSON is Today's, for every row. The one
-    /// difference by design: a readiness gauge the widget can't show as today's score (row D from an earlier day,
-    /// N2 and a scored day without a readiness) is "waiting for last night" there, with the latest readiness dimmed.
+    /// difference by design: a readiness gauge without today's readiness (row D from an earlier day, N2 and a scored day
+    /// without a readiness) is "waiting for last night" there, with the latest readiness dimmed. Any other readiness
+    /// gauge is the widget's score.
     @Test(arguments: cases) func theWidgetsModeIsTodays(_ c: OrbitParityCase) throws {
         let p = TodayPresentation.decide(c.facts)
         let today = OrbitGaugeMode(p)
@@ -186,10 +194,13 @@ struct OrbitGaugeSnapshotParityTests {
             #expect(p.row == .firstImport, "only the first import has no snapshot")
             return
         }
-        if case .readiness = p.gauge, widget.kind != .score {
-            #expect(widget.kind == .waitingForSleep)
-            #expect(widget.previousReadiness == p.previousReadiness)
-            return
+        if case .readiness(let readiness) = p.gauge {
+            if readiness == nil || p.tiles.isEarlierDay {
+                #expect(widget.kind == .waitingForSleep)
+                #expect(widget.previousReadiness == p.previousReadiness)
+                return
+            }
+            #expect(widget.kind == .score)
         }
         #expect(widget.gauge == today)
         // And the values the gauge is drawn from, one by one.
@@ -209,6 +220,33 @@ struct OrbitGaugeSnapshotParityTests {
             }
         }
         #expect(kinds == ["scored", "scored, learning", "calibrating", "pending"])
+    }
+
+    @Test func theExceptionsAreCovered() throws {
+        let names = Set(Self.cases.map(\.name))
+        #expect(names.isSuperset(of: ["N2", "A, scored without a readiness", "D from yesterday"]))
+        for name in ["N2", "A, scored without a readiness"] {
+            let c = try #require(Self.cases.first { $0.name == name })
+            #expect(TodayPresentation.decide(c.facts).gauge == .readiness(nil), "\(name)")
+            #expect(try throughJSON(c.facts)?.kind == .waitingForSleep, "\(name)")
+        }
+    }
+
+    /// The counter draws no scores: the snapshot carries only what it counts, so a strain synced meanwhile
+    /// doesn't reload the widget.
+    @Test func theBaselinesCarryOnlyTheCountedSignal() throws {
+        let s = try #require(try throughJSON(facts(shortHistory(readiness: nil, h: 0, r: 3), prior: prior(4, vitals: false))))
+        #expect(s.kind == .calibrating && s.baselineNights == 3)
+        #expect(s.orbit == ReadinessSnapshot.Orbit(counted: .restingHR))
+    }
+
+    /// A signal a later app adds doesn't break an older widget: `counted` decodes as nil, the rest stays.
+    @Test func anUnknownCountedSignalDecodesAsNil() throws {
+        let json = #"{"day":"2026-10-22","kind":"calibrating","baselineNights":3,"updatedAt":"2026-10-22T07:30:00Z","#
+            + #""orbit":{"recovery":71,"strain":9.6,"counted":"spo2"}}"#
+        let s = try ReadinessSnapshot.decoder.decode(ReadinessSnapshot.self, from: Data(json.utf8))
+        #expect(s.orbit == ReadinessSnapshot.Orbit(recovery: 71, strain: 9.6, counted: nil))
+        #expect(s.gauge == .calibrating(OrbitGaugeCalibration(nights: 3)))
     }
 
     @Test func theSnapshotCarriesThePlatformsNumbers() throws {
@@ -274,6 +312,8 @@ struct OrbitGaugeOldSnapshotTests {
         #expect(ReadinessSnapshot.publish(after, to: file))
         #expect(!ReadinessSnapshot.publish(after, to: file))
         #expect(ReadinessSnapshot.load(from: file)?.orbit != nil)
+        // Health scores stay out of device backups.
+        #expect(try file.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)
     }
 }
 
@@ -304,5 +344,67 @@ struct OrbitGaugeDrawingRenderTests {
             #expect(Theme.band(forScore: score) == expected, "readiness \(score)")
         }
         #expect(p.band(forReadiness: nil) == p.noReadiness && Theme.band(forScore: nil) == p.noReadiness)
+    }
+}
+
+// MARK: - the locked widget
+
+@Suite("OrbitGauge: the lock screen hides the values")
+struct OrbitGaugeLockedWidgetTests {
+    private static let snapshots: [ReadinessSnapshot?] = {
+        let make = { (f: TodayScoreFacts) in ReadinessSnapshot.make(day: f.day, presentation: .decide(f), now: computed) }
+        return [make(facts(scored())), make(facts(nil, state: .pending)), make(facts(nil, state: .waitingForSleep)),
+                make(facts(shortHistory(readiness: nil, h: 3, r: 3), prior: prior(3))), nil]
+    }()
+
+    /// Redacted (`.privacy`), VoiceOver says the widget's name and nothing else, whatever the snapshot holds.
+    @Test func redactedTheSpeechCarriesNoValues() {
+        for s in Self.snapshots {
+            #expect(ReadinessSnapshot.speech(s, redacted: true) == .name, "\(String(describing: s?.kind))")
+        }
+    }
+
+    @Test func unlockedTheSpeechCarriesTheValues() throws {
+        let score = try #require(Self.snapshots[0])
+        #expect(ReadinessSnapshot.speech(score, redacted: false)
+                == .score(readiness: 71, values: OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)))
+        #expect(ReadinessSnapshot.speech(Self.snapshots[1], redacted: false) == .night(.pending, previous: 64))
+        #expect(ReadinessSnapshot.speech(Self.snapshots[3], redacted: false) == .baselines(nights: 3, required: 7))
+        #expect(ReadinessSnapshot.speech(nil, redacted: false) == .openApp)
+    }
+}
+
+// MARK: - the number fits
+
+/// "100" fits the centre ring at ≥ 0.6 scale, and two digits at full size, at every dial a family uses: the widget's
+/// circle (68–76 pt, dial 56–64), its small tile (dial about 77–106 pt) and the app's three sizes.
+@Suite("OrbitGauge: the number fits the centre ring")
+@MainActor
+struct OrbitGaugeNumberFitTests {
+    private func width(_ text: String, _ font: Font) -> CGFloat {
+        let host = UIHostingController(rootView: Text(verbatim: text).font(font).monospacedDigit().fixedSize())
+        return host.sizeThatFits(in: CGSize(width: 1_000, height: 1_000)).width
+    }
+
+    @Test(arguments: [56, 60, 64, 77, 92, 106] as [CGFloat])
+    func inTheWidget(_ dial: CGFloat) {
+        let slot = OrbitGaugeGeometry.metrics(forDial: dial).centreSlotWidth
+        // The heavier lock-screen weight is the wider one.
+        let font = Font.system(size: OrbitGaugeGeometry.numberPointSize(forDial: dial), weight: .semibold, design: .rounded)
+        #expect(width("100", font) * 0.6 <= slot, "dial \(dial)")
+        #expect(width("71", font) <= slot + 0.5, "dial \(dial)")
+    }
+
+    @Test(arguments: [OrbitGaugeSize.small, .medium, .large])
+    func inTheApp(_ size: OrbitGaugeSize) {
+        let slot = OrbitGaugeGeometry.metrics(forDial: size.dial).centreSlotWidth
+        let font = Font.ryftNumber(size: size.dial * 0.19)
+        #expect(width("100", font) * 0.6 <= slot, "\(size)")
+        #expect(width("71", font) <= slot, "\(size)")
+    }
+
+    @Test func theNumberThresholdIsShared() {
+        #expect(OrbitGauge.minDialForNumber == OrbitGaugeGeometry.minDialForNumber)
+        #expect(OrbitGaugeGeometry.minDialForNumber == 56)
     }
 }

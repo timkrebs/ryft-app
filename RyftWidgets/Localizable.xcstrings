@@ -1,13 +1,13 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "%@, no data" : {
-      "comment" : "Widget VoiceOver: a score that is missing, after its name (Recovery, Sleep, Strain).",
+    "%@, not scored" : {
+      "comment" : "Widget VoiceOver: a score that is missing (not scored), after its name (Recovery, Sleep, Strain).",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@, keine Daten"
+            "value" : "%@, nicht bewertet"
           }
         }
       }
