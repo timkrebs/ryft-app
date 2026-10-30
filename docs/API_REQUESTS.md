@@ -189,8 +189,8 @@ invent them; these are the stand-ins until the platform serves them.
    `strain_target_hi`.** Checked 2026-10-30 (plattform 7f0f8db): `API.md` and `SCORING.md`
    have no per-day strain recommendation.
    - **Why:** the readiness bands already tell people what to do with the day, in the
-     `MORNING_SCORE_BODY_*` push copy ("a good day for high strain" for `balanced`,
-     "keep the load moderate" for `strained`, "take it easy" for `depleted`). A full
+     `MORNING_SCORE_BODY_*` push copy: "a good day to push" for `balanced`, "Keep the
+     load moderate today" for `strained`, "Take it easy today" for `depleted`. A full
      outer orbit is strain 21, which is all-out rather than good, so the Today gauge
      needs the range to show what today's budget is. The app won't invent the weights
      that turn a readiness into a range.
