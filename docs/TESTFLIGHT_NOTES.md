@@ -3,6 +3,70 @@
 Newest first. Paste the entry into App Store Connect → TestFlight → the build → What to
 Test (English and German).
 
+## Next build — beta feedback 2 and the readiness orbit (en + de)
+
+Set the build number when it's uploaded. Character counts (the text between the `text` fences): en 2,217, de 2,513.
+
+**en**
+
+```text
+Thanks for the second round of feedback. This build answers it.
+
+TRY FIRST
+- Replace an exercise mid-workout, and Undo.
+- Finish the last set of an exercise and watch the screen jump to the next one.
+- The orbit on Today and on the widget, in light and dark.
+- VoiceOver on the orbit, if you use it.
+
+WHAT'S NEW
+1. Replace an exercise during a workout: tap the ellipsis button on an exercise (or long-press it) and choose Replace exercise…. Sets you've already done stay with the old exercise, and the new one continues with the rest. Undo is there for 5 seconds. Also change the plan is off by default and applies from your next session.
+2. Edit an exercise's sets, reps, weight, rest and notes for this workout. Swipe a set row to delete it.
+3. Jump to next exercise: after the last set, the exercise folds into one line and the next set scrolls up. Profile → Training → Jump to next exercise, on by default.
+4. The rest timer is a compact bar under the clock, with the next set below it.
+5. Last time: an exercise that appears twice in one workout shows its own last sets for each place.
+6. Today's baseline counter counts whichever signal is filling. If your tracker doesn't share HRV with Apple Health, as Garmin doesn't, the counter counts what does arrive, such as resting heart rate, instead of staying at 0 of 7.
+7. The readiness orbit: readiness in the centre, Recovery and Sleep on the inner ring, Strain on the outer. The home and Lock Screen widget draws the same orbit. On a locked iPhone it stays hidden until you unlock.
+8. While RYFT learns your baselines, the outer ring fills night by night ("3 / 7"). While last night is being scored, the orbit shows the previous day, dimmed ("Last scored: Yesterday").
+9. The orbit assembles when you open the app. With Reduce Motion or Low Power Mode it only fades in.
+
+WHAT'S KNOWN
+- The outer ring is strain out of 21. A full ring means all-out, not "good".
+- Today's recommended range isn't shown yet.
+
+FEEDBACK
+Profile → About → Report a problem. Diagnostics are included if you leave them on (never health values), and reports wait while you're offline. TestFlight's own feedback also works: take a screenshot, tap Share Beta Feedback. Tim reads every one.
+```
+
+**de**
+
+```text
+Danke für dein zweites Feedback. Dieser Build antwortet darauf.
+
+PROBIER ZUERST
+- Eine Übung während des Trainings ersetzen, und „Rückgängig“.
+- Den letzten Satz einer Übung abschließen und sehen, wie die Ansicht zur nächsten springt.
+- Der Orbit auf Heute und im Widget, hell und dunkel.
+- VoiceOver auf dem Orbit, falls du es nutzt.
+
+WAS NEU IST
+1. Übung während des Trainings ersetzen: Tippe bei einer Übung auf das Menü (…) oder halte sie gedrückt, und wähle „Übung ersetzen …“. Schon erledigte Sätze bleiben bei der alten Übung, die neue setzt mit den übrigen fort. „Rückgängig“ bleibt 5 Sekunden lang. „Auch im Plan ändern“ ist standardmäßig aus und gilt ab deiner nächsten Einheit.
+2. Sätze, Wiederholungen, Gewicht, Pause und Notizen einer Übung kannst du für dieses Training ändern. Wische über eine Satzzeile, um sie zu löschen.
+3. Zur nächsten Übung springen: Nach dem letzten Satz klappt die Übung auf eine Zeile zusammen, und der nächste Satz rückt nach oben. Profil → Training → „Zur nächsten Übung springen“, standardmäßig an.
+4. Die Pausenzeit ist eine kompakte Leiste unter der Uhr, darunter steht der nächste Satz.
+5. Letztes Mal: Kommt eine Übung zweimal in einem Training vor, zeigt jede Stelle ihre eigenen letzten Sätze.
+6. Der Zähler für die Ausgangswerte zählt, was gerade ankommt. Sendet dein Tracker HRV nicht an Apple Health, wie Garmin es nicht tut, zählt er zum Beispiel den Ruhepuls und bleibt nicht mehr bei 0 von 7 stehen.
+7. Der Orbit: Die Bereitschaft steht in der Mitte, Erholung und Schlaf liegen auf dem inneren Ring, die Belastung auf dem äußeren. Das Widget auf dem Home- und dem Sperrbildschirm zeigt denselben Orbit. Auf einem gesperrten iPhone bleibt er verborgen, bis du entsperrst.
+8. Solange RYFT deine Ausgangswerte lernt, füllt sich der äußere Ring Nacht für Nacht („3 / 7“). Wird die letzte Nacht noch bewertet, zeigt der Orbit den Vortag abgeblendet („Zuletzt bewertet: Gestern“).
+9. Beim Öffnen der App setzt sich der Orbit zusammen. Bei „Bewegung reduzieren“ oder im Stromsparmodus blendet er nur ein.
+
+WAS BEKANNT IST
+- Der äußere Ring ist die Belastung von 21. Ein voller Ring heißt: alles gegeben, nicht „gut“.
+- Der empfohlene Bereich für heute wird noch nicht angezeigt.
+
+FEEDBACK
+Profil → Über RYFT → Problem melden. Diagnosedaten gehen mit, wenn du sie eingeschaltet lässt (nie Gesundheitswerte), und ohne Verbindung wartet die Meldung. Das Feedback von TestFlight geht auch: Bildschirmfoto machen, „Beta-Feedback teilen“ tippen. Tim liest jede Nachricht.
+```
+
 ## External build for friends — 1.0.0 (en + de)
 
 For the External group (public link + invite code). My Day needs the `today.myday` flag on. Each text stays under App
