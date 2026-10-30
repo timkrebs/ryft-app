@@ -83,7 +83,7 @@ Main-thread busy time in the 2 s after `main()`: 861, 830, 844, 873, 847, 1033 m
 
 ## Rerun on the branch (unchanged harness)
 ```sh
-P=/private/tmp/claude-501/-Users-tim-krebs-Development-Projects-ryft-app/9704cd58-2fdd-4db3-ab50-683f0fb164d7/scratchpad
+P=$SCRATCH
 $P/perf/run.sh <branch-worktree> $P/dd-perf-branch branch 15     # creates + deletes its own simulator
 ```
 `run.sh` copies `perf/LaunchPerfUITests.swift` into `<worktree>/RyftUITests/` only while building, then removes it
