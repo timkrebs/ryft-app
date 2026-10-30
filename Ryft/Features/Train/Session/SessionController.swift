@@ -17,7 +17,11 @@ struct SetFocus: Hashable {
 final class SessionController: Identifiable {
     let session: LocalSession
     let sync: TrainSyncService
-    private var store: TrainStore { sync.store }
+    var store: TrainStore { sync.store }
+    /// "Now" and waits (the undo window, the jump to the next exercise): tests move it by hand.
+    let clock: AppClock
+    /// Last time for a replacement and the plan for "Also change the plan"; nil in previews without a library.
+    let library: SessionLibrary?
 
     /// The workout's phase (`LiveSessionMachine`): active, resting, paused, finishing,
     /// completed or discarded. The rest timer moves it between active and resting.
@@ -40,14 +44,34 @@ final class SessionController: Identifiable {
     private var ticker: Task<Void, Never>?
     private let liveActivity: RestActivityController?
 
+    // MARK: replace and undo state (SessionController+Replace.swift)
+
+    /// The last replace while it can still be undone (one level deep). Set only by the replace extension.
+    var undo: ReplaceUndo?
+    /// A short note without Undo ("Your plan couldn't be changed"); cleared after its window.
+    var notice: SessionNotice?
+    /// Ends the undo window (`clock.sleep`), then commits: the held upload goes.
+    @ObservationIgnored var undoTask: Task<Void, Never>?
+    @ObservationIgnored var noticeTask: Task<Void, Never>?
+    /// The last plan save of "Also change the plan" or of its Undo; each one waits for the one before. A forward
+    /// save returns the plan as it was before it (nil: nothing was saved), which its Undo saves back.
+    @ObservationIgnored var planTask: Task<Plan?, Never>?
+    /// Replaces taken back with Undo (by `ReplaceUndo.id`): their late plan saves change nothing more.
+    @ObservationIgnored var undoneReplaces: Set<UUID> = []
+    /// The keypad's field when Replace was chosen (the sheet closes the keypad); Undo puts it back.
+    @ObservationIgnored var focusBeforeReplace: SetFocus?
+
     nonisolated var id: UUID { sessionID }
     private nonisolated let sessionID: UUID
 
     /// `liveActivity` is nil in previews and tests.
-    init(session: LocalSession, sync: TrainSyncService, liveActivity: RestActivityController?) {
+    init(session: LocalSession, sync: TrainSyncService, liveActivity: RestActivityController?,
+         clock: AppClock = SystemClock(), library: SessionLibrary? = nil) {
         self.session = session
         self.sessionID = session.id
         self.sync = sync
+        self.clock = clock
+        self.library = library
         self.liveActivity = liveActivity
         rest = RestTimer(endsAt: session.restEndsAt, total: session.restTotal, now: .now)
         machine = LiveSessionMachine.make { [weak self] to, _ in self?.phase = to }
@@ -68,9 +92,11 @@ final class SessionController: Identifiable {
     /// What the lock screen says comes next, so a change that doesn't move it sends nothing.
     private var lastActivityNext: String?
 
+    // MARK: jump-to-next state (SessionController+Advance.swift)
+
     /// After an edit (a set checked, unchecked, added, deleted or changed; an exercise added,
     /// removed or moved): the lock screen's next set follows.
-    private func refreshActivity() {
+    func refreshActivity() {
         guard nextLabel() != lastActivityNext else { return }
         if rest.isRunning { persistRest(exercise: nil) } else { showWorkout() }
     }
@@ -87,6 +113,7 @@ final class SessionController: Identifiable {
 
     /// The app went to the background mid-workout.
     func pause() {
+        commitUndo()
         machine.enter(.paused)
     }
 
@@ -97,9 +124,11 @@ final class SessionController: Identifiable {
         followRest()
     }
 
+    /// Finish, discard or an account change: an open undo goes without a write (nothing commits it later).
     func stop() {
         ticker?.cancel()
         ticker = nil
+        dropUndo()
     }
 
     // MARK: derived
@@ -152,7 +181,7 @@ final class SessionController: Identifiable {
     }
 
     /// Within a superset the partner comes next; otherwise the first open set.
-    private func nextUp(after ex: LocalSessionExercise?) -> (exercise: LocalSessionExercise, set: LocalSet)? {
+    func nextUp(after ex: LocalSessionExercise?) -> (exercise: LocalSessionExercise, set: LocalSet)? {
         if let ex, let group = ex.supersetGroup {
             let partners = exercises.filter { $0.supersetGroup == group }
             if let i = partners.firstIndex(where: { $0.id == ex.id }) {
@@ -195,6 +224,7 @@ final class SessionController: Identifiable {
     }
 
     func delete(_ set: LocalSet, from ex: LocalSessionExercise) {
+        dropUndo(touching: ex.id)
         session.deletedSetIDs.append(set.id)
         if focus?.setID == set.id { focus = nil }
         ex.sets.removeAll { $0.id == set.id }
@@ -206,13 +236,14 @@ final class SessionController: Identifiable {
         edited()
     }
 
-    private func changed(_ set: LocalSet) {
+    func changed(_ set: LocalSet) {
+        dropUndo(touching: set.exercise?.id)
         set.updatedAt = .now
         edited()
     }
 
     /// Any change: the upload follows (debounced), and the lock screen's next set.
-    private func edited() {
+    func edited() {
         sync.sessionChanged(session)
         refreshActivity()
     }
@@ -342,12 +373,15 @@ final class SessionController: Identifiable {
     // MARK: exercises
 
     func add(_ exercise: Exercise) {
+        dropUndo()
         SessionFactory.add(exercise, to: session, sets: 3, in: store)
         edited()
     }
 
     func remove(_ ex: LocalSessionExercise) {
+        dropUndo()
         session.deletedSetIDs.append(contentsOf: ex.sets.map(\.id))
+        session.deletedExerciseIDs.append(ex.id)
         if let group = ex.supersetGroup { ungroup(group, leaving: ex) }
         session.exercises.removeAll { $0.id == ex.id }
         store.context.delete(ex)
@@ -356,6 +390,7 @@ final class SessionController: Identifiable {
     }
 
     func move(from source: IndexSet, to destination: Int) {
+        dropUndo()
         var list = exercises
         list.move(fromOffsets: source, toOffset: destination)
         for (i, ex) in list.enumerated() { ex.position = i }
@@ -364,6 +399,7 @@ final class SessionController: Identifiable {
 
     /// Links an exercise with the one below it, or takes it out of its superset.
     func toggleSuperset(_ ex: LocalSessionExercise) {
+        dropUndo()
         if let group = ex.supersetGroup {
             ex.supersetGroup = nil
             ungroup(group, leaving: ex)
@@ -378,12 +414,12 @@ final class SessionController: Identifiable {
     }
 
     /// A superset left with one exercise isn't one any more.
-    private func ungroup(_ group: Int, leaving ex: LocalSessionExercise) {
+    func ungroup(_ group: Int, leaving ex: LocalSessionExercise) {
         let rest = exercises.filter { $0.supersetGroup == group && $0.id != ex.id }
         if rest.count < 2 { rest.forEach { $0.supersetGroup = nil } }
     }
 
-    private func renumber() {
+    func renumber() {
         for (i, ex) in exercises.enumerated() { ex.position = i }
     }
 
@@ -473,6 +509,7 @@ final class SessionController: Identifiable {
         guard machine.enter(.finishing) else { return nil }
         defer { machine.enter(.completed) }
         stop()
+        endUndo()
         rest.skip()
         liveActivity?.end()
         focus = nil
@@ -490,6 +527,7 @@ final class SessionController: Identifiable {
     func discard() {
         machine.enter(.discarded)
         stop()
+        endUndo()
         liveActivity?.end()
         sync.discard(session)
     }

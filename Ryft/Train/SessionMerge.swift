@@ -7,7 +7,10 @@ enum SessionMerge {
     /// `updated_at` (the local one on a tie); one on either side is kept unless
     /// it was deleted locally. Session fields stay local (this phone is the one
     /// logging), except the scores only the server computes.
-    static func merge(local: TrainSession, server: TrainSession, deletedSetIDs: Set<UUID> = []) -> TrainSession {
+    /// An exercise removed locally (`deletedExerciseIDs`: removed, or the row a replace inserted and Undo took
+    /// back) doesn't come back from the server's copy either.
+    static func merge(local: TrainSession, server: TrainSession, deletedSetIDs: Set<UUID> = [],
+                      deletedExerciseIDs: Set<UUID> = []) -> TrainSession {
         var out = local
         out.muscularTrimp = local.muscularTrimp ?? server.muscularTrimp
         out.strain = local.strain ?? server.strain
@@ -22,7 +25,7 @@ enum SessionMerge {
             return merged
         }
         let localIDs = Set(local.exercises.map(\.id))
-        for theirs in server.exercises where !localIDs.contains(theirs.id) {
+        for theirs in server.exercises where !localIDs.contains(theirs.id) && !deletedExerciseIDs.contains(theirs.id) {
             var e = theirs
             e.sets = theirs.sets.filter { !deletedSetIDs.contains($0.id) }
             exercises.append(e)

@@ -77,6 +77,8 @@ struct SessionView: View {
                     if let focus = controller.focus { proxy.scrollTo(focus.setID, anchor: .center) }
                 }
             }
+            // An inset, not an overlay: while the toast shows, the last set row scrolls clear of it.
+            .safeAreaInset(edge: .bottom, spacing: 0) { SessionToastOverlay(controller: controller) }
             if controller.focus != nil {
                 NumberPad(controller: controller) { kg in plates = PlateRequest(kg: kg, fromKeypad: true) }
                     .transition(.move(edge: .bottom))
