@@ -83,7 +83,9 @@ import UIKit
             for (title, colour) in [("accent", Theme.accent), ("sleep", Theme.metricSleep), ("strain", Theme.metricStrain)] {
                 var c = resolve(colour, style)
                 c.a = OrbitGaugeMarks.pendingOpacity
-                lines.append("\(name) pending \(title): background \(String(format: "%.2f", ratio(over(c, background), background))), over track \(String(format: "%.2f", ratio(over(c, track), track)))")
+                let onBackground = String(format: "%.2f", ratio(over(c, background), background))
+                let onTrack = String(format: "%.2f", ratio(over(c, track), track))
+                lines.append("\(name) pending \(title): background \(onBackground), over track \(onTrack)")
             }
             // The light-scheme Sleep and Strain arcs at 0.6 are the documented sub-3:1 case.
             if style == .light {

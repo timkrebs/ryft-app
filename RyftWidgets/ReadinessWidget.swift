@@ -199,7 +199,8 @@ private struct SmallReadiness: View {
         VStack(spacing: 4) {
             GeometryReader { g in
                 let side = min(g.size.width, g.size.height)
-                WidgetOrbitGauge(mode: snapshot?.gauge, size: .custom(dial: max(side - 12, 0)), readiness: snapshot?.readiness)
+                WidgetOrbitGauge(mode: snapshot?.gauge, size: .custom(dial: max(side - 12, 0)), readiness: snapshot?.readiness,
+                                 previousReadiness: snapshot?.previousReadiness)
                     .frame(width: g.size.width, height: g.size.height)
             }
             caption
@@ -249,7 +250,8 @@ private struct CircularReadiness: View {
                     ZStack {
                         AccessoryWidgetBackground()
                         WidgetOrbitGauge(mode: snapshot?.gauge, size: .custom(dial: max(side - 12, 0)),
-                                         readiness: snapshot?.readiness, prominentNumber: true)
+                                         readiness: snapshot?.readiness, previousReadiness: snapshot?.previousReadiness,
+                                         prominentNumber: true)
                     }
                     .frame(width: g.size.width, height: g.size.height)
                 }
@@ -279,7 +281,7 @@ private struct RectangularReadiness: View {
             // always the tracks, so whether today is scored doesn't show either.
             if locked || drawsOrbit(snapshot) {
                 WidgetOrbitGauge(mode: snapshot?.gauge, size: .custom(dial: 44), readiness: snapshot?.readiness,
-                                 showsNumber: false)
+                                 previousReadiness: snapshot?.previousReadiness, showsNumber: false)
             }
             lines
         }
@@ -349,6 +351,14 @@ extension ReadinessSnapshot {
         return s
     }
 
+    /// Waiting for the night with no orbit (row A's tiles, or a calibrating file turned over at midnight): the
+    /// tracks and hollow dots with the latest readiness, 64, dimmed in the centre.
+    static var previewWaitingWithoutOrbit: ReadinessSnapshot {
+        var s = preview(.waitingForSleep)
+        s.orbit = nil
+        return s
+    }
+
     /// Three digits: the number must still fit the centre ring.
     static var previewHundred: ReadinessSnapshot {
         var s = preview(.score)
@@ -373,6 +383,7 @@ extension ReadinessSnapshot {
     ReadinessEntry(date: .now, snapshot: .previewSleepMissing)
     ReadinessEntry(date: .now, snapshot: .previewBeforeOrbit)
     ReadinessEntry(date: .now, snapshot: .preview(.pending))
+    ReadinessEntry(date: .now, snapshot: .previewWaitingWithoutOrbit)
     ReadinessEntry(date: .now, snapshot: .preview(.calibrating))
     ReadinessEntry(date: .now, snapshot: nil)
 }
@@ -391,6 +402,7 @@ extension ReadinessSnapshot {
     ReadinessEntry(date: .now, snapshot: .preview(.score))
     ReadinessEntry(date: .now, snapshot: .preview(.calibrating))
     ReadinessEntry(date: .now, snapshot: .preview(.waitingForSleep))
+    ReadinessEntry(date: .now, snapshot: .previewWaitingWithoutOrbit)
 }
 
 #Preview("Inline", as: .accessoryInline) {
@@ -406,7 +418,8 @@ struct ReadinessWidgetGallery: View {
             ForEach([ColorScheme.dark, .light], id: \.self) { scheme in
                 VStack(spacing: 16) {
                     let snapshots: [ReadinessSnapshot] = [.preview(.score), .previewHundred, .previewSleepMissing,
-                                                          .previewBeforeOrbit, .preview(.pending), .preview(.calibrating)]
+                                                          .previewBeforeOrbit, .preview(.pending), .previewWaitingWithoutOrbit,
+                                                          .preview(.calibrating)]
                     ForEach(snapshots.indices, id: \.self) { i in
                         SmallReadiness(snapshot: snapshots[i])
                             .padding(16)
@@ -423,6 +436,8 @@ struct ReadinessWidgetGallery: View {
                         CircularReadiness(snapshot: .preview(.calibrating))
                             .frame(width: 68, height: 68)
                         CircularReadiness(snapshot: .preview(.pending))
+                            .frame(width: 68, height: 68)
+                        CircularReadiness(snapshot: .previewWaitingWithoutOrbit)
                             .frame(width: 68, height: 68)
                     }
                     ForEach([ReadinessSnapshot.Kind.score, .calibrating, .pending], id: \.self) { kind in

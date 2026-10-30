@@ -11,6 +11,9 @@ struct WidgetOrbitGauge: View {
     var size: OrbitGaugeSize = .small
     /// The centre number when the mode is unknown; a scored mode brings its own.
     var readiness: Int?
+    /// The centre number while pending when the mode has no previous day's drawing (no orbit in the snapshot, e.g.
+    /// row A's tiles or a calibrating file turned over): the latest readiness, dimmed, over the tracks and hollow dots.
+    var previousReadiness: Int?
     /// The number inside the centre ring; off where the text beside it says it.
     var showsNumber = true
     /// The lock screen's circle: the number in the system's primary ink and a heavier weight.
@@ -41,7 +44,7 @@ struct WidgetOrbitGauge: View {
     private var pointSize: CGFloat { OrbitGaugeGeometry.numberPointSize(forDial: size.dial) }
 
     /// Locked: the constant. Calibrating: the count, with " / 7" from a 100 pt dial up as in the app (below it the
-    /// segments say "of 7"). Pending: the previous day's readiness, dimmed, or the dash. Otherwise the readiness.
+    /// segments say "of 7"). Pending: the previous day's readiness (or `previousReadiness`), dimmed, or the dash. Otherwise the readiness.
     private var centreText: Text {
         if locked { return Text(verbatim: Words.lockedNumber).foregroundStyle(numberStyle(dimmed: false)) }
         if case .calibrating(let calibration)? = mode {
@@ -55,11 +58,12 @@ struct WidgetOrbitGauge: View {
             .foregroundStyle(numberStyle(dimmed: number == nil || mode?.isPending == true))
     }
 
-    /// The readiness in the centre: the day's, the previous day's while pending, `readiness` when the mode is unknown.
+    /// The readiness in the centre: the day's, the previous day's while pending (the drawing's, else
+    /// `previousReadiness`), `readiness` when the mode is unknown.
     private var number: Int? {
         switch mode {
         case .scored(let values, _)?: return values.readiness
-        case .pending(let previous)?: return previous?.readiness
+        case .pending(let previous)?: return previous?.readiness ?? previousReadiness
         case .calibrating?, .assembling?: return nil
         case nil: return readiness
         }
@@ -93,6 +97,7 @@ struct WidgetOrbitGauge: View {
                 WidgetOrbitGauge(mode: .pending(previous: OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88,
                                                                             strain: 9.6)))
                 WidgetOrbitGauge(mode: .pending(previous: nil))
+                WidgetOrbitGauge(mode: .pending(previous: nil), previousReadiness: 64)
                 WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 100, recovery: 1, sleep: 1, strain: 21)),
                                  size: .custom(dial: 56), prominentNumber: true)
                 WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)),
