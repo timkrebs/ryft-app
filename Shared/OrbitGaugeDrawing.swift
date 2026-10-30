@@ -187,7 +187,8 @@ struct OrbitGaugeMarks: View {
 }
 
 extension OrbitGaugeMode {
-    /// The count of a calibrating gauge.
+    /// The count of a calibrating gauge, only for `.calibrating`. The app's `OrbitGaugeMode.calibration`
+    /// (`OrbitGaugeMode+Today.swift`) also returns S2's `learning`, which is never drawn (plan.md decision 3).
     var calibratingValue: OrbitGaugeCalibration? {
         if case .calibrating(let calibration) = self { return calibration }
         return nil

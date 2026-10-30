@@ -66,7 +66,9 @@ struct OrbitGauge: View {
         .accessibilityLabel(Text(spokenLabel))
         .accessibilityValue(Text(spokenValue))
         .accessibilityIdentifier(identifier)
-        .task(id: mode.calibratingValue?.counted) { await stepFill() }
+        .task(id: FillKey(counted: mode.calibratingValue?.counted, steps: animatesFill && !reduceMotion)) {
+            await stepFill()
+        }
     }
 
     // MARK: calibrating fill
@@ -78,16 +80,31 @@ struct OrbitGauge: View {
         return .calibrating(calibration)
     }
 
-    /// One segment per 60 ms up to the count; a lower count is taken at once.
+    /// What restarts the fill: the count, and whether the segments step at all (Reduce Motion turned off while the
+    /// app is open must run it again, or the count would show over empty segments).
+    private struct FillKey: Hashable {
+        var counted: Int?
+        var steps: Bool
+    }
+
+    /// The next displayed count: `target` at once when nothing steps or the count went down; otherwise one night
+    /// further from `current` (nil: none shown yet, so 1 after the first tick), never past `target`.
+    static func nextShown(current: Int?, target: Int, steps: Bool) -> Int {
+        guard steps, (current ?? 0) <= target else { return target }
+        return min((current ?? 0) + 1, target)
+    }
+
+    /// One segment per 60 ms up to the count; otherwise the state follows the count at once.
     private func stepFill() async {
-        guard let target = mode.calibratingValue?.counted, animatesFill, !reduceMotion else { return }
+        guard let target = mode.calibratingValue?.counted else { return }
+        let steps = animatesFill && !reduceMotion
+        guard steps, (shownNights ?? 0) <= target else { shownNights = target; return }
         var current = shownNights ?? 0
-        if target < current { shownNights = target; return }
         shownNights = current
         while current < target {
             try? await Task.sleep(for: .milliseconds(60))
             if Task.isCancelled { return }
-            current += 1
+            current = Self.nextShown(current: current, target: target, steps: true)
             withAnimation(.easeOut(duration: 0.06)) { shownNights = current }
         }
     }
@@ -155,7 +172,7 @@ struct OrbitGauge: View {
             Text(caption.title)
                 .ryftLabelStyle()
                 .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+                .neverBreaksAWord(caption.title)
             let band = bandLabel(caption)
             if band != nil || caption.delta != nil {
                 ViewThatFits(in: .horizontal) {
@@ -183,7 +200,7 @@ struct OrbitGauge: View {
             Text(band)
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .neverBreaksAWord(band)
         }
     }
 
@@ -274,6 +291,16 @@ struct OrbitGauge: View {
 
     private static func strainText(_ v: Double) -> String {
         v.formatted(.number.precision(.fractionLength(1)))
+    }
+}
+
+private extension View {
+    /// Wraps between words but never inside one: as many lines as the text has words, and a word wider than the
+    /// line shrinks the text (down to half) instead of breaking ("AUSGANGSWERT" / "E" at AX3 in German).
+    func neverBreaksAWord(_ text: String) -> some View {
+        lineLimit(max(text.split(whereSeparator: \.isWhitespace).count, 1))
+            .minimumScaleFactor(0.5)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
