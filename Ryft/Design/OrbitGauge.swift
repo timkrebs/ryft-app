@@ -42,17 +42,84 @@ struct OrbitGauge: View {
     /// Below this dial the gauge is the mark only (VoiceOver still has the value); the widget uses the same.
     static let minDialForNumber = OrbitGaugeGeometry.minDialForNumber
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    /// Previews only: `accessibilityReduceMotion` cannot be set in an environment.
+    @Environment(\.orbitForcesReducedMotion) private var forcedReduceMotion
+    private var reduceMotion: Bool { systemReduceMotion || forcedReduceMotion }
     /// Calibrating: the segments filled so far while they step in; nil before the first step.
     @State private var shownNights: Int?
+    /// Latched at the first appearance (`entrance` of the initialiser): this instance plays the entrance, once. Later
+    /// values of the parameter are ignored, so Today consuming its flag right after the first frame cannot cut it short.
+    @State private var staged: Bool
+    /// Latched with `staged`: `Entrance.assembleOverTracks`, the tracks were already on screen (Today's placeholder).
+    @State private var overTracks: Bool
+    /// When the entrance started (its first appearance); the clock is the time since, read by a `TimelineView`, so no
+    /// transaction animates anything but what the view draws from it (a layout change around the gauge is never
+    /// dragged along for 850 ms).
+    @State private var start: Date?
+    /// The entrance has run to its end (or never ran): the calibrating fill may start.
+    @State private var entranceDone: Bool
+    /// Low Power Mode is read once at the start; it is treated like Reduce Motion (plan.md decision 7).
+    @State private var lowPower: Bool
+    /// Previews and tests: draw the entrance frozen at this many seconds; nothing animates.
+    private let frozenAt: Double?
+
+    /// `entrance: .assemble` plays the launch entrance once for this view instance, from its first frame, into the
+    /// real mode (design.md section 10). `frozenAt` is for previews and tests only.
+    init(mode: OrbitGaugeMode, size: Size = .large, caption: Caption? = nil, accessibilityNote: String? = nil,
+         identifier: String = "orbitGauge", animatesFill: Bool = true, breathes: Bool = true,
+         entrance: Entrance = .none, frozenAt: Double? = nil) {
+        self.mode = mode
+        self.size = size
+        self.caption = caption
+        self.accessibilityNote = accessibilityNote
+        self.identifier = identifier
+        self.animatesFill = animatesFill
+        self.breathes = breathes
+        let plays = entrance.plays
+        self.frozenAt = plays ? frozenAt : nil
+        _staged = State(initialValue: plays)
+        _overTracks = State(initialValue: entrance == .assembleOverTracks)
+        _entranceDone = State(initialValue: !plays)
+        _lowPower = State(initialValue: plays && frozenAt == nil && ProcessInfo.processInfo.isLowPowerModeEnabled)
+    }
+
+    /// Reduce Motion or Low Power Mode: the entrance is a cross-fade.
+    private var reducesEntrance: Bool { reduceMotion || lowPower }
 
     private var values: OrbitGaugeValues? { mode.scoredValues }
     private var shownCaption: Caption? { size == .large ? caption : nil }
 
     var body: some View {
+        Group {
+            if staged {
+                TimelineView(.animation(paused: frozenAt != nil || entranceDone)) { context in
+                    let seconds = clock(at: context.date)
+                    column(elapsed: seconds)
+                        .onChange(of: entranceIsOver(at: seconds)) { _, over in
+                            if over { entranceDone = true }
+                        }
+                }
+            } else {
+                column(elapsed: OrbitEntranceFrame.end)
+            }
+        }
+        .onAppear(perform: startEntrance)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(spokenLabel))
+        .accessibilityValue(Text(spokenValue))
+        .accessibilityIdentifier(identifier)
+        .task(id: FillKey(counted: mode.calibratingValue?.counted, steps: animatesFill && !reduceMotion,
+                          waiting: !entranceDone)) {
+            await stepFill()
+        }
+    }
+
+    /// The gauge and its caption. `elapsed` is the entrance's clock (only read when `staged`).
+    private func column(elapsed: Double) -> some View {
         VStack(spacing: 8) {
             ZStack {
-                drawing
+                shownDrawing(elapsed: elapsed)
                     // Reduce Motion: no arc moves; a new value cross-fades (250 ms) instead.
                     .id(reduceMotion ? AnyHashable(mode) : AnyHashable(0))
                     .transition(.opacity)
@@ -60,14 +127,11 @@ struct OrbitGauge: View {
             .frame(width: size.frame, height: size.frame)
             // The arcs and the dots ride the same animation; the number rolls with it.
             .animation(reduceMotion ? Theme.Motion.quick : Theme.Motion.slow, value: mode)
-            if let shownCaption { captionLines(shownCaption) }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(spokenLabel))
-        .accessibilityValue(Text(spokenValue))
-        .accessibilityIdentifier(identifier)
-        .task(id: FillKey(counted: mode.calibratingValue?.counted, steps: animatesFill && !reduceMotion)) {
-            await stepFill()
+            if let shownCaption {
+                // Over the placeholder its caption title was already there: only what comes with the score fades in.
+                captionLines(shownCaption, titleOpacity: overTracks ? 1 : captionOpacity(elapsed),
+                             detailOpacity: captionOpacity(elapsed))
+            }
         }
     }
 
@@ -85,6 +149,8 @@ struct OrbitGauge: View {
     private struct FillKey: Hashable {
         var counted: Int?
         var steps: Bool
+        /// The entrance is still running: the segments start when it ends.
+        var waiting: Bool
     }
 
     /// The next displayed count: `target` at once when nothing steps or the count went down; otherwise one night
@@ -96,7 +162,7 @@ struct OrbitGauge: View {
 
     /// One segment per 60 ms up to the count; otherwise the state follows the count at once.
     private func stepFill() async {
-        guard let target = mode.calibratingValue?.counted else { return }
+        guard entranceDone, let target = mode.calibratingValue?.counted else { return }
         let steps = animatesFill && !reduceMotion
         // Every decision is `nextShown`'s: a step of one night is animated after 60 ms, anything else (not stepping,
         // a lower count, a target of 0) is taken at once.
@@ -109,15 +175,67 @@ struct OrbitGauge: View {
         }
     }
 
+    // MARK: entrance
+
+    /// The static drawing, or the entrance stage whose last frame is that drawing. Fixed for the life of the view.
+    @ViewBuilder
+    private func shownDrawing(elapsed: Double) -> some View {
+        if staged {
+            OrbitEntranceStage(elapsed: elapsed, reduced: reducesEntrance, overTracks: overTracks, done: entranceDone,
+                               mode: displayedMode, size: size, palette: .assets,
+                               settled: drawing(marksOpacity: marksFade(elapsed)), centre: centre)
+        } else {
+            drawing()
+        }
+    }
+
+    /// Seconds since the entrance started: the frozen moment of previews and tests, 0 before the first appearance.
+    private func clock(at date: Date) -> Double {
+        if let frozenAt { return frozenAt }
+        return start.map { max(date.timeIntervalSince($0), 0) } ?? 0
+    }
+
+    private var entranceDuration: Double {
+        reducesEntrance ? OrbitEntranceFrame.fadeDuration : OrbitEntranceFrame.end
+    }
+
+    private func entranceIsOver(at seconds: Double) -> Bool {
+        frozenAt == nil && start != nil && seconds >= entranceDuration
+    }
+
+    /// The caption arrives with the score (the glide), never with the tracks: the title, band word and change in the full
+    /// entrance; over a placeholder's tracks the title is already there, so only the band word and change. Full once done,
+    /// and in the static path, so the last frame is the static render.
+    private func captionOpacity(_ elapsed: Double) -> Double {
+        guard staged, !entranceDone else { return 1 }
+        if reducesEntrance { return OrbitEntranceFrame.eased(elapsed, 0, OrbitEntranceFrame.fadeDuration) }
+        return OrbitEntranceFrame(seconds: elapsed).glide
+    }
+
+    /// Reduce Motion or Low Power Mode over tracks already on screen: the marks and the number fade in, the tracks
+    /// stay. 1 otherwise, and once done, so the last frame is the static render.
+    private func marksFade(_ elapsed: Double) -> Double {
+        guard staged, overTracks, reducesEntrance, !entranceDone else { return 1 }
+        return OrbitEntranceFrame.eased(elapsed, 0, OrbitEntranceFrame.fadeDuration)
+    }
+
+    /// On the first appearance only: the clock starts. The curves are in `OrbitEntranceFrame`.
+    private func startEntrance() {
+        guard staged, start == nil, frozenAt == nil else { return }
+        start = Date()
+    }
+
     // MARK: drawing
 
-    private var drawing: some View {
+    /// `marksOpacity`: the marks and the number, not the tracks (`marksFade`); 1 in the static drawing.
+    private func drawing(marksOpacity: Double = 1) -> some View {
         OrbitGaugeDrawing(mode: displayedMode, size: size, palette: .assets, marks: { marks in
             // Pending: the dimmed marks breathe. One phase (no motion) otherwise.
             marks.phaseAnimator(mode.isPending && breathes && !reduceMotion ? [1.0, 0.75] : [1.0]) { marks, opacity in
                 marks.compositingGroup().opacity(opacity)
             } animation: { _ in .easeInOut(duration: 1.4) }
-        }, centre: { centre })
+                .opacity(marksOpacity)
+        }, centre: { centre.opacity(marksOpacity) })
     }
 
     @ViewBuilder
@@ -144,8 +262,6 @@ struct OrbitGauge: View {
                 calibrationCount(calibration)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
-            case .assembling:
-                EmptyView()
             }
         }
     }
@@ -167,12 +283,13 @@ struct OrbitGauge: View {
     /// The caption as a section label (it scales with Dynamic Type; the gauge doesn't), then the band word and the
     /// change in one line when it fits; at large text sizes (German at AX3) the band word over the change, wrapping:
     /// never cut off.
-    private func captionLines(_ caption: Caption) -> some View {
+    private func captionLines(_ caption: Caption, titleOpacity: Double = 1, detailOpacity: Double = 1) -> some View {
         VStack(spacing: 4) {
             Text(caption.title)
                 .ryftLabelStyle()
                 .multilineTextAlignment(.center)
                 .neverBreaksAWord(caption.title)
+                .opacity(titleOpacity)
             let band = bandLabel(caption)
             if band != nil || caption.delta != nil {
                 ViewThatFits(in: .horizontal) {
@@ -190,6 +307,7 @@ struct OrbitGauge: View {
                     }
                     .multilineTextAlignment(.center)
                 }
+                .opacity(detailOpacity)
             }
         }
     }
@@ -229,9 +347,6 @@ struct OrbitGauge: View {
             spoken = Self.spokenValue(calibration)
         case .pending(let previous):
             spoken = Self.spokenPending(previous)
-        case .assembling:
-            // PR 3 gives it its own sentence.
-            spoken = String(localized: "Not scored yet")
         }
         return accessibilityNote.map { "\(spoken). \($0)" } ?? spoken
     }
@@ -375,7 +490,6 @@ private struct OrbitCaption: View {
             }
             HStack(spacing: 8) {
                 OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .small, animatesFill: false)
-                OrbitGauge(mode: .assembling, size: .small)
                 OrbitGauge(mode: .pending(previous: .previewScored), size: .small, breathes: false)
             }
         }

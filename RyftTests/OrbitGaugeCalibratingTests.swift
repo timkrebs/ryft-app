@@ -128,14 +128,12 @@ import Testing
         #expect(OrbitGaugeMode.pending(previous: day).drawnValues == day)
         #expect(OrbitGaugeMode.pending(previous: nil).drawnValues == nil)
         #expect(OrbitGaugeMode.calibrating(cal).drawnValues == nil)
-        #expect(OrbitGaugeMode.assembling.drawnValues == nil)
 
         #expect(OrbitGaugeMode.pending(previous: day).isPending)
         #expect(OrbitGaugeMode.pending(previous: nil).isPending)
         #expect(!OrbitGaugeMode.scored(day).isPending)
         #expect(!OrbitGaugeMode.scored(day, learning: cal).isPending)
         #expect(!OrbitGaugeMode.calibrating(cal).isPending)
-        #expect(!OrbitGaugeMode.assembling.isPending)
     }
 
     @Test func scoredValuesIsOnlyForScored() {
@@ -151,7 +149,6 @@ import Testing
         #expect(OrbitGaugeMode.scored(.previewScored, learning: cal).calibratingValue == nil)
         #expect(OrbitGaugeMode.pending(previous: .previewScored).calibratingValue == nil)
         #expect(OrbitGaugeMode.pending(previous: nil).calibratingValue == nil)
-        #expect(OrbitGaugeMode.assembling.calibratingValue == nil)
     }
 
     // MARK: VoiceOver (English; the simulator's region decides the decimal separator)

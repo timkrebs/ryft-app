@@ -47,7 +47,7 @@ extension OrbitGaugeMode {
         switch self {
         case .calibrating(let c): return c
         case .scored(_, let learning): return learning
-        case .assembling, .pending: return nil
+        case .pending: return nil
         }
     }
 }
