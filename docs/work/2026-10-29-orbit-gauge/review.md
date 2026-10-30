@@ -201,3 +201,52 @@ Live frames (`pr3-validate/r3-*`): the rings and caption title stay through the 
 - The identity is stable when the flag is consumed, and PR 2 state is kept.
 
 Accepted nit: when the data arrives in a different hero row than the placeholder (calibrating or pending), the rows' 250 ms crossfade dips the kept tracks to about 75 %. A same-row hand-off swaps without a dip.
+
+## PR 4: the strain band (#81)
+
+The band is drawn and hidden: production passes no band (plan decision 9).
+
+### Round 1 (f0ba40b)
+
+**code-reviewer:** the nil path adds no views, IDs or animations. Two blocking, three should-fix, one nit.
+- **Blocking:**
+  1. **The entrance turned the whole arc alert.** The past wedge got `to < from` while the arc grew, and `addArc` wrapped the long way round. The arc was all alert from 600 to 780 ms, then snapped. → designer.
+  2. **Lint:** a double blank line in `OrbitGauge.swift`, and `optional_data_string_conversion` in a test. → designer and test-engineer.
+- **Should fix:**
+  1. **Crossing the band's end swapped two arc views,** a crossfade with no trim. The wedge's `to` didn't animate, so a decreasing arc cut its tail at once. → designer: one `Animatable` strain-arc structure whenever a band exists.
+  2. **The rail's cut-out jumped to the destination** ahead of the dot. → designer.
+  3. **The nil-parity test only proved the `clampedBand` guard.** → test-engineer: renamed to what it proves. Nil against `main` stays the designer's one-off 84-render hash check, a manual step.
+- **Nit:** a leftover `print`.
+
+**ui-validator** (shots and code; no simulator run): nothing blocking.
+- **Should fix:** the preview's "no band" column reused the banded view (duplicate `ForEach` ids). → designer.
+- **Nits:**
+  - The modes shot didn't match the preview. → re-shot from the committed previews.
+  - The rail is faint in dark mode. Kept at 0.5: 0.6 gives 2.85:1 and starts competing with the arc (design.md §11).
+  - **VoiceOver gave no verdict past the band, so colour was the only carrier.** → designer: "above today's recommended range". This is one new key (en/de).
+- **Accepted:** the rail runs about 7 pt beside the arc for about 80°. It reads like a double line near the dot, but is tolerable.
+
+**localization-editor:**
+- "today's range" became "today's recommended range" ("heutiger empfohlener Bereich"), because it could be heard as the day's observed lowest and highest strain.
+- "target" / "Ziel" isn't used, because it is the user's own goals in the app and another wearable's term.
+
+### Round 2 (6daa51a designer, 5d7fb1d test-engineer)
+
+The designer's fixes:
+- an empty wedge when `to <= from`, and the past layer skipped while `sweep <= split`;
+- `OrbitStrainArc` and `OrbitStrainDot` are `Animatable` in the sweep, and the dot flips colour exactly at the split;
+- the rail cut is `start: 0` with the sweep, as the tracks do;
+- the preview ids fixed and the shots re-shot from the previews;
+- the "above" key.
+
+The nil renders are still byte-identical to `main` c0927f1 (84 renders).
+
+New tests:
+- the "above" sentence in en and de;
+- `strainSplitDegrees`;
+- wedge emptiness;
+- mid-glide frames with a band (0.65 / 0.72 / 0.8, light and dark);
+- the end frame equal to the static render;
+- the `Animatable` sweep and the dot flip.
+
+Unit: 2170 passed, 0 warnings. `make lint` passes; swiftlint and swiftformat aren't installed locally, so CI's Lint job is the real check.
