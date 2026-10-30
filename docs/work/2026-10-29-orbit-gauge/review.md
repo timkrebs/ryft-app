@@ -250,3 +250,11 @@ New tests:
 - the `Animatable` sweep and the dot flip.
 
 Unit: 2170 passed, 0 warnings. `make lint` passes; swiftlint and swiftformat aren't installed locally, so CI's Lint job is the real check.
+
+**code-reviewer re-check (5d7fb1d): OK.** All six earlier findings are fixed.
+- **Nil path:** still untouched.
+- **Arc swaps:** the arc view swaps only when the band itself appears or disappears.
+- **The dot's flip:** it uses the same predicate as the tone and the sentence (strain exactly at the end stays plain).
+- **The mid-glide test at t 0.65 catches the original bug.**
+
+One nit: the entrance dot was coloured by its flight angle, which includes the 40° turn, so a band ending below about 2.3 would flash alert in flight. → lead: the dot is coloured by the arc's sweep. Orbit suites: 64 passed.
