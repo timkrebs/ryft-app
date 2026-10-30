@@ -111,3 +111,36 @@ Verified sound:
 - iPhone only, so there's no multi-scene case.
 
 The fix round is held until the performance-profiler finishes measuring f53107f, so builds don't skew its numbers.
+
+### code-reviewer, re-verification (23f6a83..6bc2849)
+
+Findings 1–3 are fixed:
+- `done` draws `settled` on both paths;
+- `TodayGaugeEntrance.decide` is table-tested;
+- the background marks the entrance played-unseen.
+
+The PR 2 fill and breathing still start at the entrance's end. The no-consume rebuild row is correct, because the rebuilt instance must latch `.assemble` before the flag is consumed.
+
+New nits, sent with round 2:
+- **`.appeared` outside the background clears `playedUnseen`** (an unlikely ordering) → developer.
+- **The completion rebuilds `settled` once, invisibly,** and a 171-character line → designer.
+
+### ui-validator (6bc2849: cold-launch recordings, en/de, dark/light, standard/AX3, Reduce Motion)
+
+Blocking:
+1. **German AX3: the assembling gauge is about 80 pt lower than the settled one, overlapping its caption, then everything jumps up** (`pr3-validate/m11.png`). Standard size is clean. → designer: the stage and `settled` share one frame and anchor; the flying dots must not take part in layout.
+2. **First launch after install (and demo mode): the entrance plays on the empty no-data gauge.** The scores arrive about 0.5 s later and the arcs just fade in (`pr3-validate/m2.png`). Architecture §4's "first frame is decided" holds with stored data only. Lead decision: **the entrance plays on the first gauge that has something to show** (scores, calibrating, or pending with a previous day). The placeholder is static and never consumes the flag; the gauge becomes a new instance when content first becomes showable. Still once per process. → developer: the predicate in the pure layer, table-tested.
+
+Nits:
+3. **The band word appears with the tracks, before the score** → designer: fade it in with the glide.
+4. **Light mode's first frame is dark grey:** the launch screen background is dark-first. Pre-existing; follow-up.
+5. **The Reduce Motion fade** shows a placeholder for about 100 ms before the values (the same race as 2).
+
+Verified:
+- the motion reads calm, on brand and as the mark assembling;
+- no flash of the final state; the tiles appear at once;
+- calibrating and pending launches are correct;
+- a foreground return doesn't replay;
+- Reduce Motion fades only, and turning it off then returning shows the complete gauge.
+
+Not verified: the tab-switch replay (no tap driver; covered by the table), Low Power Mode, and the real device.

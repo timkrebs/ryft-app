@@ -127,6 +127,9 @@ exception. Add one render test of `OrbitGaugeDrawing` per mode.
   on the first Today visit; accepted. Reduce Motion / Low Power consume it and fade. Something covering Today in the
   first frames (the "Open in" import cover, a gate sheet, a system alert) lets it play unseen and consumes it;
   accepted too (lead, PR 3 review), because detecting cover state on Today isn't worth one animation.
+  **Not always decided at the first frame (PR 3 review):** a first launch after install, and demo mode, show the no-data
+  gauge for a few hundred ms. So the entrance plays on the first gauge that has something to show (scores, calibrating,
+  or pending with a previous day); the placeholder is static and never consumes the flag.
 - **Main actor.** The entrance is view state only: `TimelineView`/`withAnimation`, no tasks, no reads. Measure as the
   brief says.
 
