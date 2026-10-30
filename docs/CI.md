@@ -35,8 +35,14 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
   so do runs for different PRs. A second runner on the same Mac (its own directory and
   service) would run two jobs at once.
 - **Awake for the nightly.** The 00:30 UTC run waits until the Mac is awake.
-- **Its simulator.** `scripts/ci-simulator.sh` creates "RYFT CI" in the Mac's own simulator
-  set and reuses it.
+- **Its simulator.** `scripts/ci-simulator.sh` creates a device for every CI job, "RYFT CI <run
+  id>-<attempt>", and never reuses one: a reused "RYFT CI" passed its first job and hung the
+  next ones (2026-10-30). `scripts/ci-simulator-cleanup.sh` (an `if: always()` step) deletes it
+  and its parallel-testing clones (they live in `~/Library/Developer/XCTestDevices`, 277 had
+  piled up), and any device named like ours ("RYFT CI", "RYFT CI local", "RYFT CI <run>-<attempt>")
+  older than a day. The step has a 3-minute limit and can't fail the job. A local run (no
+  `GITHUB_RUN_ID`) reuses one "RYFT CI local" device, so parallel sessions don't delete each
+  other's booted simulator.
 - **Load.** Builds on the Mac compete with whatever else it is doing. The test time limits
   (60 s per unit test, 3 minutes per UI test) were set for GitHub's runners.
 
@@ -71,9 +77,9 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
     every hop, so on a runner where that backlog took 30+ s the waits timed out and some tests
     hit the 60 s cap (2026-10-23 to 26). The cap is "experimental" in Xcode 27.1; if a newer Xcode
     ignores it, the flake returns as `await eventually { clock.pendingSleeps == 1 }` failures.
-  - the simulator comes from `scripts/ci-simulator.sh`: a device of its own, "RYFT CI",
-    created on the newest iOS runtime (`$SIMULATOR`'s type, default iPhone 17 Pro, else
-    the newest iPhone) and reused when it exists. A fresh device has no paired Apple
+  - the simulator comes from `scripts/ci-simulator.sh`: a device of its own, "RYFT CI <run id>-<attempt>",
+    created fresh on the newest iOS runtime (`$SIMULATOR`'s type, default iPhone 17 Pro, else
+    the newest iPhone) and deleted at the end of the job with its clones. A fresh device has no paired Apple
     Watch: parallel testing clones the device, and cloning a paired one fails on runner
     images without the watchOS runtime. It is booted before the tests start.
   - on failure (and always for `Full`) the `.xcresult` bundles are uploaded as

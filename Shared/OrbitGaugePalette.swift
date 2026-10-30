@@ -41,6 +41,9 @@ struct OrbitGaugePalette {
         }
     }
 
+    /// The strain arc and dot past the band's upper end: `alert` itself (design.md §11 on why not a mix).
+    var strainPastBand: Color { low }
+
     func colour(of orbit: OrbitGaugeGeometry.Orbit) -> Color {
         switch orbit {
         case .recovery: return recovery

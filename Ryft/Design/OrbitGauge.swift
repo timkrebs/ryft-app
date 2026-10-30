@@ -386,8 +386,7 @@ struct OrbitGauge: View {
                       ?? noData(String(localized: "Recovery")))
         scores.append(v.sleepFraction.map { String(localized: "Sleep \(Self.percent($0)) percent") }
                       ?? noData(String(localized: "Sleep")))
-        scores.append(v.strain.map { String(localized: "Strain \(Self.strainText($0)) of 21") }
-                      ?? noData(String(localized: "Strain")))
+        scores.append(v.strain.map { spokenStrain($0, band: v.strainBand) } ?? noData(String(localized: "Strain")))
         let readiness: String
         if let r = v.readiness {
             var parts = [String(r)]
@@ -398,6 +397,23 @@ struct OrbitGauge: View {
             readiness = String(localized: "Overall readiness, no data")
         }
         return "\(readiness). \(scores.joined(separator: ", "))"
+    }
+
+    /// "Strain 9.6 of 21", and with a usable band "Strain 9.6 of 21, today's recommended range 8 to 13" (the band as drawn: clamped to
+    /// 0 to 21; an empty one is not mentioned). Unreachable until the platform serves the band.
+    static func spokenStrain(_ strain: Double, band: ClosedRange<Double>?) -> String {
+        guard let band = OrbitGaugeGeometry.clampedBand(band) else {
+            return String(localized: "Strain \(strainText(strain)) of 21")
+        }
+        // Above the band the sentence says so: the arc's colour is never the only carrier.
+        if OrbitGaugeGeometry.strainPastBandDegrees(strain: strain, band: band) != nil {
+            return String(localized: "Strain \(strainText(strain)) of 21, above today's recommended range \(bandText(band.lowerBound)) to \(bandText(band.upperBound))")
+        }
+        return String(localized: "Strain \(strainText(strain)) of 21, today's recommended range \(bandText(band.lowerBound)) to \(bandText(band.upperBound))")
+    }
+
+    private static func bandText(_ v: Double) -> String {
+        v.formatted(.number.precision(.fractionLength(0...1)))
     }
 
     private static func percent(_ fraction: Double) -> String {
@@ -551,6 +567,70 @@ private struct WidePair<Content: View>: View {
             Text(OrbitGauge.spokenValue(OrbitGaugeCalibration(nights: 3)))
                 .font(.ryft(.caption)).foregroundStyle(Theme.textSecondary).multilineTextAlignment(.center)
             OrbitGauge(mode: .pending(previous: .previewScored), size: .medium, breathes: false)
+        }
+    }
+    .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+extension OrbitGaugeValues {
+    /// The synthetic band the previews and shots use: 8 to 13 on the 0-21 scale.
+    static let previewBand: ClosedRange<Double> = 8...13
+
+    /// 71 / 71 % / 88 % with the given strain and the synthetic band.
+    static func previewBanded(strain: Double?) -> OrbitGaugeValues {
+        OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: strain, strainBand: previewBand)
+    }
+}
+
+/// The strain band previews' content, internal so the shots render exactly what the previews show.
+struct OrbitBandPreviewGrid: View {
+    var body: some View {
+        // Synthetic band 8-13: strain 4.0 (below), 9.6 (inside), 16.5 (past), 9.6 without a band; large, medium, small.
+        HStack(alignment: .top, spacing: 12) {
+            ForEach(Array([(Optional(4.0), true), (9.6, true), (16.5, true), (9.6, false)].enumerated()), id: \.offset) { _, entry in
+                let (strain, banded) = entry
+                VStack(spacing: 8) {
+                    let values = banded ? OrbitGaugeValues.previewBanded(strain: strain)
+                        : OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: strain)
+                    OrbitGauge(mode: .scored(values), size: .large)
+                    OrbitGauge(mode: .scored(values), size: .medium)
+                    OrbitGauge(mode: .scored(values), size: .small)
+                }
+            }
+        }
+    }
+}
+
+struct OrbitBandPreviewModes: View {
+    var body: some View {
+        // Pending with yesterday's band (dimmed), strain missing (rail only), the band's upper end, a full ring,
+        // a band past the scale (clamped to 18-21), calibrating (no band).
+        HStack(alignment: .top, spacing: 12) {
+            OrbitGauge(mode: .pending(previous: .previewBanded(strain: 16.5)), size: .medium, breathes: false)
+            OrbitGauge(mode: .scored(.previewBanded(strain: nil)), size: .medium)
+            OrbitGauge(mode: .scored(.previewBanded(strain: 13)), size: .medium)
+            OrbitGauge(mode: .scored(.previewBanded(strain: 21)), size: .medium)
+            OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6, strainBand: 18...40)),
+                       size: .medium)
+            OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .medium, animatesFill: false)
+        }
+    }
+}
+
+#Preview("OrbitGauge · strain band", traits: .sizeThatFitsLayout) {
+    WidePair { OrbitBandPreviewGrid() }
+}
+
+#Preview("OrbitGauge · strain band, other modes", traits: .sizeThatFitsLayout) {
+    WidePair { OrbitBandPreviewModes() }
+}
+
+#Preview("OrbitGauge · strain band · AX3", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        VStack(spacing: 8) {
+            OrbitGauge(mode: .scored(.previewBanded(strain: 16.5)), size: .large, caption: .preview)
+            Text(OrbitGauge.spokenValue(.previewBanded(strain: 16.5)))
+                .font(.ryft(.caption)).foregroundStyle(Theme.textSecondary).multilineTextAlignment(.center)
         }
     }
     .environment(\.dynamicTypeSize, .accessibility3)
