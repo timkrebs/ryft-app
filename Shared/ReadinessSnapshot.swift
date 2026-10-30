@@ -143,6 +143,44 @@ struct ReadinessSnapshot: Codable, Equatable {
         }
     }
 
+    /// The widget's text slots, decided without words. On a locked device each slot is one constant whatever the
+    /// state: a redacted placeholder keeps its text's width, so "Moderate" vs "High", "100" vs "71" or "Scoring your
+    /// night…" vs a band word would show through, and a bedtime line by being there at all.
+    enum TextSlot: Equatable {
+        /// Locked: the slot's constant placeholder.
+        case locked
+        /// Today's readiness, beside or inside the orbit.
+        case number(Int)
+        /// The band word of a readiness.
+        case band(Int)
+        /// What the snapshot's kind says ("Scoring your night…", "Baselines 3 of 7"; `nil`: "Open RYFT …").
+        case status(Kind?)
+        /// "Bed by 22:41".
+        case bedtime(Date)
+        /// Nothing in this slot.
+        case none
+    }
+
+    /// The number: today's readiness for a score.
+    static func numberSlot(_ s: ReadinessSnapshot?, redacted: Bool) -> TextSlot {
+        if redacted { return .locked }
+        guard let s, s.kind == .score, let readiness = s.readiness else { return .none }
+        return .number(readiness)
+    }
+
+    /// The line under the number or the orbit: the band word for a score, else the status.
+    static func lineSlot(_ s: ReadinessSnapshot?, redacted: Bool) -> TextSlot {
+        if redacted { return .locked }
+        if let s, s.kind == .score, let readiness = s.readiness { return .band(readiness) }
+        return .status(s?.kind)
+    }
+
+    /// Tonight's bedtime (`bedtimeShown(at:)`); never on a locked device, so its line can't give one away.
+    static func bedtimeSlot(_ bedtime: Date?, redacted: Bool) -> TextSlot {
+        guard !redacted, let bedtime else { return .none }
+        return .bedtime(bedtime)
+    }
+
     /// "Bed by 22:41" from 17:00 the evening before until bedtime (00:30 too).
     func bedtimeShown(at date: Date, calendar: Calendar = .current) -> Date? {
         guard let bedtime, bedtime > date,

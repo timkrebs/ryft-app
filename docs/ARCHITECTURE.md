@@ -139,7 +139,9 @@ is the contract, and it only gains optional keys. It carries the orbit's scores,
 widget draws Today's `OrbitGaugeMode` (`ReadinessSnapshot.gauge`). The file is written with
 `completeUntilFirstUserAuthentication` protection and excluded from backups. On a locked
 device the widget hides the values (the system's `.privacy` redaction): the orbit's tracks
-only, and VoiceOver says "Readiness". Only the live graph writes
+only in every state, a constant number and line under the redaction (a redaction keeps its
+text's width; `ReadinessSnapshot.numberSlot`/`lineSlot`/`bedtimeSlot`), no bedtime line, and
+VoiceOver says "Readiness". Only the live graph writes
 (`AppEnvironment.sharesWithWidget`).
 
 **Tests** (`ViewModelTests`). Each view model runs against `AppEnvironment.test` with a

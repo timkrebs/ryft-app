@@ -372,6 +372,36 @@ struct OrbitGaugeLockedWidgetTests {
         #expect(ReadinessSnapshot.speech(Self.snapshots[3], redacted: false) == .baselines(nights: 3, required: 7))
         #expect(ReadinessSnapshot.speech(nil, redacted: false) == .openApp)
     }
+
+    /// Redacted, every text slot is its one constant whatever the snapshot (a score of 71, 100 or 40, a night being
+    /// scored, the baselines, none) and whether tonight's bedtime is shown: a redaction keeps its text's width.
+    @Test func redactedTheTextIsConstant() throws {
+        var hundred = try #require(Self.snapshots[0])
+        hundred.readiness = 100
+        var low = hundred
+        low.readiness = 40
+        let bedtime = Date(timeIntervalSince1970: 1_790_000_000)
+        for s in Self.snapshots + [hundred, low] {
+            #expect(ReadinessSnapshot.numberSlot(s, redacted: true) == .locked, "\(String(describing: s?.kind))")
+            #expect(ReadinessSnapshot.lineSlot(s, redacted: true) == .locked, "\(String(describing: s?.kind))")
+        }
+        for b in [nil, bedtime] as [Date?] {
+            #expect(ReadinessSnapshot.bedtimeSlot(b, redacted: true) == ReadinessSnapshot.TextSlot.none)
+        }
+    }
+
+    @Test func unlockedTheTextCarriesTheState() throws {
+        let score = try #require(Self.snapshots[0])
+        #expect(ReadinessSnapshot.numberSlot(score, redacted: false) == .number(71))
+        #expect(ReadinessSnapshot.lineSlot(score, redacted: false) == .band(71))
+        #expect(ReadinessSnapshot.numberSlot(Self.snapshots[1], redacted: false) == ReadinessSnapshot.TextSlot.none)
+        #expect(ReadinessSnapshot.lineSlot(Self.snapshots[1], redacted: false) == .status(.pending))
+        #expect(ReadinessSnapshot.lineSlot(Self.snapshots[3], redacted: false) == .status(.calibrating))
+        #expect(ReadinessSnapshot.lineSlot(nil, redacted: false) == .status(nil))
+        let bedtime = Date(timeIntervalSince1970: 1_790_000_000)
+        #expect(ReadinessSnapshot.bedtimeSlot(bedtime, redacted: false) == .bedtime(bedtime))
+        #expect(ReadinessSnapshot.bedtimeSlot(nil, redacted: false) == ReadinessSnapshot.TextSlot.none)
+    }
 }
 
 // MARK: - the number fits

@@ -20,13 +20,14 @@ struct WidgetOrbitGauge: View {
     @Environment(\.widgetRenderingMode) private var renderingMode
     @Environment(\.redactionReasons) private var redaction
 
-    /// On a locked device: the tracks only, no arcs, dots or number.
+    /// On a locked device: the tracks only, no arcs or dots, and a constant number under the redaction (the real
+    /// one would show through by its width).
     private var locked: Bool { redaction.contains(.privacy) }
 
     var body: some View {
         OrbitGaugeDrawing(mode: locked ? nil : mode, size: size, palette: palette, marks: { $0.widgetAccentable() }) {
-            if showsNumber, !locked, size.dial >= OrbitGaugeGeometry.minDialForNumber {
-                Text(verbatim: number.map(String.init) ?? "–")
+            if showsNumber, size.dial >= OrbitGaugeGeometry.minDialForNumber {
+                Text(verbatim: locked ? Words.lockedNumber : number.map(String.init) ?? "–")
                     .font(.system(size: OrbitGaugeGeometry.numberPointSize(forDial: size.dial),
                                   weight: prominentNumber ? .semibold : .medium, design: .rounded))
                     .monospacedDigit()
@@ -42,6 +43,7 @@ struct WidgetOrbitGauge: View {
     private var number: Int? { mode?.scoredValues?.readiness ?? (mode == nil ? readiness : nil) }
 
     private var numberStyle: AnyShapeStyle {
+        if locked { return prominentNumber ? AnyShapeStyle(.primary) : AnyShapeStyle(Brand.ink(scheme)) }
         if prominentNumber { return AnyShapeStyle(number == nil ? .secondary : .primary) }
         return AnyShapeStyle(number == nil ? Brand.ink(scheme).opacity(0.4) : Brand.ink(scheme))
     }

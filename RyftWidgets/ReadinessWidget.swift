@@ -98,11 +98,21 @@ enum Words {
         }
     }
 
-    static func inline(_ s: ReadinessSnapshot?, bedtime: Date? = nil) -> String {
-        if let bedtime { return bedBy(bedtime) }
-        if let r = s?.readiness, s?.kind == .score { return String(localized: "Readiness \(r) · \(band(r))") }
-        return status(s)
+    /// The lock screen's line: on a locked device only "Readiness", whatever the state (`ReadinessSnapshot.*Slot`).
+    static func inline(_ s: ReadinessSnapshot?, bedtime: Date? = nil, redacted: Bool = false) -> String {
+        if case .bedtime(let bedtime) = ReadinessSnapshot.bedtimeSlot(bedtime, redacted: redacted) { return bedBy(bedtime) }
+        switch ReadinessSnapshot.numberSlot(s, redacted: redacted) {
+        case .locked: return lockedLine
+        case .number(let r): return String(localized: "Readiness \(r) · \(band(r))")
+        default: return status(s)
+        }
     }
+
+    /// What stands under a redaction on a locked device, the same in every state: a redaction keeps the width of
+    /// its text, so the real number and words would show through by their length.
+    static let lockedNumber = "00"
+    /// The band word's or the status line's stand-in, and the inline family's line.
+    static var lockedLine: String { String(localized: "Readiness") }
 
     /// "Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21": a missing score named as not scored, never skipped.
     static func scores(_ v: OrbitGaugeValues) -> String {
@@ -147,6 +157,23 @@ private extension RedactionReasons {
     var hidesValues: Bool { contains(.privacy) }
 }
 
+/// A line slot in words: the constant placeholder on a locked device, else the band word or the status.
+private struct SlotLine: View {
+    let slot: ReadinessSnapshot.TextSlot
+    let snapshot: ReadinessSnapshot?
+
+    var body: some View {
+        switch slot {
+        case .locked: Text(Words.lockedLine)
+        case .band(let r): Text(Words.band(r))
+        case .bedtime(let bedtime): Text(Words.bedBy(bedtime))
+        case .number(let r): Text(verbatim: "\(r)")
+        case .status: Text(Words.status(snapshot))
+        case .none: EmptyView()
+        }
+    }
+}
+
 // MARK: - home screen
 
 /// The orbit for a score, as large as the tile allows (it is the mark: no header), with the band word under it; an
@@ -184,17 +211,19 @@ private struct SmallReadiness: View {
         }
     }
 
+    /// Tonight's bedtime in the evening, else the band word or the status; one constant line when locked.
     @ViewBuilder
     private var caption: some View {
-        if let bedtime {
-            Text(Words.bedBy(bedtime))
+        let bedtimeSlot = ReadinessSnapshot.bedtimeSlot(bedtime, redacted: locked)
+        if bedtimeSlot != .none {
+            SlotLine(slot: bedtimeSlot, snapshot: snapshot)
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(Brand.teal)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .privacySensitive()
         } else {
-            Text(Words.status(snapshot))
+            SlotLine(slot: ReadinessSnapshot.lineSlot(snapshot, redacted: locked), snapshot: snapshot)
                 .font(.caption2)
                 .foregroundStyle(ink.opacity(0.7))
                 .lineLimit(2)
@@ -310,9 +339,11 @@ private struct RectangularReadiness: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if let snapshot, snapshot.kind == .score, snapshot.readiness != nil {
-                // The number is beside it: the orbit alone, the size of the app icon's 44 pt check.
-                WidgetOrbitGauge(mode: snapshot.gauge, size: .custom(dial: 44), readiness: snapshot.readiness, showsNumber: false)
+            // The number is beside it: the orbit alone, the size of the app icon's 44 pt check. Locked, always the
+            // tracks, so whether today is scored doesn't show either.
+            if locked || (snapshot?.kind == .score && snapshot?.readiness != nil) {
+                WidgetOrbitGauge(mode: snapshot?.gauge, size: .custom(dial: 44), readiness: snapshot?.readiness,
+                                 showsNumber: false)
             }
             lines
         }
@@ -326,25 +357,27 @@ private struct RectangularReadiness: View {
             Text("Readiness")
                 .font(.headline)
                 .widgetAccentable()
-            if snapshot?.kind == .score, let r = snapshot?.readiness {
-                Text(verbatim: "\(r)")
-                    .font(.system(.title2, design: .rounded).weight(.semibold))
-                    .monospacedDigit()
-                    .privacySensitive()
-                Text(Words.band(r))
+            let number = ReadinessSnapshot.numberSlot(snapshot, redacted: locked)
+            if number != .none {
+                Group {
+                    if case .number(let r) = number { Text(verbatim: "\(r)") } else { Text(verbatim: Words.lockedNumber) }
+                }
+                .font(.system(.title2, design: .rounded).weight(.semibold))
+                .monospacedDigit()
+                .privacySensitive()
+                SlotLine(slot: ReadinessSnapshot.lineSlot(snapshot, redacted: locked), snapshot: snapshot)
                     .font(.caption)
+                    .lineLimit(1)
                     .privacySensitive()
             } else {
-                Text(Words.status(snapshot))
+                SlotLine(slot: ReadinessSnapshot.lineSlot(snapshot, redacted: locked), snapshot: snapshot)
                     .font(.callout)
                     .lineLimit(2)
                     .privacySensitive()
             }
-            if let bedtime {
-                Text(Words.bedBy(bedtime))
-                    .font(.caption)
-                    .privacySensitive()
-            }
+            SlotLine(slot: ReadinessSnapshot.bedtimeSlot(bedtime, redacted: locked), snapshot: snapshot)
+                .font(.caption)
+                .privacySensitive()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -356,7 +389,8 @@ private struct InlineReadiness: View {
     @Environment(\.redactionReasons) private var redaction
 
     var body: some View {
-        Text(Words.inline(snapshot, bedtime: bedtime))
+        // Locked: one constant line ("Readiness") under the redaction, whatever the state.
+        Text(Words.inline(snapshot, bedtime: bedtime, redacted: redaction.hidesValues))
             .privacySensitive()
             .accessibilityLabel(Text(Words.spoken(snapshot, bedtime: bedtime, redacted: redaction.hidesValues)))
     }
@@ -468,9 +502,51 @@ struct ReadinessWidgetGallery: View {
     ReadinessWidgetGallery()
 }
 
-#Preview("Families · locked (values hidden)") {
-    ReadinessWidgetGallery()
+/// A locked device: every family for a score, a hundred, a night being scored, the baselines and no snapshot, with
+/// and without tonight's bedtime. Each column must look the same in every row.
+struct ReadinessWidgetLockedGallery: View {
+    var scheme: ColorScheme = .dark
+
+    private static let bedtime = Calendar.current.date(bySettingHour: 22, minute: 41, second: 0, of: .now)
+    private static let rows: [(ReadinessSnapshot?, Date?)] = [
+        (.preview(.score), nil), (.previewHundred, bedtime), (.preview(.pending), nil),
+        (.preview(.calibrating), bedtime), (.preview(.waitingForSleep), nil), (nil, nil),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Self.rows.indices, id: \.self) { i in
+                let (snapshot, bedtime) = Self.rows[i]
+                HStack(spacing: 12) {
+                    SmallReadiness(snapshot: snapshot, bedtime: bedtime)
+                        .padding(12)
+                        .frame(width: 120, height: 120)
+                        .background(Brand.background(scheme), in: RoundedRectangle(cornerRadius: 18))
+                    CircularReadiness(snapshot: snapshot)
+                        .frame(width: 68, height: 68)
+                    RectangularReadiness(snapshot: snapshot, bedtime: bedtime)
+                        .padding(8)
+                        .frame(width: 170, height: 76)
+                        .background(Brand.background(scheme).opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+                    InlineReadiness(snapshot: snapshot, bedtime: bedtime)
+                        .font(.caption)
+                        .frame(width: 150, alignment: .leading)
+                }
+            }
+        }
+        .padding(16)
+        .background(Brand.background(scheme).opacity(0.5))
+        .environment(\.colorScheme, scheme)
         .redacted(reason: .privacy)
+    }
+}
+
+#Preview("Families · locked (values hidden)") {
+    HStack(alignment: .top, spacing: 16) {
+        ReadinessWidgetLockedGallery(scheme: .dark)
+        ReadinessWidgetLockedGallery(scheme: .light)
+    }
+    .padding()
 }
 
 #Preview("Small · de") {
