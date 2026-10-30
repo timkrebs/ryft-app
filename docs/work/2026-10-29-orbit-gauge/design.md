@@ -250,3 +250,57 @@ observer: the entrance lasts under a second). The calibrating fill and the pendi
 `frozenAt: OrbitEntranceFrame.end` equals the static render. Previews: "entrance, replay" (scored, calibrating, pending, with a Replay
 button), "entrance, Reduce Motion" (`orbitForcesReducedMotion`, as `accessibilityReduceMotion` cannot be set) and "entrance frames".
 VoiceOver is unchanged and not delayed: it speaks the final value while the gauge assembles.
+
+## 11. PR 4: strain band (as built)
+
+Files: `Shared/OrbitGaugeGeometry.swift` (the numbers and the decisions), `Shared/OrbitGaugeDrawing.swift` (`OrbitGaugeBandRail`,
+`OrbitStrainArc`, `OrbitWedge`), the entrance in `Ryft/Design/OrbitGaugeEntrance.swift`, VoiceOver and previews in
+`OrbitGauge.swift`. Shots: `shots/pr4-{band,modes,icon44,entrance}-{dark,light}.png` and `pr4-band-{protanopia,deuteranopia}-*`.
+Driven only by `OrbitGaugeValues.strainBand`; Today and the widget still pass nil, and nothing outside the gauge changed.
+
+**Geometry (reference dial 160, scaled by dial / 160).** Rail: centreline r 69.5, stroke 3 (floor 1.5 pt), butt caps, from
+`Orbit.strain.headDegrees(lo / 21)` to `(hi / 21)`, so its ends sit where an arc of those strains ends. It lies between the outer ring's
+inner edge (74.25) and the inner dots' outer edge (63): 3 pt clear of the ring. The air around the strain dot is cut out of the rail
+as it is out of the tracks. Colour `metricStrain` at 0.5 (`bandRailOpacity`; the proposal in §8 said 0.35, which was 1.7:1 and
+looked like a rendering error on the light background). The rail is drawn in the marks layer, so a pending gauge dims it with the
+rest. Band clamped to 0...21 (`clampedBand`); an empty or one-point range, or one wholly outside the scale, draws nothing and
+speaks nothing (`ClosedRange` cannot be inverted).
+
+**Past the band.** Only when strain is above the clamped upper end: the same arc, drawn twice and clipped to either side of the radial line
+at the band's upper end (`OrbitWedge`): `metricStrain` before, `alert` after, round caps at both ends, no fringe. The dot is `alert` when it is past. Below
+the band, inside it and exactly at its upper end: plain `metricStrain`. Strain missing: the rail and the hollow dot only. Pure
+decisions: `strainPastBandDegrees`, `strainTone`, `bandRail`, `drawsBandRail`.
+
+**The mix.** I tried `alert` mixed into `metricStrain` at 50 / 60 / 75 / 90 / 100 %; 100 % wins: a blue-red mix is mauve, and the more blue
+in it the less it differs from blue for the colour-blind (table). The shipped colour is `alert` itself (`palette.strainPastBand`).
+
+| Mix toward alert | 50 % | 60 % | 75 % | 90 % | **100 %** |
+| --- | --- | --- | --- | --- | --- |
+| Dark: on track | 3.74 | 3.76 | 3.84 | 3.99 | **4.13** |
+| Light: on track | 4.80 | 4.73 | 4.51 | 4.22 | **3.99** |
+| Dark: Lab dE from in-band blue, normal / deutan / protan | 39 / 42 / 34 | 48 / 52 / 41 | 64 / 67 / 54 | 80 / 83 / 67 | **92 / 94 / 76** |
+| Light: same | 38 / 43 / 34 | 47 / 53 / 42 | 63 / 69 / 55 | 80 / 85 / 68 | **91 / 96 / 78** |
+
+All mixes reach 3:1 on the track; the choice is the separation. `alert` on the background: 5.99 dark, 4.55 light; `metricStrain` is
+4.12 / 4.42 on the track. The two differ little in lightness (ratio 1.0 to 1.4), so the separation is hue only; that is why it is not alone (below). The
+rail: 2.33:1 (dark) and 2.09:1 (light) on the background, 2.08 / 1.99 on the track. **Below 3:1 on purpose**: it is the scale of the
+target, not the value; the value is the arc, and the range is spoken. Reaching 3:1 needs about 0.75 opacity, where the rail competes with the arc.
+
+**Colour-blind check** (`shots/pr4-band-{protanopia,deuteranopia}-*.png`, the Machado matrices of §5, severity 1.0). Under deutan and protan
+vision the past-band arc turns olive / khaki and the in-band arc stays blue: clearly two colours (dE 94 / 76 against 39 to 42 for the 50 % mix).
+Nothing is colour-only either: the rail's end and the radial join sit at the same angle, and VoiceOver names the range.
+
+**Sizes.** `.medium` and `.large` draw the rail. At `.small` (72 pt; any dial below 90) it is hidden: a 1.5 pt line 1.4 pt from the outer ring
+turned the ring into a double line in the 44 pt test and no longer read as the icon. The shift past the band stays at `.small` (a
+colour change, no extra stroke); the 44 / 88 pt shots (`pr4-icon44`) still read as the icon's three rings and dots.
+
+**Modes.** Calibrating: no band. Pending: the previous day's band, dimmed 0.6 with its marks. Locked widget / no mode: unchanged.
+**nil parity:** 84 renders (7 modes and states x 3 sizes x light/dark x static/entrance frame) hash-identical between `main` and this branch.
+
+**Entrance.** The rail fades in with the tracks (0 to 250 ms, ease-out); the arc's split is in the glide; Reduce Motion fades it with the marks. The last frame is
+the static drawing (the stage ends in `settled`); the entrance tests pass unchanged.
+
+**VoiceOver.** "Strain 9.6 of 21, today's range 8 to 13" (key `Strain %@ of 21, today's range %@ to %@`); ends shown to at most one decimal; no band or an empty one: the old sentence.
+
+**Rejected.** A 60 / 40 mix (mauve, dE 52 for deutan); a gradient along the arc (no clear "this is where the range ended"); a dashed rail
+(noise at medium); the rail on the outer track itself (it would hide the empty scale); keeping the rail at `.small`; 0.35 opacity (1.7:1).

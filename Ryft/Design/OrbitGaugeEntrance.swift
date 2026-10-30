@@ -150,6 +150,12 @@ struct OrbitEntranceStage<Settled: View, Centre: View>: View {
                     .frame(width: centreD - m.centreStroke, height: centreD - m.centreStroke)
                     .opacity(glide * (mode.isPending ? OrbitGaugeMarks.pendingOpacity : 1))
             }
+            // The band's rail fades in with the tracks (0 to 250 ms), dimmed with the marks while pending.
+            if let values, OrbitGaugeGeometry.drawsBandRail(values.strainBand, dial: size.dial) {
+                OrbitGaugeBandRail(band: values.strainBand, dial: size.dial, colour: palette.strain,
+                                   cut: (degrees: positions[.strain]?.degrees ?? 0, radius: positions[.strain]?.radius ?? 0))
+                    .opacity(OrbitEntranceFrame.eased(elapsed, 0, Self.railFadeEnd) * (mode.isPending ? OrbitGaugeMarks.pendingOpacity : 1))
+            }
             marks(frame, m, values, positions, glide)
             centre
                 .frame(width: max(m.centreSlotWidth, 0))
@@ -215,10 +221,19 @@ struct OrbitEntranceStage<Settled: View, Centre: View>: View {
                 let colour = palette.colour(of: orbit)
                 let position = positions[orbit] ?? (degrees: 0, radius: 0)
                 if let fraction {
-                    OrbitArc(radius: m.radius(of: orbit), start: orbit.startDegrees,
-                             sweep: orbit.sweep(for: fraction) * glide)
-                        .stroke(colour, style: StrokeStyle(lineWidth: m.stroke(of: orbit), lineCap: .round))
-                    dotShape(position, m).fill(colour)
+                    let past = orbit == .strain
+                        ? values.flatMap { OrbitGaugeGeometry.strainPastBandDegrees(strain: $0.strain, band: $0.strainBand) } : nil
+                    if let past {
+                        OrbitStrainArc(radius: m.radius(of: orbit), stroke: m.stroke(of: orbit),
+                                       sweep: orbit.sweep(for: fraction) * glide, split: past,
+                                       plain: colour, past: palette.strainPastBand)
+                    } else {
+                        OrbitArc(radius: m.radius(of: orbit), start: orbit.startDegrees,
+                                 sweep: orbit.sweep(for: fraction) * glide)
+                            .stroke(colour, style: StrokeStyle(lineWidth: m.stroke(of: orbit), lineCap: .round))
+                    }
+                    // The dot turns with the arc once it is beyond the band.
+                    dotShape(position, m).fill(past.map { position.degrees > $0 } == true ? palette.strainPastBand : colour)
                         .opacity(min(frame.flight(orbit) * 4, 1))
                 } else {
                     dotShape(position, m).stroke(colour, lineWidth: m.hollowStroke)
@@ -229,6 +244,9 @@ struct OrbitEntranceStage<Settled: View, Centre: View>: View {
         .compositingGroup()
         .opacity(mode.isPending ? OrbitGaugeMarks.pendingOpacity : 1)
     }
+
+    /// The rail's fade, with the tracks.
+    private static var railFadeEnd: Double { OrbitEntranceFrame.tracksEnd }
 
     private func dotShape(_ position: (degrees: Double, radius: CGFloat), _ m: OrbitGaugeGeometry.Metrics) -> OrbitDot {
         OrbitDot(radius: position.radius, start: position.degrees, sweep: 0, dotRadius: m.dotRadius)

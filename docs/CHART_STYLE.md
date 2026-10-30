@@ -121,6 +121,11 @@ tracks, hollow dots and a dash. Today names the day under the gauge ("Last score
 
 Captions never break a word: they wrap between words and shrink a word that is wider than the line.
 
+**Strain band** (`strainBand`, optional; Today and the widget pass nil until the platform serves a range). A thin rail
+(`metricStrain` at 0.5, butt caps) inside the outer orbit marks today's recommended range on the 0-21 scale; from `.medium`
+up. Past its upper end the arc and its dot turn `alert`; below or inside it they stay `metricStrain`, and the number stays blue. VoiceOver adds
+"today's range 8 to 13". Calibrating draws no band; pending dims yesterday's. Details: design.md §11 in `docs/work/2026-10-29-orbit-gauge/`.
+
 The drawing is shared with the widget (`Shared/OrbitGaugeDrawing.swift`, colours by asset name in
 `OrbitGaugePalette`, ADR 0010); `Ryft/Design/OrbitGauge.swift` adds the number, caption, VoiceOver and motion.
 Geometry, contrast and what was rejected: `docs/work/2026-10-29-orbit-gauge/design.md`.

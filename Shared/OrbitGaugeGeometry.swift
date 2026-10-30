@@ -75,6 +75,9 @@ enum OrbitGaugeGeometry {
         var hollowStroke: CGFloat
         /// Clear air cut out of a track around a dot, as the mark cuts its rings.
         var dotAir: CGFloat
+        /// The strain band's rail inside the outer orbit (centreline radius and stroke).
+        var bandRadius: CGFloat
+        var bandStroke: CGFloat
 
         func radius(of orbit: Orbit) -> CGFloat {
             orbit == .strain ? outerRadius : innerRadius
@@ -111,7 +114,60 @@ enum OrbitGaugeGeometry {
         let dot = max(9 * s, outer * 1.15)
         return Metrics(outerRadius: 77 * s, innerRadius: 54 * s, centreRadius: 32 * s,
                        outerStroke: outer, innerStroke: outer, centreStroke: centre,
-                       dotRadius: dot, hollowStroke: max(2 * s, 1.25), dotAir: 2.5 * s)
+                       dotRadius: dot, hollowStroke: max(2 * s, 1.25), dotAir: 2.5 * s,
+                       bandRadius: 69.5 * s, bandStroke: max(3 * s, minStroke))
+    }
+
+    // MARK: strain band (PR 4)
+
+    /// Below this dial the band's rail is not drawn: at `.small` (72 pt) it would be a 1.5 pt line 1.4 pt from the outer
+    /// ring. The arc's shift past the band still is (design.md §11).
+    static let minDialForBandRail: CGFloat = 90
+
+    /// How much of its colour the rail keeps: `metricStrain` at this opacity.
+    static let bandRailOpacity = 0.5
+
+    /// The band clamped to the strain scale, nil when nothing of it is left (an empty or one-point range, or one wholly
+    /// outside 0...21). `ClosedRange` cannot be inverted, so "inverted" input never reaches here.
+    static func clampedBand(_ band: ClosedRange<Double>?) -> ClosedRange<Double>? {
+        guard let band, band.lowerBound.isFinite, band.upperBound.isFinite else { return nil }
+        let lo = max(band.lowerBound, 0), hi = min(band.upperBound, OrbitGaugeValues.strainScale)
+        return lo < hi ? lo...hi : nil
+    }
+
+    /// The rail as an arc of the outer orbit: degrees clockwise from the top, positions as `Orbit.strain` maps strain,
+    /// so the rail's ends sit where an arc of those strains would end.
+    struct BandRail: Equatable {
+        var start: Double
+        var sweep: Double
+        var end: Double { start + sweep }
+    }
+
+    static func bandRail(for band: ClosedRange<Double>?) -> BandRail? {
+        guard let band = clampedBand(band) else { return nil }
+        let scale = OrbitGaugeValues.strainScale
+        let start = Orbit.strain.headDegrees(for: band.lowerBound / scale)
+        return BandRail(start: start, sweep: Orbit.strain.headDegrees(for: band.upperBound / scale) - start)
+    }
+
+    /// Where the strain arc turns toward alert (degrees clockwise from the top): the band's upper end, only when strain
+    /// is above it. nil: below the band, inside it (the end included), missing strain, or no usable band.
+    static func strainPastBandDegrees(strain: Double?, band: ClosedRange<Double>?) -> Double? {
+        guard let strain, strain.isFinite, let rail = bandRail(for: band) else { return nil }
+        let upper = clampedBand(band)!.upperBound
+        return min(strain, OrbitGaugeValues.strainScale) > upper ? rail.end : nil
+    }
+
+    /// The arc and dot's colour decision, for tests and the drawing alike.
+    enum StrainTone: Equatable { case plain, pastBand }
+
+    static func strainTone(_ values: OrbitGaugeValues) -> StrainTone {
+        strainPastBandDegrees(strain: values.strain, band: values.strainBand) == nil ? .plain : .pastBand
+    }
+
+    /// The rail is drawn: a usable band, and a dial that has room for it.
+    static func drawsBandRail(_ band: ClosedRange<Double>?, dial: CGFloat) -> Bool {
+        dial >= minDialForBandRail && bandRail(for: band) != nil
     }
 
     // MARK: calibrating segments
