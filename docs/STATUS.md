@@ -11,7 +11,7 @@ Plan, design note, architecture, review log and shots: `docs/work/2026-10-29-orb
 | #76 | `OrbitGauge` replaces `MetricGauge` on Today and in the readiness widget. Readiness is in the centre, Recovery and Sleep on the inner orbit, Strain on the outer (0–21). The drawing is shared with the widget (`Shared/`, ADR 0010). The locked widget is a plain ring with "00" until unlocked. |
 | #78 | Calibrating: 7 segments fill night by night ("3 / 7"). Pending: the previous scored day dimmed, breathing, with "Last scored: …". `BaselineGauge` and `PendingGauge` are removed. |
 | #79 | The gauge assembles on a cold start in 0.85 s, once per launch, on a `TimelineView` clock; Reduce Motion and Low Power Mode get a 250 ms fade. No launch regression: main-thread busy is 854 → 842 ms (`perf-baseline.md`, `perf-branch.md`). |
-| #81 | The strain band: a rail for today's recommended range, and the arc turns alert past its upper end; VoiceOver says "above today's recommended range". **Hidden:** the platform has no per-day range yet, so production passes none and the gauge renders byte-identical to before. *Open: waiting for the merge.* |
+| #81 | The strain band: a rail for today's recommended range, and the arc turns alert past its upper end; VoiceOver says "above today's recommended range". **Hidden:** the platform has no per-day range yet, so production passes none and the gauge renders byte-identical to before. |
 
 **Simulator and tests only**
 - Everything was checked in the simulator: previews, `ImageRenderer` pixel tests, contrast tests, VoiceOver strings in en and de, and cold-launch recordings in en/de × dark/light × standard/AX3 × Reduce Motion.
