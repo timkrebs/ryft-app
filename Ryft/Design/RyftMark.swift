@@ -139,7 +139,25 @@ enum RyftMarkGeometry {
     }
 }
 
+extension RyftMarkGeometry {
+    /// The mark's parts as the readiness gauge colours them (`OrbitGauge`, docs/CHART_STYLE.md): the outer ring and
+    /// its dot are Strain; the middle ring's two arcs are the inner orbit, split at the vertical, the arc and dot
+    /// clockwise of the top (dot at -76 deg, 14 deg right of the top) Sleep, the arc and dot counter-clockwise of
+    /// it (dot at 180 deg) Recovery; the closed centre ring is Readiness. Only the app icon uses the parts (the
+    /// in-app mark stays one single-colour path).
+    enum Part: CaseIterable {
+        case strainRing, strainDot, sleepArc, sleepDot, recoveryArc, recoveryDot, readinessRing
+    }
+}
+
 struct RyftMarkShape: Shape {
+    /// nil = the whole mark (the app's single path); a part = only that part, same geometry.
+    var part: RyftMarkGeometry.Part?
+
+    init(part: RyftMarkGeometry.Part? = nil) {
+        self.part = part
+    }
+
     func path(in rect: CGRect) -> Path {
         let side = min(rect.width, rect.height)
         let g = RyftMarkGeometry.self
@@ -147,25 +165,33 @@ struct RyftMarkShape: Shape {
         let u = side / g.box
         let c = CGPoint(x: rect.midX, y: rect.midY)
         let style = StrokeStyle(lineWidth: m.stroke * u, lineCap: .round)
+        func wants(_ candidate: RyftMarkGeometry.Part) -> Bool { part == nil || part == candidate }
 
         var p = Path()
-        for ring in [g.outer, g.middle] {
-            for a in g.arcs(of: ring, metrics: m) {
-                var arc = Path()
-                // SwiftUI's `clockwise` is mirrored in y-down space: false = visually clockwise.
-                arc.addArc(center: c, radius: ring.radius * u,
-                           startAngle: .degrees(a.start), endAngle: .degrees(a.end),
-                           clockwise: false)
-                p.addPath(arc.strokedPath(style))
-            }
-            for d in ring.dots {
-                let r = d * .pi / 180
-                let pt = CGPoint(x: c.x + ring.radius * u * cos(r), y: c.y + ring.radius * u * sin(r))
-                let dr = m.dotRadius * u
-                p.addEllipse(in: CGRect(x: pt.x - dr, y: pt.y - dr, width: dr * 2, height: dr * 2))
-            }
+        func arc(_ ring: RyftMarkGeometry.Ring, _ a: (start: Double, end: Double)) {
+            var arc = Path()
+            // SwiftUI's `clockwise` is mirrored in y-down space: false = visually clockwise.
+            arc.addArc(center: c, radius: ring.radius * u,
+                       startAngle: .degrees(a.start), endAngle: .degrees(a.end),
+                       clockwise: false)
+            p.addPath(arc.strokedPath(style))
         }
-        if m.showsInnerRing {
+        func dot(_ ring: RyftMarkGeometry.Ring, _ d: Double) {
+            let r = d * .pi / 180
+            let pt = CGPoint(x: c.x + ring.radius * u * cos(r), y: c.y + ring.radius * u * sin(r))
+            let dr = m.dotRadius * u
+            p.addEllipse(in: CGRect(x: pt.x - dr, y: pt.y - dr, width: dr * 2, height: dr * 2))
+        }
+        if wants(.strainRing) { g.arcs(of: g.outer, metrics: m).forEach { arc(g.outer, $0) } }
+        if wants(.strainDot) { g.outer.dots.forEach { dot(g.outer, $0) } }
+        // The middle ring: dots sorted [-76, 180], arcs [-76 -> 180 through the right (clockwise of the top),
+        // 180 -> -76 through the upper left (counter-clockwise of the top)].
+        let middleArcs = g.arcs(of: g.middle, metrics: m)
+        if wants(.sleepArc), middleArcs.indices.contains(0) { arc(g.middle, middleArcs[0]) }
+        if wants(.recoveryArc), middleArcs.indices.contains(1) { arc(g.middle, middleArcs[1]) }
+        if wants(.sleepDot) { dot(g.middle, g.middle.dots[0]) }
+        if wants(.recoveryDot) { dot(g.middle, g.middle.dots[1]) }
+        if wants(.readinessRing), m.showsInnerRing {
             let ir = g.innerRadius * u
             var inner = Path()
             inner.addEllipse(in: CGRect(x: c.x - ir, y: c.y - ir, width: ir * 2, height: ir * 2))

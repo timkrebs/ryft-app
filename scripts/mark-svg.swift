@@ -6,8 +6,9 @@
 //
 // Files, all the nominal mark (no optical-size bump), same arcs and dots:
 //   ryft-mark.svg               viewBox 0 0 100 100, currentColor
-//   ryft-app-icon-light.svg     1024 x 1024, Graphite mark on a full-bleed Mist square
-//   ryft-app-icon-dark.svg      1024 x 1024, Mist mark on a full-bleed Graphite square
+//   ryft-app-icon-light.svg     1024 x 1024, the mark in the gauge's light colours on a full-bleed Mist square
+//   ryft-app-icon-dark.svg      1024 x 1024, its dark colours on a full-bleed Graphite square
+// (colours per part from the asset catalog via IconSpec.partHex; ryft-mark.svg stays currentColor)
 // The icons place the 100-box with one transform, scaled so the outer ring spans
 // IconSpec.defaultRingSpan of the tile, exactly like the PNGs from scripts/render-icon.swift.
 //
@@ -54,6 +55,41 @@ struct MarkSVG {
         """
     }
 
+    /// The mark with one colour per part (the gauge's colours), same arcs and dots as `markGroups`.
+    static func colouredGroups(dark: Bool, pad: String) -> String {
+        let g = RyftMarkGeometry.self
+        let m = g.metrics(forSide: 1024)
+        func arc(_ ring: RyftMarkGeometry.Ring, _ a: (start: Double, end: Double), _ part: RyftMarkGeometry.Part) -> String {
+            let s = g.point(radius: ring.radius, degrees: a.start)
+            let e = g.point(radius: ring.radius, degrees: a.end)
+            let large = (a.end - a.start) > 180 ? 1 : 0
+            let r = num(ring.radius)
+            return "\(pad)  <path stroke=\"#\(IconSpec.partHex(part, dark: dark))\" d=\"M\(num(s.x)) \(num(s.y))A\(r) \(r) 0 \(large) 1 \(num(e.x)) \(num(e.y))\"/>"
+        }
+        func dot(_ ring: RyftMarkGeometry.Ring, _ d: Double, _ part: RyftMarkGeometry.Part) -> String {
+            let p = g.point(radius: ring.radius, degrees: d)
+            return "\(pad)  <circle fill=\"#\(IconSpec.partHex(part, dark: dark))\" cx=\"\(num(p.x))\" cy=\"\(num(p.y))\" r=\"\(num(m.dotRadius))\"/>"
+        }
+        let middleArcs = g.arcs(of: g.middle, metrics: m)
+        var rings: [String] = []
+        for a in g.arcs(of: g.outer, metrics: m) { rings.append(arc(g.outer, a, .strainRing)) }
+        rings.append(arc(g.middle, middleArcs[0], .sleepArc))
+        rings.append(arc(g.middle, middleArcs[1], .recoveryArc))
+        rings.append("\(pad)  <circle stroke=\"#\(IconSpec.partHex(.readinessRing, dark: dark))\" cx=\"\(num(g.centre))\" cy=\"\(num(g.centre))\" r=\"\(num(g.innerRadius))\"/>")
+        let dots = [dot(g.outer, g.outer.dots[0], .strainDot),
+                    dot(g.middle, g.middle.dots[0], .sleepDot),
+                    dot(g.middle, g.middle.dots[1], .recoveryDot)]
+        return """
+        \(pad)<!-- Strain: outer ring and dot. Sleep: inner orbit clockwise of the top. Recovery: inner orbit counter-clockwise. Readiness (High band): centre ring. -->
+        \(pad)<g fill="none" stroke-width="\(num(m.stroke))" stroke-linecap="round">
+        \(rings.joined(separator: "\n"))
+        \(pad)</g>
+        \(pad)<g>
+        \(dots.joined(separator: "\n"))
+        \(pad)</g>
+        """
+    }
+
     static func markSVG() -> String {
         """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" role="img" aria-label="RYFT">
@@ -63,7 +99,7 @@ struct MarkSVG {
         """
     }
 
-    static func iconSVG(background: String, mark: String) -> String {
+    static func iconSVG(background: String, dark: Bool) -> String {
         let tile = IconSpec.tile
         let span = IconSpec.defaultRingSpan
         let frame = IconSpec.markFrame(ringSpan: span)
@@ -75,7 +111,7 @@ struct MarkSVG {
           <rect width="\(t)" height="\(t)" fill="#\(background)"/>
           <!-- outer ring spans \(num(span)) of the tile: the 100-box at \(num(frame, digits: 2)) px -->
           <g transform="translate(\(num(offset, digits: 5)) \(num(offset, digits: 5))) scale(\(num(scale, digits: 6)))">
-        \(markGroups(stroke: "#\(mark)", fill: "#\(mark)", pad: "    "))
+        \(colouredGroups(dark: dark, pad: "    "))
           </g>
         </svg>
 
@@ -89,8 +125,8 @@ struct MarkSVG {
         let dir = URL(fileURLWithPath: args.first ?? "design")
         let files = [
             ("ryft-mark.svg", markSVG()),
-            ("ryft-app-icon-light.svg", iconSVG(background: IconSpec.mistHex, mark: IconSpec.graphiteHex)),
-            ("ryft-app-icon-dark.svg", iconSVG(background: IconSpec.graphiteHex, mark: IconSpec.mistHex)),
+            ("ryft-app-icon-light.svg", iconSVG(background: IconSpec.mistHex, dark: false)),
+            ("ryft-app-icon-dark.svg", iconSVG(background: IconSpec.graphiteHex, dark: true)),
         ]
         var stale = false
         for (name, out) in files {

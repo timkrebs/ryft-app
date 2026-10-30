@@ -1,17 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="RYFT">
   <rect width="1024" height="1024" fill="#0B0F0E"/>
-  <!-- outer ring spans 0.915 of the tile: the 100-box at 1027.82 px -->
-  <g transform="translate(-1.90961 -1.90961) scale(10.278192)">
-    <g fill="none" stroke="#E8E7E3" stroke-width="3.16" stroke-linecap="round">
-      <path d="M58.38 93.195A44 44 0 1 1 77.702 84.185"/>
-      <path d="M65.837 29.887A25.6 25.6 0 1 1 26.653 60.501"/>
-      <path d="M26.653 39.499A25.6 25.6 0 0 1 45.459 24.806"/>
-      <circle cx="50" cy="50" r="7.6"/>
+  <!-- outer ring spans 0.869 of the tile: the 100-box at 976.15 px -->
+  <g transform="translate(23.92628 23.92628) scale(9.761474)">
+    <!-- Strain: outer ring and dot. Sleep: inner orbit clockwise of the top. Recovery: inner orbit counter-clockwise. Readiness (High band): centre ring. -->
+    <g fill="none" stroke-width="3.16" stroke-linecap="round">
+      <path stroke="#5B8DEF" d="M58.38 93.195A44 44 0 1 1 77.702 84.185"/>
+      <path stroke="#8F87F1" d="M65.837 29.887A25.6 25.6 0 1 1 26.653 60.501"/>
+      <path stroke="#3FD1B4" d="M26.653 39.499A25.6 25.6 0 0 1 45.459 24.806"/>
+      <circle stroke="#3FD1B4" cx="50" cy="50" r="7.6"/>
     </g>
-    <g fill="#E8E7E3">
-      <circle cx="68.595" cy="89.878" r="6"/>
-      <circle cx="56.193" cy="25.16" r="6"/>
-      <circle cx="24.4" cy="50" r="6"/>
+    <g>
+      <circle fill="#5B8DEF" cx="68.595" cy="89.878" r="6"/>
+      <circle fill="#8F87F1" cx="56.193" cy="25.16" r="6"/>
+      <circle fill="#3FD1B4" cx="24.4" cy="50" r="6"/>
     </g>
   </g>
 </svg>
