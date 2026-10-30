@@ -2,8 +2,9 @@
 // ring, deterministic, from a mode, a size and a palette. No strings, no fonts, no accessibility, no timers: the
 // wrappers add those (`Ryft/Design/OrbitGauge.swift` in the app, `RyftWidgets/WidgetOrbitGauge.swift` in the widget).
 //
-// Geometry and mapping: `OrbitGaugeGeometry`, docs/work/2026-10-29-orbit-gauge/design.md. `.calibrating`,
-// `.assembling` and `.pending` only draw the tracks and the hollow dots until PR 2 / PR 3.
+// Geometry and mapping: `OrbitGaugeGeometry`, docs/work/2026-10-29-orbit-gauge/design.md. `.calibrating` draws the
+// outer orbit as segments, `.pending` the previous day's marks dimmed; `.assembling` draws only the tracks and the
+// hollow dots until PR 3.
 import SwiftUI
 
 /// The gauge's sizes: `MetricGauge`'s dials, so nothing around the gauge moves.

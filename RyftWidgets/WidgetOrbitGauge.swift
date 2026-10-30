@@ -1,7 +1,7 @@
 // The widget's wrapper around the shared `OrbitGaugeDrawing` (ADR 0010): the number in the system's rounded face
 // (the widget has no Satoshi), the marks accentable for tinted and clear home screens, the tracks quiet where the
-// system renders the widget in one colour. No VoiceOver of its own: the family's view reads `Words.spoken`, which
-// carries the same scores.
+// system renders the widget in one colour. No VoiceOver of its own: the family's view reads `Words.spoken` (the
+// day's scores; while pending, only the last readiness).
 import SwiftUI
 import WidgetKit
 

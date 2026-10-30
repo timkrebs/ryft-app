@@ -36,7 +36,7 @@ struct OrbitGauge: View {
     /// `false`: nothing in them depends on time.
     var animatesFill = true
     /// Pending: the dimmed marks breathe (1.4 s) while the night is scored. Pass `false` once it takes longer than
-    /// usual (nothing implies progress), as `PendingGauge.breathes`. Always off under Reduce Motion.
+    /// usual (nothing implies progress). Always off under Reduce Motion.
     var breathes = true
 
     /// Below this dial the gauge is the mark only (VoiceOver still has the value); the widget uses the same.
@@ -96,7 +96,7 @@ struct OrbitGauge: View {
 
     private var drawing: some View {
         OrbitGaugeDrawing(mode: displayedMode, size: size, palette: .assets, marks: { marks in
-            // Pending: the dimmed marks breathe, as `PendingGauge`'s outline did. One phase (no motion) otherwise.
+            // Pending: the dimmed marks breathe. One phase (no motion) otherwise.
             marks.phaseAnimator(mode.isPending && breathes && !reduceMotion ? [1.0, 0.75] : [1.0]) { marks, opacity in
                 marks.compositingGroup().opacity(opacity)
             } animation: { _ in .easeInOut(duration: 1.4) }
@@ -219,7 +219,7 @@ struct OrbitGauge: View {
         return accessibilityNote.map { "\(spoken). \($0)" } ?? spoken
     }
 
-    /// "3 of 7 nights." and which nights count where that isn't all of them; the sentences `BaselineGauge` spoke.
+    /// "3 of 7 nights." and which nights count where that isn't all of them.
     /// The two signals that fill alone (F3) leave out "Readiness appears…": the note under the gauge says what
     /// recovery uses meanwhile.
     static func spokenValue(_ c: OrbitGaugeCalibration) -> String {
