@@ -7,7 +7,7 @@
 //   .build/render-icon [--ring-span <x>] [--suffix <s>] [dir]
 //
 //   --ring-span  the outer ring's span (outer edge to outer edge) / tile width; default
-//                IconSpec.defaultRingSpan (0.963, the reference's)
+//                IconSpec.defaultRingSpan (0.915, 95 % of the reference's 0.963)
 //   --suffix     appended to each file name, e.g. "-0.80" -> AppIcon-Light-0.80.png
 //   dir          default Ryft/Assets.xcassets/AppIcon.appiconset
 //
