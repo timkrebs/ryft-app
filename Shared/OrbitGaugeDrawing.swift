@@ -3,8 +3,8 @@
 // wrappers add those (`Ryft/Design/OrbitGauge.swift` in the app, `RyftWidgets/WidgetOrbitGauge.swift` in the widget).
 //
 // Geometry and mapping: `OrbitGaugeGeometry`, docs/work/2026-10-29-orbit-gauge/design.md. `.calibrating` draws the
-// outer orbit as segments, `.pending` the previous day's marks dimmed; `.assembling` draws only the tracks and the
-// hollow dots until PR 3.
+// outer orbit as segments, `.pending` the previous day's marks dimmed. The launch entrance is not a mode: the
+// app's wrapper plays it (`Ryft/Design/OrbitGaugeEntrance.swift`).
 import SwiftUI
 
 /// The gauge's sizes: `MetricGauge`'s dials, so nothing around the gauge moves.

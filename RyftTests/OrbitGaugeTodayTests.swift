@@ -216,7 +216,6 @@ struct OrbitGaugeSnapshotParityTests {
             case .scored(_, _?): kinds.insert("scored, learning")
             case .calibrating: kinds.insert("calibrating")
             case .pending: kinds.insert("pending")
-            case .assembling: kinds.insert("assembling")
             }
         }
         #expect(kinds == ["scored", "scored, learning", "calibrating", "pending"])
@@ -325,7 +324,7 @@ struct OrbitGaugeDrawingRenderTests {
     @Test(arguments: [
         OrbitGaugeMode.scored(OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)),
         .scored(.empty), .scored(OrbitGaugeValues(readiness: 64, recovery: 0.62, strain: 6.2), learning: OrbitGaugeCalibration(nights: 3)),
-        .calibrating(OrbitGaugeCalibration(nights: 3)), .pending(previous: nil), .assembling,
+        .calibrating(OrbitGaugeCalibration(nights: 3)), .pending(previous: nil),
     ])
     func itRenders(_ mode: OrbitGaugeMode) throws {
         for size in [OrbitGaugeSize.small, .medium, .large, .custom(dial: 44)] {

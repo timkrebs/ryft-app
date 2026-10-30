@@ -76,3 +76,128 @@ Two nits, handled by the lead:
 2. **No German AX3 proof in the shots.** Added the designer's renders as `shots/pr2-fix-caption-de-ax3-{baselines,readiness}.png`.
 
 The ui-validator's blocking finding (German AX3 caption) is closed by these renders.
+
+## PR 3 · `today: the gauge assembles on launch`
+
+Branch `feat/orbit-assemble`, from `main` c8dcf2a. Plan decisions 5–8.
+
+### security-privacy-reviewer (c8dcf2a..f53107f): no blocking findings
+
+- **The new debug log** carries the scene phase only (public, debug level).
+- **The locked widget** is unchanged.
+- **`OrbitGaugeMode`** isn't `Codable`, so removing `.assembling` can't break an old snapshot.
+- **The flag** lives in memory only.
+- **Nit:** `perf-baseline.md` committed the scratchpad path, which contains the local username. Scrubbed to `$SCRATCH` (4a08d4b).
+
+### code-reviewer (c8dcf2a..f53107f)
+
+Blocking:
+1. **Reduce Motion on at launch and later off freezes the gauge mid-entrance.** The fade ends with `elapsed` at 0.25; `reduced` is recomputed per render, so the stage then draws the choreography frozen at t = 0.25: no arcs, no number, and the dots over the greeting. → designer: end both paths on `OrbitEntranceFrame.end` (or draw `settled` once `entranceDone`), plus a test with `orbitForcesReducedMotion`.
+
+Should-fix:
+2. **The once-per-process decisions are untested.** They live in the private `GaugeEntranceConsumer`: appear in `.active`, `.background` played-unseen, the rebuild, inactive → active. → developer: a pure decision function plus a table test.
+
+Nits:
+3. **Inactive → background without ever being active** plays the entrance unseen and loses it. → developer, in the same function: mark it played-unseen when the scene goes to the background while the flag is set. Something covering Today at launch (import cover, gate sheet, alert) also plays it unseen: accepted, and architecture §4 now says so.
+4. **The UISmoke step checks the accessibility value,** which is final from frame 0. It's a smoke check, not proof that the number is drawn. Accepted, noted.
+5. **The log line repeats on each appearance while the flag is set.** Fine at debug level.
+
+Verified sound:
+- no replay on a foreground return, tab switch, pull-to-refresh or sign-out/in;
+- the latch survives the re-render after the flag is consumed;
+- the PR 2 fill and breathing start at the entrance's end;
+- one `withAnimation` clock, with nothing outliving 850 ms;
+- the static path is byte-identical;
+- iPhone only, so there's no multi-scene case.
+
+The fix round is held until the performance-profiler finishes measuring f53107f, so builds don't skew its numbers.
+
+### code-reviewer, re-verification (23f6a83..6bc2849)
+
+Findings 1–3 are fixed:
+- `done` draws `settled` on both paths;
+- `TodayGaugeEntrance.decide` is table-tested;
+- the background marks the entrance played-unseen.
+
+The PR 2 fill and breathing still start at the entrance's end. The no-consume rebuild row is correct, because the rebuilt instance must latch `.assemble` before the flag is consumed.
+
+New nits, sent with round 2:
+- **`.appeared` outside the background clears `playedUnseen`** (an unlikely ordering) → developer.
+- **The completion rebuilds `settled` once, invisibly,** and a 171-character line → designer.
+
+### ui-validator (6bc2849: cold-launch recordings, en/de, dark/light, standard/AX3, Reduce Motion)
+
+Blocking:
+1. **German AX3: the assembling gauge is about 80 pt lower than the settled one, overlapping its caption, then everything jumps up** (`pr3-validate/m11.png`). Standard size is clean. → designer: the stage and `settled` share one frame and anchor; the flying dots must not take part in layout.
+2. **First launch after install (and demo mode): the entrance plays on the empty no-data gauge.** The scores arrive about 0.5 s later and the arcs just fade in (`pr3-validate/m2.png`). Architecture §4's "first frame is decided" holds with stored data only. Lead decision: **the entrance plays on the first gauge that has something to show** (scores, calibrating, or pending with a previous day). The placeholder is static and never consumes the flag; the gauge becomes a new instance when content first becomes showable. Still once per process. → developer: the predicate in the pure layer, table-tested.
+
+Nits:
+3. **The band word appears with the tracks, before the score** → designer: fade it in with the glide.
+4. **Light mode's first frame is dark grey:** the launch screen background is dark-first. Pre-existing; follow-up.
+5. **The Reduce Motion fade** shows a placeholder for about 100 ms before the values (the same race as 2).
+
+Verified:
+- the motion reads calm, on brand and as the mark assembling;
+- no flash of the final state; the tiles appear at once;
+- calibrating and pending launches are correct;
+- a foreground return doesn't replay;
+- Reduce Motion fades only, and turning it off then returning shows the complete gauge.
+
+Not verified: the tab-switch replay (no tap driver; covered by the table), Low Power Mode, and the real device.
+
+### Round 2, developer (866cd23)
+
+- **Predicate:** `TodayGaugeEntrance.hasSomethingToShow`:
+  - scores: at least one value;
+  - calibrating: always;
+  - pending: a non-empty previous day.
+  - The no-data gauge is `.scored(.empty)`, so it is not showable.
+- **`decide`** takes `showable`; a non-showable gauge is never consumed, marked or rebuilt.
+- **Identity:** the gauge's `.id` includes `showable`, so the first showable content is a new instance that latches `.assemble`.
+- **The nit is fixed:** an appearance keeps `playedUnseen`, and an active appearance after an unseen play rebuilds.
+- **Tests:** 20 `TodayGaugeEntranceTests`. Unit: 2129 passed. UISmoke: 35 passed.
+- **First-launch frames** (`pr3-validate/fix-firstlaunch-*.png`): the static placeholder, then the entrance on the data.
+
+**Accepted, follow-up:** on a first launch in demo mode, the app's main thread stalls for about 400 ms after the demo data is seeded. The whole screen freezes, the status line included. It can land on the entrance, leaving the gauge blank for about 0.4 s or skipping the glide. It is pre-existing and app-wide (also in the validator's earlier recording), not caused by the gauge. Real first launches show the import card. → follow-up for the performance-profiler: the first-launch demo seeding stall.
+
+### Round 2 (6af8d48, designer): the clock moved to a `TimelineView`
+
+**Cause of the German AX3 drift** (the designer's inference, confirmed live by the ui-validator): the old clock was a `withAnimation(.linear(0.85))` transaction, which also animated an unrelated hero layout change. At AX3 the status line changes from 3 lines to 1 in the same update, so the ring slid slowly. The `TimelineView` clock animates nothing else. The caption, with its band and delta, now fades in with the glide, and `settled` keeps one identity.
+
+**code-reviewer: nothing blocking.**
+- The timeline pauses at done.
+- The start is captured once.
+- A tab switch or the background mid-entrance continues or settles, and never restarts.
+- `entranceDone` is set from `onChange`, so there's no update loop.
+- The PR 2 interplay is correct.
+- The identity scheme is correct.
+- A refresh never empties the hero.
+
+Nits:
+1. **The frozen AX3 test can't show a transaction drift.** Closed by the live recheck below instead.
+2. **The whole caption fades, title included, not only the band.** Kept, since "OVERALL READINESS" arriving with the score reads well; the comment and design.md are corrected (lead).
+3. **The arcs pop in on a showable flip after the flag is consumed.** → developer, round 3.
+
+**ui-validator re-check:**
+- **German and English AX3: fixed.** No overlap and no drift; the hero moves at once when the status line changes height (pre-existing).
+- **Fresh install: mostly fixed.** The placeholder is static and no longer consumes the flag, and the data instance assembles.
+- **Band with the score: fixed.**
+- **Regressions pass:** second launch, calibrating, pending, foreground return, Reduce Motion.
+
+New nit, which I treat as visible polish (demo mode is what App Review and TestFlight see):
+- When the data instance replaces the placeholder, frame 0 is empty, so the rings blink out and redraw (about 0.2 s; the whole stall on a fresh install).
+- → developer, round 3: replacing a placeholder starts over drawn tracks.
+
+### Round 3 (296fdcc, developer)
+
+The entrance now assembles over the placeholder's tracks (`.assembleOverTracks`), and after the flag is consumed the identity stays fixed, so data that comes or goes animates.
+
+Live frames (`pr3-validate/r3-*`): the rings and caption title stay through the hand-off, a fresh install's stall freezes on full tracks, and content from frame 0 gets the full entrance. Unit: 2136 passed. UISmoke: 35 passed.
+
+**code-reviewer: OK.**
+- `placeholderSeen` is set only for a placeholder seen outside the background.
+- A background-only placeholder gets the full entrance.
+- The over-tracks Reduce Motion path can't get stuck.
+- The identity is stable when the flag is consumed, and PR 2 state is kept.
+
+Accepted nit: when the data arrives in a different hero row than the placeholder (calibrating or pending), the rows' 250 ms crossfade dips the kept tracks to about 75 %. A same-row hand-off swaps without a dip.
