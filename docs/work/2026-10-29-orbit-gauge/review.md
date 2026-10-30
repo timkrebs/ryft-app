@@ -29,3 +29,20 @@ Findings:
 - **The stale comment in `OrbitGaugeDrawing.swift`** was already fixed in 0f9e645.
 - **`segments(required:)` overlaps from about 30 segments** (the 0.5° sweep floor). This is harmless at 7, and a test documents it. No change.
 - **Not testable in unit tests:** Reduce Motion (the environment value is read-only) and the stepped fill on a device. They are covered by `animatesFill: false` and the ui-validator.
+
+### ui-validator (d62559a, iOS 27.1, en/de × dark/light × standard/AX3 × Reduce Motion)
+
+Blocking:
+1. **German AX3, calibrating: the caption breaks mid-word** ("AUSGANGSWERT" / "E"). The caption is now a `Text` under the gauge (`OrbitGauge.captionLines`), uppercase with tracking 2. Inside `BaselineGauge` it didn't scale, so this is new in PR 2. The fix must keep the scored caption ("Overall readiness" / German) right too: a word must never break, whether the caption shrinks or wraps.
+
+Nits, judged:
+2. **"Scoring your night" appears twice in pending** (the status pill and the title under the gauge). Pre-existing; not in this PR. Follow-up.
+3. **The Strain tile shows "0.9" with "calibrating"** in the learningRestingHR scenario. Pre-existing tile logic. Follow-up if wanted.
+
+Verified:
+- Pending reads as "not today" in every variant; "Last scored" / "Zuletzt bewertet" wraps at AX3.
+- "3 / 7" is never clipped.
+- Breathing animates and stops under Reduce Motion (byte-identical frames).
+- VoiceOver is one element per gauge, and the visible lines are hidden so nothing is read twice.
+
+Not verified: the widget previews (they need Xcode), the 60 ms step on video, the 44 pt icon likeness (PR 1's `icon-44-*` shots still apply; `.small` is unchanged apart from the modes), and live VoiceOver speech.
