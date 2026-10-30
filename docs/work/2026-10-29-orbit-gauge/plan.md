@@ -29,3 +29,5 @@ accessibility-reviewer); performance-profiler for PR 3.
    (see the memory note `stacked-branch-after-squash`).
 2. **PR 4 ships with the band hidden.** The strain band has no platform source, so PR 4 ships without it, as the brief
    says. The app never invents a band.
+3. **PR 2: S2 keeps the note only.** S2 is a readiness that is already scored while the baseline still learns. The brief leaves it to the designer whether S2's learning segments can be read under the strain arc. design.md §8 expects 0.35 opacity on the arc's own radius to be too faint at `.large` and unreadable at `.small`. So S2 draws the plain scored gauge with the existing `GaugeNote`, and `.scored(_, learning:)` stays unused by the drawing. One gauge, no second meaning to decode.
+4. **PR 2: the order of work.** The ui-designer draws first (`Shared/OrbitGaugeDrawing.swift`, previews, design.md). Then two people work in parallel on separate files: the ios-developer wires Today and the widget, removes `BaselineGauge` / `PendingGauge` and adds the VoiceOver sentences; the test-engineer writes new test files. The branch is `feat/orbit-calibrating` from `main` 7643988.
