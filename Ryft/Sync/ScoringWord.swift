@@ -30,14 +30,15 @@ struct ScoringWord: Equatable, Sendable {
 
     /// `day`'s scoring state, for Today (`TodayStates.todayState`) and the widget (`Repository.widgetFacts`) alike.
     /// The platform's: its latest status when it's about `day`, else the cached row's. While no later status read has
-    /// answered this phone's word, the word adjusts it: `pending` wins over anything, `scored` only rules out
-    /// `pending` (a push for a day without last night's sleep leaves it waiting for sleep, and `stale` stays stale).
+    /// answered this phone's word, the word adjusts it: `pending` wins over anything; `scored` rules out `pending` and
+    /// `stale` (the push means new data arrived), but a push for a day without last night's sleep leaves it waiting
+    /// for sleep.
     static func state(day: String, word: ScoringWord?, status: TodayState?, row: DailyScore?) -> ScoringState? {
         let platform = status?.day == day ? status?.state : row?.scoringState
         switch word?.kind {
         case nil: return platform
         case .pending?: return .pending
-        case .scored?: return platform == nil || platform == .pending ? .scored : platform
+        case .scored?: return platform == .waitingForSleep ? .waitingForSleep : .scored
         }
     }
 

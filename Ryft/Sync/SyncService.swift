@@ -83,6 +83,9 @@ final class SyncService {
     }
     /// Called when `scoringLedger` changed (`LiveSyncSteps` connects the widget's republish).
     @ObservationIgnored var ledgerChanged: (@MainActor () -> Void)?
+    /// Counts the times the ledger was forgotten (`accountChanged`, `forgetScoringWords`): what the coordinator
+    /// remembers beside it (`ScoringSignal.waitedOut`) belongs to one generation (`SyncSteps.ledgerGeneration`).
+    @ObservationIgnored private(set) var ledgerGeneration = 0
     /// A write since `scoringWaitStart` was set: the next wait times from its own start. Without one (a wait for days
     /// the platform already listed), a start a status read set first stays. A flag, not derived: the ledger's pending
     /// words are dropped by the first late status read (often before the wait starts), and `scoringWaitStart` is set by
@@ -168,13 +171,15 @@ final class SyncService {
         waitingForUnlock = false
         scoringWaitStart = nil
         statusReadAt = nil
-        scoringLedger = [:]
         lastDaysTouched = []
+        forgetScoringWords()
     }
 
-    /// Demo data switched on or off: neither side's word is the other's.
+    /// Demo data switched on or off (and every account change): neither side's word is the other's, nor the days a
+    /// wait gave up on.
     func forgetScoringWords() {
         scoringLedger = [:]
+        ledgerGeneration += 1
     }
 
     /// The app went to the background: the page being uploaded finishes (its anchor
@@ -366,14 +371,19 @@ final class SyncService {
     /// from now on (`ScoringWord`).
     func awaiting(_ days: [String]) {
         let word = ScoringWord(kind: .pending, at: env.clock.now())
-        for day in days { scoringLedger[day] = word }
+        // Built aside and stored once: one widget publish (`ledgerChanged`) for a resync's 90 days.
+        var ledger = scoringLedger
+        for day in days { ledger[day] = word }
+        scoringLedger = ledger
         writtenSinceStart = true
     }
 
     /// A silent push named `days` (the coordinator's `scored` step): scored, whatever an earlier status said.
     func scored(_ days: [String]) {
         let word = ScoringWord(kind: .scored, at: env.clock.now())
-        for day in days { scoringLedger[day] = word }
+        var ledger = scoringLedger
+        for day in days { ledger[day] = word }
+        scoringLedger = ledger
     }
 
     /// A `GET /v1/me/sync` answer, wherever it was asked (the launch check, a scoring

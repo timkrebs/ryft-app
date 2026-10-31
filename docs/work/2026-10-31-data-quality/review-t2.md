@@ -27,3 +27,15 @@ Round 1 on 82dbabf.
 | — | `SyncMachine` has no idle → `awaitingScores` edge. | PR follow-up | Separate PR (sync-engineer, `StateMachines/`). |
 | — | A background `awaiting` is answered only by a push or by opening the app. | architect S4 | Follow-up: BGAppRefresh asks `/v1/me/sync` once when old pending words exist. |
 | — | ADR 0013 "Being scored is client sync state with one owner". | architect | ios-architect writes it after the fixes, in this PR. |
+
+Round 1 re-check (code-reviewer, on 15e94e6): F1–F7 and N1–N8 resolved as decided; no blocking findings. Two should-fix
+gaps and four nits, all fixed in this PR (round 2, sync-engineer).
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| R1 | A wait's poll that joins a `ReadScheduler` flight started less than 10 s after the write can end the wait (probe: a slow pull 2 s after the write). The end guard measures the poll's own time, so it never fails and a mutant removing it survives. | **Fix.** The ledger decides: the ask passes the awaited days into `scoring.answer` as still pending (the F3 rule), and the dead guard goes. The probe becomes a test. |
+| R2 | `touchedSoFar` can return an earlier run's days: a cancel before attempt 1 or after the demo / unconfigured short-circuit marks days pending that this run never uploaded, and a demo switch can put the real account's days back. | **Fix.** Days are owed only once an upload was actually entered; `LiveSyncSteps` reports only days of an upload it started. The probe becomes a test. |
+| R3 | A push's `.scored` over a cached `stale` stays stale. | Fix: `stale` → scored as well. Test. |
+| R4 | `awaiting` / `scored` assign the ledger per day, one widget publish each (up to 90 on a resync). | Fix: build locally, assign once. |
+| R5 | `waitedOut` survives account changes and demo switches. | Fix: cleared on `accountChanged` and the demo switch. |
+| R6 | The N1 `isSignedIn` guard and the `accountID == account` guards are untested (mutants survive). | Fix: a test each. |

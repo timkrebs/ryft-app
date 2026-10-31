@@ -27,12 +27,15 @@ private final class FakeSteps: SyncSteps {
     private(set) var backgroundUploads: [Bool] = []
     private(set) var events: [String] = []
     private var stopRequested = false
+    /// Runs inside each upload, before it answers (a test cancels the run there).
+    var onUpload: (() async -> Void)?
 
     init(clock: TestClock) { self.clock = clock }
 
     func upload() async throws -> [String] {
         events.append("upload")
         backgroundUploads.append(APIClient.runsInBackground)
+        if let onUpload { await onUpload() }
         isUploading = true
         stopRequested = false
         defer { isUploading = false }
@@ -68,6 +71,8 @@ private final class FakeSteps: SyncSteps {
     /// `scored` per ask: the touched (or listed) days are pending until one says `true`.
     func syncStatus() async throws -> SyncStatus {
         events.append("poll")
+        // As `SyncService.receive`: an ask the cache time after the words answers them.
+        if let wordsAt, clock.now().timeIntervalSince(wordsAt) >= ScoringWord.statusCacheTime { awaitedDays = [] }
         if statusFails { throw APIError.transport(URLError(.notConnectedToInternet)) }
         if askDuration > .zero { try await clock.sleep(for: askDuration) }
         let done = scored.isEmpty ? false : scored.removeFirst()
@@ -106,10 +111,14 @@ private final class FakeSteps: SyncSteps {
     var readsScoringStatus = true
     /// The phone's unanswered pending words.
     var awaitedDays: [String] = []
+    /// When it said them; nil: no status read answers them.
+    var wordsAt: Date?
     /// What the last upload's accepted pages touched (also when it failed afterwards).
     var touchedSoFar: [String] = []
     /// The latest status read and when it arrived.
     var lastStatus: (status: SyncStatus, readAt: Date)?
+    /// Bumped by an account change or the demo switch.
+    var ledgerGeneration = 0
 
     func count(_ name: String) -> Int { events.filter { $0 == name }.count }
 }
@@ -285,6 +294,7 @@ struct SyncCoordinatorTests {
         // A background upload under 10 s ago: the platform's cached answer lists nothing yet, the phone's word does.
         steps.scored = [true, true]
         steps.awaitedDays = ["2026-10-19"]
+        steps.wordsAt = clock.now().addingTimeInterval(-5)
         let c = SyncCoordinator(steps: steps, clock: clock)
         let run = Task { await c.run(.appActive) }
         #expect(await eventually { clock.pendingSleeps == 1 })
@@ -324,6 +334,48 @@ struct SyncCoordinatorTests {
         #expect(await eventually { clock.pendingSleeps == 1 })
         clock.advance(by: .seconds(10))
         #expect(await listed.value.polls == 1)
+    }
+
+    /// Review R1: an answer that no longer lists the days doesn't end the wait while the phone's word still holds one
+    /// (the ask joined a flight asked under the cache time after the write); the next ask's answer does.
+    @Test func anAnswerTheWordOutlivesDoesNotEndTheWait() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.scored = [true, true] // every answer lists nothing
+        steps.awaitedDays = ["2026-10-19"]
+        steps.wordsAt = clock.now().addingTimeInterval(5) // the first ask, 10 s in, can't answer it; the second can
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let run = Task { await c.run(.healthKit) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(10))
+        #expect(await eventually { steps.count("poll") == 1 && clock.pendingSleeps == 1 })
+        #expect(!(await eventually(timeout: .milliseconds(200)) { steps.phases.contains(.refreshing) }))
+        clock.advance(by: .seconds(20))
+        let outcome = await run.value
+        #expect(outcome.polls == 2 && steps.awaitedDays.isEmpty)
+        #expect(steps.refreshedAt == clock.now())
+    }
+
+    /// Review R5: an account change or the demo switch forgets the days a wait gave up on, with the words.
+    @Test func aDayAWaitGaveUpOnIsWaitedForAgainOnceTheWordsAreForgotten() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.touched = []
+        steps.listed = ["2026-10-19"]
+        steps.scored = [] // pending for good
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let first = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: SyncCoordinator.maximumScoringWait)
+        _ = await first.value
+        #expect(await c.run(.appActive).touched.isEmpty) // given up on
+        steps.ledgerGeneration += 1 // another account, or demo data on or off
+        steps.scored = [false, true]
+        let again = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(10))
+        let outcome = await again.value
+        #expect(outcome.touched == ["2026-10-19"] && outcome.polls == 1)
     }
 
     @Test func aStatusReadUnderTheCacheTimeAgoIsUsedAsItIsWithItsOwnEstimate() async {
@@ -395,6 +447,26 @@ struct SyncCoordinatorTests {
         refused.uploadFailures = [APIError.http(422, "bad")]
         _ = await SyncCoordinator(steps: refused, clock: clock).run(.userInitiated)
         #expect(refused.awaited.isEmpty)
+    }
+
+    /// Review R2: the days a run owes are its own upload's. One that sent nothing (demo data, signed out) and was
+    /// cancelled right after says no earlier run's days; one that returned its days says them, cancelled or not.
+    @Test func aCancelRightAfterTheUploadSaysOnlyThatUploadsDays() async {
+        let clock = TestClock()
+        let empty = FakeSteps(clock: clock)
+        empty.touched = [] // sent nothing
+        empty.touchedSoFar = ["2026-10-12"] // an earlier run's, answered long ago
+        let c = SyncCoordinator(steps: empty, clock: clock)
+        empty.onUpload = { await c.cancel() }
+        #expect(await c.run(.userInitiated).cancelled)
+        #expect(empty.awaited.isEmpty)
+        // The upload returned its days: said, though the run was cancelled before its wait.
+        let sent = FakeSteps(clock: clock)
+        sent.touchedSoFar = ["2026-10-12"]
+        let s = SyncCoordinator(steps: sent, clock: clock)
+        sent.onUpload = { await s.cancel() }
+        #expect(await s.run(.userInitiated).cancelled)
+        #expect(sent.awaited == [["2026-10-19"]])
     }
 
     /// Until the queued rerun's trigger is `trigger`.

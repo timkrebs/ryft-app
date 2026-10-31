@@ -44,10 +44,13 @@ protocol SyncSteps: AnyObject {
     /// answered them yet.
     var awaitedDays: [String] { get }
     /// Days the last upload's accepted pages touched, also when it failed or was cancelled afterwards; none once the
-    /// account is gone.
+    /// account is gone, and none when the last `upload()` started no upload (demo data, signed out, no platform).
     var touchedSoFar: [String] { get }
     /// The latest `GET /v1/me/sync` answer and when it arrived, on this phone's clock.
     var lastStatus: (status: SyncStatus, readAt: Date)? { get }
+    /// Changes whenever this phone's word is forgotten (an account change, the demo switch): the days a wait gave up
+    /// on before (`ScoringSignal.waitedOut`) are forgotten with it.
+    var ledgerGeneration: Int { get }
 }
 
 extension SyncSteps {
@@ -61,6 +64,7 @@ extension SyncSteps {
     var awaitedDays: [String] { [] }
     var touchedSoFar: [String] { [] }
     var lastStatus: (status: SyncStatus, readAt: Date)? { nil }
+    var ledgerGeneration: Int { 0 }
 }
 
 /// Runs syncs as one pipeline with explicit dependencies:
@@ -73,7 +77,8 @@ extension SyncSteps {
 ///   `pending_days` no longer holds the touched days (doubling waits up to a minute, five
 ///   minutes at most). The silent push for a scored day ends the wait at once and joins
 ///   the run instead of queuing another refresh. A gate ends it too. The first ask is never sooner
-///   than the platform's status cache allows (`ScoringWord.statusCacheTime`), so no answer from
+///   than the platform's status cache allows (`ScoringWord.statusCacheTime`), and a day the phone's
+///   word still holds (an ask that joined an earlier flight) stays awaited, so no answer from
 ///   before the write ends a wait. A foreground run that sent nothing refreshes what's stale, asks
 ///   once whether the platform still scores days (a background upload, another device, a relaunch)
 ///   and waits for those the same way, except days an earlier wait already gave up on.
@@ -371,7 +376,8 @@ actor SyncCoordinator {
         }
         defer { uploadDone() }
         // An upload that ended early (failed, cancelled) after the platform accepted pages: those days are being
-        // scored all the same (`touchedSoFar` is empty once the account is gone).
+        // scored all the same (`touchedSoFar` is empty once the account is gone). Owed only once this run entered an
+        // upload: before that, `touchedSoFar` is an earlier run's.
         var wordOwed = false
         var acceptedBefore = Set<String>() // by upload attempts a transient failure ended
         func sayTouchedSoFar() async {
@@ -405,8 +411,11 @@ actor SyncCoordinator {
                 outcome.polls = try await awaitScoring(days, steps, clock, scoring)
             default:
                 let uploaded: [String]
-                wordOwed = true
-                (uploaded, outcome.attempts) = try await uploadWithBackoff(steps, clock, accepted: &acceptedBefore)
+                (uploaded, outcome.attempts) = try await uploadWithBackoff(steps, clock, accepted: &acceptedBefore,
+                                                                           entered: &wordOwed)
+                // The upload answered with its days: those are the word, cancelled or not (an upload that sent
+                // nothing owes none, whatever an earlier one touched).
+                wordOwed = false
                 uploadDone()
                 // Days a `.daysChanged` brought into this run are awaited and refreshed with the uploaded ones.
                 let written = uploaded + Set(extraDays).subtracting(uploaded).sorted()
@@ -415,12 +424,11 @@ actor SyncCoordinator {
                 // gated or demo uploads send nothing).
                 outcome.backlog = uploaded.isEmpty ? false : await steps.hasBacklog
                 outcome.waitingForUnlock = await steps.isWaitingForUnlock
-                try Task.checkCancellation()
-                wordOwed = false
                 if !written.isEmpty {
                     await scoring.written(written)
                     await steps.awaiting(written)
                 }
+                try Task.checkCancellation()
                 if await inBackground() {
                     // The system's time is short: the silent push refreshes once scoring is done.
                     try Task.checkCancellation()
@@ -481,12 +489,14 @@ actor SyncCoordinator {
     }
 
     /// The upload, retried on transient failures with exponential backoff. The days an attempt touched before it
-    /// failed (`accepted`) are the run's too: the retry starts after the pages the platform accepted.
-    private static func uploadWithBackoff(_ steps: SyncSteps, _ clock: AppClock,
-                                          accepted: inout Set<String>) async throws -> ([String], Int) {
+    /// failed (`accepted`) are the run's too: the retry starts after the pages the platform accepted. `entered`: an
+    /// attempt was started (from then on `touchedSoFar` is this run's).
+    private static func uploadWithBackoff(_ steps: SyncSteps, _ clock: AppClock, accepted: inout Set<String>,
+                                          entered: inout Bool) async throws -> ([String], Int) {
         var delay = firstBackoff
         for attempt in 1...maxUploadAttempts {
             try Task.checkCancellation()
+            entered = true
             do {
                 let touched = try await steps.upload()
                 return (touched + accepted.subtracting(touched).sorted(), attempt)
@@ -523,7 +533,8 @@ actor SyncCoordinator {
         guard let status, status.gate == nil else { return ([], nil) }
         // After the read: the words it answered are gone.
         let listed = Set(status.pendingDays).union(await steps.awaitedDays)
-        let days = listed.subtracting(await scoring.waitedOut).sorted()
+        let generation = await steps.ledgerGeneration
+        let days = listed.subtracting(await scoring.waitedOut(generation: generation)).sorted()
         return (days, status.expectedWithinSec)
     }
 
@@ -537,6 +548,9 @@ actor SyncCoordinator {
     private static func awaitScoring(_ days: [String], _ steps: SyncSteps, _ clock: AppClock,
                                      _ scoring: ScoringSignal, expected override: Int? = nil) async throws -> Int {
         await scoring.begin(Set(days))
+        // The days it may give up on belong to this phone's word as it is now (an account change or the demo switch
+        // forgets them).
+        let generation = await steps.ledgerGeneration
         let signpost = Signposts.sync.beginInterval("score-wait", id: Signposts.sync.makeSignpostID(),
                                                     "\(days.count) days")
         var polls = 0
@@ -565,22 +579,21 @@ actor SyncCoordinator {
                 }
                 polls += 1
                 asking?.cancel()
-                let asked = clock.now()
                 asking = Task {
                     // A failed ask is one more wait, not the end.
                     guard let status = try? await steps.syncStatus() else { return }
-                    let gated = status.gate != nil
-                    // Asked inside the cache time after the write: only a gate counts (the timing above keeps it out).
-                    guard gated || asked.timeIntervalSince(begun) >= ScoringWord.statusCacheTime else { return }
-                    await scoring.answer(pending: Set(status.pendingDays), gated: gated)
+                    // The ledger decides what this answer may end: an ask that joined a flight asked under the cache
+                    // time after the write (a pull's) leaves the word, so its days stay pending (F3's rule).
+                    let pending = Set(status.pendingDays).union(await steps.awaitedDays)
+                    await scoring.answer(pending: pending, gated: status.gate != nil)
                 }
                 delay = min(delay * 2, maximumPollDelay)
             }
         } catch {
-            await scoring.end(cutOff: false)
+            await scoring.end(cutOff: false, generation: generation)
             throw error
         }
-        await scoring.end(cutOff: cutOff)
+        await scoring.end(cutOff: cutOff, generation: generation)
         return polls
     }
 
@@ -602,8 +615,10 @@ actor ScoringSignal {
     /// The days the pipeline waits for; `nil` when none does.
     private var awaited: Set<String>?
     /// Days a wait gave up on at the cut-off while the platform still listed them: a run that sent nothing doesn't
-    /// wait for them again, until a write touches them.
-    private(set) var waitedOut: Set<String> = []
+    /// wait for them again, until a write touches them or this phone's word is forgotten (`waitedOutGeneration`).
+    private var waitedOut: Set<String> = []
+    /// The `SyncSteps.ledgerGeneration` those days were given up on in.
+    private var waitedOutGeneration = 0
     private var done = false
     private var waiting: CheckedContinuation<Bool, Never>?
     /// The wait that's open; a parked half that arrives after it closed returns at once.
@@ -614,11 +629,27 @@ actor ScoringSignal {
         done = false
     }
 
-    /// `cutOff`: the wait ran out of time; the days still awaited are waited out.
-    func end(cutOff: Bool) {
-        if cutOff, let awaited { waitedOut.formUnion(awaited) }
+    /// `cutOff`: the wait ran out of time; the days still awaited are waited out, in the ledger generation the wait
+    /// began in.
+    func end(cutOff: Bool, generation: Int) {
+        if cutOff, let awaited {
+            forget(unless: generation)
+            waitedOut.formUnion(awaited)
+        }
         awaited = nil
         done = false
+    }
+
+    /// The days given up on in `generation`; none from an earlier one (an account change, the demo switch).
+    func waitedOut(generation: Int) -> Set<String> {
+        forget(unless: generation)
+        return waitedOut
+    }
+
+    private func forget(unless generation: Int) {
+        guard generation != waitedOutGeneration else { return }
+        waitedOut = []
+        waitedOutGeneration = generation
     }
 
     /// A write touched `days`: they're worth a wait again.
@@ -704,8 +735,13 @@ final class LiveSyncSteps: SyncSteps {
         sync.ledgerChanged = { [weak repository] in repository?.publishWidget() }
     }
 
+    /// The last `upload()` started `SyncService`'s upload: only then is `sync.lastDaysTouched` its days.
+    private var startedUpload = false
+
     func upload() async throws -> [String] {
+        startedUpload = false
         guard !state.isDemo, state.env.auth.isSignedIn, state.env.settings.isConfigured else { return [] }
+        startedUpload = true
         return try await sync.upload()
     }
 
@@ -788,7 +824,9 @@ final class LiveSyncSteps: SyncSteps {
         sync.scoringLedger.filter { $0.value.kind == .pending }.keys.sorted()
     }
 
-    var touchedSoFar: [String] { sync.lastDaysTouched }
+    var touchedSoFar: [String] { startedUpload ? sync.lastDaysTouched : [] }
+
+    var ledgerGeneration: Int { sync.ledgerGeneration }
 
     var lastStatus: (status: SyncStatus, readAt: Date)? {
         guard let status = state.syncStatus, let read = sync.statusReadAt else { return nil }
