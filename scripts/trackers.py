@@ -11,8 +11,10 @@ a resource.
 
 --check covers what CI can see without the app: valid JSON, schema_version 1, unique ids, complete en/de
 pairs, the denylisted brand (the pattern of .claude/hooks/pre-edit-guard.sh, which must equal the app's
-runtime validator's), and each tracker's `checked` date (a warning at 90 days, a failure at 180). The full
-rule set lives once, in Swift (`TrackerCatalog.decode`); DecodingTests proves the bundled literal passes it.
+runtime validator's), each tracker's `checked` date (a warning at 90 days, a failure at 180), a pre-check of
+each `sync` sentence against the app's text rules, and no `url_scheme` or `open_url` key (app schemes are compiled,
+ADR 0012). It is a pre-check: the full rule set lives once, in Swift (`TrackerCatalog.decode`); DecodingTests
+proves the bundled literal passes it.
 Stdlib only.
 """
 import argparse
@@ -34,7 +36,8 @@ END = "// END GENERATED trackers.json"
 WARN_DAYS, FAIL_DAYS = 90, 180
 LINE_LENGTH = 160  # .swiftlint.yml line_length warning
 PAIRS = ("setup_steps", "habits", "limits")
-# `sync`: one sentence per language ({"en": "...", "de": "..."}), the habits' cap; the app's validator has every text rule.
+# `sync`: one sentence per language ({"en": "...", "de": "..."}), the habits' cap. check_sentence mirrors the app's text
+# rules as a pre-check; the app's validator (`CatalogValidator.text`) stays the authority.
 SENTENCES = ("sync",)
 SENTENCE_MAX = 240
 # Keys that would let content choose what the app opens. The app's schemes are compiled (ADR 0012) and its decoder
@@ -137,8 +140,30 @@ def check_pair(errors, pair, path, lists=True):
         errors.append(f"{path}: en and de both need text")
 
 
+REFUSED_CATEGORIES = ("Cc", "Cf", "Co", "Cn", "Zl", "Zp")
+MAX_MARKS = 3
+
+
+def text_refusal(text):
+    """The rule of the app's text check `text` breaks, or None (a pre-check: no Unicode script data in the stdlib, so a
+    letter counts as Latin when its name says LATIN)."""
+    if MARKUP.search(text):
+        return "markup, a link or an address"
+    run = 0
+    for c in text:
+        category = unicodedata.category(c)
+        if category in REFUSED_CATEGORIES:
+            return f"a control, format, private-use, unassigned or separator character (U+{ord(c):04X})"
+        if category.startswith("L") and "LATIN" not in unicodedata.name(c, ""):
+            return f"a letter of another script than Latin (U+{ord(c):04X})"
+        run = run + 1 if category.startswith("M") else 0
+        if run > MAX_MARKS:
+            return f"more than {MAX_MARKS} combining marks in a row"
+    return None
+
+
 def check_sentence(errors, pair, path):
-    """A plain sentence per language: both present, at most SENTENCE_MAX characters, no markup or links."""
+    """A plain sentence per language: both present, at most SENTENCE_MAX characters, plain text (`text_refusal`)."""
     if pair is None:
         return
     before = len(errors)
@@ -149,8 +174,9 @@ def check_sentence(errors, pair, path):
         text = pair[language]
         if len(text) > SENTENCE_MAX:
             errors.append(f"{path}.{language}: longer than {SENTENCE_MAX} characters")
-        if MARKUP.search(text) or any(unicodedata.category(c) in ("Cc", "Cf") for c in text):
-            errors.append(f"{path}.{language}: plain text only (no markup, links or control characters)")
+        rule = text_refusal(text)
+        if rule:
+            errors.append(f"{path}.{language}: plain text only ({rule})")
 
 
 def check(data, swift_text):
@@ -248,12 +274,16 @@ def self_test():
     for sync, expected in (({"en": "Open it."}, "needs both en and de"), ({"en": "Open it.", "de": " "}, "both need text"),
                            ({"en": ["Open it."], "de": ["Öffne sie."]}, "both need text"),
                            ({"en": "x" * 241, "de": "y"}, "longer than"), ({"en": "See www.example.com", "de": "y"}, "plain text"),
-                           ({"en": "Two\nlines", "de": "y"}, "plain text")):
+                           ({"en": "Two\nlines", "de": "y"}, "plain text"), ({"en": "Line\u2028break", "de": "y"}, "separator"),
+                           ({"en": "Para\u2029graph", "de": "y"}, "separator"), ({"en": "x\ue000", "de": "y"}, "private-use"),
+                           ({"en": "x\u0378", "de": "y"}, "unassigned"), ({"en": "G\u0430rmin", "de": "y"}, "another script"),
+                           ({"en": "a\u0301\u0301\u0301\u0301", "de": "y"}, "combining marks"), ({"en": "Write to x@y", "de": "y"}, "address")):
         errors, _ = check({"schema_version": 1, "trackers": [
             {"id": "other", "name": "Other", "checked": "2026-10-22", "sync": sync}]}, pattern)
         assert any(expected in e for e in errors), f"sync {sync!r} passed"
     errors, _ = check({"schema_version": 1, "trackers": [
-        {"id": "other", "name": "Other", "checked": "2026-10-22", "sync": {"en": "Open it.", "de": "Öffne sie."}}]}, pattern)
+        {"id": "other", "name": "Other", "checked": "2026-10-22",
+         "sync": {"en": "Open it, then pull to refresh.", "de": "Öffne sie „jetzt“ – dann ziehe nach unten; Größe: 3 °C."}}]}, pattern)
     assert not any("sync" in e for e in errors), f"a valid sync was refused: {errors}"
     for key in REFUSED_KEYS:
         errors, _ = check({"schema_version": 1, "trackers": [

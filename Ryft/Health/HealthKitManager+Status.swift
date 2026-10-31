@@ -1471,8 +1471,8 @@ extension TrackerCatalog {
             ]
           },
           "sync": {
-            "en": "Withings doesn't sync to Apple Health on its own. Open Withings, then the Health app, and pull down on its Home tab to refresh.",
-            "de": "Withings synchronisiert nicht von selbst mit Apple Health. Öffne Withings, dann die Health-App, und zieh auf dem Home-Tab nach unten, um zu aktualisieren."
+            "en": "Withings doesn't sync to Apple Health on its own. Open Withings, then the Health app, and pull down on the Withings Home tab to refresh.",
+            "de": "Withings synchronisiert nicht von selbst mit Apple Health. Öffne Withings, dann die Health-App, und zieh in Withings auf dem Home-Tab nach unten, um zu aktualisieren."
           },
           "limits": {
             "en": [

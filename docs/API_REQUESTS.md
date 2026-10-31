@@ -380,6 +380,9 @@ not moving after 1 day." The tester wears a Garmin. App brief: `CLAUDE_FOLLOWUP_
    - **(New 2026-10-31)** The app's catalog schema gains an optional `sync` text per tracker (en + de, plain text under
      ADR 0002's rules), filled in the bundled copy. The served `trackers.json` should carry it when the web side
      publishes the file. URL schemes are compiled in the app and never served (ADR 0012).
+     - **The served file must use a `version` later than `2026-10-31.1` and carry `sync`.** The app keeps the newest
+       valid copy (ADR 0002 rule 4, "Versions"): a served file at that version or older is outranked by the bundled
+       copy and never used, and a newer one without `sync` silently drops the sentences from Today's hint.
 4. **Supersedes Refresh resilience §2** (`calibrating_reason`). Done on 2026-10-22: `calibrating_reason`,
    `baseline_hrv_days` and `baseline_rhr_days` are in `API.md`; only `recovery_inputs` stays open (§1).
 
