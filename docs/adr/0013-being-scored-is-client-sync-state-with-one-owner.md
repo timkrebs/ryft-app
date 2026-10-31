@@ -65,11 +65,15 @@
      come from `AppClock`. The phone's clock is never compared with a server timestamp.
    - A read that doesn't know when it was asked (`receive` with `requestedAt: nil`, as in onboarding) answers no word.
    - Once a read has answered a word, the platform's state for that day rules, whatever it says.
-   - Until then the word adjusts the platform's state. `.pending` wins over anything. `.scored` rules out `pending`
-     only, so a day without last night's sleep stays `waiting_for_sleep` and a `stale` day stays `stale`.
+   - Until then the word adjusts the platform's state. `.pending` wins over anything. `.scored` wins over everything
+     except `waiting_for_sleep`: a day without last night's sleep stays waiting, and a cached `stale` becomes scored,
+     because the push means new data arrived.
 4. **No status read sent sooner than the cache time after a write may end a wait.**
-   - `awaitScoring` sends its first read after `max(minimumPollDelay, expected_within_sec, statusCacheTime)`. It ignores
-     any answer asked sooner after the wait began, unless the answer names a gate (nothing is scored behind a gate).
+   - `awaitScoring` sends its first read after `max(minimumPollDelay, expected_within_sec, statusCacheTime)`.
+   - The ledger decides when a wait ends, not the poll's own timing. A poll can join a `ReadScheduler` flight that was
+     asked earlier, so each answer is given to the ledger with the days it still holds as pending
+     (`status.pendingDays ∪ awaitedDays`), and the wait goes on while the phone's word holds a day. An answer that names
+     a gate still ends it (nothing is scored behind a gate).
    - A run that sent nothing may reuse a status read that is under 10 s old (`stillScoring`). It uses that read only to
      choose which days to wait for, and adds the ledger's unanswered pending days to them. A cached "nothing pending"
      therefore can't drop the phone's word.
@@ -86,7 +90,12 @@
      which is the system's time budget. Until then, Today and the widget say "being scored". The follow-up is a
      `BGAppRefresh` that asks `GET /v1/me/sync` once when old pending words exist (review-t2, architect S4).
 6. **The account change and the demo switch clear it.**
-   - `SyncService.accountChanged()` runs on every `auth.accountID` change, sign-out included.
+   - `SyncService.accountChanged()` runs on every `auth.accountID` change, sign-out included, and goes through
+     `forgetScoringWords()`.
+   - `forgetScoringWords()` bumps `ledgerGeneration`; the days a wait gave up on (`waitedOut`) belong to one generation,
+     so they are forgotten too.
+   - An upload that ends after the account changed keeps none of its days, on success, failure or cancel.
+   - A run says only the days of an upload it actually started; a cancel before the first upload says none.
    - `SyncService.forgetScoringWords()` runs on the demo switch, from `RyftApp` and from
      `ProfileViewModel.demoModeChanged`.
    - The ledger is in memory only and never persisted. A relaunch starts from the platform's word: the launch read,
@@ -96,9 +105,15 @@
      `aStatusRequestedBeforeThePushCannotMakeTheDayPendingAgain`, `aFastScorerLandsACalibratingDayWithoutAPush`,
      `aPushOnANightlessDayLeavesItWaitingForSleep`, `openingTheAppRightAfterABackgroundUploadWaitsForItsWord`,
      `aReadJoiningAnEarlierFlightLeavesTheWordsThatFlightCouldNotAnswer`,
-     `theLedgerIsEmptyAfterAnAccountChangeAndTheWidgetSaysSo`, `switchingDemoDataOnOrOffForgetsTheWords`;
+     `theLedgerIsEmptyAfterAnAccountChangeAndTheWidgetSaysSo`, `switchingDemoDataOnOrOffForgetsTheWords`,
+     `aPollThatJoinsAnEarlierFlightKeepsWaitingUntilALateReadAnswers`;
    - `SyncCoordinatorTests`: `anUploadThatEndsEarlySaysTheDaysItsAcceptedPagesTouched`,
-     `aSilentPushMarksItsDaysScoredBeforeTheRefresh`, `aStatusReadUnderTheCacheTimeAgoIsUsedAsItIsWithItsOwnEstimate`.
+     `aSilentPushMarksItsDaysScoredBeforeTheRefresh`, `aStatusReadUnderTheCacheTimeAgoIsUsedAsItIsWithItsOwnEstimate`,
+     `anAnswerTheWordOutlivesDoesNotEndTheWait`, `aCancelRightAfterTheUploadSaysOnlyThatUploadsDays`,
+     `aDayAWaitGaveUpOnIsWaitedForAgainOnceTheWordsAreForgotten`;
+   - `ScoringLedgerTests`: `aPushOverAStaleDayIsScored`, `aWordForManyDaysRepublishesTheWidgetOnce`,
+     `aWordSaidAfterASignOutIsDropped`, `anUploadThatEndsAfterTheAccountWentKeepsNoneOfItsDays`,
+     `anUploadThatDidNotStartReportsNoDaysTouched`.
 
    A new write path adds a test that its days reach `FakeSteps.awaiting` through the coordinator.
 

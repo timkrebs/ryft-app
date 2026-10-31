@@ -41,3 +41,8 @@ gaps and four nits, all fixed in this PR (round 2, sync-engineer).
 | R6 | The N1 `isSignedIn` guard and the `accountID == account` guards are untested (mutants survive). | Fix: a test each. |
 
 Round 2 fixes: a246317
+
+Round 3 (sync-engineer, ae5df6d): the end-to-end join test waits on `ReadScheduler.joiners(for:)` instead of a race
+(0 issues in 80 repetitions); `Harness.statusReads` reads the mock under its lock (the other flake); `SyncService.run`'s
+success path has the account guard too, with a test. ADR 0013 rules 3, 4, 6 and 7 updated by the lead for rounds 2–3.
+Follow-up: about 46 test lines read `MockPlatformAPI.calls` without the lock; a locked getter fixes them all.
