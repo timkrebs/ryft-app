@@ -729,16 +729,16 @@ struct WatchSyncHintCard: View {
     @ScaledMetric(relativeTo: .callout) private var iconSize: CGFloat = 15
     /// The leading glyph's column: as wide as the widest glyph (the watch with its waves), so the text starts at the same
     /// place whichever glyph the card shows.
-    @ScaledMetric(relativeTo: .callout) private var iconColumn: CGFloat = 26
-    /// Bumped on each return to the foreground: the card is built again and asks `canOpenURL` again (the user may have
-    /// installed or removed the app meanwhile, often in the App Store page this card opened).
-    @State private var foregrounds = 0
+    @ScaledMetric(relativeTo: .callout) private var iconColumn: CGFloat = 28
 
     private var identifier: String { hint.isNight ? "today.nightHint" : "today.watchHint" }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            // Asked on every build of the card (each minute, and each return to the foreground below), never cached.
+            // Asked on every build of the card, never cached: each minute, and on each scene-phase change, because the
+            // closure reads `scenePhase` (the user may have installed or removed the app meanwhile, often in the App
+            // Store page this card opened). No `.id` rebuild, so VoiceOver keeps its focus on the button.
+            let _ = scenePhase
             if showsAction, let action = hint.action(canOpen: { appInstalled($0) }) {
                 Button { perform(action) } label: { card(now: context.date, action: action) }
                     .buttonStyle(PressableButtonStyle())
@@ -748,10 +748,6 @@ struct WatchSyncHintCard: View {
             } else {
                 card(now: context.date, action: nil)
             }
-        }
-        .id(foregrounds)
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { foregrounds &+= 1 }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(identifier)

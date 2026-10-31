@@ -77,7 +77,7 @@ State 2 includes the silent fallback: if `openURL` reports failure, open the sto
 ### D3.5 VoiceOver
 The card is a container (as now), two elements in this order:
 1. Static text: the sentence, then the age line when present (one element, `.combine`).
-2. Button, label "Open Garmin Connect", trait `.isButton`, hint "Leaves RYFT". In state 2 the label is "Garmin Connect in the App Store".
+2. Button, label "Open Garmin Connect", trait `.isButton`, hint "Leaves RYFT.". In state 2 the label is "Garmin Connect in the App Store".
 
 Reading the information first and the action second matches the eye order. The decorative glyphs are hidden. Identifiers
 stay `today.watchHint` / `today.nightHint`, the button `today.watchHint.action`. Sighted tap anywhere on the card fires the
@@ -414,7 +414,7 @@ Screens: **T** Today, **W** widget, **S** Sources screen, **P** picker/wizard, *
 | 3 | T | Verb: open app | scheme known and installed | "Open \(app)" | "\(app) öffnen" |
 | 4 | T | Verb: store | no scheme, not installed, or open failed | "\(app) in the App Store" | unchanged (shipped) |
 | 5 | T | Apple device | `!isApp` | sentence only, no verb | unchanged |
-| 6 | T | VoiceOver | 3, 4 | button "Open Garmin Connect", hint "Leaves RYFT" | "Garmin Connect öffnen", "Verlässt RYFT" |
+| 6 | T | VoiceOver | 3, 4 | button "Open Garmin Connect", hint "Leaves RYFT." | "Garmin Connect öffnen", "Verlässt RYFT." |
 | 7 | T | Provisional line | `status == provisional`, HR minutes known | "Provisional · based on \(duration) of heart rate so far" | "Vorläufig · bisher auf Basis von \(duration) Herzfrequenz" |
 | 8 | T | Provisional, no HR minutes | provisional, sleep only | "Provisional · based on the part of the night synced so far" | "Vorläufig · auf Basis des bisher synchronisierten Teils der Nacht" |
 | 9 | T, W | Gauge provisional | 7 or 8 | dashed centre ring; VoiceOver "provisional" in the value | "vorläufig" |

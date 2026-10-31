@@ -142,6 +142,8 @@ def check_pair(errors, pair, path, lists=True):
 
 REFUSED_CATEGORIES = ("Cc", "Cf", "Co", "Cn", "Zl", "Zp")
 MAX_MARKS = 3
+# Letters of the Common script the app accepts although their names don't say LATIN (µg, 1ª, 2º, ʼ, ℓ).
+COMMON_LETTERS = frozenset("\u00b5\u00aa\u00ba\u02bc\u2113")
 
 
 def text_refusal(text):
@@ -154,7 +156,7 @@ def text_refusal(text):
         category = unicodedata.category(c)
         if category in REFUSED_CATEGORIES:
             return f"a control, format, private-use, unassigned or separator character (U+{ord(c):04X})"
-        if category.startswith("L") and "LATIN" not in unicodedata.name(c, ""):
+        if category.startswith("L") and "LATIN" not in unicodedata.name(c, "") and c not in COMMON_LETTERS:
             return f"a letter of another script than Latin (U+{ord(c):04X})"
         run = run + 1 if category.startswith("M") else 0
         if run > MAX_MARKS:

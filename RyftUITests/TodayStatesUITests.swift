@@ -110,9 +110,7 @@ final class TodayStatesUITests: XCTestCase {
                                     file: StaticString = #filePath, line: UInt = #line) {
         let action = app.buttons.matching(identifier: "\(id).action")
         XCTAssertEqual(action.count, 1, "one action", file: file, line: line)
-        XCTAssertEqual(action.firstMatch.elementType, .button, file: file, line: line)
         XCTAssertEqual(action.firstMatch.label, label, file: file, line: line)
-        XCTAssertEqual(sentence.elementType, .staticText, file: file, line: line)
         XCTAssertNotEqual(sentence.identifier, "\(id).action", "the sentence isn't the action", file: file, line: line)
         XCTAssertFalse(app.buttons.containing(NSPredicate(format: "label == %@", sentence.label)).firstMatch.exists,
                        "the sentence isn't a button", file: file, line: line)

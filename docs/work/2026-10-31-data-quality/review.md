@@ -31,3 +31,12 @@ UI test `testQuietTrackerHintSaysHowItSyncsThenOffersTheApp` and the night-hint 
 **Lead, on the night hint:** it keeps its own sentence ("Open Garmin Connect to sync it.") above the "Open Garmin Connect"
 button. The sentence explains why and the button acts. design.md §D3 only defines `sync` for the quiet sentence. Not
 changed.
+
+Round 1 re-check (code-reviewer, up to 806fe57): resolved, with no blocking or should-fix findings. The lead fixed its four nits:
+- **The `.id` rebuild on foreground is gone.** The card's closure reads `scenePhase` instead, so `canOpenURL` is still asked again and VoiceOver keeps its focus.
+- **The icon column is 28 pt**, the width of the watch glyph.
+- **Two always-true UI assertions are dropped.**
+- **`trackers.py` allows µ ª º ʼ ℓ**, which the Swift validator accepts.
+- **design.md has "Leaves RYFT."**
+
+Verified: `make lint`, `TrackerAppLinkTests` and `TodayStatesUITests` pass with `RYFT_STRICT_WARNINGS=YES`.
