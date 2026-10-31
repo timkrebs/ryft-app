@@ -140,6 +140,9 @@ final class OnboardingCoordinator {
     /// "What do you wear?" answered or skipped, and the setup screen after Apple Health left (per account).
     private(set) var wearAsked = false
     private(set) var trackerSetupDone = false
+    /// Catalog tracker ids Apple Health showed in the last 7 days (`detectTrackers()`): nil when not known (not
+    /// asked, demo, not run), `[]` when nothing was found. In memory only; nothing is saved on detection alone.
+    private(set) var detected: [String]?
 
     /// This account reached the tabs on this phone once (`reachedTabs()`); per account, so
     /// another account on a phone that already allowed Apple Health still gets its steps.
@@ -403,6 +406,7 @@ final class OnboardingCoordinator {
         hintSeen = account.map { defaults.bool(forKey: Self.key("hintSeen", $0)) } ?? false
         wearAsked = account.map { defaults.bool(forKey: Self.key("wearAsked", $0)) } ?? false
         trackerSetupDone = account.map { defaults.bool(forKey: Self.key("trackerSetupDone", $0)) } ?? false
+        detected = nil
     }
 
     // MARK: steps
@@ -883,6 +887,37 @@ extension OnboardingCoordinator {
             && env.auth.isSignedIn && !setupTrackers.isEmpty
     }
 
+    /// Reads which trackers Apple Health shows (architecture.md §D4.6) into `detected`: only once access was asked,
+    /// never in demo, and it never prompts (`SourceDetector.trackerIDs`). Not known (not asked, locked, failed)
+    /// leaves what was there. The wear step (a reinstall, a second account) and the setup step after Apple Health
+    /// call it on appearance.
+    func detectTrackers() async {
+        guard let ids = await SourceDetector(env: env, picked: []).trackerIDs() else { return }
+        detected = ids
+    }
+
+    /// The setup step's offer (design.md §D4.5): trackers detected in Apple Health that weren't picked, in picker
+    /// order; never the iPhone (it's always there) and never Other.
+    var offeredTrackers: [Tracker] {
+        guard let detected else { return [] }
+        let chosen = Set(devices.trackers)
+        let catalog = env.trackerCatalog
+        return detected.filter { !chosen.contains($0) && $0 != TrackerSelectionStore.iPhone && $0 != "other" }
+            .compactMap(catalog.tracker)
+    }
+
+    /// "Add Oura" on the setup step: the tracker joins the choice (saved for this account, as "What do you wear?"
+    /// saves it); "Just my iPhone" gives way to it.
+    func addDetected(_ id: String) {
+        devices.set(TrackerSelectionStore.toggled(id, in: devices.trackers).picked)
+    }
+
+    /// Previews: a detection without reading Health (demo never detects).
+    func previewDetected(_ ids: [String]?) { detected = ids }
+
+    /// The Sources screen over this account's choice (the setup step's "See what Apple Health has sent").
+    func makeSources() -> SourcesViewModel { SourcesViewModel(state: state, selection: devices) }
+
     /// A deleted account's answers to "What do you wear?" and the setup screen leave this phone too.
     func forgetTrackerSteps(of account: String) {
         defaults.removeObject(forKey: Self.key("wearAsked", account))
@@ -928,7 +963,8 @@ private struct PinnedBar<Content: View>: View {
 /// this text size (a word is never broken). Several may be picked; "Just my iPhone" only on its own.
 struct TrackerPickerGrid: View {
     let catalog: TrackerCatalog
-    @Binding var picked: [String]
+    /// The tiles chosen, and those found in Apple Health not confirmed yet (`WearChoice`).
+    @Binding var choice: WearChoice
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -955,7 +991,12 @@ struct TrackerPickerGrid: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text("What do you wear?"))
-        .accessibilityHint(Text("Choose all that apply"))
+        .accessibilityHint(choice.hasDetection ? Text(Self.detectedHint) : Text("Choose all that apply"))
+    }
+
+    static var detectedHint: String {
+        String(localized: "Confirm or change what RYFT found",
+               comment: "VoiceOver hint of What do you wear? when RYFT pre-selected trackers found in Apple Health.")
     }
 
     /// Two columns while every word of every name fits a tile's room at `size` (not at accessibility sizes).
@@ -977,11 +1018,14 @@ struct TrackerPickerGrid: View {
     }
 
     private func tile(_ tracker: Tracker) -> some View {
-        SelectableTile(symbol: tracker.symbol, title: tracker.title, isSelected: picked.contains(tracker.id),
-                       hint: tracker.id == TrackerSelectionStore.iPhone ? "Clears your other choices" : nil) {
-            let next = TrackerSelectionStore.toggled(tracker.id, in: picked)
-            withAnimation(Theme.Motion.respecting(reduceMotion)) { picked = next.picked }
-            if next.cleared {
+        let state = choice.state(of: tracker.id)
+        return SelectableTile(symbol: tracker.symbol, title: tracker.title, isSelected: state == .chosen,
+                              hint: tracker.id == TrackerSelectionStore.iPhone ? "Clears your other choices" : nil,
+                              detected: state == .detected) {
+            var next = choice
+            let cleared = next.toggle(tracker.id)
+            withAnimation(Theme.Motion.respecting(reduceMotion)) { choice = next }
+            if cleared {
                 AccessibilityNotification.Announcement(String(localized: "Other choices cleared")).post()
             }
         }
@@ -991,22 +1035,30 @@ struct TrackerPickerGrid: View {
 
 /// "What do you wear?" (ui.md §2): the first run's step after About you, before Apple Health. Continue saves the
 /// choice for this account; Skip saves nothing and doesn't ask again. Profile → Devices & sync changes it later.
+///
+/// When Apple Health access was already granted (a reinstall, a second account), what it shows is pre-filled as
+/// detected tiles, once and only while no tile was touched (design.md §D4.5); the button then says "Confirm". At a
+/// true first run nothing can be read yet, and the step is exactly as before.
 struct TrackerPickerView: View {
     let model: OnboardingCoordinator
-    @State private var picked: [String]
+    @State private var choice: WearChoice
     @Environment(\.appEnvironment) private var env
 
-    /// `picked`: previews start with a choice.
-    init(model: OnboardingCoordinator, picked: [String] = []) {
+    /// `picked`: previews start with a choice; `detected`: previews show a detection without reading Health.
+    init(model: OnboardingCoordinator, picked: [String] = [], detected: [String]? = nil) {
         self.model = model
-        _picked = State(initialValue: picked)
+        var choice = WearChoice(picked: picked)
+        choice.seed(detected)
+        _choice = State(initialValue: choice)
     }
 
     var body: some View {
         OnboardingScreen(symbol: "antenna.radiowaves.left.and.right",
                          title: "What do you wear?",
-                         text: "Pick your watch, band or ring. RYFT then shows how to get its data into Apple Health.") {
-            TrackerPickerGrid(catalog: env.trackerCatalog, picked: $picked)
+                         text: choice.hasDetection
+                             ? "RYFT found these in Apple Health. Check that they are right."
+                             : "Pick your watch, band or ring. RYFT then shows how to get its data into Apple Health.") {
+            TrackerPickerGrid(catalog: env.trackerCatalog, choice: $choice)
             Text("RYFT only uses this to show you setup steps and to check that your data arrives. You can change it any time in Profile → Devices & sync.")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
@@ -1014,14 +1066,19 @@ struct TrackerPickerView: View {
         }
         .safeAreaInset(edge: .bottom) {
             PinnedBar {
-                PrimaryButton(title: "Continue") { model.answerWear(picked) }
-                    .disabled(picked.isEmpty)
+                PrimaryButton(title: choice.confirms ? "Confirm" : "Continue") { model.answerWear(choice.saved) }
+                    .disabled(!choice.canSave)
                     .accessibilityIdentifier("wear.continue")
                 LaterButton(title: "Skip") { model.later(.wear) }
                     .accessibilityIdentifier("wear.skip")
             }
         }
-        .task { await env.catalogStore.refreshIfDue() }
+        .task {
+            await env.catalogStore.refreshIfDue()
+            // Only after access was granted; never prompts. Pre-fills once, never over a touched tile.
+            await model.detectTrackers()
+            choice.seed(model.detected)
+        }
     }
 }
 
@@ -1036,6 +1093,8 @@ struct TrackerSetupStepView: View {
     @State private var check: TrackerCheckModel?
     /// Open from the start (previews, and a `-RyftSyncCheck` run's screenshots).
     private let checkOpen: Bool
+    /// "See what Apple Health has sent": the Sources screen in a sheet (onboarding has no navigation stack).
+    @State private var sources: SourcesViewModel?
     @Environment(\.appEnvironment) private var env
 
     init(model: OnboardingCoordinator, checkOpen: Bool = SyncCheckScenario.requested != nil) {
@@ -1048,6 +1107,10 @@ struct TrackerSetupStepView: View {
         OnboardingScreen(symbol: "checklist",
                          title: trackers.count > 1 ? "Set up your trackers" : "Set up your tracker",
                          text: "A few minutes now saves a silent week of missing data.") {
+            // Found in Apple Health but not picked (design.md §D4.5): one line, one button, above the cards.
+            if let offer = model.offeredTrackers.first {
+                DetectedOffer(tracker: offer) { model.addDetected(offer.id) }
+            }
             VStack(spacing: 12) {
                 ForEach(trackers) { tracker in
                     if trackers.count == 1 {
@@ -1075,6 +1138,11 @@ struct TrackerSetupStepView: View {
                     .padding(.top, 12)
                     .accessibilityIdentifier("trackerSetup.checkSync")
             }
+            // The evidence behind Check sync's verdict (design.md §D4.1 route 3): a secondary row, under it.
+            Card(padding: 14) {
+                SourcesLinkRow(title: SourcesViewModel.setupLinkTitle, subtitle: nil) { sources = model.makeSources() }
+                    .accessibilityIdentifier("trackerSetup.sources")
+            }
         }
         .safeAreaInset(edge: .bottom) {
             PinnedBar {
@@ -1085,12 +1153,31 @@ struct TrackerSetupStepView: View {
             }
         }
         .onAppear { if checkOpen { openCheck() } }
+        // After Apple Health access: what it shows that wasn't picked is offered above the cards. Never prompts.
+        .task { await model.detectTrackers() }
+        .sheet(item: $sources) { model in SourcesSheet(model: model) }
     }
 
     /// The check on the chosen trackers, made once.
     private func openCheck() {
         guard check == nil else { return }
         check = .make(env: env, trackers: model.devices.trackers)
+    }
+}
+
+/// "RYFT also found Oura in Apple Health. Add it?" with "Add Oura" (design.md §D4.5, row 36): a tracker Apple
+/// Health shows that the user didn't pick, offered once access exists, without moving the wear step.
+private struct DetectedOffer: View {
+    let tracker: Tracker
+    let add: () -> Void
+
+    var body: some View {
+        InlineMessage(message: String(localized: "RYFT also found \(tracker.title) in Apple Health. Add it?",
+                                      comment: "Tracker setup after Apple Health: a tracker detected there but not picked."),
+                      systemImage: "plus.circle", identifier: "trackerSetup.offer",
+                      action: (title: String(localized: "Add \(tracker.title)",
+                                             comment: "Tracker setup: adds a tracker detected in Apple Health to the choice."),
+                               perform: add))
     }
 }
 
@@ -1141,16 +1228,18 @@ struct OnboardingStepPreview: View {
 
 /// "What do you wear?" or the setup screen after Apple Health, on the bundled catalog.
 @MainActor
-private func trackerStepPreview(setup: Bool = false, picked: [String] = [], scheme: ColorScheme = .dark,
-                                de: Bool = false, size: DynamicTypeSize = .large, checkOpen: Bool = false) -> some View {
+private func trackerStepPreview(setup: Bool = false, picked: [String] = [], detected: [String]? = nil,
+                                scheme: ColorScheme = .dark, de: Bool = false, size: DynamicTypeSize = .large,
+                                checkOpen: Bool = false) -> some View {
     let state = AppState.preview()
     let model = OnboardingCoordinator(state: state, apiStatus: APIStatus()) {}
     model.devices.stage(picked)
+    model.previewDetected(detected)
     return Group {
         if setup {
             TrackerSetupStepView(model: model, checkOpen: checkOpen)
         } else {
-            TrackerPickerView(model: model, picked: picked)
+            TrackerPickerView(model: model, picked: picked, detected: detected)
         }
     }
     .previewEnvironment(state, scheme: scheme)
@@ -1174,6 +1263,22 @@ private func trackerStepPreview(setup: Bool = false, picked: [String] = [], sche
     trackerStepPreview(setup: true, picked: ["garmin", "oura"], scheme: .light)
 }
 #Preview("Tracker setup · AX3") { trackerStepPreview(setup: true, picked: ["fitbit"], size: .accessibility3) }
+#Preview("Tracker picker · found in Apple Health · dark") { trackerStepPreview(detected: ["garmin", "oura"]) }
+#Preview("Tracker picker · found in Apple Health · light · de") {
+    trackerStepPreview(detected: ["garmin", "oura"], scheme: .light, de: true)
+}
+#Preview("Tracker picker · found in Apple Health · AX3") {
+    trackerStepPreview(detected: ["garmin"], size: .accessibility3)
+}
+#Preview("Tracker setup · also found Oura · dark") {
+    trackerStepPreview(setup: true, picked: ["garmin"], detected: ["garmin", "oura"])
+}
+#Preview("Tracker setup · also found Oura · light · de") {
+    trackerStepPreview(setup: true, picked: ["garmin"], detected: ["garmin", "oura"], scheme: .light, de: true)
+}
+#Preview("Tracker setup · also found Oura · AX3") {
+    trackerStepPreview(setup: true, picked: ["garmin"], detected: ["garmin", "oura"], size: .accessibility3)
+}
 #Preview("Tracker setup · check open · dark") { trackerStepPreview(setup: true, picked: ["garmin"], checkOpen: true) }
 #Preview("Tracker setup · check open · light · de") {
     trackerStepPreview(setup: true, picked: ["garmin"], scheme: .light, de: true, checkOpen: true)

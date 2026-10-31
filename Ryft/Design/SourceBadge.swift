@@ -2,10 +2,11 @@ import SwiftUI
 
 /// Where a row came from (ui.md §2.3): a quiet capsule with the source's glyph and name. Names only, never a
 /// vendor's logo; Apple's silhouettes only for the Apple Watch and the iPhone themselves (`Tracker.symbol`).
+/// Without a glyph it is the Sources screen's type chip ("HR", "Sleep"; lead decision 5.9).
 struct SourceBadge: View {
     /// The name as shown: a tracker's display name verbatim, or RYFT's own wording, already localized.
     let title: String
-    let glyph: String
+    let glyph: String?
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.colorSchemeContrast) private var contrast
@@ -13,10 +14,12 @@ struct SourceBadge: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: glyph)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Theme.textTertiary)
-                .accessibilityHidden(true)
+            if let glyph {
+                Image(systemName: glyph)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.textTertiary)
+                    .accessibilityHidden(true)
+            }
             // One line, middle-truncated; from the accessibility sizes on up to two lines, never cut in the middle.
             Text(verbatim: title)
                 .font(.ryft(.caption))
@@ -166,6 +169,12 @@ struct FlowLayout: Layout {
             SourceBadges(sources: [.ryftRecorded(indoor: true)])
             SourceBadges(sources: [.tracker(name: "Oura", symbol: "circle.circle")])
             SourceBadges(sources: [.tracker(name: MyDayAssembler.appleHealth, symbol: MyDayAssembler.appleHealthSymbol)])
+            // Type chips (Sources): no glyph.
+            HStack(spacing: 6) {
+                ForEach(["HR", "HRV", "Sleep", "Steps", "Workouts", "+3"], id: \.self) {
+                    SourceBadge(title: $0, glyph: nil)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -177,6 +186,11 @@ struct FlowLayout: Layout {
             SourceBadges(sources: [.tracker(name: "Garmin Connect", symbol: "watch.analog"), .ryftRecorded(indoor: false)],
                          merged: true)
             SourceBadges(sources: [.ryftManual])
+            FlowLayout(spacing: 6, lineSpacing: 6) {
+                ForEach(["HF", "HRV", "Schlaf", "Schritte", "Training", "+2"], id: \.self) {
+                    SourceBadge(title: $0, glyph: nil)
+                }
+            }
         }
         .frame(width: 240, alignment: .leading)
     }

@@ -85,7 +85,12 @@ struct SelectableTile: View {
     let isSelected: Bool
     /// VoiceOver, after the name ("Clears your other choices").
     var hint: LocalizedStringKey?
+    /// Found in Apple Health, not confirmed (design.md §D4.5): a hollow accent check, no fill, and "Found in Apple
+    /// Health" under the name. The extra line is the cue; `isSelected` wins when both are set.
+    var detected = false
     let action: () -> Void
+
+    private var isDetected: Bool { detected && !isSelected }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The glyph, its column and the mark grow with the name.
@@ -111,32 +116,56 @@ struct SelectableTile: View {
                     .foregroundStyle(isSelected ? Theme.accent : Theme.textSecondary)
                     .frame(width: glyphColumn)
                     .accessibilityHidden(true)
-                Text(verbatim: title)
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textPrimary)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: title)
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textPrimary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if isDetected {
+                        Text(Self.foundCaption)
+                            .font(.ryft(.caption))
+                            .foregroundStyle(Theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: mark, weight: .regular))
-                    .foregroundStyle(isSelected ? Theme.accent : Theme.textTertiary)
+                    .foregroundStyle(isSelected || isDetected ? Theme.accent : Theme.textTertiary)
                     .accessibilityHidden(true)
             }
             .padding(.vertical, 12)
             .padding(.horizontal, Self.padding)
             .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-            .background(isSelected ? Theme.surfaceRaised : Theme.surface,
-                        in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
+            .background(fill, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
-                .strokeBorder(isSelected ? Theme.accent : Theme.separator, lineWidth: isSelected ? 1.5 : Theme.Metrics.hairline))
+                .strokeBorder(isSelected || isDetected ? Theme.accent : Theme.separator,
+                              lineWidth: isSelected ? 1.5 : Theme.Metrics.hairline))
             .contentShape(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
             .animation(Theme.Motion.respecting(reduceMotion), value: isSelected)
         }
         .buttonStyle(PressableButtonStyle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: title))
+        .accessibilityValue(isDetected ? Text(Self.detectedValue) : Text(verbatim: ""))
         .accessibilityHint(hint.map { Text($0) } ?? Text(verbatim: ""))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// Chosen: raised; detected: no fill (an outline, expected but not confirmed); otherwise the card's surface.
+    private var fill: Color {
+        if isSelected { return Theme.surfaceRaised }
+        return isDetected ? .clear : Theme.surface
+    }
+
+    static var foundCaption: String {
+        String(localized: "Found in Apple Health", comment: "What do you wear?: under a tile RYFT detected, not yet confirmed.")
+    }
+
+    static var detectedValue: String {
+        String(localized: "Found in Apple Health, not confirmed",
+               comment: "VoiceOver value of a What do you wear? tile RYFT detected in Apple Health.")
     }
 }
 
@@ -272,6 +301,10 @@ private struct SelectableTileStates: View {
             HStack(spacing: 10) {
                 SelectableTile(symbol: "watch.analog", title: "Samsung Galaxy Watch", isSelected: false) {}
                 SelectableTile(symbol: "watch.analog", title: "Amazfit (Zepp)", isSelected: true) {}
+            }
+            HStack(spacing: 10) {
+                SelectableTile(symbol: "watch.analog", title: "Garmin", isSelected: false, detected: true) {}
+                SelectableTile(symbol: "circle.circle", title: "Oura", isSelected: true, detected: true) {}
             }
             SelectableTile(symbol: "iphone", title: "Just my iPhone", isSelected: false, hint: "Clears your other choices") {}
         }

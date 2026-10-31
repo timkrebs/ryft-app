@@ -2363,8 +2363,8 @@ private struct DevicesRowLabel: View {
     }
 }
 
-/// Profile → Data → Devices & sync (ui.md §4): what you wear and each tracker's card, Check sync (T3), what Apple
-/// Health has seen, RYFT's own Health access, and Sync details for support.
+/// Profile → Data → Devices & sync (ui.md §4): what you wear and each tracker's card, Check sync (T3), the way to
+/// Sources (design.md §D4, replacing "Seen in Apple Health"), RYFT's own Health access, and Sync details for support.
 struct DevicesAndSyncView: View {
     let model: DevicesViewModel
     @Environment(ScreenModels.self) private var screens
@@ -2373,13 +2373,14 @@ struct DevicesAndSyncView: View {
     @State private var editing = false
     /// The pushed Check sync's model: made on the tap, once, not on every redraw.
     @State private var check: TrackerCheckModel?
+    @State private var showsSources = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Metrics.sectionSpacing) {
                 trackers
                 checkSync
-                seen
+                sourcesRow
                 health
                 syncDetails
             }
@@ -2391,11 +2392,17 @@ struct DevicesAndSyncView: View {
         .navigationTitle(Text("Devices & sync"))
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.appeared() }
-        // Back from Check sync: "Last checked" and the rows' results.
-        .onAppear { model.reloadCheck() }
+        // The Sources row's count: Apple Health read once here, the screen reuses it (and reads again on a pull).
+        .task { await model.sources.appeared() }
+        // Back from Check sync: "Last checked" and the rows' results; back from Sources: an access it asked for.
+        .onAppear {
+            model.reloadCheck()
+            Task { await model.refreshHealthStatus() }
+        }
         .navigationDestination(isPresented: Binding(get: { check != nil }, set: { if !$0 { check = nil } })) {
             if let check { TrackerCheckView(model: check) }
         }
+        .navigationDestination(isPresented: $showsSources) { SourcesView(model: model.sources) }
         .sheet(isPresented: $editing) { TrackerPickerSheet(model: model) }
     }
 
@@ -2475,26 +2482,16 @@ struct DevicesAndSyncView: View {
         }
     }
 
-    // MARK: seen in Apple Health
+    // MARK: sources
 
-    private var seen: some View {
-        ProfileSection(title: "Seen in Apple Health") {
-            let rows = model.sources
-            if rows.isEmpty {
-                Text("No data from other apps yet.")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                if index > 0 { Divider().overlay(Theme.separator) }
-                SourceRowView(row: row, lastSeen: model.lastSeenText(row))
-            }
-            Text("Apps and devices that sent data to RYFT in the last 30 days.")
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
+    /// One row to Sources (design.md §D4.1): "2 sources in the last 7 days" once Apple Health was read.
+    private var sourcesRow: some View {
+        Card {
+            SourcesLinkRow(title: SourcesView.title, subtitle: model.sources.summary) { showsSources = true }
+                .accessibilityHint(Text(String(localized: "Shows what each app and device sent in the last 7 days",
+                                               comment: "VoiceOver hint of Devices & sync's Sources row.")))
+                .accessibilityIdentifier("devices.sources")
         }
-        .accessibilityIdentifier("devices.seen")
     }
 
     // MARK: Apple Health access
@@ -2579,36 +2576,6 @@ private struct TrackerRowLabel: View {
     }
 }
 
-/// A source the platform saw: RYFT's name for it, what it sent, when; one RYFT doesn't know is still read.
-private struct SourceRowView: View {
-    let row: DevicesViewModel.SourceRow
-    let lastSeen: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(verbatim: row.name)
-                .font(.ryft(.callout))
-                .foregroundStyle(row.known ? Theme.textPrimary : Theme.textSecondary)
-            Text(verbatim: row.kinds)
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textSecondary)
-            Text(verbatim: lastSeen)
-                .font(.ryft(.caption))
-                .monospacedDigit()
-                .foregroundStyle(Theme.textTertiary)
-            if !row.known {
-                Text("Not a tracker RYFT knows. It still counts.")
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-        }
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("devices.source")
-    }
-}
-
 /// One tracker's card, pushed from Devices & sync.
 struct TrackerDetailView: View {
     let tracker: Tracker
@@ -2635,26 +2602,33 @@ struct TrackerDetailView: View {
     }
 }
 
-/// "What do you wear?" from Devices & sync: the same tiles; Done saves, Cancel leaves the choice as it was.
+/// "What do you wear?" from Devices & sync: the same tiles; Done saves, Cancel leaves the choice as it was. Apple
+/// Health access exists here, so what it shows and isn't chosen is pre-filled as detected tiles (design.md §D4.5),
+/// once and never over a touched tile; the button then says "Confirm".
 struct TrackerPickerSheet: View {
     let model: DevicesViewModel
-    @State private var picked: [String]
+    @State private var choice: WearChoice
     @Environment(\.dismiss) private var dismiss
 
-    init(model: DevicesViewModel) {
+    /// `detected`: previews show a detection without reading Health.
+    init(model: DevicesViewModel, detected: [String]? = nil) {
         self.model = model
-        _picked = State(initialValue: model.selection.trackers)
+        var choice = WearChoice(picked: model.selection.trackers)
+        choice.seed(detected)
+        _choice = State(initialValue: choice)
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text("Pick your watch, band or ring. RYFT then shows how to get its data into Apple Health.")
+                    Text(choice.hasDetection
+                         ? "RYFT found these in Apple Health. Check that they are right."
+                         : "Pick your watch, band or ring. RYFT then shows how to get its data into Apple Health.")
                         .font(.ryft(.body))
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    TrackerPickerGrid(catalog: model.catalog, picked: $picked)
+                    TrackerPickerGrid(catalog: model.catalog, choice: $choice)
                     Text("RYFT only uses this to show you setup steps and to check that your data arrives.")
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textTertiary)
@@ -2671,39 +2645,25 @@ struct TrackerPickerSheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        model.save(picked)
+                    Button(choice.confirms ? "Confirm" : "Done") {
+                        model.save(choice.saved)
                         dismiss()
                     }
                     .accessibilityIdentifier("wear.done")
                 }
             }
+            .task { choice.seed(await model.detectedTrackers()) }
         }
     }
 }
 
-/// Devices & sync on mock data: the bundled catalog, a choice, and `User.sources`
-/// with a source RYFT doesn't know.
+/// Devices & sync on mock data: the bundled catalog and a choice; the Sources row counts the demo store's sources.
 @MainActor
 private func devicesPreview(_ picked: [String], scheme: ColorScheme = .dark, de: Bool = false,
                             size: DynamicTypeSize = .large, later: [String] = [], checked: Bool = false) -> some View {
     let state = AppState.preview(flags: [.devicesSetup: true])
     // A check ten minutes ago (demo data keeps it in memory): the rows' results and "Last checked".
     TrackerCheckRecord.demo = checked ? previewCheckRecord(picked) : nil
-    if var user = state.user {
-        let now = Date.now
-        user.sources = [
-            UserSource(name: "Connect", bundleId: "com.garmin.connect.mobile", kinds: [.hr, .sleep, .steps, .workout],
-                       lastSeen: now.addingTimeInterval(-1_200)),
-            UserSource(name: "Oura", bundleId: "com.ouraring.oura", kinds: [.hr, .sleep, .resp, .workout],
-                       lastSeen: now.addingTimeInterval(-26_000)),
-            UserSource(name: "Tim's iPhone", bundleId: "com.apple.health.3F0A", kinds: [.steps],
-                       lastSeen: now.addingTimeInterval(-600)),
-            UserSource(name: "Sleep Cycle", bundleId: "com.lexwarelabs.goodmorning", kinds: [.sleep],
-                       lastSeen: now.addingTimeInterval(-90_000)),
-        ]
-        state.user = user
-    }
     let model = DevicesViewModel(state: state, selection: TrackerSelectionStore(env: state.env))
     model.selection.stage(picked)
     later.forEach(model.selection.markLater)
@@ -2736,26 +2696,37 @@ private func previewCheckRecord(_ ids: [String]) -> TrackerCheckRecord {
     return TrackerCheckRecord(account: "demo", at: now.addingTimeInterval(-600), checks: checks)
 }
 
-/// A tracker's card or the picker sheet from Devices & sync, on mock data.
+/// A tracker's card or the picker sheet from Devices & sync, on mock data; `detected`: the sheet with Apple Health's
+/// pre-selection (Garmin chosen, Oura and the Apple Watch found).
 @MainActor
-private func devicesScreenPreview(_ scheme: ColorScheme, sheet: Bool = false) -> some View {
+private func devicesScreenPreview(_ scheme: ColorScheme, sheet: Bool = false, detected: Bool = false,
+                                  de: Bool = false, size: DynamicTypeSize = .large) -> some View {
     let state = AppState.preview(flags: [.devicesSetup: true])
     let model = DevicesViewModel(state: state, selection: TrackerSelectionStore(env: state.env))
-    model.selection.stage(["garmin", "oura"])
+    model.selection.stage(detected ? ["garmin"] : ["garmin", "oura"])
     return Group {
         if sheet {
-            TrackerPickerSheet(model: model)
+            TrackerPickerSheet(model: model, detected: detected ? ["apple_watch", "garmin", "oura"] : nil)
         } else {
             NavigationStack { TrackerDetailView(tracker: MockData.tracker("garmin"), model: model) {} }
         }
     }
     .previewEnvironment(state, scheme: scheme)
+    .environment(\.locale, Locale(identifier: de ? "de" : "en"))
+    .dynamicTypeSize(size)
 }
 
 #Preview("Tracker detail · dark") { devicesScreenPreview(.dark) }
 #Preview("Tracker detail · light") { devicesScreenPreview(.light) }
 #Preview("Tracker picker sheet · dark") { devicesScreenPreview(.dark, sheet: true) }
 #Preview("Tracker picker sheet · light") { devicesScreenPreview(.light, sheet: true) }
+#Preview("Tracker picker sheet · found · dark") { devicesScreenPreview(.dark, sheet: true, detected: true) }
+#Preview("Tracker picker sheet · found · light · de") {
+    devicesScreenPreview(.light, sheet: true, detected: true, de: true)
+}
+#Preview("Tracker picker sheet · found · AX3") {
+    devicesScreenPreview(.dark, sheet: true, detected: true, size: .accessibility3)
+}
 
 #Preview("Profile · Data row · dark") {
     ProfileView().previewEnvironment(AppState.preview(flags: [.devicesSetup: true]))

@@ -2923,21 +2923,28 @@ struct DevicesAndDiagnosticsTests {
         #expect(profile(flag: true).syncDetails.diagnostics.contains("catalog bundled \(TrackerCatalog.bundled.version) etag -"))
     }
 
-    @Test func seenInAppleHealthUsesRYFTsNames() {
-        let state = AppState(env: .test())
-        var user = MockData.user
-        user.sources = [
-            UserSource(name: "Connect", bundleId: "com.garmin.connect.mobile", kinds: [.hr, .sleep, .steps], lastSeen: .now),
-            UserSource(name: "Tim's Apple Watch", bundleId: "com.apple.health.81E2", kinds: [.hrv], lastSeen: .now),
-            UserSource(name: "Sleep Cycle", bundleId: "com.lexwarelabs.goodmorning", kinds: [.sleep], lastSeen: .now),
+    /// Sources replaced "Seen in Apple Health": RYFT's names, Apple's own devices known, an app RYFT doesn't know
+    /// still listed (and said so), and Devices & sync's row counts them once Apple Health was read.
+    @Test func sourcesUseRYFTsNamesAndDevicesAndSyncCountsThem() async {
+        let now = Date(timeIntervalSince1970: 1_792_400_000)
+        let sleepCycle = SourceRef(name: "Sleep Cycle", bundleID: "com.lexwarelabs.goodmorning", deviceModel: nil)
+        let store = MockHealthStore()
+        store.samples = [
+            SourceSample(stream: .quantity(.heartRate), source: .mockGarmin, newest: now.addingTimeInterval(-600)),
+            SourceSample(stream: .quantity(.hrvSDNN), source: .mockWatch, newest: now.addingTimeInterval(-1_200)),
+            SourceSample(stream: .sleep, source: sleepCycle, newest: now.addingTimeInterval(-3_600), hasStages: false),
         ]
-        state.user = user
+        store.visible = [.quantity(.heartRate), .quantity(.hrvSDNN), .sleep]
+        let state = AppState(env: .test(health: store, clock: TestClock(now: now)))
         let model = DevicesViewModel(state: state, selection: TrackerSelectionStore(env: state.env))
+        #expect(model.sources.summary == nil) // nothing read yet: no count
 
-        #expect(model.sources.map(\.name) == ["Garmin Connect", "Tim's Apple Watch", "Sleep Cycle"])
-        #expect(model.sources.map(\.known) == [true, true, false]) // Apple's own devices aren't "unknown"
-        let kinds = ["heart rate", "sleep", "steps"].formatted(.list(type: .and))
-        #expect(model.sources.first?.kinds == "H" + kinds.dropFirst())
+        await model.sources.appeared()
+        let rows = model.sources.rows
+        #expect(rows.map(\.name) == ["Garmin Connect", "Tim's Apple Watch", "Sleep Cycle"])
+        #expect(rows.map(\.known) == [true, true, false]) // Apple's own devices aren't "unknown"
+        #expect(rows.last?.spoken.hasSuffix(SourcesViewModel.unknownSource) == true)
+        #expect(model.sources.summary == String(localized: "\(3) sources in the last 7 days"))
     }
 
     @Test func profileSummary() {

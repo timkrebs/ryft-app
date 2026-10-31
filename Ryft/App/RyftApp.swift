@@ -598,6 +598,10 @@ enum DebugScreen: String {
     case wear, trackerSetup = "tracker-setup", devices, trackerCard = "tracker-card"
     /// Check sync, pushed; with `-RyftSyncCheck <scenario>` in demo mode (`SyncCheckScenario`).
     case syncCheck = "sync-check"
+    /// Devices & sync → Sources: demo data's (with `-RyftSyncCheck`), or one state on a scripted Health of its own
+    /// (`-RyftSourcesState sources|notReceived|loading|nothing|notAsked|offline|locked`). `-RyftDetected garmin,oura`
+    /// shows "What do you wear?" and the setup step with Apple Health's detection.
+    case sources
     /// Welcome after a session expiry, with a parked run and night on a preview store (`activities.manual` off).
     case welcomeParked = "welcome-parked"
 
@@ -634,6 +638,8 @@ enum DebugScreen: String {
             DebugDevices(screen: self)
         case .syncCheck:
             DebugSyncCheck()
+        case .sources:
+            DebugSources()
         case .welcomeParked:
             DebugWelcomeParked()
         }
@@ -753,7 +759,7 @@ private struct DebugDevices: View {
             Theme.background.ignoresSafeArea()
             if ready {
                 switch screen {
-                case .wear: TrackerPickerView(model: screens.onboarding)
+                case .wear: TrackerPickerView(model: screens.onboarding, detected: Self.detected)
                 case .trackerSetup: TrackerSetupStepView(model: screens.onboarding)
                 case .trackerCard:
                     NavigationStack {
@@ -771,8 +777,15 @@ private struct DebugDevices: View {
             if env.isDemo, screen == .trackerSetup, UserDefaults.standard.string(forKey: "RyftTrackers") == nil {
                 screens.devices.stage(["garmin", "oura"])
             }
+            // Demo data never detects: `-RyftDetected` stands in for Apple Health's answer.
+            if screen == .trackerSetup { screens.onboarding.previewDetected(Self.detected) }
             ready = true
         }
+    }
+
+    /// `-RyftDetected garmin,oura`: what Apple Health "found", for the pre-selection's captures.
+    private static var detected: [String]? {
+        UserDefaults.standard.string(forKey: "RyftDetected")?.split(separator: ",").map(String.init)
     }
 
     /// `-RyftTracker <id>`, else the first chosen.
@@ -780,6 +793,22 @@ private struct DebugDevices: View {
         let catalog = env.trackerCatalog
         let id = UserDefaults.standard.string(forKey: "RyftTracker") ?? screens.devices.trackers.first ?? "garmin"
         return catalog.tracker(id) ?? MockData.tracker("garmin")
+    }
+}
+
+/// Sources as Devices & sync pushes it: demo data's, or a state of `SourcesPreviewState` (`-RyftSourcesState`).
+private struct DebugSources: View {
+    @Environment(ScreenModels.self) private var screens
+    @State private var staged = UserDefaults.standard.string(forKey: "RyftSourcesState")
+        .flatMap(SourcesPreviewState.init(rawValue:))?.make()
+
+    var body: some View {
+        if let staged {
+            NavigationStack { SourcesView(model: staged.1) }
+                .environment(\.appEnvironment, staged.0.env)
+        } else {
+            NavigationStack { SourcesView(model: screens.profile.devices.sources) }
+        }
     }
 }
 

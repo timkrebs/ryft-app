@@ -8,13 +8,14 @@ final class DevicesUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    private func launch(_ screen: String?, trackers: String? = nil, tab: String = "today") -> XCUIApplication {
+    private func launch(_ screen: String?, trackers: String? = nil, tab: String = "today",
+                        extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
         var arguments = ["-demoMode", "YES", "-appearance", "dark", "-coachMarks.today.done", "YES",
                          "-RyftTab", tab, "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         if let screen { arguments += ["-RyftScreen", screen] }
         if let trackers { arguments += ["-RyftTrackers", trackers] }
-        app.launchArguments = arguments
+        app.launchArguments = arguments + extra
         app.launch()
         return app
     }
@@ -98,7 +99,7 @@ final class DevicesUITests: XCTestCase {
         let garmin = app.buttons["devices.row.garmin"]
         XCTAssertTrue(garmin.waitForExistence(timeout: 15), "Garmin's row")
         XCTAssertEqual(garmin.value as? String, "Not checked yet")
-        XCTAssertTrue(element(app, "devices.seen").exists, "Seen in Apple Health")
+        XCTAssertTrue(app.buttons["devices.sources"].exists, "the row to Sources (was Seen in Apple Health)")
 
         app.buttons["devices.edit"].tap()
         let oura = app.buttons["wear.tile.oura"]
@@ -116,6 +117,33 @@ final class DevicesUITests: XCTestCase {
     @MainActor
     func testProfileLeadsToDevicesAndSync() throws {
         let app = launch(nil, tab: "profile")
+        openDevicesAndSync(app)
+        XCTAssertTrue(app.buttons["devices.row.apple_watch"].exists, "demo data wears an Apple Watch")
+    }
+
+    /// Profile → Devices & sync → Sources on the Garmin-like mock (`-RyftSyncCheck garmin`, design.md §D4): Garmin
+    /// Connect's row, and the neutral note that it doesn't share HRV. Demo data says it is sample data.
+    @MainActor
+    func testSourcesShowsGarminConnectWithTheNoHRVNote() throws {
+        let app = launch(nil, tab: "profile", extra: ["-RyftSyncCheck", "garmin"])
+        openDevicesAndSync(app)
+        let sources = app.buttons["devices.sources"]
+        for _ in 0..<4 where !sources.isHittable { app.swipeUp() }
+        XCTAssertTrue(sources.waitForExistence(timeout: 5), "the Sources row")
+        sources.tap()
+        XCTAssertTrue(app.navigationBars["Sources"].waitForExistence(timeout: 5))
+        let garmin = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'sources.row.' AND label BEGINSWITH 'Garmin Connect'"))
+            .firstMatch
+        XCTAssertTrue(garmin.waitForExistence(timeout: 10), "Garmin Connect's row")
+        let note = element(app, "sources.note.noHRV")
+        XCTAssertTrue(note.exists, "the no-HRV note")
+        XCTAssertTrue(note.label.hasPrefix("Garmin Connect doesn't share HRV with Apple Health"), "the note: \(note.label)")
+        XCTAssertTrue(element(app, "sources.sample").exists, "demo data says so")
+    }
+
+    /// Profile tab → the Devices & sync row → its screen.
+    private func openDevicesAndSync(_ app: XCUIApplication) {
         let row = app.buttons["profile.devices"]
         for _ in 0..<6 where !row.exists { app.swipeUp() }
         if !row.exists {
@@ -127,6 +155,5 @@ final class DevicesUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 10), "the Devices & sync row")
         row.tap()
         XCTAssertTrue(app.navigationBars["Devices & sync"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["devices.row.apple_watch"].exists, "demo data wears an Apple Watch")
     }
 }

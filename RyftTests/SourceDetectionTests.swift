@@ -58,6 +58,32 @@ struct SourceDetectionTests {
         #expect(build([sample(.quantity(.heartRate), suunto, ago: 60)]).sources.compactMap(\.noHRV) == [])
     }
 
+    /// Lead correction to decision 5.5: "…recovery uses resting heart rate and sleep" only when the source wrote both
+    /// in the window; otherwise the catalog's sentence about HRV; without one, the plain "doesn't share HRV".
+    @Test func noteBNamesRecoveryInputsOnlyWhenTheSourceWroteRestingHeartRateAndSleep() throws {
+        let both = try #require(row(build(MockHealthStore.garminLike(now: now).samples), .mockGarmin))
+        #expect(both.noHRVWording == .recoveryInputs)
+
+        let limit = try #require(both.noHRV?.limit)
+        // Resting heart rate but no sleep from Garmin (the iPhone's in-bed night isn't Garmin's).
+        let noSleep = row(build(MockHealthStore.garminLike(now: now, sleepOff: true).samples), .mockGarmin)
+        #expect(noSleep?.noHRV?.restingHR == true && noSleep?.noHRVWording == .limit(limit))
+        // Sleep but no resting heart rate.
+        let noResting = row(build(MockHealthStore.garminLike(now: now, restingHR: false).samples), .mockGarmin)
+        #expect(noResting?.noHRVWording == .limit(limit))
+        // A tracker the catalog has no HRV sentence for: the plain wording.
+        let signals: [TrackerSignal: Date] = [.heartRate: now, .restingHR: now]
+        #expect(DetectedSource.noHRVWording(.init(restingHR: true, limit: nil), signals: signals) == .plain)
+        #expect(DetectedSource.noHRVWording(.init(restingHR: true, limit: nil), signals: signals.merging([.sleep: now]) { $1 })
+            == .recoveryInputs)
+        // The flag alone isn't enough: the signals must say both.
+        #expect(DetectedSource.noHRVWording(.init(restingHR: true, limit: limit), signals: [.heartRate: now, .sleep: now])
+            == .limit(limit))
+        // No note B, no wording (an Apple Watch shares HRV).
+        let watch = build(MockHealthStore.appleWatchLike(now: now).samples)
+        #expect(watch.sources.compactMap(\.noHRVWording).isEmpty)
+    }
+
     @Test func catalogHasEveryTrackerTheseTestsPick() {
         let ids = ["garmin", "oura", "iphone", "apple_watch", "polar", "other", "samsung_galaxy_watch"]
         #expect(ids.filter { catalog.tracker($0) == nil } == [])

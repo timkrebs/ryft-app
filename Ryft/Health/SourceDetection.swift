@@ -194,7 +194,11 @@ struct DetectedSource: Identifiable, Equatable, Sendable {
 
     /// Note C (decision 7, Q4): signals Apple Health has from this source in the window that the platform's 30 days
     /// lack, so RYFT has certainly not received them (as of its last answer). Empty without a platform answer.
-    var notReceived: [TrackerSignal] {
+    var notReceived: [TrackerSignal] { notReceived(given: received) }
+
+    /// Note C against a platform answer of the caller's (the Sources screen re-reads `GET /v1/me` beside detection,
+    /// so it matches the newest list rather than the one at read time). The same rule as `notReceived`.
+    func notReceived(given received: Received) -> [TrackerSignal] {
         switch received {
         case .unknown: return []
         case .notListed: return chips
@@ -205,6 +209,30 @@ struct DetectedSource: Identifiable, Equatable, Sendable {
     /// An Apple device that didn't say which (no device model): neither the watch nor the iPhone for certain.
     var isAnonymousApple: Bool {
         (ref.bundleID ?? "").lowercased().hasPrefix("com.apple.health.") && ref.deviceModel == nil
+    }
+
+    /// Note B's wording (lead correction to decision 5.5), nil when note B doesn't apply.
+    var noHRVWording: NoHRV.Wording? { noHRV.map { Self.noHRVWording($0, signals: signals) } }
+
+    /// Note B's wording, pure: "…recovery uses resting heart rate and sleep" only when this source wrote **both**
+    /// resting heart rate and sleep in the window (what it wrote, not what the platform says Recovery used);
+    /// otherwise the catalog's `limits` sentence about HRV; without one, the plain "doesn't share HRV".
+    static func noHRVWording(_ note: NoHRV, signals: [TrackerSignal: Date]) -> NoHRV.Wording {
+        if note.restingHR, signals[.restingHR] != nil, signals[.sleep] != nil { return .recoveryInputs }
+        if let limit = note.limit { return .limit(limit) }
+        return .plain
+    }
+}
+
+extension DetectedSource.NoHRV {
+    /// Which sentence note B says.
+    enum Wording: Equatable, Sendable {
+        /// "<name> doesn't share HRV with Apple Health; recovery uses resting heart rate and sleep."
+        case recoveryInputs
+        /// The catalog's `limits` sentence about HRV, in both languages.
+        case limit(Localized<String>)
+        /// "<name> doesn't share HRV with Apple Health."
+        case plain
     }
 }
 

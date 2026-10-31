@@ -2236,8 +2236,8 @@ final class TrackerSelectionStore {
     nonisolated static func needsSetup(_ tracker: Tracker) -> Bool { tracker.integration != .appleBuiltin }
 }
 
-/// Profile → Data → Devices & sync (ui.md §4): what the user wears and each tracker's card, what Apple Health
-/// has seen (`User.sources`, with RYFT's names), RYFT's own Health access, and the way to Sync details.
+/// Profile → Data → Devices & sync (ui.md §4): what the user wears and each tracker's card, the way to Sources
+/// (what Apple Health shows per source in 7 days), RYFT's own Health access, and the way to Sync details.
 @MainActor
 @Observable
 final class DevicesViewModel {
@@ -2248,6 +2248,7 @@ final class DevicesViewModel {
     init(state: AppState, selection: TrackerSelectionStore) {
         self.state = state
         self.selection = selection
+        sources = SourcesViewModel(state: state, selection: selection)
     }
 
     private var env: AppEnvironment { state.env }
@@ -2297,49 +2298,16 @@ final class DevicesViewModel {
     /// The picker sheet's Done.
     func save(_ ids: [String]) { selection.set(ids) }
 
-    // MARK: seen in Apple Health
+    // MARK: sources
 
-    struct SourceRow: Identifiable, Equatable {
-        let id: String
-        /// RYFT's name for it ("Garmin Connect"), or HealthKit's.
-        let name: String
-        /// "Heart rate, sleep and steps".
-        let kinds: String
-        let lastSeen: Date
-        /// A tracker in the catalog, or one of Apple's own devices; otherwise "Not a tracker RYFT knows".
-        let known: Bool
-    }
+    /// Profile → Devices & sync → Sources (design.md §D4), which replaced "Seen in Apple Health": read when Devices &
+    /// sync appears (the row's count) and again on the screen's own pull to refresh.
+    let sources: SourcesViewModel
 
-    /// `User.sources`: what sent data in the last 30 days, newest first, by RYFT's names.
-    var sources: [SourceRow] {
-        let catalog = catalog
-        return (state.user?.sources ?? []).map { s in
-            let ref = SourceRef(name: s.name, bundleID: s.bundleId, deviceModel: nil)
-            let apple = s.bundleId?.lowercased().hasPrefix("com.apple.") ?? false
-            return SourceRow(id: s.bundleId ?? s.name, name: catalog.displayName(ref), kinds: Self.kinds(s.kinds),
-                             lastSeen: s.lastSeen, known: apple || catalog.match(ref) != nil)
-        }
-    }
-
-    func lastSeenText(_ row: SourceRow) -> String {
-        String(localized: "Last data \(SyncLine.dataTime(row.lastSeen, now: env.clock.now()))")
-    }
-
-    static func kinds(_ kinds: [SourceKind]) -> String {
-        let names = kinds.map { kind -> String in
-            switch kind {
-            case .energy: return String(localized: "active energy")
-            case .hr: return String(localized: "heart rate")
-            case .hrv: return String(localized: "HRV")
-            case .resp: return String(localized: "breathing rate")
-            case .sleep: return String(localized: "sleep")
-            case .spo2: return String(localized: "blood oxygen")
-            case .steps: return String(localized: "steps")
-            case .workout: return String(localized: "workouts")
-            }
-        }
-        let text = names.formatted(.list(type: .and))
-        return text.prefix(1).uppercased() + text.dropFirst()
+    /// The picker sheet's pre-selection (design.md §D4.5): catalog ids Apple Health shows, only once access was
+    /// asked and never in demo; nil when nothing can be known without asking. Never prompts.
+    func detectedTrackers() async -> [String]? {
+        await SourceDetector(env: env, picked: []).trackerIDs()
     }
 
     // MARK: Apple Health access

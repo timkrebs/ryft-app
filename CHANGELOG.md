@@ -56,6 +56,10 @@ Store "What's New".
   hours: what arrived and when, what your tracker doesn't share (that's normal), and the fix for what should
   arrive and doesn't. The check uploads nothing. Report a problem includes the check's result codes when you
   include diagnostics.
+- Profile → Devices & sync → Sources: which apps and devices wrote to Apple Health in the last 7 days, what each
+  sent and when, a note when a tracker you picked sent nothing, when it doesn't share HRV, or when RYFT hasn't
+  received what Apple Health has. "What do you wear?" pre-selects what Apple Health shows once RYFT may read it
+  (you confirm), and the setup step offers a tracker it found that you didn't pick. Behind `devices.setup`.
 - Replace an exercise during a workout (your done sets stay with the old one, with Undo and optionally in your
   plan too), and edit its sets, reps, weight, rest and notes for this workout; swipe a set row to delete it.
 
