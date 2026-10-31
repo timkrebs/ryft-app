@@ -5986,13 +5986,13 @@
         }
       }
     },
-    "Leaves RYFT" : {
+    "Leaves RYFT." : {
       "comment" : "VoiceOver hint on Today's tracker hint when it opens the tracker's app (e.g. Garmin Connect).",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Verlässt RYFT"
+            "value" : "Verlässt RYFT."
           }
         }
       }

@@ -724,14 +724,21 @@ struct WatchSyncHintCard: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.appInstalled) private var appInstalled
     @Environment(\.locale) private var locale
+    @Environment(\.scenePhase) private var scenePhase
     /// 15 pt at the default size, growing with the callout text (as `InlineMessage`'s icon).
     @ScaledMetric(relativeTo: .callout) private var iconSize: CGFloat = 15
+    /// The leading glyph's column: as wide as the widest glyph (the watch with its waves), so the text starts at the same
+    /// place whichever glyph the card shows.
+    @ScaledMetric(relativeTo: .callout) private var iconColumn: CGFloat = 26
+    /// Bumped on each return to the foreground: the card is built again and asks `canOpenURL` again (the user may have
+    /// installed or removed the app meanwhile, often in the App Store page this card opened).
+    @State private var foregrounds = 0
 
     private var identifier: String { hint.isNight ? "today.nightHint" : "today.watchHint" }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            // Asked on each render: the app may have been installed or removed since.
+            // Asked on every build of the card (each minute, and each return to the foreground below), never cached.
             if showsAction, let action = hint.action(canOpen: { appInstalled($0) }) {
                 Button { perform(action) } label: { card(now: context.date, action: action) }
                     .buttonStyle(PressableButtonStyle())
@@ -742,6 +749,10 @@ struct WatchSyncHintCard: View {
                 card(now: context.date, action: nil)
             }
         }
+        .id(foregrounds)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { foregrounds &+= 1 }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(identifier)
     }
@@ -751,6 +762,7 @@ struct WatchSyncHintCard: View {
             Image(systemName: hint.systemImage)
                 .font(.system(size: iconSize, weight: .medium))
                 .foregroundStyle(Theme.textSecondary)
+                .frame(width: iconColumn)
                 .padding(.top, 1)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 8) {
@@ -773,21 +785,19 @@ struct WatchSyncHintCard: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(14)
+        // `Card`'s surface (design.md §D3.2): no hairline, the surface is the edge.
+        .padding(Theme.Metrics.cardPadding)
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .background(Theme.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
-            .strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
-        .contentShape(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous))
     }
 
     /// What VoiceOver reads when the card is a button: the sentence with its age (static text), then the action.
     private func spoken(now: Date, action: WatchSyncHint.Action) -> some View {
-        let opensApp: Bool = { if case .openApp = action { return true } else { return false } }()
-        return VStack {
+        VStack {
             Text(verbatim: [hint.text(now: now, locale: locale), hint.caption(locale: locale)].compactMap { $0 }.joined(separator: "\n"))
             Button { perform(action) } label: { Text(verbatim: hint.title(action)) }
-                .accessibilityHint(opensApp ? Text("Leaves RYFT") : Text("Opens the App Store."))
+                .accessibilityHint(action.opensApp ? Text("Leaves RYFT.") : Text("Opens the App Store."))
                 .accessibilityIdentifier("\(identifier).action")
         }
     }
@@ -796,29 +806,28 @@ struct WatchSyncHintCard: View {
     /// destinations don't look the same. At AX sizes the title wraps and the glyph stays on its first line.
     private func verbRow(_ action: WatchSyncHint.Action) -> some View {
         let title = hint.title(action)
-        let opensApp: Bool = { if case .openApp = action { return true } else { return false } }()
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(verbatim: title)
                 .font(.ryft(.callout))
                 .foregroundStyle(Theme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            Image(systemName: opensApp ? "arrow.up.forward.app" : "arrow.down.app")
+            Image(systemName: action.opensApp ? "arrow.up.forward.app" : "arrow.down.app")
                 .font(.system(size: iconSize, weight: .medium))
                 .foregroundStyle(Theme.textSecondary)
                 .accessibilityHidden(true)
         }
     }
 
-    /// The app, and its store page if it doesn't open after all (no error: the page shows Open or Get).
+    /// The app, and its store page if it doesn't open after all (`Action.fallback(accepted:)`; no error: the page shows
+    /// Open or Get). Nothing is logged: whether the app opened says whether it's installed (ADR 0012, Privacy).
     private func perform(_ action: WatchSyncHint.Action) {
         switch action {
         case .store(let url):
             openURL(url)
-        case .openApp(let url, let fallback):
-            // Nothing is logged: whether the app opened says whether it's installed (ADR 0012, Privacy).
+        case .openApp(let url, _):
             openURL(url) { accepted in
-                if !accepted, let fallback { openURL(fallback) }
+                if let store = action.fallback(accepted: accepted) { openURL(store) }
             }
         }
     }

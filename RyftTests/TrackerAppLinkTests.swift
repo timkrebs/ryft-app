@@ -45,6 +45,8 @@ struct TrackerAppLinkTests {
             #expect(TrackerAppLink.isPlainScheme(scheme), "\(id): \(scheme)")
             let tracker = try #require(TrackerCatalog.bundled.tracker(id), "\(id) isn't in the catalog")
             #expect(tracker.integration == .vendorApp && tracker.appScheme == scheme, "\(id)")
+            // The fallback when the app doesn't open: every tracker with a scheme has a pinned store page (`storeIDs`).
+            #expect(tracker.appStoreID != nil && tracker.appStoreURL != nil, "\(id) has a scheme but no storeIDs entry")
         }
     }
 
@@ -88,6 +90,20 @@ struct TrackerAppLinkTests {
         }
     }
 
+    /// `open` reports whether the app opened: the store page only when it didn't, never after the store page itself.
+    @Test func theStorePageIsTheFallbackOnlyWhenTheAppDidNotOpen() throws {
+        let app = try #require(Self.app), store = try #require(Self.store)
+        let open = WatchSyncHint.Action.openApp(app, fallback: store)
+        #expect(open.fallback(accepted: false) == store)
+        #expect(open.fallback(accepted: true) == nil)
+        // No store page known: nothing to fall back to, and no error.
+        #expect(WatchSyncHint.Action.openApp(app, fallback: nil).fallback(accepted: false) == nil)
+        // The store page itself has no fallback, whatever `open` says.
+        #expect(WatchSyncHint.Action.store(store).fallback(accepted: false) == nil)
+        #expect(WatchSyncHint.Action.store(store).fallback(accepted: true) == nil)
+        #expect(open.opensApp && !WatchSyncHint.Action.store(store).opensApp)
+    }
+
     @Test func notInstalledOrNoSchemeKeepsTheStorePage() throws {
         let store = try #require(Self.store)
         #expect(hint().action { _ in false } == .store(store))
@@ -118,6 +134,6 @@ struct TrackerAppLinkTests {
         // An Apple device keeps its own sentence, whatever it carries.
         var watch = hint(isApp: false)
         watch.sync = sync
-        #expect(!watch.text(now: Self.since).contains(sync.en))
+        #expect(!watch.text(now: Self.since, locale: Locale(identifier: "en_US")).contains(sync.en))
     }
 }

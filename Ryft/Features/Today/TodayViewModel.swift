@@ -761,6 +761,16 @@ struct WatchSyncHint: Equatable {
         case openApp(URL, fallback: URL?)
         /// "Garmin Connect in the App Store".
         case store(URL)
+
+        /// The app itself, not its store page ("Open …", `arrow.up.forward.app`, "Leaves RYFT.").
+        var opensApp: Bool { if case .openApp = self { return true } else { return false } }
+
+        /// Where to go once `open` has answered: the store page when the app didn't open; nothing when it did, or for the
+        /// store page itself (no error either way, design.md §D3.3 state 2).
+        func fallback(accepted: Bool) -> URL? {
+            guard !accepted, case .openApp(_, let store) = self else { return nil }
+            return store
+        }
     }
 
     var isNight: Bool { if case .night = kind { return true } else { return false } }
@@ -798,9 +808,6 @@ struct WatchSyncHint: Equatable {
     static func dayAndTime(_ date: Date, locale: Locale) -> String {
         date.formatted(Date.FormatStyle(locale: locale).weekday(.abbreviated).hour().minute())
     }
-
-    /// The App Store page button: only an app's, and only with a store page.
-    var opensApp: Bool { isApp && storeURL != nil }
 
     /// "Garmin Connect in the App Store": true whether or not the app is installed (the page shows Open).
     var storeTitle: String { String(localized: "\(source) in the App Store") }
