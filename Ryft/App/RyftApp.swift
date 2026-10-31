@@ -180,6 +180,8 @@ struct RyftApp: App {
                 // Demo data on or off: its flags, or the account's, asked for again now.
                 .onChange(of: settings.demoMode) { _, on in
                     (env.flags as? FlagStore)?.setDemo(on)
+                    // Which day is being scored is the side's own (`ScoringWord`).
+                    sync.forgetScoringWords()
                     // Train's outbox: demo's ops go when it's off, and the count follows the binding in use.
                     trainSync.demoModeChanged(on)
                     // Demo's remembered import matches and its import job go with it (also when it's switched off

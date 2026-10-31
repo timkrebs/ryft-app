@@ -182,6 +182,7 @@ final class TodayViewModel {
         f.freshness = devices?.worn(freshness) ?? freshness
         f.scoringSince = sync.scoringSince(pendingDays: state.syncStatus?.pendingDays ?? [])
         f.statusReadAt = sync.statusReadAt
+        f.scoringWord = sync.scoringLedger[todayKey]
         // What the calibration note may say about the tracker (design.md §7 rev. 2 §2): only with the flag on, and
         // only for a row whose note may name it (`no_*`, a `short_history` row with an absent signal). `facts` runs
         // several times per body and on every tick, and the
@@ -559,6 +560,8 @@ struct TodaySyncFacts: Equatable {
     var scoringSince: Date?
     /// When the latest GET /v1/me/sync answered (`SyncService.statusReadAt`): slow needs one after the threshold.
     var statusReadAt: Date?
+    /// This phone's word about today since its last write or push (`SyncService.scoringLedger`).
+    var scoringWord: ScoringWord?
     /// The chosen trackers' catalog entries while `devices.setup` is on, else none (the blocked note's names).
     var trackers: [Tracker] = []
     /// `devices.setup`: the blocked note may name the tracker and link to a fix.
@@ -904,11 +907,10 @@ enum TodayStates {
     /// The account's first pass over the backfill window is still going.
     static func isImporting(_ f: TodaySyncFacts) -> Bool { f.syncs && !f.engine.backfillDone }
 
-    /// Today's scoring state: the platform's latest word (`GET /v1/me/sync`) when it's about
-    /// today, else the cached score's.
+    /// Today's scoring state (`ScoringWord.state`, as on the widget): this phone's word since its last write or push,
+    /// else the platform's latest (`GET /v1/me/sync`) when it's about today, else the cached score's.
     static func todayState(_ f: TodaySyncFacts) -> ScoringState? {
-        if let status = f.status, status.today.day == DayFormat.string(from: f.now) { return status.today.state }
-        return f.today?.scoringState
+        ScoringWord.state(day: DayFormat.string(from: f.now), word: f.scoringWord, status: f.status?.today, row: f.today)
     }
 
     /// The import before anything is scored; otherwise the gauge `TodayPresentation.decide`

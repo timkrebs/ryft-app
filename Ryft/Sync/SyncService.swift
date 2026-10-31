@@ -74,6 +74,25 @@ final class SyncService {
     /// When the latest GET /v1/me/sync answered, on this phone's clock (`receive`). "Taking longer than usual"
     /// needs one after the threshold that still lists the days (`TodayStates.scoringSlow`).
     private(set) var statusReadAt: Date?
+    /// Days being scored or just scored by this phone's word, newer than any status read that could answer it
+    /// (`ScoringWord`). Written only through the coordinator's steps (`awaiting`, `scored`); a status read requested
+    /// late enough drops an entry (`receive`). In memory only: a relaunch starts from the platform's word. The one
+    /// store: the widget reads it through `Repository.scoringLedger` and is republished on every change.
+    private(set) var scoringLedger: [String: ScoringWord] = [:] {
+        didSet { if scoringLedger != oldValue { ledgerChanged?() } }
+    }
+    /// Called when `scoringLedger` changed (`LiveSyncSteps` connects the widget's republish).
+    @ObservationIgnored var ledgerChanged: (@MainActor () -> Void)?
+    /// Counts the times the ledger was forgotten (`accountChanged`, `forgetScoringWords`): what the coordinator
+    /// remembers beside it (`ScoringSignal.waitedOut`) belongs to one generation (`SyncSteps.ledgerGeneration`).
+    @ObservationIgnored private(set) var ledgerGeneration = 0
+    /// A write since `scoringWaitStart` was set: the next wait times from its own start. Without one (a wait for days
+    /// the platform already listed), a start a status read set first stays. A flag, not derived: the ledger's pending
+    /// words are dropped by the first late status read (often before the wait starts), and `scoringWaitStart` is set by
+    /// writes and status reads alike, so neither says which came last.
+    @ObservationIgnored private var writtenSinceStart = true
+    /// When the pipeline entered the current wait, for the cut-off below (`scoringWaitStart` can be earlier).
+    @ObservationIgnored private var waitEnteredAt: Date?
     /// The last run held at this gate (no consent to the policy in force, no beta access, the policy not known),
     /// until it's passed. Not an error: the user's action, or a policy read the next run makes (ADR 0008).
     private(set) var pausedFor: UploadGate?
@@ -103,16 +122,21 @@ final class SyncService {
         phase = to
         switch (from, to) {
         case (_, .awaitingScores):
-            scoringWaitStart = env.clock.now()
+            waitEnteredAt = env.clock.now()
+            // A write starts the clock. A wait for days the platform already listed (nothing new sent) keeps the
+            // first sighting's start, so "Taking longer than usual" doesn't start over.
+            if writtenSinceStart || scoringWaitStart == nil { scoringWaitStart = env.clock.now() }
+            writtenSinceStart = false
         case (.awaitingScores, _):
             // The wait ended. Only at the cut-off did the coordinator give up on days still pending: that start
             // stays for "Taking longer than usual". Earlier it ended on the platform's word (a silent push, or a
             // GET /v1/me/sync without the days), or was cancelled (background, sign-out) or failed: the start
             // goes, and the next status read decides again (`receive`).
-            if let start = scoringWaitStart,
-               env.clock.now().timeIntervalSince(start) < SyncCoordinator.maximumScoringWait.timeInterval {
+            if let entered = waitEnteredAt,
+               env.clock.now().timeIntervalSince(entered) < SyncCoordinator.maximumScoringWait.timeInterval {
                 scoringWaitStart = nil
             }
+            waitEnteredAt = nil
         case (.idle, .refreshing), (.done, .refreshing), (.failed, .refreshing):
             // A refresh that didn't read HealthKit first: a silent push's (the platform scored a day), or a run
             // that sent nothing at all (behind a gate, demo mode). No wait runs for the start either way: it
@@ -147,6 +171,15 @@ final class SyncService {
         waitingForUnlock = false
         scoringWaitStart = nil
         statusReadAt = nil
+        lastDaysTouched = []
+        forgetScoringWords()
+    }
+
+    /// Demo data switched on or off (and every account change): neither side's word is the other's, nor the days a
+    /// wait gave up on.
+    func forgetScoringWords() {
+        scoringLedger = [:]
+        ledgerGeneration += 1
     }
 
     /// The app went to the background: the page being uploaded finishes (its anchor
@@ -184,8 +217,9 @@ final class SyncService {
     }
 
     private func run() async throws -> [String] {
-        // Only this run's outcome counts: an early return (offline, gated) leaves no backlog.
+        // Only this run's outcome counts: an early return (offline, gated) leaves no backlog, and touched nothing.
         hasBacklog = false
+        lastDaysTouched = []
         // Demo data never opens the HealthKit path: the engine's client is the platform's whatever the switch says
         // (privacy review S1). Profile's re-sync and `syncNow` come through here too.
         guard !env.isDemo else { return [] }
@@ -255,7 +289,8 @@ final class SyncService {
             let result = try await engine.run(context, gate: gate) { [weak self] event in
                 await self?.apply(event, for: account)
             }
-            lastDaysTouched = result.touched
+            // The previous account's run: its days aren't the next account's (as on the error and cancel paths).
+            if auth.accountID == account { lastDaysTouched = result.touched }
             hasBacklog = result.backlog
             lastScoring = result.scoring
             if result.waitingForUnlock {
@@ -274,14 +309,17 @@ final class SyncService {
             settings.lastSync = env.clock.now()
             return result.touched
         } catch is CancellationError {
-            // Stopped from outside (sign-out, background time over): nothing to show.
-            lastDaysTouched = await engine.touchedSoFar
+            // Stopped from outside (sign-out, background time over): nothing to show. The pages accepted so far are
+            // the account's, unless it's gone meanwhile (the coordinator says they're being scored).
+            let soFar = await engine.touchedSoFar
+            if auth.accountID == account { lastDaysTouched = soFar }
             advance(to: .idle)
             throw CancellationError()
         } catch {
             lastError = error.localizedDescription
             lastErrorDetails = error.diagnosticDetails
-            lastDaysTouched = await engine.touchedSoFar
+            let soFar = await engine.touchedSoFar
+            if auth.accountID == account { lastDaysTouched = soFar }
             advance(to: .failed)
             throw error
         }
@@ -330,9 +368,34 @@ final class SyncService {
         await syncNow()
     }
 
+    /// The platform accepted a write that touches `days` (the coordinator's `awaiting` step): they're being scored
+    /// from now on (`ScoringWord`).
+    func awaiting(_ days: [String]) {
+        let word = ScoringWord(kind: .pending, at: env.clock.now())
+        // Built aside and stored once: one widget publish (`ledgerChanged`) for a resync's 90 days.
+        var ledger = scoringLedger
+        for day in days { ledger[day] = word }
+        scoringLedger = ledger
+        writtenSinceStart = true
+    }
+
+    /// A silent push named `days` (the coordinator's `scored` step): scored, whatever an earlier status said.
+    func scored(_ days: [String]) {
+        let word = ScoringWord(kind: .scored, at: env.clock.now())
+        var ledger = scoringLedger
+        for day in days { ledger[day] = word }
+        scoringLedger = ledger
+    }
+
     /// A `GET /v1/me/sync` answer, wherever it was asked (the launch check, a scoring
-    /// wait): what the sync acts on.
-    func receive(_ status: SyncStatus) {
+    /// wait): what the sync acts on. `requestedAt`: when that read was asked for, on this phone's clock
+    /// (`ReadScheduler`'s flight start); a word in `scoringLedger` at least the status cache's time older is
+    /// answered by it. Unknown (`nil`): the ledger stays.
+    func receive(_ status: SyncStatus, requestedAt: Date? = nil) {
+        if let requestedAt {
+            let open = scoringLedger.filter { !$0.value.isAnswered(byStatusRequestedAt: requestedAt) }
+            if open.count != scoringLedger.count { scoringLedger = open }
+        }
         if let requested = status.resyncRequestedAt { fullResyncRequested(at: requested) }
         statusReadAt = env.clock.now()
         if status.pendingDays.isEmpty {
@@ -343,6 +406,7 @@ final class SyncService {
             // Pending days this app isn't timing (a relaunch, another device): from now, on this phone's clock.
             // The platform's `last_sync_at` isn't compared with it: the two clocks needn't agree.
             scoringWaitStart = env.clock.now()
+            writtenSinceStart = false
         }
     }
 
