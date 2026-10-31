@@ -950,7 +950,11 @@ enum TrackerCheckRules {
     /// Without a selection: the trackers whose sources wrote in the window, in picker order; the iPhone only when
     /// nothing else did; Other when nothing matched.
     static func seen(_ samples: [SourceSample], catalog: TrackerCatalog, now: Date) -> [Tracker] {
-        let since = now.addingTimeInterval(-window)
+        seen(samples, catalog: catalog, since: now.addingTimeInterval(-window))
+    }
+
+    /// The same since any time: Sources and the wizard look back 7 days (`SourceDetection`).
+    static func seen(_ samples: [SourceSample], catalog: TrackerCatalog, since: Date) -> [Tracker] {
         let ids = Set(samples.filter { $0.newest >= since && !HealthProbe.isRYFT($0.source) }
             .compactMap { catalog.match($0.source)?.id })
         let found = catalog.trackers.filter { ids.contains($0.id) && $0.id != "iphone" }
@@ -1297,14 +1301,10 @@ final class TrackerCheckModel {
         checks = chosen.map(TrackerCheckRules.waiting)
     }
 
-    /// The one place that picks the store: in demo mode the `-RyftSyncCheck` scenario's (Debug), else the
-    /// Garmin-like or Apple Watch one, never this iPhone's Health; otherwise `env.health`.
+    /// The store `HealthProbe.store` picks (shared with Sources): never this iPhone's Health in demo mode.
     static func make(env: AppEnvironment, trackers: [String]) -> TrackerCheckModel {
-        guard env.isDemo else { return TrackerCheckModel(env: env, health: env.health, trackers: trackers) }
-        let requested = SyncCheckScenario.requested
-        let scenario = requested ?? (trackers.contains("garmin") ? .garmin : .appleWatch)
-        return TrackerCheckModel(env: env, health: scenario.store(now: env.clock.now()),
-                                 trackers: requested?.trackers ?? trackers)
+        let choice = HealthProbe.store(env: env, trackers: trackers)
+        return TrackerCheckModel(env: env, health: choice.health, trackers: choice.trackers)
     }
 
     var isRunning: Bool { phase == .running }
