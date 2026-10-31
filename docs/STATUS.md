@@ -17,12 +17,17 @@ Plan, design note, architecture, review log and shots: `docs/work/2026-10-29-orb
 - Everything was checked in the simulator: previews, `ImageRenderer` pixel tests, contrast tests, VoiceOver strings in en and de, and cold-launch recordings in en/de × dark/light × standard/AX3 × Reduce Motion.
 - The 44 pt render reads as the app icon.
 
+**On device** (the user's iPhone 16 Pro, iOS 27.0.1, a Debug build of `main` 5bafd50, 2026-10-30)
+- **Cold launch:** an Animation Hitches trace of 3 cold launches found one 16.7 ms hitch, 1.45 s after the first frame and outside the 0.85 s entrance; there were no hitches in the entrance. Main-thread busy was 495 ms in the first 2 s, with 12 ms of it in `OrbitGauge`. The user saw it as smooth.
+- **Reduce Motion and Low Power Mode:** both fade (the user).
+- **The widget:** hidden on the locked Lock Screen. It looks right in StandBy and on the tinted home screen (the user).
+- **Today:** a screenshot with real data (a missing Sleep score shows as a hollow dot) matches the design. It wasn't committed.
+
 **Open (Needs you)**
 - **On a device:**
-  - the widget on the locked Lock Screen and in StandBy;
-  - the tinted and clear home screens, including the calibrating and pending widgets;
-  - an Animation Hitches trace of a cold launch;
-  - the Reduce Motion and Low Power entrance, including Reduce Motion turned off in Settings while the app is open.
+  - the clear home screen, and the calibrating and pending widgets;
+  - Reduce Motion turned off in Settings while the app is open: the gauge must look complete;
+  - VoiceOver on the gauge.
 - **Platform:** "Readiness → recommended strain range per day" (`DailyScore.strain_target_lo/hi`, `API_REQUESTS.md` → Charts and gauges #2). Once it exists, api-contract-keeper mirrors it, and one mapping line turns the band on. The Strain tab's `MetricGauge` target uses the same value.
 
 **Follow-ups (not blocking)**
