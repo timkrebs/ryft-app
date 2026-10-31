@@ -32,11 +32,24 @@ protocol SyncSteps: AnyObject {
     func refreshStale() async
     /// The pipeline moved on (`SyncMachine`): awaiting scores, refreshing, done, failed, idle (cancelled).
     func report(_ phase: SyncPhase)
+    /// The platform accepted a write that touches `days` (an upload's `days_touched`, a `daysChanged`): Today and
+    /// the widget show them as being scored until the platform's word (`ScoringWord`). In the background too.
+    func awaiting(_ days: [String])
+    /// A silent push named `days`: scored, whatever an earlier status read said. Before the refresh.
+    func scored(_ days: [String])
+    /// A run that sent nothing may ask `GET /v1/me/sync` for days the platform still scores (signed in, configured,
+    /// not demo data).
+    var readsScoringStatus: Bool { get }
 }
 
 extension SyncSteps {
     /// Steps without a user-initiated path (test fakes) ask the ordinary way.
     func syncStatus(userInitiated: Bool) async throws -> SyncStatus { try await syncStatus() }
+    /// Fakes that don't record the scoring words.
+    func awaiting(_ days: [String]) {}
+    func scored(_ days: [String]) {}
+    /// Fakes that don't say: a run that sent nothing asks nothing.
+    var readsScoringStatus: Bool { false }
 }
 
 /// Runs syncs as one pipeline with explicit dependencies:
@@ -48,7 +61,11 @@ extension SyncSteps {
 ///   own estimate (`expected_within_sec`), then asks `GET /v1/me/sync` until
 ///   `pending_days` no longer holds the touched days (doubling waits up to a minute, five
 ///   minutes at most). The silent push for a scored day ends the wait at once and joins
-///   the run instead of queuing another refresh. A gate ends it too.
+///   the run instead of queuing another refresh. A gate ends it too. A foreground run that sent
+///   nothing asks once whether the platform still scores days (a background upload, another
+///   device, a relaunch) and waits for those the same way.
+/// - **Being scored, one owner.** The pipeline tells `SyncSteps.awaiting` which days a write touched
+///   and `SyncSteps.scored` which days a push named; Today and the widget read both (`ScoringWord`).
 /// - **One in flight.** A trigger while a sync runs queues a single rerun; more
 ///   triggers join that rerun (coalesced).
 /// - **Priorities.** User-initiated work (pull to refresh, app active, back
@@ -158,9 +175,11 @@ actor SyncCoordinator {
     /// however it ended; a joined rerun calls it after its own upload.
     @discardableResult
     func run(_ trigger: Trigger, afterUpload: (@Sendable () -> Void)? = nil) async -> Outcome {
-        // The push a waiting pipeline was waiting for: it refreshes those days now; nothing to queue.
-        if case .silentPush(let days) = trigger, let current = running, await scoring.signal(Set(days)) {
-            return await current.value
+        if case .silentPush(let days) = trigger {
+            // The platform's word that these days are scored, before any refresh: the waiting run's, or its own.
+            await steps.scored(days)
+            // The push a waiting pipeline was waiting for: it refreshes those days now; nothing to queue.
+            if let current = running, await scoring.signal(Set(days)) { return await current.value }
         }
         guard let current = running else { return await start(trigger, afterUpload: afterUpload.map { [$0] } ?? []).value }
         // Busy: one rerun after the current one, shared by every trigger meanwhile.
@@ -348,6 +367,7 @@ actor SyncCoordinator {
                 uploadDone()
                 touched = days
                 outcome.touched = days
+                await steps.awaiting(days)
                 if await inBackground() {
                     // As after an upload in the background: the silent push refreshes once scoring is done.
                     try Task.checkCancellation()
@@ -361,20 +381,23 @@ actor SyncCoordinator {
                 (uploaded, outcome.attempts) = try await uploadWithBackoff(steps, clock)
                 uploadDone()
                 // Days a `.daysChanged` brought into this run are awaited and refreshed with the uploaded ones.
-                touched = uploaded + Set(extraDays).subtracting(uploaded).sorted()
-                outcome.touched = touched
+                let written = uploaded + Set(extraDays).subtracting(uploaded).sorted()
+                outcome.touched = written
                 // Only an upload that sent something leaves a backlog to continue (offline,
                 // gated or demo uploads send nothing).
                 outcome.backlog = uploaded.isEmpty ? false : await steps.hasBacklog
                 outcome.waitingForUnlock = await steps.isWaitingForUnlock
+                if !written.isEmpty { await steps.awaiting(written) }
                 if await inBackground() {
                     // The system's time is short: the silent push refreshes once scoring is done.
                     try Task.checkCancellation()
                     await steps.report(.done)
                     return outcome
                 }
+                // Nothing sent: the days the platform still scores (uploaded in the background, by another device,
+                // before a relaunch) are waited for like our own.
+                touched = written.isEmpty ? try await stillScoring(steps) : written
                 guard !touched.isEmpty else {
-                    try Task.checkCancellation()
                     await steps.report(.refreshing)
                     await steps.refreshStale()
                     await steps.report(.done)
@@ -426,6 +449,21 @@ actor SyncCoordinator {
             }
         }
         throw CancellationError() // unreachable: the last attempt returns or throws
+    }
+
+    /// `GET /v1/me/sync`'s pending days for a foreground run that sent nothing; none behind a gate, for an account
+    /// that can't read it, or when the read failed (what's stale is refreshed instead).
+    private static func stillScoring(_ steps: SyncSteps) async throws -> [String] {
+        guard await steps.readsScoringStatus else {
+            try Task.checkCancellation()
+            return []
+        }
+        let signpost = Signposts.sync.beginInterval("pending-check", id: Signposts.sync.makeSignpostID())
+        let status = try? await steps.syncStatus()
+        Signposts.sync.endInterval("pending-check", signpost, "\(status?.pendingDays.count ?? -1) pending")
+        try Task.checkCancellation()
+        guard let status, status.gate == nil else { return [] }
+        return status.pendingDays
     }
 
     /// Until scoring has finished the touched days, by the platform's word: a silent push
@@ -599,10 +637,12 @@ final class LiveSyncSteps: SyncSteps {
     func syncStatus(userInitiated: Bool) async throws -> SyncStatus {
         let env = state.env, state = state, apiStatus = apiStatus, sync = sync
         let status = try await env.reads.run(ReadKey(.syncStatus), userInitiated: userInitiated,
-                                             store: { (status: SyncStatus) in
+                                             storeAsked: { (status: SyncStatus, asked: Date) in
             state.syncStatus = status
             if let gate = status.gate { apiStatus.observe([gate], enforced: false) }
-            sync.receive(status)
+            // When the flight was asked for, not when this caller joined it: the ledger's "requested after".
+            sync.receive(status, requestedAt: asked)
+            state.repository.scoringLedger = sync.scoringLedger
         }) { try await env.api.syncStatus() }
         guard let status else { throw ReadScheduler.NotSent() }
         return status
@@ -639,5 +679,19 @@ final class LiveSyncSteps: SyncSteps {
 
     func report(_ phase: SyncPhase) {
         sync.advance(to: phase)
+    }
+
+    func awaiting(_ days: [String]) {
+        sync.awaiting(days)
+        state.repository.scoringLedger = sync.scoringLedger
+    }
+
+    func scored(_ days: [String]) {
+        sync.scored(days)
+        state.repository.scoringLedger = sync.scoringLedger
+    }
+
+    var readsScoringStatus: Bool {
+        !state.isDemo && state.env.auth.isSignedIn && state.env.settings.isConfigured
     }
 }

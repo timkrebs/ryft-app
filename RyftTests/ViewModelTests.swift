@@ -949,8 +949,9 @@ struct TodayNightAndScoringTests {
         sync.receive(status(.pending, now: clock.now()))
         #expect(sync.scoringWaitStart == at(10, 0)) // the first sighting stays
         #expect(sync.statusReadAt == at(10, 0).addingTimeInterval(30)) // every read is recorded
-        // During a wait an empty answer can predate the upload: the wait's start stays.
+        // During a wait an empty answer can predate the upload: the wait's start stays. The upload starts it anew.
         sync.advance(to: .reading)
+        sync.awaiting(["2026-10-18"])
         sync.advance(to: .awaitingScores)
         let start = clock.now()
         sync.receive(status(.scored, now: clock.now()))

@@ -1,0 +1,480 @@
+import Foundation
+import Testing
+@testable import Ryft
+
+/// The platform's day reads, scripted: the days the test put in, and today unscored until it puts today in.
+private final class ScriptedDays: RyftDataSource, @unchecked Sendable {
+    private let lock = NSLock()
+    private var rows: [String: DailyScore] = [:]
+    private var unscored: ScoringState = .waitingForSleep
+    private let base = MockDataSource.shared
+
+    /// A scored (or calibrating) row, from now on.
+    func put(_ row: DailyScore) { lock.withLock { rows[row.day] = row } }
+    /// What an unscored day's `scoring_state` says.
+    func unscoredState(_ state: ScoringState) { lock.withLock { unscored = state } }
+
+    func days(from: Date, to: Date) async throws -> [DailyScore] {
+        let lo = DayFormat.string(from: from), hi = DayFormat.string(from: to)
+        return lock.withLock { rows.values.filter { $0.day >= lo && $0.day <= hi }.sorted { $0.day < $1.day } }
+    }
+
+    func day(_ date: Date) async throws -> DayDetail {
+        let key = DayFormat.string(from: date)
+        // API.md: a day not scored yet comes with `computed_at` 0001-01-01.
+        let row = lock.withLock {
+            rows[key] ?? DailyScore(day: key, computedAt: Date(timeIntervalSince1970: -62_135_596_800), scoringState: unscored)
+        }
+        return DayDetail(score: row, sleep: nil, workouts: [])
+    }
+
+    func me() async throws -> User { try await base.me() }
+    func patchMe(_ p: UserPatch) async throws -> User { try await base.patchMe(p) }
+    func sleep(range: SleepRangeKind) async throws -> SleepRange { try await base.sleep(range: range) }
+    func workouts(from: Date, to: Date) async throws -> [Workout] { [] }
+    func workout(id: UUID) async throws -> WorkoutDetail { try await base.workout(id: id) }
+    func trends(metric: TrendMetric, range: TrendRange) async throws -> TrendSeries {
+        try await base.trends(metric: metric, range: range)
+    }
+    func insights() async throws -> [Insight] { [] }
+    func recompute(from: Date, to: Date) async throws {}
+    func deleteMe() async throws -> AccountDeleted { try await base.deleteMe() }
+}
+
+/// Today's view model on the live pipeline (`LiveSyncSteps` over `SyncService`), `MockHealthStore`, the mock
+/// platform and `TestClock`, at 07:30 with yesterday scored at 76.
+@MainActor
+private final class Harness {
+    static let now = Calendar.current.date(bySettingHour: 7, minute: 30, second: 0,
+                                           of: Date(timeIntervalSince1970: 1_792_600_000))!
+    let today = DayFormat.string(from: now)
+    let yesterday = DayFormat.string(from: DayFormat.shift(now, days: -1))
+    let days = ScriptedDays()
+    let api: MockPlatformAPI
+    let health: MockHealthStore
+    let clock: TestClock
+    let state: AppState
+    let sync: SyncService
+    let pipeline: SyncCoordinator
+    let vm: TodayViewModel
+
+    /// `firstSync`: no anchors yet (the first score's window goes first, the backfill after it) and nothing scored.
+    init(inBackground: Bool = false, firstSync: Bool = false, night: Bool = true) {
+        api = MockPlatformAPI(screens: days)
+        let stream = HealthStream.quantity(.heartRate)
+        health = MockHealthStore(streams: [stream])
+        if firstSync {
+            if night { health.recent = [stream: [Self.night()]] }
+        } else {
+            // A phone that synced before: the night is what's new.
+            health.commit(HealthPage(delta: HealthDelta(), anchor: nil, more: false), for: stream)
+            if night { health.pages = [stream: [Self.night()]] }
+        }
+        clock = TestClock(now: Self.now)
+        let env = AppEnvironment.test(api: api, health: health, clock: clock)
+        state = AppState(env: env)
+        sync = SyncService.ungated(env: env)
+        pipeline = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: clock, inBackground: inBackground)
+        vm = TodayViewModel(state: state, sync: sync, coordinator: pipeline, apiStatus: APIStatus())
+        api.syncResponse = SyncResponse(samples: 2, sleep: 0, workouts: 0, daysTouched: firstSync ? [yesterday, today] : [today],
+                                        scoring: SyncScoring(queuedDays: [today], expectedWithinSec: 20))
+        if !firstSync {
+            let row = DailyScore(day: yesterday, readiness: 76, state: .balanced, recovery: 75, baselineDays: 30,
+                                 calibrating: false, computedAt: Self.now.addingTimeInterval(-86_400), scoringState: .scored)
+            days.put(row)
+            state.history = [row]
+        }
+        waitsForSleep()
+    }
+
+    /// Last night's heart rate, as the watch wrote it.
+    static func night() -> HealthDelta {
+        let start = now.addingTimeInterval(-5 * 3_600)
+        return HealthDelta(samples: (0..<2).map {
+            Sample(type: .heartRate, start: start.addingTimeInterval(Double($0) * 60),
+                   end: start.addingTimeInterval(Double($0) * 60), value: 52, unit: "bpm", source: "Watch")
+        })
+    }
+
+    // MARK: the platform
+
+    /// Before the night is uploaded.
+    func waitsForSleep() {
+        api.scoringToday = TodayState(day: today, state: .waitingForSleep, scoredAt: nil, modelVersion: "2026.10.1")
+        api.pendingDays = []
+        days.unscoredState(.waitingForSleep)
+    }
+
+    /// The upload was accepted: today is being scored.
+    func lists(_ pending: [String]? = nil) {
+        api.scoringToday = TodayState(day: today, state: .pending, scoredAt: nil, modelVersion: "2026.10.1")
+        api.pendingDays = pending ?? [today]
+        days.unscoredState(.pending)
+    }
+
+    /// Scoring finished: today's row with a readiness, or a calibrating one without (the first week).
+    func scores(readiness: Int? = 74, calibrating: Bool = false) {
+        days.put(DailyScore(day: today, readiness: readiness, state: readiness == nil ? nil : .balanced, recovery: 72,
+                            baselineDays: calibrating ? 2 : 30, calibrating: calibrating, computedAt: clock.now(),
+                            scoringState: .scored))
+        api.scoringToday = TodayState(day: today, state: .scored, scoredAt: clock.now(), modelVersion: "2026.10.1")
+        api.pendingDays = []
+    }
+
+    // MARK: waits
+
+    var statusReads: Int { api.calls.filter { $0 == "syncStatus" }.count }
+
+    /// The scoring wait sleeps on the clock (the only sleeper left). `phase`: the run uploaded first, so `SyncService`
+    /// shows the wait (a `daysChanged` run starts from idle, which `SyncMachine` doesn't lead to `awaitingScores`).
+    func waitsOnTheClock(phase: Bool = true) async -> Bool {
+        await eventually { (!phase || sync.phase == .awaitingScores) && clock.pendingSleeps == 1 }
+    }
+
+    /// Advances to the wait's next ask and returns once its answer is stored.
+    func nextPoll(after seconds: Int, phase: Bool = true) async {
+        let asked = statusReads
+        #expect(await waitsOnTheClock(phase: phase))
+        clock.advance(by: .seconds(seconds))
+        #expect(await eventually { statusReads == asked + 1 && sync.statusReadAt == clock.now() })
+    }
+
+    // MARK: what Today shows
+
+    /// Row C's scoring variant: "Scoring your night…", not "Waiting for last night's sleep".
+    var scoresTheNight: Bool {
+        if case .pending(let night) = vm.hero { return !night.waitingForSleep }
+        return false
+    }
+
+    func lands(readiness: Int = 74) async -> Bool {
+        await eventually { vm.hero == .score && vm.readiness == Double(readiness) }
+    }
+}
+
+/// D3b (`architecture.md` §D3b): after a write that touches today, every refresh path shows "Scoring your night…"
+/// while the platform lists today, and lands the score once it's done, on Today and the widget alike.
+@Suite("Today: pending on every refresh path")
+@MainActor
+struct TodayPendingPathTests {
+    @Test func pullToRefreshShowsTheNightBeingScoredUntilItLands() async {
+        let h = Harness()
+        let pull = Task { await h.vm.refresh() }
+        // The pull's own status read answered before the upload went up (its 10 s cache, or simply first).
+        #expect(await eventually { h.api.count("sync") == 1 && h.sync.statusReadAt != nil })
+        #expect(await h.waitsOnTheClock())
+        h.lists()
+        #expect(h.scoresTheNight, "right after the upload: \(h.vm.hero)")
+        await h.nextPoll(after: 20)
+        #expect(h.scoresTheNight, "the platform lists today: \(h.vm.hero)")
+        h.scores()
+        await h.nextPoll(after: 40)
+        #expect(await h.lands())
+        await pull.value
+    }
+
+    @Test func aDeliveryWhileTheUserLooksShowsTheNightBeingScored() async {
+        let h = Harness()
+        let run = Task { await h.pipeline.run(.healthKit) }
+        #expect(await h.waitsOnTheClock())
+        h.lists()
+        #expect(h.scoresTheNight, "\(h.vm.hero)")
+        #expect(h.state.repository.widgetFacts.scoringState == .pending)
+        h.scores()
+        await h.nextPoll(after: 20)
+        #expect(await h.lands())
+        _ = await run.value
+    }
+
+    @Test func aBackgroundDeliveryThenOpeningTheAppShowsTheNightBeingScoredAndItLands() async {
+        let h = Harness(inBackground: true)
+        let outcome = await h.pipeline.run(.healthKit)
+        #expect(outcome.touched == [h.today] && h.statusReads == 0) // no status read in the background
+        h.lists()
+        #expect(h.scoresTheNight, "after the background upload: \(h.vm.hero)")
+        #expect(h.state.repository.widgetFacts.scoringState == .pending) // the widget says the same
+        await backgroundThenForeground(h)
+    }
+
+    @Test func aBackgroundRefreshTaskThenOpeningTheAppShowsTheNightBeingScoredAndItLands() async {
+        let h = Harness(inBackground: true)
+        let outcome = await h.pipeline.run(.background)
+        #expect(outcome.touched == [h.today] && h.statusReads == 0)
+        h.lists()
+        #expect(h.scoresTheNight, "after BGAppRefresh: \(h.vm.hero)")
+        await backgroundThenForeground(h)
+    }
+
+    /// An hour later the user opens the app; nothing new to upload. The platform still lists today.
+    private func backgroundThenForeground(_ h: Harness) async {
+        h.clock.advance(by: .seconds(3_600))
+        await h.pipeline.enterForeground()
+        let run = Task { await h.pipeline.run(.appActive) }
+        #expect(await h.waitsOnTheClock())
+        #expect(h.scoresTheNight, "after opening: \(h.vm.hero)")
+        h.scores()
+        await h.nextPoll(after: 30) // API.md's 30 s: this run's upload sent nothing to measure
+        #expect(await h.lands())
+        _ = await run.value
+    }
+
+    @Test func theFirstMorningSaysScoringRightAfterTheUploadNotWaitingForSleep() async {
+        let h = Harness()
+        await h.pipeline.refreshStatus() // the launch check: no night on the platform yet
+        #expect(h.state.syncStatus?.today.state == .waitingForSleep)
+        let run = Task { await h.pipeline.run(.appActive) }
+        #expect(await h.waitsOnTheClock())
+        // Right after the upload the platform may still answer from its 10 s cache: no night there yet.
+        await h.pipeline.refreshStatus()
+        #expect(h.state.syncStatus?.today.state == .waitingForSleep)
+        #expect(h.scoresTheNight, "\(h.vm.hero)")
+        h.lists()
+        await h.nextPoll(after: 20)
+        h.scores()
+        await h.nextPoll(after: 40)
+        #expect(await h.lands())
+        _ = await run.value
+    }
+
+    @Test func theImportCardHandsOverToThePendingGaugeAfterTheFirstScore() async {
+        let h = Harness(firstSync: true)
+        let run = Task { await h.pipeline.run(.appActive) }
+        #expect(await h.waitsOnTheClock())
+        guard case .importing = h.vm.hero else { Issue.record("expected the import card: \(h.vm.hero)"); return }
+        // Yesterday is scored, today still pending, the backfill not done: the gauge takes over, scoring the night.
+        h.days.put(DailyScore(day: h.yesterday, readiness: 76, state: .balanced, recovery: 75, baselineDays: 30,
+                              calibrating: false, computedAt: h.clock.now(), scoringState: .scored))
+        h.lists([h.today])
+        await h.nextPoll(after: 20)
+        // The backfill that follows goes up slowly: the import isn't over while the gauge takes over.
+        h.health.pages = [.quantity(.heartRate): [Harness.night()]]
+        h.api.beforeSync = { [clock = h.clock] in try? await clock.sleep(for: .seconds(86_400)) }
+        #expect(await h.waitsOnTheClock())
+        h.clock.advance(by: SyncCoordinator.maximumScoringWait) // the cut-off: the days are refreshed anyway
+        #expect(await eventually { h.vm.facts.hasScoredDay })
+        #expect(!h.sync.engineState.backfillDone)
+        #expect(h.scoresTheNight, "\(h.vm.hero)")
+        await h.pipeline.cancel()
+        _ = await run.value
+    }
+
+    @Test func aSilentPushThatEndsTheWaitLandsACalibratingDayOnTheBaselines() async {
+        let h = Harness()
+        let run = Task { await h.pipeline.run(.healthKit) }
+        #expect(await h.waitsOnTheClock())
+        h.lists()
+        await h.nextPoll(after: 20) // pending
+        #expect(h.scoresTheNight)
+        // The first week: scored, calibrating, no readiness. The push ends the wait before the next ask.
+        h.scores(readiness: nil, calibrating: true)
+        await h.pipeline.run(.silentPush(days: [h.today]))
+        _ = await run.value
+        #expect(await eventually { h.vm.hero == .calibrating(nights: 2) }, "\(h.vm.hero)")
+        #expect(h.state.repository.widgetFacts.scoringState == .scored)
+    }
+
+    @Test func aSilentPushWhileNobodyWaitsClearsTodayFromPending() async {
+        let h = Harness()
+        let run = Task { await h.pipeline.run(.healthKit) }
+        #expect(await h.waitsOnTheClock())
+        h.lists()
+        await h.nextPoll(after: 20)
+        #expect(await h.waitsOnTheClock())
+        h.clock.advance(by: SyncCoordinator.maximumScoringWait) // the cut-off: still pending
+        _ = await run.value
+        #expect(h.scoresTheNight)
+        h.scores(readiness: nil, calibrating: true)
+        await h.pipeline.run(.silentPush(days: [h.today]))
+        #expect(await eventually { h.vm.hero == .calibrating(nights: 2) }, "\(h.vm.hero)")
+        #expect(h.state.repository.widgetFacts.scoringState == .scored)
+    }
+
+    @Test func aDaysChangedRunShowsTheDayBeingScoredUntilItLands() async {
+        let h = Harness(night: false)
+        h.lists() // the training import was accepted
+        let run = Task { await h.pipeline.run(.daysChanged(days: [h.today])) }
+        #expect(await h.waitsOnTheClock(phase: false))
+        #expect(h.scoresTheNight, "\(h.vm.hero)")
+        h.scores()
+        await h.nextPoll(after: 30, phase: false)
+        #expect(await h.lands())
+        _ = await run.value
+    }
+
+    @Test func aRelaunchWithTodayStillPendingPollsUntilItLands() async {
+        let h = Harness(night: false)
+        h.lists()
+        await h.pipeline.refreshStatus() // the launch check sees today pending: the first sighting
+        let sighted = h.clock.now()
+        #expect(h.sync.scoringWaitStart == sighted && h.scoresTheNight)
+        h.clock.advance(by: .seconds(5))
+        let run = Task { await h.pipeline.run(.appActive) } // nothing new to upload
+        #expect(await h.waitsOnTheClock())
+        #expect(h.sync.scoringWaitStart == sighted) // "Taking longer than usual" keeps its clock
+        h.scores() // scored 10 s in; no push comes
+        await h.nextPoll(after: 30)
+        #expect(await h.lands())
+        _ = await run.value
+    }
+}
+
+/// The record itself (`ScoringWord`, `SyncService.scoringLedger`): who answers it, and what it's read as.
+@Suite("Scoring ledger")
+@MainActor
+struct ScoringLedgerTests {
+    private let t0 = Harness.now
+    private var today: String { DayFormat.string(from: t0) }
+
+    private func status(_ state: ScoringState, pending: [String]) -> SyncStatus {
+        SyncStatus(gate: nil, lastSyncAt: nil, lastSyncDevice: nil, latest: [:],
+                   today: TodayState(day: today, state: state, scoredAt: nil, modelVersion: "2026.10.1"),
+                   pendingDays: pending, expectedWithinSec: 20, resyncRequestedAt: nil)
+    }
+
+    @Test func theWordWinsUntilAStatusRequestedAfterTheCacheTimeAnswers() {
+        let row = DailyScore(day: today, computedAt: nil, scoringState: .waitingForSleep)
+        let waiting = TodayState(day: today, state: .waitingForSleep, scoredAt: nil, modelVersion: "2026.10.1")
+        // No word: the status when it's about the day, else the row.
+        #expect(ScoringWord.state(day: today, word: nil, status: waiting, row: nil) == .waitingForSleep)
+        let yesterday = TodayState(day: "2026-10-18", state: .pending, scoredAt: nil, modelVersion: "2026.10.1")
+        #expect(ScoringWord.state(day: today, word: nil, status: yesterday, row: row) == .waitingForSleep)
+        #expect(ScoringWord.state(day: today, word: nil, status: nil, row: nil) == nil)
+        // A word wins over both.
+        let pending = ScoringWord(kind: .pending, at: t0), scored = ScoringWord(kind: .scored, at: t0)
+        #expect(ScoringWord.state(day: today, word: pending, status: waiting, row: row) == .pending)
+        #expect(ScoringWord.state(day: today, word: scored, status: status(.pending, pending: [today]).today, row: row) == .scored)
+        // Answered only by a read asked for at least the cache's 10 s later.
+        #expect(!pending.isAnswered(byStatusRequestedAt: t0.addingTimeInterval(9.9)))
+        #expect(pending.isAnswered(byStatusRequestedAt: t0.addingTimeInterval(ScoringWord.statusCacheTime)))
+        #expect(!pending.isAnswered(byStatusRequestedAt: t0.addingTimeInterval(-1)))
+    }
+
+    @Test func aStatusReadAnswersTheWordsItWasRequestedAfter() {
+        let clock = TestClock(now: t0)
+        let sync = SyncService.ungated(env: AppEnvironment.test(clock: clock))
+        sync.awaiting([today, "2026-10-12"])
+        #expect(sync.scoringLedger[today] == ScoringWord(kind: .pending, at: t0))
+        sync.receive(status(.waitingForSleep, pending: []), requestedAt: t0.addingTimeInterval(5)) // may be cached
+        #expect(sync.scoringLedger.count == 2)
+        sync.receive(status(.waitingForSleep, pending: [])) // asked at an unknown time (the launch check)
+        #expect(sync.scoringLedger.count == 2)
+        clock.advance(by: .seconds(12))
+        sync.awaiting(["2026-10-12"]) // written again later: its own word
+        sync.receive(status(.pending, pending: [today]), requestedAt: t0.addingTimeInterval(10))
+        #expect(sync.scoringLedger.keys.sorted() == ["2026-10-12"]) // today's is the platform's again, whatever it says
+    }
+
+    @Test func aStatusRequestedBeforeThePushCannotMakeTheDayPendingAgain() async {
+        let clock = TestClock(now: t0)
+        let api = MockPlatformAPI()
+        api.scoringToday = TodayState(day: today, state: .pending, scoredAt: nil, modelVersion: "2026.10.1")
+        api.pendingDays = [today]
+        let env = AppEnvironment.test(api: api, clock: clock)
+        let state = AppState(env: env)
+        let sync = SyncService.ungated(env: env)
+        let steps = LiveSyncSteps(state: state, sync: sync)
+        // A status read in flight (slow network) when the push says today is scored; it lands after the push.
+        let read = Task {
+            try await env.reads.run(ReadKey(.syncStatus), storeAsked: { (status: SyncStatus, asked: Date) in
+                state.syncStatus = status
+                sync.receive(status, requestedAt: asked)
+            }) {
+                try await clock.sleep(for: .seconds(15))
+                return try await api.syncStatus()
+            }
+        }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(5))
+        steps.scored([today])
+        clock.advance(by: .seconds(10))
+        _ = try? await read.value
+        #expect(state.syncStatus?.today.state == .pending) // the raw answer is kept as it came
+        #expect(sync.scoringLedger[today]?.kind == .scored)
+        #expect(state.repository.widgetFacts.scoringState == .scored)
+        // A read asked for 10 s after the push is the platform's word again.
+        _ = try? await steps.syncStatus()
+        #expect(sync.scoringLedger[today] == nil && state.repository.scoringLedger.isEmpty)
+        #expect(state.repository.widgetFacts.scoringState == .pending)
+    }
+
+    @Test func theStatusStoreLearnsWhenTheFlightWasAsked() async throws {
+        let clock = TestClock(now: t0)
+        let env = AppEnvironment.test(clock: clock)
+        var asked: [Date] = []
+        // The launch check starts the flight without a store; a poll joins it 5 s later with one.
+        let first = Task {
+            try await env.reads.run(ReadKey(.syncStatus)) { () async throws -> Int in
+                try await clock.sleep(for: .seconds(15))
+                return 1
+            }
+        }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(5))
+        let joined = Task {
+            try await env.reads.run(ReadKey(.syncStatus), storeAsked: { (_: Int, at: Date) in asked.append(at) }) { 2 }
+        }
+        #expect(await eventually { env.reads.inFlight.contains(ReadKey(.syncStatus)) })
+        try await Task.sleep(for: .milliseconds(20)) // the joiner reaches the flight (main actor, FIFO)
+        clock.advance(by: .seconds(10))
+        _ = try await first.value
+        #expect(try await joined.value == 1)
+        #expect(asked == [t0]) // the flight's start, not the joiner's
+    }
+
+    @Test func theLedgerIsEmptyAfterAnAccountChange() {
+        let env = AppEnvironment.test(clock: TestClock(now: t0))
+        let state = AppState(env: env)
+        let sync = SyncService.ungated(env: env)
+        let steps = LiveSyncSteps(state: state, sync: sync)
+        steps.awaiting([today])
+        #expect(state.repository.widgetFacts.scoringState == .pending)
+        sync.accountChanged()
+        state.repository.invalidate() // AppState.reset / wiped
+        #expect(sync.scoringLedger.isEmpty && state.repository.scoringLedger.isEmpty)
+        #expect(state.repository.widgetFacts.scoringState != .pending)
+    }
+}
+
+/// The wait's start when the platform already listed the days (no write of this phone's), and who may ask.
+@Suite("Scoring ledger: the wait for listed days")
+@MainActor
+struct ListedDaysWaitTests {
+    private let t0 = Harness.now
+
+    private func pending() -> SyncStatus {
+        let day = DayFormat.string(from: t0)
+        return SyncStatus(gate: nil, lastSyncAt: nil, lastSyncDevice: nil, latest: [:],
+                          today: TodayState(day: day, state: .pending, scoredAt: nil, modelVersion: "2026.10.1"),
+                          pendingDays: [day], expectedWithinSec: 20, resyncRequestedAt: nil)
+    }
+
+    @Test func aWaitForListedDaysKeepsTheFirstSightingAndEndsLikeAnyOther() {
+        let clock = TestClock(now: t0)
+        let sync = SyncService.ungated(env: AppEnvironment.test(clock: clock))
+        sync.receive(pending()) // first sighting
+        clock.advance(by: .seconds(400)) // the user comes back later; nothing new to send
+        sync.advance(to: .reading)
+        sync.advance(to: .awaitingScores)
+        #expect(sync.scoringWaitStart == t0)
+        // Scored 30 s into this wait: the wait wasn't cut off, so its start goes, however old.
+        clock.advance(by: .seconds(30))
+        sync.advance(to: .refreshing)
+        #expect(sync.scoringWaitStart == nil)
+        // A write starts the next wait's clock anew, even after a sighting.
+        sync.advance(to: .done)
+        sync.receive(pending())
+        clock.advance(by: .seconds(5))
+        sync.advance(to: .reading)
+        sync.awaiting([DayFormat.string(from: t0)])
+        sync.advance(to: .awaitingScores)
+        #expect(sync.scoringWaitStart == clock.now())
+    }
+
+    @Test func onlyAnAccountThatCanReadTheStatusAsks() async {
+        let env = AppEnvironment.test(clock: TestClock(now: t0))
+        let steps = LiveSyncSteps(state: AppState(env: env), sync: SyncService.ungated(env: env))
+        #expect(steps.readsScoringStatus)
+        await env.auth.signOut()
+        #expect(!steps.readsScoringStatus)
+    }
+}

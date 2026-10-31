@@ -57,15 +57,22 @@ private final class FakeSteps: SyncSteps {
     /// How long each ask of `GET /v1/me/sync` takes, on the clock.
     var askDuration: Duration = .zero
 
-    /// `scored` per ask: the touched days are pending until one says `true`.
+    /// The days `GET /v1/me/sync` lists while they're pending, when not the touched ones (uploaded elsewhere).
+    var listed: [String]?
+
+    /// Every ask fails (offline, a timeout).
+    var statusFails = false
+
+    /// `scored` per ask: the touched (or listed) days are pending until one says `true`.
     func syncStatus() async throws -> SyncStatus {
         events.append("poll")
+        if statusFails { throw APIError.transport(URLError(.notConnectedToInternet)) }
         if askDuration > .zero { try await clock.sleep(for: askDuration) }
         let done = scored.isEmpty ? false : scored.removeFirst()
         return SyncStatus(gate: gate, lastSyncAt: nil, lastSyncDevice: nil, latest: [:],
                           today: TodayState(day: "2026-10-19", state: done ? .scored : .pending, scoredAt: nil,
                                             modelVersion: "2026.10.1"),
-                          pendingDays: done ? [] : touched, expectedWithinSec: 3, resyncRequestedAt: nil)
+                          pendingDays: done ? [] : listed ?? touched, expectedWithinSec: 3, resyncRequestedAt: nil)
     }
 
     /// When the touched days were refreshed, on the clock.
@@ -78,7 +85,22 @@ private final class FakeSteps: SyncSteps {
     func refreshInsights() async throws { events.append("insights") }
     func refreshStale() async { events.append("stale") }
     private(set) var phases: [SyncPhase] = []
-    func report(_ phase: SyncPhase) { phases.append(phase) }
+    func report(_ phase: SyncPhase) {
+        phases.append(phase)
+        if recordsWords { events.append("phase:\(phase)") }
+    }
+
+    /// The scoring words (and the phases) go into `events` too, in order with the stages.
+    var recordsWords = false
+    private(set) var awaited: [[String]] = []
+    func awaiting(_ days: [String]) {
+        awaited.append(days)
+        if recordsWords { events.append("awaiting:\(days.joined(separator: ","))") }
+    }
+    func scored(_ days: [String]) {
+        if recordsWords { events.append("scored:\(days.joined(separator: ","))") }
+    }
+    var readsScoringStatus = true
 
     func count(_ name: String) -> Int { events.filter { $0 == name }.count }
 }
@@ -106,9 +128,150 @@ struct SyncCoordinatorTests {
         let clock = TestClock()
         let steps = FakeSteps(clock: clock)
         steps.touched = []
+        // The platform scores nothing (the one ask): what's stale is refreshed, no wait.
         let outcome = await SyncCoordinator(steps: steps, clock: clock).run(.appActive)
-        #expect(steps.events == ["upload", "stale"])
-        #expect(outcome.polls == 0)
+        #expect(steps.events == ["upload", "poll", "stale"])
+        #expect(outcome.polls == 0 && steps.awaited.isEmpty)
+        // An account that can't read the status (demo data, signed out) doesn't ask.
+        let quiet = FakeSteps(clock: clock)
+        quiet.touched = []
+        quiet.readsScoringStatus = false
+        _ = await SyncCoordinator(steps: quiet, clock: clock).run(.appActive)
+        #expect(quiet.events == ["upload", "stale"])
+    }
+
+    // MARK: D3b: one owner for "this day is being scored"
+
+    @Test func aForegroundRunThatSentNothingWaitsForDaysThePlatformStillScores() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.touched = []
+        steps.listed = ["2026-10-19"] // uploaded in the background, or by another device
+        steps.scored = [false, true]
+        steps.recordsWords = true
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let run = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 }) // the platform's estimate first
+        #expect(steps.events == ["upload", "poll", "phase:awaitingScores"])
+        clock.advance(by: .seconds(3))
+        let outcome = await run.value
+        #expect(outcome.polls == 1 && outcome.touched == ["2026-10-19"])
+        #expect(Array(steps.events.prefix(6))
+                == ["upload", "poll", "phase:awaitingScores", "poll", "phase:refreshing", "days:2026-10-19"])
+        #expect(!steps.events.contains("stale"))
+        // Nothing was written: no word of the phone's (the status is the platform's own).
+        #expect(steps.awaited.isEmpty)
+    }
+
+    @Test func aBackgroundRunThatSentNothingAsksNothing() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.touched = []
+        steps.listed = ["2026-10-19"]
+        let outcome = await SyncCoordinator(steps: steps, clock: clock, inBackground: true).run(.healthKit)
+        #expect(steps.events == ["upload"])
+        #expect(outcome.polls == 0 && steps.phases == [.done])
+    }
+
+    @Test func aGatedRunThatSentNothingDoesNotWait() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.touched = []
+        steps.listed = ["2026-10-19"]
+        steps.scored = [false]
+        steps.gate = .consentRequired // nothing is scored behind it
+        let outcome = await SyncCoordinator(steps: steps, clock: clock).run(.appActive)
+        #expect(steps.events == ["upload", "poll", "stale"])
+        #expect(outcome.polls == 0 && !steps.phases.contains(.awaitingScores))
+        // A failed ask refreshes what's stale too.
+        let offline = FakeSteps(clock: clock)
+        offline.touched = []
+        offline.readsScoringStatus = true
+        offline.statusFails = true
+        _ = await SyncCoordinator(steps: offline, clock: clock).run(.appActive)
+        #expect(offline.events == ["upload", "poll", "stale"])
+    }
+
+    @Test func aSilentPushMarksItsDaysScoredBeforeTheRefresh() async {
+        let clock = TestClock()
+        // Its own refresh.
+        let steps = FakeSteps(clock: clock)
+        steps.recordsWords = true
+        _ = await SyncCoordinator(steps: steps, clock: clock).run(.silentPush(days: ["2026-10-18"]))
+        #expect(Array(steps.events.prefix(3)) == ["scored:2026-10-18", "phase:refreshing", "days:2026-10-18"])
+        // Ending a wait: the word comes before the waiting run refreshes.
+        let waiting = FakeSteps(clock: clock)
+        waiting.recordsWords = true
+        let c = SyncCoordinator(steps: waiting, clock: clock)
+        let run = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        _ = await c.run(.silentPush(days: ["2026-10-19"]))
+        _ = await run.value
+        let scored = waiting.events.firstIndex(of: "scored:2026-10-19") ?? .max
+        let refreshed = waiting.events.firstIndex(of: "days:2026-10-19") ?? -1
+        #expect(scored < refreshed, "\(waiting.events)")
+        // Queued behind an upload: said at once, before the rerun.
+        let busy = FakeSteps(clock: clock)
+        busy.recordsWords = true
+        busy.touched = []
+        busy.uploadDuration = .seconds(10)
+        let b = SyncCoordinator(steps: busy, clock: clock)
+        let upload = Task { await b.run(.userInitiated) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        let push = Task { await b.run(.silentPush(days: ["2026-10-17"])) }
+        #expect(await eventually { busy.events.contains("scored:2026-10-17") })
+        #expect(!busy.events.contains("days:2026-10-17"))
+        clock.advance(by: .seconds(10))
+        _ = await upload.value
+        _ = await push.value
+        #expect(busy.events.contains("days:2026-10-17"))
+    }
+
+    @Test func theAwaitedDaysAreKnownDuringTheWaitAndClearedAfter() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.recordsWords = true
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let run = Task { await c.run(.userInitiated) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        // Said right after the upload, before the wait starts.
+        #expect(steps.events == ["upload", "awaiting:2026-10-19", "phase:awaitingScores"])
+        clock.advance(by: .seconds(3))
+        _ = await run.value
+        // In the background too (no wait there: the foreground return reads it), and for a `daysChanged`.
+        let background = FakeSteps(clock: clock)
+        _ = await SyncCoordinator(steps: background, clock: clock, inBackground: true).run(.healthKit)
+        #expect(background.awaited == [["2026-10-19"]])
+        let changed = FakeSteps(clock: clock)
+        _ = await SyncCoordinator(steps: changed, clock: clock, inBackground: true).run(.daysChanged(days: ["2026-10-12"]))
+        #expect(changed.awaited == [["2026-10-12"]])
+        // A `daysChanged` that rode along with an upload is said with the uploaded days.
+        let merged = FakeSteps(clock: clock)
+        merged.uploadDuration = .seconds(5)
+        let m = SyncCoordinator(steps: merged, clock: clock, inBackground: true)
+        let first = Task { await m.run(.healthKit) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        let days = Task { await m.run(.daysChanged(days: ["2026-10-12"])) }
+        #expect(await queued(m, .daysChanged(days: ["2026-10-12"])))
+        let rerun = Task { await m.run(.userInitiated) } // an upload trigger wins the merge; the day rides along
+        #expect(await queued(m, .userInitiated))
+        clock.advance(by: .seconds(5))
+        _ = await first.value
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(5))
+        _ = await rerun.value
+        _ = await days.value
+        #expect(merged.awaited == [["2026-10-19"], ["2026-10-19", "2026-10-12"]])
+    }
+
+    /// Until the queued rerun's trigger is `trigger`.
+    private func queued(_ c: SyncCoordinator, _ trigger: SyncCoordinator.Trigger) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(30)
+        while ContinuousClock.now < deadline {
+            if await c.queuedRunTrigger == trigger { return true }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return await c.queuedRunTrigger == trigger
     }
 
     @Test func asksTheServerWithDoublingWaitsForFiveMinutesAtMost() async {
