@@ -5986,6 +5986,17 @@
         }
       }
     },
+    "Leaves RYFT." : {
+      "comment" : "VoiceOver hint on Today's tracker hint when it opens the tracker's app (e.g. Garmin Connect).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verlässt RYFT."
+          }
+        }
+      }
+    },
     "Left as it is in RYFT" : {
       "comment" : "Training import I3: the stat row for newer_on_server, the file's version was not applied.",
       "localizations" : {
@@ -7000,6 +7011,17 @@
         }
       }
     },
+    "Nothing new from %@ since %@." : {
+      "comment" : "Today's hint when a tracker app has been quiet; the tracker's own sentence on how it syncs follows on the next line. Arguments: the app (e.g. Garmin Connect), then a time.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nichts Neues von %1$@ seit %2$@."
+          }
+        }
+      }
+    },
     "Nothing new from %@ since %@. Open the %@ app to sync it to Apple Health." : {
       "localizations" : {
         "de" : {
@@ -7163,6 +7185,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nur du, und der Betreiber von RYFT, wenn etwas repariert werden muss."
+          }
+        }
+      }
+    },
+    "Open %@" : {
+      "comment" : "Today's tracker hint: opens the tracker's app. The argument is the app, e.g. Garmin Connect.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ öffnen"
           }
         }
       }

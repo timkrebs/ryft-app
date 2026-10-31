@@ -749,6 +749,29 @@ struct WatchSyncHint: Equatable {
     var kind: Kind = .quiet
     /// The app's App Store page ("Garmin Connect in the App Store"), which shows Open when it's installed.
     var storeURL: URL?
+    /// The app itself ("garminconnect://", `Tracker.appURL`): opened when `canOpenURL` accepts it.
+    var appURL: URL?
+    /// The catalog's sentence on how the app syncs ("Garmin Connect passes data to Apple Health only while it's open."):
+    /// replaces the quiet sentence's "Open the … app" tail, since the card's verb now says "Open".
+    var sync: Localized<String>?
+
+    /// What tapping the card does (design.md §D3.3).
+    enum Action: Equatable {
+        /// "Open Garmin Connect"; the App Store page when the app doesn't open after all.
+        case openApp(URL, fallback: URL?)
+        /// "Garmin Connect in the App Store".
+        case store(URL)
+
+        /// The app itself, not its store page ("Open …", `arrow.up.forward.app`, "Leaves RYFT.").
+        var opensApp: Bool { if case .openApp = self { return true } else { return false } }
+
+        /// Where to go once `open` has answered: the store page when the app didn't open; nothing when it did, or for the
+        /// store page itself (no error either way, design.md §D3.3 state 2).
+        func fallback(accepted: Bool) -> URL? {
+            guard !accepted, case .openApp(_, let store) = self else { return nil }
+            return store
+        }
+    }
 
     var isNight: Bool { if case .night = kind { return true } else { return false } }
 
@@ -765,6 +788,10 @@ struct WatchSyncHint: Equatable {
             }
         }
         let time = calendar.isDate(since, inSameDayAs: now) ? Fmt.time(since, locale: locale) : Self.dayAndTime(since, locale: locale)
+        if isApp, let sync = sync?.value(in: locale) {
+            // The catalog's sentence on a line of its own, verbatim (plain text, `TrackerCatalog.decode`).
+            return String(localized: "Nothing new from \(source) since \(time).") + "\n" + sync
+        }
         if isApp {
             return String(localized: "Nothing new from \(source) since \(time). Open the \(source) app to sync it to Apple Health.")
         }
@@ -782,11 +809,24 @@ struct WatchSyncHint: Equatable {
         date.formatted(Date.FormatStyle(locale: locale).weekday(.abbreviated).hour().minute())
     }
 
-    /// The App Store page button: only an app's, and only with a store page.
-    var opensApp: Bool { isApp && storeURL != nil }
-
     /// "Garmin Connect in the App Store": true whether or not the app is installed (the page shows Open).
     var storeTitle: String { String(localized: "\(source) in the App Store") }
+
+    /// "Open Garmin Connect".
+    var openTitle: String { String(localized: "Open \(source)") }
+
+    /// The card's action: the app when its scheme is known and `canOpen` accepts it, else its App Store page, else none
+    /// (an Apple device, or an app with neither). Pure: `canOpen` is `\.appInstalled` in the view.
+    func action(canOpen: (URL) -> Bool) -> Action? {
+        guard isApp else { return nil }
+        if let appURL, canOpen(appURL) { return .openApp(appURL, fallback: storeURL) }
+        return storeURL.map(Action.store)
+    }
+
+    func title(_ action: Action) -> String {
+        if case .openApp = action { return openTitle }
+        return storeTitle
+    }
 
     /// The night's moon; for a quiet source a generic one, the watch glyph only for an Apple device (Apple's
     /// product glyphs are for Apple's products).
@@ -798,7 +838,8 @@ struct WatchSyncHint: Equatable {
 
 extension WatchSyncHint {
     init(night gap: NightGap) {
-        self.init(source: gap.name, since: gap.newest, isApp: gap.kind == .app, kind: .night(gap), storeURL: gap.storeURL)
+        self.init(source: gap.name, since: gap.newest, isApp: gap.kind == .app, kind: .night(gap), storeURL: gap.storeURL,
+                  appURL: gap.appURL)
     }
 }
 
@@ -817,6 +858,10 @@ struct SourceApp: Equatable, Sendable {
     let name: String
     let kind: Kind
     let appStoreURL: URL?
+    /// The app's bare `<scheme>://` from the build's table (`Tracker.appURL`, ADR 0012), only for an app.
+    var appURL: URL?
+    /// The catalog's "how it syncs" sentence, only for an app.
+    var sync: Localized<String>?
 
     static func resolve(_ source: SourceRef, in catalog: TrackerCatalog) -> SourceApp {
         let tracker = catalog.match(source)
@@ -826,7 +871,9 @@ struct SourceApp: Equatable, Sendable {
         case .appleBuiltin?: kind = .appleDevice
         default: kind = .unknown
         }
-        return SourceApp(name: catalog.displayName(source), kind: kind, appStoreURL: kind == .app ? tracker?.appStoreURL : nil)
+        guard kind == .app else { return SourceApp(name: catalog.displayName(source), kind: kind, appStoreURL: nil) }
+        return SourceApp(name: catalog.displayName(source), kind: kind, appStoreURL: tracker?.appStoreURL,
+                         appURL: tracker?.appURL, sync: tracker?.sync)
     }
 
     static func resolve(_ sources: Set<SourceRef>, in catalog: TrackerCatalog) -> [SourceRef: SourceApp] {
@@ -841,6 +888,9 @@ struct NightGap: Equatable, Sendable {
     let kind: SourceApp.Kind
     let storeURL: URL?
     let newest: Date
+    /// The app's URL (`Tracker.appURL`): the night card opens it like the quiet one. The night's sentence keeps
+    /// its own wording, so the catalog's `sync` isn't carried here.
+    var appURL: URL?
 }
 
 /// Which in-between state wins, from the facts alone (tested in `TodayStatesTests`).
@@ -947,7 +997,7 @@ enum TodayStates {
         guard f.now.timeIntervalSince(newest.newest) > quiet else { return nil }
         let app = f.sourceApps[newest.ref]
         return WatchSyncHint(source: app?.name ?? newest.source, since: newest.newest, isApp: newest.isApp,
-                             storeURL: app?.appStoreURL)
+                             storeURL: app?.appStoreURL, appURL: app?.appURL, sync: app?.sync)
     }
 
     /// The morning window for the night hint (the brief's example; Bedtime & wake's time is a follow-up).
@@ -976,7 +1026,7 @@ enum TodayStates {
         if let sleep = f.status?.latest["sleep"], sleep > cutoff,
            !f.freshness.contains(where: { $0.isPhone && $0.newest >= sleep.addingTimeInterval(-60) }) { return nil }
         let app = f.sourceApps[newest.ref] ?? SourceApp(name: newest.source, kind: .unknown, appStoreURL: nil)
-        return NightGap(name: app.name, kind: app.kind, storeURL: app.appStoreURL, newest: newest.newest)
+        return NightGap(name: app.name, kind: app.kind, storeURL: app.appStoreURL, newest: newest.newest, appURL: app.appURL)
     }
 
     /// Scoring has taken longer than max(60 s, 3 × `expected_within_sec`) since it began (design.md §6.3), on

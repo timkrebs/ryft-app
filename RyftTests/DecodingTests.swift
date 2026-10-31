@@ -295,7 +295,7 @@ struct TrackerCatalogTests {
         let decoded = try TrackerCatalog.decode(Data(TrackerCatalog.bundledJSON.utf8), now: .now)
         #expect(decoded == TrackerCatalog.bundled)
         let c = TrackerCatalog.bundled
-        #expect(c.version == "2026-10-23.1")
+        #expect(c.version == "2026-10-31.1")
         #expect(c.trackers.map(\.id) == ["apple_watch", "garmin", "oura", "polar", "suunto", "coros", "withings", "amazfit",
                                          "ultrahuman", "fitbit", "samsung_galaxy_watch", "other", "iphone"])
         let garmin = try #require(c.tracker("garmin"))
@@ -310,6 +310,10 @@ struct TrackerCatalogTests {
         #expect(!garmin.setup.en.isEmpty && garmin.setup.en.count == garmin.setup.de.count)
         #expect(garmin.setup.en.first?.hasPrefix("Open Garmin Connect") == true)
         #expect(garmin.notes[.hrv] != nil && garmin.notes[.restingHR] != nil)
+        // How each app syncs, from its habits (plan.md decision 4): only where the habits say it.
+        #expect(garmin.sync?.en == "Garmin Connect passes data to Apple Health only while it's open.")
+        #expect(c.trackers.filter { $0.sync != nil }.map(\.id) == ["garmin", "oura", "polar", "withings"])
+        #expect(c.trackers.allSatisfy { $0.sync == nil || $0.integration == .vendorApp })
         #expect(!c.healthAccess.en.isEmpty && c.healthAccess.en.count == c.healthAccess.de.count)
         for t in c.trackers {
             #expect(t.setup.en.count == t.setup.de.count && t.habits.en.count == t.habits.de.count
@@ -328,6 +332,9 @@ struct TrackerCatalogTests {
         let garmin = try #require(c.tracker("garmin"))
         #expect(garmin.notes[.hrv] == Localized(en: "Garmin Connect doesn't share HRV.", de: "Garmin Connect teilt keine HRV."))
         #expect(garmin.setup.de == ["Öffne Garmin Connect."])
+        #expect(garmin.sync == nil) // optional
+        let synced = try CatalogFixture.decode(garmin: { $0["sync"] = ["en": "It syncs while open.", "de": "Sie synchronisiert, solange sie offen ist."] })
+        #expect(synced.tracker("garmin")?.sync == Localized(en: "It syncs while open.", de: "Sie synchronisiert, solange sie offen ist."))
         // A signal the copy leaves out is unverified; for integration none, no.
         #expect(garmin.capabilities[.spo2] == .unverified)
         #expect(c.tracker("other")?.capabilities[.steps] == .unverified)
@@ -348,6 +355,27 @@ struct TrackerCatalogTests {
         // Storefront-neutral, from the digits: content never supplies a navigable store URL.
         #expect(garmin.appStoreURL?.absoluteString == "https://apps.apple.com/app/id583446403")
         #expect(garmin.capabilities[.heartRate] == .yes)
+    }
+
+    /// ADR 0012 rule 3: the schema has no `url_scheme`; a remote copy carrying one (or `open_url`) is decoded like any
+    /// copy with an unknown key, and no tracker, source or hint action changes.
+    @Test func aRemoteURLSchemeChangesNothing() throws {
+        let plain = try CatalogFixture.decode()
+        let carrying = try CatalogFixture.decode({ doc in
+            var list = doc["trackers"] as? [[String: Any]] ?? []
+            for i in list.indices { list[i]["url_scheme"] = "tel"; list[i]["open_url"] = "sms://12345" }
+            doc["trackers"] = list
+        }, garmin: { $0["url_scheme"] = "oura" })
+        #expect(carrying == plain)
+        #expect(carrying.tracker("garmin")?.appURL?.absoluteString == "garminconnect://")
+        #expect(carrying.tracker("other")?.appURL == nil && carrying.tracker("apple_watch")?.appURL == nil)
+        let connect = SourceRef(name: "Connect", bundleID: "com.garmin.connect.mobile", deviceModel: nil)
+        let app = SourceApp.resolve(connect, in: carrying)
+        #expect(app == SourceApp.resolve(connect, in: plain))
+        let hint = WatchSyncHint(source: app.name, since: CatalogFixture.now, isApp: true, storeURL: app.appStoreURL,
+                                 appURL: app.appURL, sync: app.sync)
+        let garmin = try #require(URL(string: "garminconnect://"))
+        #expect(hint.action { $0 == garmin } == .openApp(garmin, fallback: app.appStoreURL))
     }
 
     @Test func eachRuleRefusesTheWholeCopyNamingItsPath() {
@@ -410,6 +438,16 @@ struct TrackerCatalogTests {
             ({ $0["setup_steps"] = ["en": [String(repeating: "a", count: 241)], "de": ["x"]] },
              invalid("text.length", "trackers[0].setup_steps.en[0]")),
             ({ $0["capability_notes"] = ["hrv": ["en": "No HRV."]] }, invalid("text.pair", "trackers[0].capability_notes.hrv")),
+            // `sync`: one plain sentence per language, both present, a habit's cap.
+            ({ $0["sync"] = ["en": "Open it."] }, invalid("text.pair", "trackers[0].sync")),
+            ({ $0["sync"] = ["en": ["Open it."], "de": ["Öffne sie."]] }, invalid("type", "trackers[0].sync.en")),
+            ({ $0["sync"] = "Open it." }, invalid("type", "trackers[0].sync")),
+            ({ $0["sync"] = ["en": "Open garminconnect://now", "de": "x"] }, invalid("text.markup", "trackers[0].sync.en")),
+            ({ $0["sync"] = ["en": "x", "de": "Siehe <b>hier</b>"] }, invalid("text.markup", "trackers[0].sync.de")),
+            ({ $0["sync"] = ["en": "Two\nlines", "de": "x"] }, invalid("text.control", "trackers[0].sync.en")),
+            ({ $0["sync"] = ["en": " ", "de": "x"] }, invalid("text.empty", "trackers[0].sync.en")),
+            ({ $0["sync"] = ["en": String(repeating: "a", count: 241), "de": "x"] }, invalid("text.length", "trackers[0].sync.en")),
+            ({ $0["sync"] = ["en": "Not " + brand, "de": "x"] }, invalid("text.brand", "trackers[0].sync.en")),
             // 6: identity.
             ({ $0["healthkit"] = ["bundle_ids": ["com garmin"]] }, invalid("bundle.format", "trackers[0].healthkit.bundle_ids[0]")),
             ({ $0["healthkit"] = ["bundle_ids": [String(repeating: "a", count: 156)]] },
