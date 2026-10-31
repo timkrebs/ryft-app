@@ -242,6 +242,25 @@ for the platform; nothing here is sent before the platform says it takes it.
      `deleted: [{"kind": "sample" | "sleep" | "workout", "id": uuid}]`. The platform
      removes what it has under those ids (unknown ids are fine, counted in
      `ignored.*.unknown_id`) and queues the days for rescoring.
+   - **(New 2026-10-31) Why a flag is needed.** Ingest decodes with `DisallowUnknownFields`
+     (`backend/internal/httpx/httpx.go:143`; `API.md` Conventions: "Request bodies reject unknown fields (`400`)"). A
+     `deleted` key or a record `id` sent before the ingest deploy is live would answer `400` for every page, and a `400`
+     isn't retried, so every sync would fail on the same page.
+   - **How the app learns it:** the flag `sync.deletions` in `GET /v1/config` (an open key; the app's compiled default
+     is off). Please add it, off, and turn it on in an environment only once the ingest deploy that takes `deleted` and
+     the record `id`s is live there. Ingest should take the fields whatever the flag says (the flag only tells the app
+     when to send them). While it's on, the app sends `Sample.id`, `SleepSegment.id` and `SyncRequest.deleted`. On a
+     `400` to a request that carries them, it sends that request once more without them and uses the old shape for the
+     rest of that sync. Please also: list the flag in API.md → `GET /v1/config` → Shipped with; include the days a
+     deletion touched in `days_touched` / `scoring.queued_days`; and fill `hk_id` on a stored row that has none when a
+     record with an `id` matches it on the natural key, so rows stored before ids existed become deletable.
+   - **Also:** confirm the 10 s cache on `GET /v1/me/sync`, or invalidate it on ingest and scoring, so the app's
+     scoring wait doesn't read a stale answer after a deletion.
+   - **The orphan gap.** A record the first sync's recent window uploaded and Apple Health deleted before the first
+     anchored read is never reported (that read starts without an anchor too). The workout fold (Q2) covers workouts;
+     sleep segments from one source could double. Please say whether Q2's fold or a sleep equivalent covers it.
+   - **What the app does meanwhile.** The deletion code lands only after the changelog entry "Deletions and HealthKit
+     ids" and sends the new fields only while `sync.deletions` is on.
 3. **Pre-aggregated high-volume samples.** An Apple Watch writes steps and active energy
    in tiny samples (tens of thousands a day). Scoring takes steps from one source per hour
    and sums energy per day (`SCORING.md`), so per-source hourly sums carry the same
@@ -358,6 +377,9 @@ not moving after 1 day." The tester wears a Garmin. App brief: `CLAUDE_FOLLOWUP_
    draft content and its schema are in `docs/work/2026-10-22-tracker-setup/trackers.draft.json` and
    `trackers-research.md` (en; de follows). Every entry carries `help_url` and `checked`. Optionally render
    `/setup/<tracker>` pages from the same file. The brand rule applies.
+   - **(New 2026-10-31)** The app's catalog schema gains an optional `sync` text per tracker (en + de, plain text under
+     ADR 0002's rules), filled in the bundled copy. The served `trackers.json` should carry it when the web side
+     publishes the file. URL schemes are compiled in the app and never served (ADR 0012).
 4. **Supersedes Refresh resilience §2** (`calibrating_reason`). Done on 2026-10-22: `calibrating_reason`,
    `baseline_hrv_days` and `baseline_rhr_days` are in `API.md`; only `recovery_inputs` stays open (§1).
 
