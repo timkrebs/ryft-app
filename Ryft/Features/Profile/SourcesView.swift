@@ -311,7 +311,7 @@ private struct SilentSourceRow: View {
                         .background(Theme.surfaceRaised, in: Capsule())
                 }
                 .buttonStyle(PressableButtonStyle())
-                .accessibilityHint(Text(String(localized: "Leaves RYFT", comment: "VoiceOver hint: the button opens another app.")))
+                .accessibilityHint(Text(String(localized: "Leaves RYFT.", comment: "VoiceOver hint: the button opens another app.")))
                 .accessibilityIdentifier("sources.silent.\(row.id).store")
             }
         }
