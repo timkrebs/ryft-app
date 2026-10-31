@@ -481,11 +481,10 @@ final class Repository {
         didSet { if todayStatus != oldValue { publishWidget() } }
     }
 
-    /// The phone's word about the days being scored (`SyncService.scoringLedger`, handed over by `LiveSyncSteps`
-    /// whenever it changes): today's wins over `todayStatus` as on Today (`ScoringWord.state`).
-    var scoringLedger: [String: ScoringWord] = [:] {
-        didSet { if scoringLedger != oldValue { publishWidget() } }
-    }
+    /// The phone's word about the days being scored, read from its one store (`SyncService.scoringLedger`;
+    /// `LiveSyncSteps` connects it, and SyncService republishes the widget when it changes): today's adjusts
+    /// `todayStatus` as on Today (`ScoringWord.state`). None in tests and previews that don't connect it.
+    @ObservationIgnored var scoringLedger: @MainActor () -> [String: ScoringWord] = { [:] }
 
     /// Tonight's bedtime from Bedtime & wake (`BedtimePlanner`): "Bed by 22:41" on the widget
     /// in the evening.
@@ -518,7 +517,7 @@ final class Repository {
         let key = DayFormat.string(from: now)
         let today = score(key)
         var facts = TodayScoreFacts(day: key, today: today,
-                                    scoringState: ScoringWord.state(day: key, word: scoringLedger[key], status: todayStatus,
+                                    scoringState: ScoringWord.state(day: key, word: scoringLedger()[key], status: todayStatus,
                                                                     row: today),
                                     prior: history(from: DayFormat.shift(now, days: -(AppState.historyDays - 1)), to: now)
                                         .filter { $0.day < key })
@@ -725,9 +724,6 @@ final class Repository {
     /// The store changed underneath (sign-out wiped it): forget decoded values.
     func invalidate() {
         forget(Kind.allCases)
-        // Another account, a sign-out or a wipe: the previous account's word goes with its rows (SyncService's own
-        // copy goes in `accountChanged`).
-        scoringLedger = [:]
     }
 
     /// Every read model (demo toggle; sign-out wipes the whole store via `Persistence.wipe`).
@@ -740,7 +736,6 @@ final class Repository {
         try? context.delete(model: CachedWorkout.self)
         let activityPrefix = Self.activitiesPrefix
         try? context.delete(model: CachedDocument.self, where: #Predicate { $0.key.starts(with: activityPrefix) })
-        scoringLedger = [:]
         changed(.days, .trends, .insights, .user, .sleep, .workouts, .activities)
     }
 

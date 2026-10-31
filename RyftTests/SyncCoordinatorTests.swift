@@ -62,6 +62,8 @@ private final class FakeSteps: SyncSteps {
 
     /// Every ask fails (offline, a timeout).
     var statusFails = false
+    /// `GET /v1/me/sync`'s `expected_within_sec`.
+    var statusExpected = 3
 
     /// `scored` per ask: the touched (or listed) days are pending until one says `true`.
     func syncStatus() async throws -> SyncStatus {
@@ -72,7 +74,8 @@ private final class FakeSteps: SyncSteps {
         return SyncStatus(gate: gate, lastSyncAt: nil, lastSyncDevice: nil, latest: [:],
                           today: TodayState(day: "2026-10-19", state: done ? .scored : .pending, scoredAt: nil,
                                             modelVersion: "2026.10.1"),
-                          pendingDays: done ? [] : listed ?? touched, expectedWithinSec: 3, resyncRequestedAt: nil)
+                          pendingDays: done ? [] : listed ?? touched, expectedWithinSec: statusExpected,
+                          resyncRequestedAt: nil)
     }
 
     /// When the touched days were refreshed, on the clock.
@@ -101,6 +104,12 @@ private final class FakeSteps: SyncSteps {
         if recordsWords { events.append("scored:\(days.joined(separator: ","))") }
     }
     var readsScoringStatus = true
+    /// The phone's unanswered pending words.
+    var awaitedDays: [String] = []
+    /// What the last upload's accepted pages touched (also when it failed afterwards).
+    var touchedSoFar: [String] = []
+    /// The latest status read and when it arrived.
+    var lastStatus: (status: SyncStatus, readAt: Date)?
 
     func count(_ name: String) -> Int { events.filter { $0 == name }.count }
 }
@@ -116,7 +125,7 @@ struct SyncCoordinatorTests {
         let run = Task { await c.run(.userInitiated) }
         #expect(await eventually { clock.pendingSleeps == 1 }) // waiting for scoring
         #expect(steps.events == ["upload"])
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         let outcome = await run.value
 
         #expect(outcome.touched == ["2026-10-19"] && outcome.polls == 1 && outcome.error == nil)
@@ -151,14 +160,19 @@ struct SyncCoordinatorTests {
         steps.recordsWords = true
         let c = SyncCoordinator(steps: steps, clock: clock)
         let run = Task { await c.run(.appActive) }
-        #expect(await eventually { clock.pendingSleeps == 1 }) // the platform's estimate first
-        #expect(steps.events == ["upload", "poll", "phase:awaitingScores"])
-        clock.advance(by: .seconds(3))
+        // What's stale is refreshed at once, not behind the wait.
+        #expect(await eventually { clock.pendingSleeps == 1 && steps.events.contains("stale") })
+        #expect(Array(steps.events.prefix(2)) == ["upload", "poll"])
+        #expect(Set(steps.events.dropFirst(2)) == ["phase:awaitingScores", "stale"])
+        // The status's 3 s, no sooner than the status cache allows.
+        clock.advance(by: .seconds(9))
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        #expect(steps.count("poll") == 1)
+        clock.advance(by: .seconds(1))
         let outcome = await run.value
         #expect(outcome.polls == 1 && outcome.touched == ["2026-10-19"])
-        #expect(Array(steps.events.prefix(6))
-                == ["upload", "poll", "phase:awaitingScores", "poll", "phase:refreshing", "days:2026-10-19"])
-        #expect(!steps.events.contains("stale"))
+        #expect(Array(steps.events.dropFirst(4).prefix(3)) == ["poll", "phase:refreshing", "days:2026-10-19"])
+        #expect(steps.count("stale") == 1)
         // Nothing was written: no word of the phone's (the status is the platform's own).
         #expect(steps.awaited.isEmpty)
     }
@@ -186,7 +200,6 @@ struct SyncCoordinatorTests {
         // A failed ask refreshes what's stale too.
         let offline = FakeSteps(clock: clock)
         offline.touched = []
-        offline.readsScoringStatus = true
         offline.statusFails = true
         _ = await SyncCoordinator(steps: offline, clock: clock).run(.appActive)
         #expect(offline.events == ["upload", "poll", "stale"])
@@ -236,7 +249,7 @@ struct SyncCoordinatorTests {
         #expect(await eventually { clock.pendingSleeps == 1 })
         // Said right after the upload, before the wait starts.
         #expect(steps.events == ["upload", "awaiting:2026-10-19", "phase:awaitingScores"])
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         _ = await run.value
         // In the background too (no wait there: the foreground return reads it), and for a `daysChanged`.
         let background = FakeSteps(clock: clock)
@@ -264,6 +277,126 @@ struct SyncCoordinatorTests {
         #expect(merged.awaited == [["2026-10-19"], ["2026-10-19", "2026-10-12"]])
     }
 
+    @Test func aRunThatSentNothingWaitsForThePhonesWordsEvenWhenTheStatusListsNone() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.touched = []
+        steps.recordsWords = true
+        // A background upload under 10 s ago: the platform's cached answer lists nothing yet, the phone's word does.
+        steps.scored = [true, true]
+        steps.awaitedDays = ["2026-10-19"]
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let run = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(10))
+        let outcome = await run.value
+        #expect(outcome.polls == 1 && outcome.touched == ["2026-10-19"])
+        #expect(steps.events.contains("days:2026-10-19") && steps.phases.contains(.awaitingScores))
+        #expect(steps.awaited.isEmpty) // the word was the background run's
+    }
+
+    @Test func aDayAWaitGaveUpOnIsNotWaitedForAgainUntilAWriteTouchesIt() async {
+        let clock = TestClock()
+        let steps = FakeSteps(clock: clock)
+        steps.touched = []
+        steps.listed = ["2026-10-19"]
+        steps.scored = [] // pending for good
+        let c = SyncCoordinator(steps: steps, clock: clock)
+        let first = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: SyncCoordinator.maximumScoringWait)
+        #expect(await first.value.polls == 0)
+        #expect(steps.events.contains("days:2026-10-19"))
+        // The next opening asks, sees the same day, and doesn't hold the pipeline for it again.
+        let again = await c.run(.appActive)
+        #expect(again.polls == 0 && again.touched.isEmpty)
+        #expect(Array(steps.events.suffix(3)) == ["upload", "poll", "stale"])
+        // A write touches it: waited for again, and so is the platform's listing of it after that.
+        steps.touched = ["2026-10-19"]
+        steps.scored = [true]
+        let written = Task { await c.run(.userInitiated) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(10))
+        #expect(await written.value.polls == 1)
+        steps.touched = []
+        steps.scored = [false, true]
+        let listed = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(10))
+        #expect(await listed.value.polls == 1)
+    }
+
+    @Test func aStatusReadUnderTheCacheTimeAgoIsUsedAsItIsWithItsOwnEstimate() async {
+        let clock = TestClock()
+        let pending = SyncStatus(gate: nil, lastSyncAt: nil, lastSyncDevice: nil, latest: [:],
+                                 today: TodayState(day: "2026-10-19", state: .pending, scoredAt: nil, modelVersion: "x"),
+                                 pendingDays: ["2026-10-19"], expectedWithinSec: 25, resyncRequestedAt: nil)
+        let fresh = FakeSteps(clock: clock)
+        fresh.touched = []
+        fresh.expectedScoringSeconds = 50 // an older upload's estimate: not this status's
+        fresh.lastStatus = (pending, clock.now().addingTimeInterval(-9))
+        let c = SyncCoordinator(steps: fresh, clock: clock)
+        let run = Task { await c.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 && fresh.events.contains("stale") })
+        #expect(fresh.count("poll") == 0) // the platform would answer from its cache
+        clock.advance(by: .seconds(24))
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        #expect(fresh.count("poll") == 0)
+        clock.advance(by: .seconds(1))
+        #expect(await run.value.polls == 1)
+        // 10 s old: asked again, and its estimate is the wait's.
+        let stale = FakeSteps(clock: clock)
+        stale.touched = []
+        stale.listed = ["2026-10-19"]
+        stale.scored = [false, true]
+        stale.statusExpected = 25
+        stale.expectedScoringSeconds = 50
+        stale.lastStatus = (pending, clock.now().addingTimeInterval(-ScoringWord.statusCacheTime))
+        let s = SyncCoordinator(steps: stale, clock: clock)
+        let asked = Task { await s.run(.appActive) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        #expect(stale.count("poll") == 1)
+        clock.advance(by: .seconds(25))
+        #expect(await asked.value.polls == 1)
+    }
+
+    @Test func anUploadThatEndsEarlySaysTheDaysItsAcceptedPagesTouched() async {
+        let clock = TestClock()
+        // Failed after the platform accepted a page.
+        let failed = FakeSteps(clock: clock)
+        failed.uploadFailures = [APIError.http(422, "bad")]
+        failed.touchedSoFar = ["2026-10-18"]
+        let outcome = await SyncCoordinator(steps: failed, clock: clock).run(.userInitiated)
+        #expect(outcome.error != nil && failed.awaited == [["2026-10-18"]])
+        // Cancelled (sign-out, background time over) mid-upload.
+        let cancelled = FakeSteps(clock: clock)
+        cancelled.uploadDuration = .seconds(10)
+        cancelled.touchedSoFar = ["2026-10-18"]
+        let c = SyncCoordinator(steps: cancelled, clock: clock)
+        let run = Task { await c.run(.userInitiated) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        await c.cancel()
+        #expect(await run.value.cancelled)
+        #expect(cancelled.awaited == [["2026-10-18"]])
+        // A transient failure retried: the first attempt's days are the run's too.
+        let retried = FakeSteps(clock: clock)
+        retried.uploadFailures = [APIError.transport(URLError(.timedOut))]
+        retried.touchedSoFar = ["2026-10-17"]
+        let r = SyncCoordinator(steps: retried, clock: clock)
+        let retry = Task { await r.run(.userInitiated) }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: SyncCoordinator.firstBackoff)
+        #expect(await eventually { clock.pendingSleeps == 1 && retried.count("upload") == 2 })
+        clock.advance(by: .seconds(10))
+        #expect(await retry.value.touched == ["2026-10-19", "2026-10-17"])
+        #expect(retried.awaited == [["2026-10-19", "2026-10-17"]])
+        // Nothing accepted: nothing said.
+        let refused = FakeSteps(clock: clock)
+        refused.uploadFailures = [APIError.http(422, "bad")]
+        _ = await SyncCoordinator(steps: refused, clock: clock).run(.userInitiated)
+        #expect(refused.awaited.isEmpty)
+    }
+
     /// Until the queued rerun's trigger is `trigger`.
     private func queued(_ c: SyncCoordinator, _ trigger: SyncCoordinator.Trigger) async -> Bool {
         let deadline = ContinuousClock.now + .seconds(30)
@@ -281,9 +414,9 @@ struct SyncCoordinatorTests {
         let c = SyncCoordinator(steps: steps, clock: clock)
         let run = Task { await c.run(.appActive) }
 
-        // The platform's estimate (3 s), doubling, a minute at most, five minutes in all;
-        // no ask at the deadline itself (the days are refreshed now anyway).
-        let waits = [3, 6, 12, 24, 48, 60, 60, 60, 27]
+        // The platform's estimate (3 s), but no sooner than its status cache allows (10 s), doubling, a minute at
+        // most, five minutes in all; no ask at the deadline itself (the days are refreshed now anyway).
+        let waits = [10, 20, 40, 60, 60, 60, 50]
         for wait in waits {
             #expect(await eventually { clock.pendingSleeps == 1 })
             clock.advance(by: .seconds(wait))
@@ -301,9 +434,9 @@ struct SyncCoordinatorTests {
         let c = SyncCoordinator(steps: steps, clock: clock)
         let run = Task { await c.run(.appActive) }
         #expect(await eventually { clock.pendingSleeps == 1 })
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         #expect(await eventually { clock.pendingSleeps == 1 })
-        clock.advance(by: .seconds(6))
+        clock.advance(by: .seconds(20))
         #expect(await run.value.polls == 2)
     }
 
@@ -442,14 +575,14 @@ struct SyncCoordinatorBacklogTests {
 
         let run = Task { await c.run(.appActive) }
         #expect(await eventually { clock.pendingSleeps == 1 }) // waiting for the first score
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         let first = await run.value
         #expect(first.backlog)
         #expect(steps.events.contains("days:2026-10-19")) // the first score refreshed…
 
         #expect(await eventually { steps.count("upload") == 2 }) // …then the backlog uploads
         #expect(await eventually { clock.pendingSleeps == 1 })
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         #expect(await eventually { !steps.hasBacklog && steps.events.filter { $0.hasPrefix("days:") }.count == 2 })
         #expect(SyncCoordinator.Trigger.backlog.priority == .utility)
     }
@@ -488,7 +621,7 @@ struct SyncCoordinatorBackgroundTests {
         let run = Task { await c.run(.userInitiated, afterUpload: { completions.done() }) }
         #expect(await eventually { clock.pendingSleeps == 1 }) // waiting for the score…
         #expect(completions.calls == 1) // …the delivery already completed
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         _ = await run.value
         #expect(completions.calls == 1)
     }
@@ -555,7 +688,7 @@ struct SyncCoordinatorBackgroundTests {
         await c.enterForeground()
         let foreground = Task { await c.run(.userInitiated) }
         #expect(await eventually { clock.pendingSleeps == 1 })
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         _ = await foreground.value
         #expect(steps.backgroundUploads == [true, false] && steps.count("poll") == 1)
     }
@@ -723,7 +856,7 @@ struct SyncCoordinatorBacklogEdgeTests {
         let c = SyncCoordinator(steps: steps, clock: clock)
         let run = Task { await c.run(.appActive) }
         #expect(await eventually { clock.pendingSleeps == 1 })
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         #expect(await run.value.backlog)
         #expect(await c.isRunning) // the backlog run, already registered
         await c.cancel()
@@ -749,11 +882,11 @@ struct SyncCoordinatorBacklogEdgeTests {
             queued = await c.hasQueuedRun
             if !queued { try? await Task.sleep(for: .milliseconds(1)) }
         }
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         _ = await run.value
         #expect(await eventually { steps.count("upload") == 2 }) // the queued rerun uploads the rest
         #expect(await eventually { clock.pendingSleeps == 1 })
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         _ = await push.value
     }
 
@@ -779,7 +912,7 @@ struct SyncCoordinatorLifecycleTests {
         let c = SyncCoordinator(steps: steps, clock: clock) // foreground
         let run = Task { await c.run(.healthKit) }
         #expect(await eventually { clock.pendingSleeps == 1 }) // waits for the score like any foreground run
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         _ = await run.value
         #expect(steps.backgroundUploads == [false] && steps.events.contains("days:2026-10-19"))
     }
@@ -899,7 +1032,7 @@ struct SyncCoordinatorScoringTests {
             if !queued { try? await Task.sleep(for: .milliseconds(1)) }
         }
         #expect(queued && clock.pendingSleeps == 1) // still waiting
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         _ = await run.value
         _ = await other.value
         #expect(steps.events.contains("days:2026-09-01"))
@@ -913,9 +1046,9 @@ struct SyncCoordinatorScoringTests {
         let c = SyncCoordinator(steps: steps, clock: clock)
         let run = Task { await c.run(.appActive) }
         #expect(await eventually { clock.pendingSleeps == 1 })
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         #expect(await eventually { clock.pendingSleeps == 1 })
-        clock.advance(by: .seconds(6))
+        clock.advance(by: .seconds(20))
         #expect(await run.value.polls == 2)
     }
 
@@ -927,7 +1060,7 @@ struct SyncCoordinatorScoringTests {
         let c = SyncCoordinator(steps: steps, clock: clock)
         let run = Task { await c.run(.appActive) }
         #expect(await eventually { clock.pendingSleeps == 1 })
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         let outcome = await run.value
         #expect(outcome.polls == 1 && steps.events.contains("days:2026-10-19"))
     }
@@ -2072,7 +2205,7 @@ struct SyncCoordinatorDaysChangedTests {
         let run = Task { await c.run(.daysChanged(days: ["2026-10-17"])) }
         #expect(await eventually { clock.pendingSleeps == 1 }) // the scoring wait, before any ask
         #expect(steps.events.isEmpty)
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         let outcome = await run.value
         #expect(Array(steps.events.prefix(2)) == ["poll", "days:2026-10-17"])
         #expect(!steps.events.contains("upload"))
@@ -2114,11 +2247,11 @@ struct SyncCoordinatorDaysChangedTests {
         #expect(await queued(c, .silentPush(days: ["2026-10-15"])))
         let changed = Task { await c.run(.daysChanged(days: ["2026-10-16"])) }
         #expect(await queued(c, .daysChanged(days: ["2026-10-15", "2026-10-16"])))
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         _ = await first.value
         // The rerun: no upload, one wait, then both days.
         #expect(await eventually { clock.pendingSleeps == 1 })
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         let rerun = await changed.value
         #expect(await push.value == rerun)
         #expect(rerun.touched == ["2026-10-15", "2026-10-16"] && rerun.polls == 1)
@@ -2137,10 +2270,10 @@ struct SyncCoordinatorDaysChangedTests {
         #expect(await queued(c, .daysChanged(days: ["2026-10-15"])))
         let delivery = Task { await c.run(.healthKit) } // an upload trigger wins the merge
         #expect(await queued(c, .healthKit))
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         _ = await first.value
         #expect(await eventually { clock.pendingSleeps == 1 })
-        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(10))
         let rerun = await delivery.value
         #expect(await changed.value == rerun)
         #expect(steps.count("upload") == 2)

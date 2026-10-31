@@ -76,10 +76,17 @@ final class SyncService {
     private(set) var statusReadAt: Date?
     /// Days being scored or just scored by this phone's word, newer than any status read that could answer it
     /// (`ScoringWord`). Written only through the coordinator's steps (`awaiting`, `scored`); a status read requested
-    /// late enough drops an entry (`receive`). In memory only: a relaunch starts from the platform's word.
-    private(set) var scoringLedger: [String: ScoringWord] = [:]
+    /// late enough drops an entry (`receive`). In memory only: a relaunch starts from the platform's word. The one
+    /// store: the widget reads it through `Repository.scoringLedger` and is republished on every change.
+    private(set) var scoringLedger: [String: ScoringWord] = [:] {
+        didSet { if scoringLedger != oldValue { ledgerChanged?() } }
+    }
+    /// Called when `scoringLedger` changed (`LiveSyncSteps` connects the widget's republish).
+    @ObservationIgnored var ledgerChanged: (@MainActor () -> Void)?
     /// A write since `scoringWaitStart` was set: the next wait times from its own start. Without one (a wait for days
-    /// the platform already listed), a start a status read set first stays.
+    /// the platform already listed), a start a status read set first stays. A flag, not derived: the ledger's pending
+    /// words are dropped by the first late status read (often before the wait starts), and `scoringWaitStart` is set by
+    /// writes and status reads alike, so neither says which came last.
     @ObservationIgnored private var writtenSinceStart = true
     /// When the pipeline entered the current wait, for the cut-off below (`scoringWaitStart` can be earlier).
     @ObservationIgnored private var waitEnteredAt: Date?
@@ -162,6 +169,12 @@ final class SyncService {
         scoringWaitStart = nil
         statusReadAt = nil
         scoringLedger = [:]
+        lastDaysTouched = []
+    }
+
+    /// Demo data switched on or off: neither side's word is the other's.
+    func forgetScoringWords() {
+        scoringLedger = [:]
     }
 
     /// The app went to the background: the page being uploaded finishes (its anchor
@@ -199,8 +212,9 @@ final class SyncService {
     }
 
     private func run() async throws -> [String] {
-        // Only this run's outcome counts: an early return (offline, gated) leaves no backlog.
+        // Only this run's outcome counts: an early return (offline, gated) leaves no backlog, and touched nothing.
         hasBacklog = false
+        lastDaysTouched = []
         // Demo data never opens the HealthKit path: the engine's client is the platform's whatever the switch says
         // (privacy review S1). Profile's re-sync and `syncNow` come through here too.
         guard !env.isDemo else { return [] }
@@ -289,14 +303,17 @@ final class SyncService {
             settings.lastSync = env.clock.now()
             return result.touched
         } catch is CancellationError {
-            // Stopped from outside (sign-out, background time over): nothing to show.
-            lastDaysTouched = await engine.touchedSoFar
+            // Stopped from outside (sign-out, background time over): nothing to show. The pages accepted so far are
+            // the account's, unless it's gone meanwhile (the coordinator says they're being scored).
+            let soFar = await engine.touchedSoFar
+            if auth.accountID == account { lastDaysTouched = soFar }
             advance(to: .idle)
             throw CancellationError()
         } catch {
             lastError = error.localizedDescription
             lastErrorDetails = error.diagnosticDetails
-            lastDaysTouched = await engine.touchedSoFar
+            let soFar = await engine.touchedSoFar
+            if auth.accountID == account { lastDaysTouched = soFar }
             advance(to: .failed)
             throw error
         }

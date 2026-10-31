@@ -28,12 +28,22 @@ struct ScoringWord: Equatable, Sendable {
         requestedAt.timeIntervalSince(at) >= Self.statusCacheTime
     }
 
-    /// `day`'s scoring state, for Today (`TodayStates.todayState`) and the widget (`Repository.widgetFacts`) alike:
-    /// the phone's word while no later status read has answered it; else the platform's latest status when it's about
-    /// `day`; else the cached row's.
+    /// `day`'s scoring state, for Today (`TodayStates.todayState`) and the widget (`Repository.widgetFacts`) alike.
+    /// The platform's: its latest status when it's about `day`, else the cached row's. While no later status read has
+    /// answered this phone's word, the word adjusts it: `pending` wins over anything, `scored` only rules out
+    /// `pending` (a push for a day without last night's sleep leaves it waiting for sleep, and `stale` stays stale).
     static func state(day: String, word: ScoringWord?, status: TodayState?, row: DailyScore?) -> ScoringState? {
-        if let word { return word.kind == .pending ? .pending : .scored }
-        if let status, status.day == day { return status.state }
-        return row?.scoringState
+        let platform = status?.day == day ? status?.state : row?.scoringState
+        switch word?.kind {
+        case nil: return platform
+        case .pending?: return .pending
+        case .scored?: return platform == nil || platform == .pending ? .scored : platform
+        }
+    }
+
+    /// The ledger for Copy diagnostics: days and kinds only (`2026-10-19 pending, 2026-10-18 scored`), or `-`.
+    static func diagnosticLine(_ ledger: [String: ScoringWord]) -> String {
+        guard !ledger.isEmpty else { return "-" }
+        return ledger.sorted { $0.key > $1.key }.map { "\($0.key) \($0.value.kind)" }.joined(separator: ", ")
     }
 }

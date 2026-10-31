@@ -1,0 +1,29 @@
+# Data quality: T2 review log
+
+## T2 · `today: pending on every refresh path` (#88)
+
+Round 1 on 82dbabf.
+- **code-reviewer:** no blocking findings, 4 should-fix. It probed findings 1 and 2 with failing tests.
+- **ios-architect:** fits §D3b, with one blocking finding. It recommends ADR 0013.
+- **performance-profiler:** no blocking findings, 2 should-fix.
+
+| # | Finding | From | Decision |
+| --- | --- | --- | --- |
+| F1 | A wait ends on a status asked less than 10 s after the write, which the ledger ignores. With `expected_within_sec` < 10 (realistic: a p95 with a 1 s minimum), a calibrating day stays on "Scoring your night…" (reproduced with expected = 3). | architect B1, code 1 | **Must fix.** A wait never ends on, and never sends its first read before, `ScoringWord.statusCacheTime` after the write. Path test with `expectedWithinSec: 3`. |
+| F2 | A push's `.scored` word replaces `waiting_for_sleep` on a day without a night (reproduced). | code 2 | **Must fix.** `.scored` rules out `pending` only. Test. |
+| F3 | Opening the app within 10 s of a background upload: G2 reads a cached "nothing pending" and no wait answers the word. | architect S1 | **Fix.** G2's day list includes the ledger's unanswered pending days. |
+| F4 | Two copies of the ledger: a demo switch clears the Repository copy only, and an account change clears SyncService only. | architect S2, code nit | **Fix with one store.** Repository reads the ledger through a closure (like `chosenTrackers`), and SyncService calls a hook that republishes the widget. The owner is cleared on the demo switch too. Test both. |
+| F5 | An upload that fails or is cancelled after accepted pages records no `awaiting`. | architect S3 | **Fix in this PR.** The coordinator records the days touched so far on error and on cancel. T4 depends on this. |
+| F6 | No test proves `LiveSyncSteps` passes the flight start (the mutant survived all 18 tests). | code 3 | **Fix.** Drive the real step. |
+| F7 | G2 can hold the pipeline for up to 300 s with about 6 polls, re-waits for days a previous wait gave up on, and delays the refresh behind the wait. | perf 1–2, code 4 | **Fix.** Refresh what's stale first. Then wait only for days not already waited out. Skip G2's read when the last status read is under 10 s old. Add a poll count to the `score-wait` signpost end. |
+| N1 | No cancellation check before `awaiting`, so a sign-out can race it. | architect | Fix. |
+| N2 | `writtenSinceStart` is close to derivable. | architect | Add a comment or derive it. |
+| N3 | The G2 wait uses `lastScoring`'s expected time, not the status just read. | architect | Fix. |
+| N4 | The ledger isn't in the diagnostics line (days and kinds only). | architect | Fix. |
+| N5 | The "none behind a gate" comment ignores the local hold. | code | Fix the comment, or check `pausedFor`. |
+| N6 | `eventually { inFlight.contains }` is always true, with a 20 ms wall-clock sleep. | code | Fix the synchronisation. |
+| N7 | `offline.readsScoringStatus = true` is redundant. | code | Remove. |
+| N8 | Ledger times are wall-clock `Date`. | code | Leave as is. In memory only; noted. |
+| — | `SyncMachine` has no idle → `awaitingScores` edge. | PR follow-up | Separate PR (sync-engineer, `StateMachines/`). |
+| — | A background `awaiting` is answered only by a push or by opening the app. | architect S4 | Follow-up: BGAppRefresh asks `/v1/me/sync` once when old pending words exist. |
+| — | ADR 0013 "Being scored is client sync state with one owner". | architect | ios-architect writes it after the fixes, in this PR. |

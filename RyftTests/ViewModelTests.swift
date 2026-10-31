@@ -1495,6 +1495,16 @@ struct SyncDetailsTests {
         #expect(!sync.engineState.recentRequested)
     }
 
+    @Test func theDiagnosticsListTheScoringWords() {
+        let (_, state, _) = makeState()
+        let sync = SyncService.ungated(env: state.env)
+        let model = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        #expect(model.diagnostics.contains("scoring words -"))
+        sync.awaiting(["2026-10-19"])
+        sync.scored(["2026-10-18"])
+        #expect(model.diagnostics.contains("scoring words 2026-10-19 pending, 2026-10-18 scored"))
+    }
+
     @Test func theScoringRowSaysSinceWhenAndWhetherItsSlow() {
         let (_, state, clock) = makeState()
         let sync = SyncService.ungated(env: state.env)

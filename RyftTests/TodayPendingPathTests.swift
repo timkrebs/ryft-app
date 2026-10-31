@@ -59,7 +59,8 @@ private final class Harness {
     let vm: TodayViewModel
 
     /// `firstSync`: no anchors yet (the first score's window goes first, the backfill after it) and nothing scored.
-    init(inBackground: Bool = false, firstSync: Bool = false, night: Bool = true) {
+    /// `expected`: the upload's `expected_within_sec`.
+    init(inBackground: Bool = false, firstSync: Bool = false, night: Bool = true, expected: Int = 20) {
         api = MockPlatformAPI(screens: days)
         let stream = HealthStream.quantity(.heartRate)
         health = MockHealthStore(streams: [stream])
@@ -77,7 +78,7 @@ private final class Harness {
         pipeline = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: clock, inBackground: inBackground)
         vm = TodayViewModel(state: state, sync: sync, coordinator: pipeline, apiStatus: APIStatus())
         api.syncResponse = SyncResponse(samples: 2, sleep: 0, workouts: 0, daysTouched: firstSync ? [yesterday, today] : [today],
-                                        scoring: SyncScoring(queuedDays: [today], expectedWithinSec: 20))
+                                        scoring: SyncScoring(queuedDays: [today], expectedWithinSec: expected))
         if !firstSync {
             let row = DailyScore(day: yesterday, readiness: 76, state: .balanced, recovery: 75, baselineDays: 30,
                                  calibrating: false, computedAt: Self.now.addingTimeInterval(-86_400), scoringState: .scored)
@@ -213,7 +214,7 @@ struct TodayPendingPathTests {
         #expect(await h.waitsOnTheClock())
         #expect(h.scoresTheNight, "after opening: \(h.vm.hero)")
         h.scores()
-        await h.nextPoll(after: 30) // API.md's 30 s: this run's upload sent nothing to measure
+        await h.nextPoll(after: 20) // the estimate of the status this run just read
         #expect(await h.lands())
         _ = await run.value
     }
@@ -310,9 +311,66 @@ struct TodayPendingPathTests {
         h.clock.advance(by: .seconds(5))
         let run = Task { await h.pipeline.run(.appActive) } // nothing new to upload
         #expect(await h.waitsOnTheClock())
+        #expect(h.statusReads == 1) // the launch check's answer is 5 s old: the platform would answer from its cache
         #expect(h.sync.scoringWaitStart == sighted) // "Taking longer than usual" keeps its clock
-        h.scores() // scored 10 s in; no push comes
-        await h.nextPoll(after: 30)
+        h.scores() // no push comes
+        await h.nextPoll(after: 20)
+        #expect(await h.lands())
+        _ = await run.value
+    }
+
+    /// Review F1: a platform that says it scores within 3 s. Its first ask then could be answered from the status
+    /// cache, from before the night went up; the wait asks no sooner than the cache allows.
+    @Test func aFastScorerLandsACalibratingDayWithoutAPush() async {
+        let h = Harness(expected: 3)
+        let run = Task { await h.pipeline.run(.healthKit) }
+        #expect(await h.waitsOnTheClock())
+        let asked = h.statusReads
+        h.scores(readiness: nil, calibrating: true) // scored within the 3 s
+        h.clock.advance(by: .seconds(3))
+        #expect(await h.waitsOnTheClock()) // still the first wait: no ask yet (an ask would be sent within 0.2 s)
+        #expect(!(await eventually(timeout: .milliseconds(200)) { h.statusReads > asked }))
+        h.clock.advance(by: .seconds(7))
+        #expect(await eventually { h.statusReads == asked + 1 && h.sync.statusReadAt == h.clock.now() })
+        _ = await run.value
+        #expect(await eventually { h.vm.hero == .calibrating(nights: 2) }, "\(h.vm.hero)")
+        #expect(h.sync.scoringLedger.isEmpty && h.state.repository.widgetFacts.scoringState == .scored)
+        #expect(h.statusReads == asked + 1) // one ask, at 10 s
+    }
+
+    /// Review F2: a daytime sync's push for a day the platform scored without a night. "Scored" rules out
+    /// "being scored", not "waiting for last night's sleep".
+    @Test func aPushOnANightlessDayLeavesItWaitingForSleep() async {
+        let h = Harness(night: false)
+        h.days.put(DailyScore(day: h.today, readiness: nil, state: nil, recovery: nil, baselineDays: 30, calibrating: false,
+                              computedAt: h.clock.now(), scoringState: .waitingForSleep))
+        await h.pipeline.refreshStatus()
+        h.clock.advance(by: .seconds(30))
+        _ = await h.pipeline.run(.appActive)
+        let before = h.vm.hero
+        guard case .pending(let night) = before, night.waitingForSleep else {
+            Issue.record("expected waiting for sleep: \(before)")
+            return
+        }
+        await h.pipeline.run(.silentPush(days: [h.today]))
+        #expect(h.sync.scoringLedger[h.today]?.kind == .scored)
+        #expect(h.vm.hero == before, "\(h.vm.hero)")
+        #expect(h.state.repository.widgetFacts.scoringState == .waitingForSleep)
+    }
+
+    /// Review F3: the app opened under 10 s after a background upload. The platform's (cached) answer lists nothing
+    /// yet; the phone's word is waited for all the same.
+    @Test func openingTheAppRightAfterABackgroundUploadWaitsForItsWord() async {
+        let h = Harness(inBackground: true)
+        _ = await h.pipeline.run(.healthKit)
+        #expect(h.sync.scoringLedger[h.today]?.kind == .pending)
+        h.clock.advance(by: .seconds(5))
+        await h.pipeline.enterForeground()
+        let run = Task { await h.pipeline.run(.appActive) } // the status still says waiting for sleep
+        #expect(await h.waitsOnTheClock())
+        #expect(h.state.syncStatus?.pendingDays == [] && h.scoresTheNight, "\(h.vm.hero)")
+        h.scores()
+        await h.nextPoll(after: 20)
         #expect(await h.lands())
         _ = await run.value
     }
@@ -393,7 +451,7 @@ struct ScoringLedgerTests {
         #expect(state.repository.widgetFacts.scoringState == .scored)
         // A read asked for 10 s after the push is the platform's word again.
         _ = try? await steps.syncStatus()
-        #expect(sync.scoringLedger[today] == nil && state.repository.scoringLedger.isEmpty)
+        #expect(sync.scoringLedger[today] == nil && state.repository.scoringLedger().isEmpty)
         #expect(state.repository.widgetFacts.scoringState == .pending)
     }
 
@@ -413,25 +471,100 @@ struct ScoringLedgerTests {
         let joined = Task {
             try await env.reads.run(ReadKey(.syncStatus), storeAsked: { (_: Int, at: Date) in asked.append(at) }) { 2 }
         }
-        #expect(await eventually { env.reads.inFlight.contains(ReadKey(.syncStatus)) })
-        try await Task.sleep(for: .milliseconds(20)) // the joiner reaches the flight (main actor, FIFO)
+        await reachesTheFlight()
         clock.advance(by: .seconds(10))
         _ = try await first.value
         #expect(try await joined.value == 1)
         #expect(asked == [t0]) // the flight's start, not the joiner's
     }
 
-    @Test func theLedgerIsEmptyAfterAnAccountChange() {
-        let env = AppEnvironment.test(clock: TestClock(now: t0))
+    /// A task this (main-actor) test started has run up to its first real suspension: the main actor runs its jobs
+    /// in the order they were enqueued, so one enqueued after it runs after.
+    private func reachesTheFlight() async {
+        await Task { @MainActor in }.value
+    }
+
+    /// Review F6, through the real step: a read that joins a flight started under 10 s after the word leaves the word,
+    /// though it's asked, and lands, 10 s or more after it.
+    @Test func aReadJoiningAnEarlierFlightLeavesTheWordsThatFlightCouldNotAnswer() async throws {
+        let clock = TestClock(now: t0)
+        let api = MockPlatformAPI()
+        api.scoringToday = TodayState(day: today, state: .waitingForSleep, scoredAt: nil, modelVersion: "2026.10.1")
+        let env = AppEnvironment.test(api: api, clock: clock)
         let state = AppState(env: env)
         let sync = SyncService.ungated(env: env)
         let steps = LiveSyncSteps(state: state, sync: sync)
         steps.awaiting([today])
+        clock.advance(by: .seconds(5))
+        // The launch check's read, 5 s after the word, on a slow network.
+        let launch = Task {
+            try await env.reads.run(ReadKey(.syncStatus)) { () async throws -> SyncStatus in
+                try await clock.sleep(for: .seconds(15))
+                return try await api.syncStatus()
+            }
+        }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .seconds(6)) // 11 s after the word: the wait's read joins it
+        let joined = Task { try await steps.syncStatus() }
+        await reachesTheFlight()
+        clock.advance(by: .seconds(9)) // it lands 20 s after the word
+        _ = try await launch.value
+        #expect(try await joined.value.today.state == .waitingForSleep)
+        #expect(api.count("syncStatus") == 1) // one flight: the read joined it
+        #expect(sync.statusReadAt == clock.now())
+        #expect(sync.scoringLedger[today]?.kind == .pending)
         #expect(state.repository.widgetFacts.scoringState == .pending)
+        // Its own read, now: the platform's word again.
+        _ = try await steps.syncStatus()
+        #expect(sync.scoringLedger.isEmpty && state.repository.widgetFacts.scoringState == .waitingForSleep)
+    }
+
+    @Test func theLedgerIsEmptyAfterAnAccountChangeAndTheWidgetSaysSo() {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("ledger-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let env = AppEnvironment.test(clock: TestClock(now: t0))
+        let state = AppState(env: env)
+        state.repository.widgetFile = file
+        state.repository.reloadWidget = {}
+        state.syncStatus = status(.waitingForSleep, pending: [])
+        let sync = SyncService.ungated(env: env)
+        let steps = LiveSyncSteps(state: state, sync: sync)
+        state.repository.publishWidget()
+        #expect(widgetKind(file) == .waitingForSleep)
+        steps.awaiting([today])
+        #expect(state.repository.widgetFacts.scoringState == .pending)
+        #expect(widgetKind(file) == .pending) // republished with the word
         sync.accountChanged()
-        state.repository.invalidate() // AppState.reset / wiped
-        #expect(sync.scoringLedger.isEmpty && state.repository.scoringLedger.isEmpty)
-        #expect(state.repository.widgetFacts.scoringState != .pending)
+        #expect(sync.scoringLedger.isEmpty && state.repository.scoringLedger().isEmpty)
+        #expect(state.repository.widgetFacts.scoringState == .waitingForSleep)
+        #expect(widgetKind(file) == .waitingForSleep)
+    }
+
+    /// What the widget's file shows.
+    private func widgetKind(_ file: URL) -> ReadinessSnapshot.Kind? {
+        (try? Data(contentsOf: file)).flatMap { try? ReadinessSnapshot.decoder.decode(ReadinessSnapshot.self, from: $0) }?.kind
+    }
+
+    @Test func switchingDemoDataOnOrOffForgetsTheWords() {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("ledger-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let env = AppEnvironment.test(clock: TestClock(now: t0))
+        let state = AppState(env: env)
+        state.repository.widgetFile = file
+        state.repository.reloadWidget = {}
+        state.syncStatus = status(.waitingForSleep, pending: [])
+        let sync = SyncService.ungated(env: env)
+        let steps = LiveSyncSteps(state: state, sync: sync)
+        let profile = ProfileViewModel(state: state, sync: sync, coordinator: SyncCoordinator(steps: steps, clock: env.clock))
+        for on in [true, false] {
+            steps.awaiting([today])
+            #expect(state.repository.widgetFacts.scoringState == .pending)
+            #expect(widgetKind(file) == .pending)
+            profile.demoModeChanged(on)
+            #expect(sync.scoringLedger.isEmpty, "demo \(on)")
+            #expect(state.repository.widgetFacts.scoringState == .waitingForSleep, "demo \(on)")
+            #expect(widgetKind(file) == .waitingForSleep, "demo \(on)") // republished
+        }
     }
 }
 
