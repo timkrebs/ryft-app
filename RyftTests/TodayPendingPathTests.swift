@@ -2,6 +2,11 @@ import Foundation
 import Testing
 @testable import Ryft
 
+/// How an upload that outlived its account ended.
+enum UploadEnding: String, CaseIterable, Sendable {
+    case cancelled, failed, finished
+}
+
 /// The platform's day reads, scripted: the days the test put in, and today unscored until it puts today in.
 private final class ScriptedDays: RyftDataSource, @unchecked Sendable {
     private let lock = NSLock()
@@ -124,7 +129,9 @@ private final class Harness {
 
     // MARK: waits
 
-    var statusReads: Int { api.calls.filter { $0 == "syncStatus" }.count }
+    /// Under the mock's lock: the stale refresh's reads append to its calls from other threads meanwhile (an unlocked
+    /// `api.calls` read once saw none).
+    var statusReads: Int { api.count("syncStatus") }
 
     /// The scoring wait sleeps on the clock (the only sleeper left). `phase`: the run uploaded first, so `SyncService`
     /// shows the wait (a `daysChanged` run starts from idle, which `SyncMachine` doesn't lead to `awaitingScores`).
@@ -361,7 +368,10 @@ struct TodayPendingPathTests {
         }
         #expect(await eventually { h.clock.pendingSleeps == 2 })
         h.clock.advance(by: .seconds(8)) // the wait's first ask, 10 s after the write: it joins the pull
-        #expect(await eventually { h.clock.pendingSleeps == 2 })
+        // Joined (not merely asked), and the next wait is on the clock.
+        #expect(await eventually {
+            h.state.env.reads.joiners(for: ReadKey(.syncStatus)) == 1 && h.clock.pendingSleeps == 2
+        })
         h.clock.advance(by: .seconds(7)) // the pull lands, 17 s after the write
         _ = try? await pull.value
         #expect(h.statusReads == reads) // the ask joined the pull: no read of its own
@@ -485,10 +495,10 @@ struct ScoringLedgerTests {
         #expect(sync.scoringLedger["2026-10-12"] == nil)
     }
 
-    /// Review R6: an upload that ends early after the account went keeps none of its days for whoever comes next
-    /// (`touchedSoFar` is empty once the account is gone), whether the account change cancelled it or it failed.
-    @Test(arguments: [true, false])
-    func anUploadThatEndsAfterTheAccountWentKeepsNoneOfItsDays(cancelled: Bool) async {
+    /// Review R6: an upload that ends after the account went keeps none of its days for whoever comes next
+    /// (`touchedSoFar` is empty once the account is gone): cancelled by the account change, failed, or finished.
+    @Test(arguments: UploadEnding.allCases)
+    func anUploadThatEndsAfterTheAccountWentKeepsNoneOfItsDays(ending: UploadEnding) async {
         let clock = TestClock(now: t0)
         let stream = HealthStream.quantity(.heartRate)
         let health = MockHealthStore(streams: [stream])
@@ -503,14 +513,15 @@ struct ScoringLedgerTests {
         let run = Task { try await sync.upload() }
         #expect(await eventually { clock.pendingSleeps == 1 && api.count("sync") == 2 }) // the first page accepted
         await env.auth.signOut()
-        if cancelled {
-            sync.accountChanged() // cancels the upload
-        } else {
-            api.failNext = APIError.http(422, "bad") // the third page
+        switch ending {
+        case .cancelled: sync.accountChanged() // cancels the upload
+        case .failed: api.failNext = APIError.http(422, "bad") // the third page
+        case .finished: break // the second and third pages are accepted
         }
         clock.advance(by: .seconds(1))
-        _ = try? await run.value
+        let touched = try? await run.value
         #expect(api.syncRequests.count >= 1)
+        #expect((touched != nil) == (ending == .finished))
         #expect(sync.lastDaysTouched.isEmpty)
     }
 

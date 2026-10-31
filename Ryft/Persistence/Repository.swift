@@ -1080,6 +1080,8 @@ final class ReadScheduler {
         /// One shared rerun for `.changed` callers that need data newer than this flight, and its store.
         var followUp: Outcome?
         var followUpStore: Store?
+        /// Callers that joined it in progress (`joiners(for:)`).
+        var joiners = 0
 
         init(started: Date) {
             self.started = started
@@ -1129,6 +1131,10 @@ final class ReadScheduler {
         guard let outcome = enter(key, mode: mode, userInitiated: userInitiated, store: store, fetch) else { return nil }
         return try await outcome.value() as? T
     }
+
+    /// How many callers joined `key`'s flight in progress (none when nothing is in flight). For tests that need a read
+    /// to have joined an earlier flight, not started its own; nothing in the app decides by it.
+    func joiners(for key: ReadKey) -> Int { flights[key]?.joiners ?? 0 }
 
     /// Cancels every read in flight (sign-out, account change): their callers are released with
     /// `CancellationError`, nothing is recorded or stored for them.
@@ -1185,6 +1191,7 @@ final class ReadScheduler {
                 return flight.followUp ?? followUp(after: flight, key, userInitiated: userInitiated, fetch)
             }
             if flight.store == nil { flight.store = store }
+            flight.joiners += 1
             return flight.outcome
         }
         return start(key, store: store, fetch).outcome

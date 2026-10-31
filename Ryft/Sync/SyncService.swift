@@ -289,7 +289,8 @@ final class SyncService {
             let result = try await engine.run(context, gate: gate) { [weak self] event in
                 await self?.apply(event, for: account)
             }
-            lastDaysTouched = result.touched
+            // The previous account's run: its days aren't the next account's (as on the error and cancel paths).
+            if auth.accountID == account { lastDaysTouched = result.touched }
             hasBacklog = result.backlog
             lastScoring = result.scoring
             if result.waitingForUnlock {
