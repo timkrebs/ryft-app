@@ -710,30 +710,117 @@ struct RawNightCard: View {
 }
 
 /// "Nothing new from Garmin Connect since 23:40", or in the morning "Your night hasn't reached Apple Health
-/// yet. Open Garmin Connect to sync it." with the data's age and "Garmin Connect in the App Store" (ui.md §6.2,
-/// errata 2). A quiet hint: no dismissal; it goes when the night arrives. Times in the screen's locale.
+/// yet. Open Garmin Connect to sync it." with the data's age (ui.md §6.2, errata 2). A quiet hint: no dismissal; it goes
+/// when the night arrives. Times in the screen's locale.
+///
+/// The whole card is the control (design.md §D3): "Open Garmin Connect" when the app's scheme is known and installed,
+/// else "Garmin Connect in the App Store", else (an Apple device, or the error card's action on screen) no button at all.
+/// VoiceOver reads two elements: the sentence with its age, then the action.
 struct WatchSyncHintCard: View {
     let hint: WatchSyncHint
-    /// The App Store button; dropped while the error card offers its own action (one action on screen).
+    /// The action; dropped while the error card offers its own (one action on screen).
     var showsAction = true
 
     @Environment(\.openURL) private var openURL
+    @Environment(\.appInstalled) private var appInstalled
     @Environment(\.locale) private var locale
+    /// 15 pt at the default size, growing with the callout text (as `InlineMessage`'s icon).
+    @ScaledMetric(relativeTo: .callout) private var iconSize: CGFloat = 15
+
+    private var identifier: String { hint.isNight ? "today.nightHint" : "today.watchHint" }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            InlineMessage(message: hint.text(now: context.date, locale: locale), systemImage: hint.systemImage,
-                          caption: hint.caption(locale: locale), identifier: hint.isNight ? "today.nightHint" : "today.watchHint",
-                          action: action)
+            // Asked on each render: the app may have been installed or removed since.
+            if showsAction, let action = hint.action(canOpen: { appInstalled($0) }) {
+                Button { perform(action) } label: { card(now: context.date, action: action) }
+                    .buttonStyle(PressableButtonStyle())
+                    // Sighted users tap anywhere. VoiceOver gets the design's two elements instead (design.md §D3.5): a
+                    // Button's children would all read as buttons, the sentence too.
+                    .accessibilityRepresentation { spoken(now: context.date, action: action) }
+            } else {
+                card(now: context.date, action: nil)
+            }
         }
-        // A container: VoiceOver (and UI tests) reach the sentence, its age and "Open …" one by one.
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(hint.isNight ? "today.nightHint" : "today.watchHint")
+        .accessibilityIdentifier(identifier)
     }
 
-    private var action: (title: String, perform: () -> Void)? {
-        guard showsAction, hint.opensApp, let url = hint.storeURL else { return nil }
-        return (hint.storeTitle, { openURL(url) })
+    private func card(now: Date, action: WatchSyncHint.Action?) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: hint.systemImage)
+                .font(.system(size: iconSize, weight: .medium))
+                .foregroundStyle(Theme.textSecondary)
+                .padding(.top, 1)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(verbatim: hint.text(now: now, locale: locale))
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let caption = hint.caption(locale: locale) {
+                        // Secondary ink: tertiary was under 4.5:1 on the card in light mode.
+                        Text(verbatim: caption)
+                            .font(.ryft(.caption))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                if let action { verbRow(action) }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .background(Theme.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
+            .strokeBorder(Theme.separator, lineWidth: Theme.Metrics.hairline))
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
+    }
+
+    /// What VoiceOver reads when the card is a button: the sentence with its age (static text), then the action.
+    private func spoken(now: Date, action: WatchSyncHint.Action) -> some View {
+        let opensApp: Bool = { if case .openApp = action { return true } else { return false } }()
+        return VStack {
+            Text(verbatim: [hint.text(now: now, locale: locale), hint.caption(locale: locale)].compactMap { $0 }.joined(separator: "\n"))
+            Button { perform(action) } label: { Text(verbatim: hint.title(action)) }
+                .accessibilityHint(opensApp ? Text("Leaves RYFT") : Text("Opens the App Store."))
+                .accessibilityIdentifier("\(identifier).action")
+        }
+    }
+
+    /// "Open Garmin Connect ↗" in ink, the glyph saying it leaves RYFT; the store page gets its own glyph so the two
+    /// destinations don't look the same. At AX sizes the title wraps and the glyph stays on its first line.
+    private func verbRow(_ action: WatchSyncHint.Action) -> some View {
+        let title = hint.title(action)
+        let opensApp: Bool = { if case .openApp = action { return true } else { return false } }()
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(verbatim: title)
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Image(systemName: opensApp ? "arrow.up.forward.app" : "arrow.down.app")
+                .font(.system(size: iconSize, weight: .medium))
+                .foregroundStyle(Theme.textSecondary)
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// The app, and its store page if it doesn't open after all (no error: the page shows Open or Get).
+    private func perform(_ action: WatchSyncHint.Action) {
+        switch action {
+        case .store(let url):
+            openURL(url)
+        case .openApp(let url, let fallback):
+            // Nothing is logged: whether the app opened says whether it's installed (ADR 0012, Privacy).
+            openURL(url) { accepted in
+                if !accepted, let fallback { openURL(fallback) }
+            }
+        }
     }
 }
 
@@ -1022,26 +1109,70 @@ struct OfflinePill: View {
 
 // MARK: the night that hasn't reached Apple Health, and slow scoring (ui.md §6, previews 12–14)
 
-/// Mock hints: Garmin Connect quiet since last night 23:24, the Apple Watch, an unknown source.
+/// Mock hints: Garmin Connect quiet since last night 23:24, the Apple Watch, an unknown source; Garmin's scheme and
+/// `sync` sentence from the bundled catalog, as Today resolves them.
 private enum PreviewHint {
     static let lastNight = Calendar.current.date(bySettingHour: 23, minute: 24, second: 0,
                                                  of: .now.addingTimeInterval(-86_400)) ?? .now
+    static let store = URL(string: "https://apps.apple.com/app/id583446403")
+    static let garmin = MockData.tracker("garmin")
     static func night(_ kind: SourceApp.Kind, name: String) -> WatchSyncHint {
-        WatchSyncHint(night: NightGap(name: name, kind: kind,
-                                      storeURL: kind == .app ? URL(string: "https://apps.apple.com/app/id583446403") : nil,
-                                      newest: lastNight))
+        WatchSyncHint(night: NightGap(name: name, kind: kind, storeURL: kind == .app ? store : nil, newest: lastNight,
+                                      appURL: kind == .app ? garmin.appURL : nil))
     }
-    static let quiet = WatchSyncHint(source: "Garmin Connect", since: lastNight, isApp: true,
-                                     storeURL: URL(string: "https://apps.apple.com/app/id583446403"))
+    /// Garmin Connect quiet since last night, with the catalog's `sync` sentence and the app's scheme.
+    static let quiet = WatchSyncHint(source: "Garmin Connect", since: lastNight, isApp: true, storeURL: store,
+                                     appURL: garmin.appURL, sync: garmin.sync)
+    /// The same source without a `sync` sentence: today's full sentence.
+    static let quietNoSync = WatchSyncHint(source: "Garmin Connect", since: lastNight, isApp: true, storeURL: store)
+    static let appleWatch = WatchSyncHint(source: "Apple Watch", since: lastNight, isApp: false)
+}
+
+/// The hint's states (design.md §D3.3): the app installed (Open), not installed (App Store), an Apple device (no button).
+private struct HintStates: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            WatchSyncHintCard(hint: PreviewHint.quiet)
+                .environment(\.appInstalled, .installed)
+            WatchSyncHintCard(hint: PreviewHint.quiet)
+                .environment(\.appInstalled, .notInstalled)
+            WatchSyncHintCard(hint: PreviewHint.appleWatch)
+        }
+    }
+}
+
+#Preview("Quiet hint · open, store, Apple device", traits: .sizeThatFitsLayout) {
+    SchemePair { HintStates() }
+}
+
+#Preview("Quiet hint · de", traits: .sizeThatFitsLayout) {
+    SchemePair { HintStates() }
+        .environment(\.locale, Locale(identifier: "de"))
+}
+
+#Preview("Quiet hint · AX3", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        VStack(spacing: 16) {
+            WatchSyncHintCard(hint: PreviewHint.quiet)
+                .environment(\.appInstalled, .installed)
+            WatchSyncHintCard(hint: PreviewHint.quietNoSync)
+                .environment(\.appInstalled, .notInstalled)
+        }
+    }
+    .environment(\.dynamicTypeSize, .accessibility3)
 }
 
 #Preview("Night hint · app, watch, unknown, quiet", traits: .sizeThatFitsLayout) {
     SchemePair {
         VStack(spacing: 16) {
             WatchSyncHintCard(hint: PreviewHint.night(.app, name: "Garmin Connect"))
-            WatchSyncHintCard(hint: PreviewHint.night(.appleDevice, name: "Tim's Apple Watch"))
+                .environment(\.appInstalled, .installed)
+            WatchSyncHintCard(hint: PreviewHint.night(.app, name: "Garmin Connect"))
+                .environment(\.appInstalled, .notInstalled)
+            WatchSyncHintCard(hint: PreviewHint.night(.appleDevice, name: "Apple Watch"))
             WatchSyncHintCard(hint: PreviewHint.night(.unknown, name: "Sleep Diary"))
-            WatchSyncHintCard(hint: PreviewHint.quiet)
+            WatchSyncHintCard(hint: PreviewHint.quietNoSync)
+                .environment(\.appInstalled, .notInstalled)
             // The error card shows: one action on screen, so no "Open".
             WatchSyncHintCard(hint: PreviewHint.night(.app, name: "Garmin Connect"), showsAction: false)
         }
@@ -1051,6 +1182,7 @@ private enum PreviewHint {
 #Preview("Night hint · de · AX3", traits: .sizeThatFitsLayout) {
     SchemePair {
         WatchSyncHintCard(hint: PreviewHint.night(.app, name: "Garmin Connect"))
+            .environment(\.appInstalled, .installed)
     }
     .environment(\.locale, Locale(identifier: "de"))
     .environment(\.dynamicTypeSize, .accessibility3)

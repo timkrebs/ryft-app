@@ -588,7 +588,8 @@ struct TodayNightAndScoringTests {
     @Test func theNightGapNamesTheAppToOpen() throws {
         let f = facts()
         let gap = try #require(TodayStates.nightGap(f))
-        #expect(gap == NightGap(name: "Garmin Connect", kind: .app, storeURL: garminStore, newest: at(23, 24, daysAgo: 1)))
+        #expect(gap == NightGap(name: "Garmin Connect", kind: .app, storeURL: garminStore, newest: at(23, 24, daysAgo: 1),
+                                appURL: URL(string: "garminconnect://")))
         let hint = try #require(TodayStates.watchHint(f))
         #expect(hint.isNight && hint.source == "Garmin Connect" && hint.opensApp && hint.storeURL == garminStore)
         #expect(hint.systemImage == "moon.zzz")
@@ -673,8 +674,17 @@ struct TodayNightAndScoringTests {
         let hint = try #require(TodayStates.watchHint(f))
         #expect(!hint.isNight && hint.source == "Garmin Connect" && hint.storeURL == garminStore && hint.caption() == nil)
         #expect(hint.systemImage == "antenna.radiowaves.left.and.right") // Apple's watch glyph is the Apple Watch's
-        #expect(hint.text(now: f.now) == String(
-            localized: "Nothing new from \("Garmin Connect") since \(Fmt.time(at(1, 0))). Open the \("Garmin Connect") app to sync it to Apple Health."))
+        // The catalog's sentence on how Garmin Connect syncs replaces "Open the … app" (design.md §D3.4).
+        let en = Locale(identifier: "en_US")
+        let sync = try #require(TrackerCatalog.bundled.tracker("garmin")?.sync)
+        #expect(hint.sync == sync && hint.appURL == URL(string: "garminconnect://"))
+        #expect(hint.text(now: f.now, locale: en)
+                == String(localized: "Nothing new from \("Garmin Connect") since \(Fmt.time(at(1, 0), locale: en)).") + "\n" + sync.en)
+        // Without a `sync` sentence, the shipped one.
+        var noSync = hint
+        noSync.sync = nil
+        #expect(noSync.text(now: f.now, locale: en) == String(localized:
+            "Nothing new from \("Garmin Connect") since \(Fmt.time(at(1, 0), locale: en)). Open the \("Garmin Connect") app to sync it to Apple Health."))
         // Without a name (the map is the facts builder's), HealthKit's.
         var plain = f
         plain.sourceApps = [:]
@@ -1048,7 +1058,9 @@ struct TodayNightAndScoringTests {
         #expect(vm.facts.sourceApps.isEmpty) // nothing to name before HealthKit answered
         await vm.loadHealthFacts()
         let apps = vm.facts.sourceApps
-        #expect(apps[health.freshness[0].ref] == SourceApp(name: "Garmin Connect", kind: .app, appStoreURL: garminStore))
+        #expect(apps[health.freshness[0].ref] == SourceApp(name: "Garmin Connect", kind: .app, appStoreURL: garminStore,
+                                                           appURL: URL(string: "garminconnect://"),
+                                                           sync: TrackerCatalog.bundled.tracker("garmin")?.sync))
         #expect(apps[health.night!.ref]?.name == "Garmin Connect")
     }
 }

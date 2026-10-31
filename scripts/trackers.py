@@ -34,6 +34,13 @@ END = "// END GENERATED trackers.json"
 WARN_DAYS, FAIL_DAYS = 90, 180
 LINE_LENGTH = 160  # .swiftlint.yml line_length warning
 PAIRS = ("setup_steps", "habits", "limits")
+# `sync`: one sentence per language ({"en": "...", "de": "..."}), the habits' cap; the app's validator has every text rule.
+SENTENCES = ("sync",)
+SENTENCE_MAX = 240
+# Keys that would let content choose what the app opens. The app's schemes are compiled (ADR 0012) and its decoder
+# ignores these, so a file carrying one only looks as if it worked.
+REFUSED_KEYS = ("url_scheme", "open_url")
+MARKUP = re.compile(r"<|>|\]\(|://|www\.|@|mailto:|tel:", re.IGNORECASE)
 
 
 def canonical(data):
@@ -130,6 +137,22 @@ def check_pair(errors, pair, path, lists=True):
         errors.append(f"{path}: en and de both need text")
 
 
+def check_sentence(errors, pair, path):
+    """A plain sentence per language: both present, at most SENTENCE_MAX characters, no markup or links."""
+    if pair is None:
+        return
+    before = len(errors)
+    check_pair(errors, pair, path, lists=False)
+    if len(errors) > before:
+        return
+    for language in ("en", "de"):
+        text = pair[language]
+        if len(text) > SENTENCE_MAX:
+            errors.append(f"{path}.{language}: longer than {SENTENCE_MAX} characters")
+        if MARKUP.search(text) or any(unicodedata.category(c) in ("Cc", "Cf") for c in text):
+            errors.append(f"{path}.{language}: plain text only (no markup, links or control characters)")
+
+
 def check(data, swift_text):
     errors, warnings = [], []
     if not isinstance(data, dict):
@@ -168,6 +191,11 @@ def check(data, swift_text):
         seen.add(tid)
         for key in PAIRS:
             check_pair(errors, t.get(key), f"{tid}.{key}")
+        for key in SENTENCES:
+            check_sentence(errors, t.get(key), f"{tid}.{key}")
+        for key in REFUSED_KEYS:
+            if key in t:
+                errors.append(f"{tid}.{key}: not part of the schema; app schemes are compiled (ADR 0012, CatalogValidator.appSchemes)")
         for signal, note in (t.get("capability_notes") or {}).items():
             check_pair(errors, note, f"{tid}.capability_notes.{signal}", lists=False)
         try:
@@ -216,6 +244,21 @@ def self_test():
     errors, _ = check({"schema_version": 1, "trackers": [{"id": "other", "name": "Other \uf8ff", "checked": "2026-10-22"}]},
                       "static let brandPattern = #\"" + hook_pattern() + "\"#")
     assert any("private-use" in e for e in errors), "a private-use character passed"
+    pattern = "static let brandPattern = #\"" + hook_pattern() + "\"#"
+    for sync, expected in (({"en": "Open it."}, "needs both en and de"), ({"en": "Open it.", "de": " "}, "both need text"),
+                           ({"en": ["Open it."], "de": ["Öffne sie."]}, "both need text"),
+                           ({"en": "x" * 241, "de": "y"}, "longer than"), ({"en": "See www.example.com", "de": "y"}, "plain text"),
+                           ({"en": "Two\nlines", "de": "y"}, "plain text")):
+        errors, _ = check({"schema_version": 1, "trackers": [
+            {"id": "other", "name": "Other", "checked": "2026-10-22", "sync": sync}]}, pattern)
+        assert any(expected in e for e in errors), f"sync {sync!r} passed"
+    errors, _ = check({"schema_version": 1, "trackers": [
+        {"id": "other", "name": "Other", "checked": "2026-10-22", "sync": {"en": "Open it.", "de": "Öffne sie."}}]}, pattern)
+    assert not any("sync" in e for e in errors), f"a valid sync was refused: {errors}"
+    for key in REFUSED_KEYS:
+        errors, _ = check({"schema_version": 1, "trackers": [
+            {"id": "other", "name": "Other", "checked": "2026-10-22", key: "garminconnect"}]}, pattern)
+        assert any(f"other.{key}" in e for e in errors), f"{key} passed"
     print("trackers.py self-test: ok")
 
 

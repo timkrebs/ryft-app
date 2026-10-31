@@ -81,6 +81,9 @@ struct TrackerCatalog: Equatable, Sendable {
     static var brandPattern: String { CatalogValidator.brandPattern }
     static func containsBrand(_ s: String) -> Bool { CatalogValidator.hasBrand(s) }
 
+    /// The build's URL scheme per tracker id (`CatalogValidator.appSchemes`, ADR 0012), for the plist pin test.
+    static var appSchemes: [String: String] { CatalogValidator.appSchemes }
+
     /// trackers.json needs 5 levels; deeper is refused unparsed (the parser recurses).
     static let maxDepth = 8
 
@@ -158,11 +161,17 @@ struct Tracker: Equatable, Sendable, Identifiable {
     let identity: SourceIdentity
     /// The build's App Store id for this tracker id (`CatalogValidator.storeIDs`): content can't change it.
     let appStoreID: String?
+    /// The build's URL scheme for the tracker's app (`CatalogValidator.appSchemes`, ADR 0012): content can't add or
+    /// change one. Vendor apps only.
+    var appScheme: String?
     /// Every signal: a key the copy left out is `.unverified` (`.no` for integration `none`).
     let capabilities: [TrackerSignal: Capability]
     let notes: [TrackerSignal: Localized<String>]
     let setup: Localized<[String]>
     let habits: Localized<[String]>
+    /// How the app passes data to Apple Health, one plain sentence (Today's quiet-source hint); nil when the copy
+    /// has none. Text only: the app it opens comes from the build (`appScheme`), never from content.
+    var sync: Localized<String>?
     let limits: Localized<[String]>
     /// The vendor's guide; dropped unless its host is exactly one the build lists for this tracker (§2.5).
     let help: URL?
@@ -171,6 +180,8 @@ struct Tracker: Equatable, Sendable, Identifiable {
 
     /// Storefront-neutral: the App Store shows "Open" when the app is installed.
     var appStoreURL: URL? { appStoreID.flatMap { URL(string: "https://apps.apple.com/app/id\($0)") } }
+    /// The bare `<scheme>://`, or nil (`TrackerAppLink.url(forScheme:)`).
+    var appURL: URL? { TrackerAppLink.url(forScheme: appScheme) }
 }
 
 /// How a tracker's records look in HealthKit (`healthkit` in trackers.json).
@@ -372,8 +383,8 @@ private struct CatalogValidator {
     static let knownKeys: Set<String> = Set([
         "schema_version", "version", "checked", "status_values", "health_access", "steps", "en", "de", "trackers", "id", "name",
         "form", "app_name", "integration", "healthkit", "bundle_ids", "bundle_id_prefixes", "source_names", "device_models",
-        "verified", "app_store_id", "app_store_url", "capabilities", "capability_notes", "setup_steps", "habits", "limits",
-        "help_url", "sources", "url", "covers",
+        "verified", "app_store_id", "app_store_url", "capabilities", "capability_notes", "setup_steps", "habits", "sync",
+        "limits", "help_url", "sources", "url", "covers",
     ] + TrackerSignal.allCases.map(\.rawValue))
 
     /// A document key as a path may show it: a key of the schema, else "?" (never the document's own text).
@@ -386,6 +397,17 @@ private struct CatalogValidator {
         "apple_watch": "1069511734", "garmin": "583446403", "oura": "1043837948", "polar": "717172678",
         "suunto": "1230327951", "coros": "1277625343", "withings": "542701020", "amazfit": "1127269366",
         "ultrahuman": "1491286709", "fitbit": "462638897", "iphone": "1242545199",
+    ]
+    /// URL schemes per tracker id (ADR 0012, amending ADR 0002 rule 4; plan.md decision 3 (data quality)): Today's hint
+    /// opens the tracker's app by its bare `<scheme>://` when `canOpenURL` accepts it, else the App Store page. Compiled
+    /// like `storeIDs`: the schema has no `url_scheme`, so a copy that carries one changes nothing. Vendor apps only;
+    /// every entry is in `LSApplicationQueriesSchemes` (`TrackerAppLinkTests` pins the two lists).
+    /// **Unverified on a device** (ADR 0012 rule 7): neither vendor documents a scheme publicly; both are the brief's
+    /// candidates. Garmin's community forum reports `gcm-ciq://` for the app's start page ("url scheme", Garmin Connect
+    /// Mobile iOS forum); not listed until a device check picks one.
+    static let appSchemes: [String: String] = [
+        "garmin": "garminconnect",
+        "oura": "oura",
     ]
     /// The integration per tracker id: content may repeat it, never change it (the Watch stays Apple's).
     static let integrations: [String: Tracker.Integration] = [
@@ -545,10 +567,11 @@ private struct CatalogValidator {
         }
         let setup = try list(t, "setup_steps", path, max: 12)
         let habits = try list(t, "habits", path, max: 8)
+        let sync = try sentence(t, "sync", path)
         let limits = try list(t, "limits", path, max: 8)
         return Tracker(id: id, name: name, form: form, appName: appName, integration: integration, identity: identity,
-                       appStoreID: Self.storeIDs[id], capabilities: capabilities, notes: notes, setup: setup, habits: habits,
-                       limits: limits, help: help, checked: checked)
+                       appStoreID: Self.storeIDs[id], appScheme: integration == .vendorApp ? Self.appSchemes[id] : nil,
+                       capabilities: capabilities, notes: notes, setup: setup, habits: habits, sync: sync, limits: limits, help: help, checked: checked)
     }
 
     /// Bundle IDs and prefixes lowercased once here. Outside Apple's own trackers nothing may name or cover
@@ -712,6 +735,19 @@ private struct CatalogValidator {
         return Localized(en: en, de: de)
     }
 
+    /// `{"en": "...", "de": "..."}`: one sentence per language, both present, the same text rules and cap as a
+    /// habit (≤ 240 characters). Absent: nil.
+    private func sentence(_ o: [String: CatalogJSON], _ key: String, _ path: String) throws(CatalogError) -> Localized<String>? {
+        let at = path.isEmpty ? key : "\(path).\(key)"
+        guard let pair = try object(o, key, path) else { return nil }
+        guard let en = try string(pair, "en", at, required: false), let de = try string(pair, "de", at, required: false) else {
+            throw .invalid(rule: "text.pair", path: at)
+        }
+        try text(en, max: 240, "\(at).en")
+        try text(de, max: 240, "\(at).de")
+        return Localized(en: en, de: de)
+    }
+
     /// Plain text only (§2.5): shown with `Text(verbatim:)`, so no markup, no links or addresses, no
     /// control, format, private-use, unassigned or separator characters, Latin letters only (with common
     /// punctuation and combining marks), and no stacks of combining marks: at most twice `max` scalars.
@@ -793,7 +829,7 @@ extension TrackerCatalog {
     static let bundledJSON = #"""
     {
       "schema_version": 1,
-      "version": "2026-10-23.1",
+      "version": "2026-10-31.1",
       "checked": "2026-10-22",
       "status_values": [
         "yes",
@@ -991,6 +1027,10 @@ extension TrackerCatalog {
               "Synchronisiere deine Uhr zuerst. Garmin Connect überträgt Daten an Apple Health nach jeder erfolgreichen Watch-Synchronisierung."
             ]
           },
+          "sync": {
+            "en": "Garmin Connect passes data to Apple Health only while it's open.",
+            "de": "Garmin Connect überträgt Daten nur an Apple Health, solange die App geöffnet ist."
+          },
           "limits": {
             "en": [
               "Garmin Connect doesn't send HRV, breathing rate or blood oxygen to Apple Health.",
@@ -1088,6 +1128,10 @@ extension TrackerCatalog {
               "Halte die Hintergrundaktualisierung für Oura aktiviert und den Energiesparmodus ausgeschaltet."
             ]
           },
+          "sync": {
+            "en": "Oura passes your data to Apple Health only after you open it.",
+            "de": "Oura überträgt deine Daten erst an Apple Health, nachdem du die App öffnest."
+          },
           "limits": {
             "en": [
               "Oura doesn't send HRV, resting heart rate or blood oxygen to Apple Health.",
@@ -1180,6 +1224,10 @@ extension TrackerCatalog {
               "Synchronisiere deine Uhr mit Polar Flow. Neue Daten gehen dann zu Apple Health.",
               "Daten fehlen? Öffne Polar Flow → Mehr → Allgemeine Einstellungen und tippe auf „Jetzt synchronisieren“. Das sendet die letzten zwei Wochen erneut."
             ]
+          },
+          "sync": {
+            "en": "Polar Flow passes new data to Apple Health after your watch syncs with it.",
+            "de": "Polar Flow überträgt neue Daten an Apple Health, nachdem sich deine Uhr mit der App synchronisiert hat."
           },
           "limits": {
             "en": [
@@ -1421,6 +1469,10 @@ extension TrackerCatalog {
               "Withings synchronisiert nicht automatisch mit Apple Health. Öffne Withings, dann die Health-App, ziehe dann auf dem Withings-Home-Tab nach unten zum Aktualisieren.",
               "Erlaube bis zu 15 Minuten nach einer Messung."
             ]
+          },
+          "sync": {
+            "en": "Withings doesn't sync to Apple Health on its own. Open Withings, then the Health app, and pull down on its Home tab to refresh.",
+            "de": "Withings synchronisiert nicht von selbst mit Apple Health. Öffne Withings, dann die Health-App, und zieh auf dem Home-Tab nach unten, um zu aktualisieren."
           },
           "limits": {
             "en": [

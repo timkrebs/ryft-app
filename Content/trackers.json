@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "version": "2026-10-23.1",
+  "version": "2026-10-31.1",
   "checked": "2026-10-22",
   "status_values": [
     "yes",
@@ -198,6 +198,10 @@
           "Synchronisiere deine Uhr zuerst. Garmin Connect überträgt Daten an Apple Health nach jeder erfolgreichen Watch-Synchronisierung."
         ]
       },
+      "sync": {
+        "en": "Garmin Connect passes data to Apple Health only while it's open.",
+        "de": "Garmin Connect überträgt Daten nur an Apple Health, solange die App geöffnet ist."
+      },
       "limits": {
         "en": [
           "Garmin Connect doesn't send HRV, breathing rate or blood oxygen to Apple Health.",
@@ -295,6 +299,10 @@
           "Halte die Hintergrundaktualisierung für Oura aktiviert und den Energiesparmodus ausgeschaltet."
         ]
       },
+      "sync": {
+        "en": "Oura passes your data to Apple Health only after you open it.",
+        "de": "Oura überträgt deine Daten erst an Apple Health, nachdem du die App öffnest."
+      },
       "limits": {
         "en": [
           "Oura doesn't send HRV, resting heart rate or blood oxygen to Apple Health.",
@@ -387,6 +395,10 @@
           "Synchronisiere deine Uhr mit Polar Flow. Neue Daten gehen dann zu Apple Health.",
           "Daten fehlen? Öffne Polar Flow → Mehr → Allgemeine Einstellungen und tippe auf „Jetzt synchronisieren“. Das sendet die letzten zwei Wochen erneut."
         ]
+      },
+      "sync": {
+        "en": "Polar Flow passes new data to Apple Health after your watch syncs with it.",
+        "de": "Polar Flow überträgt neue Daten an Apple Health, nachdem sich deine Uhr mit der App synchronisiert hat."
       },
       "limits": {
         "en": [
@@ -628,6 +640,10 @@
           "Withings synchronisiert nicht automatisch mit Apple Health. Öffne Withings, dann die Health-App, ziehe dann auf dem Withings-Home-Tab nach unten zum Aktualisieren.",
           "Erlaube bis zu 15 Minuten nach einer Messung."
         ]
+      },
+      "sync": {
+        "en": "Withings doesn't sync to Apple Health on its own. Open Withings, then the Health app, and pull down on its Home tab to refresh.",
+        "de": "Withings synchronisiert nicht von selbst mit Apple Health. Öffne Withings, dann die Health-App, und zieh auf dem Home-Tab nach unten, um zu aktualisieren."
       },
       "limits": {
         "en": [

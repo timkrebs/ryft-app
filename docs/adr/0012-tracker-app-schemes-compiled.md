@@ -70,8 +70,8 @@
      (design.md §D3.3, state 2).
    - Every surface other than Today's hint keeps the App Store action until a ticket changes it under these rules.
 5. **The check goes through a seam, not `UIApplication.shared`.**
-   - The hint gets the `canOpenURL` check as an injected `(URL) -> Bool`. In the live app it is `canOpenURL`. Tests,
-     previews, demo mode and the simulator get a fake.
+   - The hint gets the `canOpenURL` check as an injected `(URL) -> Bool`. In the app, demo mode and the simulator it is the real
+     `canOpenURL` (harmless: the answer is kept nowhere); tests and previews inject a fake.
    - The check runs on the main actor when the hint is built. The answer isn't cached across foregrounds, because the
      user may install or remove the app in between.
 6. **The new `sync` field is plain text under rule 4's text rules.**
@@ -117,7 +117,8 @@
   - `x-apple-health`.
 - Opening another app's bare scheme is an ordinary integration and needs no entitlement.
 - Follow-up: `docs/APP_STORE.md` §10 (App Review notes) gets one sentence saying that the queried schemes open the
-  companion app of the tracker the user picked, and that RYFT records nothing about them.
+  companion app whose data has stopped arriving in Apple Health (the source the hint is about, not the tracker
+  picked in setup), and that RYFT records nothing about them.
 
 **Costs:**
 - A new tracker app, or a vendor that changes its scheme, needs an app release. This is the same cost as a new help
