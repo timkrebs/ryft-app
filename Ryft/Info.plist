@@ -61,6 +61,8 @@
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>x-apple-health</string>
+		<string>garminconnect</string>
+		<string>oura</string>
 	</array>
 #if RYFT_LOCAL_NETWORKING
 	<key>NSAppTransportSecurity</key>

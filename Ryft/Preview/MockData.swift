@@ -331,8 +331,8 @@ enum MockData {
         }
         guard let checked else { return t }
         return Tracker(id: t.id, name: t.name, form: t.form, appName: t.appName, integration: t.integration,
-                       identity: t.identity, appStoreID: t.appStoreID, capabilities: t.capabilities, notes: t.notes,
-                       setup: t.setup, habits: t.habits, limits: t.limits, help: t.help, checked: checked)
+                       identity: t.identity, appStoreID: t.appStoreID, appScheme: t.appScheme, capabilities: t.capabilities, notes: t.notes,
+                       setup: t.setup, habits: t.habits, sync: t.sync, limits: t.limits, help: t.help, checked: checked)
     }
 }
 

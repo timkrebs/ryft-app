@@ -72,9 +72,12 @@ final class TodayStatesUITests: XCTestCase {
         let app = launch("nightGap")
         let hint = app.descendants(matching: .any)["today.nightHint"]
         XCTAssertTrue(hint.waitForExistence(timeout: 15), "the night hint")
-        XCTAssertTrue(app.staticTexts["Your night hasn't reached Apple Health yet. Open Garmin Connect to sync it."].exists)
-        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'Last data from Garmin Connect: '"))
-                        .firstMatch.exists, "the data's age")
+        // One element, the sentence then the data's age (design.md §D3.5); the action is the second.
+        let sentence = app.staticTexts.containing(NSPredicate(
+            format: "label BEGINSWITH %@ AND label CONTAINS 'Last data from Garmin Connect: '",
+            "Your night hasn't reached Apple Health yet. Open Garmin Connect to sync it.")).firstMatch
+        XCTAssertTrue(sentence.exists, "the sentence and the data's age")
+        // Garmin Connect isn't installed on the simulator: canOpenURL says no, so the App Store page.
         let store = app.buttons["today.nightHint.action"]
         XCTAssertTrue(store.exists, "the App Store button")
         XCTAssertEqual(store.label, "Garmin Connect in the App Store")
