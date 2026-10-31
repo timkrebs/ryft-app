@@ -98,7 +98,8 @@
 - The threat that 0002 guarded against stays closed:
   - nothing a remote file says can make RYFT launch an app or a deep link;
   - the worst a hostile `trackers.json` can do to this button is change its `sync` sentence, under the same text
-    rules as every other remote string.
+    rules as every other remote string, or add a bundle id or source name to a tracker's identity, so another source's
+    quiet hint offers that tracker's compiled scheme or store page. It can never introduce a scheme or a URL.
 - A wrong or missing scheme degrades to the behaviour the app ships today.
 - One more compiled table follows the pattern of `helpHosts` and `storeIDs`, with no new mechanism.
 
