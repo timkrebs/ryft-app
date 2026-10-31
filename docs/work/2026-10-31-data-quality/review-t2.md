@@ -39,3 +39,5 @@ gaps and four nits, all fixed in this PR (round 2, sync-engineer).
 | R4 | `awaiting` / `scored` assign the ledger per day, one widget publish each (up to 90 on a resync). | Fix: build locally, assign once. |
 | R5 | `waitedOut` survives account changes and demo switches. | Fix: cleared on `accountChanged` and the demo switch. |
 | R6 | The N1 `isSignedIn` guard and the `accountID == account` guards are untested (mutants survive). | Fix: a test each. |
+
+Round 2 fixes: a246317
