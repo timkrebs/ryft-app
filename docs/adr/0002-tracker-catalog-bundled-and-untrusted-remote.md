@@ -1,6 +1,7 @@
 # 0002 — The tracker catalog: a generated bundled copy, and remote content treated as untrusted
 
 - Status: proposed (2026-10-22, tracker setup, `docs/work/2026-10-22-tracker-setup/design.md` §2)
+- Amended: 2026-10-31. Rule 4's scheme clause is amended by 0012 (`0012-tracker-app-schemes-compiled.md`).
 - Deciders: ios-lead, on ios-architect's proposal
 - Applies to: `Content/trackers.json`, `scripts/trackers.py`, `Makefile`, `Ryft/Health/HealthKitManager+Status.swift`,
   `Ryft/Environment/Seams.swift`, `Ryft/Environment/AppEnvironment.swift`
