@@ -59,6 +59,28 @@
         }
       }
     },
+    "%@ doesn't share HRV with Apple Health." : {
+      "comment" : "Sources, note B without a catalog sentence: the source writes heart rate, no HRV.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ sendet HRV nicht an Apple Health."
+          }
+        }
+      }
+    },
+    "%@ doesn't share HRV with Apple Health; recovery uses resting heart rate and sleep." : {
+      "comment" : "Sources, note B: the source wrote resting heart rate and sleep in 7 days but no HRV.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ sendet HRV nicht an Apple Health; die Erholung nutzt Ruhepuls und Schlaf."
+          }
+        }
+      }
+    },
     "%@ doesn't write to Apple Health, so nothing it records can reach RYFT. Your iPhone's own step count still does." : {
       "comment" : "Setup card of a tracker that writes nothing to Apple Health. The argument is its name.",
       "localizations" : {
@@ -1448,6 +1470,47 @@
         }
       }
     },
+    "%lld samples" : {
+      "comment" : "Sources: records from one source over the last 7 days.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Messwert"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Messwerte"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld sample"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld samples"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld sets" : {
       "comment" : "Training import: a count of sets.",
       "localizations" : {
@@ -1616,6 +1679,47 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld sets · best %@"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld sources in the last 7 days" : {
+      "comment" : "Devices & sync: the Sources row's subtitle, sources Apple Health showed in 7 days.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Quelle in den letzten 7 Tagen"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Quellen in den letzten 7 Tagen"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld source in the last 7 days"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld sources in the last 7 days"
                 }
               }
             }
@@ -2334,6 +2438,17 @@
         }
       }
     },
+    "Add %@" : {
+      "comment" : "Tracker setup: adds a tracker detected in Apple Health to the choice.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ hinzufügen"
+          }
+        }
+      }
+    },
     "Add a note" : {
       "comment" : "Activity detail: opens the edit sheet to add notes.",
       "localizations" : {
@@ -2902,6 +3017,39 @@
         }
       }
     },
+    "Apple Health has %@ from %@; RYFT hasn't received it yet. Pull to refresh." : {
+      "comment" : "Sources, note C: one data type Apple Health has from a source that the platform lacks.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Health hat %@ von %@, aber RYFT hat davon noch nichts erhalten. Zieh zum Aktualisieren."
+          }
+        }
+      }
+    },
+    "Apple Health has %@ from %@; RYFT hasn't received them yet. Pull to refresh." : {
+      "comment" : "Sources, note C: several data types Apple Health has from a source that the platform lacks.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Health hat %@ von %@, aber RYFT hat davon noch nichts erhalten. Zieh zum Aktualisieren."
+          }
+        }
+      }
+    },
+    "Apple Health has no data for the last 7 days." : {
+      "comment" : "Sources: nothing detected in 7 days.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Health hat in den letzten 7 Tagen keine Daten."
+          }
+        }
+      }
+    },
     "Apple's guide" : {
       "comment" : "Link to Apple's help page on a setup card.",
       "localizations" : {
@@ -2935,13 +3083,13 @@
         }
       }
     },
-    "Apps and devices that sent data to RYFT in the last 30 days." : {
-      "comment" : "Footnote of Seen in Apple Health.",
+    "Apps and devices that sent data to Apple Health in the last 7 days." : {
+      "comment" : "Sources: footer, the window the rows cover.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Apps und Geräte, die in den letzten 30 Tagen Daten an RYFT gesendet haben."
+            "value" : "Apps und Geräte, die in den letzten 7 Tagen Daten an Apple Health gesendet haben."
           }
         }
       }
@@ -3592,6 +3740,27 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eingeklappt"
+          }
+        }
+      }
+    },
+    "Confirm" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bestätigen"
+          }
+        }
+      }
+    },
+    "Confirm or change what RYFT found" : {
+      "comment" : "VoiceOver hint of What do you wear? when RYFT pre-selected trackers found in Apple Health.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bestätige oder ändere, was RYFT gefunden hat."
           }
         }
       }
@@ -4515,6 +4684,28 @@
         }
       }
     },
+    "Found in Apple Health" : {
+      "comment" : "What do you wear?: under a tile RYFT detected, not yet confirmed.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In Apple Health gefunden"
+          }
+        }
+      }
+    },
+    "Found in Apple Health, not confirmed" : {
+      "comment" : "VoiceOver value of a What do you wear? tile RYFT detected in Apple Health.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In Apple Health gefunden, noch nicht bestätigt"
+          }
+        }
+      }
+    },
     "From %@" : {
       "comment" : "VoiceOver, after the readiness gauge in row D: the day the readiness is from, e.g. Tuesday, 20 October.",
       "localizations" : {
@@ -5276,6 +5467,17 @@
         }
       }
     },
+    "Last 7 days" : {
+      "comment" : "Sources: section label over the rows.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letzte 7 Tage"
+          }
+        }
+      }
+    },
     "Learning your HRV baseline: %lld of %lld nights. No resting heart rate has reached RYFT yet, so recovery uses HRV and sleep." : {
       "comment" : "Note under Today's gauge: only HRV fills, no resting HR arrived. Arguments: nights so far, nights needed (7).",
       "localizations" : {
@@ -5331,6 +5533,39 @@
         }
       }
     },
+    "Nothing from %@ in 7 days. Keep it near your iPhone, then pull to refresh." : {
+      "comment" : "Sources, note A for an Apple device picked in setup that wrote nothing in 7 days.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nichts von %@ in den letzten 7 Tagen. Trag sie und lass sie in der Nähe deines iPhones, dann zieh zum Aktualisieren."
+          }
+        }
+      }
+    },
+    "Nothing from %@ in 7 days. Open %@, then pull to refresh." : {
+      "comment" : "Sources, note A: a tracker picked in setup wrote nothing to Apple Health in 7 days.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nichts von %@ in den letzten 7 Tagen. Öffne %@ und zieh dann zum Aktualisieren."
+          }
+        }
+      }
+    },
+    "Nothing in the last 7 days" : {
+      "comment" : "Sources: VoiceOver for a tracker picked but not seen.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nichts in den letzten 7 Tagen"
+          }
+        }
+      }
+    },
     "Offline. Showing your saved exercise library." : {
       "comment" : "Caption in the replace sheet without a connection.",
       "localizations" : {
@@ -5338,6 +5573,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Offline. Du siehst deine gespeicherte Übungsbibliothek."
+          }
+        }
+      }
+    },
+    "Picked in setup" : {
+      "comment" : "Sources: VoiceOver for a tracker picked but not seen.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In der Einrichtung gewählt"
+          }
+        }
+      }
+    },
+    "Picked in setup, not seen" : {
+      "comment" : "Sources: section of trackers picked in setup with nothing in 7 days.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In der Einrichtung gewählt, nicht gefunden"
+          }
+        }
+      }
+    },
+    "Pull to refresh re-reads Apple Health." : {
+      "comment" : "Sources: footer.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zieh zum Aktualisieren, dann liest RYFT Apple Health neu."
+          }
+        }
+      }
+    },
+    "Reading Apple Health…" : {
+      "comment" : "Sources: the first read is in flight.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apple Health wird gelesen …"
           }
         }
       }
@@ -5463,6 +5742,82 @@
         }
       }
     },
+    "RYFT also found %@ in Apple Health. Add it?" : {
+      "comment" : "Tracker setup after Apple Health: a tracker detected there but not picked.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT hat %@ auch in Apple Health gefunden. Hinzufügen?"
+          }
+        }
+      }
+    },
+    "RYFT can't reach its server. Counts are from Apple Health." : {
+      "comment" : "Sources: GET /v1/me failed; the rows come from Apple Health alone.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT ist gerade nicht erreichbar. Die Zahlen stammen aus Apple Health."
+          }
+        }
+      }
+    },
+    "RYFT couldn't read Apple Health. Pull to refresh to try again." : {
+      "comment" : "Sources: reading Apple Health failed.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT konnte Apple Health nicht lesen. Zieh zum Aktualisieren, um es erneut zu versuchen."
+          }
+        }
+      }
+    },
+    "RYFT found these in Apple Health. Check that they are right." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT hat diese in Apple Health gefunden. Prüfe, ob sie stimmen."
+          }
+        }
+      }
+    },
+    "RYFT hasn't asked for Apple Health yet." : {
+      "comment" : "Sources: Apple Health access was never requested.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT hat noch nicht um Zugriff auf Apple Health gebeten."
+          }
+        }
+      }
+    },
+    "Sample data" : {
+      "comment" : "Sources in demo mode: the rows are mock data.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beispieldaten"
+          }
+        }
+      }
+    },
+    "See what Apple Health has sent" : {
+      "comment" : "Tracker setup after Apple Health: opens the Sources screen.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sieh nach, was in Apple Health angekommen ist."
+          }
+        }
+      }
+    },
     "Sets with values can't be removed here. Delete them in the list." : {
       "comment" : "Edit targets: the sets stepper can't go lower because a set has values.",
       "localizations" : {
@@ -5470,6 +5825,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sätze mit Werten kannst du hier nicht entfernen. Lösche sie in der Liste."
+          }
+        }
+      }
+    },
+    "Shows what each app and device sent in the last 7 days" : {
+      "comment" : "VoiceOver hint of Devices & sync's Sources row.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt, was jede App und jedes Gerät in den letzten 7 Tagen gesendet hat."
           }
         }
       }
@@ -5485,6 +5851,107 @@
         }
       }
     },
+    "Sources" : {
+      "comment" : "Profile → Devices & sync → Sources: title and row.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quellen"
+          }
+        }
+      }
+    },
+    "sources.chip.heartRate" : {
+      "comment" : "Sources: type chip, heart rate. Short (de: HF).",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HF"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HR"
+          }
+        }
+      }
+    },
+    "sources.chip.hrv" : {
+      "comment" : "Sources: type chip, HRV.",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HRV"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HRV"
+          }
+        }
+      }
+    },
+    "sources.chip.sleep" : {
+      "comment" : "Sources: type chip, sleep.",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlaf"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep"
+          }
+        }
+      }
+    },
+    "sources.chip.steps" : {
+      "comment" : "Sources: type chip, steps.",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schritte"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Steps"
+          }
+        }
+      }
+    },
+    "sources.chip.workouts" : {
+      "comment" : "Sources: type chip, workouts (de: Training).",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workouts"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workouts"
+          }
+        }
+      }
+    },
     "Target weight (kg)" : {
       "comment" : "Edit targets: the weight to lift.",
       "localizations" : {
@@ -5492,6 +5959,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zielgewicht (kg)"
+          }
+        }
+      }
+    },
+    "That can mean your tracker has not synced, or that RYFT isn't allowed to read it." : {
+      "comment" : "Sources: nothing detected; HealthKit can't tell an empty store from a denied read.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das kann heißen, dass dein Gerät noch nicht synchronisiert hat, oder dass RYFT Apple Health nicht lesen darf."
           }
         }
       }
@@ -5814,7 +6292,7 @@
       }
     },
     "Last data %@" : {
-      "comment" : "Seen in Apple Health: when a source last sent data, e.g. Yesterday 22:10.",
+      "comment" : "Sources: when a source last sent data, e.g. Yesterday 22:10.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -6453,17 +6931,6 @@
         }
       }
     },
-    "No data from other apps yet." : {
-      "comment" : "Seen in Apple Health without sources.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Noch keine Daten aus anderen Apps."
-          }
-        }
-      }
-    },
     "No data from %@ yet. Open %@ and let it sync, then tap Check again." : {
       "localizations" : {
         "de" : {
@@ -6730,7 +7197,7 @@
       }
     },
     "Not a tracker RYFT knows. It still counts." : {
-      "comment" : "Seen in Apple Health: a source the tracker list doesn't have.",
+      "comment" : "Sources: a source the tracker list doesn't have.",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -8753,17 +9220,6 @@
         }
       },
       "comment" : "Devices & sync: the Check sync section's text, above its button."
-    },
-    "Seen in Apple Health" : {
-      "comment" : "Section in Devices & sync: sources that sent data.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "In Apple Health gefunden"
-          }
-        }
-      }
     },
     "Seen on %lld sets with different values." : {
       "comment" : "Training import, step 4: the +N load differs between sets.",
@@ -11080,6 +11536,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Entsperre dein iPhone zum Prüfen: Solange es gesperrt ist, lässt sich Apple Health nicht lesen."
+          }
+        }
+      }
+    },
+    "Unlock your iPhone, then pull to refresh: Apple Health can't be read while it's locked." : {
+      "comment" : "Sources: the phone is locked, so Apple Health can't be read.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entsperre dein iPhone und zieh dann zum Aktualisieren: Solange es gesperrt ist, lässt sich Apple Health nicht lesen."
           }
         }
       }
