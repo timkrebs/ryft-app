@@ -64,6 +64,8 @@ Store "What's New".
   plan too), and edit its sets, reps, weight, rest and notes for this workout; swipe a set row to delete it.
 
 ### Changed
+- Today: when your tracker's app has gone quiet, the hint says how it syncs and opens the app in one tap (the App
+  Store page when it isn't installed).
 - The app icon (light and dark) now carries the readiness gauge's colours and sits 5 % smaller on its tile.
 - A new app icon and RYFT mark: three orbits, three moons.
 - Today's readiness is now the RYFT orbit: readiness in the centre, Recovery and Sleep on the inner ring, Strain on

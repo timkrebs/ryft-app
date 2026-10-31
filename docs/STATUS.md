@@ -1,4 +1,13 @@
-# Status — 2026-10-30
+# Status — 2026-10-31
+
+## Data quality (`CLAUDE_FOLLOWUP_DATA_QUALITY.md`, in progress)
+
+Plan and notes: `docs/work/2026-10-31-data-quality/`.
+
+**Release gate (Needs you, before the next External beta or App Store build):** on a device, check that
+`garminconnect://` and `oura://` open Garmin Connect and Oura, with the app installed and without it (without: the hint
+must show the App Store page). A scheme that fails is removed from `CatalogValidator.appSchemes` and `Info.plist` in one
+change (ADR 0012 rule 7).
 
 ## OrbitGauge: the logo becomes the readiness gauge (`CLAUDE_FOLLOWUP_ORBIT_GAUGE.md`)
 
