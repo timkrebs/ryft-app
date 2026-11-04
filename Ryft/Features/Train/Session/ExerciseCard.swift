@@ -29,6 +29,15 @@ struct SetTableColumns: Equatable {
     }
 }
 
+/// A Focused row's look (design.md §3.1). Derived from the set and the page's active row, never stored.
+enum FocusedRowState: Equatable {
+    case active, done, upcoming
+
+    init(isCompleted: Bool, isActive: Bool) {
+        self = isCompleted ? .done : isActive ? .active : .upcoming
+    }
+}
+
 /// One set: number (tap: warm-up), kg, reps, RPE, check. 56 pt tall, large
 /// monospaced numbers; empty fields show last time / the target ghosted.
 struct SetRow: View {
@@ -42,6 +51,8 @@ struct SetRow: View {
     var swipeToDelete = true
     /// Focused's table; nil: the list's card.
     var columns: SetTableColumns?
+    /// Focused's row states; nil: the list's card.
+    var rowState: FocusedRowState?
 
     @State private var confirmDelete = false
     /// How far the row is swiped open (0 or less); "Delete" shows in the space it leaves.
@@ -101,8 +112,9 @@ struct SetRow: View {
             } label: {
                 Text(set.isWarmup ? "W" : "\(number)")
                     .font(.ryftNumber(size: 17))
-                    .foregroundStyle(set.isWarmup ? Theme.warning : Theme.textSecondary)
+                    .foregroundStyle(numberColor)
                     .frame(width: columns?.number ?? 40, height: 56)
+                    .background { if rowState == .active { activePill } }
                     .contentShape(columns.map { Path($0.numberHitArea) } ?? Path(CGRect(x: 0, y: 0, width: 40, height: 56)))
             }
             .buttonStyle(.plain)
@@ -120,21 +132,86 @@ struct SetRow: View {
                 .frame(minWidth: columns?.fourth, maxWidth: columns?.fourth ?? 64)
 
             Button {
-                tap { controller.toggleCheck(set, in: exercise) }
+                tap {
+                    if rowState == .active {
+                        controller.checkActive(set, in: exercise)
+                    } else {
+                        controller.toggleCheck(set, in: exercise)
+                    }
+                }
             } label: {
                 Image(systemName: "checkmark")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(set.isCompleted ? Theme.onAccent : Theme.textTertiary)
+                    .foregroundStyle(checkGlyph)
                     .frame(width: 56, height: 56)
-                    .background(set.isCompleted ? Theme.accent : Theme.surfaceRaised,
-                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(checkFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay {
+                        if rowState == .upcoming {
+                            RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.surfaceRaised, lineWidth: 1)
+                        }
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(PressableButtonStyle())
             .accessibilityHidden(true)
         }
         .frame(minHeight: 56)
-        .background(set.isCompleted ? Theme.accent.opacity(0.06) : .clear,
+        .background(rowState == nil && set.isCompleted ? Theme.accent.opacity(0.06) : .clear,
                     in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    // MARK: Focused's states (design.md §2.5, §2.8)
+
+    private var numberColor: Color {
+        if set.isWarmup { return Theme.warning }
+        return rowState == .active ? Theme.textPrimary : Theme.textSecondary
+    }
+
+    /// The raised `#` of the active row, with its dot.
+    private var activePill: some View {
+        Capsule()
+            .fill(Theme.surfaceRaised)
+            .frame(width: min(columns?.number ?? 32, 32), height: min(columns?.number ?? 32, 32))
+            .overlay(alignment: .topTrailing) {
+                Circle().fill(Theme.accent).frame(width: 5, height: 5)
+            }
+    }
+
+    private var checkGlyph: Color {
+        switch rowState {
+        case .active: Theme.onAccent
+        case .done: Theme.textSecondary
+        case .upcoming: Theme.textTertiary
+        case nil: set.isCompleted ? Theme.onAccent : Theme.textTertiary
+        }
+    }
+
+    private var checkFill: Color {
+        switch rowState {
+        case .active: Theme.accent
+        case .done, .upcoming: .clear
+        case nil: set.isCompleted ? Theme.accent : Theme.surfaceRaised
+        }
+    }
+
+    /// Only the active row's fields are raised, and RPE stays quieter: it is optional.
+    private func fieldOpacity(_ f: SetFocus.Field, focused: Bool) -> Double {
+        guard !focused else { return 1 }
+        switch rowState {
+        case .active: return f == .rpe ? 0.55 : 1
+        case .done, .upcoming: return 0
+        case nil: return 0.55
+        }
+    }
+
+    /// A ghost reads as what you'll do, in a colour that holds 4.5:1; only an empty field is quieter than that. A done
+    /// value is grey, told apart from a ghost by the check column.
+    private func valueColor(hasValue: Bool, hasGhost: Bool) -> Color {
+        switch rowState {
+        case nil: hasValue ? Theme.textPrimary : Theme.textTertiary.opacity(0.7)
+        case .done: hasValue ? Theme.textSecondary : Theme.textTertiary
+        case .active, .upcoming: hasValue ? Theme.textPrimary : hasGhost ? Theme.textSecondary : Theme.textTertiary
+        }
     }
 
     private var deleteButton: some View {
@@ -207,11 +284,22 @@ struct SetRow: View {
         var parts = [String(localized: "Set \(number) of \(count)")]
         if set.isWarmup { parts.append(String(localized: "warm-up")) }
         let reps = set.reps ?? ghost.reps, kg = set.weightKg ?? ghost.kg
+        var values: String?
         switch (reps, kg) {
-        case let (r?, k?): parts.append(String(localized: "\(r) reps at \(Fmt.kgNumber(k)) kilograms"))
-        case let (r?, nil): parts.append(String(localized: "\(r) reps"))
-        case let (nil, k?): parts.append(String(localized: "\(Fmt.kgNumber(k)) kilograms"))
+        case let (r?, k?): values = String(localized: "\(r) reps at \(Fmt.kgNumber(k)) kilograms")
+        case let (r?, nil): values = String(localized: "\(r) reps")
+        case let (nil, k?): values = String(localized: "\(Fmt.kgNumber(k)) kilograms")
         default: break
+        }
+        // Focused's ghost looks real, so it says what it is.
+        let planned = rowState != nil && !set.isCompleted && set.reps == nil && set.weightKg == nil
+        if let text = values {
+            parts.append(planned
+                ? String(localized: "planned \(text)",
+                         comment: "VoiceOver: a set's prefilled values, not logged yet. 1: e.g. 10 reps at 75 kilograms.")
+                : text)
+        } else if rowState != nil, storedValue == nil, !showsBodyweightGlyph {
+            parts.append(String(localized: "empty"))
         }
         if showsBodyweightGlyph { parts.append(String(localized: "bodyweight", comment: "VoiceOver: a set with no added load, in a workout.")) }
         if let stored = storedValue { parts.append(stored.spoken) }
@@ -237,7 +325,7 @@ struct SetRow: View {
             .monospacedDigit()
             .lineLimit(1)
             .minimumScaleFactor(0.75)
-            .foregroundStyle(Theme.textSecondary)
+            .foregroundStyle(rowState == .active ? Theme.textPrimary : Theme.textSecondary)
             .frame(maxWidth: .infinity, minHeight: 48)
     }
 
@@ -255,7 +343,14 @@ struct SetRow: View {
         let focused = controller.focus == SetFocus(setID: set.id, field: f)
         let shown = focused ? (controller.buffer.isEmpty ? nil : controller.displayBuffer) : value
         return Button {
-            tap { controller.edit(set, f) }
+            tap {
+                // An upcoming row's first tap makes it active. With the keypad up it moves there, as in List.
+                if rowState == .upcoming, controller.focus == nil {
+                    controller.activate(set)
+                } else {
+                    controller.edit(set, f)
+                }
+            }
         } label: {
             Group {
                 if f == .kg, showsBodyweightGlyph, shown == nil {
@@ -268,21 +363,21 @@ struct SetRow: View {
                         .monospacedDigit()
                         .lineLimit(1)
                         .minimumScaleFactor(columns == nil ? 0.6 : 0.75)
-                        .foregroundStyle(shown == nil ? Theme.textTertiary.opacity(0.7) : Theme.textPrimary)
+                        .foregroundStyle(valueColor(hasValue: shown != nil, hasGhost: ghost != nil))
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 48)
-            .background(Theme.surfaceRaised.opacity(focused ? 1 : 0.55),
+            .background(Theme.surfaceRaised.opacity(fieldOpacity(f, focused: focused)),
                         in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(focused ? Theme.accent : .clear, lineWidth: 2))
+            // A row with no field chrome still takes the whole field's tap.
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
     }
 }
 
-/// A time or distance in a set's reps slot, read-only: what the Focused table and its last-time card show for a set
-/// that has one and no reps (design.md §3.2). Nil for a set with reps, or with neither.
 /// The set row's "Edit reps". A modifier rather than `accessibilityActions`, so the actions keep their order and List's
 /// row, where it is always offered, stays as it was.
 private struct EditRepsAction: ViewModifier {
@@ -298,6 +393,8 @@ private struct EditRepsAction: ViewModifier {
     }
 }
 
+/// A time or distance in a set's reps slot, read-only: what the Focused table and its last-time card show for a set
+/// that has one and no reps (design.md §3.2). Nil for a set with reps, or with neither.
 struct SetStoredValue: Equatable {
     let text: String
     let spoken: String

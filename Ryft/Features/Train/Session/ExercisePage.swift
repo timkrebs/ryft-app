@@ -293,26 +293,27 @@ struct ExercisePage: View {
     private var table: some View {
         VStack(alignment: .leading, spacing: 4) {
             SetTableHeader(loadType: exercise.loadType, columns: columns)
-            let current = controller.currentSetID
+            let active = controller.activeSet(in: exercise)?.id
             if isExpanded, !warmups.isEmpty {
                 let warmups = warmups
                 ForEach(Array(warmups.enumerated()), id: \.element.id) { i, set in
-                    row(set, number: i + 1, count: warmups.count, current: current)
+                    row(set, number: i + 1, count: warmups.count, active: active)
                 }
                 addWarmup
             }
             let working = working
             ForEach(Array(working.enumerated()), id: \.element.id) { i, set in
-                row(set, number: i + 1, count: working.count, current: current)
+                row(set, number: i + 1, count: working.count, active: active)
             }
         }
     }
 
-    private func row(_ set: LocalSet, number: Int, count: Int, current: UUID?) -> some View {
+    private func row(_ set: LocalSet, number: Int, count: Int, active: UUID?) -> some View {
         SetRow(controller: controller, set: set, exercise: exercise, number: number, count: count,
-               swipeToDelete: false, columns: columns)
+               swipeToDelete: false, columns: columns,
+               rowState: FocusedRowState(isCompleted: set.isCompleted, isActive: set.id == active))
             .id(set.id) // scroll anchor for the keypad
-            .currentSetHighlight(current == set.id, setID: set.id)
+            .currentSetHighlight(set.id == active, setID: set.id)
     }
 
     private var addSet: some View {
