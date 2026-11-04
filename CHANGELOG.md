@@ -91,6 +91,7 @@ Store "What's New".
 - Health data, activities and workouts go up only under your consent to the privacy policy
   in force, also from the background and after a long time offline; a refusal is remembered
   until you agree. Deleting an activity, a night or a workout reaches RYFT even without it.
+- German: the end of a workout reads „Alle Sätze geschafft“ instead of „Alle Sätze erledigt“.
 
 ### Fixed
 - Today's baseline counter no longer sits at 0 of 7 when your tracker sends no HRV: it counts the resting-heart-rate
