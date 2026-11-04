@@ -32,6 +32,8 @@ struct ExercisePage: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.sessionVoiceOverFocus) private var voiceOverFocus
 
+    @State private var viewportHeight: CGFloat = 0
+
     /// The footer's scroll anchor.
     private static let allDoneAnchor = "session.page.allDone"
 
@@ -80,11 +82,34 @@ struct ExercisePage: View {
                 guard case .allDone = controller.advance?.step, exercise.id == controller.pageExerciseID else { return }
                 withAnimation(motion) { proxy.scrollTo(Self.allDoneAnchor, anchor: .bottom) }
             }
-            .onAppear {
-                if let focus = controller.focus, exercise.sets.contains(where: { $0.id == focus.setID }) {
-                    proxy.scrollTo(focus.setID, anchor: .center)
-                }
+            .onChange(of: controller.activeSet(in: exercise)?.id) { _, id in
+                guard exercise.id == controller.pageExerciseID else { return }
+                withAnimation(motion) { reveal(id, with: proxy) }
             }
+            // The keypad or a toast took the room. `onChange(of: focus)` runs before the page has shrunk, so its scroll centres
+            // the row in the old height, and the pill row and the keypad would cover it.
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                defer { viewportHeight = height }
+                guard height < viewportHeight, exercise.id == controller.pageExerciseID else { return }
+                withAnimation(motion) { keepRowInView(with: proxy) }
+            }
+            .onAppear { keepRowInView(with: proxy) }
+        }
+    }
+
+    /// The active row below the page's end, past the pill row's top (review N6b): the next set after a check, or a page
+    /// that opens on set 5. No anchor is the smallest scroll, none at all for a row that shows whole, so rows don't move
+    /// under the thumb. The keypad has its own scroll, to the focused row.
+    private func reveal(_ id: UUID?, with proxy: ScrollViewProxy) {
+        guard let id, controller.focus == nil else { return }
+        proxy.scrollTo(id)
+    }
+
+    private func keepRowInView(with proxy: ScrollViewProxy) {
+        if let focus = controller.focus, exercise.sets.contains(where: { $0.id == focus.setID }) {
+            proxy.scrollTo(focus.setID, anchor: .center)
+        } else {
+            reveal(controller.activeSet(in: exercise)?.id, with: proxy)
         }
     }
 

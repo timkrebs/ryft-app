@@ -117,12 +117,12 @@ struct RestSheet: View {
                 dismiss()
             } label: {
                 Text("Start rest \(Fmt.clock(TimeInterval(draft.seconds)))",
-                     comment: "The rest sheet's button in a workout. 1: the length, e.g. 1:15.")
+                     comment: "The rest sheet's button in a workout, and its VoiceOver label. 1: the length, e.g. 1:15.")
             }
             .buttonStyle(TealButtonStyle())
             .disabled(!draft.canStart)
             .accessibilityLabel(Text("Start rest \(RestSpeech.duration(draft.seconds))",
-                                     comment: "VoiceOver: the rest sheet's Start button. 1: e.g. 1 minute 15 seconds."))
+                                     comment: "The rest sheet's button in a workout, and its VoiceOver label. 1: the length, e.g. 1:15."))
             .accessibilityIdentifier("restSheet.start")
         }
     }
