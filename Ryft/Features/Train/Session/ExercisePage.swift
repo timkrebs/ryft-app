@@ -142,7 +142,8 @@ struct ExercisePage: View {
     @ViewBuilder
     private var chips: some View {
         if typeSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: 0) { chipItems }
+            VStack(alignment: .leading, spacing: 6) { chipItems }
+                .padding(.bottom, 8)
         } else {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) { chipItems }

@@ -22,3 +22,21 @@ No blocking finding. Flag off is unchanged: verified by reading and probing. Eve
 localization-editor: `SessionPagerPreview` strings sit outside `#Preview` and would enter the catalog: wrap them in `#if DEBUG`.
 
 test-engineer: all five mutants killed. UI first launch ignored its arguments in 3 of 6 runs on a loaded Mac; guarded in the new test, cause unknown.
+
+## PR 1 (T1), ui-validator on `7eb6233`
+
+No blocking finding. Flag off matches `origin/main`: the page below the header hashes the same in dark English and light German, the header was compared by eye. Run on the real app at 390 pt on iOS 27.0. The 320 pt width has only the `make focused-shots` renders, no device at that width exists here.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| 1 | The rest card sits above the strip, so the strip drops about 270 pt on a check | T3, named in the PR body |
+| 2 | Chip row cut off with no fade | No change: the 16 pt mask is there and shows in the screenshot, the report misread it |
+| 3 | Chips touch each other and the table header at AX3 | Fix: 6 pt between chips, 8 pt under the stack |
+| 4 | Finish wraps per syllable and the title truncates at AX3 | T5; `origin/main` does the same with the flag off |
+| N1 | The warm-up marker reads "A" in German, `design.md` says `W` | No change: the shipped translation, History uses it too. `design.md` meant the English value |
+| N2 | A long strip has no jump to the first tile | No change: scrolling the strip reaches it |
+| N3 | A scrolled page is clipped hard at the strip edge | T5 |
+| N4 | Warm-up "W" contrast on light, about 4.5:1 estimated by eye | T5: measure the token |
+| N5 | The target chip's label holds "@" and "×" | T5: hear it with VoiceOver by hand |
+
+Still unverified: real VoiceOver, Reduce Motion at runtime, the offline banner in the app, 320 pt in the app, Dynamic Type at exactly XL.
