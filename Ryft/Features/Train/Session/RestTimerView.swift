@@ -37,8 +37,11 @@ struct NumberPad: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(fieldTitle).ryftLabelStyle()
                 if let target = controller.focusedSet {
-                    let n = (target.exercise.orderedSets.firstIndex { $0.id == target.set.id } ?? 0) + 1
-                    Text("\(target.exercise.name) · set \(n)")
+                    let at = controller.position(of: target.set, in: target.exercise)
+                    (at.isWarmup
+                        ? Text("\(target.exercise.name) · warm-up \(at.number)",
+                               comment: "Number pad header on a warm-up, e.g. Bench press · warm-up 1.")
+                        : Text("\(target.exercise.name) · set \(at.number)"))
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textSecondary)
                         .lineLimit(1)

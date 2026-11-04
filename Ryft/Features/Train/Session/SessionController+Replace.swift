@@ -225,6 +225,8 @@ extension SessionController {
         switch kind {
         case .inPlace:
             mutate(ex, into: new)
+            // A new exercise starts on its first open set, not on the old one's tap.
+            tappedSet = nil
             target = ex
         case .split:
             target = split(ex, into: new)
@@ -275,6 +277,7 @@ extension SessionController {
             session.deletedSetIDs.append(contentsOf: y.sets.map(\.id))
             session.deletedExerciseIDs.append(y.id)
             if let f = focus, y.sets.contains(where: { $0.id == f.setID }) { focus = nil }
+            if lastCheckedExercise == yID { lastCheckedExercise = nil }
             session.exercises.removeAll { $0.id == yID }
             store.context.delete(y)
         }

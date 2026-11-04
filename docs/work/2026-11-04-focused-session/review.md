@@ -52,3 +52,51 @@ All three checked against the code before fixing. All three are real and only ha
 | C3 | Undo of a replace reopens the keypad on a warm-up that folded in the meantime | Fix: open the group first. Same class as S3, which only covered folding |
 
 C1, C2 and C3 each have a test that fails without the fix. `FocusedSessionUITests` 12 of 12; the reorder test passed 3 of 3 on its own, because it depends on the Reorder sheet's layout and runs outside the smoke plan.
+
+## PR 2 (T2), code-reviewer on `ec33197..e532b6d`
+
+No blocking finding. List is unchanged with the flag off: by reading, and `ExerciseCard` renders the same pixels in 4 states in one appearance. The planner to page path works, and no path loses typed digits. Everything below happens only with the flag on.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| S1 | The Live Activity's "Next" goes stale after a row tap, a keypad move or a swipe | Fix: refresh in `activate`, `showPage`, `edit` |
+| S2 | Unchecking a set leaves the keypad on another row, so digits go to a row that isn't active | Fix: close it in the Focused uncheck branch |
+| S3 | Undo can put the keypad back on a folded warm-up | Already fixed as C3 on T1 |
+| N1 | A tap during the 0.6 s delay is lost on a superset flip | Fix: `activate` stamps the manual window |
+| N2 | An in-place replace keeps the old tap, so the new exercise starts on set 3 | Fix: clear `tappedSet` |
+| N3 | Next off the end of the table leaves the last row active while earlier sets are open | Fix: clear `tappedSet` where the pad closes |
+| N4 | Removing the last-checked exercise skips the page fallback | Fix: clear `lastCheckedExercise` in `remove` |
+| N5 | `moveVoiceOver` starts an uncancelled task, it can post after a minimise or a swipe | Fix: one handle, cancelled on a new move and on disappear |
+| N6a | The `checkActive` comment says time and distance have no field; a non-stored row has one | Fix the comment: they keep today's behaviour under L20, so ✓ on an empty one logs |
+| N6b | Nothing scrolls the active row into view | Recheck in T3, where the pill changes the numbers, and at 320 pt |
+
+From the implementer on L23: on an empty active row, VoiceOver's "Check off" opens the keypad with no announcement. Fix: announce it.
+
+Fixed: S1, S2, N1–N5, N6a, the L23 announcement, and `undoReplace`'s stale `lastCheckedExercise`, the same class as N4. Left for the hand VoiceOver pass in T5: a swipe within 350 ms of a focus move doesn't cancel it, and the `.allDone` announcement doesn't go through the task handle. Both are timing edges only a real run can judge.
+
+## PR 2 (T2), code-reviewer re-verification on `ea0c131`
+
+S1, S2, N1–N5 and N6a are fixed, and List is unchanged.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| 1 | The N1 fix stamped the 3 s window on every tap, so a tap followed by a check held legitimate advances and `.allDone`. The lead's instruction caused this | Fix: stamp only during the delay. A test pinned the wrong behaviour and changed with it |
+| 2 | The L23 announcement has no German | Already fixed in `a930484` |
+| 3 | After a remove, "Next" can name the superset partner of the page | T5 |
+| 4 | `remove` reads `ex.id` after the delete | Fix: read it first |
+| 5 | `EmptyCheck.setID` is unused by the view | Keep: a test reads it |
+| — | ✓ on an empty upcoming row logs a set with no values | Fix: L24. `checkActive` became `checkRow`, and the view holds no state logic any more |
+| — | After any check, "Next" follows the last checked exercise, not the page | No change: that's what the planner does next, so the label is right |
+
+## PR 2 (T2), ui-validator on `ea0c131`
+
+No blocking finding. Flag off matches `origin/main` in dark and light, English and German, over seven checkpoints of a List tour: only the clocks, the home indicator and the L22 wording differ. Not covered with the flag off: 320 pt, Dynamic Type, offline, time and distance, Replace, Undo. A run with ✓ taps only reaches All sets done in all four appearances.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| 1 | Light: the active row's fields and `#` measure 1.01:1 on the tint | Fix: `surface` in light. The brief says raised white |
+| 2 | Light: ghost text on those fields is 4.49:1 | Fixed by 1 |
+| N1 | A first tap on an upcoming row only activates it | No change: the brief asks for this |
+| N2 | The rest card's "Next:" truncates in German | T3 replaces it |
+| N3 | The chip row clips the pencil in German | No change: same as T1, the fade is there |
+| N4 | The upcoming ✓ outline measures 1.14:1 in light | T5 |

@@ -1,5 +1,19 @@
 import Foundation
 
+/// A warm-up group folded itself (L6): the view moves VoiceOver off the row that went. A fold from the pill isn't one, the
+/// pill stays. A new `id` per fold.
+struct AutoFold: Equatable {
+    let id = UUID()
+    let exerciseID: UUID
+}
+
+/// The check on the active row found nothing to log and opened the keypad (L23): the view says why under VoiceOver. A new
+/// `id` per check.
+struct EmptyCheck: Equatable {
+    let id = UUID()
+    let setID: UUID
+}
+
 /// The Focused layout's page and warm-up groups (architecture.md §2 to §5, ADR 0014). A page change is no edit: it
 /// never calls `sessionChanged`, so it reaches neither `updatedAt` nor the outbox, and the undo window keeps running.
 extension SessionController {
@@ -48,12 +62,103 @@ extension SessionController {
         tappedSet = nil
         session.currentExerciseID = id
         store.save()
+        activeRowChanged()
     }
 
     /// `ex` is about to go: its page moves first, while `focusedSet` still finds the row.
     func leavePage(of ex: LocalSessionExercise) {
         guard layout == .focused, ex.id == pageExerciseID else { return }
         showPage(SessionPage.neighbour(of: ex.id, in: exercises.map(\.id)))
+    }
+
+    // MARK: the active set
+
+    /// `ex`'s active row: one per page, derived, so a page beside the current one renders right during a swipe, and a
+    /// deleted set or one a server copy completed leaves it on its own (architecture.md §3).
+    func activeSet(in ex: LocalSessionExercise) -> LocalSet? {
+        guard let state = Self.states(of: [ex]).first,
+              let id = SessionPage.activeSet(in: state, tapped: tappedSet, warmupsExpanded: !isFolded(ex)) else { return nil }
+        return ex.sets.first { $0.id == id }
+    }
+
+    /// A tap on an upcoming row: it becomes the active one. No set changes and no edit is made. During the delay after
+    /// a check it stamps the manual window, so the tap isn't lost to a superset flip. Only then: a tap at any other time
+    /// says nothing about the next check, and must not hold its advance.
+    func activate(_ set: LocalSet) {
+        guard layout == .focused, !set.isCompleted else { return }
+        if advanceTask != nil { userScrolled() }
+        tappedSet = set.id
+        activeRowChanged()
+    }
+
+    /// The active row moved without an edit: the lock screen's "Next" follows. `updatedAt` and the outbox stay untouched,
+    /// and the session must still be running: a page change can arrive during the dismissal, after the activity ended.
+    func activeRowChanged() {
+        guard layout == .focused, isUnderway else { return }
+        refreshActivity()
+    }
+
+    /// ✓ on a Focused row (L17, L24). A set that would log neither reps nor load opens the keypad on the first missing
+    /// field instead; the rest is `toggleCheck`. VoiceOver's check comes here too (L23).
+    func checkRow(_ set: LocalSet, in ex: LocalSessionExercise) {
+        if let field = missingField(of: set, in: ex) {
+            edit(set, field)
+            emptyCheck = EmptyCheck(setID: set.id)
+        } else {
+            toggleCheck(set, in: ex)
+        }
+    }
+
+    /// Read against what `toggleCheck` fills. Reps for bodyweight: its added load is optional. Time and distance keep
+    /// today's behaviour (L20): a row without a stored value has a reps field, but ✓ on an empty one logs. A stored value
+    /// is a logged one.
+    private func missingField(of set: LocalSet, in ex: LocalSessionExercise) -> SetFocus.Field? {
+        guard layout == .focused, !set.isCompleted, !isReadOnly(set) else { return nil }
+        let g = ghost(for: set, in: ex)
+        guard set.reps == nil, g.reps == nil, set.weightKg == nil else { return nil }
+        switch ex.loadType {
+        case .weight: return g.kg == nil ? .kg : nil
+        case .bodyweight: return .reps
+        case .time, .distance: return nil
+        }
+    }
+
+    // MARK: the table
+
+    /// Focused's rows top to bottom: an open group's warm-ups, then the working sets. Not `setIndex` order: `addWarmup` gives
+    /// a warm-up the highest index and the group sits above the table.
+    func tableRows(of ex: LocalSessionExercise) -> [LocalSet] {
+        let sets = ex.orderedSets
+        let working = sets.filter { !$0.isWarmup }
+        return isFolded(ex) ? working : sets.filter(\.isWarmup) + working
+    }
+
+    /// Where the keypad's Next goes. In Focused: down the table, past what it can't edit (a read-only row has no reps to go
+    /// to). A folded warm-up isn't in the table, so it can't get the keypad.
+    func nextRow(after set: LocalSet, in ex: LocalSessionExercise) -> LocalSet? {
+        guard layout == .focused else { return ex.orderedSets.first { $0.setIndex > set.setIndex } }
+        let rows = tableRows(of: ex)
+        guard let i = rows.firstIndex(where: { $0.id == set.id }) else { return nil }
+        return rows[(i + 1)...].first { !isReadOnly($0) }
+    }
+
+    /// A set's number as the user reads it: Focused numbers warm-ups and working sets apart, as its table does. List
+    /// counts every set.
+    func position(of set: LocalSet, in ex: LocalSessionExercise) -> (number: Int, count: Int, isWarmup: Bool) {
+        let sets = ex.orderedSets
+        let peers = layout == .focused ? sets.filter { $0.isWarmup == set.isWarmup } : sets
+        return ((peers.firstIndex { $0.id == set.id } ?? 0) + 1, peers.count, layout == .focused && set.isWarmup)
+    }
+
+    /// What VoiceOver hears when the page moves on its own: "Bench press, set 1 of 4". `nil` with no open row.
+    func pageAnnouncement(of ex: LocalSessionExercise) -> String? {
+        guard let set = activeSet(in: ex) else { return nil }
+        let at = position(of: set, in: ex)
+        return at.isWarmup
+            ? String(localized: "\(ex.name), warm-up \(at.number) of \(at.count)",
+                     comment: "VoiceOver: the page moved to the next exercise, on a warm-up, e.g. Bench press, warm-up 1 of 2.")
+            : String(localized: "\(ex.name), set \(at.number) of \(at.count)",
+                     comment: "VoiceOver: the page moved to the next exercise, e.g. Bench press, set 1 of 4.")
     }
 
     // MARK: read-only rows
@@ -89,6 +194,7 @@ extension SessionController {
         guard set.isWarmup, expandedWarmups.contains(ex.id),
               !ex.sets.contains(where: { $0.isWarmup && !$0.isCompleted }) else { return }
         setWarmups(expanded: false, for: ex)
+        autoFold = AutoFold(exerciseID: ex.id)
     }
 
     /// The `…` menu and the open group: a new set at the end, as a warm-up, shown at once (`toggleWarmup`).

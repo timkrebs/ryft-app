@@ -8,6 +8,8 @@ struct SessionActions {
     var history: (LocalSessionExercise) -> Void
     /// A finger on the pages: no jump for the next 3 s.
     var userScrolled: () -> Void
+    /// The same confirmation as the header's Finish.
+    var finish: () -> Void
 }
 
 /// The live session, optimised for sweaty thumbs: 56 pt targets, large
@@ -254,7 +256,7 @@ struct SessionView: View {
     /// What both layouts share and only this view can open.
     private var actions: SessionActions {
         SessionActions(addExercise: { showsAdd = true }, reorder: { showsReorder = true }, plates: showPlates,
-                       history: showHistory, userScrolled: userScrolled)
+                       history: showHistory, userScrolled: userScrolled, finish: { confirmFinish = true })
     }
 
     private func showPlates(for ex: LocalSessionExercise) {

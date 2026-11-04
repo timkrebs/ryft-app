@@ -41,7 +41,8 @@ extension SessionController {
         guard let ref = SessionAdvance.next(after: exerciseID, in: plannerStates(of: list)),
               let ex = list.first(where: { $0.id == ref.exerciseID }),
               let set = ex.sets.first(where: { $0.id == ref.setID }) else { return nil }
-        return (ex, set)
+        // Focused: the planner picks the exercise, the page's active row picks the set, so "Next:" names the row it shows.
+        return (ex, layout == .focused ? activeSet(in: ex) ?? set : set)
     }
 
     /// The set row the user does next: an open set the keypad is on, else `nextUp`. `nil` when nothing is open.

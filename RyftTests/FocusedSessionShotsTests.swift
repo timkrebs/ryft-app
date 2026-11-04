@@ -14,6 +14,9 @@ private let focusedShotsDir = ProcessInfo.processInfo.environment["FOCUSED_SHOTS
 struct FocusedSessionShotsTests {
     enum Screen: String, CaseIterable, Sendable {
         case midSession = "mid-session"
+        case tappedRow = "tapped-row"
+        case allDone = "all-done"
+        case noHistory = "no-history"
         case superset, warmups
         case warmupsOpen = "warmups-open"
         case bodyweight
@@ -24,6 +27,9 @@ struct FocusedSessionShotsTests {
         var scenario: FocusedPreview.Scenario {
             switch self {
             case .midSession, .keypad: .midSession
+            case .tappedRow: .tappedRow
+            case .allDone: .allDone
+            case .noHistory: .oneExercise
             case .superset: .superset
             case .warmups: .warmups
             case .warmupsOpen: .warmupsOpen
