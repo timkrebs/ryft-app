@@ -180,6 +180,10 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
       workout without opening the app."
     - that the demo account already has 30 days of data, because a review device has no
       Garmin history
+    - "`LSApplicationQueriesSchemes` lists the companion apps of the supported trackers (Garmin
+      Connect, Oura) so that Today's 'Nothing new from …' hint can offer 'Open Garmin Connect'. RYFT
+      asks only about the companion app whose data has stopped arriving in Apple Health, only while
+      that hint is on screen, and never stores or sends the answer. Without the app, the hint opens its App Store page." (ADR 0012)
 11. **Export compliance.** `ITSAppUsesNonExemptEncryption = NO` is set, so no
     questionnaire per build.
 12. **EU.** DSA trader status in App Store Connect → Business.

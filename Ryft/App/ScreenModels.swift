@@ -32,8 +32,12 @@ final class ScreenModels {
     let myDay: MyDayViewModel
     /// The training import's upload (`train.import`): step 6, the resume row on My Plans and in Profile → Data.
     let trainImport: TrainImportUploader
+    /// The training import's flow (`train.import`): one cover for My Plans, Profile → Data and "Open in".
+    let importer: ImportCoordinator
     private let state: AppState
     private let sync: SyncService
+    /// Republishes the widget when the tracker choice or `devices.setup` changes.
+    private let widgetSetupWatch: ObservationWatch
     /// Train's outbox (the app's; nil in tests and previews that don't upload sessions).
     private let trainSync: TrainSyncService?
 
@@ -45,6 +49,14 @@ final class ScreenModels {
         self.trainSync = trainSync
         let devices = TrackerSelectionStore(env: state.env)
         self.devices = devices
+        // The widget's calibration decides with the same tracker setup as Today's (F3), and is published again when
+        // the choice or `devices.setup` changes (neither write goes through the repository).
+        state.repository.chosenTrackers = { [devices] in devices.trackers }
+        // The raw ids, not `trackers`: that maps them through the catalog, which must not be decoded at launch.
+        widgetSetupWatch = ObservationWatch(read: { [devices, flags = state.env.flags] in
+            _ = flags.isOn(.devicesSetup)
+            _ = devices.selection?.trackers
+        }, changed: { [repository = state.repository] in repository.publishWidget() })
         onboarding = OnboardingCoordinator(state: state, apiStatus: apiStatus ?? .shared, devices: devices) {
             await coordinator.run(.userInitiated)
         }
@@ -72,6 +84,12 @@ final class ScreenModels {
         state.env.uploader.connect(repository: state.repository, coordinator: coordinator)
         insights = InsightsViewModel(state: state, journal: journal)
         router = DeepLinkRouter(state: state, sleep: sleep, strain: strain, insights: insights, onboarding: onboarding)
+        importer = ImportCoordinator(env: state.env, library: library, uploader: trainImport,
+                                     showStrain: { [state] in state.selectedTab = .strain },
+                                     openRoute: { [state, strain] route in
+                                         strain.requestedRoute = route
+                                         state.selectedTab = .strain
+                                     })
         let env = state.env
         featureFlags = (env.flags as? FlagStore).map { store in
             FeatureFlags(flags: store, clock: env.clock) {

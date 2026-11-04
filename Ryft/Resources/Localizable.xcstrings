@@ -16,6 +16,17 @@
         }
       }
     },
+    "%@ and %@" : {
+      "comment" : "Training import: two counts, e.g. 1 plan and 12 workouts.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ und %2$@"
+          }
+        }
+      }
+    },
     "%@ asleep, %@ to %@, %@" : {
       "localizations" : {
         "de" : {
@@ -69,6 +80,17 @@
         }
       }
     },
+    "%@ from %@" : {
+      "comment" : "Training import, VoiceOver: 12 workouts from 8 June to 5 July 2026.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ vom %2$@"
+          }
+        }
+      }
+    },
     "%@ in part" : {
       "comment" : "Setup card's features line: features that work only in part, e.g. \"Strain in part\".",
       "localizations" : {
@@ -87,6 +109,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ im App Store"
+          }
+        }
+      }
+    },
+    "%@ is the weight" : {
+      "comment" : "Training import, step 4: a +N exercise matched to a loaded exercise; e.g. 20 kg.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ist das Gewicht"
           }
         }
       }
@@ -234,6 +267,154 @@
         }
       }
     },
+    "%@, done" : {
+      "comment" : "VoiceOver: the warm-up pill once every warm-up is checked. 1: e.g. 2 warm-up sets.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, erledigt"
+          }
+        }
+      }
+    },
+    "%@, history" : {
+      "comment" : "VoiceOver: the exercise's title on its page in a workout, which opens its history.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, Verlauf"
+          }
+        }
+      }
+    },
+    "%@, maximum" : {
+      "comment" : "VoiceOver value of an Edit targets stepper at its highest, e.g. 15:00 rest. 1: value.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, Maximum"
+          }
+        }
+      }
+    },
+    "%@, minimum" : {
+      "comment" : "VoiceOver value of an Edit targets stepper at its lowest. 1: value.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, Minimum"
+          }
+        }
+      }
+    },
+    "%@, minimum. %@" : {
+      "comment" : "VoiceOver value of a stepper at its lowest. 1: value, 2: why it can't go lower.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, Minimum. %@"
+          }
+        }
+      }
+    },
+    "%@, completed. %lld sets, best %@." : {
+      "comment" : "VoiceOver: a collapsed exercise, e.g. Bench press, completed. 4 sets, best 6 reps at 80 kilograms.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, erledigt. %lld Satz, Bestwert %@."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, erledigt. %lld Sätze, Bestwert %@."
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, completed. %lld set, best %@."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, completed. %lld sets, best %@."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%@, completed. %lld sets." : {
+      "comment" : "VoiceOver: a collapsed exercise without values, e.g. Plank, completed. 3 sets.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, erledigt. %lld Satz."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, erledigt. %lld Sätze."
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, completed. %lld set."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%@, completed. %lld sets."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%@, now matched. %lld left to check." : {
+      "comment" : "Training import, VoiceOver: a row was resolved; the rows still blocking.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, jetzt zugeordnet. Noch %2$lld zu prüfen."
+          }
+        }
+      }
+    },
     "%@, yes" : {
       "comment" : "VoiceOver for \"Strain ✓\" in the setup card's features line.",
       "localizations" : {
@@ -251,16 +432,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@, erwartet"
-          }
-        }
-      }
-    },
-    "%@: %@" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@: %2$@"
           }
         }
       }
@@ -502,6 +673,148 @@
         }
       }
     },
+    "%lld days" : {
+      "comment" : "Training import: a count of plan days.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Tag"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Tage"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld day"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld days"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld exercises · %lld sets" : {
+      "comment" : "Under All sets done: how many exercises and checked sets, e.g. 5 exercises · 17 sets.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@exercises@ · %#@sets@"
+          },
+          "substitutions" : {
+            "exercises" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Übung"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Übungen"
+                    }
+                  }
+                }
+              }
+            },
+            "sets" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Satz"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg Sätze"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%#@exercises@ · %#@sets@"
+          },
+          "substitutions" : {
+            "exercises" : {
+              "argNum" : 1,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg exercise"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg exercises"
+                    }
+                  }
+                }
+              }
+            },
+            "sets" : {
+              "argNum" : 2,
+              "formatSpecifier" : "lld",
+              "variations" : {
+                "plural" : {
+                  "one" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg set"
+                    }
+                  },
+                  "other" : {
+                    "stringUnit" : {
+                      "state" : "translated",
+                      "value" : "%arg sets"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld failed" : {
       "localizations" : {
         "de" : {
@@ -582,6 +895,110 @@
         }
       }
     },
+    "%lld left to check." : {
+      "comment" : "Training import M3: rows that still block Continue.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch %lld zu prüfen."
+          }
+        }
+      }
+    },
+    "%lld lines couldn't be read" : {
+      "comment" : "Training import, step 2: the warnings row.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Zeile konnte nicht gelesen werden"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Zeilen konnten nicht gelesen werden"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld line couldn't be read"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld lines couldn't be read"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld matched" : {
+      "comment" : "Training import, step 4: the count line.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld zugeordnet"
+          }
+        }
+      }
+    },
+    "%lld matches accepted" : {
+      "comment" : "Training import, VoiceOver: the bulk action accepted this many suggestions.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Zuordnung übernommen"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Zuordnungen übernommen"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld match accepted"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld matches accepted"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld min" : {
       "localizations" : {
         "de" : {
@@ -632,6 +1049,58 @@
         }
       }
     },
+    "%lld new" : {
+      "comment" : "Training import, step 4: the count line.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld neu"
+          }
+        }
+      }
+    },
+    "%lld new exercises are created when you import." : {
+      "comment" : "Training import M6.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld neue Übung wird beim Import erstellt."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld neue Übungen werden beim Import erstellt."
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld new exercise is created when you import."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld new exercises are created when you import."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld nights" : {
       "localizations" : {
         "de" : {
@@ -665,6 +1134,47 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld nights"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld notes" : {
+      "comment" : "Training import, step 2: a count of notes (assumptions, no lost lines).",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Hinweis"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Hinweise"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld note"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld notes"
                 }
               }
             }
@@ -843,12 +1353,56 @@
         }
       }
     },
+    "%lld of %lld nights with HRV." : {
+      "comment" : "VoiceOver value of the baseline gauge when only HRV fills; the note under it says why.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %2$lld Nächten mit HRV."
+          }
+        }
+      }
+    },
+    "%lld of %lld nights with resting heart rate." : {
+      "comment" : "VoiceOver value of the baseline gauge when only resting heart rate fills; the note under it says why.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %2$lld Nächten mit Ruhepuls."
+          }
+        }
+      }
+    },
     "%lld of %lld nights. Readiness appears once the baselines are complete." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld von %2$lld Nächten. Die Bereitschaft erscheint, sobald die Ausgangswerte vollständig sind."
+          }
+        }
+      }
+    },
+    "%lld of %lld workouts" : {
+      "comment" : "Training import I2: progress.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %2$lld Workouts"
+          }
+        }
+      }
+    },
+    "%lld of %lld workouts uploaded" : {
+      "comment" : "Training import: Profile → Data's row while it uploads.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld von %2$lld Workouts hochgeladen"
           }
         }
       }
@@ -860,6 +1414,244 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld von 10, %@"
+          }
+        }
+      }
+    },
+    "%lld percent, %@" : {
+      "comment" : "Training import, VoiceOver: the progress value.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld Prozent, %2$@"
+          }
+        }
+      }
+    },
+    "%lld plans" : {
+      "comment" : "Training import: a count of plans.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Plan"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Pläne"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld plan"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld plans"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld sets" : {
+      "comment" : "Training import: a count of sets.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Satz"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Sätze"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld set"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld sets"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld sets are done and stay." : {
+      "comment" : "Edit targets, under the sets stepper. 1: number of done sets.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Sätze sind erledigt und bleiben."
+          }
+        }
+      }
+    },
+    "%lld sets skipped" : {
+      "comment" : "Training import, step 5: sets with no weight or reps.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Satz übersprungen"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Sätze übersprungen"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld set skipped"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld sets skipped"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld sets skipped (no weight or reps)" : {
+      "comment" : "Training import I3: sets that weren't imported.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Satz übersprungen (kein Gewicht oder keine Wiederholungen)"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Sätze übersprungen (kein Gewicht oder keine Wiederholungen)"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld set skipped (no weight or reps)"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld sets skipped (no weight or reps)"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld sets · best %@" : {
+      "comment" : "A collapsed exercise in a workout: sets done and the best set, e.g. 4 sets · best 80 × 6.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Satz · Bestwert %@"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Sätze · Bestwert %@"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld set · best %@"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld sets · best %@"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld to check" : {
+      "comment" : "Training import, step 4: the count line.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld zu prüfen"
           }
         }
       }
@@ -904,6 +1696,386 @@
         }
       }
     },
+    "%lld warm-up sets" : {
+      "comment" : "The warm-up pill on an exercise's page.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Aufwärmsätze"
+          }
+        }
+      }
+    },
+    "%lld workouts" : {
+      "comment" : "Training import: a count of workouts.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workout"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workouts"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workout"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workouts"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld workouts are outside your chosen range" : {
+      "comment" : "Training import, step 5.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workout liegt außerhalb deines Zeitraums"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workouts liegen außerhalb deines Zeitraums"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workout is outside your chosen range"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workouts are outside your chosen range"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld workouts fall on a clock change. RYFT used the next valid time for a time that didn't exist and the first for one that occurred twice." : {
+      "comment" : "Training import, step 5: workouts whose start a DST change moved.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workout fällt auf eine Zeitumstellung. RYFT nimmt für eine nicht existierende Uhrzeit die nächste gültige und für eine doppelte die erste."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workouts fallen auf eine Zeitumstellung. RYFT nimmt für eine nicht existierende Uhrzeit die nächste gültige und für eine doppelte die erste."
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workout falls on a clock change. RYFT used the next valid time for a time that didn't exist and the first for one that occurred twice."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workouts fall on a clock change. RYFT used the next valid time for a time that didn't exist and the first for one that occurred twice."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld workouts in the future left out" : {
+      "comment" : "Training import, step 5.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workout in der Zukunft ausgelassen"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workouts in der Zukunft ausgelassen"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workout in the future left out"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workouts in the future left out"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld workouts left as they were" : {
+      "comment" : "Training import I3.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workout unverändert gelassen"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workouts unverändert gelassen"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workout left as it was"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workouts left as they were"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld workouts look like ones you already logged" : {
+      "comment" : "Training import, step 5: duplicates left off.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workout sieht aus wie ein bereits erfasstes"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workouts sehen aus wie bereits erfasste"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workout looks like one you already logged"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workouts look like ones you already logged"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld workouts look like ones you already logged. They're skipped unless you turn them on." : {
+      "comment" : "Training import V2: the duplicates banner.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workout sieht aus wie ein bereits erfasstes. Es wird übersprungen, außer du schaltest es ein."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workouts sehen aus wie bereits erfasste. Sie werden übersprungen, außer du schaltest sie ein."
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workout looks like one you already logged. It's skipped unless you turn it on."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workouts look like ones you already logged. They're skipped unless you turn them on."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld workouts looked like ones you already logged and were skipped" : {
+      "comment" : "Training import: duplicates found by the upload's own check.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workout sah aus wie ein bereits erfasstes und wurde übersprungen"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workouts sahen aus wie bereits erfasste und wurden übersprungen"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workout looked like one you already logged and was skipped"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workouts looked like ones you already logged and were skipped"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld workouts not imported" : {
+      "comment" : "Training import I4.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workout nicht importiert"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Workouts nicht importiert"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workout not imported"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld workouts not imported"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "(next day)" : {
       "comment" : "Add activity: the end is on the day after the start.",
       "localizations" : {
@@ -911,6 +2083,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "(nächster Tag)"
+          }
+        }
+      }
+    },
+    "+kg" : {
+      "comment" : "Set table's column in a workout: load added to bodyweight. Shown uppercase.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "+kg"
+          }
+        }
+      }
+    },
+    "0 workouts in this range" : {
+      "comment" : "Training import C4.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "0 Workouts in diesem Zeitraum"
+          }
+        }
+      }
+    },
+    "1 set is done and stays." : {
+      "comment" : "Edit targets, under the sets stepper.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 Satz ist erledigt und bleibt."
+          }
+        }
+      }
+    },
+    "1 warm-up set" : {
+      "comment" : "The warm-up pill on an exercise's page, one set.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 Aufwärmsatz"
           }
         }
       }
@@ -1050,6 +2266,47 @@
         }
       }
     },
+    "Accept %lld likely matches" : {
+      "comment" : "Training import, step 4: accept every likely suggestion.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld wahrscheinliche Zuordnung übernehmen"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld wahrscheinliche Zuordnungen übernehmen"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Accept %lld likely match"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Accept %lld likely matches"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Account gates and feature flags" : {
       "localizations" : {
         "de" : {
@@ -1110,6 +2367,17 @@
         }
       }
     },
+    "Active plan" : {
+      "comment" : "Training import, step 3: which imported plan becomes active.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktiver Plan"
+          }
+        }
+      }
+    },
     "Activity" : {
       "comment" : "Activity detail: the title before it's loaded.",
       "localizations" : {
@@ -1164,6 +2432,17 @@
         }
       }
     },
+    "Add another file" : {
+      "comment" : "Training import, step 2: opens the picker.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weitere Datei hinzufügen"
+          }
+        }
+      }
+    },
     "Add here anyway" : {
       "comment" : "Add activity: keep adding Strength here instead of Train.",
       "localizations" : {
@@ -1171,6 +2450,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Trotzdem hier hinzufügen"
+          }
+        }
+      }
+    },
+    "Add plan file" : {
+      "comment" : "Training import D3: opens the picker.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plan-Datei hinzufügen"
           }
         }
       }
@@ -1207,6 +2497,17 @@
         }
       }
     },
+    "Add warm-up set" : {
+      "comment" : "Exercise menu in a workout: adds a warm-up set to this exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufwärmsatz hinzufügen"
+          }
+        }
+      }
+    },
     "Add what you did." : {
       "comment" : "My Day card: under 'Nothing yet today' when activities can be added.",
       "localizations" : {
@@ -1214,6 +2515,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Füge hinzu, was du gemacht hast."
+          }
+        }
+      }
+    },
+    "Add workouts file" : {
+      "comment" : "Training import D2: opens the picker.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workout-Datei hinzufügen"
           }
         }
       }
@@ -1236,6 +2548,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Von dir hinzugefügt"
+          }
+        }
+      }
+    },
+    "Added weight" : {
+      "comment" : "Training import, step 4: N is added on top of the body.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zusatzgewicht"
+          }
+        }
+      }
+    },
+    "Added weight (kg)" : {
+      "comment" : "Edit targets: extra load on a bodyweight exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zusatzgewicht (kg)"
           }
         }
       }
@@ -1307,6 +2641,61 @@
         }
       }
     },
+    "All" : {
+      "comment" : "Training import, step 4: the filter shows every row.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle"
+          }
+        }
+      }
+    },
+    "All %lld matched. Check them if you like." : {
+      "comment" : "Training import M2.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle %lld zugeordnet. Prüfe sie, wenn du magst."
+          }
+        }
+      }
+    },
+    "All exercises" : {
+      "comment" : "Section with the whole exercise library, below Similar.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Übungen"
+          }
+        }
+      }
+    },
+    "All sets done" : {
+      "comment" : "Card at the end of a workout once every set is checked off.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Sätze erledigt"
+          }
+        }
+      }
+    },
+    "All sets done. Finish workout available at the bottom." : {
+      "comment" : "VoiceOver announcement when the last set of a workout is checked off.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Sätze erledigt. Unten findest du „Workout beenden“."
+          }
+        }
+      }
+    },
     "All sports" : {
       "comment" : "Sport picker: every sport, alphabetically.",
       "localizations" : {
@@ -1314,6 +2703,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Alle Sportarten"
+          }
+        }
+      }
+    },
+    "All time" : {
+      "comment" : "Training import, step 3: the history range.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gesamter Zeitraum"
+          }
+        }
+      }
+    },
+    "All workouts are skipped or already imported." : {
+      "comment" : "Training import V3: the reason.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle Workouts sind übersprungen oder bereits importiert."
           }
         }
       }
@@ -1331,6 +2742,61 @@
     "Alpha Progression" : {
       "comment" : "The app an imported file came from (a data source, named factually).",
       "shouldTranslate" : false
+    },
+    "Alpha Progression export" : {
+      "comment" : "Training import, step 2: the source, named factually.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alpha-Progression-Export"
+          }
+        }
+      }
+    },
+    "Already imported" : {
+      "comment" : "Training import, step 5: the workout's id is already in RYFT.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bereits importiert"
+          }
+        }
+      }
+    },
+    "Already in RYFT" : {
+      "comment" : "Training import, step 3: the plan exists.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schon in RYFT"
+          }
+        }
+      }
+    },
+    "Also used for %@" : {
+      "comment" : "Training import, step 4: other rows of the file map to the same RYFT exercise; the file's exercise names.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auch für %@ verwendet"
+          }
+        }
+      }
+    },
+    "Also change the plan" : {
+      "comment" : "Toggle in the replace sheet: change the plan day too.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auch im Plan ändern"
+          }
+        }
+      }
     },
     "Always yours" : {
       "localizations" : {
@@ -1374,6 +2840,28 @@
         }
       }
     },
+    "An import is in progress. Finish it before starting another." : {
+      "comment" : "Training import: one import at a time.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Import läuft gerade. Schließe ihn ab, bevor du einen neuen startest."
+          }
+        }
+      }
+    },
+    "An import is still uploading. Open this file when it's done." : {
+      "comment" : "Training import E9.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Import wird noch hochgeladen. Öffne diese Datei, wenn er fertig ist."
+          }
+        }
+      }
+    },
     "An iPhone on its own doesn't record %@." : {
       "comment" : "Note under Today's gauge for “Just my iPhone”. The argument is one signal, e.g. “HRV”.",
       "localizations" : {
@@ -1392,6 +2880,58 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ein iPhone allein erfasst weder HRV noch Ruhepuls."
+          }
+        }
+      }
+    },
+    "and %lld more" : {
+      "comment" : "Training import, step 2: warnings not listed.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "und %lld weitere"
+          }
+        }
+      }
+    },
+    "and %lld notes" : {
+      "comment" : "Training import, step 2: notes after the warnings count.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "und %lld Hinweis"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "und %lld Hinweise"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "and %lld note"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "and %lld notes"
+                }
+              }
+            }
           }
         }
       }
@@ -1435,6 +2975,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Anleitung von Apple"
+          }
+        }
+      }
+    },
+    "Applies from the next %@ day." : {
+      "comment" : "Under the Also change the plan toggle. 1: plan day name, e.g. Upper.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gilt ab dem nächsten %@-Tag."
+          }
+        }
+      }
+    },
+    "Applies from the next %@ day. You're offline: the plan can only be changed online." : {
+      "comment" : "Under the disabled Also change the plan toggle without a connection. 1: plan day name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gilt ab dem nächsten %@-Tag. Du bist offline: Der Plan lässt sich nur online ändern."
           }
         }
       }
@@ -1522,6 +3084,17 @@
         }
       }
     },
+    "Assisted sets: RYFT imports the reps and leaves out the assistance weight." : {
+      "comment" : "Training import, step 4: a -N exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sätze mit Entlastung: RYFT übernimmt die Wiederholungen und lässt das Entlastungsgewicht weg."
+          }
+        }
+      }
+    },
     "Assisted weight isn't imported, reps are" : {
       "comment" : "Import note, after \"Line N\": a negative load such as -20.",
       "localizations" : {
@@ -1596,77 +3169,6 @@
         }
       }
     },
-    "Baselines · %lld of %lld nights" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ausgangswerte · %1$lld von %2$lld Nächten"
-          }
-        }
-      }
-    },
-    "Baselines · %lld of %lld nights with heart-rate data" : {
-      "comment" : "Under the baseline gauge when a long history lacks HRV and resting heart rate: nights with both, of 7.",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Baselines · %1$lld of %#@nights@"
-          },
-          "substitutions" : {
-            "nights" : {
-              "argNum" : 2,
-              "formatSpecifier" : "lld",
-              "variations" : {
-                "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%arg night with heart-rate data"
-                    }
-                  },
-                  "other" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%arg nights with heart-rate data"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ausgangswerte · %1$lld von %#@nights@"
-          },
-          "substitutions" : {
-            "nights" : {
-              "argNum" : 2,
-              "formatSpecifier" : "lld",
-              "variations" : {
-                "plural" : {
-                  "one" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%arg Nacht mit Herzfrequenzdaten"
-                    }
-                  },
-                  "other" : {
-                    "stringUnit" : {
-                      "state" : "translated",
-                      "value" : "%arg Nächten mit Herzfrequenzdaten"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "Bedtime & wake" : {
       "localizations" : {
         "de" : {
@@ -1703,6 +3205,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Blutsauerstoff"
+          }
+        }
+      }
+    },
+    "Body weight" : {
+      "comment" : "Training import, step 4: N is the user's own weight.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Körpergewicht"
+          }
+        }
+      }
+    },
+    "bodyweight" : {
+      "comment" : "VoiceOver: a set with no added load, in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Körpergewicht"
           }
         }
       }
@@ -1797,12 +3321,45 @@
         }
       }
     },
+    "Change the answer" : {
+      "comment" : "Training import, step 4, VoiceOver: the bodyweight answer tag.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Antwort ändern"
+          }
+        }
+      }
+    },
+    "Changes apply to this workout only. To change your plan, use Replace exercise or the plan editor." : {
+      "comment" : "Footer of the Edit targets sheet in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Änderungen gelten nur für dieses Training. Um deinen Plan zu ändern, nutze „Übung ersetzen“ oder den Plan-Editor."
+          }
+        }
+      }
+    },
     "Changing a setting doesn't rescore past days on its own." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eine Änderung bewertet vergangene Tage nicht von selbst neu."
+          }
+        }
+      }
+    },
+    "Check" : {
+      "comment" : "Training import, step 4: a row's status, a suggestion to confirm.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prüfen"
           }
         }
       }
@@ -1942,6 +3499,72 @@
         }
       }
     },
+    "Choose another" : {
+      "comment" : "Training import, step 4: VoiceOver action.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Andere wählen"
+          }
+        }
+      }
+    },
+    "Choose another exercise…" : {
+      "comment" : "Training import, step 4: pick from the library.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Andere Übung wählen …"
+          }
+        }
+      }
+    },
+    "Choose another file" : {
+      "comment" : "Training import: pick a different file.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Andere Datei wählen"
+          }
+        }
+      }
+    },
+    "Choose files" : {
+      "comment" : "Training import, step 1: opens the file picker.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dateien wählen"
+          }
+        }
+      }
+    },
+    "Choose the CSV files exported from Alpha Progression: the plans file, the workouts file, or both. The file is read on your iPhone and is never uploaded. Only the workouts and plans you confirm are sent, and each imported workout is stored with the name of the app the file came from." : {
+      "comment" : "Training import, step 1. Alpha Progression is a data source, named factually.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wähle die CSV-Dateien aus dem Alpha-Progression-Export: die Plan-Datei, die Workout-Datei oder beide. Die Datei wird auf deinem iPhone gelesen und nie hochgeladen. Gesendet werden nur die Workouts und Pläne, die du bestätigst, und zu jedem importierten Workout wird der Name der App gespeichert, aus der die Datei stammt."
+          }
+        }
+      }
+    },
+    "Choose up to 6 files at a time." : {
+      "comment" : "Training import P7.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wähle höchstens 6 Dateien auf einmal."
+          }
+        }
+      }
+    },
     "Choose your birth year" : {
       "localizations" : {
         "de" : {
@@ -1963,6 +3586,39 @@
         }
       }
     },
+    "Clear remembered matches" : {
+      "comment" : "Profile → Data: forget the import's exercise matches.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gemerkte Zuordnungen löschen"
+          }
+        }
+      }
+    },
+    "Clear remembered matches?" : {
+      "comment" : "Profile → Data: the confirmation's title.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gemerkte Zuordnungen löschen?"
+          }
+        }
+      }
+    },
+    "Clear target weight" : {
+      "comment" : "VoiceOver: removes the target weight.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zielgewicht entfernen"
+          }
+        }
+      }
+    },
     "Clears your other choices" : {
       "comment" : "VoiceOver hint of the Just my iPhone tile.",
       "localizations" : {
@@ -1970,6 +3626,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Entfernt deine anderen Auswahlen"
+          }
+        }
+      }
+    },
+    "Clock change" : {
+      "comment" : "Training import, step 5: the start fell on a DST change.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeitumstellung"
           }
         }
       }
@@ -1984,6 +3651,17 @@
         }
       }
     },
+    "Code %@" : {
+      "comment" : "Training import, Details: the platform's code for the item.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code %@"
+          }
+        }
+      }
+    },
     "Collapsed" : {
       "comment" : "VoiceOver value of a closed setup card.",
       "localizations" : {
@@ -1991,6 +3669,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eingeklappt"
+          }
+        }
+      }
+    },
+    "collapsed" : {
+      "comment" : "VoiceOver: the warm-up group is folded.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "eingeklappt"
+          }
+        }
+      }
+    },
+    "Continue in RYFT" : {
+      "comment" : "Training import I8: close the import so the consent or invite step can show.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weiter in RYFT"
           }
         }
       }
@@ -2041,6 +3741,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nachricht kopieren"
+          }
+        }
+      }
+    },
+    "Couldn't be read" : {
+      "comment" : "Training import, step 2: why a file can't be read.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konnte nicht gelesen werden"
           }
         }
       }
@@ -2137,6 +3848,91 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Anzahlen, Daten und Anfrage-IDs für den Support; keine Gesundheitsdaten"
+          }
+        }
+      }
+    },
+    "Create a custom exercise…" : {
+      "comment" : "Training import, step 4: a new exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eigene Übung erstellen …"
+          }
+        }
+      }
+    },
+    "Create as custom exercise" : {
+      "comment" : "Training import, step 4: a new row's inline action.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Als eigene Übung erstellen"
+          }
+        }
+      }
+    },
+    "Create custom" : {
+      "comment" : "Training import, step 4: VoiceOver action.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eigene erstellen"
+          }
+        }
+      }
+    },
+    "Creating %lld custom exercises…" : {
+      "comment" : "Training import I1.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld eigene Übung wird erstellt …"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld eigene Übungen werden erstellt …"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Creating %lld custom exercise…"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Creating %lld custom exercises…"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Custom range" : {
+      "comment" : "Training import, step 3: the history range, with From and Until.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eigener Zeitraum"
           }
         }
       }
@@ -2268,6 +4064,17 @@
         }
       }
     },
+    "Detected" : {
+      "comment" : "Training import: step 2's title.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erkannt"
+          }
+        }
+      }
+    },
     "Device model and iOS version" : {
       "localizations" : {
         "de" : {
@@ -2317,6 +4124,72 @@
         }
       }
     },
+    "Discard" : {
+      "comment" : "Training import: forget the files and choices (N1).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verwerfen"
+          }
+        }
+      }
+    },
+    "Discard import" : {
+      "comment" : "Training import S2: remove the saved import from this iPhone.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import verwerfen"
+          }
+        }
+      }
+    },
+    "Discard the saved import?" : {
+      "comment" : "Training import S2: the confirmation's title.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gespeicherten Import verwerfen?"
+          }
+        }
+      }
+    },
+    "Discard this import?" : {
+      "comment" : "Training import: the cancel confirmation's title (N1).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diesen Import verwerfen?"
+          }
+        }
+      }
+    },
+    "Dismiss" : {
+      "comment" : "Training import: hide a finished import's row.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ausblenden"
+          }
+        }
+      }
+    },
+    "distance %@" : {
+      "comment" : "VoiceOver: a set's stored distance, e.g. distance 5.0 km.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Distanz %@"
+          }
+        }
+      }
+    },
     "Distance (optional)" : {
       "comment" : "Add activity: the distance group's label.",
       "localizations" : {
@@ -2324,6 +4197,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Distanz (optional)"
+          }
+        }
+      }
+    },
+    "done" : {
+      "comment" : "Exercise strip, VoiceOver: all of an exercise's working sets are checked.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "erledigt"
           }
         }
       }
@@ -2370,6 +4254,17 @@
         }
       }
     },
+    "Each set adds %@ to your body weight." : {
+      "comment" : "Training import, step 4: the added-weight option.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jeder Satz fügt %@ zu deinem Körpergewicht hinzu."
+          }
+        }
+      }
+    },
     "Each workout you log appears in Fitness and Health. Only the workout: no heart rate." : {
       "localizations" : {
         "de" : {
@@ -2387,6 +4282,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Leicht"
+          }
+        }
+      }
+    },
+    "Edit targets" : {
+      "comment" : "Title of the sheet that edits one exercise's targets in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziele bearbeiten"
+          }
+        }
+      }
+    },
+    "Edit targets, %@" : {
+      "comment" : "VoiceOver: the target chip on an exercise's page. 1: the target, e.g. 3 × 8–10 @ 30 kg.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziele bearbeiten, %@"
+          }
+        }
+      }
+    },
+    "Edit targets…" : {
+      "comment" : "Exercise menu in a workout: sets, reps, weight and rest for this workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziele bearbeiten …"
           }
         }
       }
@@ -2409,6 +4337,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aktivität ändern"
+          }
+        }
+      }
+    },
+    "Edits the notes" : {
+      "comment" : "VoiceOver hint on an exercise's notes in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bearbeitet die Notizen"
           }
         }
       }
@@ -2452,6 +4391,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "E-Mail und Passwort"
+          }
+        }
+      }
+    },
+    "Empty" : {
+      "comment" : "Training import, step 2: why a file can't be read.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leer"
           }
         }
       }
@@ -2549,6 +4499,28 @@
         }
       }
     },
+    "Exercise %lld of %lld, %@, %@" : {
+      "comment" : "Exercise strip, VoiceOver. 1: position, 2: exercises, 3: name, 4: done, in progress or not started.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übung %lld von %lld, %@, %@"
+          }
+        }
+      }
+    },
+    "Exercises" : {
+      "comment" : "Exercise strip in a workout, VoiceOver: the adjustable element's label.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übungen"
+          }
+        }
+      }
+    },
     "Expanded" : {
       "comment" : "VoiceOver value of an open setup card.",
       "localizations" : {
@@ -2566,6 +4538,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nicht einmal die Schritte deines iPhones kommen an. RYFT darf Health womöglich nicht lesen."
+          }
+        }
+      }
+    },
+    "expanded" : {
+      "comment" : "VoiceOver: the warm-up group is open.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ausgeklappt"
+          }
+        }
+      }
+    },
+    "Expands the sets" : {
+      "comment" : "VoiceOver hint on a collapsed exercise in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt die Sätze"
           }
         }
       }
@@ -2607,6 +4601,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schnellster"
+          }
+        }
+      }
+    },
+    "File waiting: %@. Open it after your workout." : {
+      "comment" : "Training import E7; the file's name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Datei wartet: %@. Öffne sie nach deinem Workout."
+          }
+        }
+      }
+    },
+    "Files" : {
+      "comment" : "Training import, step 2: the files section.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dateien"
           }
         }
       }
@@ -2681,6 +4697,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ab %@, Aufzeichnung läuft"
+          }
+        }
+      }
+    },
+    "From a CSV file" : {
+      "comment" : "Training import: Profile → Data's row detail.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus einer CSV-Datei"
           }
         }
       }
@@ -2764,6 +4791,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Durchkommen"
+          }
+        }
+      }
+    },
+    "Getting ready" : {
+      "comment" : "Training import I1.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird vorbereitet"
           }
         }
       }
@@ -2893,6 +4931,17 @@
         }
       }
     },
+    "History only" : {
+      "comment" : "Training import, step 4: the exercise is only in the workouts.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur im Verlauf"
+          }
+        }
+      }
+    },
     "How to set up %@" : {
       "comment" : "Link under Today's gauge: opens the tracker's setup card. The argument is its app, e.g. Garmin Connect.",
       "localizations" : {
@@ -2944,12 +4993,240 @@
         }
       }
     },
+    "If it's in iCloud Drive, open Files and let it finish downloading, then try again." : {
+      "comment" : "Training import P5.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Liegt sie in iCloud Drive, öffne Dateien und warte, bis sie geladen ist. Versuche es dann erneut."
+          }
+        }
+      }
+    },
+    "Ignore" : {
+      "comment" : "Training import, step 4: import the reps only.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ignorieren"
+          }
+        }
+      }
+    },
+    "Import" : {
+      "comment" : "Training import: step 6's title, and step 5's button without counts.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import"
+          }
+        }
+      }
+    },
+    "Import %@" : {
+      "comment" : "Training import, step 5: the button, e.g. Import 1 plan and 12 workouts.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ importieren"
+          }
+        }
+      }
+    },
+    "Import a plan and your workout history" : {
+      "comment" : "Training import, step 1: the headline.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importiere einen Plan und deinen Trainingsverlauf"
+          }
+        }
+      }
+    },
+    "Import finished. %@" : {
+      "comment" : "Training import, VoiceOver: the result as it arrives.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import abgeschlossen. %@"
+          }
+        }
+      }
+    },
+    "Import finished: %lld workouts" : {
+      "comment" : "Training import: a finished import not opened yet.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Import abgeschlossen: %lld Workout"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Import abgeschlossen: %lld Workouts"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Import finished: %lld workout"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Import finished: %lld workouts"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Import from file" : {
+      "comment" : "My Plans → New plan: the training import.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus Datei importieren"
+          }
+        }
+      }
+    },
+    "Import needs attention" : {
+      "comment" : "Training import: the resume row.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import braucht dich"
+          }
+        }
+      }
+    },
     "Import not finished" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Import nicht abgeschlossen"
+          }
+        }
+      }
+    },
+    "Import paused" : {
+      "comment" : "Training import: the resume row, held for a reason the user can't act on.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import pausiert"
+          }
+        }
+      }
+    },
+    "Import paused · waiting for a connection" : {
+      "comment" : "Training import: the resume row.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import pausiert · wartet auf Verbindung"
+          }
+        }
+      }
+    },
+    "Import progress" : {
+      "comment" : "Training import, VoiceOver: the progress bar.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importfortschritt"
+          }
+        }
+      }
+    },
+    "Import saved on this iPhone" : {
+      "comment" : "Training import: the resume row (I9).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import auf diesem iPhone gespeichert"
+          }
+        }
+      }
+    },
+    "Import the reps only." : {
+      "comment" : "Training import, step 4: the ignore option.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur die Wiederholungen importieren."
+          }
+        }
+      }
+    },
+    "Import these too" : {
+      "comment" : "Training import: send the duplicates anyway.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese trotzdem importieren"
+          }
+        }
+      }
+    },
+    "Import training data" : {
+      "comment" : "Training import: the flow's title, and Profile → Data's row.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trainingsdaten importieren"
+          }
+        }
+      }
+    },
+    "Import uploading · %lld of %lld" : {
+      "comment" : "Training import: the resume row while it uploads.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import läuft · %1$lld von %2$lld"
+          }
+        }
+      }
+    },
+    "Imported %@" : {
+      "comment" : "Training import I3: the result, e.g. Imported 1 plan and 12 workouts.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ importiert"
           }
         }
       }
@@ -2975,6 +5252,50 @@
         }
       }
     },
+    "Imported workouts count towards strain on their days, so past strain can change once. You won't get record notifications for them. RYFT sends only what's listed here. The file stays on your iPhone." : {
+      "comment" : "Training import, step 5: the footer.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importierte Workouts zählen zur Belastung ihrer Tage, die bisherige Belastung kann sich also einmal ändern. Für sie gibt es keine Rekord-Benachrichtigungen. RYFT sendet nur, was hier aufgelistet ist. Die Datei bleibt auf deinem iPhone."
+          }
+        }
+      }
+    },
+    "Imported workouts count towards strain on their days. Past strain can change once." : {
+      "comment" : "Training import, step 3: the footnote while history is on.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importierte Workouts zählen zur Belastung ihrer Tage. Die bisherige Belastung kann sich einmal ändern."
+          }
+        }
+      }
+    },
+    "Importing isn't available for your account right now. RYFT checks again when you open the app, and sends it once it is." : {
+      "comment" : "Training import I9: not an error, nothing to do.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importieren ist für dein Konto gerade nicht verfügbar. RYFT prüft es beim nächsten Öffnen der App erneut und sendet den Import, sobald es geht."
+          }
+        }
+      }
+    },
+    "Importing isn't available on this account yet" : {
+      "comment" : "Training import E10: Open in with the import off.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Import ist für dein Konto noch nicht verfügbar"
+          }
+        }
+      }
+    },
     "Importing the last 90 days" : {
       "localizations" : {
         "de" : {
@@ -2991,6 +5312,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dein Verlauf wird importiert"
+          }
+        }
+      }
+    },
+    "Importing…" : {
+      "comment" : "Training import I2.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import läuft …"
           }
         }
       }
@@ -3036,6 +5368,17 @@
         }
       }
     },
+    "in progress" : {
+      "comment" : "Exercise strip, VoiceOver: the exercise on screen, or one with a set checked.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "aktiv"
+          }
+        }
+      }
+    },
     "In your RYFT account, on servers in the EU. Never sold, never used for advertising." : {
       "localizations" : {
         "de" : {
@@ -3056,6 +5399,17 @@
         }
       }
     },
+    "Included" : {
+      "comment" : "Training import, step 5: the workout is imported.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enthalten"
+          }
+        }
+      }
+    },
     "Invite code" : {
       "localizations" : {
         "de" : {
@@ -3072,6 +5426,478 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "iOS sagt Apps nicht, ob sie Health-Daten lesen dürfen: RYFT sieht nur, was es lesen darf. „Noch nichts“ kann also heißen: keine Daten, oder RYFT darf sie nicht lesen."
+          }
+        }
+      }
+    },
+    "It checks again before uploading. Workouts that look like ones you already logged are skipped and listed on the result screen, where you can import them anyway." : {
+      "comment" : "Training import, step 5: the offline duplicate check.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vor dem Hochladen prüft RYFT erneut. Workouts, die wie bereits erfasste aussehen, werden übersprungen und auf dem Ergebnisbildschirm aufgelistet. Dort kannst du sie trotzdem importieren."
+          }
+        }
+      }
+    },
+    "Last time" : {
+      "comment" : "Heading of the last-time card in a workout, without a date. Shown uppercase.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letztes Mal"
+          }
+        }
+      }
+    },
+    "Last time · %@" : {
+      "comment" : "Heading of the last-time card in a workout. 1: the date, e.g. Tue 3 Nov. Shown uppercase.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letztes Mal · %@"
+          }
+        }
+      }
+    },
+    "Last time, %@: %@" : {
+      "comment" : "VoiceOver: the last-time card. 1: the date, 2: its sets.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letztes Mal, %@: %@"
+          }
+        }
+      }
+    },
+    "Learning your HRV baseline: %lld of %lld nights. No resting heart rate has reached RYFT yet, so recovery uses HRV and sleep." : {
+      "comment" : "Note under Today's gauge: only HRV fills, no resting HR arrived. Arguments: nights so far, nights needed (7).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein HRV-Ausgangswert entsteht: %1$lld von %2$lld Nächten. Bei RYFT sind noch keine Ruhepuls-Werte angekommen, deshalb nutzt die Erholung HRV und Schlaf."
+          }
+        }
+      }
+    },
+    "Learning your resting heart rate baseline: %lld of %lld nights. No HRV has reached RYFT yet, so recovery uses resting heart rate and sleep." : {
+      "comment" : "Note under Today's gauge: only resting HR fills, no HRV arrived. Arguments: nights so far, nights needed (7).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Ruhepuls-Ausgangswert entsteht: %1$lld von %2$lld Nächten. Bei RYFT sind noch keine HRV-Werte angekommen, deshalb nutzt die Erholung Ruhepuls und Schlaf."
+          }
+        }
+      }
+    },
+    "No data, %@" : {
+      "comment" : "VoiceOver value of a Today tile without a number, with the line under it, e.g. “No data, calibrating”.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Daten, %@"
+          }
+        }
+      }
+    },
+    "not started" : {
+      "comment" : "Exercise strip, VoiceOver: an exercise with no set checked.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "noch offen"
+          }
+        }
+      }
+    },
+    "Notes for this exercise" : {
+      "comment" : "Placeholder of an exercise's notes in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notizen zu dieser Übung"
+          }
+        }
+      }
+    },
+    "Notes: %@" : {
+      "comment" : "VoiceOver: an exercise's notes in a workout. 1: the notes.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notizen: %@"
+          }
+        }
+      }
+    },
+    "Offline. Showing your saved exercise library." : {
+      "comment" : "Caption in the replace sheet without a connection.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Offline. Du siehst deine gespeicherte Übungsbibliothek."
+          }
+        }
+      }
+    },
+    "Opens a sheet" : {
+      "comment" : "VoiceOver hint on the chips of an exercise's page in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet ein Fenster"
+          }
+        }
+      }
+    },
+    "Opens history" : {
+      "comment" : "VoiceOver hint on the last-time card of an exercise's page.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet den Verlauf"
+          }
+        }
+      }
+    },
+    "Replace %@" : {
+      "comment" : "Title of the sheet that replaces an exercise mid-workout. 1: exercise name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ersetzen"
+          }
+        }
+      }
+    },
+    "Replace exercise, %@" : {
+      "comment" : "VoiceOver: the equipment chip on an exercise's page. 1: the equipment.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übung ersetzen, %@"
+          }
+        }
+      }
+    },
+    "Replace exercise…" : {
+      "comment" : "Exercise menu in a workout: pick another exercise for this one.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übung ersetzen …"
+          }
+        }
+      }
+    },
+    "Replaced with %@" : {
+      "comment" : "Undo toast after replacing an exercise. 1: new exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durch %@ ersetzt"
+          }
+        }
+      }
+    },
+    "Replaced with %@. Changed in your plan from the next %@ day." : {
+      "comment" : "Undo toast after replacing an exercise in the workout and in the plan. 1: new exercise, 2: plan day name, e.g. Upper.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durch %@ ersetzt. Im Plan ab dem nächsten %@-Tag geändert."
+          }
+        }
+      }
+    },
+    "Replaced with %@. Changed in your plan from the next %@ day. Check its target weight there." : {
+      "comment" : "Undo toast: exercise replaced in workout and plan; no history, so the plan kept the old weight. 1: exercise, 2: day.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durch %@ ersetzt. Im Plan ab dem nächsten %@-Tag geändert. Prüfe dort das Zielgewicht."
+          }
+        }
+      }
+    },
+    "Replaced with %@. Undo available." : {
+      "comment" : "VoiceOver when the replace toast appears. 1: new exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durch %@ ersetzt. Rückgängig möglich."
+          }
+        }
+      }
+    },
+    "Replaced with %@. Your %lld done sets stay with %@." : {
+      "comment" : "Undo toast after replacing an exercise with several sets done. 1: new exercise, 2: number of sets, 3: old exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durch %@ ersetzt. Deine %lld erledigten Sätze bleiben bei %@."
+          }
+        }
+      }
+    },
+    "Replaced with %@. Your done set stays with %@." : {
+      "comment" : "Undo toast after replacing an exercise with one set done. 1: new exercise, 2: old exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durch %@ ersetzt. Dein erledigter Satz bleibt bei %@."
+          }
+        }
+      }
+    },
+    "Replaced with %@. Your plan couldn't be changed." : {
+      "comment" : "Undo toast: the exercise was replaced in the workout, but saving the plan failed. 1: new exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durch %@ ersetzt. Dein Plan konnte nicht geändert werden."
+          }
+        }
+      }
+    },
+    "Rest, %@" : {
+      "comment" : "VoiceOver: the rest chip on an exercise's page. 1: e.g. 1 minute, 15 seconds.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pause, %@"
+          }
+        }
+      }
+    },
+    "Restored %@." : {
+      "comment" : "VoiceOver after Undo of a replaced exercise. 1: exercise name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ wiederhergestellt."
+          }
+        }
+      }
+    },
+    "Restored %@. Your plan still has the new exercise." : {
+      "comment" : "Toast after Undo: the workout is back, but the plan could not be changed back. 1: exercise name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ wiederhergestellt. Dein Plan enthält noch die neue Übung."
+          }
+        }
+      }
+    },
+    "set %lld, %@" : {
+      "comment" : "VoiceOver: one row of the last-time card. 1: its number, 2: e.g. 10 reps at 75 kilograms.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Satz %lld, %@"
+          }
+        }
+      }
+    },
+    "Set target" : {
+      "comment" : "The target chip of an exercise without a target, in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziel festlegen"
+          }
+        }
+      }
+    },
+    "Sets with values can't be removed here. Delete them in the list." : {
+      "comment" : "Edit targets: the sets stepper can't go lower because a set has values.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sätze mit Werten kannst du hier nicht entfernen. Lösche sie in der Liste."
+          }
+        }
+      }
+    },
+    "Shows or hides the warm-up sets" : {
+      "comment" : "VoiceOver hint on the warm-up pill.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt oder verbirgt die Aufwärmsätze"
+          }
+        }
+      }
+    },
+    "Similar" : {
+      "comment" : "Section of exercises like the one being replaced.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ähnlich"
+          }
+        }
+      }
+    },
+    "superset with %@" : {
+      "comment" : "Exercise strip, VoiceOver, after the exercise. 1: the other exercises of its superset.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supersatz mit %@"
+          }
+        }
+      }
+    },
+    "Superset with %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supersatz mit %@"
+          }
+        }
+      }
+    },
+    "Target weight (kg)" : {
+      "comment" : "Edit targets: the weight to lift.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zielgewicht (kg)"
+          }
+        }
+      }
+    },
+    "The new exercise continues with %lld sets." : {
+      "comment" : "Replace sheet: the picked exercise gets the remaining sets. 1: number of sets.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die neue Übung geht mit %lld Sätzen weiter."
+          }
+        }
+      }
+    },
+    "The new exercise continues with 1 set." : {
+      "comment" : "Replace sheet: the picked exercise gets the one remaining set.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die neue Übung geht mit 1 Satz weiter."
+          }
+        }
+      }
+    },
+    "Jump to next exercise" : {
+      "comment" : "Profile → Training toggle: after the last set of an exercise, the workout scrolls to the next one.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zur nächsten Übung springen"
+          }
+        }
+      }
+    },
+    "Jumps to the next set when you finish an exercise." : {
+      "comment" : "Footer under the Profile → Training toggle \"Jump to next exercise\".",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Springt zum nächsten Satz, wenn du eine Übung abschließt."
+          }
+        }
+      }
+    },
+    "Minus 15" : {
+      "comment" : "Voice Control name of the rest bar's −15 button.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minus 15"
+          }
+        }
+      }
+    },
+    "Next set." : {
+      "comment" : "VoiceOver: said with the set row the user does next in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nächster Satz."
+          }
+        }
+      }
+    },
+    "Plus 15" : {
+      "comment" : "Voice Control name of the rest bar's +15 button.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plus 15"
+          }
+        }
+      }
+    },
+    "This item uses an exercise RYFT doesn't know." : {
+      "comment" : "Training import I4: the platform's code unknown_exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Eintrag verwendet eine Übung, die RYFT nicht kennt."
+          }
+        }
+      }
+    },
+    "This item points to a plan day RYFT doesn't have." : {
+      "comment" : "Training import I4: the platform's code unknown_plan_reference.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Eintrag verweist auf einen Plantag, den es in RYFT nicht gibt."
           }
         }
       }
@@ -3119,6 +5945,17 @@
         }
       }
     },
+    "Its sets aren't imported and it's removed from the plan." : {
+      "comment" : "Training import, step 4: what Skip this exercise does.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ihre Sätze werden nicht importiert, und sie wird aus dem Plan entfernt."
+          }
+        }
+      }
+    },
     "Just my iPhone" : {
       "comment" : "Tile in What do you wear?: no wearable, only the iPhone.",
       "localizations" : {
@@ -3141,6 +5978,28 @@
         }
       }
     },
+    "Keep current" : {
+      "comment" : "Training import E8: drop the new file.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktuellen behalten"
+          }
+        }
+      }
+    },
+    "Keep going" : {
+      "comment" : "Training import: stay in the flow (N1).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weitermachen"
+          }
+        }
+      }
+    },
     "Keep it flowing" : {
       "comment" : "Section of a setup card: habits that keep data arriving.",
       "localizations" : {
@@ -3148,6 +6007,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Damit es weiterläuft"
+          }
+        }
+      }
+    },
+    "Keep on this iPhone" : {
+      "comment" : "Training import V5: store the import to upload later.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf diesem iPhone behalten"
+          }
+        }
+      }
+    },
+    "Kept on this iPhone for up to 30 days. Signing out or deleting your account removes it." : {
+      "comment" : "Training import: the limits of a saved import (TrainImportUploader.retention, the sign-out wipe).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Er bleibt bis zu 30 Tage auf diesem iPhone. Beim Abmelden oder Löschen deines Kontos wird er entfernt."
           }
         }
       }
@@ -3180,6 +6061,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sprache und Region"
+          }
+        }
+      }
+    },
+    "Larger than 8 MB" : {
+      "comment" : "Training import, step 2: why a file can't be read.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Größer als 8 MB"
+          }
+        }
+      }
+    },
+    "Last 12 months" : {
+      "comment" : "Training import, step 3: the history range.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letzte 12 Monate"
+          }
+        }
+      }
+    },
+    "Last 3 months" : {
+      "comment" : "Training import, step 3: the history range.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letzte 3 Monate"
           }
         }
       }
@@ -3298,6 +6212,34 @@
         }
       }
     },
+    "Last scored: %@" : {
+      "comment" : "Today, while last night is scored: the day the dimmed readiness orbit is from (\"Last scored: Yesterday\"); in VoiceOver, that day's readiness and scores.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zuletzt bewertet: %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last scored: %@"
+          }
+        }
+      }
+    },
+    "Last time comes from your imported workouts." : {
+      "comment" : "Training import, step 5: the help under the plan.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„Zuletzt“ stammt aus deinen importierten Workouts."
+          }
+        }
+      }
+    },
     "Learned" : {
       "localizations" : {
         "de" : {
@@ -3351,6 +6293,39 @@
         }
       }
     },
+    "Leaves RYFT." : {
+      "comment" : "VoiceOver hint on Today's tracker hint when it opens the tracker's app (e.g. Garmin Connect).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verlässt RYFT."
+          }
+        }
+      }
+    },
+    "Left as it is in RYFT" : {
+      "comment" : "Training import I3: the stat row for newer_on_server, the file's version was not applied.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In RYFT belassen"
+          }
+        }
+      }
+    },
+    "Left as it is in RYFT. You changed it there." : {
+      "comment" : "Training import: newer_on_server, the app's version is kept; not an error.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "So belassen, wie es in RYFT ist. Du hast es dort geändert."
+          }
+        }
+      }
+    },
     "Let %@ write to Apple Health. Profile → Devices & sync shows how." : {
       "comment" : "Setup card on Today, step 1, with the chosen tracker's app.",
       "localizations" : {
@@ -3358,6 +6333,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Lass %@ in Apple Health schreiben. Profil → Geräte & Sync zeigt dir, wie."
+          }
+        }
+      }
+    },
+    "Likely match" : {
+      "comment" : "Training import, step 4: a fuzzy match's confidence.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wahrscheinlich passend"
+          }
+        }
+      }
+    },
+    "Line %lld" : {
+      "comment" : "Training import, step 2: a warning's line number.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeile %lld"
           }
         }
       }
@@ -3403,6 +6400,17 @@
         }
       }
     },
+    "Loading the exercise library…" : {
+      "comment" : "Training import M4.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übungsbibliothek wird geladen …"
+          }
+        }
+      }
+    },
     "Log in Train" : {
       "comment" : "Add activity: Strength goes to Train instead.",
       "localizations" : {
@@ -3442,6 +6450,82 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sieht sich die letzten 48 Stunden in Apple Health an. Die Prüfung lädt nichts hoch."
+          }
+        }
+      }
+    },
+    "Looks like a session you already logged" : {
+      "comment" : "Training import, step 5: a likely duplicate (V2).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sieht aus wie ein Workout, das du schon erfasst hast"
+          }
+        }
+      }
+    },
+    "Make this my active plan" : {
+      "comment" : "Training import, step 3: enrol in the imported plan.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Als meinen aktiven Plan festlegen"
+          }
+        }
+      }
+    },
+    "Match exercises" : {
+      "comment" : "Training import: step 4's title.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übungen zuordnen"
+          }
+        }
+      }
+    },
+    "Match “%@”" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„%@“ zuordnen"
+          }
+        }
+      }
+    },
+    "Matched" : {
+      "comment" : "Training import, step 4: a row's status.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zugeordnet"
+          }
+        }
+      }
+    },
+    "matched to %@" : {
+      "comment" : "Training import, step 4, VoiceOver: the RYFT exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "zugeordnet zu %@"
+          }
+        }
+      }
+    },
+    "Matched · from your earlier choice" : {
+      "comment" : "Training import, step 4: a remembered match.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zugeordnet · aus deiner früheren Wahl"
           }
         }
       }
@@ -3511,6 +6595,28 @@
         }
       }
     },
+    "More apps may come. Nothing was imported." : {
+      "comment" : "Training import D5.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weitere Apps können folgen. Es wurde nichts importiert."
+          }
+        }
+      }
+    },
+    "Muscle group" : {
+      "comment" : "Training import, step 4: choose the new exercise's muscle group.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muskelgruppe"
+          }
+        }
+      }
+    },
     "My Day" : {
       "comment" : "The card and screen with the day's sleep, workouts and activities.",
       "localizations" : {
@@ -3544,6 +6650,17 @@
         }
       }
     },
+    "Needs a check (%lld)" : {
+      "comment" : "Training import, step 4: the filter.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prüfen (%lld)"
+          }
+        }
+      }
+    },
     "Needs a fix" : {
       "localizations" : {
         "de" : {
@@ -3554,6 +6671,39 @@
         }
       },
       "comment" : "Profile → Data → Devices & sync: a tracker row's status under its name, from the last Check sync: a signal it should send didn't arrive (the check shows the fix)."
+    },
+    "Needs your attention" : {
+      "comment" : "Training import: step 4's section, and Profile → Data's row.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Braucht dich"
+          }
+        }
+      }
+    },
+    "New" : {
+      "comment" : "Training import, step 4: a row's status, a new custom exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neu"
+          }
+        }
+      }
+    },
+    "New · created when you import" : {
+      "comment" : "Training import, step 4: a new exercise with its muscle group.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neu · wird beim Import erstellt"
+          }
+        }
+      }
     },
     "No %@ has reached RYFT from your nights." : {
       "comment" : "Under Today's gauge: no such signal in the baseline window. The argument is one signal, e.g. “HRV”.",
@@ -3573,6 +6723,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Keine Antwort"
+          }
+        }
+      }
+    },
+    "No exercise matches “%@”." : {
+      "comment" : "Training import, step 4: the search found nothing.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Übung passt zu „%@“."
           }
         }
       }
@@ -3682,6 +6843,17 @@
         }
       }
     },
+    "Message: %@" : {
+      "comment" : "Training import, Details: the platform's message for the item.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Meldung: %@"
+          }
+        }
+      }
+    },
     "Message" : {
       "localizations" : {
         "de" : {
@@ -3730,6 +6902,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Hier fehlt eine kg/lb-Kopfzeile: RYFT nimmt lb an"
+          }
+        }
+      }
+    },
+    "No plan" : {
+      "comment" : "Training import, step 3: no imported plan becomes active.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kein Plan"
+          }
+        }
+      }
+    },
+    "No plan and no workouts" : {
+      "comment" : "Training import, step 2: a recognised file that holds nothing.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kein Plan und keine Workouts"
+          }
+        }
+      }
+    },
+    "No plan file. Your workouts import as standalone sessions." : {
+      "comment" : "Training import D3.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Plan-Datei. Deine Workouts werden als einzelne Workouts importiert."
           }
         }
       }
@@ -3783,6 +6988,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Keine Sportart passt zu „%@“"
+          }
+        }
+      }
+    },
+    "No weight or reps." : {
+      "comment" : "Training import I3: why sets are skipped.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kein Gewicht oder keine Wiederholungen."
+          }
+        }
+      }
+    },
+    "No workouts file. Add it if you also want your workout history." : {
+      "comment" : "Training import D2.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Workout-Datei. Füge sie hinzu, wenn du auch deinen Trainingsverlauf importieren willst."
+          }
+        }
+      }
+    },
+    "Not a CSV file" : {
+      "comment" : "Training import, step 2: why a file can't be read.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine CSV-Datei"
+          }
+        }
+      }
+    },
+    "Not a supported format" : {
+      "comment" : "Training import, step 2: why a file can't be read.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kein unterstütztes Format"
           }
         }
       }
@@ -3878,6 +7127,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nicht erteilt"
+          }
+        }
+      }
+    },
+    "Not imported (%lld)" : {
+      "comment" : "Training import I4: the list's header.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht importiert (%lld)"
+          }
+        }
+      }
+    },
+    "Not imported (%lld): %@" : {
+      "comment" : "Training import, step 5: plan exercises left out in step 4; their count and names.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht importiert (%1$lld): %2$@"
           }
         }
       }
@@ -4036,6 +7307,28 @@
         }
       }
     },
+    "Nothing more is uploaded from it. Anything already imported stays in RYFT. The file itself is not changed." : {
+      "comment" : "Training import S2: what discarding a saved import does.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Davon wird nichts mehr hochgeladen. Was schon importiert ist, bleibt in RYFT. Die Datei selbst bleibt unverändert."
+          }
+        }
+      }
+    },
+    "Nothing new from %@ since %@." : {
+      "comment" : "Today's hint when a tracker app has been quiet; the tracker's own sentence on how it syncs follows on the next line. Arguments: the app (e.g. Garmin Connect), then a time.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nichts Neues von %1$@ seit %2$@."
+          }
+        }
+      }
+    },
     "Nothing new from %@ since %@. Open the %@ app to sync it to Apple Health." : {
       "localizations" : {
         "de" : {
@@ -4052,6 +7345,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Seit %2$@ nichts Neues von %1$@. Trag sie und lass sie in der Nähe deines iPhones, damit sie synchronisiert."
+          }
+        }
+      }
+    },
+    "Nothing new: what's in the file is already in RYFT or stays as you changed it" : {
+      "comment" : "Training import I3: everything was already there or newer_on_server.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nichts Neues: Was in der Datei steht, ist schon in RYFT oder bleibt so, wie du es geändert hast"
+          }
+        }
+      }
+    },
+    "Nothing new: everything in the file was already in RYFT" : {
+      "comment" : "Training import I3.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nichts Neues: Alles aus der Datei war schon in RYFT"
           }
         }
       }
@@ -4073,6 +7388,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Noch nichts gesendet"
+          }
+        }
+      }
+    },
+    "Nothing to import" : {
+      "comment" : "Training import V3.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nichts zu importieren"
           }
         }
       }
@@ -4139,6 +7465,17 @@
         }
       }
     },
+    "OK" : {
+      "comment" : "Training import E10: close the sheet.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
+          }
+        }
+      }
+    },
     "Only what's new" : {
       "localizations" : {
         "de" : {
@@ -4155,6 +7492,61 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nur du, und der Betreiber von RYFT, wenn etwas repariert werden muss."
+          }
+        }
+      }
+    },
+    "Open %@" : {
+      "comment" : "Today's tracker hint: opens the tracker's app. The argument is the app, e.g. Garmin Connect.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ öffnen"
+          }
+        }
+      }
+    },
+    "Open history" : {
+      "comment" : "Training import I3.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verlauf öffnen"
+          }
+        }
+      }
+    },
+    "Open now" : {
+      "comment" : "Training import: open a waiting file (E7).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jetzt öffnen"
+          }
+        }
+      }
+    },
+    "Open plan" : {
+      "comment" : "Training import I3.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plan öffnen"
+          }
+        }
+      }
+    },
+    "Open the file you just received" : {
+      "comment" : "Training import: a file arrived meanwhile (E9).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gerade erhaltene Datei öffnen"
           }
         }
       }
@@ -4208,6 +7600,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Öffnet die Bearbeitung"
+          }
+        }
+      }
+    },
+    "Opens the import" : {
+      "comment" : "Training import, VoiceOver: the resume row.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet den Import"
           }
         }
       }
@@ -4351,6 +7754,17 @@
         }
       }
     },
+    "Past strain on these days is being recalculated. It may take a minute to show." : {
+      "comment" : "Training import I3: after history was imported.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die bisherige Belastung dieser Tage wird neu berechnet. Das kann eine Minute dauern."
+          }
+        }
+      }
+    },
     "Peak" : {
       "localizations" : {
         "de" : {
@@ -4415,6 +7829,39 @@
         }
       }
     },
+    "Plan" : {
+      "comment" : "Training import, step 3: the plan toggle.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plan"
+          }
+        }
+      }
+    },
+    "Plan only" : {
+      "comment" : "Training import, step 4: the exercise is only in the plan.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur im Plan"
+          }
+        }
+      }
+    },
+    "Plan: done" : {
+      "comment" : "Training import I2: the plan is uploaded.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plan: fertig"
+          }
+        }
+      }
+    },
     "Planned %@ to %@, actual %@ to %@" : {
       "localizations" : {
         "de" : {
@@ -4431,6 +7878,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geplant %1$@–%2$@ · tatsächlich %3$@–%4$@"
+          }
+        }
+      }
+    },
+    "Plans and workouts" : {
+      "comment" : "Training import, step 2: what a file holds.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pläne und Workouts"
+          }
+        }
+      }
+    },
+    "Plans file" : {
+      "comment" : "Training import, step 1: a slot.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plan-Datei"
           }
         }
       }
@@ -4466,12 +7935,67 @@
         }
       }
     },
+    "Possible match" : {
+      "comment" : "Training import, step 4: a fuzzy match's confidence.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Möglicherweise passend"
+          }
+        }
+      }
+    },
+    "Preparing your import…" : {
+      "comment" : "Training import I1.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import wird vorbereitet …"
+          }
+        }
+      }
+    },
+    "Preview" : {
+      "comment" : "Training import: step 5's title.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vorschau"
+          }
+        }
+      }
+    },
     "Privacy" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Datenschutz"
+          }
+        }
+      }
+    },
+    "Question" : {
+      "comment" : "Training import, step 4: the bodyweight question is open.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frage"
+          }
+        }
+      }
+    },
+    "question open: is %@ added weight or your body weight" : {
+      "comment" : "Training import, step 4, VoiceOver: the bodyweight question is open.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frage offen: Ist %@ Zusatzgewicht oder dein Körpergewicht"
           }
         }
       }
@@ -4492,6 +8016,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schnellstart"
+          }
+        }
+      }
+    },
+    "Range" : {
+      "comment" : "Training import, step 3: the history range picker.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeitraum"
           }
         }
       }
@@ -4550,12 +8085,64 @@
         }
       }
     },
+    "Reading %lld files" : {
+      "comment" : "Training import, VoiceOver: files were picked and are being read.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Datei wird gelesen"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld Dateien werden gelesen"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Reading %lld file"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Reading %lld files"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Reading Apple Health" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Apple Health lesen"
+          }
+        }
+      }
+    },
+    "Reading…" : {
+      "comment" : "Training import: a file is being read.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird gelesen …"
           }
         }
       }
@@ -4582,6 +8169,17 @@
         }
       }
     },
+    "Recovery %@ percent" : {
+      "comment" : "OrbitGauge VoiceOver: Recovery with its value, e.g. 71.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erholung %@ Prozent"
+          }
+        }
+      }
+    },
     "Recovery from %@, no HRV" : {
       "comment" : "Setup card's features line: what Recovery uses, a list such as resting heart rate and sleep.",
       "localizations" : {
@@ -4599,6 +8197,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Das Laden von %@ hat nicht geklappt."
+          }
+        }
+      }
+    },
+    "Remembered matches cleared" : {
+      "comment" : "VoiceOver: the import's matches were cleared.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gemerkte Zuordnungen gelöscht"
           }
         }
       }
@@ -4629,6 +8238,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Erinnerung"
+          }
+        }
+      }
+    },
+    "Remove file" : {
+      "comment" : "Training import, step 2: remove a file from the import.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Datei entfernen"
+          }
+        }
+      }
+    },
+    "Replace" : {
+      "comment" : "Training import E8: start over with the new file.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ersetzen"
+          }
+        }
+      }
+    },
+    "Replace the import you're setting up?" : {
+      "comment" : "Training import E8.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den Import, den du gerade vorbereitest, ersetzen?"
+          }
+        }
+      }
+    },
+    "Replace with the file's version" : {
+      "comment" : "Training import, step 3: import the plan over RYFT's copy.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durch die Version aus der Datei ersetzen"
           }
         }
       }
@@ -4669,6 +8322,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Anfrage-ID"
+          }
+        }
+      }
+    },
+    "Request ID %@" : {
+      "comment" : "Training import, Details: the X-Request-ID of the answer.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anfrage-ID %@"
           }
         }
       }
@@ -4765,6 +8429,17 @@
         }
       }
     },
+    "Retry %lld" : {
+      "comment" : "Training import I4: send the failed items again.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld erneut versuchen"
+          }
+        }
+      }
+    },
     "Review" : {
       "localizations" : {
         "de" : {
@@ -4815,6 +8490,39 @@
         }
       }
     },
+    "RYFT already has a different item with the same ID." : {
+      "comment" : "Training import I4: the platform's code id_taken.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT hat bereits einen anderen Eintrag mit derselben ID."
+          }
+        }
+      }
+    },
+    "RYFT can import exports from Alpha Progression. “%@” doesn't look like one." : {
+      "comment" : "Training import D5; the file's name. Alpha Progression is a data source, named factually.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT kann Exporte von Alpha Progression importieren. „%@“ sieht nicht danach aus."
+          }
+        }
+      }
+    },
+    "RYFT can keep this import on your iPhone and upload it when importing is switched on for your account." : {
+      "comment" : "Training import V5.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT kann diesen Import auf deinem iPhone aufbewahren und hochladen, sobald Importe für dein Konto freigeschaltet sind."
+          }
+        }
+      }
+    },
     "RYFT can read %@, but none came from %@ in the last 2 days." : {
       "localizations" : {
         "de" : {
@@ -4825,12 +8533,34 @@
         }
       }
     },
+    "RYFT can read CSV and plain text files." : {
+      "comment" : "Training import P3.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT kann CSV- und Textdateien lesen."
+          }
+        }
+      }
+    },
     "RYFT can't be reached right now. Your connection looks fine, so this isn't on your side." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT ist gerade nicht erreichbar. Deine Verbindung scheint in Ordnung zu sein, es liegt also nicht an dir."
+          }
+        }
+      }
+    },
+    "RYFT can't import training files for your account right now. The file wasn't read or changed." : {
+      "comment" : "Training import E10.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT kann für dein Konto gerade keine Trainingsdateien importieren. Die Datei wurde weder gelesen noch verändert."
           }
         }
       }
@@ -4868,6 +8598,28 @@
         }
       }
     },
+    "RYFT couldn't prepare the preview." : {
+      "comment" : "Training import, step 5: the build failed.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT konnte die Vorschau nicht vorbereiten."
+          }
+        }
+      }
+    },
+    "RYFT couldn't read “%@”." : {
+      "comment" : "Training import P5; the file's name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT konnte „%@“ nicht lesen."
+          }
+        }
+      }
+    },
     "RYFT couldn't take that change. Try again later." : {
       "localizations" : {
         "de" : {
@@ -4888,6 +8640,17 @@
         }
       }
     },
+    "RYFT didn't accept this one." : {
+      "comment" : "Training import I4: a refusal with no code this build knows.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT hat diesen Eintrag nicht angenommen."
+          }
+        }
+      }
+    },
     "RYFT doesn't see any %@ in Apple Health. Either RYFT isn't allowed to read it, or %@ isn't writing it." : {
       "localizations" : {
         "de" : {
@@ -4904,6 +8667,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT synchronisiert und bewertet deine Gesundheitsdaten erst nach deiner Zustimmung."
+          }
+        }
+      }
+    },
+    "RYFT forgets how it matched imported exercises." : {
+      "comment" : "Profile → Data: under Clear remembered matches.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT vergisst, wie es importierte Übungen zugeordnet hat."
+          }
+        }
+      }
+    },
+    "RYFT forgets what it read from the file and your choices here. The file itself is not changed." : {
+      "comment" : "Training import: the cancel confirmation's message (N1).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT vergisst, was es aus der Datei gelesen hat, und deine Auswahl hier. Die Datei selbst bleibt unverändert."
           }
         }
       }
@@ -4959,12 +8744,45 @@
         }
       }
     },
+    "RYFT needs it to match exercises." : {
+      "comment" : "Training import M5.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT braucht sie, um Übungen zuzuordnen."
+          }
+        }
+      }
+    },
+    "RYFT needs your answer before it sends anything. Your import is kept on this iPhone and continues afterwards." : {
+      "comment" : "Training import I8: a consent or invite step holds the upload.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT braucht deine Antwort, bevor es etwas sendet. Dein Import bleibt auf diesem iPhone und läuft danach weiter."
+          }
+        }
+      }
+    },
     "RYFT needs your consent before it can sync your health data." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT braucht deine Einwilligung, bevor es deine Gesundheitsdaten synchronisieren kann."
+          }
+        }
+      }
+    },
+    "RYFT only partly recognised this file. Some lines weren't recognised; the rest is imported." : {
+      "comment" : "Training import D8.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT hat diese Datei nur teilweise erkannt. Einige Zeilen wurden nicht erkannt, der Rest wird importiert."
           }
         }
       }
@@ -4998,6 +8816,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT liest, was dein Gerät in Apple Health speichert. Was ankommt, hängt vom Gerät ab; die Prüfung zeigt dir genau, was es ist."
+          }
+        }
+      }
+    },
+    "RYFT remembers your choices for next time. They're part of Export my data, and you can clear them in Profile → Data." : {
+      "comment" : "Training import, step 4: the footer.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RYFT merkt sich deine Zuordnungen für das nächste Mal. Sie sind Teil von „Meine Daten exportieren“, und du kannst sie unter Profil → Daten löschen."
           }
         }
       }
@@ -5049,6 +8878,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gleiche Zeit an Wochentagen"
+          }
+        }
+      }
+    },
+    "Save the files from the other app to Files, then choose them here." : {
+      "comment" : "Training import, step 1: under Choose files.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Speichere die Dateien aus der anderen App in Dateien und wähle sie dann hier aus."
+          }
+        }
+      }
+    },
+    "Saved on this iPhone" : {
+      "comment" : "Training import I9: importing isn't available for the account (403 import_not_enabled).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf diesem iPhone gespeichert"
           }
         }
       }
@@ -5221,6 +9072,58 @@
         }
       }
     },
+    "Seen on %lld sets with different values." : {
+      "comment" : "Training import, step 4: the +N load differs between sets.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In %lld Sätzen mit unterschiedlichen Werten gefunden."
+          }
+        }
+      }
+    },
+    "Seen on %lld sets." : {
+      "comment" : "Training import, step 4: how many sets have the +N load.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "In %lld Satz gefunden."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "In %lld Sätzen gefunden."
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Seen on %lld set."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Seen on %lld sets."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Send" : {
       "localizations" : {
         "de" : {
@@ -5367,12 +9270,43 @@
         }
       }
     },
+    "Sets imported" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importierte Sätze"
+          }
+        }
+      }
+    },
+    "Sets skipped" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übersprungene Sätze"
+          }
+        }
+      }
+    },
     "Setting up RYFT" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT wird eingerichtet"
+          }
+        }
+      }
+    },
+    "Show all" : {
+      "comment" : "Training import, step 5: leave the duplicates filter.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle zeigen"
           }
         }
       }
@@ -5449,6 +9383,17 @@
         }
       }
     },
+    "Show rest timer" : {
+      "comment" : "VoiceOver action on the rest bar's small pill (large text sizes): shows the full rest timer.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pausentimer zeigen"
+          }
+        }
+      }
+    },
     "Showing data from" : {
       "localizations" : {
         "de" : {
@@ -5501,6 +9446,17 @@
         }
       }
     },
+    "Shows its exercises and sets" : {
+      "comment" : "Training import, step 5, VoiceOver: a workout row.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt seine Übungen und Sätze"
+          }
+        }
+      }
+    },
     "Shows what couldn't load" : {
       "comment" : "VoiceOver hint of Today's status line while it points to the error card.",
       "localizations" : {
@@ -5508,6 +9464,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zeigt, was nicht geladen werden konnte"
+          }
+        }
+      }
+    },
+    "Shows what you can do with this exercise" : {
+      "comment" : "Training import, step 4, VoiceOver: a row opens its actions.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt, was du mit dieser Übung tun kannst"
           }
         }
       }
@@ -5532,6 +9499,17 @@
         }
       }
     },
+    "Sign in and pick the file again. Nothing is imported twice." : {
+      "comment" : "Training import I7: re-importing is safe, the ids are the same.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Melde dich an und wähle die Datei erneut. Nichts wird doppelt importiert."
+          }
+        }
+      }
+    },
     "Sign-in methods" : {
       "localizations" : {
         "de" : {
@@ -5548,6 +9526,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mit dem falschen Konto angemeldet?"
+          }
+        }
+      }
+    },
+    "Skip this exercise" : {
+      "comment" : "Training import, step 4: leave it out.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Übung überspringen"
+          }
+        }
+      }
+    },
+    "Skipped" : {
+      "comment" : "Training import, step 4: a row's status.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übersprungen"
+          }
+        }
+      }
+    },
+    "Skipped sets have no weight or no reps. They are counted, not imported as zero." : {
+      "comment" : "Training import, step 5: the history footer.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übersprungene Sätze haben kein Gewicht oder keine Wiederholungen. Sie werden gezählt, nicht als null importiert."
+          }
+        }
+      }
+    },
+    "Skipped · no weight or reps" : {
+      "comment" : "Training import, step 5: why a set is skipped.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übersprungen · kein Gewicht oder keine Wiederholungen"
           }
         }
       }
@@ -5613,6 +9635,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schlaf wurde bereits von %@ erfasst."
+          }
+        }
+      }
+    },
+    "Sleep %@ percent" : {
+      "comment" : "OrbitGauge VoiceOver: Sleep performance with its value, e.g. 88.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlaf %@ Prozent"
           }
         }
       }
@@ -5688,6 +9721,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Einiges wurde ausgelassen: Diese Datei überschreitet die Import-Grenzen von RYFT"
+          }
+        }
+      }
+    },
+    "Some of its values are missing or out of range." : {
+      "comment" : "Training import I4: the platform's code invalid.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einige Werte fehlen oder liegen außerhalb des erlaubten Bereichs."
+          }
+        }
+      }
+    },
+    "Some items weren't accepted, so the upload stopped." : {
+      "comment" : "Training import: the platform refused every request of the last pass.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einige Einträge wurden nicht angenommen, deshalb wurde der Upload angehalten."
+          }
+        }
+      }
+    },
+    "Some items weren't imported" : {
+      "comment" : "Training import I4.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einige Einträge wurden nicht importiert"
           }
         }
       }
@@ -6196,6 +10262,17 @@
         }
       }
     },
+    "Start from scratch" : {
+      "comment" : "My Plans → New plan: the plan builder.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Von Grund auf neu"
+          }
+        }
+      }
+    },
     "Start or resume workout" : {
       "localizations" : {
         "de" : {
@@ -6232,6 +10309,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Startet ein Krafttraining in RYFT: den heutigen Plan, ein leeres Workout oder dein letztes noch einmal. Ein laufendes Workout wird fortgesetzt."
+          }
+        }
+      }
+    },
+    "Starts at %@ · last time, %@" : {
+      "comment" : "Training import, step 5: a plan exercise's first target from the imported history.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Startet bei %1$@ · zuletzt am %2$@"
+          }
+        }
+      }
+    },
+    "Starts today, at week 1." : {
+      "comment" : "Training import, step 3: when an imported plan starts.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Startet heute in Woche 1."
           }
         }
       }
@@ -6529,6 +10628,61 @@
         }
       }
     },
+    "The exercise library isn't available offline yet." : {
+      "comment" : "Training import M5.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Übungsbibliothek ist offline noch nicht verfügbar."
+          }
+        }
+      }
+    },
+    "The exercise wasn't found" : {
+      "comment" : "Training import I4: a reason.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Übung wurde nicht gefunden"
+          }
+        }
+      }
+    },
+    "The file has no time zone. RYFT keeps its times as written and applies this iPhone's time zone, %@." : {
+      "comment" : "Training import, step 2: the zone the file's times are read in; its identifier, e.g. Europe/Berlin.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Datei enthält keine Zeitzone. RYFT übernimmt die Zeiten wie notiert und wendet die Zeitzone dieses iPhones an: %@."
+          }
+        }
+      }
+    },
+    "The file is valid but has no plan and no workouts." : {
+      "comment" : "Training import D7.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Datei ist gültig, enthält aber weder Plan noch Workouts."
+          }
+        }
+      }
+    },
+    "The file logs this as a bodyweight exercise." : {
+      "comment" : "Training import, step 4: a +N exercise matched to a loaded exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Datei erfasst das als Körpergewichtsübung."
+          }
+        }
+      }
+    },
     "The last 20 requests: method, path without its query, status, error code, request ID, time, duration" : {
       "localizations" : {
         "de" : {
@@ -6545,6 +10699,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Die letzten 90 Tage sind mit deinen Einstellungen neu bewertet."
+          }
+        }
+      }
+    },
+    "The number is your own weight. RYFT logs the sets without added weight and notes %@ as your body weight for the workout." : {
+      "comment" : "Training import, step 4: the body-weight option.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Zahl ist dein eigenes Gewicht. RYFT erfasst die Sätze ohne Zusatzgewicht und notiert %@ als dein Körpergewicht für das Workout."
+          }
+        }
+      }
+    },
+    "The plan has no exercises left." : {
+      "comment" : "Training import, step 5.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Im Plan sind keine Übungen übrig."
           }
         }
       }
@@ -6569,12 +10745,78 @@
         }
       }
     },
+    "The rest imports normally." : {
+      "comment" : "Training import, step 2: under the warnings row.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Rest wird normal importiert."
+          }
+        }
+      }
+    },
+    "The rest of your import is kept on this iPhone. Try again to send it." : {
+      "comment" : "Training import: Try again sends the pending rest.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Rest deines Imports bleibt auf diesem iPhone. Versuche es erneut, um ihn zu senden."
+          }
+        }
+      }
+    },
+    "The upload is paused. RYFT will try again later." : {
+      "comment" : "Training import: a refusal with no step for the user (an unknown 403).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Upload ist pausiert. RYFT versucht es später noch einmal."
+          }
+        }
+      }
+    },
+    "The upload paused." : {
+      "comment" : "Training import I5.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Upload ist pausiert."
+          }
+        }
+      }
+    },
     "The wake-up alarm is off: iOS doesn't allow RYFT's alarms. Turn it on again to allow them." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Der Wecker ist aus: iOS erlaubt RYFTs Wecker nicht. Schalte ihn wieder ein, um sie zu erlauben."
+          }
+        }
+      }
+    },
+    "The weight is left out for this exercise." : {
+      "comment" : "Training import, step 4: a +N exercise matched to a time or distance exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Gewicht wird bei dieser Übung weggelassen."
+          }
+        }
+      }
+    },
+    "These files come from different apps. Import one at a time." : {
+      "comment" : "Training import D6: two supported formats.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Dateien stammen aus verschiedenen Apps. Importiere sie nacheinander."
           }
         }
       }
@@ -6621,6 +10863,17 @@
         }
       }
     },
+    "This file is already in RYFT. Nothing new to import." : {
+      "comment" : "Training import V4.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Datei ist schon in RYFT. Es gibt nichts Neues zu importieren."
+          }
+        }
+      }
+    },
     "This file isn't saved as UTF-8: RYFT read it as Western (Windows Latin 1)" : {
       "comment" : "Import note, after \"Line 1\": a spreadsheet-saved CSV in an older encoding.",
       "localizations" : {
@@ -6628,6 +10881,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Diese Datei ist nicht als UTF-8 gespeichert: RYFT hat sie als Westeuropäisch (Windows Latin 1) gelesen"
+          }
+        }
+      }
+    },
+    "This import can't continue." : {
+      "comment" : "Training import I7: signed out mid-upload.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Import kann nicht weiterlaufen."
           }
         }
       }
@@ -6682,6 +10946,17 @@
         }
       }
     },
+    "This isn't a supported format" : {
+      "comment" : "Training import D5: the headline.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Format wird nicht unterstützt"
+          }
+        }
+      }
+    },
     "This line is too long to read" : {
       "comment" : "Import warning, after \"Line N\".",
       "localizations" : {
@@ -6725,6 +11000,17 @@
         }
       }
     },
+    "This plan has %lld days. RYFT plans have at most 7." : {
+      "comment" : "Training import, step 3: why a plan can't be imported.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Plan hat %lld Tage. RYFT-Pläne haben höchstens 7."
+          }
+        }
+      }
+    },
     "This plan has this day number twice: check its days after the import" : {
       "comment" : "Import warning, after \"Line N\": a plan day number used a second time.",
       "localizations" : {
@@ -6743,6 +11029,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dieser Plan steht auch in einer anderen gewählten Datei und wird einmal importiert"
+          }
+        }
+      }
+    },
+    "This replaces your copy, including edits." : {
+      "comment" : "Training import, step 3: after Replace with the file's version.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das ersetzt deine Kopie samt Änderungen."
+          }
+        }
+      }
+    },
+    "This replaces your current plan, “%@”, which is in week %lld. It stays in My Plans and you can switch back." : {
+      "comment" : "Training import, step 3 (C2): the active plan's name and its current week.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das ersetzt deinen aktuellen Plan „%1$@“ in Woche %2$lld. Er bleibt unter Meine Pläne, du kannst jederzeit zurückwechseln."
           }
         }
       }
@@ -6790,6 +11098,17 @@
         }
       }
     },
+    "time %@" : {
+      "comment" : "VoiceOver: a set's stored time, e.g. time 0:45.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeit %@"
+          }
+        }
+      }
+    },
     "Time asleep %@" : {
       "comment" : "Add sleep: the time between bed and wake.",
       "localizations" : {
@@ -6818,6 +11137,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zeit aufzustehen"
+          }
+        }
+      }
+    },
+    "Times are kept as written in the file and shown in %@." : {
+      "comment" : "Training import, step 5: the zone; its identifier, e.g. Europe/Berlin.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeiten bleiben wie in der Datei notiert und werden in %@ angezeigt."
           }
         }
       }
@@ -6901,6 +11231,64 @@
         }
       }
     },
+    "train.rest.next" : {
+      "comment" : "The rest bar's next set, e.g. Next: Bench press · set 1 of 4.",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Als Nächstes: %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Next: %@"
+          }
+        }
+      }
+    },
+    "train.rest.value" : {
+      "comment" : "VoiceOver value of the rest timer, e.g. 1 minute, 35 seconds left. Next: Bench press · set 1 of 4.",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch %1$@. Als Nächstes: %2$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ left. Next: %2$@"
+          }
+        }
+      }
+    },
+    "Training" : {
+      "comment" : "Profile: the section with training preferences (Jump to next exercise).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Training"
+          }
+        }
+      }
+    },
+    "Training exports are usually well under 1 MB. Is this the right file?" : {
+      "comment" : "Training import P4.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trainingsexporte sind meist deutlich kleiner als 1 MB. Ist das die richtige Datei?"
+          }
+        }
+      }
+    },
     "Tries to load your data again" : {
       "localizations" : {
         "de" : {
@@ -6921,6 +11309,47 @@
         }
       }
     },
+    "Trying again in %lld seconds" : {
+      "comment" : "Training import I5: a Retry-After countdown.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Neuer Versuch in %lld Sekunde"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Neuer Versuch in %lld Sekunden"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Trying again in %lld second"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Trying again in %lld seconds"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Trying again…" : {
       "localizations" : {
         "de" : {
@@ -6937,6 +11366,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Schlafenszeit & Aufwachen ausschalten"
+          }
+        }
+      }
+    },
+    "Turn on at least one to continue." : {
+      "comment" : "Training import C3: plan and history are off.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schalte mindestens eines ein, um fortzufahren."
+          }
+        }
+      }
+    },
+    "Undo" : {
+      "comment" : "Toast button that takes back the last change, e.g. a replaced exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rückgängig"
           }
         }
       }
@@ -7011,6 +11462,17 @@
         }
       }
     },
+    "Uploads aren't available yet." : {
+      "comment" : "Training import V5.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uploads sind noch nicht verfügbar."
+          }
+        }
+      }
+    },
     "Use another account" : {
       "localizations" : {
         "de" : {
@@ -7032,6 +11494,17 @@
         }
       }
     },
+    "Use suggestion" : {
+      "comment" : "Training import, step 4: VoiceOver action.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vorschlag verwenden"
+          }
+        }
+      }
+    },
     "Use the estimate" : {
       "localizations" : {
         "de" : {
@@ -7048,6 +11521,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Das andere Konto verwenden"
+          }
+        }
+      }
+    },
+    "Use “%@”" : {
+      "comment" : "Training import, step 4: accept the suggestion.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„%@“ verwenden"
           }
         }
       }
@@ -7104,6 +11588,17 @@
         }
       }
     },
+    "View progress" : {
+      "comment" : "Training import: open step 6 of the running import (E9).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fortschritt ansehen"
+          }
+        }
+      }
+    },
     "VO₂ max" : {
       "localizations" : {
         "de" : {
@@ -7120,6 +11615,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wartet"
+          }
+        }
+      }
+    },
+    "Waiting for a connection" : {
+      "comment" : "Training import: Profile → Data's row.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wartet auf Verbindung"
           }
         }
       }
@@ -7322,6 +11828,17 @@
         }
       }
     },
+    "What to import" : {
+      "comment" : "Training import: step 3's title.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Was importieren"
+          }
+        }
+      }
+    },
     "What you wear, as RYFT's tracker ids (no device names)" : {
       "comment" : "Report a problem → What's included.",
       "localizations" : {
@@ -7369,6 +11886,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wer sie sehen kann"
+          }
+        }
+      }
+    },
+    "Widen the range or turn history off." : {
+      "comment" : "Training import C4: no workout in the range.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erweitere den Zeitraum oder schalte den Verlauf aus."
+          }
+        }
+      }
+    },
+    "Will be imported next to your own session." : {
+      "comment" : "Training import, step 5: a duplicate turned on.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wird neben deinem eigenen Workout importiert."
           }
         }
       }
@@ -7436,6 +11975,17 @@
         }
       }
     },
+    "Workout history" : {
+      "comment" : "Training import, step 3: the history toggle.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trainingsverlauf"
+          }
+        }
+      }
+    },
     "Workouts" : {
       "localizations" : {
         "de" : {
@@ -7452,6 +12002,27 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Trainings"
+          }
+        }
+      }
+    },
+    "Workouts file" : {
+      "comment" : "Training import, step 1: a slot.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Workout-Datei"
+          }
+        }
+      }
+    },
+    "Workouts imported" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importierte Workouts"
           }
         }
       }
@@ -7509,6 +12080,28 @@
         }
       }
     },
+    "You can change this later in Plans." : {
+      "comment" : "Training import, step 3: no plan is active now.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du kannst das später unter Pläne ändern."
+          }
+        }
+      }
+    },
+    "You can close this. The import continues while RYFT is open and picks up where it stopped." : {
+      "comment" : "Training import I2.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du kannst das schließen. Der Import läuft weiter, solange RYFT geöffnet ist, und macht dort weiter, wo er aufgehört hat."
+          }
+        }
+      }
+    },
     "You can leave the app — RYFT keeps going in the background." : {
       "localizations" : {
         "de" : {
@@ -7525,6 +12118,50 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Bei diesem Konto kannst du dich anmelden mit:"
+          }
+        }
+      }
+    },
+    "You must be at least 16 to use RYFT." : {
+      "comment" : "Consent screen: the minimum age (Art. 8 GDPR, Germany).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du musst mindestens 16 Jahre alt sein, um RYFT zu nutzen."
+          }
+        }
+      }
+    },
+    "You're in the middle of another import. Opening this file starts over." : {
+      "comment" : "Training import E8.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du bist mitten in einem anderen Import. Mit dieser Datei beginnst du von vorn."
+          }
+        }
+      }
+    },
+    "You're offline, so RYFT couldn't check for duplicates yet." : {
+      "comment" : "Training import, step 5: the duplicate check needs the network.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du bist offline, daher konnte RYFT noch nicht auf Duplikate prüfen."
+          }
+        }
+      }
+    },
+    "You're offline. Your import is kept on this iPhone and continues when you're back online." : {
+      "comment" : "Training import I6.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du bist offline. Dein Import bleibt auf diesem iPhone und läuft weiter, sobald du wieder online bist."
           }
         }
       }
@@ -7566,6 +12203,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Du bist abgemeldet, deshalb können keine neuen Daten geladen werden."
+          }
+        }
+      }
+    },
+    "Your %lld done sets stay with %@." : {
+      "comment" : "Replace sheet, several sets already done. 1: number of sets, 2: the exercise being replaced.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine %lld erledigten Sätze bleiben bei %@."
           }
         }
       }
@@ -7633,12 +12281,34 @@
         }
       }
     },
+    "Your choice" : {
+      "comment" : "Training import, step 4: a row's status.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Wahl"
+          }
+        }
+      }
+    },
     "Your choices below are kept for when you turn notifications back on." : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Deine Auswahl unten bleibt erhalten, bis du Mitteilungen wieder einschaltest."
+          }
+        }
+      }
+    },
+    "Your current plan is paused. Making this one active replaces it." : {
+      "comment" : "Training import, step 3: the current plan is paused.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein aktueller Plan ist pausiert. Wenn du diesen aktivierst, ersetzt er ihn."
           }
         }
       }
@@ -7650,6 +12320,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Deine Daten sind sicher. RYFT versucht es weiter."
+          }
+        }
+      }
+    },
+    "Your done set stays with %@." : {
+      "comment" : "Replace sheet, one set already done. 1: the exercise being replaced.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein erledigter Satz bleibt bei %@."
+          }
+        }
+      }
+    },
+    "Your file is ready. Sign in to continue." : {
+      "comment" : "Training import E6: a file was opened while signed out.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Datei ist bereit. Melde dich an, um fortzufahren."
           }
         }
       }
@@ -7670,6 +12362,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dein Verlauf ist unterwegs."
+          }
+        }
+      }
+    },
+    "Your import is kept on this iPhone. RYFT retries when the connection is back." : {
+      "comment" : "Training import I5.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Import bleibt auf diesem iPhone. RYFT versucht es erneut, sobald die Verbindung wieder da ist."
+          }
+        }
+      }
+    },
+    "Your import is saved on this iPhone." : {
+      "comment" : "Training import I9.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dein Import ist auf diesem iPhone gespeichert."
+          }
+        }
+      }
+    },
+    "Your next import asks about every exercise again. Imported workouts and plans stay as they are." : {
+      "comment" : "Profile → Data: what clearing the remembered matches does.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beim nächsten Import fragt RYFT wieder bei jeder Übung nach. Importierte Workouts und Pläne bleiben unverändert."
           }
         }
       }
@@ -8065,6 +12790,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ Nächte"
+          }
+        }
+      }
+    },
+    "%@, not scored" : {
+      "comment" : "OrbitGauge VoiceOver: a score that is missing (not scored), after its name (Recovery, Sleep, Strain).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, nicht bewertet"
           }
         }
       }
@@ -8522,24 +13258,6 @@
         }
       }
     },
-    "%lld seconds left. Next: %@" : {
-      "comment" : "A description of the remaining rest time and the next action available. The first argument is the remaining rest time in seconds. The second argument is the next action, such as \"Next: 10 min\" or \"Next: 15 min\".",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "Noch %1$lld Sekunden. Als Nächstes: %2$@"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$lld seconds left. Next: %2$@"
-          }
-        }
-      }
-    },
     "%lld sets checked off. Empty rows are dropped." : {
       "comment" : "A confirmation dialog that appears when the user taps the \"Finish workout\" button. The text describes the number of sets that have been checked off.",
       "isCommentAutoGenerated" : true,
@@ -8660,6 +13378,47 @@
         }
       }
     },
+    "+%lld more" : {
+      "comment" : "Train session, an exercise's Last time line: sets not listed after the first five.",
+      "localizations" : {
+        "de" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld weiterer"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld weitere"
+                }
+              }
+            }
+          }
+        },
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld more"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "+%lld more"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "+2.5 kg after every set is done; the same weight after a miss; 10 % lighter after three misses." : {
       "comment" : "Help text for the progression of a plan.",
       "isCommentAutoGenerated" : true,
@@ -8668,18 +13427,6 @@
           "stringUnit" : {
             "state" : "machine_translated",
             "value" : "+2,5 kg, wenn alle Sätze geschafft sind; gleiches Gewicht nach einem Fehlversuch; 10 % leichter nach drei Fehlversuchen."
-          }
-        }
-      }
-    },
-    "+15 s" : {
-      "comment" : "A button to increase the rest time by 15 seconds.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "+15 s"
           }
         }
       }
@@ -8696,6 +13443,61 @@
         }
       }
     },
+    "‘%@’ for %@: is that added weight, or your body weight?" : {
+      "comment" : "Training import, step 4: the bodyweight question; the load as written (+20) and the file's exercise name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„%1$@“ bei %2$@: Ist das Zusatzgewicht oder dein Körpergewicht?"
+          }
+        }
+      }
+    },
+    "“%@”" : {
+      "comment" : "A name quoted inside a sentence, e.g. an exercise from an imported file.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„%@“"
+          }
+        }
+      }
+    },
+    "“%@” is empty." : {
+      "comment" : "Training import P6; the file's name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„%@“ ist leer."
+          }
+        }
+      }
+    },
+    "“%@” is larger than 8 MB." : {
+      "comment" : "Training import P4; the file's name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„%@“ ist größer als 8 MB."
+          }
+        }
+      }
+    },
+    "“%@” isn't a CSV file." : {
+      "comment" : "Training import P3; the file's name.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "„%@“ ist keine CSV-Datei."
+          }
+        }
+      }
+    },
     "−%@ for your nap" : {
       "comment" : "The word \"nap\" is used as a placeholder for the word for the user's nap.",
       "isCommentAutoGenerated" : true,
@@ -8704,18 +13506,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "−%@ für dein Nickerchen"
-          }
-        }
-      }
-    },
-    "−15 s" : {
-      "comment" : "A button to decrease the rest time by 15 seconds.",
-      "isCommentAutoGenerated" : true,
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "−15 s"
           }
         }
       }
@@ -13348,6 +18138,17 @@
     "Out of bed" : {
       "shouldTranslate" : false
     },
+    "Overall readiness, no data" : {
+      "comment" : "OrbitGauge VoiceOver: no readiness yet, the first part of the sentence.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gesamtbereitschaft, keine Daten"
+          }
+        }
+      }
+    },
     "Overall readiness" : {
       "comment" : "The title of the overall readiness score.",
       "isCommentAutoGenerated" : true,
@@ -15089,6 +19890,39 @@
         }
       }
     },
+    "Strain %@ of 21" : {
+      "comment" : "OrbitGauge VoiceOver: Strain on its 0 to 21 scale, e.g. 9.6.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Belastung %@ von 21"
+          }
+        }
+      }
+    },
+    "Strain %@ of 21, above today's recommended range %@ to %@" : {
+      "comment" : "OrbitGauge VoiceOver: strain above the day's recommended range, e.g. 'Strain 16.5 of 21, above today's recommended range 8 to 13'. Said instead of the sibling sentence when the arc has turned red, so the colour is not the only signal. The range is the platform's recommendation, not a goal the user sets: don't translate it as Ziel. Not reached in the app until the platform serves the range (docs/API_REQUESTS.md, Charts and gauges #2). Arguments in order: strain, range start, range end.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Belastung %1$@ von 21, über dem heutigen empfohlenen Bereich %2$@ bis %3$@"
+          }
+        }
+      }
+    },
+    "Strain %@ of 21, today's recommended range %@ to %@" : {
+      "comment" : "OrbitGauge VoiceOver: Strain on its 0 to 21 scale, then today's recommended strain range, e.g. 'Strain 9.6 of 21, today's recommended range 8 to 13'. The range is the platform's recommendation for the day, not a goal the user sets: don't translate it as Ziel. Not reached in the app until the platform serves the range (docs/API_REQUESTS.md, Charts and gauges #2); previews and tests pass one. Arguments in order: strain, range start, range end.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Belastung %1$@ von 21, heutiger empfohlener Bereich %2$@ bis %3$@"
+          }
+        }
+      }
+    },
     "Strain" : {
       "comment" : "A tab for viewing the user's current strain.",
       "isCommentAutoGenerated" : true,
@@ -16430,6 +21264,17 @@
           "stringUnit" : {
             "state" : "machine_translated",
             "value" : "Gestern"
+          }
+        }
+      }
+    },
+    "You changed these in RYFT, so your version stays." : {
+      "comment" : "Training import I3: newer_on_server, why the file's version was not applied.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du hast sie in RYFT geändert, deshalb bleibt deine Version."
           }
         }
       }

@@ -22,6 +22,9 @@ final class LocalSession {
     var exercises: [LocalSessionExercise] = []
     /// Sets removed while logging, so a 409 merge doesn't bring them back.
     var deletedSetIDs: [UUID] = []
+    /// Exercises removed while logging (removed, or inserted by a replace and taken back by Undo), so neither a 409
+    /// merge nor `apply` brings them back. Added in beta feedback 2 (ADR 0009); older stores open with `[]`.
+    var deletedExerciseIDs: [UUID] = []
     /// Finished offline; `POST …/complete` runs on reconnect ("will sync").
     var pendingCompletion = false
     /// The server has a copy (a discard then needs a `DELETE`).
@@ -34,6 +37,10 @@ final class LocalSession {
     /// The running rest timer, so it survives the app being killed.
     var restEndsAt: Date?
     var restTotal: Double = 0
+    /// The exercise the Focused layout shows (ADR 0014). Local only: never on `wire`, and written with `store.save()`
+    /// alone (`SessionController.showPage`), so a page change reaches neither `updatedAt` nor the outbox. Nil from
+    /// builds before it and from the List layout: `SessionPage.resolve` picks the page, and the screen pins that.
+    var currentExerciseID: UUID?
     var updatedAt: Date
 
     init(id: UUID = UUID(), title: String, startedAt: Date = .now, planDayId: UUID? = nil) {
@@ -96,7 +103,7 @@ final class LocalSession {
         muscularTrimp = doc.muscularTrimp ?? muscularTrimp
         strain = doc.strain ?? strain
         volumeKg = doc.volumeKg ?? volumeKg
-        for remote in doc.exercises {
+        for remote in doc.exercises where !deletedExerciseIDs.contains(remote.id) {
             let local: LocalSessionExercise
             if let existing = exercises.first(where: { $0.id == remote.id }) {
                 local = existing
@@ -229,6 +236,9 @@ final class LocalSet {
     }
 
     var isCompleted: Bool { completedAt != nil }
+
+    /// Something was typed in (a delete then asks first; Edit targets never removes it).
+    var hasValues: Bool { reps != nil || weightKg != nil || rpe != nil || durationSec != nil || distanceM != nil }
 
     func update(from s: SessionSet) {
         setIndex = s.setIndex

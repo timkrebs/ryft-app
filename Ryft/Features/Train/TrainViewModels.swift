@@ -409,12 +409,13 @@ final class TrainTodayViewModel {
 struct CustomExerciseDraft: Equatable {
     var name: String
     var kind: ExerciseKind = .dumbbell
-    var muscle: Muscle = .chest
+    /// nil until chosen (the import leaves it empty); the form's own default is chest.
+    var muscle: Muscle? = .chest
     var loadType: LoadType = .weight
     var unilateral = false
 
     var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
-    var canSave: Bool { !trimmedName.isEmpty }
+    var canSave: Bool { !trimmedName.isEmpty && muscle != nil }
 
     /// "Landmine press" → slug `landmine-press`.
     var slug: String {
@@ -423,7 +424,7 @@ struct CustomExerciseDraft: Equatable {
     }
 
     var exercise: Exercise {
-        Exercise(slug: slug, name: trimmedName, kind: kind, primaryMuscles: [muscle],
+        Exercise(slug: slug, name: trimmedName, kind: kind, primaryMuscles: muscle.map { [$0] } ?? [],
                  equipment: [kind.rawValue], loadType: loadType,
                  bodyweightFactor: loadType == .bodyweight ? 1 : 0, isUnilateral: unilateral, isCustom: true)
     }

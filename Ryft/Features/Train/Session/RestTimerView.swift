@@ -1,112 +1,6 @@
 import SwiftUI
 
-/// The prominent rest timer: big countdown, ring, −15 s / +15 s / Skip, next set.
-struct RestTimerView: View {
-    var controller: SessionController
-
-    var body: some View {
-        switch controller.rest.phase {
-        case .idle:
-            EmptyView()
-        case .running:
-            running
-        case .finished:
-            finished
-        }
-    }
-
-    private var running: some View {
-        TimelineView(.periodic(from: .now, by: 0.5)) { context in
-            let remaining = controller.rest.remaining(at: context.date)
-            VStack(spacing: 14) {
-                HStack(spacing: 18) {
-                    ZStack {
-                        Circle().stroke(Theme.accent.opacity(0.14), lineWidth: 6)
-                        Circle()
-                            .trim(from: 0, to: controller.rest.fraction(at: context.date))
-                            .stroke(Theme.accent, style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
-                        Image(systemName: "timer")
-                            .font(.system(size: 18, weight: .medium))
-                            .foregroundStyle(Theme.accent)
-                    }
-                    .frame(width: 64, height: 64)
-                    .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Rest")
-                            .ryftLabelStyle()
-                        Text(Fmt.clock(remaining.rounded(.up)))
-                            .font(.ryftNumber(size: 46))
-                            .monospacedDigit()
-                            .foregroundStyle(Theme.textPrimary)
-                            .contentTransition(.numericText(countsDown: true))
-                        Text("Next: \(controller.nextLabel())")
-                            .font(.ryft(.caption))
-                            .foregroundStyle(Theme.textSecondary)
-                            .lineLimit(2)
-                    }
-                    Spacer(minLength: 0)
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Text("Rest timer"))
-                .accessibilityValue(Text("\(Int(remaining.rounded(.up))) seconds left. Next: \(controller.nextLabel())"))
-                HStack(spacing: 10) {
-                    restButton("−15 s", label: "Fifteen seconds less") { controller.adjustRest(by: -RestTimer.step) }
-                    restButton("+15 s", label: "Fifteen seconds more") { controller.adjustRest(by: RestTimer.step) }
-                    restButton("Skip", label: "Skip rest", prominent: true) { controller.skipRest() }
-                }
-            }
-            .padding(16)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous)
-                .strokeBorder(Theme.accent.opacity(0.35), lineWidth: Theme.Metrics.hairline))
-        }
-    }
-
-    private var finished: some View {
-        Button {
-            controller.dismissRestBanner()
-        } label: {
-            HStack(spacing: 14) {
-                Image(systemName: "bell.fill")
-                    .font(.system(size: 18, weight: .semibold))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Rest over")
-                        .font(.ryft(.headline))
-                    Text(controller.nextLabel())
-                        .font(.ryft(.caption))
-                }
-                Spacer()
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .semibold))
-            }
-            .foregroundStyle(Theme.onAccent)
-            .padding(16)
-            .frame(minHeight: 56)
-            .background(Theme.accent, in: RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous))
-        }
-        .buttonStyle(PressableButtonStyle())
-        .accessibilityLabel(Text("Rest over. \(controller.nextLabel())"))
-        .accessibilityHint(Text("Dismisses the banner"))
-    }
-
-    private func restButton(_ title: LocalizedStringKey, label: LocalizedStringKey, prominent: Bool = false,
-                            action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.ryftNumber(size: 17))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.7) // "Überspringen" in German
-                .padding(.horizontal, 8)
-                .foregroundStyle(prominent ? Theme.onAccent : Theme.textPrimary)
-                .frame(maxWidth: .infinity, minHeight: 56)
-                .background(prominent ? Theme.accent : Theme.surfaceRaised, in: Capsule())
-        }
-        .buttonStyle(PressableButtonStyle())
-        .accessibilityLabel(Text(label))
-    }
-}
+// The rest timer itself is the pinned `RestBar` (RestBar.swift); the large card that scrolled with the list is gone.
 
 /// Number entry for kg / reps / RPE: 56 pt keys, ±2.5 kg or ±1 rep steps,
 /// Next moves kg → reps → the next set. Plate calculator for barbell weights.
@@ -122,7 +16,7 @@ struct NumberPad: View {
             Grid(horizontalSpacing: 8, verticalSpacing: 8) {
                 GridRow { digit("1"); digit("2"); digit("3"); stepKey(-1) }
                 GridRow { digit("4"); digit("5"); digit("6"); stepKey(1) }
-                GridRow { digit("7"); digit("8"); digit("9"); key("Next", systemImage: "arrow.right", prominent: false) { controller.advance() } }
+                GridRow { digit("7"); digit("8"); digit("9"); key("Next", systemImage: "arrow.right", prominent: false) { controller.nextField() } }
                 GridRow {
                     if field == .reps { Color.clear.frame(height: 56) } else { digit(".") }
                     digit("0")
@@ -368,13 +262,13 @@ private struct BarView: View {
     }
 }
 
-#Preview("Rest timer & keypad", traits: .sizeThatFitsLayout) {
+#Preview("Rest bar & keypad", traits: .sizeThatFitsLayout) {
     let c = TrainPreview.liveController()
     let set = c.exercises[0].orderedSets[2]
     c.edit(set, .kg)
     return SchemePair {
         VStack(spacing: 16) {
-            RestTimerView(controller: c)
+            RestBar(controller: c, pill: false)
             NumberPad(controller: c, onPlates: { _ in })
         }
     }

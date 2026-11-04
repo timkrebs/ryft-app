@@ -185,3 +185,87 @@ the phone's current zone? If it re-renders, an export made after a zone change w
 
 **Before the flag goes on:** C2 (contract mirror, live client), privacy-policy lines (import read on the device, an
 unsent import kept up to 30 days, `import_source` stored), and a device check of a batch finishing in the background.
+
+## I4 `train: import flow` (2026-10-26)
+
+The six-step import flow behind `train.import` (off by default; on in Debug demo), built on I5's seam. The "Open in"
+routing (E5–E10) is complete, but the CSV document type stays out of Info.plist until the flag-on PR.
+
+**Gates (7f2c1a4):**
+- strict build clean;
+- Unit 1,812 passed (46 new tests);
+- UISmoke 32 (1 skip predates I4);
+- `ImportUITests` 4/4, with the end-to-end test in UISmoke at about 60 s locally;
+- `make lint`;
+- 251 strings (en + de), insertions only.
+
+### code-reviewer (7c74ca4): 3 should-fix, nits, nothing blocking
+
+| # | Finding | Result |
+| --- | --- | --- |
+| 1 | A stale preview build (or mapping) could land after the user went back and changed a match | Matching and building are cancellable tasks with a generation, checked after every await; `aStaleBuildNeverWins` |
+| 2 | "Choose another exercise" → "Custom exercise" created a real exercise at once, with a random id | It opens the draft form; nothing is created before Import |
+| 3 | A partly failed result marked itself seen, so its Retry and the resume row were lost at the next purge | Seen only when nothing was refused, or on Done |
+| Nits | Clear-matches keyed on the account only; detection re-merged per access; a full second decode; V5 silent refusal; a duplicate alert | Fixed |
+
+**Re-check (7f2c1a4): merge.** Carried to C2: `.needsAttention` resumes on every automatic trigger and should wait for
+Try again.
+
+### security-privacy-reviewer (7c74ca4): signed off, 2 should-fix
+
+| # | Finding | Result |
+| --- | --- | --- |
+| S1 | With the flag off, an "Open in" file left iOS's copy in `Documents/Inbox` | Owned copies are removed without being read; the user's own file is never touched |
+| S2 | A saved job couldn't be discarded, and "kept on this iPhone" didn't say for how long | "Discard import" in every paused or saved state; "Kept on this iPhone for up to 30 days. Signing out removes it." |
+
+Also: synthetic demo files only (no distinctive overlap with the user's real exports), file access paired and capped,
+no URL or text kept, nothing spoken from notes.
+
+**Re-check (7f2c1a4): signed off.**
+
+### ui-validator: partial (usage limit)
+
+The validator captured all steps at AX3 (en, de) and AX5 (en) in dark mode, but stopped before its report. Seen by
+the lead:
+- the German step-4 title truncates at AX3 ("Übungen zuord…");
+- at AX5, step 4's sticky section header and the bottom bar (count, Continue, search) leave little room for rows.
+
+**Before the flag goes on:**
+- a full UI validation (AX5, light, the paused and saved states);
+- these two layout items;
+- privacy's wording suggestion for the discard confirmation: "Exercises, plans and workouts already sent stay in RYFT."
+
+## S1 screenshot tests (2026-10-27, on #67)
+
+`make ui-shots` renders 50 shots per language (en, de) from the preview mocks into `build/ui-shots/`. In the 402 pt
+render, the German step-4 title fits at AX3 ("Übungen zuordnen", inline nav titles don't grow with Dynamic Type: system
+behaviour). The earlier "Übungen zuord…" was a narrower device.
+
+### ui-validator (from the PNGs)
+
+**Blocking, sent to ios-developer:**
+1. Step 3: at AX3 (de) and AX5 the range picker is squeezed into a trailing column and overlaps the history counts.
+2. Step 5 at AX5: the pinned footer (message + button) takes about 65 % of the screen.
+3. `InlineMessage` at AX5: the action sits flush on the card's edge, and the icon doesn't scale.
+4. Step 6 `.paused(.needsAttention)` shows "Importing…" with an active bar. Lead decision: reuse I4's existing heading
+   "Some items weren't imported" if the catalog already has it (no new strings), and keep "Try again". Retry/Done is
+   the finished state's pair (`result-rejections`), not the pause's.
+
+**Nits, open:**
+- the paused copy repeats "kept on this iPhone";
+- §I2's "You can close this…" is missing on paused;
+- `result-saved` says "saved on this iPhone" twice (the spec's header is "Ready");
+- the S2 alert's cancel is "Abbrechen" vs N1's "Weitermachen";
+- AX5 mid-word breaks in the eyebrow and file names;
+- the E10 sheet has a large gap above OK;
+- §12's step-1 copy is older than the shipped (more precise) privacy sentence, so the spec needs updating.
+
+### code-reviewer (test code)
+
+No blockers; the CI gate holds (no `RYFT_SCREENSHOTS` in Unit/Full). Should-fix, done by the lead:
+- a throwaway simulator instead of changing a shared simulator's language;
+- the device by name, not a local UDID;
+- a language that fails to apply now fails the test, and the export refuses duplicate names;
+- the test waits for the window scene instead of falling back to a sceneless window;
+- `.serialized`;
+- nits: dismiss before teardown, comments, the `.png` suffix.

@@ -15,6 +15,19 @@ Before the first external build, the platform must be live:
 `scripts/build-number.sh` with the UTC build time, `yyyyMMdd.HHmmss`. Numbers therefore
 only go up, and both paths can be mixed freely.
 
+**From CI (usual):**
+- **Nightly** (`nightly.yml`, 01:00 UTC): archives `main` and uploads it to **Internal** when
+  anything landed since the last build, with the commits as What to Test. The version stays
+  whatever `VERSION` says; only the build number moves.
+- **Weekly** (`weekly.yml`, Mondays 07:00 Berlin): hands the newest processed build to
+  **External** with the week's commits, after you approve the `external-testflight`
+  environment. No rebuild.
+- **A new version:** `make release BUMP=minor` (or `patch`, `major`, or `VERSION=X.Y.Z`) on a
+  clean, up-to-date `main` opens the PR `release: X.Y.Z` (`VERSION` raised, CHANGELOG's
+  Unreleased moved under it). Merge it when green; `release.yml` then tags `vX.Y.Z` and
+  uploads that tag to **Internal**. `DRY_RUN=1 make release BUMP=minor` shows what it would do.
+  Details: `docs/CI.md` → Versions and build numbers.
+
 **Option A, Terminal:** `make archive` (Release, version from `VERSION`, build number
 from `scripts/build-number.sh`). It checks the fonts and `make lint` (including `check-entitlements`)
 first. Then upload `build/export/Ryft.ipa` with Organizer → Distribute App, or with
@@ -61,7 +74,12 @@ so no question appears.
    about a day; later builds of the same version usually pass at once.
 3. Turn on **Public Link** and send it to friends together with an **invite code**
    (`../plattform` `OPERATIONS.md` → Invite codes; one code per person, or one code with
-   `max_uses`). Without a code the app stops at "Invite code".
+   `max_uses`). Without a code the app stops at "Invite code". Testers must be **16 or
+   older**: the consent screen says so, and About you offers birth years only up to this
+   year − 16 (the platform refuses later ones). The age rating in App Store Connect has to fit.
+   New accounts go through: invite code → consent → About you (birth year; can be skipped)
+   → What do you wear? (only while `devices.setup` is on) → Apple Health → the first import →
+   Today calibrating.
 4. The tester limit and the link can be changed later. Each build **expires after 90
    days**, so upload a new one before then.
 
@@ -73,7 +91,7 @@ so no question appears.
 | Feedback Email | the address you read (e.g. `beta@ryftapp.de`) |
 | Marketing URL | `https://ryftapp.de` |
 | Privacy Policy URL | `https://ryftapp.de/privacy` |
-| Sign-in required | **yes**: user name `review@ryftapp.de`, password from Vault (`seed_demo.sh`). Enter it **only here**, never in the repo. Run `seed_demo.sh` before every submission, so the 60 days of data are fresh. |
+| Sign-in required | **yes**: user name `review@ryftapp.de`, password from Vault (`seed_demo.sh`). Enter it **only here**, never in the repo. Run `seed_demo.sh` before every submission, so the 60 days of data are fresh and the consent matches the privacy policy in force (it consents to the current version and sets birth year 1990). Run it again after a new policy version goes live. |
 | Review Notes | see below |
 | What to Test | from `docs/TESTFLIGHT_NOTES.md`, for the build |
 
@@ -81,14 +99,16 @@ so no question appears.
 
 > RYFT turns what your watch or ring writes to Apple Health into three daily numbers:
 > recovery, strain and sleep, each scored against your own baseline. This beta is for a
-> small group of friends. Install, enter your invite code, and wear your device to bed.
+> small group of friends aged 16 and over. Install, enter your invite code, and wear your
+> device to bed.
 > Scores sharpen over the first week. Feedback: Profile → Report a problem, or
 > TestFlight's screenshot feedback.
 
 ### Review Notes (en)
 
-> RYFT is a wellness app. It reads heart rate, HRV, resting heart rate, sleep,
-> workouts, steps and energy from Apple Health. It writes to Apple Health only if the user
+> RYFT is a wellness app for people aged 16 and over. It reads heart rate, HRV, resting
+> heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and
+> workouts from Apple Health. It writes to Apple Health only if the user
 > turns on "Save strength workouts to Apple Health": one workout per logged strength
 > session, nothing else. It sends
 > the data to the RYFT platform (EU), which calculates recovery, strain and sleep scores.
@@ -97,8 +117,14 @@ so no question appears.
 >
 > **Demo account:** use the sign-in details above (email). The account already has 60
 > days of data, so Today, Sleep, Strain, Train and Insights all show scores. It has beta
-> access and consent on file, so the invite code and consent steps do not appear for it.
-> New accounts see both.
+> access, consent to the current privacy policy and a birth year on file, so the invite
+> code, consent and About you steps do not appear for it. The app may ask "What do you
+> wear?" once; choose any device or tap Skip. Then allow Apple Health access (an empty
+> Health store is fine).
+>
+> **New accounts** see: invite code → consent to health-data processing (it states the
+> minimum age of 16) → About you (birth year, 1920 to this year − 16; optional) → What do
+> you wear? (if shown) → Apple Health.
 >
 > Sign in with Apple and email/password both work.
 >
@@ -129,8 +155,9 @@ Testers can send diagnostics directly from the app without leaving to email or a
 
 ## 6. Every new build
 
-1. Raise the build number. `make archive` does it, so does CI. Keep the version at
-   `1.0.0` during the beta.
+1. Raise the build number. `make archive` does it, so does CI. Raise the version only with
+   `make release` (above), never by editing `VERSION` in a feature PR: a merged `VERSION`
+   change is what tags and uploads a release.
 2. Add an entry to `docs/TESTFLIGHT_NOTES.md` (en + de) and paste it into What to Test.
 3. Upload, wait for processing, add the build to **Internal**, check it, then add it to
    **External**.

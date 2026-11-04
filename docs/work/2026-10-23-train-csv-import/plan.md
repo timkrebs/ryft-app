@@ -34,6 +34,7 @@ and "last time" then work from day one. Everything is parsed on the device; the 
 | C2 | `api: training import contract` | api-contract-keeper | the platform publishes `POST /v1/train/import` | Mirror, fixtures, decode tests |
 | I5 | `train: batch upload, ids and duplicates` | sync-engineer (performance-profiler for a large file; security-privacy) | ids and duplicates now; the upload after C2 | UUIDv5 ids, ≤ 50 per request, resumable, local bundle until uploaded |
 | I6 | `docs: training import` | lead + localization-editor | all | STATUS, CHANGELOG, TestFlight note en + de, ARCHITECTURE seam table |
+| S1 | on #67 (2026-10-27) | test-engineer (ui-validator reads the PNGs; code-reviewer on the tests) | #67's lint fixed | Screenshot tests for the import UI: `ImageRenderer`/hosting controller from the preview mocks, PNGs attached, `make ui-shots` exports to `build/ui-shots/`. No reference images. |
 
 Every ticket gets en + de strings (localization-editor) and tests (test-engineer). Reviews per `docs/AGENT_FLEET.md`.
 

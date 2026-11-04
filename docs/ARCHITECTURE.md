@@ -134,8 +134,15 @@ previews) applies one state on mock data for screenshots and the UI tests.
 container (`group.dev.timkrebs.ryft`). `Repository.publishWidget()` writes it after every
 days write and when `AppState.syncStatus` changes today's state (`ReadinessSnapshot.make`
 mirrors the hero's priority), and reloads the widget only when what it shows changed.
-`ReadinessSnapshot` exists in both targets (the folders can't share a file); its JSON
-shape is the contract. Only the live graph writes (`AppEnvironment.sharesWithWidget`).
+`ReadinessSnapshot` is one file both targets compile (`Shared/`, ADR 0010); its JSON shape
+is the contract, and it only gains optional keys. It carries the orbit's scores, so the
+widget draws Today's `OrbitGaugeMode` (`ReadinessSnapshot.gauge`). The file is written with
+`completeUntilFirstUserAuthentication` protection and excluded from backups. On a locked
+device the widget hides the values (the system's `.privacy` redaction): the orbit's tracks
+only in every state, a constant number and line under the redaction (a redaction keeps its
+text's width; `ReadinessSnapshot.numberSlot`/`lineSlot`/`bedtimeSlot`), no bedtime line, and
+VoiceOver says "Readiness". Only the live graph writes
+(`AppEnvironment.sharesWithWidget`).
 
 **Tests** (`ViewModelTests`). Each view model runs against `AppEnvironment.test` with a
 `MockPlatformAPI`, `MockHealthStore`, a `TestClock` and its own defaults suite and response
@@ -506,6 +513,10 @@ mode) serves the request and names the gate in `X-RYFT-Gate`:
     most 10 s).
   - Afterwards: a gate as a sheet over the tabs; "Not now" is remembered for the
     session and Today shows "Action needed".
+- **"This day is being scored" has one owner** (ADR 0013): `SyncService.scoringLedger`, written only by
+  `SyncCoordinator` steps (`awaiting` after accepted writes, `scored` on a push), answered by status reads requested at
+  least the server's cache time after the write, read by Today and the widget through `ScoringWord.state`. New write
+  paths reach it through the coordinator, never directly.
 - **One rule for every upload** (ADR 0008): `OnboardingCoordinator.gate(_:path:write:)`, a pure function next to
   `missing(_:)`, asked through `uploadGate(for:write:)` by `SyncService` (`.healthKit`), `ActivityUploader`
   (`.activities`), `TrainSyncService` (`.train`) and, once built, the training import (`.trainImport`):

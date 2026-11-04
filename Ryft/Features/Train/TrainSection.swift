@@ -32,6 +32,7 @@ struct TrainSection: View {
                              systemImage: "list.bullet.rectangle")
             }
             .buttonStyle(PressableButtonStyle())
+            .accessibilityIdentifier("train.plans")
             NavigationLink(value: TrainRoute.history) {
                 TrainLinkRow(title: String(localized: "History"), detail: model.historyDetail,
                              systemImage: "clock.arrow.circlepath")

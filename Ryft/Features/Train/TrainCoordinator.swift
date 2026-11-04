@@ -28,10 +28,21 @@ final class TrainCoordinator {
 
     /// The workout's Live Activity; `nil` in tests.
     private let liveActivity: RestActivityController?
+    /// The live session's "now" and waits (the undo window, the jump to the next exercise).
+    private let clock: AppClock
+    /// Profile → Training → Jump to next exercise, read when a jump is due; tests replace it.
+    @ObservationIgnored var jumpToNext: @MainActor () -> Bool = { Settings.shared.jumpToNextExercise }
+    /// List or Focused for a controller about to be built. Flag off or absent: List, whatever Profile says (L5). Tests
+    /// replace it.
+    @ObservationIgnored var sessionLayout: @MainActor () -> SessionLayout = {
+        SessionLayout.effective(flagOn: AppEnvironment.live.flags.isOn(.focusedSession), stored: Settings.shared.sessionLayout)
+    }
 
-    init(sync: TrainSyncService? = nil, library: TrainLibrary? = nil, liveActivities: Bool = true) {
+    init(sync: TrainSyncService? = nil, library: TrainLibrary? = nil, liveActivities: Bool = true,
+         clock: AppClock = SystemClock()) {
         self.sync = sync ?? .shared
         self.library = library ?? .shared
+        self.clock = clock
         liveActivity = liveActivities ? .shared : nil
         active = self.sync.store.activeSession()
         // An activity left from a workout that's over (or an older version) goes.
@@ -134,7 +145,11 @@ final class TrainCoordinator {
     }
 
     private func open(_ s: LocalSession) {
-        let controller = live?.session.id == s.id ? live : SessionController(session: s, sync: sync, liveActivity: liveActivity)
+        let controller = live?.session.id == s.id
+            ? live
+            : SessionController(session: s, sync: sync, liveActivity: liveActivity, clock: clock, library: library,
+                                layout: sessionLayout())
+        controller?.jumpToNext = jumpToNext
         if live !== controller { live?.stop() }
         // The start sheet must be gone before the full-screen session can appear.
         guard showsStart else {
@@ -248,7 +263,7 @@ enum TrainPreview {
     static func liveController() -> SessionController {
         let s = store.activeSession() ?? MockTrain.liveSession(in: store)
         coordinator.refreshActive()
-        return SessionController(session: s, sync: sync, liveActivity: nil)
+        return SessionController(session: s, sync: sync, liveActivity: nil, library: library)
     }
 }
 

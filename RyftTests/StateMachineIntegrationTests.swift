@@ -102,14 +102,15 @@ struct StateMachineIntegrationTests {
         let trainSync = TrainSyncService(store: store, remote: { MockPlatformAPI() }, monitorsNetwork: false)
         trainSync.gate = { _ in nil } // open: these tests are about what happens past it
         let s = SessionFactory.empty(in: store)
-        SessionFactory.add(MockTrain.bench, to: s, sets: 2, in: store)
+        // Three sets: after the last working set no rest starts at all.
+        SessionFactory.add(MockTrain.bench, to: s, sets: 3, in: store)
         let c = SessionController(session: s, sync: trainSync, liveActivity: nil)
         #expect(c.phase == .active)
 
         let ex = try #require(c.exercises.first)
         // A SwiftData relationship has no order: take two distinct sets once.
         let sets = Array(ex.sets)
-        try #require(sets.count == 2)
+        try #require(sets.count == 3)
         c.toggleCheck(sets[0], in: ex)
         #expect(c.phase == .resting)
         c.skipRest()

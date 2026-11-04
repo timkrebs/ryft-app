@@ -4,8 +4,8 @@ User-visible changes to the RYFT iOS app. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/) (see `docs/RELEASING.md`).
 
-Add a line under **Unreleased** in the PR that makes the change. `release.yml` moves
-these lines under the new version. They become the GitHub Release notes and the App
+Add a line under **Unreleased** in the PR that makes the change. `make release` moves
+these lines under the new version (`docs/CI.md` → Versions and build numbers). They become the GitHub Release notes and the App
 Store "What's New".
 
 ## [Unreleased]
@@ -16,6 +16,8 @@ Store "What's New".
 - Sleep need broken down (baseline, strain, debt, nap credit), sleep quality and
   restorative sleep, bedtime consistency, and a sleep planner for tonight.
 - Strength training: plans, a live session with rest timer, records and history.
+- Import plans and workouts from another training app's CSV export (read on your iPhone; only what you confirm is
+  sent). Not switched on yet.
 - Morning journal ("How was yesterday?") and how habits change the morning after.
 - Notifications for the morning score, scored workouts, records and missing data, with
   quiet hours.
@@ -23,6 +25,8 @@ Store "What's New".
 - Beta onboarding: invite code, consent to health-data processing, birth year for a
   maximum heart-rate estimate. Profile → Privacy to see or withdraw the consent, and
   Profile → Sign-in methods to add Sign in with Apple to an email account.
+- RYFT is for people aged 16 and over: the consent screen says so, and onboarding and
+  Profile offer birth years up to this year − 16.
 - A readiness widget for the home and lock screen: today's readiness, or "Scoring your
   night…" until it's ready.
 - Start a strength workout from anywhere: Today (today's plan, or an empty workout or your
@@ -30,6 +34,8 @@ Store "What's New".
   and a Control Center / Lock Screen control. A workout in progress is resumed, never doubled.
 - The workout on the Lock Screen and in the Dynamic Island for the whole session: elapsed time
   and the next set (e.g. "Bench press · set 3 of 4 · 5 × 80 kg"), the rest countdown between.
+- After the last set of an exercise the workout folds it into one line and scrolls to the next set (Profile →
+  Training → Jump to next exercise, on by default). The rest timer is a compact bar pinned under the clock.
 - Save your strength workouts to Apple Health, if you want: asked once after your first
   logged workout, and in Profile → Data. RYFT writes only the workout, nothing else, and
   not when your watch recorded the session too. The workout summary says where its heart
@@ -50,8 +56,19 @@ Store "What's New".
   hours: what arrived and when, what your tracker doesn't share (that's normal), and the fix for what should
   arrive and doesn't. The check uploads nothing. Report a problem includes the check's result codes when you
   include diagnostics.
+- Replace an exercise during a workout (your done sets stay with the old one, with Undo and optionally in your
+  plan too), and edit its sets, reps, weight, rest and notes for this workout; swipe a set row to delete it.
 
 ### Changed
+- Today: when your tracker's app has gone quiet, the hint says how it syncs and opens the app in one tap (the App
+  Store page when it isn't installed).
+- The app icon (light and dark) now carries the readiness gauge's colours and sits 5 % smaller on its tile.
+- A new app icon and RYFT mark: three orbits, three moons.
+- Today's readiness is now the RYFT orbit: readiness in the centre, Recovery and Sleep on the inner ring, Strain on
+  the outer. The readiness widget on the home and lock screen draws the same orbit.
+- Today: while RYFT learns your baselines, the readiness orbit fills night by night; while last night is scored, it
+  shows the previous day dimmed.
+- Today: the readiness orbit assembles when you open the app (a simple fade with Reduce Motion or Low Power Mode).
 - Your baseline sleep need and maximum heart rate can be changed where you see them: in
   onboarding, from the sleep need on Sleep, and in Profile → Sleep and Body. A change saves
   at once; past days are rescored when you ask.
@@ -76,6 +93,15 @@ Store "What's New".
   until you agree. Deleting an activity, a night or a workout reaches RYFT even without it.
 
 ### Fixed
+- Today: after a sync, last night shows as being scored on every path (a background sync, a relaunch, a pull),
+  and a calibrating day no longer stays on "Scoring your night…" after its score arrives.
+- Today's baseline counter no longer sits at 0 of 7 when your tracker sends no HRV: it counts the resting-heart-rate
+  nights that are filling and says why, shows your readiness when there is one, and never puts a recovery percentage
+  beside the counter. With a tracker that doesn't share HRV chosen in setup, Today says so from the first week
+  (once Devices & sync is on).
+- Train: when a plan day has the same exercise twice, each card shows its own sets from last time when they can
+  be told apart, instead of both lists joined; a long "Last time" ends in "+N more" instead of being cut at five.
+  The training import says when two exercises from the file map to one RYFT exercise.
 - Today names your tracker's app as you know it ("Garmin Connect", not Apple Health's "Connect"). In
   the morning it says when your night hasn't reached Apple Health yet, with the app to open, instead
   of "Scoring your latest data"; scoring that takes longer than usual says so, with Details.

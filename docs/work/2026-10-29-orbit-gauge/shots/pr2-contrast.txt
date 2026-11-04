@@ -1,0 +1,26 @@
+dark filled segment (accent): on track 6.97, on background 10.09
+dark unfilled segment (track): on background 1.45
+dark pending accent at 0.6: on background 4.23, over track 3.50, track-vs-bg for reference 1.45
+dark pending accent at breath-low 0.45: on background 2.87, over track 2.60, track-vs-bg for reference 1.45
+dark pending sleep at 0.6: on background 2.98, over track 2.51, track-vs-bg for reference 1.45
+dark pending sleep at breath-low 0.45: on background 2.17, over track 1.99, track-vs-bg for reference 1.45
+dark pending strain at 0.6: on background 2.85, over track 2.41, track-vs-bg for reference 1.45
+dark pending strain at breath-low 0.45: on background 2.10, over track 1.93, track-vs-bg for reference 1.45
+dark pending warning at 0.6: on background 4.59, over track 3.77, track-vs-bg for reference 1.45
+dark pending warning at breath-low 0.45: on background 3.07, over track 2.76, track-vs-bg for reference 1.45
+dark pending alert at 0.6: on background 2.82, over track 2.34, track-vs-bg for reference 1.45
+dark pending alert at breath-low 0.45: on background 2.07, over track 1.87, track-vs-bg for reference 1.45
+dark pending number (textTertiary) on background 5.25
+light filled segment (accent): on track 3.97, on background 4.54
+light unfilled segment (track): on background 1.14
+light pending accent at 0.6: on background 2.35, over track 2.21, track-vs-bg for reference 1.14
+light pending accent at breath-low 0.45: on background 1.86, over track 1.79, track-vs-bg for reference 1.14
+light pending sleep at 0.6: on background 2.45, over track 2.30, track-vs-bg for reference 1.14
+light pending sleep at breath-low 0.45: on background 1.91, over track 1.84, track-vs-bg for reference 1.14
+light pending strain at 0.6: on background 2.47, over track 2.33, track-vs-bg for reference 1.14
+light pending strain at breath-low 0.45: on background 1.93, over track 1.85, track-vs-bg for reference 1.14
+light pending warning at 0.6: on background 2.31, over track 2.17, track-vs-bg for reference 1.14
+light pending warning at breath-low 0.45: on background 1.83, over track 1.75, track-vs-bg for reference 1.14
+light pending alert at 0.6: on background 2.40, over track 2.26, track-vs-bg for reference 1.14
+light pending alert at breath-low 0.45: on background 1.90, over track 1.82, track-vs-bg for reference 1.14
+light pending number (textTertiary) on background 4.72

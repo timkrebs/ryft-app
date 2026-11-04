@@ -481,6 +481,11 @@ final class Repository {
         didSet { if todayStatus != oldValue { publishWidget() } }
     }
 
+    /// The phone's word about the days being scored, read from its one store (`SyncService.scoringLedger`;
+    /// `LiveSyncSteps` connects it, and SyncService republishes the widget when it changes): today's adjusts
+    /// `todayStatus` as on Today (`ScoringWord.state`). None in tests and previews that don't connect it.
+    @ObservationIgnored var scoringLedger: @MainActor () -> [String: ScoringWord] = { [:] }
+
     /// Tonight's bedtime from Bedtime & wake (`BedtimePlanner`): "Bed by 22:41" on the widget
     /// in the evening.
     var tonightBedtime: Date? {
@@ -501,15 +506,30 @@ final class Repository {
         if ReadinessSnapshot.publish(snapshot, to: file) { reloadWidget() }
     }
 
+    /// The tracker ids chosen in the setup (`TrackerSelectionStore.trackers`; `ScreenModels` connects it). None in
+    /// tests and previews that don't.
+    @ObservationIgnored var chosenTrackers: @MainActor () -> [String] = { [] }
+
     /// The facts Today decides from (`TodayViewModel.facts.scores`), read from the store: today's
-    /// row, `GET /v1/me/sync`'s word when it's about today, and the same history window.
+    /// row, `GET /v1/me/sync`'s word when it's about today, the same history window, and, for a row whose
+    /// calibration note may name it, the tracker setup (a counter on the widget only where Today has one, F3).
     var widgetFacts: TodayScoreFacts {
         let key = DayFormat.string(from: now)
         let today = score(key)
-        return TodayScoreFacts(day: key, today: today,
-                               scoringState: todayStatus?.day == key ? todayStatus?.state : today?.scoringState,
-                               prior: history(from: DayFormat.shift(now, days: -(AppState.historyDays - 1)), to: now)
-                                   .filter { $0.day < key })
+        var facts = TodayScoreFacts(day: key, today: today,
+                                    scoringState: ScoringWord.state(day: key, word: scoringLedger()[key], status: todayStatus,
+                                                                    row: today),
+                                    prior: history(from: DayFormat.shift(now, days: -(AppState.historyDays - 1)), to: now)
+                                        .filter { $0.day < key })
+        facts.devicesSetup = env.flags.isOn(.devicesSetup)
+        if facts.devicesSetup, today?.calibrationNamesTracker == true {
+            let ids = chosenTrackers()
+            if !ids.isEmpty {
+                let catalog = env.trackerCatalog
+                facts.trackers = ids.compactMap(catalog.tracker)
+            }
+        }
+        return facts
     }
 
     /// The cached scores become exactly `scores` (previews, tests); opened details stay.
@@ -733,59 +753,37 @@ final class Repository {
 
 // MARK: - widget snapshot
 
-/// What the readiness widget shows, written into the App Group container by the app.
-/// Keep identical to `RyftWidgets/ReadinessSnapshot.swift`: the widget decodes this JSON.
-struct ReadinessSnapshot: Codable, Equatable {
-    enum Kind: String, Codable {
-        /// Today's readiness.
-        case score
-        /// The night is being scored.
-        case pending
-        /// No night has arrived for today.
-        case waitingForSleep
-        /// Fewer than 7 nights behind the baselines.
-        case calibrating
-    }
-
-    /// The day it's about, `yyyy-MM-dd`; another day on the widget is "waiting for sleep".
-    var day: String
-    var kind: Kind
-    var readiness: Int?
-    /// The latest readiness before `day`, dimmed while the night isn't scored.
-    var previousReadiness: Int?
-    /// While calibrating.
-    var baselineNights: Int?
-    var updatedAt: Date
-    /// Tonight's bedtime (Bedtime & wake): "Bed by 22:41" in the evening.
-    var bedtime: Date?
-
-    static let appGroup = "group.dev.timkrebs.ryft"
-    static let widgetKind = "ReadinessWidget"
-
-    static var sharedFile: URL? {
-        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup)?
-            .appendingPathComponent("readiness.json")
-    }
-
-    /// Today's gauge as `TodayPresentation.decide` picked it, in the widget's kinds (the JSON is
-    /// unchanged): today's readiness; a night pending or awaited, or another day's readiness,
-    /// dimmed; the baselines; `nil` with nothing scored at all. The latest readiness before today
-    /// goes along in every kind: tomorrow shows it dimmed until its night is scored (`asOf`).
+/// The app's half of the widget's snapshot (`Shared/ReadinessSnapshot.swift`): what Today decided, written into the
+/// App Group container when it changed.
+extension ReadinessSnapshot {
+    /// Today's gauge as `TodayPresentation.decide` picked it, in the widget's kinds: today's readiness; a night
+    /// pending or awaited, or another day's readiness, dimmed; the baselines; `nil` with nothing scored at all. The
+    /// latest readiness before today goes along in every kind: tomorrow shows it dimmed until its night is scored
+    /// (`asOf`). The orbit is `OrbitGaugeMode(p)`'s: the tiles' scores and what a baselines count counts.
     static func make(day: String, presentation p: TodayPresentation, now: Date,
                      bedtime: Date? = nil) -> ReadinessSnapshot? {
+        let mode = OrbitGaugeMode(p)
         var s = ReadinessSnapshot(day: day, kind: .waitingForSleep, readiness: nil, previousReadiness: p.previousReadiness,
-                                  baselineNights: nil, updatedAt: now, bedtime: bedtime.flatMap { $0 > now ? $0 : nil })
+                                  baselineNights: nil, updatedAt: now, bedtime: bedtime.flatMap { $0 > now ? $0 : nil },
+                                  orbit: Orbit(recovery: p.tiles.recovery, sleepPerformance: p.tiles.source?.sleepPerformance,
+                                               strain: p.tiles.source?.strain, counted: mode.calibration?.signal))
         switch p.gauge {
         case .readiness(let readiness?) where !p.tiles.isEarlierDay:
             s.kind = .score
             s.readiness = readiness
+            // S2: the baselines still learning beside the readiness.
+            s.baselineNights = mode.calibration?.nights
         case .readiness:
-            // Row D from an earlier day (the widget has no note; its readiness is the latest one), or
-            // no readiness: the last one, dimmed.
-            break
+            // Row D from an earlier day (the widget has no note; its readiness is the latest one), or no readiness:
+            // the last one, dimmed. The orbit only when the tiles show that day (D); otherwise they show today's
+            // unscored night, not the dimmed readiness's day.
+            if !p.tiles.isEarlierDay { s.orbit = nil }
         case .baselines(let nights):
             s.kind = .calibrating
             s.baselineNights = nights
+            // The counter draws no scores (and Recovery is withheld beside it): only what it counts, so a strain
+            // synced while calibrating doesn't reload the widget.
+            s.orbit = Orbit(counted: mode.calibration?.signal)
         case .pending(let night):
             s.kind = night.waitingForSleep ? .waitingForSleep : .pending
         case .firstImport:
@@ -804,8 +802,15 @@ struct ReadinessSnapshot: Codable, Equatable {
             try? FileManager.default.removeItem(at: file)
             return true
         }
-        guard let data = try? encoder.encode(snapshot) else { return false }
-        return (try? data.write(to: file, options: .atomic)) != nil
+        guard let data = try? encoder.encode(snapshot),
+              (try? data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil
+        else { return false }
+        // Health scores: readable by the widget after the first unlock, never in a device backup.
+        var url = file
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? url.setResourceValues(values)
+        return true
     }
 
     /// Sign-out: the next account's readiness, or none, never this one's on the lock screen.
@@ -814,10 +819,12 @@ struct ReadinessSnapshot: Codable, Equatable {
         WidgetCenter.shared.reloadTimelines(ofKind: widgetKind)
     }
 
-    /// Everything but `updatedAt`.
-    private var shown: [String?] {
-        [day, kind.rawValue, readiness.map(String.init), previousReadiness.map(String.init), baselineNights.map(String.init),
-         bedtime.map { String($0.timeIntervalSince1970) }]
+    /// Everything but `updatedAt`: every field counts, so a file written before a new field (the orbit) is
+    /// rewritten by the first publish after the update.
+    private var shown: ReadinessSnapshot {
+        var s = self
+        s.updatedAt = .distantPast
+        return s
     }
 
     static let encoder: JSONEncoder = {
@@ -1058,8 +1065,9 @@ final class ReadScheduler {
         }
     }
 
-    /// Writes an answer into the read models; any caller's, since every store for one key is the same.
-    typealias Store = @MainActor (any Sendable) -> Void
+    /// Writes an answer into the read models; any caller's, since every store for one key is the same. With the
+    /// flight's start: when the answer was asked for, on this phone's clock (retries only ask later).
+    typealias Store = @MainActor (any Sendable, Date) -> Void
 
     @MainActor
     private final class Flight {
@@ -1072,6 +1080,8 @@ final class ReadScheduler {
         /// One shared rerun for `.changed` callers that need data newer than this flight, and its store.
         var followUp: Outcome?
         var followUpStore: Store?
+        /// Callers that joined it in progress (`joiners(for:)`).
+        var joiners = 0
 
         init(started: Date) {
             self.started = started
@@ -1109,6 +1119,22 @@ final class ReadScheduler {
         }
         return try await outcome.value() as? T
     }
+
+    /// The same, and `store` learns when the flight that answered was started: a caller that joined a flight gets
+    /// that flight's start, not its own (`SyncService.receive(_:requestedAt:)`).
+    @discardableResult
+    func run<T: Sendable>(_ key: ReadKey, mode: ReadMode = .latest, userInitiated: Bool = false,
+                          storeAsked: @escaping @MainActor (T, Date) -> Void,
+                          _ fetch: @escaping @MainActor () async throws -> T) async throws -> T? {
+        try Task.checkCancellation()
+        let store: Store = { value, started in if let value = value as? T { storeAsked(value, started) } }
+        guard let outcome = enter(key, mode: mode, userInitiated: userInitiated, store: store, fetch) else { return nil }
+        return try await outcome.value() as? T
+    }
+
+    /// How many callers joined `key`'s flight in progress (none when nothing is in flight). For tests that need a read
+    /// to have joined an earlier flight, not started its own; nothing in the app decides by it.
+    func joiners(for key: ReadKey) -> Int { flights[key]?.joiners ?? 0 }
 
     /// Cancels every read in flight (sign-out, account change): their callers are released with
     /// `CancellationError`, nothing is recorded or stored for them.
@@ -1165,6 +1191,7 @@ final class ReadScheduler {
                 return flight.followUp ?? followUp(after: flight, key, userInitiated: userInitiated, fetch)
             }
             if flight.store == nil { flight.store = store }
+            flight.joiners += 1
             return flight.outcome
         }
         return start(key, store: store, fetch).outcome
@@ -1189,7 +1216,7 @@ final class ReadScheduler {
                     let signposts = Signposts.reads
                     let interval = signposts.beginInterval("store", id: signposts.makeSignpostID(),
                                                            "\(key.resource.rawValue, privacy: .public)")
-                    store(value)
+                    store(value, flight.started)
                     signposts.endInterval("store", interval)
                 }
                 result = .success(value)
@@ -1237,7 +1264,7 @@ final class ReadScheduler {
 
     private static func erase<T: Sendable>(_ store: (@MainActor (T) -> Void)?) -> Store? {
         guard let store else { return nil }
-        return { value in if let value = value as? T { store(value) } }
+        return { value, _ in if let value = value as? T { store(value) } }
     }
 
     /// The tries for one flight: single attempts through the budget, backoff between them.

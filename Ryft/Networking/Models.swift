@@ -1338,6 +1338,14 @@ enum APIErrorCode: String, Codable, CaseIterable, Sendable {
     case inviteRequired = "invite_required"
     /// Sync without consent to the current policy: the consent screen, `POST /v1/me/consent`.
     case consentRequired = "consent_required"
+    /// `429` on `POST /v1/train/import` while another import of the account runs: wait `Retry-After` (10 s) and send
+    /// the same request again; nothing of it was processed.
+    case importInProgress = "import_in_progress"
+    /// `403` on `POST /v1/train/import` when the flag `train.import` is off for the account: hide the import. Not a gate.
+    case importNotEnabled = "import_not_enabled"
+
+    /// The two beta gates (`X-RYFT-Gate`, `SyncStatus.gate`, the onboarding screens). The import codes are not gates.
+    var isGate: Bool { self == .inviteRequired || self == .consentRequired }
 }
 
 /// `{"error": "…"}` bodies.
@@ -1787,6 +1795,8 @@ struct SessionSet: Codable, Hashable, Identifiable {
     var setIndex: Int
     var reps: Int?
     var weightKg: Double?
+    /// `bodyweight` exercises only: the support that makes the movement lighter, in kg (0–200); `nil` = none.
+    var assistKg: Double?
     var rpe: Double?
     var durationSec: Int?
     var distanceM: Double?
@@ -1794,13 +1804,14 @@ struct SessionSet: Codable, Hashable, Identifiable {
     var completedAt: Date?
     var updatedAt: Date
 
-    init(id: UUID = UUID(), setIndex: Int, reps: Int? = nil, weightKg: Double? = nil, rpe: Double? = nil,
-         durationSec: Int? = nil, distanceM: Double? = nil, isWarmup: Bool = false, completedAt: Date? = nil,
-         updatedAt: Date = .now) {
+    init(id: UUID = UUID(), setIndex: Int, reps: Int? = nil, weightKg: Double? = nil, assistKg: Double? = nil,
+         rpe: Double? = nil, durationSec: Int? = nil, distanceM: Double? = nil, isWarmup: Bool = false,
+         completedAt: Date? = nil, updatedAt: Date = .now) {
         self.id = id
         self.setIndex = setIndex
         self.reps = reps
         self.weightKg = weightKg
+        self.assistKg = assistKg
         self.rpe = rpe
         self.durationSec = durationSec
         self.distanceM = distanceM
@@ -1810,7 +1821,7 @@ struct SessionSet: Codable, Hashable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, setIndex, reps, weightKg, rpe, durationSec, distanceM, isWarmup, completedAt, updatedAt
+        case id, setIndex, reps, weightKg, assistKg, rpe, durationSec, distanceM, isWarmup, completedAt, updatedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -1819,6 +1830,7 @@ struct SessionSet: Codable, Hashable, Identifiable {
         setIndex = try c.decodeLenientInt(.setIndex) ?? 0
         reps = try c.decodeLenientInt(.reps)
         weightKg = try c.decodeIfPresent(Double.self, forKey: .weightKg)
+        assistKg = try c.decodeIfPresent(Double.self, forKey: .assistKg)
         rpe = try c.decodeIfPresent(Double.self, forKey: .rpe)
         durationSec = try c.decodeLenientInt(.durationSec)
         distanceM = try c.decodeIfPresent(Double.self, forKey: .distanceM)
@@ -1880,6 +1892,17 @@ struct PlanToday: Codable, Hashable {
 
     func target(for planExercise: PlanExercise) -> PlanTarget? {
         targets.first { $0.planExerciseId == planExercise.id }
+    }
+}
+
+/// `Session.origin`: closed enum, read-only. A missing value is `app` (servers before 2026-10-26); a value this
+/// build doesn't know reads as `app` too.
+enum SessionOrigin: String, Codable, Hashable, Sendable {
+    case app
+    case `import`
+
+    init(from decoder: Decoder) throws {
+        self = SessionOrigin(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .app
     }
 }
 
@@ -1956,6 +1979,11 @@ struct TrainSession: Codable, Hashable, Identifiable {
     var planDayId: UUID?
     var workoutId: UUID?
     var notes: String
+    /// Read-only. `nil` when absent (servers before 2026-10-26, and sessions the app builds): read `resolvedOrigin`,
+    /// which is `.app` then. Leave it `nil` in `POST /v1/train/import` (the endpoint answers `400` on it).
+    var origin: SessionOrigin?
+    /// The import's `source` when `origin` is `import`, else `nil`. Open string; read-only, `nil` in an import request.
+    var importSource: String?
     var bodyweightKg: Double?
     var muscularTrimp: Double?
     /// 0–21: the muscular load alone on the strain scale.
@@ -1967,6 +1995,9 @@ struct TrainSession: Codable, Hashable, Identifiable {
     var prs: [PersonalRecord]
     /// Server time of the last change (ignored on `PUT`).
     var updatedAt: Date?
+
+    /// `origin` as the contract reads it: a missing value is `app`.
+    var resolvedOrigin: SessionOrigin { origin ?? .app }
 
     init(id: UUID = UUID(), title: String, startedAt: Date, endedAt: Date? = nil, status: SessionStatus,
          planDayId: UUID? = nil, workoutId: UUID? = nil, notes: String = "", bodyweightKg: Double? = nil,
@@ -1991,8 +2022,8 @@ struct TrainSession: Codable, Hashable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, startedAt, endedAt, status, planDayId, workoutId, notes, bodyweightKg, muscularTrimp,
-             strain, volumeKg, deviceId, exercises, prs, updatedAt
+        case id, title, startedAt, endedAt, status, planDayId, workoutId, notes, origin, importSource, bodyweightKg,
+             muscularTrimp, strain, volumeKg, deviceId, exercises, prs, updatedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -2005,6 +2036,8 @@ struct TrainSession: Codable, Hashable, Identifiable {
         planDayId = try c.decodeIfPresent(UUID.self, forKey: .planDayId)
         workoutId = try c.decodeIfPresent(UUID.self, forKey: .workoutId)
         notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        origin = try c.decodeIfPresent(SessionOrigin.self, forKey: .origin)
+        importSource = try c.decodeIfPresent(String.self, forKey: .importSource)
         bodyweightKg = try c.decodeIfPresent(Double.self, forKey: .bodyweightKg)
         muscularTrimp = try c.decodeIfPresent(Double.self, forKey: .muscularTrimp)
         strain = try c.decodeIfPresent(Double.self, forKey: .strain)
@@ -2034,6 +2067,8 @@ struct SessionSummary: Codable, Hashable, Identifiable {
     var muscularTrimp: Double?
     var strain: Double?
     var prCount: Int
+    var origin: SessionOrigin?
+    var importSource: String?
 
     init(_ s: TrainSession) {
         id = s.id
@@ -2050,11 +2085,13 @@ struct SessionSummary: Codable, Hashable, Identifiable {
         muscularTrimp = s.muscularTrimp
         strain = s.strain
         prCount = s.prs.count
+        origin = s.origin
+        importSource = s.importSource
     }
 
     enum CodingKeys: String, CodingKey {
         case id, title, startedAt, endedAt, status, planDayId, workoutId, durationMin, exerciseCount, setCount,
-             volumeKg, muscularTrimp, strain, prCount
+             volumeKg, muscularTrimp, strain, prCount, origin, importSource
     }
 
     init(from decoder: Decoder) throws {
@@ -2073,6 +2110,114 @@ struct SessionSummary: Codable, Hashable, Identifiable {
         muscularTrimp = try c.decodeIfPresent(Double.self, forKey: .muscularTrimp)
         strain = try c.decodeIfPresent(Double.self, forKey: .strain)
         prCount = try c.decodeLenientInt(.prCount) ?? 0
+        origin = try c.decodeIfPresent(SessionOrigin.self, forKey: .origin)
+        importSource = try c.decodeIfPresent(String.self, forKey: .importSource)
+    }
+
+    /// `origin` as the contract reads it: a missing value is `app`.
+    var resolvedOrigin: SessionOrigin { origin ?? .app }
+}
+
+/// `POST /v1/plans/{id}/enroll` body; the body is optional and nil fields take their defaults (none are encoded).
+struct EnrollPost: Codable, Hashable, Sendable {
+    var startedAt: Date? = nil
+    var currentWeek: Int? = nil
+    var currentDayIndex: Int? = nil
+}
+
+/// `TrainImportRequest.source`. Request enum, closed; extended additively, and the app only sends one it knows.
+enum TrainImportSource: String, Codable, Hashable, Sendable {
+    case alphaProgression = "alpha_progression"
+}
+
+/// `POST /v1/train/import`: body up to 1 MiB, at most 5 plans and 50 sessions. The sessions must not carry `origin`
+/// or `import_source` (the endpoint answers `400`): leave both `nil` so they are not encoded.
+struct TrainImportRequest: Codable, Sendable {
+    let source: TrainImportSource
+    let plans: [Plan]
+    let sessions: [TrainSession]
+
+    enum CodingKeys: String, CodingKey { case source, plans, sessions }
+
+    /// A decoded session reads a missing `origin` as `.app`; the request must never carry one, so encoding drops both.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(source, forKey: .source)
+        try c.encode(plans, forKey: .plans)
+        try c.encode(sessions.map { session -> TrainSession in
+            var s = session
+            s.origin = nil
+            s.importSource = nil
+            return s
+        }, forKey: .sessions)
+    }
+}
+
+/// `ImportResult.kind`. `exercise` is reserved; a kind this build doesn't know decodes as `.unknown`.
+enum ImportKind: String, Codable, Hashable, Sendable {
+    case plan, session, exercise
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = ImportKind(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// `ImportResult.status`. Closed enum.
+enum ImportStatus: String, Codable, Hashable, Sendable { case created, unchanged, updated, rejected }
+
+/// One entry per submitted item: the plans in request order, then the sessions.
+struct ImportResult: Codable, Hashable, Sendable {
+    let kind: ImportKind
+    let id: UUID
+    let status: ImportStatus
+    /// `rejected` only. Open string: `invalid`, `unknown_exercise`, `unknown_plan_reference`, `id_taken`,
+    /// `newer_on_server`; treat an unknown one as a generic rejection.
+    let code: String?
+    /// `rejected` only. English text for logs and support.
+    let message: String?
+
+    init(kind: ImportKind, id: UUID, status: ImportStatus, code: String? = nil, message: String? = nil) {
+        self.kind = kind
+        self.id = id
+        self.status = status
+        self.code = code
+        self.message = message
+    }
+}
+
+/// `200` of `POST /v1/train/import`, whenever the request was understood, even when every item is rejected.
+struct TrainImportResponse: Codable, Equatable, Sendable {
+    let results: [ImportResult]
+    /// Local days queued for rescoring, oldest first.
+    let daysTouched: [String]
+    let scoring: SyncScoring
+    /// `X-Request-ID` of the answer (not in the body): the client sets it, so a `rejected` item can show it.
+    var requestID: String?
+
+    init(results: [ImportResult], daysTouched: [String] = [], scoring: SyncScoring? = nil, requestID: String? = nil) {
+        self.results = results
+        self.daysTouched = daysTouched
+        self.scoring = scoring ?? SyncScoring(queuedDays: daysTouched, expectedWithinSec: 30)
+        self.requestID = requestID
+    }
+
+    enum CodingKeys: String, CodingKey { case results, daysTouched, scoring }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        results = try c.decodeIfPresent([ImportResult].self, forKey: .results) ?? []
+        daysTouched = try c.decodeIfPresent([String].self, forKey: .daysTouched) ?? []
+        scoring = try c.decodeIfPresent(SyncScoring.self, forKey: .scoring)
+            ?? SyncScoring(queuedDays: daysTouched, expectedWithinSec: 30)
+        requestID = nil
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(results, forKey: .results)
+        try c.encode(daysTouched, forKey: .daysTouched)
+        try c.encode(scoring, forKey: .scoring)
     }
 }
 

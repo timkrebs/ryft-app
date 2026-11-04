@@ -63,6 +63,8 @@ struct ImportJobProgress: Codable, Equatable, Sendable {
         var result: String?
         /// The platform's words for a refusal.
         var reason: String?
+        /// The platform's `code` for a `rejected` item (open string, kept as sent).
+        var code: String?
         var status: Int?
         var requestID: String?
         /// The logged session a duplicate matches, or the custom exercise that blocks.
@@ -83,6 +85,12 @@ struct ImportJobProgress: Codable, Equatable, Sendable {
     /// Plan day and plan exercise ids (`uuidString`) that RYFT's kept copy of a plan doesn't have (found at upload after
     /// an offline preview): sessions are sent without links to them.
     var missingLinks: [String] = []
+    /// Sessions (`uuidString`) the platform answered `unknown_plan_reference` for: sent again without their plan
+    /// references, once (T5). A second such answer refuses them.
+    var resentWithoutLinks: [String] = []
+    /// The last pass stopped because the platform refused every request: only the user's "Try again" continues it, never
+    /// an automatic trigger (app active, reconnect, sign-in, the gate opening). Stored, so a relaunch keeps it.
+    var needsAttention = false
 
     init() {}
 
@@ -96,10 +104,13 @@ struct ImportJobProgress: Codable, Equatable, Sendable {
         daysTouched = try c.decodeIfPresent([String].self, forKey: .daysTouched) ?? []
         lastFailure = try c.decodeIfPresent(ImportFailure.self, forKey: .lastFailure)
         missingLinks = try c.decodeIfPresent([String].self, forKey: .missingLinks) ?? []
+        resentWithoutLinks = try c.decodeIfPresent([String].self, forKey: .resentWithoutLinks) ?? []
+        needsAttention = try c.decodeIfPresent(Bool.self, forKey: .needsAttention) ?? false
     }
 
     private enum CodingKeys: String, CodingKey {
         case items, unanswered, enrolled, enrolledPlanID, daysTouched, lastFailure, missingLinks
+        case resentWithoutLinks, needsAttention
     }
 
     subscript(id: UUID) -> Item? {

@@ -251,6 +251,8 @@ final class ProfileViewModel {
     /// The preferences belong to a platform account. With `push.enabled` off the
     /// screen explains the rollout instead.
     var showsNotifications: Bool { auth.isSignedIn && !env.isDemo }
+    /// Profile → Training (Jump to next exercise) only where Train is on, like the other Train surfaces.
+    var showsTraining: Bool { env.flags.isOn(.trainEnabled) }
 
     // MARK: demo data
 
@@ -268,6 +270,8 @@ final class ProfileViewModel {
     func demoModeChanged(_ on: Bool) {
         // Demo data's flags are its own: off again, the account's cached flags, never demo's.
         (env.flags as? FlagStore)?.setDemo(on)
+        // So is which day is being scored (`ScoringWord`).
+        sync.forgetScoringWords()
         // What was matched in demo's training import was never this account's, and neither is its upload.
         if !on {
             ImportMappingStore.forgetDemo(in: env.persistence)
@@ -553,6 +557,7 @@ final class SyncDetailsModel {
         if let status = state.syncStatus {
             lines.append("server today \(status.today.day) \(status.today.state.rawValue) · pending \(status.pendingDays.joined(separator: ",")) · expected \(status.expectedWithinSec) s")
         }
+        lines.append("scoring words \(ScoringWord.diagnosticLine(sync.scoringLedger))")
         lines.append("scoring since \(scoringSince.map { $0.ISO8601Format() } ?? "-") · expected \(expectedScoringSec) s · slow \(scoringIsSlow)")
         for row in streams {
             guard let p = row.progress else { lines.append("\(row.id): -"); continue }
@@ -724,9 +729,15 @@ final class BodySettingsEditor {
 
     var birthYear: Int? { user?.birthYear }
 
-    /// The years the platform takes: 1920 to this year − 13, newest first.
+    /// The years offered: 1920 to this year − 16 (the minimum age), newest first. A year saved under
+    /// the earlier rule (− 13) stays listed, so the picker shows it instead of a blank selection.
     var birthYears: [Int] {
-        Array(stride(from: OnboardingCoordinator.latestBirthYear(now: env.clock.now()), through: 1920, by: -1))
+        var years = OnboardingCoordinator.birthYears(now: env.clock.now())
+        if let saved = birthYear, !years.contains(saved) {
+            years.append(saved)
+            years.sort(by: >)
+        }
+        return years
     }
 
     /// `PATCH /v1/me {birth_year}`: the estimate follows unless max HR is set by hand. A

@@ -3,25 +3,30 @@
 What the iOS app needs that `../plattform/docs/API.md` does not (yet) provide.
 The platform agent owns the contract; the app never invents fields silently.
 
-## Training import (open, 2026-10-23)
+## Training import (closed, 2026-10-27)
 
-The app parses a CSV export of another training app on the device and sends structured plans and sessions to `POST /v1/train/import` (platform brief `../plattform/CLAUDE_FOLLOWUP_TRAIN_IMPORT.md`). These follow from the app's design (`docs/work/2026-10-23-train-csv-import/design.md` §13) and should be settled while the contract is written.
+All thirteen questions (T1–T13) from the app's design (`docs/work/2026-10-23-train-csv-import/design.md` §13) are
+answered in the platform's API.md → "Training import: answers to T1–T13" (anchor `training-import-answers`; on branch
+`feat/train-import-api` until the platform PR merges). Nothing is open. Where the answer differs from what the app asked for, it is noted.
 
-| # | Request |
-| --- | --- |
-| T1 | **Origin belongs to the endpoint.** Every session in `POST /v1/train/import` is an import, so the request carries no per-session `origin`. `Session` and `SessionSummary` responses carry `origin` (`app` \| `import`) and `import_source` (string?), so history can label them. |
-| T2 | **No `skipped` flag is needed.** The app doesn't send sets that weren't done; it counts them on the device. If the platform wants them anyway, `completed_at: null` already means "planned, not done". |
-| T3 | **Bodyweight keeps today's convention.** For `load_type: bodyweight`, `weight_kg` is the added load and `Session.bodyweight_kg` the body weight; no `bodyweight` / `added_kg` set fields. Please confirm that `weight_kg: null` and `0` mean the same for a bodyweight set. |
-| T4 | **Assisted sets.** Files can log assistance as a negative load (`-20`). `weight_kg` is clamped to 0–500, so the app imports reps only. Is a negative added load, or an `assist_kg`, planned? |
-| T5 | **Order within a request.** Plans are stored before the same request's sessions, so `plan_day_id` / `plan_exercise_id` may point into the batch. Are these ids validated (`422` when unknown)? |
-| T6 | **Imported sessions never move an enrolment,** even with the active plan's `plan_day_id`, and send no `SESSION_SCORED` or `PR` push. |
-| T7 | **The rescore answer.** The response carries `days_touched` and `scoring.expected_within_sec`, as `SyncResponse` does. Those days stay in `GET /v1/me/sync` → `pending_days` until rescored, and the silent refresh push is sent for them. |
-| T8 | **Enrolling where the user is.** `POST /v1/plans/{id}/enroll` takes an optional `{ "started_at": timestamp?, "current_week": int?, "current_day_index": int? }` (defaults: now, 1, 0). Until then the app offers only "start today". |
-| T9 | **Limits under Conventions.** The 1 MiB body limit of `POST /v1/train/import`; ≤ 50 sessions and ≤ 5 plans per request; the status when a second import starts while one is running (`429` with `Retry-After`, please). |
-| T10 | **"Identical content"** for the no-op is compared without server fields (`updated_at`, scoring). The app derives `completed_at` and `updated_at` from the session's start and duration, so sending a session again gives `unchanged`. |
-| T11 | **Bodyweight plan targets.** API.md says `target_value` is `null` for `target_kind: bodyweight`, but the plan builder accepts an added load there (`PlanValidation.swift:70`). Which is right? The import sends `null`. |
-| T12 | **Archived custom exercises.** Does `POST /v1/exercises` with an archived custom exercise's id un-archive it? |
-| T13 | **Every item of a request is named in `results`,** whatever its status (`unchanged` too). The app keeps an item it doesn't find pending and sends it again; after three answers without it, it lists it as not imported. And please send `X-Request-ID` on the `2xx` answer too, so a `rejected` item can show it in Details. |
+| # | Question | Answer (API.md anchor) |
+| --- | --- | --- |
+| T1 | Origin belongs to the endpoint | Yes; `origin`/`import_source` in the request is `400`, the app encodes them absent (`#t1`) |
+| T2 | No `skipped` flag | Yes; a sent set was done, `completed_at: null` is `invalid` in an import (`#t2`) |
+| T3 | Bodyweight convention, `null` = `0` | Confirmed; stored as sent, compared as equal (`#t3`) |
+| T4 | Assisted sets | `assist_kg` 0–200 on `Set` instead of a negative load (`#t4`); the app's import of it is a follow-up |
+| T5 | Plan references in a batch | Validated, but a `rejected` item `unknown_plan_reference` rather than `422`; resend the session without references (`#t5`) |
+| T6 | No enrolment move, no push | Confirmed (`#t6`) |
+| T7 | Rescore answer | `days_touched` + `scoring` as in `SyncResponse` (`#t7`) |
+| T8 | Enrol where the user is | `EnrollPost` on `POST /v1/plans/{id}/enroll` (`#t8`); mirrored in C2 |
+| T9 | Limits and the second import | In Conventions: 1 MiB, ≤ 5 plans, ≤ 50 sessions, `429 import_in_progress` + `Retry-After: 10` (`#t9`) |
+| T10 | "Identical content" | Server fields excluded, everything else compared; `newer_on_server` protects edits (`#t10`) |
+| T11 | Bodyweight plan target | Docs were wrong; `null` or added kg 0–500 (`#t11`) |
+| T12 | Archived custom exercise | `POST /v1/exercises` un-archives it (`#t12`) |
+| T13 | One result per item; `X-Request-ID` on `2xx` | Both hold: "One entry per submitted item" under the endpoint, and Conventions → Request IDs (`#t13`) |
+
+Also confirmed in the platform's Conventions → UUIDs: every id in the import body is parsed as a UUID (upper case is
+fine); `results[].id` comes back lower case, so the app matches by `UUID` value.
 
 ## Activities and My Day (open, 2026-10-22)
 
@@ -74,6 +79,17 @@ is the auth session, and `Set` is `SessionSet` as in the mirror.
    its own merges).
    - **Proposal:** a tombstone, `"deleted": true` on the set, or
      `DELETE /v1/sessions/{id}/sets/{set_id}`.
+   - **Same for exercises (2026-10-29).** The same merge keeps an *exercise* the body
+     leaves out, and its sets with it. A user who removes an exercise, or replaces one
+     before doing a set (ticket T1), leaves a server row that still counts at finish
+     (a sets-less row also makes that exercise's next "Last time" empty). That
+     contradicts Train #1 / `API.md`, which say completion replaces the document whole.
+     The app can't observe this either; it rests on reading `train.Merge` (called at
+     `backend/internal/store/train.go:498`).
+   - **Proposal (extended):** exercise tombstones next to the set ones
+     (`"deleted": true` on the exercise, or `DELETE /v1/sessions/{id}/exercises/{exercise_id}`),
+     and on completion the documented behaviour: the body is the whole document, so
+     rows it leaves out are dropped.
 2. **A paused enrolment in `GET /v1/plans`.** `active` is "the active enrolment,
    or `null`", so after `DELETE /v1/plans/enrollment` the app can't tell which plan
    was paused. It remembers the plan id locally to offer Resume, which re-enrols
@@ -91,6 +107,86 @@ is the auth session, and `Set` is `SessionSet` as in the mirror.
      have the platform link a workout to its session by `session_id` (the external UUID)
      instead of creating a `ryft-session` workout. Then a second phone would see it as the
      session's too.
+4. **`last_time` per occurrence when a day holds an exercise more than once.** (P2, 2026-10-29;
+   beta feedback round 2 §4, T4) **Why.** `PlanTarget.last_time` is built per `exercise_id`
+   (`LastWorkingSets`, called once per plan exercise in `GET /v1/plans/today`): every completed
+   working set of that exercise in the newest completed session, ordered by the session exercise's
+   position, then `set_index`. If a day has the same exercise on two rows (synthetic example: "Face
+   pull" twice, 3 sets each), and the last session logged it twice, both rows get the same 6 sets.
+   The card then shows the joint list (cut at five) and the ghost values of the second row come
+   from the first row's sets. Same-exercise rows are legal in the plan builder and arise from
+   imports too.
+   - **What.** No new field, only the content of `last_time`. For plan exercises that share an
+     `exercise_id` in the day, the k-th plan row (by `position`) gets the working sets of the k-th
+     `session_exercise` of that exercise in the last session (by position). If the last session's
+     `session_exercise` carries the same `plan_exercise_id` as the row, prefer that one. If the
+     session has fewer occurrences than the day has rows, the rows past the last occurrence get
+     the last occurrence (or `[]`, your choice; please say which in API.md). A day with the
+     exercise once is unchanged. Please also document the order of `last_time` in API.md (today
+     `ORDER BY position, set_index` in `LastWorkingSets`, an implementation detail the app relies on).
+   - **Screens.** Train: the session card's "Last time" line and its ghost values (from a plan
+     day); the plan day preview.
+   - **App stop-gap (branch `fix/train-last-time-occurrence`).** The app splits the concatenated
+     list where `set_index` stops increasing, and gives the k-th row of the exercise the k-th run,
+     only when the number of runs equals the number of rows; otherwise it keeps the joint list.
+     Limit: it is a heuristic. `last_time` keeps only completed working sets, so an occurrence that
+     starts with an unchecked or warm-up set after a short occurrence continues the previous run
+     (the two merge, and the app falls back to the joint list); an occurrence with no working sets
+     disappears; a duplicate `set_index` after a merge splits a run; and it cannot use
+     `plan_exercise_id`. It is a no-op once you ship this: each row then gets one run.
+   - **Old clients.** Unchanged: they read `last_time` as before, and for a day with the exercise
+     once the content is identical.
+5. **Question, not a request: can an import move an untouched session row to another
+   `exercise_id`?** (2026-10-29) A future "re-map imported exercises" repair would need an
+   imported session's exercise rows to point to another exercise (a wrong match on import, e.g.
+   two source rows on one RYFT exercise). A resend of the same file today yields ids derived per
+   account and key, so we expect `unchanged` or, if the app touched the session, `newer_on_server`.
+   - **Question.** If a `POST /v1/train/import` item has the same session id but a changed
+     `exercise_id` on one or more rows, and the session is untouched since the import (no
+     `PUT`/edit by the app), does the server return `updated` and move the rows? Or is
+     `unchanged`/`newer_on_server` the answer regardless? If it is not possible, is there a
+     better way you would offer (a re-map endpoint, or deleting the imported sessions and
+     importing them again)?
+   - **Why we ask now.** To decide whether the repair is worth a design. Nothing in the app
+     depends on it yet.
+
+6. **Progression fallback counts an unlinked exercise twice (needed, P2, 2026-10-29).**
+   `PlanExerciseAttempts` counts a session exercise with `plan_exercise_id: null` as an
+   attempt for every plan exercise of the session's plan day with the same
+   `exercise_id` (`backend/internal/store/train.go:848`). When a user replaces planned
+   exercise A by B mid-session and B is also planned that day, the app sends one B row
+   linked to B's plan exercise and one B row with `plan_exercise_id: null` on the same
+   `plan_day_id`. Both count for B, so `NextTargetKG`
+   (`backend/internal/scoring/strength.go:476`) sees two attempts from one session and
+   can step up, or deload, twice. Which one of the two it counts first is arbitrary.
+   The app can't observe progression itself; this request rests on reading the platform
+   code at the lines above.
+   - **Proposal:** the fallback applies only when no exercise of the same session names
+     that plan exercise. Sessions without links (older apps, unmapped imports) keep
+     today's behaviour.
+   - **Screens affected:** Train > Today and the plan's next targets, after a replaced
+     exercise.
+7. **A movement pattern on `Exercise` (nice to have, 2026-10-29).** For "Similar" in the
+   replace sheet. Muscles alone can't tell a press from a fly. Until then the app ranks
+   by muscles, load type and kind (`Ryft/Train/ExerciseSimilarity.swift`).
+   - **Proposal:** `movement_pattern` (string?, **open** like `equipment`, the app must
+     tolerate unknown values), e.g. `horizontal_press`, `incline_press`,
+     `vertical_press`, `horizontal_pull`, `vertical_pull`, `squat`, `hinge`, `lunge`,
+     `fly`, `curl`, `triceps_extension`, `raise`, `carry`. Set on built-ins, optional on
+     `POST /v1/exercises`. The app ranks same-pattern exercises first and falls back to
+     muscles.
+   - **Screens affected:** the replace-exercise sheet in an active session.
+
+## Focused session (open, 2026-11-04)
+
+1. **Which session `last_time` came from.** The workout screen's last-time card heads its table with the date and the
+   session's title ("Tue 3 Nov · Upper"). `PlanTarget.last_time` is `[Set]`, so the app has no title, and only a date
+   when `completed_at` is set.
+   - **Proposal:** add `PlanTarget.last_time_session`: `{ "id": "…", "title": "Upper", "started_at": "…" }`, or `null`
+     with an empty `last_time`. The same on whatever serves a single exercise's last time, for exercises added or
+     replaced during a session.
+   - **Until then:** the card shows the date from `completed_at`, and a plain "Last time" without one. Nothing waits on
+     this.
 
 ## Charts and gauges (open, 2026-10-19)
 
@@ -100,9 +196,23 @@ invent them; these are the stand-ins until the platform serves them.
 1. **Strain band on the score: `DailyScore.strain_band`.** A string (`light`,
    `moderate`, `high`, `all_out`) from the platform's own thresholds. Until then the app
    derives the band from `strain` at 10 / 14 / 18 (`MetricSpec.strainBand`).
-2. **Strain target: `DailyScore.strain_target_lo` / `strain_target_hi`.** Numbers on
-   the 0–21 scale: the range recommended for today given recovery. `MetricGauge` has
-   the target arc built in, but it stays empty until these exist.
+2. **Readiness → recommended strain range per day: `DailyScore.strain_target_lo` /
+   `strain_target_hi`.** Checked 2026-10-30 (plattform 7f0f8db): `API.md` and `SCORING.md`
+   have no per-day strain recommendation.
+   - **Why:** the readiness bands already tell people what to do with the day, in the
+     `MORNING_SCORE_BODY_*` push copy: "a good day to push" for `balanced`, "Keep the
+     load moderate today" for `strained`, "Take it easy today" for `depleted`. A full
+     outer orbit is strain 21, which is all-out rather than good, so the Today gauge
+     needs the range to show what today's budget is. The app won't invent the weights
+     that turn a readiness into a range.
+   - **Proposed shape:** two nullable numbers on `DailyScore`, on the 0–21 strain scale
+     with one decimal, `strain_target_lo ≤ strain_target_hi`. Both `null` when there is
+     no readiness or the `state` is `calibrating`; both set or both `null`.
+   - **Screens:** the Today `OrbitGauge` (the band on the outer track, and the arc
+     colour past the upper end; built and hidden) and the Strain tab's `MetricGauge`
+     target arc (built, empty).
+   - **How the app picks it up:** decode and a fixture test, then one mapping line into
+     `OrbitGaugeValues.strainBand`. Until then the band stays hidden.
 3. **Baseline spread: σ for HRV and resting HR.** For example `hrv_baseline_sd_ms` /
    `rhr_baseline_sd` on `DailyScore`, and `baseline_sd` on `GET /v1/trends` for `hrv`
    and `rhr`: the standard deviation over the same 30 days as the baseline. The
@@ -131,11 +241,37 @@ for the platform; nothing here is sent before the platform says it takes it.
    up without the HealthKit UUID (workouts already use it as `id`), so a record deleted in
    Apple Health, or rewritten by a watch app, stays on the platform. The app now collects
    the anchored reads' `deletedObjects` per account (bounded) and keeps them for this.
+   - **Confirmed bug, 2026-10-27, now the priority of this section.** A Garmin run that Apple Health holds once
+     (checked by the user) shows 7 times in My Day: 6 on 2026-10-20, 7 a week later. The day reads "7 activities ·
+     63.3 km". Garmin Connect rewrites its workouts in Apple Health under a new UUID and deletes the old one. The
+     app uploads each new UUID as a new workout, and the deleted copies stay on the platform. My Day already shows
+     one row per workout id, so these are 7 distinct ids from the platform.
+   - **Also needed:** a one-off cleanup of the copies uploaded before the app began collecting `deletedObjects`
+     (e.g. same user, source, activity type, start and end), since the app can't name those ids.
    - **Proposal:** `Sample.id` and `SleepSegment.id` (uuid?, the HealthKit sample's UUID;
      records without one keep today's uniqueness), and on `SyncRequest`
      `deleted: [{"kind": "sample" | "sleep" | "workout", "id": uuid}]`. The platform
      removes what it has under those ids (unknown ids are fine, counted in
      `ignored.*.unknown_id`) and queues the days for rescoring.
+   - **(New 2026-10-31) Why a flag is needed.** Ingest decodes with `DisallowUnknownFields`
+     (`backend/internal/httpx/httpx.go:143`; `API.md` Conventions: "Request bodies reject unknown fields (`400`)"). A
+     `deleted` key or a record `id` sent before the ingest deploy is live would answer `400` for every page, and a `400`
+     isn't retried, so every sync would fail on the same page.
+   - **How the app learns it:** the flag `sync.deletions` in `GET /v1/config` (an open key; the app's compiled default
+     is off). Please add it, off, and turn it on in an environment only once the ingest deploy that takes `deleted` and
+     the record `id`s is live there. Ingest should take the fields whatever the flag says (the flag only tells the app
+     when to send them). While it's on, the app sends `Sample.id`, `SleepSegment.id` and `SyncRequest.deleted`. On a
+     `400` to a request that carries them, it sends that request once more without them and uses the old shape for the
+     rest of that sync. Please also: list the flag in API.md → `GET /v1/config` → Shipped with; include the days a
+     deletion touched in `days_touched` / `scoring.queued_days`; and fill `hk_id` on a stored row that has none when a
+     record with an `id` matches it on the natural key, so rows stored before ids existed become deletable.
+   - **Also:** confirm the 10 s cache on `GET /v1/me/sync`, or invalidate it on ingest and scoring, so the app's
+     scoring wait doesn't read a stale answer after a deletion.
+   - **The orphan gap.** A record the first sync's recent window uploaded and Apple Health deleted before the first
+     anchored read is never reported (that read starts without an anchor too). The workout fold (Q2) covers workouts;
+     sleep segments from one source could double. Please say whether Q2's fold or a sleep equivalent covers it.
+   - **What the app does meanwhile.** The deletion code lands only after the changelog entry "Deletions and HealthKit
+     ids" and sends the new fields only while `sync.deletions` is on.
 3. **Pre-aggregated high-volume samples.** An Apple Watch writes steps and active energy
    in tiny samples (tens of thousands a day). Scoring takes steps from one source per hour
    and sums energy per day (`SCORING.md`), so per-source hourly sums carry the same
@@ -152,6 +288,15 @@ for the platform; nothing here is sent before the platform says it takes it.
    `latest`) and HealthKit's own counts are enough. If a reinstalled phone should show
    what the platform already holds per category, `SyncStatus.counts` (records per
    `SourceKind`) would do; not requested yet.
+5. **(New 2026-11-04) Which account a silent scoring push is for.** The refresh push carries only the day (`{"ryft":
+   {"kind": "refresh", "day": "2026-10-19"}}`). APNs can deliver it late, so a push for account A can arrive after a
+   direct change to account B on the same phone, and the app can't tell. It then takes that day as scored for B: no data
+   of A's, but it can hold back B's "being scored" until a later status read (ADR 0013, "A delayed push from another
+   account").
+   - **Proposal:** an additive `ryft.account` on the `refresh` push, the id the app knows as `User.id`. If that id
+     shouldn't pass through APNs, an opaque per-account value that `GET /v1/me` also returns does the same job.
+   - **What the app does with it:** drops a push whose `account` isn't the signed-in one, and treats a push without it
+     as today, so old and new payloads work during a rollout.
 
 ## Universal links: the AASA (open, 2026-10-20)
 
@@ -252,6 +397,12 @@ not moving after 1 day." The tester wears a Garmin. App brief: `CLAUDE_FOLLOWUP_
    draft content and its schema are in `docs/work/2026-10-22-tracker-setup/trackers.draft.json` and
    `trackers-research.md` (en; de follows). Every entry carries `help_url` and `checked`. Optionally render
    `/setup/<tracker>` pages from the same file. The brand rule applies.
+   - **(New 2026-10-31)** The app's catalog schema gains an optional `sync` text per tracker (en + de, plain text under
+     ADR 0002's rules), filled in the bundled copy. The served `trackers.json` should carry it when the web side
+     publishes the file. URL schemes are compiled in the app and never served (ADR 0012).
+     - **The served file must use a `version` later than `2026-10-31.1` and carry `sync`.** The app keeps the newest
+       valid copy (ADR 0002 rule 4, "Versions"): a served file at that version or older is outranked by the bundled
+       copy and never used, and a newer one without `sync` silently drops the sentences from Today's hint.
 4. **Supersedes Refresh resilience §2** (`calibrating_reason`). Done on 2026-10-22: `calibrating_reason`,
    `baseline_hrv_days` and `baseline_rhr_days` are in `API.md`; only `recovery_inputs` stays open (§1).
 
@@ -264,6 +415,21 @@ not moving after 1 day." The tester wears a Garmin. App brief: `CLAUDE_FOLLOWUP_
    - **Ask.** On a `no_hrv` row with R ≥ 7, end calibration (`calibrating: false`, `state` banded from readiness), with
      `calibrating_reason` kept or a new field saying HRV is absent. If that's not the plan, document why `no_hrv` must stay
      calibrating, so the app copy can say so.
+
+6. **(New 2026-10-29, priority: medium) Calibration: `no_hrv` before 7 days of data when no source has ever delivered HRV.**
+   - **Why.** `no_hrv` needs `W >= 7` (API.md, `calibrating_reason`, rule 3). Before that, an account whose watch never writes
+     HRV to Apple Health (e.g. a Garmin, whose app does not share HRV) gets `short_history` with H = 0 for the whole first
+     week, and the app can't tell "HRV will come" from "HRV never comes". Seen in the beta with a Garmin: weeks of scored days without any HRV.
+     Screens affected: Today (the baseline counter and the learning note), the Today widget.
+   - **What (ask).** Decide `no_hrv` (or a new hint) earlier when the account has never received any HRV sample from any
+     source, e.g. after N >= 3 days with data, H = 0 and no HRV on the day. The platform picks the rule and documents it in
+     `calibrating_reason`. `calibrating_reason` is a closed enum, so a new value needs /v2; a hint would be a new optional
+     field (e.g. a bool on `DailyScore`). Reusing `no_hrv` needs no new shape.
+   - **What the app does meanwhile.**
+     - It counts the filling signal (resting HR, n of 7) with a note.
+     - It shows the "no HRV" state (N1) at once when the user's tracker setup says the source doesn't share HRV.
+     - Otherwise it still shows "0 of 7" when both counts are 0 and the day has neither signal.
+   - **Old clients.** An earlier `no_hrv` makes them show N1 earlier, which is correct. A new optional field is ignored.
 
 **Corrections to the evidence commands in the brief (from the debugger, T0):**
 - `scripts/user.sh <id>` prints `with HRV N` (`days_with_hrv_14d`) and the newest record per kind, not

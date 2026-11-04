@@ -588,9 +588,11 @@ struct TodayNightAndScoringTests {
     @Test func theNightGapNamesTheAppToOpen() throws {
         let f = facts()
         let gap = try #require(TodayStates.nightGap(f))
-        #expect(gap == NightGap(name: "Garmin Connect", kind: .app, storeURL: garminStore, newest: at(23, 24, daysAgo: 1)))
+        #expect(gap == NightGap(name: "Garmin Connect", kind: .app, storeURL: garminStore, newest: at(23, 24, daysAgo: 1),
+                                appURL: URL(string: "garminconnect://")))
         let hint = try #require(TodayStates.watchHint(f))
-        #expect(hint.isNight && hint.source == "Garmin Connect" && hint.opensApp && hint.storeURL == garminStore)
+        #expect(hint.isNight && hint.source == "Garmin Connect" && hint.storeURL == garminStore)
+        #expect(hint.action { _ in false } == garminStore.map(WatchSyncHint.Action.store))
         #expect(hint.systemImage == "moon.zzz")
         #expect(hint.text(now: f.now)
                 == String(localized: "Your night hasn't reached Apple Health yet. Open \("Garmin Connect") to sync it."))
@@ -638,7 +640,7 @@ struct TodayNightAndScoringTests {
         let gap = try #require(TodayStates.nightGap(f))
         #expect(gap.kind == .appleDevice && gap.name == "Tim's Apple Watch" && gap.storeURL == nil)
         let hint = try #require(TodayStates.watchHint(f))
-        #expect(!hint.opensApp)
+        #expect(hint.action { _ in true } == nil)
         #expect(hint.text(now: f.now) == String(
             localized: "Your night hasn't reached Apple Health yet. Keep your Apple Watch near your iPhone so it syncs."))
         // A watch worn this morning: its heart rate is the evidence.
@@ -648,7 +650,7 @@ struct TodayNightAndScoringTests {
     @Test func anUnknownSourceKeepsItsNameAndGetsNoButton() throws {
         let diary = SourceFreshness(source: "Sleep Diary", bundleID: "com.example.sleep", newest: at(23, 0, daysAgo: 1))
         let hint = try #require(TodayStates.watchHint(facts { $0.freshness = [diary] }))
-        #expect(hint.isNight && hint.source == "Sleep Diary" && !hint.opensApp)
+        #expect(hint.isNight && hint.source == "Sleep Diary" && hint.action { _ in true } == nil)
         #expect(hint.text(now: at(9, 12)) == String(localized: "Your night hasn't reached Apple Health yet."))
     }
 
@@ -673,13 +675,22 @@ struct TodayNightAndScoringTests {
         let hint = try #require(TodayStates.watchHint(f))
         #expect(!hint.isNight && hint.source == "Garmin Connect" && hint.storeURL == garminStore && hint.caption() == nil)
         #expect(hint.systemImage == "antenna.radiowaves.left.and.right") // Apple's watch glyph is the Apple Watch's
-        #expect(hint.text(now: f.now) == String(
-            localized: "Nothing new from \("Garmin Connect") since \(Fmt.time(at(1, 0))). Open the \("Garmin Connect") app to sync it to Apple Health."))
+        // The catalog's sentence on how Garmin Connect syncs replaces "Open the … app" (design.md §D3.4).
+        let en = Locale(identifier: "en_US")
+        let sync = try #require(TrackerCatalog.bundled.tracker("garmin")?.sync)
+        #expect(hint.sync == sync && hint.appURL == URL(string: "garminconnect://"))
+        #expect(hint.text(now: f.now, locale: en)
+                == String(localized: "Nothing new from \("Garmin Connect") since \(Fmt.time(at(1, 0), locale: en)).") + "\n" + sync.en)
+        // Without a `sync` sentence, the shipped one.
+        var noSync = hint
+        noSync.sync = nil
+        #expect(noSync.text(now: f.now, locale: en) == String(localized:
+            "Nothing new from \("Garmin Connect") since \(Fmt.time(at(1, 0), locale: en)). Open the \("Garmin Connect") app to sync it to Apple Health."))
         // Without a name (the map is the facts builder's), HealthKit's.
         var plain = f
         plain.sourceApps = [:]
         #expect(TodayStates.watchHint(plain)?.source == "Connect")
-        #expect(TodayStates.watchHint(plain)?.opensApp == false)
+        #expect(TodayStates.watchHint(plain)?.action { _ in true } == nil)
     }
 
     // MARK: the line
@@ -784,6 +795,61 @@ struct TodayNightAndScoringTests {
         #expect(night.rawNight?.source == "Connect" && night.rawNightSource == "Garmin Connect")
     }
 
+    // MARK: the pending orbit's day (PR 2)
+
+    /// A scored day `daysAgo` before `now`, as the platform lists it.
+    private func scored(daysAgo: Int, now: Date) -> DailyScore {
+        DailyScore(day: DayFormat.string(from: DayFormat.shift(now, days: -daysAgo)), readiness: 76, state: .balanced,
+                   baselineDays: 30, calibrating: false, computedAt: now.addingTimeInterval(-86_400 * Double(daysAgo)),
+                   scoringState: .scored)
+    }
+
+    @Test func thePendingOrbitSaysYesterdayWhenYesterdayWasScored() throws {
+        let f = facts { $0.status = status(.pending, now: $0.now); $0.scoringSince = $0.now.addingTimeInterval(-10) }
+        let day = content(f)
+        #expect(day.pendingScoredDay == String(localized: "Last scored: \(String(localized: "Yesterday"))"))
+        // VoiceOver: the title, then the full date the dimmed scores are from.
+        let yesterday = try #require(DayFormat.date(from: DayFormat.string(from: DayFormat.shift(f.now, days: -1))))
+        let date = yesterday.formatted(.dateTime.weekday(.wide).day().month(.wide))
+        #expect(day.pendingSpokenNote
+                == String(localized: "Scoring your night…") + ". " + String(localized: "From \(date)"))
+    }
+
+    @Test func thePendingOrbitNamesTheDayAfterAGap() throws {
+        // Nothing scored yesterday: the dimmed scores are from two days back, by that day's title, not "Yesterday".
+        let f = facts {
+            $0.prior = [scored(daysAgo: 2, now: $0.now)]
+            $0.status = status(.pending, now: $0.now)
+            $0.scoringSince = $0.now.addingTimeInterval(-10)
+        }
+        let twoDaysBack = try #require(DayFormat.date(from: DayFormat.string(from: DayFormat.shift(f.now, days: -2))))
+        let title = Fmt.dayTitle(twoDaysBack, today: f.now)
+        #expect(title != String(localized: "Yesterday") && title != String(localized: "Today"))
+        let day = content(f)
+        #expect(day.pendingScoredDay == String(localized: "Last scored: \(title)"))
+        let date = twoDaysBack.formatted(.dateTime.weekday(.wide).day().month(.wide))
+        #expect(day.pendingSpokenNote.hasSuffix(String(localized: "From \(date)")))
+    }
+
+    @Test func thePendingOrbitWithoutAScoredDayOnlySaysTheTitle() {
+        // The first night being scored: nothing to dim, no day to name; VoiceOver hears the title alone.
+        let day = content(facts {
+            $0.prior = []
+            $0.hasScoredDay = false
+            $0.status = status(.pending, now: $0.now)
+            $0.scoringSince = $0.now.addingTimeInterval(-10)
+        })
+        #expect(day.pendingScoredDay == nil)
+        #expect(day.pendingSpokenNote == String(localized: "Scoring your night…"))
+        #expect(day.pendingSpokenNote == day.pendingTitle)
+    }
+
+    @Test func slowScoringIsWhatVoiceOverHearsFirst() {
+        let slow = content(facts { $0.status = status(.pending, now: $0.now); $0.scoringSince = $0.now.addingTimeInterval(-120) })
+        #expect(slow.pendingSpokenNote.hasPrefix(String(localized: "Still scoring your night") + ". "))
+        #expect(slow.pendingScoredDay == String(localized: "Last scored: \(String(localized: "Yesterday"))"))
+    }
+
     // MARK: through SyncService and the view model
 
     @Test func theWaitsStartStaysOnlyWhileThePlatformSaysPending() {
@@ -856,7 +922,7 @@ struct TodayNightAndScoringTests {
         #expect(TodayStates.watchHint(facts(now: afternoon) { $0.freshness = [connect(at(1, 0))]; $0.online = false }) == nil)
         // The Apple Watch keeps its own glyph.
         let watchHint = try #require(TodayStates.watchHint(facts(now: afternoon) { $0.freshness = [watch(at(1, 0))] }))
-        #expect(watchHint.systemImage == "applewatch.radiowaves.left.and.right" && !watchHint.opensApp)
+        #expect(watchHint.systemImage == "applewatch.radiowaves.left.and.right" && watchHint.action { _ in true } == nil)
     }
 
     @Test func aWaitThatEndsEarlyForgetsItsStart() {
@@ -894,8 +960,9 @@ struct TodayNightAndScoringTests {
         sync.receive(status(.pending, now: clock.now()))
         #expect(sync.scoringWaitStart == at(10, 0)) // the first sighting stays
         #expect(sync.statusReadAt == at(10, 0).addingTimeInterval(30)) // every read is recorded
-        // During a wait an empty answer can predate the upload: the wait's start stays.
+        // During a wait an empty answer can predate the upload: the wait's start stays. The upload starts it anew.
         sync.advance(to: .reading)
+        sync.awaiting(["2026-10-18"])
         sync.advance(to: .awaitingScores)
         let start = clock.now()
         sync.receive(status(.scored, now: clock.now()))
@@ -993,7 +1060,9 @@ struct TodayNightAndScoringTests {
         #expect(vm.facts.sourceApps.isEmpty) // nothing to name before HealthKit answered
         await vm.loadHealthFacts()
         let apps = vm.facts.sourceApps
-        #expect(apps[health.freshness[0].ref] == SourceApp(name: "Garmin Connect", kind: .app, appStoreURL: garminStore))
+        #expect(apps[health.freshness[0].ref] == SourceApp(name: "Garmin Connect", kind: .app, appStoreURL: garminStore,
+                                                           appURL: URL(string: "garminconnect://"),
+                                                           sync: TrackerCatalog.bundled.tracker("garmin")?.sync))
         #expect(apps[health.night!.ref]?.name == "Garmin Connect")
     }
 }
@@ -1158,7 +1227,8 @@ struct TodayPresentationTests {
         for i in prior.indices.suffix(3) { prior[i].hrvMs = 55; prior[i].rhr = 50 }
         let p = decide(scoredWithoutReadiness, prior, .scored)
         #expect(p.row == .calibrating && p.gauge == .baselines(nights: 3)) // not today's baseline_days (0)
-        #expect(p.tiles == TodayPresentation.Tiles(source: scoredWithoutReadiness))
+        // F3: no recovery beside the counter.
+        #expect(p.tiles == TodayPresentation.Tiles(source: scoredWithoutReadiness, withholdsRecovery: true))
         #expect(p.note == .needsVitals && !p.showsDelta)
         #expect(p.previousReadiness == 76)
     }
@@ -1264,7 +1334,8 @@ struct TodayPresentationTests {
         #expect(b.sentence == String(localized: "Your baselines are still forming."))
         #expect(b.tileCaption == String(localized: "today.tile.calibrating", defaultValue: "calibrating"))
         #expect(b.recoveryCaption == b.tileCaption && b.recoveryBand == nil && !b.tilesDimmed)
-        #expect(b.recoveryText == Fmt.percent(75) && b.strainText == Fmt.strain(0.9))
+        // F3: the counter and a percentage don't stand side by side; Recovery is "—", the others stay.
+        #expect(b.recoveryText == Fmt.percent(Int?.none) && b.recovery == nil && b.strainText == Fmt.strain(0.9))
         #expect(b.gaugeNote == nil && b.gaugeSpokenNote == nil)
         // B, a long history without HRV: the platform's 80, no delta, today's tiles without "calibrating", the
         // reason under the gauge and read with it.
@@ -1435,6 +1506,16 @@ struct SyncDetailsTests {
 
         #expect(health.recentReads == before + 1)
         #expect(!sync.engineState.recentRequested)
+    }
+
+    @Test func theDiagnosticsListTheScoringWords() {
+        let (_, state, _) = makeState()
+        let sync = SyncService.ungated(env: state.env)
+        let model = SyncDetailsModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        #expect(model.diagnostics.contains("scoring words -"))
+        sync.awaiting(["2026-10-19"])
+        sync.scored(["2026-10-18"])
+        #expect(model.diagnostics.contains("scoring words 2026-10-19 pending, 2026-10-18 scored"))
     }
 
     @Test func theScoringRowSaysSinceWhenAndWhetherItsSlow() {
@@ -2042,6 +2123,38 @@ struct OnboardingCoordinatorTests {
         #expect(model.flowStep == nil)
     }
 
+    /// Minimum age 16 (Art. 8 GDPR): the youngest year offered is this year − 16, valid under the
+    /// platform's old (− 13) and new (− 16) check alike.
+    @Test func birthYearsStopAtTheMinimumAgeOf16() throws {
+        let now = try #require(Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 29, hour: 12)))
+        let years = OnboardingCoordinator.birthYears(now: now)
+        #expect(OnboardingCoordinator.minimumAge == 16)
+        #expect(OnboardingCoordinator.latestBirthYear(now: now) == 2010)
+        #expect(years.first == 2010 && years.last == 1920 && years.count == 91)
+        #expect(!years.contains(2011) && !years.contains(1919))
+        // New Year's Eve and Day: the bound moves with the calendar year.
+        let eve = try #require(Calendar.current.date(from: DateComponents(year: 2026, month: 12, day: 31, hour: 23)))
+        let day = try #require(Calendar.current.date(from: DateComponents(year: 2027, month: 1, day: 1, hour: 0, minute: 1)))
+        #expect(OnboardingCoordinator.latestBirthYear(now: eve) == 2010)
+        #expect(OnboardingCoordinator.latestBirthYear(now: day) == 2011)
+    }
+
+    @Test func aBirthYearUnder16IsRefusedWithTheRange() async {
+        let api = MockPlatformAPI()
+        let (model, state, _) = onboarding(api)
+        await model.check()
+        let latest = OnboardingCoordinator.latestBirthYear(now: .now)
+
+        #expect(!(await model.saveAboutYou(birthYear: latest + 1)))
+        #expect(model.errorMessage == String(localized: "Choose a year between 1920 and \(latest)."))
+        #expect(state.user?.birthYear != latest + 1 && !model.aboutYouSaved)
+
+        #expect(!(await model.saveAboutYou(birthYear: 1919)))
+        #expect(await model.saveAboutYou(birthYear: 1920))
+        #expect(await model.saveAboutYou(birthYear: latest))
+        #expect(state.user?.birthYear == latest && model.errorMessage == nil)
+    }
+
     @Test func nothingSyncsBeforeConsent() async throws {
         let api = MockPlatformAPI()
         api.accountConsent = nil
@@ -2354,6 +2467,13 @@ struct ProfilePrivacyTests {
         #expect(body.maxHRSourceText == String(localized: "Default · add your birth year for an estimate"))
         #expect(body.birthYear == nil && body.birthYears.first == OnboardingCoordinator.latestBirthYear(now: .now))
         #expect(body.birthYears.last == 1920)
+
+        // A year saved under the earlier rule (− 13) stays visible, the youngest offered is still − 16.
+        let latest = OnboardingCoordinator.latestBirthYear(now: .now)
+        state.user?.birthYear = latest + 2
+        #expect(body.birthYears.first == latest + 2 && body.birthYears.dropFirst().first == latest)
+        #expect(!body.birthYears.contains(latest + 1))
+        state.user?.birthYear = nil
 
         await body.setBirthYear(1990)
         #expect(body.birthYear == 1990 && state.user?.maxHrSource == .estimated)

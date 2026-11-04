@@ -68,6 +68,15 @@ struct CalibrationBlocker: Equatable, Sendable {
         case unexpected
         /// Nothing more is known: the flag is off, nothing or several chosen, unverified, no app of its own.
         case unknown
+
+        /// The setup says the signals can't arrive (the app doesn't share them, or just the iPhone): waiting
+        /// won't fill the baseline, whatever the history's length (F3's N1 early).
+        var isKnownNotToSend: Bool {
+            switch self {
+            case .notShared, .phoneOnly: return true
+            case .unexpected, .unknown: return false
+            }
+        }
     }
 
     let signals: [CalibrationSignal]
@@ -132,17 +141,34 @@ struct CalibrationBlocker: Equatable, Sendable {
     }
 }
 
-/// A baseline still learning under a readiness the platform already computed (S2): its nights, and which
-/// baseline it is when the row says.
+/// A baseline still learning (`short_history`, S1 / S2): its nights, which baseline it is when the row says, and the
+/// signal that isn't arriving when only one of the two fills (F3).
 struct CalibrationProgress: Equatable, Sendable {
-    /// `baseline_days`.
+    /// `baseline_days`; with `absent`, the filling signal's own count (`baseline_rhr_days` or `baseline_hrv_days`).
     let nights: Int
-    /// `DailyScore.fillingSignals`: none named when the row doesn't say.
+    /// `DailyScore.fillingSignals`: none named when the row doesn't say. With `absent`, the one signal counted.
     let signals: [CalibrationSignal]
+    /// The other signal, none of which reached RYFT (window and day): the counter counts `signals` instead of
+    /// `baseline_days`, which can't move without it. Its source as `CalibrationBlocker.resolve` knows it (never one
+    /// that is known not to share it: that row is N1).
+    var absent: CalibrationBlocker?
 
     var text: String {
         let required = DailyScore.baselineNightsRequired
         let nights = min(max(nights, 0), required)
+        if absent != nil {
+            switch signals {
+            case [.restingHR]:
+                // swiftlint:disable:next line_length
+                return String(localized: "Learning your resting heart rate baseline: \(nights) of \(required) nights. No HRV has reached RYFT yet, so recovery uses resting heart rate and sleep.",
+                              comment: "Note under Today's gauge: only resting HR fills, no HRV arrived. Arguments: nights so far, nights needed (7).")
+            case [.hrv]:
+                // swiftlint:disable:next line_length
+                return String(localized: "Learning your HRV baseline: \(nights) of \(required) nights. No resting heart rate has reached RYFT yet, so recovery uses HRV and sleep.",
+                              comment: "Note under Today's gauge: only HRV fills, no resting HR arrived. Arguments: nights so far, nights needed (7).")
+            default: break
+            }
+        }
         switch signals {
         case [.hrv]:
             return String(localized: "Learning your HRV baseline: \(nights) of \(required) nights.",
@@ -170,6 +196,37 @@ extension DailyScore {
         case .noRhr?: return [.restingHR]
         case .shortHistory?, nil: return []
         }
+    }
+
+    /// Signals neither the window nor the day has (F3): a count of 0 and no `hrv_ms` / `rhr` today. Nothing if
+    /// either count is unknown. On a `short_history` row in the first week (`W < 7`) these are what `no_*` will
+    /// say later; the first morning a source arrives has its value on the day, so it isn't absent.
+    var absentSignals: [CalibrationSignal] {
+        guard let hrv = baselineHrvDays, let rhr = baselineRhrDays else { return [] }
+        var signals: [CalibrationSignal] = []
+        if hrv == 0, hrvMs == nil { signals.append(.hrv) }
+        if rhr == 0, self.rhr == nil { signals.append(.restingHR) }
+        return signals
+    }
+
+    /// The one signal still filling while the other is absent (F3), and its count: R when no HRV ever arrived, H when
+    /// no resting HR did. Nil when both or neither are absent, or the other has no night yet (a first night: 0 of 7
+    /// moves tomorrow either way).
+    var onlyFillingSignal: (signal: CalibrationSignal, nights: Int)? {
+        guard let hrv = baselineHrvDays, let rhr = baselineRhrDays else { return nil }
+        switch absentSignals {
+        case [.hrv] where rhr > 0: return (.restingHR, rhr)
+        case [.restingHR] where hrv > 0: return (.hrv, hrv)
+        default: return nil
+        }
+    }
+
+    /// The calibration note may name the chosen tracker (`CalibrationBlocker.resolve`): a `no_*` row, or a
+    /// `short_history` row with an absent signal (N1 early, or the filling note). The facts builders read the
+    /// choice and the catalog only for these.
+    var calibrationNamesTracker: Bool {
+        guard calibrating else { return false }
+        return !waitingEndsCalibration || (calibratingReason == .shortHistory && !absentSignals.isEmpty)
     }
 
     /// The baselines still learning (§1): HRV if H < 7, resting HR if R < 7; nothing if either count is unknown.
