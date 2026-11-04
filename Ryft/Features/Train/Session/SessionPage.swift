@@ -16,4 +16,13 @@ enum SessionPage {
         if i + 1 < order.count { return order[i + 1] }
         return i > 0 ? order[i - 1] : nil
     }
+
+    /// The row to do on an exercise's page (L6): the set the user tapped if it is open and shown, else the first open
+    /// warm-up while the group is expanded, else the first open working set. `nil`: no open row.
+    static func activeSet(in ex: SessionAdvance.ExerciseState, tapped: UUID?, warmupsExpanded: Bool) -> UUID? {
+        let shown = ex.sets.filter { !$0.isWarmup || warmupsExpanded }
+        if let tapped, shown.contains(where: { $0.id == tapped && !$0.isCompleted }) { return tapped }
+        if warmupsExpanded, let warmup = ex.sets.first(where: { $0.isWarmup && !$0.isCompleted }) { return warmup.id }
+        return ex.sets.first { !$0.isWarmup && !$0.isCompleted }?.id
+    }
 }

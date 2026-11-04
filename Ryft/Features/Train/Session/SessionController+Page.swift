@@ -1,5 +1,12 @@
 import Foundation
 
+/// A warm-up group folded itself (L6): the view moves VoiceOver off the row that went. A fold from the pill isn't one, the
+/// pill stays. A new `id` per fold.
+struct AutoFold: Equatable {
+    let id = UUID()
+    let exerciseID: UUID
+}
+
 /// The Focused layout's page and warm-up groups (architecture.md §2 to §5, ADR 0013). A page change is no edit: it
 /// never calls `sessionChanged`, so it reaches neither `updatedAt` nor the outbox, and the undo window keeps running.
 extension SessionController {
@@ -56,6 +63,45 @@ extension SessionController {
         showPage(SessionPage.neighbour(of: ex.id, in: exercises.map(\.id)))
     }
 
+    // MARK: the active set
+
+    /// `ex`'s active row: one per page, derived, so a page beside the current one renders right during a swipe, and a
+    /// deleted set or one a server copy completed leaves it on its own (architecture.md §3).
+    func activeSet(in ex: LocalSessionExercise) -> LocalSet? {
+        guard let state = Self.states(of: [ex]).first,
+              let id = SessionPage.activeSet(in: state, tapped: tappedSet, warmupsExpanded: !isFolded(ex)) else { return nil }
+        return ex.sets.first { $0.id == id }
+    }
+
+    /// A tap on an upcoming row: it becomes the active one. No set changes and nothing is saved.
+    func activate(_ set: LocalSet) {
+        guard layout == .focused, !set.isCompleted else { return }
+        tappedSet = set.id
+    }
+
+    /// ✓ on the active row (L17). A set that would log neither reps nor load opens the keypad on the first missing field
+    /// instead; the rest is `toggleCheck`. VoiceOver's "Check off" stays `toggleCheck` (architecture.md, open points).
+    func checkActive(_ set: LocalSet, in ex: LocalSessionExercise) {
+        if let field = missingField(of: set, in: ex) {
+            edit(set, field)
+        } else {
+            toggleCheck(set, in: ex)
+        }
+    }
+
+    /// Read against what `toggleCheck` fills. Reps for bodyweight: its added load is optional. Time and distance have no
+    /// field to open (L20), and a stored value is a logged one.
+    private func missingField(of set: LocalSet, in ex: LocalSessionExercise) -> SetFocus.Field? {
+        guard layout == .focused, !set.isCompleted, !isReadOnly(set) else { return nil }
+        let g = ghost(for: set, in: ex)
+        guard set.reps == nil, g.reps == nil, set.weightKg == nil else { return nil }
+        switch ex.loadType {
+        case .weight: return g.kg == nil ? .kg : nil
+        case .bodyweight: return .reps
+        case .time, .distance: return nil
+        }
+    }
+
     // MARK: read-only rows
 
     /// Focused shows a stored time or distance and has no entry for it (L20), so the row has no reps field for the keypad.
@@ -89,6 +135,7 @@ extension SessionController {
         guard set.isWarmup, expandedWarmups.contains(ex.id),
               !ex.sets.contains(where: { $0.isWarmup && !$0.isCompleted }) else { return }
         setWarmups(expanded: false, for: ex)
+        autoFold = AutoFold(exerciseID: ex.id)
     }
 
     /// The `…` menu and the open group: a new set at the end, as a warm-up, shown at once (`toggleWarmup`).

@@ -122,6 +122,8 @@ final class SessionController: Identifiable {
     var tappedSet: UUID?
     /// Exercises whose warm-up group is open. Starts folded (L6); UI state, not persisted: a rebuild folds them again.
     var expandedWarmups: Set<UUID> = []
+    /// The latest group that folded itself, for the view.
+    var autoFold: AutoFold?
 
     /// After an edit (a set checked, unchecked, added, deleted or changed; an exercise added,
     /// removed or moved): the lock screen's next set follows.
@@ -217,13 +219,20 @@ final class SessionController: Identifiable {
         if set.isCompleted {
             set.completedAt = nil
             checkUndone(in: ex)
+            // An unchecked set is the one to do again.
+            if layout == .focused { tappedSet = set.id }
         } else {
             let g = ghost(for: set, in: ex)
             if set.reps == nil { set.reps = g.reps }
             if set.weightKg == nil, ex.loadType == .weight { set.weightKg = g.kg }
             set.completedAt = .now
             setsChecked += 1
-            if focus?.setID == set.id { focus = nil }
+            if layout == .focused {
+                focus = nil
+                tappedSet = nil
+            } else if focus?.setID == set.id {
+                focus = nil
+            }
             // First: it sets the exercise checked last, so the rest's lock-screen "next" is right at once.
             scheduleAdvance(after: set, in: ex)
             startRest(after: ex)
@@ -277,6 +286,8 @@ final class SessionController: Identifiable {
 
     func edit(_ set: LocalSet, _ field: SetFocus.Field) {
         focus = SetFocus(setID: set.id, field: field)
+        // The active row follows the keypad.
+        if layout == .focused { tappedSet = set.id }
         buffer = text(for: set, field)
     }
 
