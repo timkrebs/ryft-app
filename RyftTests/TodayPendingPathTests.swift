@@ -962,7 +962,6 @@ struct ScoringWordOrderTests {
     @Test func aClockSetBackDoesNotHideAWrite() {
         let clock = TestClock(now: Harness.now), day = "2026-10-19"
         let sync = SyncService.ungated(env: AppEnvironment.test(clock: clock))
-        sync.accepted([day])
         sync.scored([day])
         clock.set(Harness.now.addingTimeInterval(-3_600))
         sync.accepted([day])

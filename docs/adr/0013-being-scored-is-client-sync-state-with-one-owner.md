@@ -67,9 +67,10 @@
      the calls, so no clock compares a push with a write. It doesn't read the ledger, because a late status read can
      drop the push's word there before the run says its own (review-t2 W1). `scoringLedger` stays the only answer:
      the set is `awaiting`'s private ordering input, nothing else reads it, and Today and the widget never see it.
-   - `awaiting` relies on `accepted` having run for every written day. It is called where the write is accepted, not
-     where the word is said: each page from the engine's `.accepted` event, before the upload moves on or returns, and
-     a `.daysChanged` on arrival (`SyncSteps.accepted`), so a run queued behind another keeps its order with a push.
+   - `awaiting` relies on `accepted` having run for every written day. It is called where the write reaches the
+     coordinator, not where the word is said: each page from the engine's `.accepted` event, before the upload moves on
+     or returns, and a `.daysChanged` on arrival (`SyncSteps.accepted`), so a run queued behind another keeps its order
+     with a push. For a job of several requests, such as an import, that arrival comes after the platform accepted them.
      The one day without it is a push's merged into a `.daysChanged`: no write touched it, so it stays out. A new write
      path calls `accepted` before it says its word.
    - **A word belongs to its side.** A run says its words with the `ledgerGeneration` it began in, and
@@ -123,17 +124,18 @@
    - The ledger is in memory only and never persisted. A relaunch starts from the platform's word: the launch read,
      then the run that sent nothing.
 7. **Tests pin these rules.** They use `FakeSteps`, `TestClock` and the real `LiveSyncSteps`:
-   - `TodayPendingPathTests`: `theWordWinsUntilAStatusRequestedAfterTheCacheTimeAnswers`,
-     `aStatusRequestedBeforeThePushCannotMakeTheDayPendingAgain`, `aFastScorerLandsACalibratingDayWithoutAPush`,
+   - `TodayPendingPathTests`: `aFastScorerLandsACalibratingDayWithoutAPush`,
      `aPushOnANightlessDayLeavesItWaitingForSleep`, `openingTheAppRightAfterABackgroundUploadWaitsForItsWord`,
-     `aReadJoiningAnEarlierFlightLeavesTheWordsThatFlightCouldNotAnswer`,
-     `theLedgerIsEmptyAfterAnAccountChangeAndTheWidgetSaysSo`, `switchingDemoDataOnOrOffForgetsTheWords`,
      `aPollThatJoinsAnEarlierFlightKeepsWaitingUntilALateReadAnswers`;
    - `SyncCoordinatorTests`: `anUploadThatEndsEarlySaysTheDaysItsAcceptedPagesTouched`,
      `aSilentPushMarksItsDaysScoredBeforeTheRefresh`, `aStatusReadUnderTheCacheTimeAgoIsUsedAsItIsWithItsOwnEstimate`,
      `anAnswerTheWordOutlivesDoesNotEndTheWait`, `aCancelRightAfterTheUploadSaysOnlyThatUploadsDays`,
      `aDayAWaitGaveUpOnIsWaitedForAgainOnceTheWordsAreForgotten`;
-   - `ScoringLedgerTests`: `aPushOverAStaleDayIsScored`, `aWordForManyDaysRepublishesTheWidgetOnce`,
+   - `ScoringLedgerTests`: `theWordWinsUntilAStatusRequestedAfterTheCacheTimeAnswers`,
+     `aStatusRequestedBeforeThePushCannotMakeTheDayPendingAgain`,
+     `aReadJoiningAnEarlierFlightLeavesTheWordsThatFlightCouldNotAnswer`,
+     `theLedgerIsEmptyAfterAnAccountChangeAndTheWidgetSaysSo`, `switchingDemoDataOnOrOffForgetsTheWords`,
+     `aPushOverAStaleDayIsScored`, `aWordForManyDaysRepublishesTheWidgetOnce`,
      `aWordSaidAfterASignOutIsDropped`, `anUploadThatEndsAfterTheAccountWentKeepsNoneOfItsDays`,
      `anUploadThatDidNotStartReportsNoDaysTouched`;
    - `ScoringWordOrderTests`: `aPushForAnEarlierPageOutlivesTheUploadsWord`,
@@ -189,6 +191,10 @@
   push. If a later page touches the day again, the word is rightly `.pending`, but the platform sends at most one
   refresh per 5 minutes per account (`API.md`, Push), so in the background that word stays until the app is opened.
   The `BGAppRefresh` follow-up closes this too.
+- **An import's early push.** A job of several requests sends one `.daysChanged` when it ends. If a push for a day
+  from an early request has arrived by then, the arrival clears it and the day says pending. The job then ends in the
+  background with no wait, and no later push names that day, so it stays "being scored" until the app opens. It fails
+  towards pending and no write is lost. Calling `accepted` on each batch's answer would close it, if it ever shows up.
 - **A write path that bypasses the coordinator.**
   - Profile → Rescore (`state.source.recompute`) predates this ADR. It writes outside the pipeline and shows its own
     "Rescoring" line, so Today doesn't say "being scored" for those days.

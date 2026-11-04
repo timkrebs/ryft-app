@@ -375,8 +375,8 @@ final class SyncService {
         await syncNow()
     }
 
-    /// The platform accepted a write that touches `days`, now: an upload's page, or a `.daysChanged`. A push named
-    /// before it can't be about it.
+    /// A write that touches `days` reached this side: an upload's page, as the platform accepted it, or a `.daysChanged`
+    /// on arrival, which for an import comes after its last request. A push named before it can't be about it.
     func accepted(_ days: [String]) {
         heardSinceWrite.subtract(days)
     }
