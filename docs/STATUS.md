@@ -1,4 +1,12 @@
-# Status — 2026-10-31
+# Status — 2026-11-04
+
+## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, in progress)
+
+Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session/`. Five stacked PRs. All of it ships dark behind the remote flag `train.focused_session`: flag off or absent stays the List layout.
+
+- **T1 layout:** built, PR open. The strip, one exercise per page, chips, warm-up group, last-time card. The old rest card still sits above the strip until T3, and every row looks the same until T2.
+- **Verified:** simulator only, iOS 27.0, 390 pt in the app, 320 pt in renders.
+- **Before the flag goes on:** a run on iOS 17 (no such runtime on this Mac), a device run with a real plan, VoiceOver by hand.
 
 ## Data quality (`CLAUDE_FOLLOWUP_DATA_QUALITY.md`, in progress)
 

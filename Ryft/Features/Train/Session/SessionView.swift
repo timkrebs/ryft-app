@@ -1,5 +1,15 @@
 import SwiftUI
 
+/// What `SessionView` hosts for the Focused layout: its sheets stay above both layouts.
+struct SessionActions {
+    var addExercise: () -> Void
+    var reorder: () -> Void
+    var plates: (LocalSessionExercise) -> Void
+    var history: (LocalSessionExercise) -> Void
+    /// A finger on the pages: no jump for the next 3 s.
+    var userScrolled: () -> Void
+}
+
 /// The live session, optimised for sweaty thumbs: 56 pt targets, large
 /// monospaced numbers, haptics on set check and rest end, the screen stays on.
 /// Nothing destructive happens without a confirmation.
@@ -24,6 +34,7 @@ struct SessionView: View {
     @State private var confirmFinish = false
     @State private var plates: PlateRequest?
     @State private var historyFor: ExerciseRef?
+    @State private var width: CGFloat = 0
 
     private struct PlateRequest: Identifiable {
         let kg: Double
@@ -50,58 +61,11 @@ struct SessionView: View {
                     .padding(.bottom, 8)
                     .transition(.opacity)
             }
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 14) {
-                        if !sync.isOnline {
-                            Label("Offline — every set is saved on this phone and syncs later.",
-                                  systemImage: "wifi.slash")
-                                .font(.ryft(.caption))
-                                .foregroundStyle(Theme.textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        exerciseList
-                        if controller.exercises.isEmpty {
-                            InlineMessage(message: String(localized: "An empty session. Add your first exercise."),
-                                          systemImage: "dumbbell")
-                        }
-                        if controller.isAllDone {
-                            AllSetsDoneCard(exercises: controller.exercises.count,
-                                            sets: controller.session.completedSetCount) { confirmFinish = true }
-                        }
-                        Button {
-                            showsAdd = true
-                        } label: {
-                            Label("Add exercise", systemImage: "plus")
-                        }
-                        .buttonStyle(TealButtonStyle(prominent: false))
-                        if controller.exercises.count > 1 {
-                            Button("Reorder exercises") { showsReorder = true }
-                                .font(.ryft(.callout))
-                                .foregroundStyle(Theme.textSecondary)
-                                .frame(minHeight: 44)
-                        }
-                        Color.clear.frame(height: 1).id(Self.endAnchor)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 24)
-                    .animation(Theme.Motion.respecting(reduceMotion), value: controller.collapsed)
-                    .environment(\.sessionVoiceOverFocus, $voiceOverFocus)
-                }
-                .scrollDismissesKeyboard(.never)
-                .modifier(ManualScrollReporter { userScrolled() })
-                .onChange(of: controller.focus) { _, focus in
-                    guard let focus else { return }
-                    withAnimation { proxy.scrollTo(focus.setID, anchor: .center) }
-                }
-                .onChange(of: controller.advance?.id) { _, _ in jump(to: controller.advance, with: proxy) }
-                .onAppear {
-                    if let focus = controller.focus { proxy.scrollTo(focus.setID, anchor: .center) }
-                }
+            if controller.layout == .focused {
+                FocusedSessionView(controller: controller, actions: actions)
+            } else {
+                listContent
             }
-            // An inset, not an overlay: while the toast shows, the last set row scrolls clear of it.
-            .safeAreaInset(edge: .bottom, spacing: 0) { SessionToastOverlay(controller: controller) }
             if controller.focus != nil {
                 NumberPad(controller: controller) { kg in plates = PlateRequest(kg: kg, fromKeypad: true) }
                     .transition(.move(edge: .bottom))
@@ -116,12 +80,19 @@ struct SessionView: View {
             try? await Task.sleep(for: .seconds(4))
             restBarPeek = false
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .background(Theme.background.ignoresSafeArea())
         .modifier(KeepsScreenAwake())
         .sensoryFeedback(.success, trigger: controller.setsChecked)
         .sensoryFeedback(.impact(weight: .heavy, intensity: 1), trigger: controller.restsEnded)
         .sheet(isPresented: $showsAdd) {
-            AddExerciseSheet { controller.add($0) }
+            AddExerciseSheet { picked in
+                let row = controller.add(picked)
+                // Focused: the new exercise's page. The list stays where it is.
+                if controller.layout == .focused {
+                    withAnimation(Theme.Motion.respecting(reduceMotion)) { controller.jump(to: row.id) }
+                }
+            }
         }
         .sheet(item: Bindable(coordinator).summary, onDismiss: { coordinator.summaryDone() }) {
             SessionSummarySheet(summary: $0)
@@ -155,15 +126,19 @@ struct SessionView: View {
 
     // MARK: header
 
+    /// Focused at 320 pt (design.md §2.1): an hour clock doesn't fit the middle at 30 pt. The list keeps its header.
+    private var isCompactHeader: Bool { controller.layout == .focused && SetTableColumns.fitting(width: width) == .compact }
+    private var headerButton: CGFloat { isCompactHeader ? 44 : 48 }
+
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: isCompactHeader ? 6 : 8) {
             Button {
                 coordinator.close()
             } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(Theme.textPrimary)
-                    .frame(width: 48, height: 48)
+                    .frame(width: headerButton, height: headerButton)
                     .background(Theme.surface, in: Circle())
             }
             .accessibilityLabel(Text("Minimise"))
@@ -176,9 +151,11 @@ struct SessionView: View {
                     .lineLimit(1)
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text(Fmt.clock(controller.elapsed(at: context.date)))
-                        .font(.ryftNumber(size: 30))
+                        .font(.ryftNumber(size: isCompactHeader ? 26 : 30))
                         .monospacedDigit()
                         .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(isCompactHeader ? 1 : nil)
+                        .minimumScaleFactor(isCompactHeader ? 0.8 : 1)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -192,7 +169,7 @@ struct SessionView: View {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(Theme.textPrimary)
-                    .frame(width: 48, height: 48)
+                    .frame(width: headerButton, height: headerButton)
                     .background(Theme.surface, in: Circle())
             }
             .accessibilityLabel(Text("More"))
@@ -206,30 +183,91 @@ struct SessionView: View {
                 .font(.ryft(.headline))
                 .foregroundStyle(Theme.onAccent)
                 .padding(.horizontal, 18)
-                .frame(minHeight: 48)
+                .frame(minHeight: headerButton)
                 .background(Theme.accent, in: Capsule())
             }
             .disabled(controller.isFinishing)
             .accessibilityIdentifier("session.finish")
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, isCompactHeader ? 12 : 16)
         .padding(.vertical, 8)
     }
 
     // MARK: exercises
 
-    /// Consecutive exercises in one superset group share a bracket.
-    private var groups: [[LocalSessionExercise]] {
-        var out: [[LocalSessionExercise]] = []
-        for ex in controller.exercises {
-            if let g = ex.supersetGroup, let last = out.last?.last, last.supersetGroup == g {
-                out[out.count - 1].append(ex)
-            } else {
-                out.append([ex])
+    /// The list layout: every exercise on one screen.
+    private var listContent: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 14) {
+                    if !sync.isOnline {
+                        Label("Offline — every set is saved on this phone and syncs later.",
+                              systemImage: "wifi.slash")
+                            .font(.ryft(.caption))
+                            .foregroundStyle(Theme.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    exerciseList
+                    if controller.exercises.isEmpty {
+                        InlineMessage(message: String(localized: "An empty session. Add your first exercise."),
+                                      systemImage: "dumbbell")
+                    }
+                    if controller.isAllDone {
+                        AllSetsDoneCard(exercises: controller.exercises.count,
+                                        sets: controller.session.completedSetCount) { confirmFinish = true }
+                    }
+                    Button {
+                        showsAdd = true
+                    } label: {
+                        Label("Add exercise", systemImage: "plus")
+                    }
+                    .buttonStyle(TealButtonStyle(prominent: false))
+                    if controller.exercises.count > 1 {
+                        Button("Reorder exercises") { showsReorder = true }
+                            .font(.ryft(.callout))
+                            .foregroundStyle(Theme.textSecondary)
+                            .frame(minHeight: 44)
+                    }
+                    Color.clear.frame(height: 1).id(Self.endAnchor)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
+                .animation(Theme.Motion.respecting(reduceMotion), value: controller.collapsed)
+                .environment(\.sessionVoiceOverFocus, $voiceOverFocus)
+            }
+            .scrollDismissesKeyboard(.never)
+            .modifier(ManualScrollReporter { userScrolled() })
+            .onChange(of: controller.focus) { _, focus in
+                guard let focus else { return }
+                withAnimation { proxy.scrollTo(focus.setID, anchor: .center) }
+            }
+            .onChange(of: controller.advance?.id) { _, _ in jump(to: controller.advance, with: proxy) }
+            .onAppear {
+                if let focus = controller.focus { proxy.scrollTo(focus.setID, anchor: .center) }
             }
         }
-        return out
+        // An inset, not an overlay: while the toast shows, the last set row scrolls clear of it.
+        .safeAreaInset(edge: .bottom, spacing: 0) { SessionToastOverlay(controller: controller) }
     }
+
+    /// What both layouts share and only this view can open.
+    private var actions: SessionActions {
+        SessionActions(addExercise: { showsAdd = true }, reorder: { showsReorder = true }, plates: showPlates,
+                       history: showHistory, userScrolled: userScrolled)
+    }
+
+    private func showPlates(for ex: LocalSessionExercise) {
+        let kg = ex.orderedSets.last { $0.weightKg != nil }?.weightKg ?? ex.targetKg ?? 60
+        plates = PlateRequest(kg: kg, fromKeypad: false)
+    }
+
+    private func showHistory(of ex: LocalSessionExercise) {
+        historyFor = ExerciseRef(id: ex.exerciseId, name: ex.name)
+    }
+
+    /// Consecutive exercises in one superset group share a bracket.
+    private var groups: [[LocalSessionExercise]] { controller.exerciseGroups }
 
     private var exerciseList: some View {
         ForEach(groups, id: \.first?.id) { group in
@@ -251,11 +289,7 @@ struct SessionView: View {
                 CollapsedExerciseRow(exercise: ex) { controller.expand(ex) }
             } else {
                 ExerciseCard(controller: controller, exercise: ex,
-                             onPlates: {
-                                 let kg = ex.orderedSets.last { $0.weightKg != nil }?.weightKg ?? ex.targetKg ?? 60
-                                 plates = PlateRequest(kg: kg, fromKeypad: false)
-                             },
-                             onHistory: { historyFor = ExerciseRef(id: ex.exerciseId, name: ex.name) })
+                             onPlates: { showPlates(for: ex) }, onHistory: { showHistory(of: ex) })
             }
         }
         .transition(.opacity)
