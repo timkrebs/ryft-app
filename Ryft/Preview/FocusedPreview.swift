@@ -8,6 +8,10 @@ enum FocusedPreview {
     enum Scenario {
         /// The first exercise done, the second on screen with last time, 75 × 10 and 80 × 6.
         case midSession
+        /// `midSession` with the third set tapped, so the second is upcoming with a typed value.
+        case tappedRow
+        /// Every set checked, the last exercise on screen.
+        case allDone
         /// The superset's first exercise on screen.
         case superset
         /// Two warm-ups on the page, folded or open.
@@ -38,13 +42,19 @@ enum FocusedPreview {
         store.save()
         let controller = SessionController(session: session, sync: sync, liveActivity: nil, layout: .focused)
         if scenario == .warmupsOpen, let ex = controller.pageExercise { controller.setWarmups(expanded: true, for: ex) }
+        if scenario == .tappedRow, let ex = controller.pageExercise {
+            ex.orderedSets[1].reps = 7
+            controller.activate(ex.orderedSets[2])
+        }
         return controller
     }
 
     private static func make(_ scenario: Scenario, in store: TrainStore) -> LocalSession {
         switch scenario {
-        case .midSession, .offline:
+        case .midSession, .offline, .tappedRow:
             return midSession(in: store)
+        case .allDone:
+            return allDone(in: store)
         case .superset:
             let s = midSession(in: store)
             s.currentExerciseID = s.orderedExercises[3].id
@@ -86,6 +96,21 @@ enum FocusedPreview {
         list[1].lastTime = lastTime
         list[1].notes = "Slow on the way down"
         s.currentExerciseID = list[1].id
+        return s
+    }
+
+    private static func allDone(in store: TrainStore) -> LocalSession {
+        let s = upper(in: store)
+        for ex in s.orderedExercises {
+            for set in ex.orderedSets {
+                let ghost = ex.ghost(forSetAt: set.setIndex)
+                set.reps = ghost.reps ?? 10
+                set.weightKg = ghost.kg ?? 75
+                set.completedAt = .now.addingTimeInterval(Double(set.setIndex) * 150 - 900)
+            }
+        }
+        s.orderedExercises.last?.lastTime = lastTime
+        s.currentExerciseID = s.orderedExercises.last?.id
         return s
     }
 

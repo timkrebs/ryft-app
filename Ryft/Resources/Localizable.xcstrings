@@ -246,6 +246,28 @@
         }
       }
     },
+    "%@ · warm-up %lld" : {
+      "comment" : "Number pad header on a warm-up, e.g. Bench press · warm-up 1.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · Aufwärmsatz %lld"
+          }
+        }
+      }
+    },
+    "%@ · warm-up %lld of %lld" : {
+      "comment" : "Next set in the rest timer when it is a warm-up, e.g. Bench press · warm-up 1 of 2.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ · Aufwärmsatz %lld von %lld"
+          }
+        }
+      }
+    },
     "%@ · weekend %@" : {
       "localizations" : {
         "de" : {
@@ -411,6 +433,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@, jetzt zugeordnet. Noch %2$lld zu prüfen."
+          }
+        }
+      }
+    },
+    "%@, set %lld of %lld" : {
+      "comment" : "VoiceOver: the page moved to the next exercise, e.g. Bench press, set 1 of 4.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, Satz %lld von %lld"
+          }
+        }
+      }
+    },
+    "%@, warm-up %lld of %lld" : {
+      "comment" : "VoiceOver: the page moved to the next exercise, on a warm-up, e.g. Bench press, warm-up 1 of 2.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, Aufwärmsatz %lld von %lld"
           }
         }
       }
@@ -2680,7 +2724,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Alle Sätze erledigt"
+            "value" : "Alle Sätze geschafft"
           }
         }
       }
@@ -2691,7 +2735,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Alle Sätze erledigt. Unten findest du „Workout beenden“."
+            "value" : "Alle Sätze geschafft. Unten findest du „Workout beenden“."
           }
         }
       }
@@ -5540,6 +5584,17 @@
         }
       }
     },
+    "Nothing logged yet. Enter a value on the keypad." : {
+      "comment" : "VoiceOver announcement when a set is checked off with no values: nothing is logged and the keypad opens.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch nichts geloggt. Gib einen Wert auf der Zahlentastatur ein."
+          }
+        }
+      }
+    },
     "Offline. Showing your saved exercise library." : {
       "comment" : "Caption in the replace sheet without a connection.",
       "localizations" : {
@@ -5569,6 +5624,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Öffnet den Verlauf"
+          }
+        }
+      }
+    },
+    "planned %@" : {
+      "comment" : "VoiceOver: a set's prefilled values, not logged yet. 1: e.g. 10 reps at 75 kilograms.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "geplant: %@"
           }
         }
       }

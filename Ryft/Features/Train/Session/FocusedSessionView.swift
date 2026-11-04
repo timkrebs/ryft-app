@@ -3,21 +3,26 @@ import SwiftUI
 /// The Focused layout: one exercise per page under a strip of tiles (design.md, architecture.md §8). `SessionView` stays
 /// the host and keeps what both layouts share; this replaces only the list. The toast is a stack row here, never on a
 /// page: its `onDisappear` commits the replace, and a swipe mustn't do that.
-///
-/// In this PR the page follows the user only; the planner's `advance` isn't wired yet.
 struct FocusedSessionView: View {
     var controller: SessionController
     let actions: SessionActions
 
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     @Environment(\.accessibilitySwitchControlEnabled) private var switchControl
-    /// After a strip double tap: focus goes to the page's title. Rows bind to it too (`sessionVoiceOverFocus`).
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Moves it: a strip double tap (the title), an advance and an auto-fold (the active row). Titles and rows bind to it
+    /// (`sessionVoiceOverFocus`).
     @AccessibilityFocusState private var voiceOverFocus: UUID?
     @State private var width: CGFloat = 0
     @State private var sheet: ExerciseSheet?
     @State private var removing: UUID?
+    /// One pending focus move: a new one replaces it, so an old one can't land after it or after the screen went.
+    @State private var voiceOverMove: Task<Void, Never>?
 
     private var columns: SetTableColumns { .fitting(width: width) }
+
+    /// Longer than the page's move: a row isn't in the accessibility tree while its page is hidden.
+    private static let focusDelay: Duration = .milliseconds(350)
 
     private func row(_ id: UUID?) -> LocalSessionExercise? {
         controller.exercises.first { $0.id == id }
@@ -41,6 +46,10 @@ struct FocusedSessionView: View {
         .onAppear { controller.pinPage() }
         // The first exercise of an empty session: nothing to swipe from, and `resolve` chose it.
         .onChange(of: controller.pageExerciseID) { _, _ in controller.pinPage() }
+        .onChange(of: controller.advance?.id) { _, _ in perform(controller.advance) }
+        .onChange(of: controller.autoFold?.id) { _, _ in focusAfterFold(controller.autoFold) }
+        .onChange(of: controller.emptyCheck?.id) { _, _ in announceEmptyCheck() }
+        .onDisappear { voiceOverMove?.cancel() }
         .sheet(item: $sheet) { content(for: $0) }
         .confirmationDialog(Text("Remove \(row(removing)?.name ?? "")?"),
                             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
@@ -50,6 +59,50 @@ struct FocusedSessionView: View {
             }
         } message: {
             Text("Its sets in this workout are deleted.")
+        }
+    }
+
+    /// The planner decided (L1). `.advance` is a page change and its `collapse` is ignored: no Focused view reads it. The
+    /// page stays on `.allDone`, and shows its footer (`ExercisePage`).
+    private func perform(_ request: AdvanceRequest?) {
+        guard let request else { return }
+        switch request.step {
+        case .stay:
+            return
+        case let .advance(_, to):
+            withAnimation(Theme.Motion.respecting(reduceMotion)) { controller.follow(request) }
+            guard voiceOver, let ex = row(to.exerciseID), let set = controller.activeSet(in: ex) else { return }
+            moveVoiceOver(to: set.id, announcing: controller.pageAnnouncement(of: ex))
+        case .allDone:
+            guard voiceOver else { return }
+            AccessibilityNotification.Announcement(String(
+                localized: "All sets done. Finish workout available at the bottom.",
+                comment: "VoiceOver announcement when the last set of a workout is checked off.")).post()
+        }
+    }
+
+    /// The row VoiceOver was on just left the table (review S4): the active row, else the title.
+    private func focusAfterFold(_ fold: AutoFold?) {
+        guard voiceOver, let ex = row(fold?.exerciseID) else { return }
+        moveVoiceOver(to: controller.activeSet(in: ex)?.id ?? ex.id, announcing: nil)
+    }
+
+    /// The row didn't change and nothing was logged, so VoiceOver says why (L23). Focus stays on the row. It replaces a
+    /// pending move: the user acted since, and its announcement would cut this one off.
+    private func announceEmptyCheck() {
+        guard voiceOver, controller.emptyCheck != nil else { return }
+        moveVoiceOver(to: nil, announcing: String(
+            localized: "Nothing logged yet. Enter a value on the keypad.",
+            comment: "VoiceOver announcement when a set is checked off with no values: nothing is logged and the keypad opens."))
+    }
+
+    /// `to` nil: only the announcement, after the same wait, so the keypad's appearing doesn't cut it off.
+    private func moveVoiceOver(to id: UUID?, announcing text: String?) {
+        voiceOverMove?.cancel()
+        voiceOverMove = Task { @MainActor in
+            do { try await Task.sleep(for: Self.focusDelay) } catch { return }
+            if let id { voiceOverFocus = id }
+            if let text { AccessibilityNotification.Announcement(text).post() }
         }
     }
 
@@ -69,7 +122,7 @@ struct FocusedSessionView: View {
             if let ex = row(id) {
                 ExercisePage(controller: controller, exercise: ex, columns: columns,
                              onSheet: { sheet = $0 }, onRemove: { removing = ex.id },
-                             onPlates: { actions.plates(ex) }, onHistory: { actions.history(ex) })
+                             onPlates: { actions.plates(ex) }, onHistory: { actions.history(ex) }, onFinish: actions.finish)
             }
         }
     }
@@ -144,6 +197,14 @@ private func session(_ scenario: FocusedPreview.Scenario) -> some View {
 
 #Preview("Focused · empty, light") {
     session(.empty).previewEnvironment(scheme: .light)
+}
+
+#Preview("Focused · all done, dark") {
+    session(.allDone).previewEnvironment()
+}
+
+#Preview("Focused · all done, light") {
+    session(.allDone).previewEnvironment(scheme: .light)
 }
 
 #Preview("Focused · 320 pt", traits: .fixedLayout(width: 320, height: 693)) {

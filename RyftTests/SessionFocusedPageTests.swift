@@ -755,13 +755,12 @@ struct SessionFocusedPageTests {
         #expect(r.controller.focus == nil)
     }
 
-    @Test func checkingAWarmUpThatDoesNotFoldTheGroupLeavesTheKeypad() {
+    @Test func anOpenWarmUpKeepsTheGroupOpenWhenAnotherIsChecked() {
         let r = rig()
         let sets = withOpenWarmups(r)
-        r.controller.edit(sets[0], .kg)
         r.controller.toggleCheck(sets[1], in: r.row)
         #expect(r.controller.expandedWarmups.contains(r.row.id))
-        #expect(r.controller.focus?.setID == sets[0].id)
+        #expect(r.controller.autoFold == nil)
     }
 
     @Test func theListLayoutKeepsAKeypadOnAWarmUpWhenTheLastOneIsChecked() {

@@ -91,9 +91,12 @@ Store "What's New".
 - Health data, activities and workouts go up only under your consent to the privacy policy
   in force, also from the background and after a long time offline; a refusal is remembered
   until you agree. Deleting an activity, a night or a workout reaches RYFT even without it.
+- German: the end of a workout reads „Alle Sätze geschafft“ instead of „Alle Sätze erledigt“.
 
 ### Fixed
 - If this iPhone can't delete your training data when you sign out, RYFT tries again when another account signs in.
+- Today: after a sync, last night shows as being scored on every path (a background sync, a relaunch, a pull),
+  and a calibrating day no longer stays on "Scoring your night…" after its score arrives.
 - Today's baseline counter no longer sits at 0 of 7 when your tracker sends no HRV: it counts the resting-heart-rate
   nights that are filling and says why, shows your readiness when there is one, and never puts a recovery percentage
   beside the counter. With a tracker that doesn't share HRV chosen in setup, Today says so from the first week

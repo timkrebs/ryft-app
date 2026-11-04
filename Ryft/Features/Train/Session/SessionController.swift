@@ -94,7 +94,7 @@ final class SessionController: Identifiable {
     }
 
     /// What the lock screen says comes next, so a change that doesn't move it sends nothing.
-    private var lastActivityNext: String?
+    private(set) var lastActivityNext: String?
 
     // MARK: jump-to-next state (SessionController+Advance.swift)
     // Set only from that file (an extension elsewhere can't reach `private(set)`).
@@ -122,6 +122,10 @@ final class SessionController: Identifiable {
     var tappedSet: UUID?
     /// Exercises whose warm-up group is open. Starts folded (L6); UI state, not persisted: a rebuild folds them again.
     var expandedWarmups: Set<UUID> = []
+    /// The latest group that folded itself, for the view.
+    var autoFold: AutoFold?
+    /// The latest check that opened the keypad instead of logging, for the view.
+    var emptyCheck: EmptyCheck?
 
     /// After an edit (a set checked, unchecked, added, deleted or changed; an exercise added,
     /// removed or moved): the lock screen's next set follows.
@@ -186,12 +190,18 @@ final class SessionController: Identifiable {
     func nextLabel(after ex: LocalSessionExercise? = nil) -> String {
         guard !exercises.isEmpty else { return String(localized: "Add an exercise") }
         guard let next = nextUp(after: ex) else { return String(localized: "Last set done — finish when ready") }
-        let sets = next.exercise.orderedSets
-        let n = (sets.firstIndex { $0.id == next.set.id } ?? 0) + 1
-        let label = String(localized: "\(next.exercise.name) · set \(n) of \(sets.count)",
-                           comment: "Next set in the rest timer, e.g. Bench press · set 3 of 4.")
-        // "· 5 × 80 kg" when the set is filled in (from the plan or the last time).
-        guard let target = Self.target(reps: next.set.reps, kg: next.set.weightKg) else { return label }
+        let at = position(of: next.set, in: next.exercise)
+        let label = at.isWarmup
+            ? String(localized: "\(next.exercise.name) · warm-up \(at.number) of \(at.count)",
+                     comment: "Next set in the rest timer when it is a warm-up, e.g. Bench press · warm-up 1 of 2.")
+            : String(localized: "\(next.exercise.name) · set \(at.number) of \(at.count)",
+                     comment: "Next set in the rest timer, e.g. Bench press · set 3 of 4.")
+        // "· 5 × 80 kg" when the set is filled in (from the plan or the last time). A read-only row still counts: it is
+        // on screen and gets checked, and what it holds is its stored time or distance.
+        let stored = isReadOnly(next.set)
+            ? SetStoredValue(reps: next.set.reps, durationSec: next.set.durationSec, distanceM: next.set.distanceM)?.text
+            : nil
+        guard let target = stored ?? Self.target(reps: next.set.reps, kg: next.set.weightKg) else { return label }
         return "\(label) · \(target)"
     }
 
@@ -207,8 +217,9 @@ final class SessionController: Identifiable {
 
     /// After `ex` (default: the exercise checked last): a superset's partner first, then the list below, wrapping
     /// to the top; an exercise without an open working set is skipped (`SessionAdvance.next`, lead decision D-a).
+    /// Focused, before any check here (a relaunch on page 3): from the page, not from the top.
     func nextUp(after ex: LocalSessionExercise?) -> (exercise: LocalSessionExercise, set: LocalSet)? {
-        nextOpenSet(after: ex?.id ?? lastCheckedExercise)
+        nextOpenSet(after: ex?.id ?? lastCheckedExercise ?? (layout == .focused ? pageExerciseID : nil))
     }
 
     // MARK: sets
@@ -217,13 +228,23 @@ final class SessionController: Identifiable {
         if set.isCompleted {
             set.completedAt = nil
             checkUndone(in: ex)
+            // An unchecked set is the one to do again; a keypad on another row would type into a row that isn't active.
+            if layout == .focused {
+                tappedSet = set.id
+                if focus?.setID != set.id { focus = nil }
+            }
         } else {
             let g = ghost(for: set, in: ex)
             if set.reps == nil { set.reps = g.reps }
             if set.weightKg == nil, ex.loadType == .weight { set.weightKg = g.kg }
             set.completedAt = .now
             setsChecked += 1
-            if focus?.setID == set.id { focus = nil }
+            if layout == .focused {
+                focus = nil
+                tappedSet = nil
+            } else if focus?.setID == set.id {
+                focus = nil
+            }
             // First: it sets the exercise checked last, so the rest's lock-screen "next" is right at once.
             scheduleAdvance(after: set, in: ex)
             startRest(after: ex)
@@ -277,6 +298,11 @@ final class SessionController: Identifiable {
 
     func edit(_ set: LocalSet, _ field: SetFocus.Field) {
         focus = SetFocus(setID: set.id, field: field)
+        // The active row follows the keypad.
+        if layout == .focused {
+            tappedSet = set.id
+            activeRowChanged()
+        }
         buffer = text(for: set, field)
     }
 
@@ -343,17 +369,22 @@ final class SessionController: Identifiable {
         changed(set)
     }
 
-    /// kg → reps → the next set's kg. A read-only row (`isReadOnly`) has no reps to go to and is passed over.
+    /// kg → reps → the next set's kg. In Focused the next set is the next row of the table (`nextRow`).
     func nextField() {
         guard let focus, let target = focusedSet else { return }
         let set = target.set, ex = target.exercise
         switch focus.field {
         case .kg where !isReadOnly(set): edit(set, .reps)
         case .kg, .reps, .rpe:
-            if let next = ex.orderedSets.first(where: { $0.setIndex > set.setIndex && !isReadOnly($0) }) {
+            if let next = nextRow(after: set, in: ex) {
                 edit(next, ex.loadType == .weight ? .kg : .reps)
             } else {
                 self.focus = nil
+                // Focused: off the end of the table the first open set is active again.
+                if layout == .focused {
+                    tappedSet = nil
+                    activeRowChanged()
+                }
             }
         }
     }
@@ -412,6 +443,8 @@ final class SessionController: Identifiable {
         session.deletedExerciseIDs.append(ex.id)
         if let group = ex.supersetGroup { ungroup(group, leaving: ex) }
         session.exercises.removeAll { $0.id == ex.id }
+        // The planner reads an id it can't find as nil, from the top, so List sees no change; Focused gets its page fallback.
+        if lastCheckedExercise == ex.id { lastCheckedExercise = nil }
         store.context.delete(ex)
         renumber()
         edited()
