@@ -55,6 +55,7 @@ extension SessionController {
         tappedSet = nil
         session.currentExerciseID = id
         store.save()
+        activeRowChanged()
     }
 
     /// `ex` is about to go: its page moves first, while `focusedSet` still finds the row.
@@ -73,10 +74,18 @@ extension SessionController {
         return ex.sets.first { $0.id == id }
     }
 
-    /// A tap on an upcoming row: it becomes the active one. No set changes and nothing is saved.
+    /// A tap on an upcoming row: it becomes the active one. No set changes and no edit is made.
     func activate(_ set: LocalSet) {
         guard layout == .focused, !set.isCompleted else { return }
         tappedSet = set.id
+        activeRowChanged()
+    }
+
+    /// The active row moved without an edit: the lock screen's "Next" follows. `updatedAt` and the outbox stay untouched,
+    /// and the session must still be running: a page change can arrive during the dismissal, after the activity ended.
+    func activeRowChanged() {
+        guard layout == .focused, isUnderway else { return }
+        refreshActivity()
     }
 
     /// ✓ on the active row (L17). A set that would log neither reps nor load opens the keypad on the first missing field

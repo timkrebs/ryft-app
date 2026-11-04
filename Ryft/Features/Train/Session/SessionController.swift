@@ -94,7 +94,7 @@ final class SessionController: Identifiable {
     }
 
     /// What the lock screen says comes next, so a change that doesn't move it sends nothing.
-    private var lastActivityNext: String?
+    private(set) var lastActivityNext: String?
 
     // MARK: jump-to-next state (SessionController+Advance.swift)
     // Set only from that file (an extension elsewhere can't reach `private(set)`).
@@ -294,7 +294,10 @@ final class SessionController: Identifiable {
     func edit(_ set: LocalSet, _ field: SetFocus.Field) {
         focus = SetFocus(setID: set.id, field: field)
         // The active row follows the keypad.
-        if layout == .focused { tappedSet = set.id }
+        if layout == .focused {
+            tappedSet = set.id
+            activeRowChanged()
+        }
         buffer = text(for: set, field)
     }
 
