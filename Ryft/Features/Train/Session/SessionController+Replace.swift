@@ -277,6 +277,7 @@ extension SessionController {
             session.deletedSetIDs.append(contentsOf: y.sets.map(\.id))
             session.deletedExerciseIDs.append(y.id)
             if let f = focus, y.sets.contains(where: { $0.id == f.setID }) { focus = nil }
+            if lastCheckedExercise == yID { lastCheckedExercise = nil }
             session.exercises.removeAll { $0.id == yID }
             store.context.delete(y)
         }

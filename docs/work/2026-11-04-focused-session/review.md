@@ -71,3 +71,5 @@ No blocking finding. List is unchanged with the flag off: by reading, and `Exerc
 | N6b | Nothing scrolls the active row into view | Recheck in T3, where the pill changes the numbers, and at 320 pt |
 
 From the implementer on L23: on an empty active row, VoiceOver's "Check off" opens the keypad with no announcement. Fix: announce it.
+
+Fixed: S1, S2, N1–N5, N6a, the L23 announcement, and `undoReplace`'s stale `lastCheckedExercise`, the same class as N4. Left for the hand VoiceOver pass in T5: a swipe within 350 ms of a focus move doesn't cancel it, and the `.allDone` announcement doesn't go through the task handle. Both are timing edges only a real run can judge.
