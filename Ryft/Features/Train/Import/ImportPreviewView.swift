@@ -62,6 +62,21 @@ struct ImportPreviewView: View {
             .font(.ryft(.caption))
             .foregroundStyle(Theme.textTertiary)
             .fixedSize(horizontal: false, vertical: true)
+        // V5 at accessibility sizes: pinned, the message took most of the screen; it ends the list and only the
+        // button stays in the bar.
+        if showsUploadsUnavailable, typeSize.isAccessibilitySize { uploadsUnavailable }
+    }
+
+    /// V5: the build is ready but uploads aren't switched on for the account.
+    private var showsUploadsUnavailable: Bool {
+        !model.isAlreadyImported && !model.uploadsAvailable && model.buildState == .ready
+    }
+
+    private var uploadsUnavailable: some View {
+        InlineMessage(message: String(localized: "Uploads aren't available yet.", comment: "Training import V5."),
+                      systemImage: "icloud.slash",
+                      caption: String(localized: "RYFT can keep this import on your iPhone and upload it when importing is switched on for your account.",
+                                      comment: "Training import V5.") + " " + ImportResultText.keptLimits)
     }
 
     /// Numbers first (V1), or why nothing would be sent (V3, V4).
@@ -300,11 +315,8 @@ struct ImportPreviewView: View {
     private var bottomBar: some View {
         if model.isAlreadyImported {
             ImportPrimaryButton(title: String(localized: "Done"), identifier: "import.done") { model.finish(.close) }
-        } else if !model.uploadsAvailable, model.buildState == .ready {
-            InlineMessage(message: String(localized: "Uploads aren't available yet.", comment: "Training import V5."),
-                          systemImage: "icloud.slash",
-                          caption: String(localized: "RYFT can keep this import on your iPhone and upload it when importing is switched on for your account.",
-                                          comment: "Training import V5.") + " " + ImportResultText.keptLimits)
+        } else if showsUploadsUnavailable {
+            if !typeSize.isAccessibilitySize { uploadsUnavailable }
             if model.startRefused {
                 ImportBarCaption(text: String(localized: "An import is in progress. Finish it before starting another.",
                                               comment: "Training import: one import at a time."))
@@ -432,4 +444,12 @@ enum ImportPreviewSummary {
         ImportPreviewView(model: ImportMockData.previewFlow(uploader: ImportMockData.uploader(nil, available: false)))
     }
     .previewEnvironment(scheme: .light)
+}
+
+#Preview("Step 5 · uploads not available · light · AX5") {
+    NavigationStack {
+        ImportPreviewView(model: ImportMockData.previewFlow(uploader: ImportMockData.uploader(nil, available: false)))
+    }
+    .previewEnvironment(scheme: .light)
+    .environment(\.dynamicTypeSize, .accessibility5)
 }

@@ -4,13 +4,18 @@ import ActivityKit
 import SwiftUI
 import WidgetKit
 
-/// The brand palette (the app's asset catalog isn't in this bundle).
+/// The brand palette (the app's asset catalog isn't in this bundle; only the orbit's colorsets are copied in).
 enum Brand {
     static let graphite = Color(red: 0x0B / 255, green: 0x0F / 255, blue: 0x0E / 255)
     static let slate = Color(red: 0x1A / 255, green: 0x22 / 255, blue: 0x26 / 255)
     static let mist = Color(red: 0xE8 / 255, green: 0xE7 / 255, blue: 0xE3 / 255)
     static let teal = Color(red: 0x3F / 255, green: 0xD1 / 255, blue: 0xB4 / 255)
     static let deepLink = URL(string: "ryft://train/session")
+
+    /// Text on the widget's background: Mist in dark, Graphite in light.
+    static func ink(_ scheme: ColorScheme) -> Color { scheme == .dark ? mist : graphite }
+    /// The widget's background: Graphite in dark, Mist in light, like the app.
+    static func background(_ scheme: ColorScheme) -> Color { scheme == .dark ? graphite : mist }
 }
 
 struct RestTimerLiveActivity: Widget {

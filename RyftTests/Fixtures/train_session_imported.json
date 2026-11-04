@@ -1,0 +1,33 @@
+{
+  "id": "3d8c5a21-7e4f-5b96-a0d3-c18f2e6b9047",
+  "title": "Lower",
+  "started_at": "2026-06-08T17:02:00Z",
+  "ended_at": "2026-06-08T18:01:00Z",
+  "status": "completed",
+  "plan_day_id": "0c5e9b2a-3d71-5f48-a6b0-91c4e7d2f385",
+  "workout_id": null,
+  "notes": "",
+  "origin": "import",
+  "import_source": "alpha_progression",
+  "bodyweight_kg": 82,
+  "muscular_trimp": null,
+  "strain": null,
+  "volume_kg": null,
+  "device_id": null,
+  "exercises": [
+    {
+      "id": "5e2d9c80-4b6a-5173-a8f2-d1b3e7c05a69",
+      "exercise_id": "9b0e4c52-6d1a-4f0e-8a77-2c5d9e13b8f4",
+      "plan_exercise_id": null,
+      "position": 1,
+      "notes": "",
+      "sets": [
+        { "id": "c3b7e194-5a08-5d2f-b1c6-8f4a0d9e2b57", "set_index": 0, "reps": 6, "weight_kg": null, "assist_kg": 20,
+          "rpe": null, "duration_sec": null, "distance_m": null, "is_warmup": false,
+          "completed_at": "2026-06-08T17:50:00Z", "updated_at": "2026-06-08T17:50:00Z" }
+      ]
+    }
+  ],
+  "prs": [],
+  "updated_at": "2026-06-08T18:05:00Z"
+}

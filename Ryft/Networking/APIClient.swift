@@ -66,7 +66,7 @@ enum APIError: LocalizedError {
     }
 
     /// A `403` with a gate code: route to the invite or consent screen, never show it as a failure.
-    var gate: APIErrorCode? { status == 403 ? code : nil }
+    var gate: APIErrorCode? { status == 403 && code?.isGate == true ? code : nil }
 
     /// `422`: well-formed but invalid (a field, a value, a day not editable).
     /// Shown inline next to what caused it; never retried, never a sign-out.
@@ -327,7 +327,7 @@ final class APIClient: RyftDataSource {
     static func gates(_ response: HTTPURLResponse) -> Set<APIErrorCode> {
         guard let value = response.value(forHTTPHeaderField: "X-RYFT-Gate") else { return [] }
         return Set(value.split(separator: ",").compactMap {
-            APIErrorCode(rawValue: $0.trimmingCharacters(in: .whitespaces))
+            APIErrorCode(rawValue: $0.trimmingCharacters(in: .whitespaces)).flatMap { $0.isGate ? $0 : nil }
         })
     }
 
@@ -448,7 +448,8 @@ final class APIClient: RyftDataSource {
     /// The request with an already encoded JSON body (or none).
     func exchange(_ method: String, path: String, encodedBody: Data?, contentEncoding: String? = nil, base: URL? = nil,
                   accepting: Set<Int> = [],
-                  unavailableRetries: Int = APIClient.maxUnavailableRetries) async throws -> Answer {
+                  unavailableRetries: Int = APIClient.maxUnavailableRetries,
+                  retriesRateLimit: Bool = true) async throws -> Answer {
         guard let root = base ?? baseURL ?? settings.apiURL, root.host != nil,
               let url = URL(string: path, relativeTo: root) else {
             throw APIError.notConfigured
@@ -534,7 +535,7 @@ final class APIClient: RyftDataSource {
                 continue
             case 401:
                 try await retryStep { await tokens.rejectedAfterRefresh() }
-            case 429 where !rateLimited && !single:
+            case 429 where retriesRateLimit && !rateLimited && !single:
                 rateLimited = true
                 let wait = min(retryAfter ?? 1, Self.maxRateLimitWait)
                 APIStatus.log.notice("429 on \(method, privacy: .public) \(redactedPath(path), privacy: .public); retrying in \(wait) s")

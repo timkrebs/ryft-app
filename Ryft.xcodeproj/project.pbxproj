@@ -75,6 +75,11 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		344B522A3093E4B50016C2E6 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
+			sourceTree = "<group>";
+		};
 		34F14CF4308B4F6100BF7E45 /* Ryft */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -170,6 +175,7 @@
 				34FAE7C33086252800C9A7B8 /* RyftWidgets */,
 				34FAE80E308630B400C9A7B8 /* RyftUITests */,
 				34FAE7BE3086252800C9A7B8 /* Frameworks */,
+				344B522A3093E4B50016C2E6 /* Shared */,
 				951CCC6E27AE2ED91A784299 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -190,6 +196,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
+				344B522A3093E4B50016C2E6 /* Shared */,
 				34FAE7C33086252800C9A7B8 /* RyftWidgets */,
 			);
 			name = RyftWidgetsExtension;
@@ -236,6 +243,7 @@
 				34FAE7CC3086252900C9A7B8 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
+				344B522A3093E4B50016C2E6 /* Shared */,
 				34F14CF4308B4F6100BF7E45 /* Ryft */,
 			);
 			name = Ryft;

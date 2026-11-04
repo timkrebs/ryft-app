@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Step 1 (ui.md §4): choose the plans file, the workouts file or both. Nothing is parsed before the files are read,
-/// and the files are never uploaded or stored.
+/// and the files themselves are never uploaded or stored; only the confirmed import is kept on this iPhone, for at most
+/// 30 days, until it is uploaded.
 struct ImportPickView: View {
     let model: ImportFlowModel
 
@@ -13,7 +14,9 @@ struct ImportPickView: View {
                     .foregroundStyle(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
-                Text("Choose the CSV files exported from Alpha Progression: the plans file, the workouts file, or both. RYFT reads them on this iPhone. The files themselves are never uploaded or stored.",
+                // The localization key is the full sentence; splitting it would change the key.
+                // swiftlint:disable:next line_length
+                Text("Choose the CSV files exported from Alpha Progression: the plans file, the workouts file, or both. The file is read on your iPhone and is never uploaded. Only the workouts and plans you confirm are sent, and each imported workout is stored with the name of the app the file came from.",
                      comment: "Training import, step 1. Alpha Progression is a data source, named factually.")
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)

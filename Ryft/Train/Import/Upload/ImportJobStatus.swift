@@ -40,6 +40,16 @@ struct ImportJobStatus: Equatable, Sendable {
     var enrolledPlanID: UUID?
     /// The user saw the finished result (I3); the resume row then disappears.
     var resultSeen: Bool
+    /// Plans and sessions the platform left as they are because they were changed in the app since (`newer_on_server`):
+    /// not imported again, and not a failure. They are not in `rejected` and not in `setsDone`.
+    var leftAsIs = 0
+    /// Of `leftAsIs`, the sessions (the rest are plans). `sessions.done` counts them as done, but they were not imported.
+    var leftAsIsSessions = 0
+
+    /// Workouts written now or before, not those left as they are.
+    var sessionsImported: Int { max(0, sessions.done - leftAsIsSessions) }
+    /// Plans written now or before, not those left as they are.
+    var plansImported: Int { max(0, plans.done - max(0, leftAsIs - leftAsIsSessions)) }
 
     var isFinished: Bool { phase == .finished }
     var hasRejected: Bool { !rejected.isEmpty }
@@ -61,7 +71,7 @@ enum ImportPause: Equatable, Sendable {
     /// Consent, the invite gate, or the policy in force not known yet (`uploadGate(for: .trainImport)`): held, never
     /// dropped, until the gate opens (I8).
     case gated(UploadGate)
-    /// Uploads aren't available yet (the platform hasn't published the endpoint, or `train.import` is off): the job is
+    /// Uploads aren't available (`train.import` is off, here or for the account: `403 import_not_enabled`): the job is
     /// saved on this iPhone and uploads once they are (V5, I9).
     case notAvailable
     /// Signed out, or the job belongs to the account while demo data shows: it waits for its account.
@@ -70,8 +80,9 @@ enum ImportPause: Equatable, Sendable {
     /// dropped; tried again on the next trigger. `lastFailure` has the status and request ID for Details.
     case held
     /// The platform refused every request of the last pass (split down to single items, three refused alone, nothing
-    /// accepted): those three are refused, the rest stays pending and is tried on the next trigger or with `resume()`
-    /// ("Try again"). `retryRejected()` sends the refused ones first again.
+    /// accepted): those three are refused, the rest stays pending. **Only the user's "Try again"
+    /// (`TrainImportUploader.tryAgain()`) continues it**; no automatic trigger (app active, reconnect, sign-in, the gate)
+    /// does, and it stays so after a relaunch. `retryRejected()` sends the refused ones first again.
     case needsAttention
 }
 
@@ -116,6 +127,8 @@ struct ImportItemSummary: Equatable, Sendable, Identifiable {
     let requestID: String?
     /// Not sent because the custom exercise it uses was refused.
     let blocked: Bool
+    /// The platform's `code` for the item (`invalid`, `unknown_exercise`, `id_taken`, ...); nil when it gave none.
+    var code: String?
 }
 
 /// A failed request, for Details: statuses, codes, request IDs and the time only, never a body.

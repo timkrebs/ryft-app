@@ -4,6 +4,7 @@ included:
   - RyftTests
   - RyftUITests
   - RyftWidgets
+  - Shared
   - RyftNotificationService
 excluded:
   - build

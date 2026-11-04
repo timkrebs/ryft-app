@@ -1,0 +1,29 @@
+{ "source": "alpha_progression",
+  "plans": [
+    { "id": "6a1f3c7e-1b52-5d0a-9c34-7e2b8d4f1a09", "name": "Upper / Lower", "goal": "general", "weeks": null,
+      "days_per_week": 2, "description": "", "archived": false, "progression": null,
+      "days": [ { "id": "0c5e9b2a-3d71-5f48-a6b0-91c4e7d2f385", "week": null, "day_index": 0, "name": "Lower",
+                  "exercises": [ { "id": "f27d4a18-6c3b-5e90-8b15-d0a3c9e47b62",
+                                   "exercise_id": "053b5627-084e-5417-a033-a6602d812f86", "position": 0,
+                                   "sets": 3, "reps_min": 5, "reps_max": 8, "target_kind": "kg", "target_value": 100,
+                                   "rest_sec": 120, "superset_group": null, "notes": "" } ] } ] } ],
+  "sessions": [
+    { "id": "3d8c5a21-7e4f-5b96-a0d3-c18f2e6b9047", "title": "Lower", "started_at": "2026-06-08T17:02:00Z",
+      "ended_at": "2026-06-08T18:01:00Z", "status": "completed",
+      "plan_day_id": "0c5e9b2a-3d71-5f48-a6b0-91c4e7d2f385", "notes": "", "bodyweight_kg": 82, "device_id": null,
+      "exercises": [
+        { "id": "a4c81e07-93b2-5d6f-8e10-5b7c2f9d3a46", "exercise_id": "053b5627-084e-5417-a033-a6602d812f86",
+          "plan_exercise_id": "f27d4a18-6c3b-5e90-8b15-d0a3c9e47b62", "position": 0, "notes": "",
+          "sets": [
+            { "id": "e90b3d52-1a7c-5f84-b6d9-02c4e8a17f35", "set_index": 0, "reps": 5, "weight_kg": 100, "assist_kg": null,
+              "rpe": null, "duration_sec": null, "distance_m": null, "is_warmup": false,
+              "completed_at": "2026-06-08T17:20:00Z", "updated_at": "2026-06-08T17:20:00Z" },
+            { "id": "17f5a6c9-d3e2-5b08-9a41-c6e0b8d27f93", "set_index": 1, "reps": 5, "weight_kg": 100, "assist_kg": null,
+              "rpe": null, "duration_sec": null, "distance_m": null, "is_warmup": false,
+              "completed_at": "2026-06-08T17:28:00Z", "updated_at": "2026-06-08T17:28:00Z" } ] },
+        { "id": "5e2d9c80-4b6a-5173-a8f2-d1b3e7c05a69", "exercise_id": "9b0e4c52-6d1a-4f0e-8a77-2c5d9e13b8f4",
+          "plan_exercise_id": null, "position": 1, "notes": "",
+          "sets": [
+            { "id": "c3b7e194-5a08-5d2f-b1c6-8f4a0d9e2b57", "set_index": 0, "reps": 6, "weight_kg": null, "assist_kg": 20,
+              "rpe": null, "duration_sec": null, "distance_m": null, "is_warmup": false,
+              "completed_at": "2026-06-08T17:50:00Z", "updated_at": "2026-06-08T17:50:00Z" } ] } ] } ] }

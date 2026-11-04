@@ -30,6 +30,11 @@ final class Settings {
     var healthIntroDone: Bool {
         didSet { defaults.set(healthIntroDone, forKey: "health.introDone") }
     }
+    /// Profile → Training: after the last set of an exercise the session collapses it and scrolls to the next set.
+    /// On by default; a device preference, so it stays on log-out.
+    var jumpToNextExercise: Bool {
+        didSet { defaults.set(jumpToNextExercise, forKey: "train.jumpToNext") }
+    }
 
     enum Appearance: String, CaseIterable, Identifiable {
         case dark, light, system
@@ -83,6 +88,7 @@ final class Settings {
         demoMode = defaults.object(forKey: "demoMode") != nil ? defaults.bool(forKey: "demoMode") : demoDefault
         appearance = defaults.string(forKey: "appearance").flatMap(Appearance.init(rawValue:)) ?? .dark
         healthIntroDone = defaults.bool(forKey: "health.introDone")
+        jumpToNextExercise = defaults.object(forKey: "train.jumpToNext") == nil || defaults.bool(forKey: "train.jumpToNext")
         #if DEBUG
         devAPIURLOverride = defaults.string(forKey: "dev.apiURL") ?? ""
         devIngestURLOverride = defaults.string(forKey: "dev.ingestURL") ?? ""

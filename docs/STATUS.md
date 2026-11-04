@@ -1,4 +1,144 @@
-# Status — 2026-10-26
+# Status — 2026-10-31
+
+## Data quality (`CLAUDE_FOLLOWUP_DATA_QUALITY.md`, in progress)
+
+Plan and notes: `docs/work/2026-10-31-data-quality/`.
+
+**Release gate (Needs you, before the next External beta or App Store build):** on a device, check that
+`garminconnect://` and `oura://` open Garmin Connect and Oura, with the app installed and without it (without: the hint
+must show the App Store page). A scheme that fails is removed from `CatalogValidator.appSchemes` and `Info.plist` in one
+change (ADR 0012 rule 7).
+
+## OrbitGauge: the logo becomes the readiness gauge (`CLAUDE_FOLLOWUP_ORBIT_GAUGE.md`)
+
+Plan, design note, architecture, review log and shots: `docs/work/2026-10-29-orbit-gauge/`.
+
+**Done**
+
+| PR | What |
+| --- | --- |
+| #76 | `OrbitGauge` replaces `MetricGauge` on Today and in the readiness widget. Readiness is in the centre, Recovery and Sleep on the inner orbit, Strain on the outer (0–21). The drawing is shared with the widget (`Shared/`, ADR 0010). The locked widget is a plain ring with "00" until unlocked. |
+| #78 | Calibrating: 7 segments fill night by night ("3 / 7"). Pending: the previous scored day dimmed, breathing, with "Last scored: …". `BaselineGauge` and `PendingGauge` are removed. |
+| #79 | The gauge assembles on a cold start in 0.85 s, once per launch, on a `TimelineView` clock; Reduce Motion and Low Power Mode get a 250 ms fade. No launch regression: main-thread busy is 854 → 842 ms (`perf-baseline.md`, `perf-branch.md`). |
+| #81 | The strain band: a rail for today's recommended range, and the arc turns alert past its upper end; VoiceOver says "above today's recommended range". **Hidden:** the platform has no per-day range yet, so production passes none and the gauge renders byte-identical to before. |
+
+**Simulator and tests only**
+- Everything was checked in the simulator: previews, `ImageRenderer` pixel tests, contrast tests, VoiceOver strings in en and de, and cold-launch recordings in en/de × dark/light × standard/AX3 × Reduce Motion.
+- The 44 pt render reads as the app icon.
+
+**On device** (the user's iPhone 16 Pro, iOS 27.0.1, a Debug build of `main` 5bafd50, 2026-10-30)
+- **Cold launch:** an Animation Hitches trace of 3 cold launches found one 16.7 ms hitch, 1.45 s after the first frame and outside the 0.85 s entrance; there were no hitches in the entrance. Main-thread busy was 495 ms in the first 2 s, with 12 ms of it in `OrbitGauge`. The user saw it as smooth.
+- **Reduce Motion and Low Power Mode:** both fade (the user).
+- **The widget:** hidden on the locked Lock Screen. It looks right in StandBy and on the tinted home screen (the user).
+- **Today:** a screenshot with real data (a missing Sleep score shows as a hollow dot) matches the design. It wasn't committed.
+
+**Open (Needs you)**
+- **On a device:**
+  - the clear home screen, and the calibrating and pending widgets;
+  - Reduce Motion turned off in Settings while the app is open: the gauge must look complete;
+  - VoiceOver on the gauge.
+- **Platform:** "Readiness → recommended strain range per day" (`DailyScore.strain_target_lo/hi`, `API_REQUESTS.md` → Charts and gauges #2). Once it exists, api-contract-keeper mirrors it, and one mapping line turns the band on. The Strain tab's `MetricGauge` target uses the same value.
+
+**Follow-ups (not blocking)**
+- **Demo mode, first launch:** an app-wide main-thread stall of about 400 ms after seeding. Pre-existing; for the performance-profiler.
+- **Light mode:** the first frame after launch is dark grey, because the launch screen is dark-first.
+- **Pending:** "Scoring your night" appears twice, in the status pill and under the gauge.
+- **Demo:** the Strain tile shows a raw value next to "calibrating".
+- **The widget's "Baselines n of 7"** doesn't name the signal it counts. That needs a snapshot field.
+- **The dark-mode strain rail** is at 2.3:1 on purpose. If it's too faint on a device, the next step is 0.6 (2.85:1).
+
+## Beta feedback 2 (`CLAUDE_FOLLOWUP_BETA_FEEDBACK_2.md`)
+
+Plan, design, investigation and review: `docs/work/2026-10-29-beta-feedback-2/`.
+
+**Done**
+
+| PR | What |
+| --- | --- |
+| #72 | "Last time" per exercise occurrence (§4): two of the same exercise in one workout no longer show identical lists. |
+| #73 | The baseline counter counts whichever signal is filling (F3): it no longer sticks at 0 / 7 for a Garmin user without HRV. |
+| #75 | Replace an exercise during a workout, and edit its sets, reps, weight, rest and notes (F1). Done sets stay with the old exercise; Undo; "also change the plan" for your own plans. Swipe a set row to delete it. |
+| #77 | Jump to the next exercise after its last set, with the rest timer as a compact bar pinned under the clock (F2). Profile → Training → Jump to next exercise, on by default. |
+
+All in en and de.
+
+**Open (Needs you)**
+- Reply to the three App Store Connect feedback entries once the build is out.
+- Check the history for incline against flat bench (§4).
+- N1 on Today with the Garmin account.
+- **On a device:**
+  - VoiceOver: the rest-time swipe, and the focus after a jump;
+  - Voice Control "Tap Skip";
+  - the 10 s Undo toast under VoiceOver and Switch Control;
+  - the Live Activity after Finish.
+
+**Follow-ups**
+- `pruneCollapsed()` at the top of `toggleCheck` (T2 review).
+- At AX3, the session header and the set-table columns wrap letter by letter.
+- `ImportPlanAssembly.latestWeight` gives two source rows mapped to one exercise the same kg target (import ticket).
+- Catalog: the German for "Learning your baseline — %lld nights to go." is still `machine_translated`; for the localization-editor to review. German says baseline three ways ("Ausgangswerte", "Basis" in the gauge's VoiceOver, "Grundbedarf" for sleep).
+
+## CI: a fresh simulator per job (#80)
+
+The UI-test job hung before any test ran ("The test runner hung before establishing connection") on the one reused "RYFT CI" simulator. It happened on #76 five times, and also on #77, #79, #81 and `main` after #78. #80 creates a new simulator for every job and deletes it and its parallel-testing clones afterwards. Local runs reuse one "RYFT CI local". *Open: waiting for the merge.* Until it's in, the fix for a hang is to delete the "RYFT CI" device while no job runs, then rerun.
+
+**Runner housekeeping (Needs you, once):** `~/Library/Developer/XCTestDevices` held 277 leaked clones and the disk was at 90 %. These are only Xcode's throwaway test clones. While no CI job and no local test run is going: `xcrun simctl --set ~/Library/Developer/XCTestDevices delete all`.
+
+## Public beta readiness: minimum age 16 and the External notes (feat/beta-age-16)
+
+Plan: `../docs/work/2026-10-29-public-beta/plan.md`.
+
+**Done**
+- Minimum age 16 (was 13): `OnboardingCoordinator.minimumAge` / `birthYears(now:)` feed onboarding's About you
+  and Profile → birth year (1920 … this year − 16); the mock platform answers `422` outside that range. Valid under
+  the platform's old (− 13) and new (− 16) check. Tests: `birthYearsStopAtTheMinimumAgeOf16`,
+  `aBirthYearUnder16IsRefusedWithTheRange`.
+- Consent screen: "You must be at least 16 to use RYFT." (en, de).
+- `docs/TESTFLIGHT_NOTES.md`: the External entry for friends (en 1,480 / de 1,727 characters).
+- Profile keeps a birth year saved under the old rule (e.g. 2012) visible in its picker instead of a blank one.
+- `docs/TESTFLIGHT.md`: §3 the age and the new-account flow; §4 the demo account's consent after a new policy
+  version, the review notes' data list (as on the consent screen), the age, and "What do you wear?".
+
+**Simulator / preview only**
+- Consent and About you previews (dark, light); unit tests on the iPhone 18 Pro simulator.
+
+**Open (Needs you)**
+- `today.myday` on for the External testers (the notes ask them to try My Day).
+- App Store Connect: the age rating fits 16+; Test Information and Review Notes from `docs/TESTFLIGHT.md` §4.
+- `seed_demo.sh` again once the new privacy version (#61) is in force.
+- The platform: which time zone "this year" uses in the − 16 check. The app uses the phone's; in the first hour of
+  1 January (Berlin) a UTC check would refuse the newest year the app offers.
+- `make test` names an "iPhone 17 Pro" simulator that isn't installed on this Mac (iPhone 18 Pro was used).
+
+## New orbit mark and app icon (design/new-orbit-mark)
+
+Plan: `docs/work/2026-10-28-new-orbit-mark/plan.md`. Reference: `../docs/briefs/assets/2026-10-28-new-app-icon-reference.jpg`.
+
+**Done**
+- `RyftMark` draws the new mark (three rings, three dots) from `RyftMarkGeometry` (100-box), with an optical-size rule
+  below 39.6 pt (stroke ≥ 1.25 pt; dots and air grow by √k; inner ring dropped below 22 pt); every caller
+  unchanged. `RyftMarkGeometryTests` pin the nominal numbers and keep every arc ≥ 15° from 18 pt up.
+- App icons (Light and Dark in the readiness gauge's colours on Mist / Graphite, Tinted = white on black and
+  monochrome; 1024², no alpha) from `make icon`. Strain = outer ring and dot (`MetricStrain`); the inner orbit splits at
+  the vertical: Sleep (`MetricSleep`) clockwise of the top with the dot at -76°, Recovery (`Accent`) counter-clockwise
+  with the dot at 180°; the centre ring is Readiness in the High band (`Accent`). Colours are read from
+  `Assets.xcassets` (light values on Light, dark values on Dark), each ≥ 4.5:1 on its tile (≥ 3:1 is checked by
+  `make icon`). The outer ring spans 0.869 of the tile: 95 % of the previous 0.915 (0.86925 rounded), which was 95 % of
+  the reference's 0.963. Mark frame 976.3 px. `make icon` also writes the mono 0.915 and the coloured 0.915, 0.963 and
+  0.80 and a dots-only variant into `build/icon-compare/`. `RyftMarkShape(part:)` draws one part; the in-app mark stays
+  monochrome.
+- `design/ryft-mark.svg` and `design/ryft-app-icon-{light,dark}.svg` generated from the same numbers
+  (`make mark-svg`); `make lint` checks they're current (`check-mark-svg`). Tile, colours and scale live in
+  `scripts/icon-spec.swift`, shared by both tools.
+- The widget's AppIcon set has no images and the widget target sets no app icon name: left alone.
+
+**Simulator / preview only**
+- The mark in RyftHeader (`Header`, dark and light), Today (`Today · dark`, `Today · light`) and the import card.
+  The icons were checked as rendered PNGs, not on a home screen.
+
+**Open**
+- The user checks the coloured 0.869 icon on his home screen (light, dark, tinted).
+- `design/brand-board.png` still shows the old mark; the 2026-10-28 brief supersedes it until it's redrawn.
 
 ## Session 2026-10-23 → 26: activities, calibration, training import, consent gates, CI and TestFlight
 
@@ -44,7 +184,9 @@
   - the Add activity and My Day UI tests pass on the phone (12/12, demo mode).
 - **Health permission:** iOS asked again for read access to Workouts on that launch. The app's requested types haven't changed
   since the scaffold, so the phone's own permission had been reset; the user answered it.
-- **Tue 20 Oct now lists the Garmin run 7 times** (6 last week). The day reads "7 activities · 63.3 km".
+- **Tue 20 Oct now lists the Garmin run 7 times** (6 last week). The day reads "7 activities · 63.3 km". Apple Health
+  holds it once: Garmin rewrites the workout under new UUIDs and the platform keeps the deleted copies (API_REQUESTS →
+  Sync performance §2).
 
 ### Simulator-only
 - My Day's layouts (dark, light, en, de, AX3, AX5).
@@ -67,22 +209,31 @@
   - a process cold-launched in the background before the first unlock keeps the in-memory fallback store and holds
     all uploads until it's relaunched, even in the foreground. Device check; consider reopening the durable store
     on unlock.
-- **Training import, before C2 makes the upload live:**
-  - `.needsAttention` resumes on every automatic trigger (app active, reconnect, sign-in, gate); it should resume only on
-    the user's Try again;
-  - the Info.plist CSV document type and `LSSupportsOpeningDocumentsInPlace` ship with the flag-on PR;
-  - device checks: "Open in" from Mail and Files, an iCloud file not yet downloaded, a batch finishing in the background;
-  - privacy-policy lines: the import is read on the device, an unsent import is kept up to 30 days, `import_source` is
-    stored;
-  - a full UI validation of I4 (AX5, light, paused and saved states), the German step-4 title at AX3, the AX5 density of
-    step 4, and privacy's discard wording ("Exercises, plans and workouts already sent stay in RYFT.").
+- **Training import (C2, U1–U3, I6 done; `train.import` still off, nothing merged):** the contract is mirrored (#66), the
+  upload calls the real `POST /v1/train/import` (429 `import_in_progress` waits `Retry-After`; 403 `import_not_enabled`
+  holds the job as "saved on this iPhone" and probes once per app activation; per-item rejections keep their code and the
+  request ID, shown in Details; `newer_on_server` is "left as it is"). `.needsAttention` resumes only on Try again
+  (tested, also after relaunch). A job older than 30 days is never sent. Verified: Unit plan (1860 tests) on the
+  iPhone 17 simulator against a URLProtocol stub and the mock platform. **Not verified against a real platform.**
+  - still to do before the flag goes on:
+    - the Info.plist CSV document type and `LSSupportsOpeningDocumentsInPlace` (own flag-on change);
+    - **ui-validator could not run** (no way to tap through the flow or read screenshots in that session): I4 at AX5 and in
+      light, paused and saved states, the new result states, the German step-4 title at AX3, step 4's density at AX5, and
+      the discard wording ("Nothing more is uploaded from it. Anything already imported stays in RYFT. The file itself is
+      not changed.") are checked by string and code only;
+    - device checks: "Open in" from Mail and Files, an iCloud file not yet downloaded, a batch finishing in the background,
+      the live call against a platform with the flag on;
+    - privacy text (ryftapp.de, platform PR #61): it says "only the workouts and plans you confirm are sent", but the
+      upload also creates custom exercises from the file (`POST /v1/exercises`, names only). The platform text should say
+      so ("…and the exercises they use"); the app text mirrors #61 and should follow;
+    - the app doesn't send `assist_kg` yet (assisted sets import reps only); a follow-up now that T4 is answered;
+    - ask the platform to confirm `ImportResult.message` never echoes file values (Details shows it, cut at 200 chars).
 - **Release tooling before the App Store 1.0:**
   - `release.yml` can't produce 1.0.0: an unchanged version makes the commit fail, and its push to `main` is rejected by
     the ruleset;
   - `docs/RELEASING.md` is missing, and `docs/APP_STORE.md` is stale;
   - `weekly.yml`'s 07:00 Berlin gate skips delayed runs;
   - an iOS 17/18 check, which Xcode 27.1 can't run on simulators.
-- **C2** the training-import contract mirror once the platform publishes `POST /v1/train/import`, then **I6** docs.
 - **A3b** recorder, checkpoints and vault (plus the speed-gate nits N1–N3, Doppler mapping), **A4** (with the detail's map
   and charts, per-mile splits), **A5–A7**, **C1** once API.md publishes Activities.
 - **O2** "sign-out removes everything":
@@ -105,23 +256,29 @@
   - runtime warnings seen on the device (Charts `UnitPoint` anchor; `onChange(of: SyncLine)` firing more than once per frame).
 
 ### Needs you
-1. **Apple Health → Browse → Activity → Workouts, Tue 20 Oct, 5:23 PM run:** it now shows 7 times in My Day (6 last week).
-   Once or several times in Apple Health? Then I file the platform dedupe request.
-2. **Relay to the platform session:** `docs/API_REQUESTS.md` → Tracker setup §5, Activities R1–R26, Training import
-   T1–T13 (the import endpoint `POST /v1/train/import` is what C2 waits for).
-3. **Training import:**
-   - a German Alpha Progression export, to confirm the German tokens;
-   - does Alpha Progression export the time a workout was recorded, or re-render it in the phone's current zone?
-   - 13 workout blocks vs the brief's 12.
-4. **ryftapp.de:** serve `trackers.json` at `2026-10-23.1`; add the privacy-policy lines (manual activities and sleep,
-   remembered exercise matches, the import read on the device and kept up to 30 days, `import_source`).
-5. **TestFlight External:** build `20261026.173827` (with P2) is with Internal. Say when to promote it; the weekly
-   workflow then needs your approval in the `external-testflight` environment.
-6. **iOS 17/18:** Xcode 27.1 no longer offers those simulators. Before the App Store 1.0: an iOS 17/18 device, or an
-   older Xcode side by side, for the O1 upgrade and P1 date checks.
-7. **Housekeeping:** close PR #17 (superseded by #18); review Dependabot's #60; delete the merged `fix/a2-review` branch.
-8. **Usage:** the Sonnet-based agents hit the weekly limit and the account its monthly spend limit (resets Oct 28,
-   23:00); I4's UI validation is partial because of it.
+Updated 2026-10-27 with the user's answers.
+1. **Relay to the platform session:** `docs/work/2026-10-27-website/platform-brief.md`. It covers:
+   - `trackers.json` on ryftapp.de;
+   - one new privacy-policy version with every pending line;
+   - the duplicate-workout bug (`API_REQUESTS.md` → Sync performance §2, confirmed: Apple Health holds the Tue 20 Oct
+     run once, My Day shows it 7 times);
+   - Tracker setup §5, Activities R1–R26, Training import T1–T13 (`POST /v1/train/import` unblocks C2).
+
+   The site lives in `plattform/web`, which the app session doesn't edit.
+2. **Training import:** these questions are about the **Alpha Progression** app, not RYFT (RYFT's import is still behind
+   `train.import`):
+   - a CSV exported with Alpha Progression set to German, to confirm the German tokens;
+   - after you change the phone's time zone, do the exported workout times stay as recorded, or shift?
+   - 13 workout blocks in the sample vs the brief's 12.
+3. **TestFlight External:** on hold until the training import is live in the app (user, 2026-10-27). Build
+   `20261026.173827` stays with Internal.
+4. **iOS 17/18:** the user's iPhone runs iOS 27.0.1, so it doesn't cover these. The app still declares iOS 17. Choose:
+   test on an iOS 17/18 device (or an older Xcode's simulators), or raise the minimum iOS before the App Store 1.0.
+5. **Usage:** agent work resumes after the limits reset (Oct 28, 23:00) or are raised. The full I4 UI validation is
+   first.
+
+Done on 2026-10-27: Apple Health has the run once (now filed as the bug above); #17 closed; Dependabot #60 reviewed
+(the pinned SHA is the v4.39.1 tag), approved, auto-merge on; `fix/a2-review` deleted.
 
 ## Consent gates know the policy in force (P2, `fix/consent-gates`, ADR 0008)
 

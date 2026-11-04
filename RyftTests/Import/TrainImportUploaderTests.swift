@@ -155,7 +155,7 @@ struct TrainImportUploaderBatchTests {
         #expect(status.rejected.map(\.id) == sessions.prefix(3).map(\.id))
         // "Try again" once the platform takes them: the rest goes, the three refused wait for Retry.
         h.live.failure = nil
-        await h.uploader.resume()
+        await h.uploader.tryAgain()
         #expect(h.uploader.status?.sessions == ImportItemCounts(total: 50, done: 47, rejected: 3))
         await h.uploader.retryRejected()
         #expect(h.uploader.status?.sessions.done == 50)
@@ -176,9 +176,9 @@ struct TrainImportUploaderBatchTests {
         #expect(Set(status.rejected.map(\.id)) == bad)
     }
 
-    /// The first three refused before anything is accepted: the pass stops with the rest pending, and the next pass
-    /// (an automatic trigger) gets every good one in.
-    @Test func refusalsFirstStopThePassButTheNextOneGoesOn() async throws {
+    /// The first three refused before anything is accepted: the pass stops with the rest pending, and the user's Try
+    /// again gets every good one in.
+    @Test func refusalsFirstStopThePassButTryAgainGoesOn() async throws {
         let h = H()
         let sessions = H.sessions(60)
         let bad = Set(sessions.prefix(3).map(\.id))
@@ -186,7 +186,7 @@ struct TrainImportUploaderBatchTests {
         #expect(await h.run(ImportUploadPlan(sessions: sessions)))
         #expect(h.uploader.status?.phase == .paused(.needsAttention))
         #expect(h.uploader.status?.sessions == ImportItemCounts(total: 60, rejected: 3))
-        await h.uploader.appBecameActive()
+        await h.uploader.tryAgain()
         let status = try #require(h.uploader.status)
         #expect(status.phase == .finished)
         #expect(status.sessions == ImportItemCounts(total: 60, done: 57, rejected: 3))
@@ -342,14 +342,6 @@ struct TrainImportUploaderResumeTests {
         #expect(h.uploader.uploadsAvailable)
         await h.uploader.appBecameActive()
         #expect(h.uploader.status?.phase == .finished)
-    }
-
-    /// The live client before C2 throws `notPublished` and sends nothing.
-    @Test func theLiveClientIsNotPublishedYet() async {
-        #expect(!APIClient.shared.publishesTrainImport)
-        await #expect(throws: TrainImportError.notPublished) {
-            _ = try await APIClient.shared.importTraining(encoded: Data())
-        }
     }
 
     /// The gate is asked before the first request and before every later one; a held job waits and goes when it opens.
@@ -594,6 +586,31 @@ struct TrainImportUploaderJobTests {
         h.clock.advance(by: .seconds(1))
         await h.uploader.appBecameActive()
         #expect(h.jobs().isEmpty && h.uploader.status == nil)
+    }
+
+    /// The reconnect (or any trigger) can come before the app's purge: a job past its 30 days is never sent.
+    @Test func anExpiredJobIsNotSentByAnyTrigger() async throws {
+        let h = H(online: false)
+        #expect(await h.run(ImportUploadPlan(sessions: H.sessions(2))))
+        h.clock.advance(by: .seconds(30 * 86_400))
+        h.connectivity.update(true)
+        await h.uploader.resume() // what the reconnect does, with no appBecameActive before it
+        #expect(h.live.count("importTraining") == 0)
+        #expect(h.jobs().isEmpty && h.uploader.status == nil)
+        // A relaunch finds none either.
+        let again = h.relaunch()
+        await again.resume()
+        #expect(h.live.count("importTraining") == 0 && again.status == nil)
+    }
+
+    /// One day short of the limit still goes.
+    @Test func aJobInsideThirtyDaysIsSentOnReconnect() async throws {
+        let h = H(online: false)
+        #expect(await h.run(ImportUploadPlan(sessions: H.sessions(2))))
+        h.clock.advance(by: .seconds(30 * 86_400 - 1))
+        h.connectivity.update(true)
+        await h.uploader.resume()
+        #expect(h.uploader.status?.phase == .finished)
     }
 
     @Test func aFinishedJobGoesOnceSeenOrAfterSevenDays() async throws {

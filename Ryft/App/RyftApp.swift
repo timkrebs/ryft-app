@@ -118,7 +118,11 @@ struct RyftApp: App {
         Self.configureAppearance()
         #if DEBUG
         // UI tests: `-RyftResetTrain YES` starts without sessions or a queue.
-        if UserDefaults.standard.bool(forKey: "RyftResetTrain") { TrainStore.shared.wipe() }
+        // The coordinator already holds the last run's session: it lets go of it, or a banner reads a deleted row.
+        if UserDefaults.standard.bool(forKey: "RyftResetTrain") {
+            TrainStore.shared.wipe()
+            TrainCoordinator.shared.refreshActive()
+        }
         // UI tests: `-importUploadsUnavailable YES`, the import before the platform's contract (V5).
         ImportDemoFiles.applyLaunchArguments(to: env)
         #endif

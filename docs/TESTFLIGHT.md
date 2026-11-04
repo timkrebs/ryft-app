@@ -61,7 +61,12 @@ so no question appears.
    about a day; later builds of the same version usually pass at once.
 3. Turn on **Public Link** and send it to friends together with an **invite code**
    (`../plattform` `OPERATIONS.md` → Invite codes; one code per person, or one code with
-   `max_uses`). Without a code the app stops at "Invite code".
+   `max_uses`). Without a code the app stops at "Invite code". Testers must be **16 or
+   older**: the consent screen says so, and About you offers birth years only up to this
+   year − 16 (the platform refuses later ones). The age rating in App Store Connect has to fit.
+   New accounts go through: invite code → consent → About you (birth year; can be skipped)
+   → What do you wear? (only while `devices.setup` is on) → Apple Health → the first import →
+   Today calibrating.
 4. The tester limit and the link can be changed later. Each build **expires after 90
    days**, so upload a new one before then.
 
@@ -73,7 +78,7 @@ so no question appears.
 | Feedback Email | the address you read (e.g. `beta@ryftapp.de`) |
 | Marketing URL | `https://ryftapp.de` |
 | Privacy Policy URL | `https://ryftapp.de/privacy` |
-| Sign-in required | **yes**: user name `review@ryftapp.de`, password from Vault (`seed_demo.sh`). Enter it **only here**, never in the repo. Run `seed_demo.sh` before every submission, so the 60 days of data are fresh. |
+| Sign-in required | **yes**: user name `review@ryftapp.de`, password from Vault (`seed_demo.sh`). Enter it **only here**, never in the repo. Run `seed_demo.sh` before every submission, so the 60 days of data are fresh and the consent matches the privacy policy in force (it consents to the current version and sets birth year 1990). Run it again after a new policy version goes live. |
 | Review Notes | see below |
 | What to Test | from `docs/TESTFLIGHT_NOTES.md`, for the build |
 
@@ -81,14 +86,16 @@ so no question appears.
 
 > RYFT turns what your watch or ring writes to Apple Health into three daily numbers:
 > recovery, strain and sleep, each scored against your own baseline. This beta is for a
-> small group of friends. Install, enter your invite code, and wear your device to bed.
+> small group of friends aged 16 and over. Install, enter your invite code, and wear your
+> device to bed.
 > Scores sharpen over the first week. Feedback: Profile → Report a problem, or
 > TestFlight's screenshot feedback.
 
 ### Review Notes (en)
 
-> RYFT is a wellness app. It reads heart rate, HRV, resting heart rate, sleep,
-> workouts, steps and energy from Apple Health. It writes to Apple Health only if the user
+> RYFT is a wellness app for people aged 16 and over. It reads heart rate, HRV, resting
+> heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and
+> workouts from Apple Health. It writes to Apple Health only if the user
 > turns on "Save strength workouts to Apple Health": one workout per logged strength
 > session, nothing else. It sends
 > the data to the RYFT platform (EU), which calculates recovery, strain and sleep scores.
@@ -97,8 +104,14 @@ so no question appears.
 >
 > **Demo account:** use the sign-in details above (email). The account already has 60
 > days of data, so Today, Sleep, Strain, Train and Insights all show scores. It has beta
-> access and consent on file, so the invite code and consent steps do not appear for it.
-> New accounts see both.
+> access, consent to the current privacy policy and a birth year on file, so the invite
+> code, consent and About you steps do not appear for it. The app may ask "What do you
+> wear?" once; choose any device or tap Skip. Then allow Apple Health access (an empty
+> Health store is fine).
+>
+> **New accounts** see: invite code → consent to health-data processing (it states the
+> minimum age of 16) → About you (birth year, 1920 to this year − 16; optional) → What do
+> you wear? (if shown) → Apple Health.
 >
 > Sign in with Apple and email/password both work.
 >

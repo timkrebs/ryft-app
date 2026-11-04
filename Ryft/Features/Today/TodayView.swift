@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 
 /// Greeting and the sync's status line, readiness gauge (or what's true while data is on
@@ -20,6 +21,9 @@ struct TodayView: View {
     @State private var calibrationLink: CalibrationLink?
     /// Check sync's model for that sheet: made on the tap, once, not on every redraw.
     @State private var linkCheck: TrackerCheckModel?
+    /// The empty orbit (data on its way) has been on screen while the gauge still assembles: the gauge with data then
+    /// assembles over its tracks (`TodayGaugeEntrance`).
+    @State private var gaugePlaceholderSeen = false
 
     var body: some View {
         // The day's facts and decision, read once for the whole body.
@@ -156,22 +160,24 @@ struct TodayView: View {
                     model.dismissPushPrompt()
                 }
                 .accessibilityIdentifier("today.importCard")
-            case .pending(let night):
+            case .pending:
                 // While scoring, asked again every 15 s, like the line: slow scoring stops the breathing.
                 let ticking = day.facts.scoringSince != nil
                 TimelineView(.periodic(from: .now, by: ticking ? 15 : 3_600)) { _ in
-                    let now = ticking ? model.content : day
-                    PendingGauge(previous: night.previousReadiness, previousDay: night.previousDay,
-                                 title: now.pendingTitle, detail: now.pendingDetail, breathes: !now.pendingIsStatic)
+                    pendingOrbit(ticking ? model.content : day)
                 }
                 .padding(.vertical, 4)
-                .accessibilityIdentifier("today.pendingGauge")
-            case .calibrating(let nights):
+            case .calibrating:
                 VStack(spacing: 8) {
-                    // Over a long history without HRV the nights counted are the ones with heart-rate data.
-                    BaselineGauge(nights: nights, countsHeartRateNights: day.gaugeNote == .needsVitals)
-                        .accessibilityIdentifier("today.baselineGauge")
-                    // Row B over a long history without HRV: why the nights don't fill.
+                    // The outer orbit fills night by night. What it counts comes from the mapping (`OrbitGaugeMode
+                    // +Today`): the heart-rate nights over a long history without HRV, the one signal that fills
+                    // while the other is absent (F3), else any night.
+                    OrbitGauge(mode: day.orbit, size: .large,
+                               caption: OrbitGauge.Caption(title: String(localized: "Baselines")),
+                               identifier: "today.baselineGauge", entrance: gaugeEntrance(day.orbit))
+                        .modifier(gaugeEntranceConsumer(day.orbit))
+                    // Why the nights don't fill (row B over a long history without HRV), or why only one signal's
+                    // count (F3); read on its own after the gauge.
                     if let note = day.gaugeNote { noteBlock(note, readWithGauge: false) }
                 }
                 .padding(.vertical, 4)
@@ -190,13 +196,59 @@ struct TodayView: View {
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: day.gaugeNote)
     }
 
-    /// Readiness on its 0–100 scale with band ticks, the band word and the change
-    /// against the days before (from the 7-day trend, row A only).
+    /// A gauge with something to show assembles until one has been seen in this process (`TodayGaugeEntrance`).
+    /// A gauge latches this when it is built, so a later change (another hero row, a refresh) builds a plain one.
+    private func gaugeEntrance(_ mode: OrbitGaugeMode) -> OrbitGauge.Entrance {
+        TodayGaugeEntrance.entrance(flag: model.assemblesGauge, mode: mode, placeholderSeen: gaugePlaceholderSeen)
+    }
+
+    private func gaugeEntranceConsumer(_ mode: OrbitGaugeMode) -> GaugeEntranceConsumer {
+        GaugeEntranceConsumer(model: model, mode: mode) {
+            if !gaugePlaceholderSeen { gaugePlaceholderSeen = true }
+        }
+    }
+
+    /// The orbit: readiness in the centre, Recovery and Sleep on the inner orbit, Strain on the outer; under it the
+    /// caption, the band word and the change against the days before (from the 7-day trend, row A only).
     private func readinessRing(_ day: TodayContent) -> some View {
-        MetricGauge(spec: .readiness, value: day.readiness, size: .large, delta: day.readinessDelta,
-                    title: String(localized: "Overall readiness"), showsMark: true,
-                    accessibilityNote: day.gaugeSpokenNote, showsBand: day.showsReadinessBand)
-            .accessibilityIdentifier("today.readinessGauge")
+        OrbitGauge(mode: day.orbit, size: .large,
+                   caption: OrbitGauge.Caption(title: String(localized: "Overall readiness"), delta: day.readinessDelta,
+                                               showsBand: day.showsReadinessBand),
+                   accessibilityNote: day.gaugeSpokenNote, identifier: "today.readinessGauge",
+                   entrance: gaugeEntrance(day.orbit))
+            .modifier(gaugeEntranceConsumer(day.orbit))
+    }
+
+    /// A night not scored yet: the latest scored day's orbit, dimmed, breathing until scoring takes longer
+    /// than usual; the day it's from, then "Scoring your night…" and when to expect it. VoiceOver hears the title
+    /// and the day in the gauge's value; the line under them is read on its own.
+    private func pendingOrbit(_ day: TodayContent) -> some View {
+        VStack(spacing: 8) {
+            OrbitGauge(mode: day.orbit, size: .large, accessibilityNote: day.pendingSpokenNote,
+                       identifier: "today.pendingGauge", breathes: !day.pendingIsStatic,
+                       entrance: gaugeEntrance(day.orbit))
+                .modifier(gaugeEntranceConsumer(day.orbit))
+            if let scored = day.pendingScoredDay {
+                Text(scored)
+                    .font(.ryft(.caption))
+                    .foregroundStyle(Theme.textTertiary)
+                    .accessibilityHidden(true)
+            }
+            VStack(spacing: 2) {
+                Text(day.pendingTitle)
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textPrimary)
+                    .accessibilityHidden(true)
+                // None while a card under the gauge says it (the night hint).
+                if !day.pendingDetail.isEmpty {
+                    Text(day.pendingDetail)
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// The note under the gauge and, under it, its link when there is one (a blocked baseline with
@@ -300,6 +352,144 @@ extension TodayHero {
         case .score: return 3
         }
     }
+}
+
+/// The decisions behind Today's once-per-process gauge entrance (architecture.md §4), pure so every row is tested
+/// (`TodayGaugeEntranceTests`).
+///
+/// - The entrance plays on the first gauge with something to show (`hasSomethingToShow`). A first launch or demo mode
+///   can draw Today before its data is there; that empty gauge never assembles and never counts. When the data
+///   arrives the gauge is a new instance (its identity includes `hasSomethingToShow`), which latches `.assemble`.
+/// - Consumed on that gauge's first appearance while the scene is active, or when the scene becomes active with the
+///   gauge already there (a cold launch draws its first frames while still inactive; the entrance plays from those).
+///   Not at init: a process launched in the background (HealthKit delivery, `BGAppRefreshTask`) and opened later
+///   still plays it once.
+/// - A gauge that played where nobody could see it (drawn in the background, or the scene went to the background
+///   before it was ever active) is built again once when it is next seen.
+/// - The import card shows no gauge and consumes nothing.
+enum TodayGaugeEntrance {
+    enum Event: Equatable {
+        /// The gauge appeared (built for the first time, or built again), in the scene phase passed with it.
+        case appeared
+        /// The scene changed to the phase passed with it while the gauge was there.
+        case phaseChanged
+    }
+
+    struct Outcome: Equatable {
+        /// Call `TodayViewModel.gaugeDidAssemble()`.
+        var consume = false
+        /// Build the gauge again: the new instance latches `.assemble` (the flag still holds) and plays it.
+        var rebuild = false
+        /// This instance has played (or is playing) its entrance unseen; the next time it is seen it is built again.
+        var playedUnseen = false
+        /// A placeholder (nothing to show) is on screen while the flag holds: the gauge with something to show that
+        /// replaces it assembles over its tracks. Remembered by Today; never reset (the flag ends it).
+        var placeholderSeen = false
+    }
+
+    /// Something worth assembling: a day with at least one score, the baselines filling, or a pending night over a
+    /// previous day with a score. Not the empty orbit (no data yet, the first import, a day with nothing scored, a
+    /// pending night without a previous day): tracks alone would assemble with no dots and then just fade in the arcs.
+    static func hasSomethingToShow(_ mode: OrbitGaugeMode) -> Bool {
+        switch mode {
+        case .scored(let values, _): return !values.isEmpty
+        case .calibrating: return true
+        case .pending(let previous): return previous.map { !$0.isEmpty } ?? false
+        }
+    }
+
+    /// The gauge's entrance parameter: while the flag holds and the gauge has something to show, `.assemble`, or
+    /// `.assembleOverTracks` when it replaces a placeholder that was on screen (its tracks never vanish and trim in
+    /// again). `.none` otherwise.
+    static func entrance(flag: Bool, mode: OrbitGaugeMode, placeholderSeen: Bool = false) -> OrbitGauge.Entrance {
+        guard flag, hasSomethingToShow(mode) else { return .none }
+        return placeholderSeen ? .assembleOverTracks : .assemble
+    }
+
+    /// Whether the gauge's identity counts it as showable. Only while the flag holds: data that becomes showable then
+    /// makes a new instance, which latches the entrance. Once consumed it is fixed, so data that comes or goes later
+    /// animates the values in one instance (PR 1) instead of popping in. Consuming happens only on a showable gauge,
+    /// so the identity does not change at that moment.
+    static func identityShowable(flag: Bool, showable: Bool) -> Bool {
+        !flag || showable
+    }
+
+    /// `flag`: `TodayViewModel.assemblesGauge`. `showable`: `hasSomethingToShow` of the gauge's mode. `phase`: the
+    /// scene phase now (after the change, for `.phaseChanged`).
+    static func decide(flag: Bool, showable: Bool, phase: ScenePhase, event: Event, playedUnseen: Bool) -> Outcome {
+        // Consumed: nothing plays again in this process, and nothing is remembered. Nothing to show: this gauge
+        // doesn't assemble and doesn't count (the one with data is a new instance and starts afresh); on screen, it
+        // is a placeholder whose tracks the next gauge keeps.
+        guard flag else { return Outcome() }
+        guard showable else { return Outcome(placeholderSeen: phase != .background) }
+        switch (event, phase) {
+        case (_, .background):
+            // Whatever this instance plays now, or has played while inactive, nobody sees.
+            return Outcome(playedUnseen: true)
+        case (.appeared, .active):
+            // Played unseen: build it again first (an appearance can come before the phase change); the new
+            // instance consumes on its own appearance.
+            return playedUnseen ? Outcome(rebuild: true) : Outcome(consume: true)
+        case (.appeared, _):
+            // Inactive: on screen (a cold launch's first frames); consumed when the scene becomes active. Whatever
+            // was played unseen stays so until the rebuild.
+            return Outcome(playedUnseen: playedUnseen)
+        case (.phaseChanged, _) where playedUnseen:
+            // Once: the rebuilt instance consumes on its own appearance (active) or at the next `.active`.
+            return Outcome(rebuild: true)
+        case (.phaseChanged, .active):
+            return Outcome(consume: true)
+        case (.phaseChanged, _):
+            return Outcome()
+        }
+    }
+}
+
+/// Applies `TodayGaugeEntrance.decide` where a gauge is shown; it decides nothing itself.
+private struct GaugeEntranceConsumer: ViewModifier {
+    let model: TodayViewModel
+    /// The gauge's mode: whether it has something to show is part of its identity while the flag holds.
+    let mode: OrbitGaugeMode
+    /// Today remembers that a placeholder was on screen (`Outcome.placeholderSeen`).
+    let placeholderSeen: () -> Void
+    @Environment(\.scenePhase) private var scenePhase
+    /// Bumped only to build again a gauge that played unseen.
+    @State private var run = 0
+    @State private var playedUnseen = false
+
+    /// The gauge's identity: a new instance when its data becomes showable while the flag holds (it latches its
+    /// entrance then; `TodayGaugeEntrance.identityShowable`), and when one that played unseen is built again.
+    private struct Identity: Hashable {
+        var run: Int
+        var showable: Bool
+    }
+
+    private var showable: Bool { TodayGaugeEntrance.hasSomethingToShow(mode) }
+
+    func body(content: Content) -> some View {
+        content
+            // Inside the identity: a gauge built again appears again.
+            .onAppear { apply(.appeared, phase: scenePhase) }
+            .id(Identity(run: run,
+                         showable: TodayGaugeEntrance.identityShowable(flag: model.assemblesGauge, showable: showable)))
+            .onChange(of: scenePhase) { _, phase in apply(.phaseChanged, phase: phase) }
+    }
+
+    private func apply(_ event: TodayGaugeEntrance.Event, phase: ScenePhase) {
+        let flag = model.assemblesGauge
+        let outcome = TodayGaugeEntrance.decide(flag: flag, showable: showable, phase: phase, event: event,
+                                                playedUnseen: playedUnseen)
+        if outcome.playedUnseen != playedUnseen { playedUnseen = outcome.playedUnseen }
+        if outcome.rebuild { run += 1 }
+        if outcome.consume { model.gaugeDidAssemble() }
+        if outcome.placeholderSeen { placeholderSeen() }
+        if flag {
+            let what = "\(event) in \(phase), showable \(showable)"
+            Self.log.debug("gauge entrance: \(what, privacy: .public)")
+        }
+    }
+
+    private static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "today")
 }
 
 /// Where the calibration note's link goes (design.md §7 rev. 2 §2): the tracker's card, Check sync or Devices &
@@ -520,30 +710,122 @@ struct RawNightCard: View {
 }
 
 /// "Nothing new from Garmin Connect since 23:40", or in the morning "Your night hasn't reached Apple Health
-/// yet. Open Garmin Connect to sync it." with the data's age and "Garmin Connect in the App Store" (ui.md §6.2,
-/// errata 2). A quiet hint: no dismissal; it goes when the night arrives. Times in the screen's locale.
+/// yet. Open Garmin Connect to sync it." with the data's age (ui.md §6.2, errata 2). A quiet hint: no dismissal; it goes
+/// when the night arrives. Times in the screen's locale.
+///
+/// The whole card is the control (design.md §D3): "Open Garmin Connect" when the app's scheme is known and installed,
+/// else "Garmin Connect in the App Store", else (an Apple device, or the error card's action on screen) no button at all.
+/// VoiceOver reads two elements: the sentence with its age, then the action.
 struct WatchSyncHintCard: View {
     let hint: WatchSyncHint
-    /// The App Store button; dropped while the error card offers its own action (one action on screen).
+    /// The action; dropped while the error card offers its own (one action on screen).
     var showsAction = true
 
     @Environment(\.openURL) private var openURL
+    @Environment(\.appInstalled) private var appInstalled
     @Environment(\.locale) private var locale
+    @Environment(\.scenePhase) private var scenePhase
+    /// 15 pt at the default size, growing with the callout text (as `InlineMessage`'s icon).
+    @ScaledMetric(relativeTo: .callout) private var iconSize: CGFloat = 15
+    /// The leading glyph's column: as wide as the widest glyph (the watch with its waves), so the text starts at the same
+    /// place whichever glyph the card shows.
+    @ScaledMetric(relativeTo: .callout) private var iconColumn: CGFloat = 28
+
+    private var identifier: String { hint.isNight ? "today.nightHint" : "today.watchHint" }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            InlineMessage(message: hint.text(now: context.date, locale: locale), systemImage: hint.systemImage,
-                          caption: hint.caption(locale: locale), identifier: hint.isNight ? "today.nightHint" : "today.watchHint",
-                          action: action)
+            // Asked on every build of the card, never cached: each minute, and on each scene-phase change, because the
+            // closure reads `scenePhase` (the user may have installed or removed the app meanwhile, often in the App
+            // Store page this card opened). No `.id` rebuild, so VoiceOver keeps its focus on the button.
+            let _ = scenePhase
+            if showsAction, let action = hint.action(canOpen: { appInstalled($0) }) {
+                Button { perform(action) } label: { card(now: context.date, action: action) }
+                    .buttonStyle(PressableButtonStyle())
+                    // Sighted users tap anywhere. VoiceOver gets the design's two elements instead (design.md §D3.5): a
+                    // Button's children would all read as buttons, the sentence too.
+                    .accessibilityRepresentation { spoken(now: context.date, action: action) }
+            } else {
+                card(now: context.date, action: nil)
+            }
         }
-        // A container: VoiceOver (and UI tests) reach the sentence, its age and "Open …" one by one.
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(hint.isNight ? "today.nightHint" : "today.watchHint")
+        .accessibilityIdentifier(identifier)
     }
 
-    private var action: (title: String, perform: () -> Void)? {
-        guard showsAction, hint.opensApp, let url = hint.storeURL else { return nil }
-        return (hint.storeTitle, { openURL(url) })
+    private func card(now: Date, action: WatchSyncHint.Action?) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: hint.systemImage)
+                .font(.system(size: iconSize, weight: .medium))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: iconColumn)
+                .padding(.top, 1)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(verbatim: hint.text(now: now, locale: locale))
+                        .font(.ryft(.callout))
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let caption = hint.caption(locale: locale) {
+                        // Secondary ink: tertiary was under 4.5:1 on the card in light mode.
+                        Text(verbatim: caption)
+                            .font(.ryft(.caption))
+                            .monospacedDigit()
+                            .foregroundStyle(Theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                if let action { verbRow(action) }
+            }
+            Spacer(minLength: 0)
+        }
+        // `Card`'s surface (design.md §D3.2): no hairline, the surface is the edge.
+        .padding(Theme.Metrics.cardPadding)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Metrics.cardRadius, style: .continuous))
+    }
+
+    /// What VoiceOver reads when the card is a button: the sentence with its age (static text), then the action.
+    private func spoken(now: Date, action: WatchSyncHint.Action) -> some View {
+        VStack {
+            Text(verbatim: [hint.text(now: now, locale: locale), hint.caption(locale: locale)].compactMap { $0 }.joined(separator: "\n"))
+            Button { perform(action) } label: { Text(verbatim: hint.title(action)) }
+                .accessibilityHint(action.opensApp ? Text("Leaves RYFT.") : Text("Opens the App Store."))
+                .accessibilityIdentifier("\(identifier).action")
+        }
+    }
+
+    /// "Open Garmin Connect ↗" in ink, the glyph saying it leaves RYFT; the store page gets its own glyph so the two
+    /// destinations don't look the same. At AX sizes the title wraps and the glyph stays on its first line.
+    private func verbRow(_ action: WatchSyncHint.Action) -> some View {
+        let title = hint.title(action)
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(verbatim: title)
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Image(systemName: action.opensApp ? "arrow.up.forward.app" : "arrow.down.app")
+                .font(.system(size: iconSize, weight: .medium))
+                .foregroundStyle(Theme.textSecondary)
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// The app, and its store page if it doesn't open after all (`Action.fallback(accepted:)`; no error: the page shows
+    /// Open or Get). Nothing is logged: whether the app opened says whether it's installed (ADR 0012, Privacy).
+    private func perform(_ action: WatchSyncHint.Action) {
+        switch action {
+        case .store(let url):
+            openURL(url)
+        case .openApp(let url, _):
+            openURL(url) { accepted in
+                if let store = action.fallback(accepted: accepted) { openURL(store) }
+            }
+        }
     }
 }
 
@@ -766,6 +1048,37 @@ struct OfflinePill: View {
     TodayView().previewEnvironment(.preview(scenario: .learningHRV), scheme: .light)
 }
 
+// MARK: F3: the counter counts what is filling, one story between gauge and tiles, N1 as soon as the setup knows
+
+#Preview("Today · S1 counting resting HR") {
+    TodayView().previewEnvironment(.preview(scenario: .learningRestingHR))
+}
+
+#Preview("Today · S1 counting resting HR · light") {
+    TodayView().previewEnvironment(.preview(scenario: .learningRestingHR), scheme: .light)
+}
+
+#Preview("Today · S1 counting resting HR · AX3") {
+    TodayView().previewEnvironment(.preview(scenario: .learningRestingHR))
+        .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Today · S2 resting HR, readiness") {
+    TodayView().previewEnvironment(.preview(scenario: .learningRestingHRScored))
+}
+
+#Preview("Today · S2 resting HR, readiness · light") {
+    TodayView().previewEnvironment(.preview(scenario: .learningRestingHRScored), scheme: .light)
+}
+
+#Preview("Today · N1 early (Garmin, first week)") {
+    TodayView().previewEnvironment(.preview(scenario: .blockedEarly))
+}
+
+#Preview("Today · N1 early (Garmin, first week) · light") {
+    TodayView().previewEnvironment(.preview(scenario: .blockedEarly), scheme: .light)
+}
+
 #Preview("Today · E first import · light") {
     TodayView().previewEnvironment(.preview(scenario: .importing), scheme: .light)
 }
@@ -801,26 +1114,70 @@ struct OfflinePill: View {
 
 // MARK: the night that hasn't reached Apple Health, and slow scoring (ui.md §6, previews 12–14)
 
-/// Mock hints: Garmin Connect quiet since last night 23:24, the Apple Watch, an unknown source.
+/// Mock hints: Garmin Connect quiet since last night 23:24, the Apple Watch, an unknown source; Garmin's scheme and
+/// `sync` sentence from the bundled catalog, as Today resolves them.
 private enum PreviewHint {
     static let lastNight = Calendar.current.date(bySettingHour: 23, minute: 24, second: 0,
                                                  of: .now.addingTimeInterval(-86_400)) ?? .now
+    static let store = URL(string: "https://apps.apple.com/app/id583446403")
+    static let garmin = MockData.tracker("garmin")
     static func night(_ kind: SourceApp.Kind, name: String) -> WatchSyncHint {
-        WatchSyncHint(night: NightGap(name: name, kind: kind,
-                                      storeURL: kind == .app ? URL(string: "https://apps.apple.com/app/id583446403") : nil,
-                                      newest: lastNight))
+        WatchSyncHint(night: NightGap(name: name, kind: kind, storeURL: kind == .app ? store : nil, newest: lastNight,
+                                      appURL: kind == .app ? garmin.appURL : nil))
     }
-    static let quiet = WatchSyncHint(source: "Garmin Connect", since: lastNight, isApp: true,
-                                     storeURL: URL(string: "https://apps.apple.com/app/id583446403"))
+    /// Garmin Connect quiet since last night, with the catalog's `sync` sentence and the app's scheme.
+    static let quiet = WatchSyncHint(source: "Garmin Connect", since: lastNight, isApp: true, storeURL: store,
+                                     appURL: garmin.appURL, sync: garmin.sync)
+    /// The same source without a `sync` sentence: today's full sentence.
+    static let quietNoSync = WatchSyncHint(source: "Garmin Connect", since: lastNight, isApp: true, storeURL: store)
+    static let appleWatch = WatchSyncHint(source: "Apple Watch", since: lastNight, isApp: false)
+}
+
+/// The hint's states (design.md §D3.3): the app installed (Open), not installed (App Store), an Apple device (no button).
+private struct HintStates: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            WatchSyncHintCard(hint: PreviewHint.quiet)
+                .environment(\.appInstalled, .installed)
+            WatchSyncHintCard(hint: PreviewHint.quiet)
+                .environment(\.appInstalled, .notInstalled)
+            WatchSyncHintCard(hint: PreviewHint.appleWatch)
+        }
+    }
+}
+
+#Preview("Quiet hint · open, store, Apple device", traits: .sizeThatFitsLayout) {
+    SchemePair { HintStates() }
+}
+
+#Preview("Quiet hint · de", traits: .sizeThatFitsLayout) {
+    SchemePair { HintStates() }
+        .environment(\.locale, Locale(identifier: "de"))
+}
+
+#Preview("Quiet hint · AX3", traits: .sizeThatFitsLayout) {
+    SchemePair {
+        VStack(spacing: 16) {
+            WatchSyncHintCard(hint: PreviewHint.quiet)
+                .environment(\.appInstalled, .installed)
+            WatchSyncHintCard(hint: PreviewHint.quietNoSync)
+                .environment(\.appInstalled, .notInstalled)
+        }
+    }
+    .environment(\.dynamicTypeSize, .accessibility3)
 }
 
 #Preview("Night hint · app, watch, unknown, quiet", traits: .sizeThatFitsLayout) {
     SchemePair {
         VStack(spacing: 16) {
             WatchSyncHintCard(hint: PreviewHint.night(.app, name: "Garmin Connect"))
-            WatchSyncHintCard(hint: PreviewHint.night(.appleDevice, name: "Tim's Apple Watch"))
+                .environment(\.appInstalled, .installed)
+            WatchSyncHintCard(hint: PreviewHint.night(.app, name: "Garmin Connect"))
+                .environment(\.appInstalled, .notInstalled)
+            WatchSyncHintCard(hint: PreviewHint.night(.appleDevice, name: "Apple Watch"))
             WatchSyncHintCard(hint: PreviewHint.night(.unknown, name: "Sleep Diary"))
-            WatchSyncHintCard(hint: PreviewHint.quiet)
+            WatchSyncHintCard(hint: PreviewHint.quietNoSync)
+                .environment(\.appInstalled, .notInstalled)
             // The error card shows: one action on screen, so no "Open".
             WatchSyncHintCard(hint: PreviewHint.night(.app, name: "Garmin Connect"), showsAction: false)
         }
@@ -830,6 +1187,7 @@ private enum PreviewHint {
 #Preview("Night hint · de · AX3", traits: .sizeThatFitsLayout) {
     SchemePair {
         WatchSyncHintCard(hint: PreviewHint.night(.app, name: "Garmin Connect"))
+            .environment(\.appInstalled, .installed)
     }
     .environment(\.locale, Locale(identifier: "de"))
     .environment(\.dynamicTypeSize, .accessibility3)

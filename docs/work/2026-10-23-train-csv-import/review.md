@@ -234,3 +234,38 @@ the lead:
 - a full UI validation (AX5, light, the paused and saved states);
 - these two layout items;
 - privacy's wording suggestion for the discard confirmation: "Exercises, plans and workouts already sent stay in RYFT."
+
+## S1 screenshot tests (2026-10-27, on #67)
+
+`make ui-shots` renders 50 shots per language (en, de) from the preview mocks into `build/ui-shots/`. In the 402 pt
+render, the German step-4 title fits at AX3 ("Übungen zuordnen", inline nav titles don't grow with Dynamic Type: system
+behaviour). The earlier "Übungen zuord…" was a narrower device.
+
+### ui-validator (from the PNGs)
+
+**Blocking, sent to ios-developer:**
+1. Step 3: at AX3 (de) and AX5 the range picker is squeezed into a trailing column and overlaps the history counts.
+2. Step 5 at AX5: the pinned footer (message + button) takes about 65 % of the screen.
+3. `InlineMessage` at AX5: the action sits flush on the card's edge, and the icon doesn't scale.
+4. Step 6 `.paused(.needsAttention)` shows "Importing…" with an active bar. Lead decision: reuse I4's existing heading
+   "Some items weren't imported" if the catalog already has it (no new strings), and keep "Try again". Retry/Done is
+   the finished state's pair (`result-rejections`), not the pause's.
+
+**Nits, open:**
+- the paused copy repeats "kept on this iPhone";
+- §I2's "You can close this…" is missing on paused;
+- `result-saved` says "saved on this iPhone" twice (the spec's header is "Ready");
+- the S2 alert's cancel is "Abbrechen" vs N1's "Weitermachen";
+- AX5 mid-word breaks in the eyebrow and file names;
+- the E10 sheet has a large gap above OK;
+- §12's step-1 copy is older than the shipped (more precise) privacy sentence, so the spec needs updating.
+
+### code-reviewer (test code)
+
+No blockers; the CI gate holds (no `RYFT_SCREENSHOTS` in Unit/Full). Should-fix, done by the lead:
+- a throwaway simulator instead of changing a shared simulator's language;
+- the device by name, not a local UDID;
+- a language that fails to apply now fails the test, and the export refuses duplicate names;
+- the test waits for the window scene instead of falling back to a sceneless window;
+- `.serialized`;
+- nits: dismiss before teardown, comments, the `.png` suffix.

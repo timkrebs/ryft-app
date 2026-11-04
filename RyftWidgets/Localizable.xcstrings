@@ -1,6 +1,17 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@, not scored" : {
+      "comment" : "Widget VoiceOver: a score that is missing (not scored), after its name (Recovery, Sleep, Strain).",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, nicht bewertet"
+          }
+        }
+      }
+    },
     "Baselines %lld of %lld" : {
       "localizations" : {
         "de" : {
@@ -122,6 +133,28 @@
         }
       }
     },
+    "Recovery" : {
+      "comment" : "Widget VoiceOver: the Recovery score's name, before “no data”.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erholung"
+          }
+        }
+      }
+    },
+    "Recovery %@ percent" : {
+      "comment" : "Widget VoiceOver: Recovery with its value, e.g. 71.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erholung %@ Prozent"
+          }
+        }
+      }
+    },
     "Rest" : {
       "comment" : "Dynamic Island label of the rest timer.",
       "localizations" : {
@@ -150,6 +183,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Deine Nacht wird bewertet …"
+          }
+        }
+      }
+    },
+    "Sleep" : {
+      "comment" : "Widget VoiceOver: the Sleep score's name, before “no data”.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlaf"
+          }
+        }
+      }
+    },
+    "Sleep %@ percent" : {
+      "comment" : "Widget VoiceOver: sleep performance with its value, e.g. 88.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schlaf %@ Prozent"
           }
         }
       }
@@ -200,6 +255,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Startet ein Krafttraining in RYFT oder setzt das laufende Workout fort."
+          }
+        }
+      }
+    },
+    "Strain" : {
+      "comment" : "Widget VoiceOver: the Strain score's name, before “no data”.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Belastung"
+          }
+        }
+      }
+    },
+    "Strain %@ of 21" : {
+      "comment" : "Widget VoiceOver: Strain on its 0 to 21 scale, e.g. 9.6.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Belastung %@ von 21"
           }
         }
       }
