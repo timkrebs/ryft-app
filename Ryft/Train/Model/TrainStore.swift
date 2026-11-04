@@ -228,54 +228,63 @@ final class TrainStore {
     /// goes, any account's. `nil`: they all go (sign-out, deletion, another account). A5 parks the account's
     /// `LocalPrivacyZone` rows too; A3b deletes vault keys first.
     ///
-    /// False when the file may still hold the account's data: the final save was refused, or the store runs in memory
-    /// because the file couldn't be opened. `AuthService` then keeps the account's id, so the next account wipes again.
+    /// True when the store took every step: each delete and fetch here succeeded, the final save was accepted, and the
+    /// store is on the file it was asked for. False: the file may still hold the account's data, and `AuthService` keeps
+    /// the account's id so the next account wipes again. A step that fails doesn't stop the ones after it.
+    ///
+    /// True doesn't prove the rows are gone: nothing counts them afterwards, and a row only inserted into a table that
+    /// goes by batch delete survives it and is written by the final save. Parked rows stay, as they should. Nothing
+    /// outside this store is covered. A store that was asked to run in memory reports true: it has no file to reach.
     @discardableResult
     func wipe(parkingActivitiesOf account: String?, at now: Date = Date()) -> Bool {
         epoch += 1
-        // One by one, the way `PendingImport` goes below. A batch delete of `LocalSet` or `LocalSessionExercise` throws
-        // on saved rows (their inverse), and none sees a session that was only inserted, which the `save()` below would
-        // then write. Children first, orphans included: the save is measurably faster than when the sessions' cascade
-        // finds them.
-        for set in (try? context.fetch(FetchDescriptor<LocalSet>())) ?? [] { context.delete(set) }
-        for exercise in (try? context.fetch(FetchDescriptor<LocalSessionExercise>())) ?? [] { context.delete(exercise) }
-        for session in (try? context.fetch(FetchDescriptor<LocalSession>())) ?? [] {
-            // Read now: a live workout still holds this row until the account change, and reading either list on a
-            // deleted row is a fatal error unless it was resolved before the delete.
-            _ = (session.deletedSetIDs, session.deletedExerciseIDs)
-            context.delete(session)
-        }
-        try? context.delete(model: CachedExercise.self)
-        try? context.delete(model: CachedPlan.self)
-        try? context.delete(model: PendingTrainOp.self)
-        // The import's remembered matches are the account's too (training import design §4, §10).
-        try? context.delete(model: ImportMapping.self)
-        // And its import job, never uploaded for another account (design §7). One by one: its payload is external
-        // storage, and only deleting the object is sure to take that file (the whole imported history) with it. On
-        // the iOS 27 simulator SwiftData's batch delete removed it too, but the app runs from iOS 17.
-        for job in (try? context.fetch(FetchDescriptor<PendingImport>())) ?? [] { context.delete(job) }
-        try? context.delete(model: CachedDay.self)
-        try? context.delete(model: CachedTrend.self)
-        try? context.delete(model: CachedInsight.self)
-        try? context.delete(model: CachedUser.self)
-        try? context.delete(model: CachedSleepRange.self)
-        try? context.delete(model: CachedWorkout.self)
-        try? context.delete(model: CachedDocument.self)
-        wipeActivities(parking: account, at: now)
-        return save() && !lostItsFile
+        // An array, so every step runs, in this order, whatever the ones before it did.
+        let steps = [
+            // One by one, the way `PendingImport` goes below. A batch delete of `LocalSet` or `LocalSessionExercise`
+            // throws on saved rows (their inverse), and none sees a session that was only inserted, which the `save()`
+            // below would then write. Children first, orphans included: the save is measurably faster than when the
+            // sessions' cascade finds them.
+            deleteEach(LocalSet.self),
+            deleteEach(LocalSessionExercise.self),
+            deleteEach(LocalSession.self) { session in
+                // Read now: a live workout still holds this row until the account change, and reading either list on
+                // a deleted row is a fatal error unless it was resolved before the delete.
+                _ = (session.deletedSetIDs, session.deletedExerciseIDs)
+            },
+            batchDelete(CachedExercise.self),
+            batchDelete(CachedPlan.self),
+            batchDelete(PendingTrainOp.self),
+            // The import's remembered matches are the account's too (training import design §4, §10).
+            batchDelete(ImportMapping.self),
+            // And its import job, never uploaded for another account (design §7). One by one: its payload is external
+            // storage, and only deleting the object is sure to take that file (the whole imported history) with it. On
+            // the iOS 27 simulator SwiftData's batch delete removed it too, but the app runs from iOS 17.
+            deleteEach(PendingImport.self),
+            batchDelete(CachedDay.self),
+            batchDelete(CachedTrend.self),
+            batchDelete(CachedInsight.self),
+            batchDelete(CachedUser.self),
+            batchDelete(CachedSleepRange.self),
+            batchDelete(CachedWorkout.self),
+            batchDelete(CachedDocument.self),
+            wipeActivities(parking: account, at: now),
+            // Last, and not a reason to skip it: with nothing pending it succeeds with nothing to do, so it can't
+            // stand for the steps above.
+            save(),
+        ]
+        return steps.allSatisfy { $0 } && !lostItsFile
     }
 
-    private func wipeActivities(parking account: String?, at now: Date) {
+    private func wipeActivities(parking account: String?, at now: Date) -> Bool {
         // Chunks have no relationship to their row (batch deletes skip cascades), so they go explicitly, orphans
         // included.
         guard let account else {
-            try? context.delete(model: ActivityTrackChunk.self)
-            try? context.delete(model: LocalActivity.self)
-            try? context.delete(model: LocalManualSleep.self)
-            return
+            return [batchDelete(ActivityTrackChunk.self), batchDelete(LocalActivity.self),
+                    batchDelete(LocalManualSleep.self)].allSatisfy { $0 }
         }
         var kept: [UUID] = []
-        for row in (try? context.fetch(FetchDescriptor<LocalActivity>())) ?? [] {
+        let rows = fetched(LocalActivity.self)
+        for row in rows ?? [] {
             if row.account == account, row.isUnconfirmedOrRecording {
                 row.parkedAt = row.parkedAt ?? now
                 kept.append(row.id)
@@ -283,14 +292,52 @@ final class TrainStore {
                 context.delete(row)
             }
         }
-        try? context.delete(model: ActivityTrackChunk.self,
-                            where: #Predicate { $0.account != account || !kept.contains($0.activityID) })
-        for night in (try? context.fetch(FetchDescriptor<LocalManualSleep>())) ?? [] {
+        // Without the rows nothing says which chunks are parked work, so a failed read takes none of them.
+        let chunks = rows != nil && batchDelete(ActivityTrackChunk.self,
+                                                where: #Predicate { $0.account != account || !kept.contains($0.activityID) })
+        let nights = fetched(LocalManualSleep.self)
+        for night in nights ?? [] {
             if night.account == account, night.isUnconfirmed {
                 night.parkedAt = night.parkedAt ?? now
             } else {
                 context.delete(night)
             }
         }
+        return chunks && nights != nil
+    }
+
+    /// The wipe's steps report instead of `try?`, and log domain and code only (a store error's description can quote
+    /// values).
+    private func batchDelete<T: PersistentModel>(_ type: T.Type, where predicate: Predicate<T>? = nil) -> Bool {
+        do {
+            try context.delete(model: type, where: predicate)
+            return true
+        } catch {
+            logWipeFailure(of: type, error)
+            return false
+        }
+    }
+
+    private func deleteEach<T: PersistentModel>(_ type: T.Type, resolving resolve: (T) -> Void = { _ in }) -> Bool {
+        guard let rows = fetched(type) else { return false }
+        for row in rows {
+            resolve(row)
+            context.delete(row)
+        }
+        return true
+    }
+
+    private func fetched<T: PersistentModel>(_ type: T.Type) -> [T]? {
+        do {
+            return try context.fetch(FetchDescriptor<T>())
+        } catch {
+            logWipeFailure(of: type, error)
+            return nil
+        }
+    }
+
+    private func logWipeFailure<T: PersistentModel>(of type: T.Type, _ error: Error) {
+        let e = error as NSError
+        Self.log.error("Train wipe of \(String(describing: type), privacy: .public): \(e.domain, privacy: .public) \(e.code, privacy: .public)")
     }
 }

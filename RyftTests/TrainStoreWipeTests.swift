@@ -68,14 +68,33 @@ private final class StoreOnDisk {
         return session
     }
 
-    /// A refusal in the file itself, so `context.save()` really fails and the app needs no seam for it. A runtime error,
-    /// as a full disk would be: Core Data takes a `RAISE` (a constraint error) for an optimistic-locking conflict and
-    /// aborts the process after its retries. One transaction, so nothing of a refused save lands.
-    func refuseDeletes() throws {
-        try sql("CREATE TRIGGER wipe_refused BEFORE DELETE ON ZLOCALSET BEGIN SELECT abs(-9223372036854775808); END")
+    /// A refusal in the file itself, so the app needs no seam for it: a batch delete of `table` throws, and a save with
+    /// a row of it to delete fails. A runtime error, as a full disk would be: Core Data takes a `RAISE` (a constraint
+    /// error) in a save for an optimistic-locking conflict and aborts the process after its retries. One transaction,
+    /// so nothing of a refused save or batch lands.
+    func refuseDeletes(of table: WipedTable = .localSet) throws {
+        try sql("CREATE TRIGGER wipe_refused BEFORE DELETE ON \(table.inFile) BEGIN SELECT abs(-9223372036854775808); END")
     }
 
     func allowDeletes() throws { try sql("DROP TRIGGER wipe_refused") }
+
+    /// A fetch of `table` fails while it's away, and its rows come back with it.
+    func hide(_ table: WipedTable) throws { try sql("ALTER TABLE \(table.inFile) RENAME TO \(table.inFile)_HIDDEN") }
+    func bringBack(_ table: WipedTable) throws { try sql("ALTER TABLE \(table.inFile)_HIDDEN RENAME TO \(table.inFile)") }
+
+    /// A row of every table in `tables`, saved. None of them is parked: their account isn't the one a test parks.
+    func fill(_ tables: [WipedTable] = WipedTable.allCases) {
+        for table in tables { table.insertRow(into: store.context) }
+        store.save()
+    }
+
+    /// Tables by what's still in them, through a fresh context, so what was saved and not what the app's context holds.
+    var inFile: [WipedTable: Int] {
+        get throws {
+            let context = ModelContext(store.container)
+            return try Dictionary(uniqueKeysWithValues: WipedTable.allCases.map { try ($0, $0.rowCount(in: context)) })
+        }
+    }
 
     private func sql(_ statement: String) throws {
         var db: OpaquePointer?
@@ -89,6 +108,101 @@ private final class StoreOnDisk {
         #expect(try inFreshContext == .none, "the file, through a fresh context", sourceLocation: sourceLocation)
         #expect(try inReopenedStore == .none, "the file, reopened", sourceLocation: sourceLocation)
         #expect(!store.context.hasChanges, "nothing left to write", sourceLocation: sourceLocation)
+    }
+}
+
+/// Every table of the store, by its model's name.
+enum WipedTable: String, CaseIterable {
+    case localSession = "LocalSession", localSessionExercise = "LocalSessionExercise", localSet = "LocalSet"
+    case cachedExercise = "CachedExercise", cachedPlan = "CachedPlan", pendingTrainOp = "PendingTrainOp"
+    case importMapping = "ImportMapping", pendingImport = "PendingImport"
+    case cachedDay = "CachedDay", cachedTrend = "CachedTrend", cachedInsight = "CachedInsight", cachedUser = "CachedUser"
+    case cachedSleepRange = "CachedSleepRange", cachedWorkout = "CachedWorkout", cachedDocument = "CachedDocument"
+    case localActivity = "LocalActivity", activityTrackChunk = "ActivityTrackChunk", localManualSleep = "LocalManualSleep"
+
+    /// The ones `wipe` fetches, whichever way the activities go.
+    static let fetched: [WipedTable] = [.localSet, .localSessionExercise, .localSession, .pendingImport, .localActivity,
+                                        .localManualSleep]
+
+    var inFile: String { "Z\(rawValue.uppercased())" }
+
+    /// Deleted one by one, so it's the final save that can refuse them: all of them at once.
+    func goesInTheSave(parking: String?) -> Bool {
+        Self.fetched.contains(self) && (parking != nil || ![.localActivity, .localManualSleep].contains(self))
+    }
+
+    @MainActor
+    func insertRow(into context: ModelContext) {
+        let account = "account-b", date = WipeValues.earlier, data = Data([1]), id = WipeValues.accountB
+        switch self {
+        case .localSession:
+            context.insert(LocalSession(title: "Upper"))
+        case .localSessionExercise:
+            context.insert(LocalSessionExercise(exerciseId: id, name: "Row", kind: .machine, loadType: .weight, position: 0))
+        case .localSet:
+            context.insert(LocalSet(setIndex: 0))
+        case .cachedExercise:
+            context.insert(CachedExercise(MockTrain.bench))
+        case .cachedPlan:
+            context.insert(CachedPlan(MockTrain.upperLower))
+        case .pendingTrainOp:
+            context.insert(PendingTrainOp(seq: 1, kind: .put, sessionId: id, account: account))
+        case .importMapping:
+            context.insert(ImportMapping(account: account, source: .alphaProgression,
+                                         key: SourceExerciseKey(name: "bench press", equipment: "barbell"),
+                                         choice: RememberedMatch(exerciseID: id, bodyweight: nil), at: date))
+        case .pendingImport:
+            context.insert(PendingImport(account: account, source: .alphaProgression, createdAt: date, timeZoneID: "UTC",
+                                         duplicatesChecked: true, payload: data, progressData: data, sessionsPerRequest: 1))
+        case .cachedDay:
+            context.insert(CachedDay(day: "2026-10-01", date: date))
+        case .cachedTrend:
+            context.insert(CachedTrend(key: "hrv", data: data, fetchedAt: date))
+        case .cachedInsight:
+            context.insert(CachedInsight(id: "insight", position: 0, data: data, fetchedAt: date))
+        case .cachedUser:
+            context.insert(CachedUser(id: id, data: data, fetchedAt: date))
+        case .cachedSleepRange:
+            context.insert(CachedSleepRange(kind: "week", data: data, fetchedAt: date))
+        case .cachedWorkout:
+            context.insert(CachedWorkout(id: id, data: data, fetchedAt: date))
+        case .cachedDocument:
+            context.insert(CachedDocument(key: "report", data: data, fetchedAt: date))
+        case .localActivity:
+            context.insert(LocalActivity(account: account, sport: .running, origin: .manual, start: date, end: WipeValues.now,
+                                         movingSec: 1_800, localRevision: 1, confirmedRevision: 1, createdAt: date))
+        case .activityTrackChunk:
+            context.insert(ActivityTrackChunk(activityID: id, account: account, seq: 0, kind: .profile, data: data, count: 1,
+                                              first: date, last: WipeValues.now))
+        case .localManualSleep:
+            context.insert(LocalManualSleep(day: "2026-10-01", account: account, bed: date, wake: WipeValues.now,
+                                            localRevision: 1, confirmedRevision: 1))
+        }
+    }
+
+    @MainActor
+    func rowCount(in context: ModelContext) throws -> Int {
+        func count<T: PersistentModel>(_: T.Type) throws -> Int { try context.fetchCount(FetchDescriptor<T>()) }
+        switch self {
+        case .localSession: return try count(LocalSession.self)
+        case .localSessionExercise: return try count(LocalSessionExercise.self)
+        case .localSet: return try count(LocalSet.self)
+        case .cachedExercise: return try count(CachedExercise.self)
+        case .cachedPlan: return try count(CachedPlan.self)
+        case .pendingTrainOp: return try count(PendingTrainOp.self)
+        case .importMapping: return try count(ImportMapping.self)
+        case .pendingImport: return try count(PendingImport.self)
+        case .cachedDay: return try count(CachedDay.self)
+        case .cachedTrend: return try count(CachedTrend.self)
+        case .cachedInsight: return try count(CachedInsight.self)
+        case .cachedUser: return try count(CachedUser.self)
+        case .cachedSleepRange: return try count(CachedSleepRange.self)
+        case .cachedWorkout: return try count(CachedWorkout.self)
+        case .cachedDocument: return try count(CachedDocument.self)
+        case .localActivity: return try count(LocalActivity.self)
+        case .activityTrackChunk: return try count(ActivityTrackChunk.self)
+        case .localManualSleep: return try count(LocalManualSleep.self)
+        }
     }
 }
 
@@ -221,7 +335,7 @@ struct TrainStoreWipeTests {
         editedNight.wake = WipeValues.now.addingTimeInterval(60)
         let ids = (edited: edited.id, parked: alreadyParked.id, unsaved: unsaved.id)
 
-        disk.store.wipe(parkingActivitiesOf: WipeValues.account, at: WipeValues.now)
+        #expect(disk.store.wipe(parkingActivitiesOf: WipeValues.account, at: WipeValues.now), "parked rows aren't a failure")
 
         try disk.expectNothingLeft()
         let reopened = TrainStore(url: disk.url)
@@ -407,6 +521,103 @@ struct TrainStoreWipeTests {
         try disk.expectNothingLeft()
     }
 
+    // MARK: what the result says
+
+    /// Every table with a row, as a real account's store can be, and then with nothing to do. A table whose delete always
+    /// threw (the session tables' does) would report every sign-out as failed.
+    @Test(arguments: WipeValues.parkings)
+    func aHealthyStoreReportsAWipe(_ parking: String?) throws {
+        let disk = try StoreOnDisk()
+        #expect(Set(WipedTable.allCases.map(\.rawValue)) == Set(TrainStore.schema.entities.map(\.name)), "every table is here")
+        disk.fill()
+        #expect(try disk.inFile.allSatisfy { $0.value == 1 }, "a row of each")
+
+        #expect(disk.store.wipe(parkingActivitiesOf: parking))
+        #expect(try disk.inFile.allSatisfy { $0.value == 0 })
+        #expect(disk.store.wipe(parkingActivitiesOf: parking), "and a store with nothing in it")
+    }
+
+    /// The case the final save can't speak for: it has nothing to do and succeeds, while the file holds the rows. A
+    /// HealthKit-only account has only these.
+    @Test(arguments: [WipedTable.cachedDay, .cachedDocument], WipeValues.parkings)
+    func aRefusedDeleteIsReportedWithNothingToSave(_ table: WipedTable, _ parking: String?) throws {
+        let disk = try StoreOnDisk()
+        disk.fill([table])
+        try disk.refuseDeletes(of: table)
+
+        #expect(!disk.store.wipe(parkingActivitiesOf: parking))
+        #expect(!disk.store.context.hasChanges, "the save had nothing to do")
+        #expect(try disk.inFile[table] == 1, "the refusal held")
+
+        try disk.allowDeletes()
+        #expect(disk.store.wipe(parkingActivitiesOf: parking))
+        #expect(try disk.inFile[table] == 0)
+    }
+
+    /// No table's result goes unread, whatever else there is to save, and a refusal stops nothing after it.
+    @Test(arguments: WipedTable.allCases, WipeValues.parkings)
+    func aRefusalOfAnyTableIsReportedAndTheRestGoes(_ table: WipedTable, _ parking: String?) throws {
+        let disk = try StoreOnDisk()
+        disk.fill()
+        try disk.refuseDeletes(of: table)
+
+        #expect(!disk.store.wipe(parkingActivitiesOf: parking))
+
+        let left = try disk.inFile
+        if table.goesInTheSave(parking: parking) {
+            #expect(left[table] == 1, "the refusal held")
+        } else {
+            #expect(left.filter { $0.value != 0 } == [table: 1], "the rest went, and the final save landed")
+        }
+    }
+
+    @Test(arguments: WipedTable.fetched, WipeValues.parkings)
+    func aFetchThatFailsIsReported(_ table: WipedTable, _ parking: String?) throws {
+        let disk = try StoreOnDisk()
+        try disk.hide(table)
+        #expect(!disk.store.wipe(parkingActivitiesOf: parking))
+        try disk.bringBack(table)
+        #expect(disk.store.wipe(parkingActivitiesOf: parking))
+    }
+
+    /// Which chunks are parked work is read from the activities, so with no answer every chunk stays, the other
+    /// account's too until the wipe that can read. A kept chunk is the only copy of that track.
+    @Test func aFailedReadTakesNoParkedTrack() throws {
+        let disk = try StoreOnDisk()
+        let unsent = activity(), theirs = activity("account-b")
+        disk.store.context.insert(unsent)
+        disk.store.context.insert(theirs)
+        disk.store.context.insert(chunk(of: unsent))
+        disk.store.context.insert(chunk(of: theirs))
+        disk.store.save()
+        let id = unsent.id
+        try disk.hide(.localActivity)
+
+        #expect(!disk.store.wipe(parkingActivitiesOf: WipeValues.account, at: WipeValues.now))
+        try disk.bringBack(.localActivity)
+        #expect(try disk.inFile[.activityTrackChunk] == 2)
+
+        #expect(disk.store.wipe(parkingActivitiesOf: WipeValues.account, at: WipeValues.now))
+        let chunks = try ModelContext(disk.store.container).fetch(FetchDescriptor<ActivityTrackChunk>())
+        #expect(chunks.map(\.activityID) == [id])
+    }
+
+    /// Parked marks wait for the final save like everything else, and a failed delete must not cost them.
+    @Test func aRefusalStillParksTheActivities() throws {
+        let disk = try StoreOnDisk()
+        let unsent = activity(), night = night("2026-10-01")
+        disk.store.context.insert(unsent)
+        disk.store.context.insert(night)
+        disk.fill([.cachedDay])
+        try disk.refuseDeletes(of: .cachedDay)
+
+        #expect(!disk.store.wipe(parkingActivitiesOf: WipeValues.account, at: WipeValues.now))
+
+        let context = ModelContext(disk.store.container)
+        #expect(try context.fetch(FetchDescriptor<LocalActivity>()).first?.parkedAt == WipeValues.now)
+        #expect(try context.fetch(FetchDescriptor<LocalManualSleep>()).first?.parkedAt == WipeValues.now)
+    }
+
     /// Memory that was asked for has no file to leave behind; memory after a failed open does.
     @Test func aStoreThatLostItsFileNeverReportsAWipe() throws {
         let disk = try StoreOnDisk()
@@ -453,6 +664,27 @@ struct TrainStoreWipeTests {
 
     /// Signed in over another account: a token refresh must not write the new id over the one that makes the next
     /// launch wipe again.
+    /// Nothing for the save to fail on: the account's day stays in the file and the next account must not find it.
+    @Test(arguments: WipeValues.endings)
+    func aRefusedDeleteKeepsTheAccountSoTheNextOneWipesAgain(_ ending: AuthService.SignOutReason) async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        rig.disk.fill([.cachedDay])
+        try rig.disk.refuseDeletes(of: .cachedDay)
+
+        await rig.end(ending)
+        #expect(rig.auth.accountID == nil)
+        #expect(rig.lastUser == WipeValues.accountA.uuidString)
+        #expect(try rig.disk.inFile[.cachedDay] == 1)
+
+        rig.relaunch(signedInAs: nil)
+        try rig.disk.allowDeletes()
+        await rig.signIn(WipeValues.accountB)
+
+        #expect(rig.auth.accountID == WipeValues.accountB.uuidString)
+        #expect(rig.lastUser == WipeValues.accountB.uuidString)
+        #expect(try rig.disk.inFile[.cachedDay] == 0)
+    }
+
     @Test func aRefusedWipeAtSignInIsTriedAgainAtTheNextLaunch() async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         rig.disk.session(checked: true)
