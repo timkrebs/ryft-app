@@ -1,7 +1,7 @@
 ---
 name: ios-developer
 description: Implements RYFT iOS features and fixes in Swift/SwiftUI — screens, view models, components, navigation, Train, Profile, onboarding. Use for feature tickets that don't live in Health/, Sync/, Networking/ or Persistence/ (those go to sync-engineer).
-model: inherit
+model: sonnet
 skills:
   - ryft-app-conventions
 color: green
