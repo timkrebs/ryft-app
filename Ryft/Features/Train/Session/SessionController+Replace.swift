@@ -192,6 +192,12 @@ extension SessionController {
         return PlanChangeOption(dayName: day.name, isAvailable: sync.isOnline)
     }
 
+    /// What the replace sheet shows for `ex`.
+    func replaceContext(for ex: LocalSessionExercise) -> ReplaceContext {
+        ReplaceContext(name: ex.name, exerciseID: ex.exerciseId, kind: replaceKind(for: ex),
+                       plan: planChangeOption(for: ex), offline: !sync.isOnline)
+    }
+
     /// The menu's Replace: the keypad closes for the sheet; Undo brings it back.
     func beginReplace() {
         focusBeforeReplace = focus
