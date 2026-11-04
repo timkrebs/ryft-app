@@ -62,6 +62,7 @@ struct SetRow: View {
     /// When a sideways drag last ended: the tap a button sees at its end isn't one.
     @State private var swipeEndedAt: Date = .distantPast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     private static let revealWidth: CGFloat = 88
 
     private var ghost: (reps: Int?, kg: Double?) { controller.ghost(for: set, in: exercise) }
@@ -159,10 +160,16 @@ struct SetRow: View {
         return rowState == .active ? Theme.textPrimary : Theme.textSecondary
     }
 
+    /// The active row's fields and `#`. In light, `surfaceRaised` sits at 1.01:1 on the row's tint and `surface` at 1.28:1,
+    /// about dark's step, and it keeps the ghost above 4.5:1. List has no row state and stays as it is.
+    private var raisedFill: Color {
+        rowState == .active && colorScheme == .light ? Theme.surface : Theme.surfaceRaised
+    }
+
     /// The raised `#` of the active row, with its dot.
     private var activePill: some View {
         Capsule()
-            .fill(Theme.surfaceRaised)
+            .fill(raisedFill)
             .frame(width: min(columns?.number ?? 32, 32), height: min(columns?.number ?? 32, 32))
             .overlay(alignment: .topTrailing) {
                 Circle().fill(Theme.accent).frame(width: 5, height: 5)
@@ -373,7 +380,7 @@ struct SetRow: View {
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 48)
-            .background(Theme.surfaceRaised.opacity(fieldOpacity(f, focused: focused)),
+            .background(raisedFill.opacity(fieldOpacity(f, focused: focused)),
                         in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(focused ? Theme.accent : .clear, lineWidth: 2))

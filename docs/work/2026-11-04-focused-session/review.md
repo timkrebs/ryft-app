@@ -87,3 +87,16 @@ S1, S2, N1–N5 and N6a are fixed, and List is unchanged.
 | 5 | `EmptyCheck.setID` is unused by the view | Keep: a test reads it |
 | — | ✓ on an empty upcoming row logs a set with no values | Fix: L24. `checkActive` became `checkRow`, and the view holds no state logic any more |
 | — | After any check, "Next" follows the last checked exercise, not the page | No change: that's what the planner does next, so the label is right |
+
+## PR 2 (T2), ui-validator on `ea0c131`
+
+No blocking finding. Flag off matches `origin/main` in dark and light, English and German, over seven checkpoints of a List tour: only the clocks, the home indicator and the L22 wording differ. Not covered with the flag off: 320 pt, Dynamic Type, offline, time and distance, Replace, Undo. A run with ✓ taps only reaches All sets done in all four appearances.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| 1 | Light: the active row's fields and `#` measure 1.01:1 on the tint | Fix: `surface` in light. The brief says raised white |
+| 2 | Light: ghost text on those fields is 4.49:1 | Fixed by 1 |
+| N1 | A first tap on an upcoming row only activates it | No change: the brief asks for this |
+| N2 | The rest card's "Next:" truncates in German | T3 replaces it |
+| N3 | The chip row clips the pencil in German | No change: same as T1, the fade is there |
+| N4 | The upcoming ✓ outline measures 1.14:1 in light | T5 |
