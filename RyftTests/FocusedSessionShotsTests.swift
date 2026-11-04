@@ -23,6 +23,10 @@ struct FocusedSessionShotsTests {
         case timeAndDistance = "time-and-distance"
         case keypad, offline, empty
         case many = "twelve-exercises"
+        case columnE1RM = "column-e1rm"
+        case column10RM = "column-10rm"
+        case columnRPE = "column-rpe"
+        case columnBodyweight = "column-bodyweight"
 
         var scenario: FocusedPreview.Scenario {
             switch self {
@@ -38,6 +42,18 @@ struct FocusedSessionShotsTests {
             case .offline: .offline
             case .empty: .empty
             case .many: .manyExercises
+            case .columnE1RM, .column10RM, .columnRPE: .estimates
+            case .columnBodyweight: .bodyweightEstimates
+            }
+        }
+
+        /// The fourth column, as if picked with the header; the other screens have the default rule's.
+        var column: SetColumn? {
+            switch self {
+            case .columnE1RM, .columnBodyweight: .e1rm
+            case .column10RM: .tenRM
+            case .columnRPE: .rpe
+            default: nil
             }
         }
     }
@@ -85,11 +101,13 @@ struct FocusedSessionShotsTests {
         var testDescription: String { name }
     }
 
-    /// Every screen at both widths in both schemes, and the main one at the larger text sizes.
+    /// Every screen at both widths in both schemes, and the main one and the fourth column at the larger text sizes.
     nonisolated static let shots: [Shot] = Screen.allCases.flatMap { screen in
         Size.allCases.flatMap { size in [true, false].map { Shot(screen: screen, size: size, dark: $0) } }
     } + Size.allCases.flatMap { size in
-        [TextSize.xl, .ax3].map { Shot(screen: .midSession, size: size, dark: true, text: $0) }
+        [Screen.midSession, .columnE1RM].flatMap { screen in
+            [TextSize.xl, .ax3].map { Shot(screen: screen, size: size, dark: true, text: $0) }
+        }
     }
 
     @Test("Render and write", arguments: shots)
@@ -109,7 +127,7 @@ struct FocusedSessionShotsTests {
     }
 
     private static func render(_ shot: Shot, in scene: UIWindowScene) async -> UIImage {
-        let controller = FocusedPreview.controller(shot.screen.scenario)
+        let controller = FocusedPreview.controller(shot.screen.scenario, column: shot.screen.column)
         if shot.screen == .keypad, let ex = controller.pageExercise { controller.edit(ex.orderedSets[0], .kg) }
         let root = SessionView(controller: controller)
             .previewEnvironment(scheme: shot.dark ? .dark : .light)

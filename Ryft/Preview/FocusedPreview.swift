@@ -17,6 +17,11 @@ enum FocusedPreview {
         /// Two warm-ups on the page, folded or open.
         case warmups, warmupsOpen
         case bodyweight, timeAndDistance
+        /// Every row state of the fourth column: 75 × 10 and 80 × 6 done, a ghost active, a typed 15-rep set the cap reads
+        /// as 12, and last time. The column comes from `controller(_:column:)`.
+        case estimates
+        /// A bodyweight page: done with no load, done with added load, then ghosts.
+        case bodyweightEstimates
         case oneExercise, manyExercises
         case offline
         case empty
@@ -32,7 +37,8 @@ enum FocusedPreview {
          SessionSet(setIndex: 3, reps: 5, weightKg: 102.5, completedAt: lastTimeDate)]
     }
 
-    static func controller(_ scenario: Scenario) -> SessionController {
+    /// `column`: as if picked with the header. `nil`: never picked, the default rule decides.
+    static func controller(_ scenario: Scenario, column: SetColumn? = nil) -> SessionController {
         let store = TrainStore(inMemory: true)
         let offline = scenario == .offline
         let sync = TrainSyncService(store: store, remote: { MockTrainSource.shared }, owner: { TrainSyncService.demoOwner },
@@ -40,7 +46,10 @@ enum FocusedPreview {
         sync.gate = { _ in nil }
         let session = make(scenario, in: store)
         store.save()
-        let controller = SessionController(session: session, sync: sync, liveActivity: nil, layout: .focused)
+        // Settings of its own, so the mocks can't read or write what the header stored in this simulator.
+        let settings = Settings(defaults: UserDefaults(suiteName: "ryft.focused.preview") ?? .standard)
+        settings.setColumn = column
+        let controller = SessionController(session: session, sync: sync, liveActivity: nil, layout: .focused, settings: settings)
         if scenario == .warmupsOpen, let ex = controller.pageExercise { controller.setWarmups(expanded: true, for: ex) }
         if scenario == .tappedRow, let ex = controller.pageExercise {
             ex.orderedSets[1].reps = 7
@@ -65,6 +74,10 @@ enum FocusedPreview {
             return single(MockTrain.pullUp, in: store)
         case .timeAndDistance:
             return timeAndDistance(in: store)
+        case .estimates:
+            return estimates(in: store)
+        case .bodyweightEstimates:
+            return bodyweightEstimates(in: store)
         case .oneExercise:
             return single(MockTrain.bench, in: store)
         case .manyExercises:
@@ -97,6 +110,38 @@ enum FocusedPreview {
         list[1].notes = "Slow on the way down"
         s.currentExerciseID = list[1].id
         return s
+    }
+
+    private static func estimates(in store: TrainStore) -> LocalSession {
+        let s = upper(in: store)
+        let ex = s.orderedExercises[1]
+        ex.lastTime = lastTime
+        let sets = ex.orderedSets
+        log(sets[0], reps: 10, kg: 75)
+        log(sets[1], reps: 6, kg: 80)
+        if sets.count > 3 {
+            sets[3].reps = 15
+            sets[3].weightKg = 102.5
+        }
+        s.currentExerciseID = ex.id
+        return s
+    }
+
+    private static func bodyweightEstimates(in store: TrainStore) -> LocalSession {
+        let s = single(MockTrain.pullUp, in: store)
+        let ex = s.orderedExercises[0]
+        ex.lastTime = [SessionSet(setIndex: 0, reps: 8, completedAt: lastTimeDate),
+                       SessionSet(setIndex: 1, reps: 6, weightKg: 10, completedAt: lastTimeDate)]
+        let sets = ex.orderedSets
+        log(sets[0], reps: 8, kg: nil)
+        log(sets[1], reps: 6, kg: 10)
+        return s
+    }
+
+    private static func log(_ set: LocalSet, reps: Int, kg: Double?) {
+        set.reps = reps
+        set.weightKg = kg
+        set.completedAt = .now.addingTimeInterval(Double(set.setIndex) * 150 - 900)
     }
 
     private static func allDone(in store: TrainStore) -> LocalSession {
