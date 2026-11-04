@@ -38,6 +38,7 @@ landed, so the "supersedes" clause doesn't apply as written: this brief builds o
 | L20 | No T6: time and distance keep today's behaviour (a wide reps field, stored values read-only). Entry for them is not in this brief. | `SetFocus.Field` has no time or distance today, so parity holds. Noted as an open item. |
 | L21 | Finish's capsule loses its fill in Focused until every set is done, in T5, checked on renders first. | Three filled teal controls otherwise (design §4). |
 | L22 | Two wordings change with the flag off too: the German value of "All sets done" (L18, in T2) and the setting's label "Advance to the next exercise" (L4, in T5). Each PR that ships one names it in its body, and it gets a CHANGELOG line. | Copy only, it reveals nothing of the new layout, and holding them behind the flag means two keys for one meaning. "Nothing changes with the flag off" stays strict for layout and behaviour. Settles the conflict between the acceptance criterion and L4, L18. |
+| L23 | VoiceOver's check on the active row follows L17 too: with nothing to log it opens the keypad instead of logging an empty set. | The brief's done-when: VoiceOver can do the same session. The ✓ and its VoiceOver action follow one rule. Replaces the architecture note's open point. Time and distance stay as L20 has them. |
 
 ## Tickets
 

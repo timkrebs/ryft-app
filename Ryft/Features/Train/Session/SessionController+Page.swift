@@ -80,7 +80,7 @@ extension SessionController {
     }
 
     /// ✓ on the active row (L17). A set that would log neither reps nor load opens the keypad on the first missing field
-    /// instead; the rest is `toggleCheck`. VoiceOver's "Check off" stays `toggleCheck` (architecture.md, open points).
+    /// instead; the rest is `toggleCheck`. VoiceOver's check on that row comes here too (L23).
     func checkActive(_ set: LocalSet, in ex: LocalSessionExercise) {
         if let field = missingField(of: set, in: ex) {
             edit(set, field)

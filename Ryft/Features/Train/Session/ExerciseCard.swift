@@ -91,10 +91,8 @@ struct SetRow: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(accessibilityText))
             .accessibilityAddTraits(set.isCompleted ? [.isButton, .isSelected] : .isButton)
-            .accessibilityAction { controller.toggleCheck(set, in: exercise) }
-            .accessibilityAction(named: Text(set.isCompleted ? "Mark not done" : "Check off")) {
-                controller.toggleCheck(set, in: exercise)
-            }
+            .accessibilityAction { check() }
+            .accessibilityAction(named: Text(set.isCompleted ? "Mark not done" : "Check off")) { check() }
             .accessibilityAction(named: Text("Edit weight")) { controller.edit(set, .kg) }
             .modifier(EditRepsAction(offered: storedValue == nil) { controller.edit(set, .reps) })
             .accessibilityAction(named: Text("Edit RPE")) { controller.edit(set, .rpe) }
@@ -132,13 +130,7 @@ struct SetRow: View {
                 .frame(minWidth: columns?.fourth, maxWidth: columns?.fourth ?? 64)
 
             Button {
-                tap {
-                    if rowState == .active {
-                        controller.checkActive(set, in: exercise)
-                    } else {
-                        controller.toggleCheck(set, in: exercise)
-                    }
-                }
+                tap { check() }
             } label: {
                 Image(systemName: "checkmark")
                     .font(.system(size: 20, weight: .bold))
@@ -250,6 +242,15 @@ struct SetRow: View {
                     swipe = swipe < -Self.revealWidth / 2 ? -Self.revealWidth : 0
                 }
             }
+    }
+
+    /// The ✓ and VoiceOver's check, one rule: the active row follows L17 (L23), every other row and List toggle.
+    private func check() {
+        if rowState == .active {
+            controller.checkActive(set, in: exercise)
+        } else {
+            controller.toggleCheck(set, in: exercise)
+        }
     }
 
     /// A row button's action, unless the touch was a swipe; on an open row a tap only closes it.
