@@ -5,7 +5,7 @@
 Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session/`. Five stacked PRs. All of it ships dark behind the remote flag `train.focused_session`: flag off or absent stays the List layout.
 
 - **T1 layout:** merged (#90). The strip, one exercise per page, chips, warm-up group, last-time card. The old rest card still sits above the strip until T3.
-- **T2 active set:** built, PR open. One active row, upcoming sets prefilled from the one before, a check on the active row logs it and moves on, the page follows after 0.6 s unless the user moved in the last 3 s. Tapping an upcoming row makes it active, and a checked row opens for editing.
+- **T2 active set:** built, PR open. One active row, upcoming sets prefilled from the one before, a check on the active row logs it and moves on, the page follows after 0.6 s unless the user moved in the last 3 s. Tapping an open row makes it active; ✓ on a done row marks it not done.
 - **Verified:** simulator only, iOS 27.0, 390 pt in the app, 320 pt in renders.
 - **Before the flag goes on:** a run on iOS 17 (no such runtime on this Mac), a device run with a real plan, VoiceOver by hand.
 
