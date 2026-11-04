@@ -177,7 +177,7 @@ struct TrainOutboxSchemaUpgradeTests {
         #expect(sessions.first?.allSets.map(\.weightKg) == [100])
         // Beta feedback 2 (ADR 0009): the exercise tombstones open empty.
         #expect(sessions.first?.deletedExerciseIDs == [])
-        // The focused session's page (ADR 0013): nil until the screen pins it.
+        // The focused session's page (ADR 0014): nil until the screen pins it.
         #expect(sessions.first?.currentExerciseID == nil)
         // And it writes the new attributes.
         first.account = "account-a"

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Ryft
 
-/// The controller side of the Focused layout's page (architecture.md §1 to §5, ADR 0013): a page change is no edit, the
+/// The controller side of the Focused layout's page (architecture.md §1 to §5, ADR 0014): a page change is no edit, the
 /// manual window, the keypad invariant, remove, replace and Undo, the warm-up group's effect on "Next:", and the layout
 /// read once. The rig is `ReplaceRig`: `Row` (0) · `Bench` (1, superset 1) · `Lateral` (2, superset 1) · `Curl` (3), the
 /// page on `Row` (the first with an open set). Synthetic values only.
@@ -58,7 +58,7 @@ struct SessionFocusedPageTests {
         await r.settle()
     }
 
-    // MARK: a page change is no edit (L10, ADR 0013 §2)
+    // MARK: a page change is no edit (L10, ADR 0014 §2)
 
     @Test(arguments: Move.allCases)
     func aPageChangeWritesNoUpdatedAtAndQueuesNoUpload(_ move: Move) async {
@@ -235,7 +235,7 @@ struct SessionFocusedPageTests {
         #expect(r.controller.advance != nil, "follow isn't the user's hand")
     }
 
-    // MARK: persistence and the fallback (ADR 0013 §1, §4)
+    // MARK: persistence and the fallback (ADR 0014 §1, §4)
 
     @Test func theSamePageComesBackAfterTheControllerIsRebuilt() {
         let r = rig()
@@ -534,7 +534,7 @@ struct SessionFocusedPageTests {
         #expect(r.controller.focus == nil && r.controller.pageExerciseID == r.x.id)
     }
 
-    // MARK: the session has ended (ADR 0013 §5)
+    // MARK: the session has ended (ADR 0014 §5)
 
     enum Ending: String, CaseIterable, Sendable {
         case finishing, finished, discarded

@@ -7,7 +7,7 @@ No blocking finding. Flag off is unchanged: verified by reading and probing. Eve
 | # | Finding | Decision |
 | --- | --- | --- |
 | S1 | `pinPage()` writes after the session ended, to a deleted row on Discard | Fix: guard on `isUnderway` |
-| S2 | `clearPage()` is undone 15 ms later by the re-pin and moves the stored page during the dismissal | Fix: delete it, amend ADR 0013 decision 5 |
+| S2 | `clearPage()` is undone 15 ms later by the re-pin and moves the stored page during the dismissal | Fix: delete it, amend ADR 0014 decision 5 |
 | S3 | The keypad stays on a warm-up that folding hid; digits go to an invisible row | Fix: close focus on fold |
 | S4 | Auto-fold removes the row VoiceOver is on | T2, with the VoiceOver focus work |
 | S5 | Time and distance rows are editable through "Edit reps" and keypad Next | Fix; the ghost-fill in `toggleCheck` stays L20's open item |

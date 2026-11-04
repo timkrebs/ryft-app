@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Focused layout's page and warm-up groups (architecture.md §2 to §5, ADR 0013). A page change is no edit: it
+/// The Focused layout's page and warm-up groups (architecture.md §2 to §5, ADR 0014). A page change is no edit: it
 /// never calls `sessionChanged`, so it reaches neither `updatedAt` nor the outbox, and the undo window keeps running.
 extension SessionController {
     // MARK: the page
