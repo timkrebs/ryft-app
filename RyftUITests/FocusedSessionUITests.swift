@@ -266,6 +266,44 @@ final class FocusedSessionUITests: XCTestCase {
         wait(chip, until: "label CONTAINS '1 minute'", "the chip shows the new rest")
     }
 
+    // MARK: the rest pill
+
+    /// T3: the pill is idle, a check runs it, its sheet skips the rest. Idle, the sheet's length starts a rest and leaves
+    /// the exercise's alone until it is set for the exercise.
+    @MainActor
+    func testTheRestPillRunsSkipsAndStartsARest() throws {
+        let app = openFocused()
+        let pill = element(app, "session.restPill")
+        requireExists(pill, "the idle pill")
+        wait(pill, until: "value BEGINSWITH 'Not running'", "nothing runs yet")
+        XCTAssertFalse(element(app, "session.restBar").exists, "no rest under way")
+        let chip = element(app, "session.chip.rest")
+        requireExists(chip, "the rest chip")
+        let chipLabel = chip.label
+
+        element(app, "set.0.1").coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.5)).tap()
+        wait(pill, until: "value CONTAINS 'left, next'", "a check runs the rest")
+        requireExists(element(app, "session.restBar"), "a rest under way, as on List's bar")
+        pill.tap()
+        let skip = element(app, "restSheet.skip")
+        requireExists(skip, "the running sheet")
+        element(app, "restSheet.more").tap()
+        skip.tap()
+        waitForAbsence(skip, "Skip closes the sheet")
+        wait(pill, until: "value BEGINSWITH 'Not running'", "Skip ends the rest")
+
+        pill.tap()
+        let start = element(app, "restSheet.start")
+        requireExists(start, "the idle sheet")
+        XCTAssertFalse(element(app, "restSheet.save").exists, "nothing to save yet")
+        element(app, "restSheet.more").tap()
+        requireExists(element(app, "restSheet.save"), "a changed length can be set for the exercise")
+        start.tap()
+        waitForAbsence(start, "Start closes the sheet")
+        wait(pill, until: "value CONTAINS 'left, next'", "Start runs the rest")
+        XCTAssertEqual(chip.label, chipLabel, "the exercise's rest stays")
+    }
+
     // MARK: warm-ups
 
     @MainActor
