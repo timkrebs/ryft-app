@@ -3399,7 +3399,7 @@
       }
     },
     "Changes the length of this rest only." : {
-      "comment" : "The rest sheet in a workout, under Set as rest for this exercise: the steppers alone don't change the exercise.",
+      "comment" : "The rest sheet in a workout, above Set as rest for this exercise: the steppers alone don't change the exercise.",
       "localizations" : {
         "de" : {
           "stringUnit" : {

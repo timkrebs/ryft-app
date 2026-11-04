@@ -22,11 +22,18 @@ struct RestSheet: View {
     /// only once the length changed: nobody would scroll down to find it.
     private static let detent = PresentationDetent.height(426)
 
+    /// 426 pt is measured at the default text size and fits only there: at XL the last line touches the edge, and above it
+    /// a wrapped Next line or the longer German button ends below it. So every larger size opens full. Large stays in reach
+    /// at the default size too, for a long exercise name.
+    private var detents: Set<PresentationDetent> {
+        typeSize > .large ? [.large] : [Self.detent, .large]
+    }
+
     private var isRunning: Bool { controller.rest.isRunning }
     private var keySize: CGFloat { typeSize >= .accessibility3 ? 64 : 56 }
 
     var body: some View {
-        RestSheetFrame(title: Text("Rest"), detent: Self.detent) {
+        RestSheetFrame(title: Text("Rest"), detents: detents) {
             VStack(spacing: 16) {
                 value
                 HStack(spacing: 12) {
@@ -128,19 +135,31 @@ struct RestSheet: View {
                 controller.startRest(for: exercise, seconds: draft.seconds)
                 dismiss()
             } label: {
-                Text("Start rest \(Fmt.clock(TimeInterval(draft.seconds)))",
-                     comment: "The rest sheet's button in a workout, and its VoiceOver label. 1: the length, e.g. 1:15.")
+                startLabel(Fmt.clock(TimeInterval(draft.seconds)))
             }
             .buttonStyle(TealButtonStyle())
             .disabled(!draft.canStart)
-            .accessibilityLabel(Text("Start rest \(RestSpeech.duration(draft.seconds))",
-                                     comment: "The rest sheet's button in a workout, and its VoiceOver label. 1: the length, e.g. 1:15."))
+            .accessibilityLabel(startLabel(RestSpeech.duration(draft.seconds)))
+            // VoiceOver says the words, the screen says 1:15: Voice Control takes what the user reads.
+            .accessibilityInputLabels([startLabel(Fmt.clock(TimeInterval(draft.seconds))), startLabel(RestSpeech.duration(draft.seconds))])
             .accessibilityIdentifier("restSheet.start")
         }
     }
 
+    private func startLabel(_ length: String) -> Text {
+        Text("Start rest \(length)", comment: "The rest sheet's button in a workout, and its VoiceOver label. 1: the length, e.g. 1:15.")
+    }
+
+    /// The caption is about the steppers, so it comes first: under the button it would read as what the button does, the
+    /// opposite of what it does.
     private var saveToExercise: some View {
         VStack(spacing: 2) {
+            Text("Changes the length of this rest only.",
+                 comment: "The rest sheet in a workout, above Set as rest for this exercise: the steppers alone don't change the exercise.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
             Button {
                 controller.setRest(draft.seconds, for: exercise)
             } label: {
@@ -154,12 +173,6 @@ struct RestSheet: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("restSheet.save")
-            Text("Changes the length of this rest only.",
-                 comment: "The rest sheet in a workout, under Set as rest for this exercise: the steppers alone don't change the exercise.")
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textSecondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -213,10 +226,10 @@ struct RestChoicesSheet: View {
     }
 }
 
-/// Both sheets' frame: a title, Done, `detent`, large at accessibility sizes. It scrolls, so a short phone cuts nothing off.
+/// Both sheets' frame: a title, Done, `detents`, large at accessibility sizes. It scrolls, so a short phone cuts nothing off.
 private struct RestSheetFrame<Content: View>: View {
     let title: Text
-    var detent: PresentationDetent = .medium
+    var detents: Set<PresentationDetent> = [.medium]
     @ViewBuilder var content: Content
 
     @Environment(\.dismiss) private var dismiss
@@ -236,7 +249,7 @@ private struct RestSheetFrame<Content: View>: View {
                     }
                 }
         }
-        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [detent])
+        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : detents)
     }
 }
 
