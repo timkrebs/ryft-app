@@ -85,7 +85,7 @@ struct SetRow: View {
                 controller.toggleCheck(set, in: exercise)
             }
             .accessibilityAction(named: Text("Edit weight")) { controller.edit(set, .kg) }
-            .accessibilityAction(named: Text("Edit reps")) { controller.edit(set, .reps) }
+            .modifier(EditRepsAction(offered: storedValue == nil) { controller.edit(set, .reps) })
             .accessibilityAction(named: Text("Edit RPE")) { controller.edit(set, .rpe) }
             .accessibilityAction(named: Text(set.isWarmup ? "Mark as working set" : "Mark as warm-up")) {
                 controller.toggleWarmup(set)
@@ -276,6 +276,21 @@ struct SetRow: View {
 
 /// A time or distance in a set's reps slot, read-only: what the Focused table and its last-time card show for a set
 /// that has one and no reps (design.md §3.2). Nil for a set with reps, or with neither.
+/// The set row's "Edit reps". A modifier rather than `accessibilityActions`, so the actions keep their order and List's
+/// row, where it is always offered, stays as it was.
+private struct EditRepsAction: ViewModifier {
+    let offered: Bool
+    let edit: () -> Void
+
+    func body(content: Content) -> some View {
+        if offered {
+            content.accessibilityAction(named: Text("Edit reps"), edit)
+        } else {
+            content
+        }
+    }
+}
+
 struct SetStoredValue: Equatable {
     let text: String
     let spoken: String

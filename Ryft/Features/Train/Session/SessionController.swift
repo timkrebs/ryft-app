@@ -342,14 +342,14 @@ final class SessionController: Identifiable {
         changed(set)
     }
 
-    /// kg → reps → the next set's kg.
+    /// kg → reps → the next set's kg. A read-only row (`isReadOnly`) has no reps to go to and is passed over.
     func nextField() {
         guard let focus, let target = focusedSet else { return }
         let set = target.set, ex = target.exercise
         switch focus.field {
-        case .kg: edit(set, .reps)
-        case .reps, .rpe:
-            if let next = ex.orderedSets.first(where: { $0.setIndex > set.setIndex }) {
+        case .kg where !isReadOnly(set): edit(set, .reps)
+        case .kg, .reps, .rpe:
+            if let next = ex.orderedSets.first(where: { $0.setIndex > set.setIndex && !isReadOnly($0) }) {
                 edit(next, ex.loadType == .weight ? .kg : .reps)
             } else {
                 self.focus = nil

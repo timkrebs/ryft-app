@@ -716,6 +716,75 @@ struct SessionFocusedPageTests {
         #expect(r.controller.focus?.setID == sets[0].id)
     }
 
+    // MARK: stored time and distance (L20)
+
+    enum Stored: String, CaseIterable, Sendable {
+        case time, distance
+    }
+
+    /// `set` has no reps, only what an import or another client stored.
+    private func store(_ stored: Stored, on set: LocalSet, _ r: ReplaceRig) {
+        set.reps = nil
+        switch stored {
+        case .time: set.durationSec = 45
+        case .distance: set.distanceM = 500
+        }
+        r.store.save()
+    }
+
+    @Test(arguments: Stored.allCases)
+    func nextPassesOverAStoredRow(_ stored: Stored) {
+        let r = rig()
+        let sets = r.row.orderedSets
+        store(stored, on: sets[1], r)
+        r.controller.edit(sets[0], .reps)
+        r.controller.nextField()
+        #expect(r.controller.focus == SetFocus(setID: sets[2].id, field: .kg), "\(stored)")
+    }
+
+    @Test func nextFromAStoredRowsWeightHasNoRepsToGoTo() {
+        let r = rig()
+        let sets = r.row.orderedSets
+        store(.time, on: sets[1], r)
+        r.controller.edit(sets[1], .kg)
+        r.controller.nextField()
+        #expect(r.controller.focus == SetFocus(setID: sets[2].id, field: .kg))
+    }
+
+    @Test func nextClosesTheKeypadWhenOnlyStoredRowsFollow() {
+        let r = rig()
+        let sets = r.row.orderedSets
+        store(.time, on: sets[1], r)
+        store(.distance, on: sets[2], r)
+        r.controller.edit(sets[0], .reps)
+        r.controller.nextField()
+        #expect(r.controller.focus == nil)
+    }
+
+    @Test func aRowWithRepsAndATimeStaysEditable() {
+        let r = rig()
+        let sets = r.row.orderedSets
+        sets[1].reps = 8
+        sets[1].durationSec = 45
+        r.store.save()
+        r.controller.edit(sets[0], .reps)
+        r.controller.nextField()
+        #expect(r.controller.focus == SetFocus(setID: sets[1].id, field: .kg))
+        r.controller.nextField()
+        #expect(r.controller.focus == SetFocus(setID: sets[1].id, field: .reps))
+    }
+
+    @Test func theListLayoutKeepsStoredRowsInNext() {
+        let r = rig(.list)
+        let sets = r.row.orderedSets
+        store(.time, on: sets[1], r)
+        r.controller.edit(sets[0], .reps)
+        r.controller.nextField()
+        #expect(r.controller.focus == SetFocus(setID: sets[1].id, field: .kg))
+        r.controller.nextField()
+        #expect(r.controller.focus == SetFocus(setID: sets[1].id, field: .reps))
+    }
+
     // MARK: the layout is read once (plan.md L5)
 
     private final class LayoutBox {

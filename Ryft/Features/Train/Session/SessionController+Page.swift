@@ -54,6 +54,14 @@ extension SessionController {
         showPage(SessionPage.neighbour(of: ex.id, in: exercises.map(\.id)))
     }
 
+    // MARK: read-only rows
+
+    /// Focused shows a stored time or distance and has no entry for it (L20), so the row has no reps field for the keypad.
+    /// Always false in List.
+    func isReadOnly(_ set: LocalSet) -> Bool {
+        layout == .focused && SetStoredValue(reps: set.reps, durationSec: set.durationSec, distanceM: set.distanceM) != nil
+    }
+
     // MARK: warm-up groups
 
     /// Focused hides this exercise's warm-ups: they leave the planner's input too (`plannerStates`). Always false in List.
