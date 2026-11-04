@@ -73,3 +73,17 @@ No blocking finding. List is unchanged with the flag off: by reading, and `Exerc
 From the implementer on L23: on an empty active row, VoiceOver's "Check off" opens the keypad with no announcement. Fix: announce it.
 
 Fixed: S1, S2, N1–N5, N6a, the L23 announcement, and `undoReplace`'s stale `lastCheckedExercise`, the same class as N4. Left for the hand VoiceOver pass in T5: a swipe within 350 ms of a focus move doesn't cancel it, and the `.allDone` announcement doesn't go through the task handle. Both are timing edges only a real run can judge.
+
+## PR 2 (T2), code-reviewer re-verification on `ea0c131`
+
+S1, S2, N1–N5 and N6a are fixed, and List is unchanged.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| 1 | The N1 fix stamped the 3 s window on every tap, so a tap followed by a check held legitimate advances and `.allDone`. The lead's instruction caused this | Fix: stamp only during the delay. A test pinned the wrong behaviour and changed with it |
+| 2 | The L23 announcement has no German | Already fixed in `a930484` |
+| 3 | After a remove, "Next" can name the superset partner of the page | T5 |
+| 4 | `remove` reads `ex.id` after the delete | Fix: read it first |
+| 5 | `EmptyCheck.setID` is unused by the view | Keep: a test reads it |
+| — | ✓ on an empty upcoming row logs a set with no values | Fix: L24. `checkActive` became `checkRow`, and the view holds no state logic any more |
+| — | After any check, "Next" follows the last checked exercise, not the page | No change: that's what the planner does next, so the label is right |

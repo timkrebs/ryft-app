@@ -81,11 +81,12 @@ extension SessionController {
         return ex.sets.first { $0.id == id }
     }
 
-    /// A tap on an upcoming row: it becomes the active one. No set changes and no edit is made. It stamps the manual
-    /// window, so a tap during the delay after a check isn't lost to a superset flip.
+    /// A tap on an upcoming row: it becomes the active one. No set changes and no edit is made. During the delay after
+    /// a check it stamps the manual window, so the tap isn't lost to a superset flip. Only then: a tap at any other time
+    /// says nothing about the next check, and must not hold its advance.
     func activate(_ set: LocalSet) {
         guard layout == .focused, !set.isCompleted else { return }
-        userScrolled()
+        if advanceTask != nil { userScrolled() }
         tappedSet = set.id
         activeRowChanged()
     }
@@ -97,9 +98,9 @@ extension SessionController {
         refreshActivity()
     }
 
-    /// ✓ on the active row (L17). A set that would log neither reps nor load opens the keypad on the first missing field
-    /// instead; the rest is `toggleCheck`. VoiceOver's check on that row comes here too (L23).
-    func checkActive(_ set: LocalSet, in ex: LocalSessionExercise) {
+    /// ✓ on a Focused row (L17, L24). A set that would log neither reps nor load opens the keypad on the first missing
+    /// field instead; the rest is `toggleCheck`. VoiceOver's check comes here too (L23).
+    func checkRow(_ set: LocalSet, in ex: LocalSessionExercise) {
         if let field = missingField(of: set, in: ex) {
             edit(set, field)
             emptyCheck = EmptyCheck(setID: set.id)

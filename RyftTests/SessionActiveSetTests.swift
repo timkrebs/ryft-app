@@ -308,11 +308,21 @@ struct SessionActiveSetTests {
 
     // MARK: L17, ✓ on the active row
 
+    /// L24: the reason for L17 holds on any open row, not only the active one.
+    @Test func anEmptyUpcomingRowOpensTheKeypadTooAndLogsNothing() {
+        let r = rig()
+        let set = r.row.orderedSets[1]
+        #expect(r.controller.activeSet(in: r.row)?.id != set.id)
+        r.controller.checkRow(set, in: r.row)
+        #expect(!set.isCompleted)
+        #expect(r.controller.focus == SetFocus(setID: set.id, field: .kg))
+    }
+
     @Test func anEmptyRowWithoutAGhostOpensTheKeypadOnKgAndLogsNothing() throws {
         let r = rig()
         let set = r.row.orderedSets[0]
         let before = r.controller.setsChecked
-        r.controller.checkActive(set, in: r.row)
+        r.controller.checkRow(set, in: r.row)
         #expect(!set.isCompleted && r.controller.setsChecked == before)
         #expect(r.controller.focus == SetFocus(setID: set.id, field: .kg))
         #expect(r.controller.emptyCheck?.setID == set.id)
@@ -325,7 +335,7 @@ struct SessionActiveSetTests {
         r.store.save()
         #expect(dip.loadType == .bodyweight)
         let set = dip.orderedSets[0]
-        r.controller.checkActive(set, in: dip)
+        r.controller.checkRow(set, in: dip)
         #expect(r.controller.focus == SetFocus(setID: set.id, field: .reps), "its added load is optional")
         #expect(!set.isCompleted)
     }
@@ -334,14 +344,14 @@ struct SessionActiveSetTests {
         let r = rig()
         // Reps typed.
         r.row.orderedSets[0].reps = 8
-        r.controller.checkActive(r.row.orderedSets[0], in: r.row)
+        r.controller.checkRow(r.row.orderedSets[0], in: r.row)
         #expect(r.row.orderedSets[0].isCompleted && r.controller.emptyCheck == nil)
         // Load typed.
         r.row.orderedSets[1].weightKg = 60
-        r.controller.checkActive(r.row.orderedSets[1], in: r.row)
+        r.controller.checkRow(r.row.orderedSets[1], in: r.row)
         #expect(r.row.orderedSets[1].isCompleted)
         // A plan session's ghost: Bench has a target.
-        r.controller.checkActive(r.x.orderedSets[3], in: r.x)
+        r.controller.checkRow(r.x.orderedSets[3], in: r.x)
         #expect(r.x.orderedSets[3].isCompleted && r.x.orderedSets[3].reps == 5 && r.x.orderedSets[3].weightKg == 80)
         #expect(r.controller.emptyCheck == nil)
     }
@@ -350,8 +360,8 @@ struct SessionActiveSetTests {
         let r = rig()
         r.row.orderedSets[0].reps = 8
         r.row.orderedSets[0].weightKg = 60
-        r.controller.checkActive(r.row.orderedSets[0], in: r.row)
-        r.controller.checkActive(r.row.orderedSets[1], in: r.row)
+        r.controller.checkRow(r.row.orderedSets[0], in: r.row)
+        r.controller.checkRow(r.row.orderedSets[1], in: r.row)
         #expect(r.row.orderedSets[1].isCompleted && r.row.orderedSets[1].reps == 8)
     }
 
@@ -360,7 +370,7 @@ struct SessionActiveSetTests {
         let dip = r.controller.add(r.other)
         dip.targetRepsMin = 8
         dip.orderedSets[0].reps = nil
-        r.controller.checkActive(dip.orderedSets[0], in: dip)
+        r.controller.checkRow(dip.orderedSets[0], in: dip)
         #expect(dip.orderedSets[0].isCompleted && dip.orderedSets[0].reps == 8)
     }
 
@@ -369,8 +379,8 @@ struct SessionActiveSetTests {
         let plank = r.controller.add(MockTrain.plank)
         let erg = r.controller.add(MockTrain.erg)
         #expect(plank.loadType == .time && erg.loadType == .distance)
-        r.controller.checkActive(plank.orderedSets[0], in: plank)
-        r.controller.checkActive(erg.orderedSets[0], in: erg)
+        r.controller.checkRow(plank.orderedSets[0], in: plank)
+        r.controller.checkRow(erg.orderedSets[0], in: erg)
         #expect(plank.orderedSets[0].isCompleted && erg.orderedSets[0].isCompleted, "L20: ✓ on an empty one logs")
         #expect(r.controller.emptyCheck == nil)
     }
@@ -379,14 +389,14 @@ struct SessionActiveSetTests {
         let r = rig()
         let plank = r.controller.add(MockTrain.plank)
         plank.orderedSets[0].durationSec = 45
-        r.controller.checkActive(plank.orderedSets[0], in: plank)
+        r.controller.checkRow(plank.orderedSets[0], in: plank)
         #expect(plank.orderedSets[0].isCompleted && r.controller.emptyCheck == nil)
     }
 
-    @Test func checkActiveOnADoneRowUnchecksIt() {
+    @Test func checkRowOnADoneRowUnchecksIt() {
         let r = rig()
         r.complete(1, of: r.row)
-        r.controller.checkActive(r.row.orderedSets[0], in: r.row)
+        r.controller.checkRow(r.row.orderedSets[0], in: r.row)
         #expect(!r.row.orderedSets[0].isCompleted && r.controller.emptyCheck == nil)
     }
 
@@ -401,20 +411,20 @@ struct SessionActiveSetTests {
     @Test func eachEmptyCheckIsANewEvent() {
         let r = rig()
         let set = r.row.orderedSets[0]
-        r.controller.checkActive(set, in: r.row)
+        r.controller.checkRow(set, in: r.row)
         let first = r.controller.emptyCheck
-        r.controller.checkActive(set, in: r.row)
+        r.controller.checkRow(set, in: r.row)
         #expect(r.controller.emptyCheck != nil && r.controller.emptyCheck != first, "the view announces every time")
     }
 
     @Test func theKeypadStillWorksAfterAnEmptyCheck() {
         let r = rig()
         let set = r.row.orderedSets[0]
-        r.controller.checkActive(set, in: r.row)
+        r.controller.checkRow(set, in: r.row)
         r.controller.type("6")
         r.controller.type("0")
         #expect(set.weightKg == 60)
-        r.controller.checkActive(set, in: r.row)
+        r.controller.checkRow(set, in: r.row)
         #expect(set.isCompleted, "with a load typed the same tap logs")
     }
 
@@ -426,7 +436,7 @@ struct SessionActiveSetTests {
         let initial = c.lastActivityNext
         _ = warmup(0, of: r.row, r)
         c.activate(r.row.orderedSets[2])
-        c.checkActive(r.row.orderedSets[1], in: r.row)       // an empty row: List logs it
+        c.checkRow(r.row.orderedSets[1], in: r.row)       // an empty row: List logs it
         #expect(r.row.orderedSets[1].isCompleted, "List's ✓ is toggleCheck")
         c.toggleCheck(r.row.orderedSets[0], in: r.row)       // the warm-up, last of its kind
         c.toggleCheck(r.row.orderedSets[0], in: r.row)       // and back

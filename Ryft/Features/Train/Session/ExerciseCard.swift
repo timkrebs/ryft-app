@@ -244,10 +244,10 @@ struct SetRow: View {
             }
     }
 
-    /// The ✓ and VoiceOver's check, one rule: the active row follows L17 (L23), every other row and List toggle.
+    /// The ✓ and VoiceOver's check, one rule: a Focused row follows L17 (L23, L24), List toggles.
     private func check() {
-        if rowState == .active {
-            controller.checkActive(set, in: exercise)
+        if rowState != nil {
+            controller.checkRow(set, in: exercise)
         } else {
             controller.toggleCheck(set, in: exercise)
         }

@@ -443,9 +443,9 @@ final class SessionController: Identifiable {
         session.deletedExerciseIDs.append(ex.id)
         if let group = ex.supersetGroup { ungroup(group, leaving: ex) }
         session.exercises.removeAll { $0.id == ex.id }
-        store.context.delete(ex)
         // The planner reads an id it can't find as nil, from the top, so List sees no change; Focused gets its page fallback.
         if lastCheckedExercise == ex.id { lastCheckedExercise = nil }
+        store.context.delete(ex)
         renumber()
         edited()
     }

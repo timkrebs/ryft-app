@@ -193,10 +193,23 @@ struct SessionFocusedAdvanceTests {
         #expect(r.controller.activeSet(in: r.x)?.id == r.x.orderedSets[3].id)
     }
 
-    @Test func activateInFocusedStampsTheWindowAndTheListDoesNot() {
+    /// A tap outside the delay says nothing about the next check.
+    @Test func aTapBeforeACheckDoesNotHoldItsAdvance() async {
+        let r = rig()
+        r.session.currentExerciseID = r.x.id
+        r.store.save()
+        r.controller.activate(r.x.orderedSets[3])
+        r.controller.activate(r.x.orderedSets[0])
+        #expect(r.controller.lastManualScroll == nil)
+        await check(r.x.orderedSets[0], in: r.x, r)
+        await release(r)
+        #expect(r.controller.advance != nil, "the flip happens, 3 s or not")
+    }
+
+    @Test func activateOutsideTheDelayLeavesTheWindowAloneAndTheListDoesNothing() {
         let r = rig()
         r.controller.activate(r.row.orderedSets[1])
-        #expect(r.controller.lastManualScroll == r.clock.now())
+        #expect(r.controller.lastManualScroll == nil && r.controller.tappedSet == r.row.orderedSets[1].id)
         let l = rig(.list)
         l.controller.activate(l.row.orderedSets[1])
         #expect(l.controller.lastManualScroll == nil && l.controller.tappedSet == nil)
