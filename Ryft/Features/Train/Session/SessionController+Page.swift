@@ -87,7 +87,13 @@ extension SessionController {
         toggleWarmup(addSet(to: ex))
     }
 
-    // MARK: strip
+    // MARK: supersets
+
+    /// The other exercises of `ex`'s superset, in order.
+    func supersetPartners(of ex: LocalSessionExercise) -> [LocalSessionExercise] {
+        guard let group = ex.supersetGroup else { return [] }
+        return exercises.filter { $0.supersetGroup == group && $0.id != ex.id }
+    }
 
     /// Consecutive exercises of one superset group together: the strip's bar, List's bracket.
     var exerciseGroups: [[LocalSessionExercise]] {
