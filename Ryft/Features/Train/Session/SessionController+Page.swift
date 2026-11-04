@@ -74,9 +74,11 @@ extension SessionController {
         return ex.sets.first { $0.id == id }
     }
 
-    /// A tap on an upcoming row: it becomes the active one. No set changes and no edit is made.
+    /// A tap on an upcoming row: it becomes the active one. No set changes and no edit is made. It stamps the manual
+    /// window, so a tap during the delay after a check isn't lost to a superset flip.
     func activate(_ set: LocalSet) {
         guard layout == .focused, !set.isCompleted else { return }
+        userScrolled()
         tappedSet = set.id
         activeRowChanged()
     }
@@ -98,8 +100,9 @@ extension SessionController {
         }
     }
 
-    /// Read against what `toggleCheck` fills. Reps for bodyweight: its added load is optional. Time and distance have no
-    /// field to open (L20), and a stored value is a logged one.
+    /// Read against what `toggleCheck` fills. Reps for bodyweight: its added load is optional. Time and distance keep
+    /// today's behaviour (L20): a row without a stored value has a reps field, but ✓ on an empty one logs. A stored value
+    /// is a logged one.
     private func missingField(of set: LocalSet, in ex: LocalSessionExercise) -> SetFocus.Field? {
         guard layout == .focused, !set.isCompleted, !isReadOnly(set) else { return nil }
         let g = ghost(for: set, in: ex)

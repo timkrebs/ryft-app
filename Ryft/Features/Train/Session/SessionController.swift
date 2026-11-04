@@ -226,8 +226,11 @@ final class SessionController: Identifiable {
         if set.isCompleted {
             set.completedAt = nil
             checkUndone(in: ex)
-            // An unchecked set is the one to do again.
-            if layout == .focused { tappedSet = set.id }
+            // An unchecked set is the one to do again; a keypad on another row would type into a row that isn't active.
+            if layout == .focused {
+                tappedSet = set.id
+                if focus?.setID != set.id { focus = nil }
+            }
         } else {
             let g = ghost(for: set, in: ex)
             if set.reps == nil { set.reps = g.reps }
@@ -375,6 +378,11 @@ final class SessionController: Identifiable {
                 edit(next, ex.loadType == .weight ? .kg : .reps)
             } else {
                 self.focus = nil
+                // Focused: off the end of the table the first open set is active again.
+                if layout == .focused {
+                    tappedSet = nil
+                    activeRowChanged()
+                }
             }
         }
     }
@@ -434,6 +442,8 @@ final class SessionController: Identifiable {
         if let group = ex.supersetGroup { ungroup(group, leaving: ex) }
         session.exercises.removeAll { $0.id == ex.id }
         store.context.delete(ex)
+        // The planner reads an id it can't find as nil, from the top, so List sees no change; Focused gets its page fallback.
+        if lastCheckedExercise == ex.id { lastCheckedExercise = nil }
         renumber()
         edited()
     }

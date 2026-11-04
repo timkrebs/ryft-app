@@ -225,6 +225,8 @@ extension SessionController {
         switch kind {
         case .inPlace:
             mutate(ex, into: new)
+            // A new exercise starts on its first open set, not on the old one's tap.
+            tappedSet = nil
             target = ex
         case .split:
             target = split(ex, into: new)
