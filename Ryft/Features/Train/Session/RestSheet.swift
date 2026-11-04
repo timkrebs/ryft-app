@@ -18,11 +18,15 @@ struct RestSheet: View {
         _draft = State(initialValue: RestDraft(seconds: seconds ?? exercise.restSec))
     }
 
+    /// Medium at 390 pt, within 4 pt. At 693 pt high, medium ends above "Set as rest for this exercise", which appears
+    /// only once the length changed: nobody would scroll down to find it.
+    private static let detent = PresentationDetent.height(426)
+
     private var isRunning: Bool { controller.rest.isRunning }
     private var keySize: CGFloat { typeSize >= .accessibility3 ? 64 : 56 }
 
     var body: some View {
-        RestSheetFrame(title: Text("Rest")) {
+        RestSheetFrame(title: Text("Rest"), detent: Self.detent) {
             VStack(spacing: 16) {
                 value
                 HStack(spacing: 12) {
@@ -201,10 +205,10 @@ struct RestChoicesSheet: View {
     }
 }
 
-/// Both sheets' frame: a title, Done, medium height, large at accessibility sizes. It scrolls, so a short phone cuts
-/// nothing off.
+/// Both sheets' frame: a title, Done, `detent`, large at accessibility sizes. It scrolls, so a short phone cuts nothing off.
 private struct RestSheetFrame<Content: View>: View {
     let title: Text
+    var detent: PresentationDetent = .medium
     @ViewBuilder var content: Content
 
     @Environment(\.dismiss) private var dismiss
@@ -224,7 +228,7 @@ private struct RestSheetFrame<Content: View>: View {
                     }
                 }
         }
-        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.medium])
+        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [detent])
     }
 }
 
