@@ -228,6 +228,8 @@ final class FocusedSessionUITests: XCTestCase {
         let pill = element(app, "session.warmups")
         requireExists(pill, "the pill once there is a warm-up")
         wait(pill, until: "value == 'expanded'", "a warm-up added from the menu shows at once")
+        requireExists(element(app, "warmup.0.1"), "a warm-up row has its own identifier")
+        requireExists(element(app, "set.0.1"), "the first working set keeps its own")
         pill.tap()
         wait(pill, until: "value == 'collapsed'", "the pill folds the group")
         pill.tap()

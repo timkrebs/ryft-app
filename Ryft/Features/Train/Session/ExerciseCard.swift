@@ -73,7 +73,7 @@ struct SetRow: View {
                 }
                 Button("Delete set", systemImage: "trash", role: .destructive) { requestDelete() }
             }
-            .confirmationDialog("Delete set \(number)?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            .confirmationDialog(deleteTitle, isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete set", role: .destructive) { controller.delete(set, from: exercise) }
             }
             // VoiceOver: one element per set with actions.
@@ -91,7 +91,7 @@ struct SetRow: View {
                 controller.toggleWarmup(set)
             }
             .accessibilityAction(named: Text("Delete set")) { requestDelete() }
-            .accessibilityIdentifier("set.\(exercise.position).\(number)")
+            .accessibilityIdentifier("\(isFocusedWarmup ? "warmup" : "set").\(exercise.position).\(number)")
     }
 
     private var row: some View {
@@ -183,6 +183,13 @@ struct SetRow: View {
             return
         }
         action()
+    }
+
+    /// Focused numbers warm-ups on their own: "1" is a warm-up and a working set, so they need telling apart.
+    private var isFocusedWarmup: Bool { columns != nil && set.isWarmup }
+
+    private var deleteTitle: Text {
+        isFocusedWarmup ? Text("Delete \(String(localized: "warm-up"))?") : Text("Delete set \(number)?")
     }
 
     /// A set with values (or checked) asks first; an empty one goes at once.
