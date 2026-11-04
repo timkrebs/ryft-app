@@ -14,8 +14,10 @@ struct RestPill: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var flash = false
 
-    /// The pill's height, and with 8 pt above and below the row's.
     static func height(_ typeSize: DynamicTypeSize) -> CGFloat { typeSize >= .accessibility3 ? 56 : 48 }
+    /// The space a pill takes on the screen.
+    static let rowPadding: CGFloat = 8
+    static func rowHeight(_ typeSize: DynamicTypeSize) -> CGFloat { height(typeSize) + 2 * rowPadding }
 
     private var isLarge: Bool { typeSize >= .accessibility3 }
 
