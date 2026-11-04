@@ -92,7 +92,10 @@ struct ExercisePage: View {
             }
             .buttonStyle(.plain)
             .contextMenu { menuItems }
-            .accessibilityLabel(Text("\(exercise.name), history", comment: "VoiceOver: the exercise's title on its page in a workout, which opens its history."))
+            .accessibilityLabel(Text(
+                "\(exercise.name), history",
+                comment: "VoiceOver: the exercise's title on its page in a workout, which opens its history."
+            ))
             .accessibilityAddTraits(.isHeader)
             // The toast's Undo, reachable from the page too while it lasts (ui.md §4).
             .accessibilityActions {
@@ -192,7 +195,10 @@ struct ExercisePage: View {
         } label: {
             SessionChip(text: String(localized: "Rest \(Fmt.clock(TimeInterval(exercise.restSec)))"), leading: "timer", trailing: "pencil")
         }
-        .accessibilityLabel(Text("Rest, \(Self.spokenDuration(exercise.restSec))", comment: "VoiceOver: the rest chip on an exercise's page. 1: e.g. 1 minute, 15 seconds."))
+        .accessibilityLabel(Text(
+            "Rest, \(Self.spokenDuration(exercise.restSec))",
+            comment: "VoiceOver: the rest chip on an exercise's page. 1: e.g. 1 minute, 15 seconds."
+        ))
         .accessibilityIdentifier("session.chip.rest")
     }
 
@@ -249,8 +255,9 @@ struct ExercisePage: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(warmupsDone ? Text("\(warmupTitleText), done", comment: "VoiceOver: the warm-up pill once every warm-up is checked. 1: e.g. 2 warm-up sets.")
-                                        : Text(warmupTitleText))
+        .accessibilityLabel(warmupsDone
+            ? Text("\(warmupTitleText), done", comment: "VoiceOver: the warm-up pill once every warm-up is checked. 1: e.g. 2 warm-up sets.")
+            : Text(warmupTitleText))
         .accessibilityValue(isExpanded ? Text("expanded", comment: "VoiceOver: the warm-up group is open.")
                                        : Text("collapsed", comment: "VoiceOver: the warm-up group is folded."))
         .accessibilityHint(Text("Shows or hides the warm-up sets", comment: "VoiceOver hint on the warm-up pill."))
@@ -442,7 +449,10 @@ struct LastTimeCard: View {
     /// "Last time, Tue 3 November: set 1, 10 reps at 75 kilograms; set 2, 6 reps at 80 kilograms".
     private var spoken: String {
         let rows = working.prefix(Self.shown).enumerated().map { i, set in
-            String(localized: "set \(i + 1), \(Self.spoken(set))", comment: "VoiceOver: one row of the last-time card. 1: its number, 2: e.g. 10 reps at 75 kilograms.")
+            String(
+                localized: "set \(i + 1), \(Self.spoken(set))",
+                comment: "VoiceOver: one row of the last-time card. 1: its number, 2: e.g. 10 reps at 75 kilograms."
+            )
         }
         var list = rows.joined(separator: "; ")
         if working.count > Self.shown { list += "; " + moreText }
