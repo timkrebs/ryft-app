@@ -74,6 +74,10 @@ struct RestSheet: View {
         // A true minus (U+2212).
         var title: String { self == .less ? "\u{2212}15 s" : "+15 s" }
         var label: Text { self == .less ? Text("Fifteen seconds less") : Text("Fifteen seconds more") }
+        var spoken: Text {
+            self == .less ? Text("Minus 15", comment: "Voice Control name of the rest bar's −15 button.")
+                : Text("Plus 15", comment: "Voice Control name of the rest bar's +15 button.")
+        }
     }
 
     private func isEnabled(_ key: Key) -> Bool {
@@ -101,8 +105,11 @@ struct RestSheet: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(PressableButtonStyle())
+        // Held, it walks the length. Not a running rest: a held −15 would end it.
+        .buttonRepeatBehavior(isRunning ? .disabled : .enabled)
         .disabled(!enabled)
         .accessibilityLabel(key.label)
+        .accessibilityInputLabels([key.spoken, key.label])
         .accessibilityIdentifier(key == .less ? "restSheet.less" : "restSheet.more")
     }
 
@@ -114,6 +121,7 @@ struct RestSheet: View {
                 dismiss()
             }
             .buttonStyle(TealButtonStyle())
+            .accessibilityInputLabels([Text("Skip"), Text("Skip rest")])
             .accessibilityIdentifier("restSheet.skip")
         } else {
             Button {

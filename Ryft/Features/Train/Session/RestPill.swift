@@ -22,7 +22,8 @@ struct RestPill: View {
     private var isLarge: Bool { typeSize >= .accessibility3 }
 
     var body: some View {
-        Group {
+        // A container, not a `Group`: that would hand `onChange` to each branch, and a rest's end changes the branch.
+        ZStack {
             switch controller.restPillState {
             case .hidden:
                 EmptyView()
@@ -38,7 +39,6 @@ struct RestPill: View {
                 }
             }
         }
-        // Only the end of a rest: the pill is off screen for any other change of `restsEnded`.
         .onChange(of: controller.restsEnded) { _, _ in flashOnce() }
     }
 

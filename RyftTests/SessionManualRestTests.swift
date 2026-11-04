@@ -87,7 +87,8 @@ struct SessionManualRestTests {
     // MARK: what the pill shows
 
     typealias PillCase = (phase: RestTimer.Phase, keypad: Bool, exercises: Bool, allDone: Bool, state: RestPillState)
-    private static let running = RestTimer.Phase.running(endsAt: .distantFuture, total: 75)
+    /// Nonisolated: `@Test`'s arguments are read off the main actor.
+    private nonisolated static let running = RestTimer.Phase.running(endsAt: .distantFuture, total: 75)
 
     @Test("The pill's state", arguments: [
         (RestTimer.Phase.idle, false, true, false, RestPillState.idle),
