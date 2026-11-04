@@ -40,3 +40,15 @@ No blocking finding. Flag off matches `origin/main`: the page below the header h
 | N5 | The target chip's label holds "@" and "×" | T5: hear it with VoiceOver by hand |
 
 Still unverified: real VoiceOver, Reduce Motion at runtime, the offline banner in the app, 320 pt in the app, Dynamic Type at exactly XL.
+
+## PR 1 (T1), Copilot on #90
+
+All three checked against the code before fixing. All three are real and only happen with the flag on.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| C1 | A stored time or distance row speaks the ghost's reps next to its value | Fix: no reps ghost when the row has a stored value |
+| C2 | Reorder moves the current tile off the strip, because the page doesn't change | Fix: recentre when the order changes |
+| C3 | Undo of a replace reopens the keypad on a warm-up that folded in the meantime | Fix: open the group first. Same class as S3, which only covered folding |
+
+C1, C2 and C3 each have a test that fails without the fix. `FocusedSessionUITests` 12 of 12; the reorder test passed 3 of 3 on its own, because it depends on the Reorder sheet's layout and runs outside the smoke plan.

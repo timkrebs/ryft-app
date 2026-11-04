@@ -284,7 +284,7 @@ struct SetRow: View {
     private var accessibilityText: String {
         var parts = [String(localized: "Set \(number) of \(count)")]
         if set.isWarmup { parts.append(String(localized: "warm-up")) }
-        let reps = set.reps ?? ghost.reps, kg = set.weightKg ?? ghost.kg
+        let reps = Self.spokenReps(set.reps, ghost: ghost.reps, stored: storedValue), kg = set.weightKg ?? ghost.kg
         var values: String?
         switch (reps, kg) {
         case let (r?, k?): values = String(localized: "\(r) reps at \(Fmt.kgNumber(k)) kilograms")
@@ -307,6 +307,11 @@ struct SetRow: View {
         if let rpe = set.rpe { parts.append(String(localized: "RPE \(Fmt.kgNumber(rpe))")) }
         parts.append(set.isCompleted ? String(localized: "completed") : String(localized: "not done"))
         return parts.joined(separator: ", ")
+    }
+
+    /// A row with a stored time or distance has no reps to suggest: VoiceOver reads what the row shows.
+    static func spokenReps(_ reps: Int?, ghost: Int?, stored: SetStoredValue?) -> Int? {
+        reps ?? (stored == nil ? ghost : nil)
     }
 
     /// Focused: a time or distance this set got from an import or another client. There is no entry for them (L20), so

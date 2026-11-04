@@ -313,7 +313,11 @@ extension SessionController {
         }
         session.deletedSetIDs.removeAll { restored.contains($0) }
         renumber()
-        if let f = u.focus, let set = x.sets.first(where: { $0.id == f.setID }) { edit(set, f.field) }
+        if let f = u.focus, let set = x.sets.first(where: { $0.id == f.setID }) {
+            // The group may have folded since: the keypad never comes back on a hidden row.
+            if set.isWarmup, isFolded(x) { setWarmups(expanded: true, for: x) }
+            edit(set, f.field)
+        }
         store.save()
         edited()
 

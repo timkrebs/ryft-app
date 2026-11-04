@@ -74,6 +74,13 @@ final class FocusedSessionUITests: XCTestCase {
         tile.label.components(separatedBy: ", ").first ?? tile.label
     }
 
+    /// A scrolled-away tile still exists, but its frame lies outside the window (`isHittable` can't tell for these).
+    private func onScreen(_ tile: XCUIElement, in app: XCUIApplication) -> Bool {
+        let window = app.windows.firstMatch.frame
+        let f = tile.frame
+        return tile.exists && f.minX >= window.minX && f.maxX <= window.maxX
+    }
+
     private func title(_ app: XCUIApplication) -> XCUIElement { element(app, "session.page.title") }
 
     /// The page on screen is tile `n`'s: it is selected, and the page's title carries its name.
@@ -165,6 +172,53 @@ final class FocusedSessionUITests: XCTestCase {
         app.buttons["Done"].tap()
         waitForAbsence(sheet, "the sheet closes")
         XCTAssertTrue(tile(app, 0).isSelected, "reordering from the strip leaves the page")
+    }
+
+    /// C2: Reorder moves the current tile without changing the page, and the strip follows it.
+    @MainActor
+    func testMovingTheCurrentExerciseToTheEndKeepsItsTileOnTheStrip() throws {
+        let app = openFocused()
+        // Upper A has five tiles; four more make the strip wider than the screen.
+        for n in 5...8 {
+            requireExists(element(app, "session.strip.add"), "the + tile")
+            element(app, "session.strip.add").tap()
+            let pick = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'exercise.pick.'")).firstMatch
+            requireExists(pick, "the picker")
+            pick.tap()
+            requireExists(tile(app, n), "tile \(n) was added")
+        }
+        // The first exercise is the page; the strip may have followed the added ones, so scroll it back.
+        let strip = element(app, "session.strip")
+        var tries = 0
+        while !onScreen(tile(app, 0), in: app) && tries < 6 {
+            strip.swipeRight()
+            tries += 1
+        }
+        let first = name(of: tile(app, 0))
+        tile(app, 0).tap()
+        assertPage(0, named: first, in: app)
+        XCTAssertFalse(onScreen(tile(app, 8), in: app), "the strip is long enough to scroll: the last tile is off screen")
+
+        tile(app, 0).press(forDuration: 1.0)
+        requireExists(app.navigationBars["Reorder"], "the reorder sheet")
+        // The sheet opens at medium height and shows five rows: pull it up so the last handle is in reach.
+        let bar = app.navigationBars["Reorder"]
+        let grip = bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        grip.press(forDuration: 0.1, thenDragTo: grip.withOffset(CGVector(dx: 0, dy: -400)))
+        let handles = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reorder'"))
+        wait(handles.element(boundBy: 8), until: "isHittable == true", "a reorder handle per exercise, all in reach")
+        let from = handles.element(boundBy: 0).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let to = handles.element(boundBy: 8).coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
+        from.press(forDuration: 1.0, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.5)
+        app.buttons["Done"].tap()
+
+        // The moved exercise is now the last one, and still the page.
+        wait(tile(app, 8), until: "label BEGINSWITH %@".replacingOccurrences(of: "%@", with: "'\(first)'"),
+             "the first exercise moved to the end")
+        wait(tile(app, 8), until: "isSelected == true", "and is still the current one")
+        let deadline = Date().addingTimeInterval(patience)
+        while !onScreen(tile(app, 8), in: app), Date() < deadline { _ = tile(app, 8).waitForExistence(timeout: 0.25) }
+        XCTAssertTrue(onScreen(tile(app, 8), in: app), "the strip scrolled to keep its tile in view: \(tile(app, 8).frame)")
     }
 
     // MARK: chips
