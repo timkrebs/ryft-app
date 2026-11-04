@@ -81,9 +81,11 @@ final class SyncService {
     private(set) var scoringLedger: [String: ScoringWord] = [:] {
         didSet { if scoringLedger != oldValue { ledgerChanged?() } }
     }
-    /// When the platform last accepted a write touching each day, on this phone's clock (`accepted`): a push after it
-    /// answers that write, and the upload's word about it, said later, doesn't replace the push's (`awaiting`).
-    @ObservationIgnored private var acceptedAt: [String: Date] = [:]
+    /// Days a push named since the platform last accepted a write touching them: the private ordering input of
+    /// `awaiting`, never an answer (`scoringLedger` is the only one). Not read from the ledger: a late status read can
+    /// drop the push's word there (`receive`) before the run that wrote it says its own. In the order of the calls, so
+    /// no clock can reorder a push and a write.
+    @ObservationIgnored private var heardSinceWrite: Set<String> = []
     /// Called when `scoringLedger` changed (`LiveSyncSteps` connects the widget's republish).
     @ObservationIgnored var ledgerChanged: (@MainActor () -> Void)?
     /// Counts the times the ledger was forgotten (`accountChanged`, `forgetScoringWords`): what the coordinator
@@ -182,7 +184,7 @@ final class SyncService {
     /// wait gave up on.
     func forgetScoringWords() {
         scoringLedger = [:]
-        acceptedAt = [:]
+        heardSinceWrite = []
         ledgerGeneration += 1
     }
 
@@ -373,23 +375,25 @@ final class SyncService {
         await syncNow()
     }
 
-    /// The platform accepted a write that touches `days`, now: an upload's page, or a `.daysChanged`.
+    /// The platform accepted a write that touches `days`, now: an upload's page, or a `.daysChanged`. A push named
+    /// before it can't be about it.
     func accepted(_ days: [String]) {
-        let at = env.clock.now()
-        for day in days { acceptedAt[day] = at }
+        heardSinceWrite.subtract(days)
     }
 
     /// The platform accepted a write that touches `days` (the coordinator's `awaiting` step): they're being scored
-    /// from now on (`ScoringWord`), except a day a push named since its last accepted write: that write is answered,
-    /// and with no poll in the background nothing would answer the word.
+    /// from now on (`ScoringWord`), except a day a push named since its last accepted write. A push names a day, not a
+    /// write, so the phone takes that write as answered; with no poll in the background nothing would answer the word.
+    ///
+    /// Relies on `accepted` having run for every written day first. It has on both paths: a page reports it before
+    /// the upload moves on or returns, and a `.daysChanged` on arrival in `SyncCoordinator.run`. The one day here
+    /// without it is a push's merged into a `.daysChanged` (`SyncCoordinator.merge`): no write touched it, so it stays
+    /// out, unless the admission refused that push (demo data) and it never got here.
     func awaiting(_ days: [String]) {
         let word = ScoringWord(kind: .pending, at: env.clock.now())
         // Built aside and stored once: one widget publish (`ledgerChanged`) for a resync's 90 days.
         var ledger = scoringLedger
-        for day in days {
-            if let heard = ledger[day], heard.kind == .scored, heard.at >= acceptedAt[day, default: .distantPast] { continue }
-            ledger[day] = word
-        }
+        for day in days where !heardSinceWrite.contains(day) { ledger[day] = word }
         scoringLedger = ledger
         writtenSinceStart = true
     }
@@ -400,6 +404,7 @@ final class SyncService {
         var ledger = scoringLedger
         for day in days { ledger[day] = word }
         scoringLedger = ledger
+        heardSinceWrite.formUnion(days)
     }
 
     /// A `GET /v1/me/sync` answer, wherever it was asked (the launch check, a scoring

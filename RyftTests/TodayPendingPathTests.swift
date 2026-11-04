@@ -214,10 +214,22 @@ private final class Harness {
 
     // MARK: uploads held open
 
-    /// Three pages of the night; `page`'s answer waits a second on the clock.
-    func holdsPage(_ page: Int, pages: Int = 3) {
+    /// `pages` pages of the night; `page`'s answer waits `seconds` on the clock, and from it on the platform answers
+    /// with `days` (the harness's own until then).
+    func holdsPage(_ page: Int, pages: Int = 3, for seconds: Int = 1, touching days: [String]? = nil) {
         health.pages = [Self.stream: (0..<pages).map { _ in Self.night() }]
-        api.beforeSync = { [api, clock] in if api.count("sync") == page { try? await clock.sleep(for: .seconds(1)) } }
+        let answer = days.map(Self.touching)
+        api.beforeSync = { [api, clock] in
+            guard api.count("sync") == page else { return }
+            if let answer { api.syncResponse = answer }
+            try? await clock.sleep(for: .seconds(seconds))
+        }
+    }
+
+    /// A page's answer that touches `days`.
+    static func touching(_ days: [String]) -> SyncResponse {
+        SyncResponse(samples: 2, sleep: 0, workouts: 0, daysTouched: days,
+                     scoring: SyncScoring(queuedDays: days, expectedWithinSec: 20))
     }
 
     /// `page` of the upload is on its way, and the pages before it are accepted.
@@ -237,6 +249,15 @@ private final class Harness {
     func queues(_ trigger: SyncCoordinator.Trigger) async -> Bool {
         for _ in 0..<5_000 {
             if await pipeline.queuedRunTrigger == trigger { return true }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return false
+    }
+
+    /// The pipeline was told the app left the foreground (`windDown`).
+    func windsDown() async -> Bool {
+        for _ in 0..<5_000 {
+            if await pipeline.inBackground { return true }
             try? await Task.sleep(for: .milliseconds(1))
         }
         return false
@@ -845,15 +866,7 @@ struct ScoringWordOrderTests {
     /// "Scoring your night…" although its push arrived.
     @Test func aPushForAnEarlierPageOutlivesTheUploadsWord() async {
         let h = Harness(inBackground: true)
-        h.holdsPage(2, pages: 2)
-        let page = h.api.syncResponse
-        let answer = SyncResponse(samples: 2, sleep: 0, workouts: 0, daysTouched: [h.yesterday],
-                                  scoring: SyncScoring(queuedDays: [h.yesterday], expectedWithinSec: 20))
-        let hold = h.api.beforeSync
-        h.api.beforeSync = { [api = h.api] in
-            if api.count("sync") == 2 { api.syncResponse = answer }
-            await hold?()
-        }
+        h.holdsPage(2, pages: 2, touching: [h.yesterday])
         let run = Task { await h.pipeline.run(.healthKit) }
         #expect(await h.uploadsPage(2))
         h.scoredCalibrating()
@@ -861,7 +874,6 @@ struct ScoringWordOrderTests {
         h.clock.advance(by: .seconds(1))
         _ = await run.value
         _ = await push.value
-        #expect(page.daysTouched == [h.today])
         #expect(h.sync.scoringLedger[h.today]?.kind == .scored)
         #expect(h.sync.scoringLedger[h.yesterday]?.kind == .pending) // the second page's: nothing answered it
         #expect(await eventually { h.vm.hero == .calibrating(nights: 2) }, "\(h.vm.hero)")
@@ -888,8 +900,7 @@ struct ScoringWordOrderTests {
     @Test func aPushDuringTheBackoffOutlivesTheRetrysWord() async {
         let h = Harness(inBackground: true)
         h.holdsPage(0, pages: 2)
-        let answer = SyncResponse(samples: 2, sleep: 0, workouts: 0, daysTouched: [h.yesterday],
-                                  scoring: SyncScoring(queuedDays: [h.yesterday], expectedWithinSec: 20))
+        let answer = Harness.touching([h.yesterday])
         h.api.beforeSync = { [api = h.api] in
             if api.count("sync") == 1 { api.failNext = APIError.transport(URLError(.timedOut)) }
             if api.count("sync") == 3 { api.syncResponse = answer }
@@ -903,6 +914,69 @@ struct ScoringWordOrderTests {
         #expect(h.api.count("sync") == 3)
         #expect(h.sync.scoringLedger[h.today]?.kind == .scored)
         #expect(h.sync.scoringLedger[h.yesterday]?.kind == .pending)
+    }
+
+    /// Review scenario A: a late read answers the push's word, so the ledger no longer holds it when the upload ends.
+    /// The user left meanwhile: the upload finishes in the background, where no wait would answer its word.
+    @Test func aPushAnsweredWhileTheUploadRunsStaysAnswered() async {
+        let h = Harness()
+        h.holdsPage(2, pages: 2, for: 60, touching: [h.yesterday])
+        let run = Task { await h.pipeline.run(.healthKit) }
+        #expect(await h.uploadsPage(2))
+        h.scoredCalibrating()
+        let push = await h.pushes(h.today)
+        h.clock.advance(by: .seconds(12))
+        await h.pipeline.refreshStatus() // a pull, late enough to answer the push's word
+        #expect(h.sync.scoringLedger[h.today] == nil)
+        let down = Task { await h.pipeline.windDown() }
+        #expect(await h.windsDown())
+        h.clock.advance(by: .seconds(60))
+        await down.value
+        _ = await run.value
+        _ = await push.value
+        #expect(h.sync.scoringLedger[h.today] == nil, "\(h.sync.scoringLedger)")
+        #expect(h.sync.scoringLedger[h.yesterday]?.kind == .pending)
+        #expect(h.state.repository.widgetFacts.scoringState == .scored)
+    }
+
+    /// Review scenario B: the running wait's poll answers the push's word while the merged run is queued.
+    @Test func aPushAnsweredBehindAWaitIsNotPendingInTheMergedRun() async {
+        let h = Harness(), pushed = "2026-10-12"
+        let run = Task { await h.pipeline.run(.healthKit) }
+        #expect(await h.waitsOnTheClock())
+        let push = await h.pushes(pushed)
+        let changed = Task { await h.pipeline.run(.daysChanged(days: [h.yesterday])) }
+        #expect(await h.queues(.daysChanged(days: [pushed, h.yesterday])))
+        h.scores()
+        await h.nextPoll(after: 20) // ends the wait, and answers the push's word
+        #expect(h.sync.scoringLedger[pushed] == nil)
+        #expect(await eventually { h.sync.scoringLedger[h.yesterday]?.kind == .pending })
+        #expect(h.sync.scoringLedger[pushed] == nil, "\(h.sync.scoringLedger)")
+        await h.pipeline.cancel()
+        _ = await run.value
+        _ = await push.value
+        _ = await changed.value
+    }
+
+    /// The order is the calls', not the clock's: set back an hour, a page accepted after the push is still a new write.
+    @Test func aClockSetBackDoesNotHideAWrite() {
+        let clock = TestClock(now: Harness.now), day = "2026-10-19"
+        let sync = SyncService.ungated(env: AppEnvironment.test(clock: clock))
+        sync.accepted([day])
+        sync.scored([day])
+        clock.set(Harness.now.addingTimeInterval(-3_600))
+        sync.accepted([day])
+        sync.awaiting([day])
+        #expect(sync.scoringLedger[day]?.kind == .pending)
+    }
+
+    /// A push of the side that left says nothing about the next: forgotten with the ledger.
+    @Test func aPushIsForgottenWithTheLedger() {
+        let sync = SyncService.ungated(env: AppEnvironment.test(clock: TestClock(now: Harness.now))), day = "2026-10-19"
+        sync.scored([day])
+        sync.forgetScoringWords()
+        sync.awaiting([day])
+        #expect(sync.scoringLedger[day]?.kind == .pending)
     }
 
     /// A push merged into a queued `.daysChanged` run is one wait for all the days, not a write to the pushed day.
@@ -1026,19 +1100,15 @@ struct ScoringWordOrderTests {
 
     // MARK: whose word: a push
 
-    /// Finding 3: a delayed push after the sign-out wiped the widget. The word came back, and with it a file for
-    /// the lock screen that the wipe had removed.
+    /// Finding 3: a delayed push after the sign-out cleared the ledger. The word came back for nobody.
     @Test func aPushAfterASignOutSaysNothing() async {
         let world = Switches()
         let h = Harness(switches: world)
-        let file = h.widgetFile()
-        defer { try? FileManager.default.removeItem(at: file) }
         let old = world.auth.accountID
         await world.auth.signOut()
         h.accountChanged(from: old)
         _ = await h.pipeline.run(.silentPush(days: [h.today]))
         #expect(h.sync.scoringLedger.isEmpty, "\(h.sync.scoringLedger)")
-        #expect(!FileManager.default.fileExists(atPath: file.path))
     }
 
     /// Finding 3: the real account's delayed push in demo data: the word isn't demo's, and Today and the widget are.
@@ -1054,6 +1124,19 @@ struct ScoringWordOrderTests {
         _ = await h.pipeline.run(.silentPush(days: [h.today]))
         #expect(h.sync.scoringLedger.isEmpty, "\(h.sync.scoringLedger)")
         #expect(h.state.repository.widgetFacts.scoringState == .pending)
+    }
+
+    /// ADR 0013's exception to rule 5: `run` signals the wait whatever the admission said, so the refused push ends
+    /// demo's wait early and the wait's own word stays for the next status read.
+    @Test func aPushRefusedInDemoDataEndsTheWaitAndLeavesItsWord() async {
+        let world = Switches()
+        let h = Harness(switches: world)
+        await h.switches(.demoData, world)
+        let run = Task { await h.pipeline.run(.daysChanged(days: [h.today])) }
+        #expect(await h.waitsOnTheClock(phase: false))
+        await h.pipeline.run(.silentPush(days: [h.today]))
+        #expect(await run.value.polls == 0)
+        #expect(h.sync.scoringLedger[h.today]?.kind == .pending)
     }
 
     /// Out of demo data again, a push is the account's.

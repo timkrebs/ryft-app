@@ -40,8 +40,8 @@ protocol SyncSteps: AnyObject {
     /// A silent push named `days`: scored, whatever an earlier status read said. Before the refresh. Dropped for
     /// anyone but an account that can read the status: the push isn't demo data's, nor a signed-out phone's.
     func scored(_ days: [String])
-    /// The platform took a `.daysChanged` write to `days` (an upload's pages report themselves): only a push after
-    /// this answers it, however long the run that says the word waits behind another.
+    /// The platform took a `.daysChanged` write to `days` (an upload's pages report themselves): a push before this
+    /// isn't about it, and one after it keeps its word, however long the run that says the word waits behind another.
     func accepted(_ days: [String])
     /// A run that sent nothing may ask `GET /v1/me/sync` for days the platform still scores (signed in, configured,
     /// not demo data).
@@ -824,7 +824,7 @@ final class LiveSyncSteps: SyncSteps {
     }
 
     /// `AppDelegate.refresh` forwards every push and `run` says its word first, so the admission is asked here: a push
-    /// delayed past a sign-out or into demo data is nobody's, and would bring back the ledger and the widget's file.
+    /// delayed past a sign-out or into demo data is nobody's, and would bring back the ledger the switch cleared.
     func scored(_ days: [String]) {
         guard readsScoringStatus else { return }
         sync.scored(days)
