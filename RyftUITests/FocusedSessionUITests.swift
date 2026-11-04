@@ -290,6 +290,46 @@ final class FocusedSessionUITests: XCTestCase {
         wait(pill, until: "value == 'expanded'", "and opens it again")
     }
 
+    // MARK: auto-advance
+
+    /// T2: Upper A (17 sets over five exercises, the last two a superset) logged with ✓ taps alone. Each tap is on the row
+    /// VoiceOver calls "Next set." (the active row), and the next one must be a different row: the page follows the planner
+    /// on its own, including the superset's flips. It ends on a Finish button the user can reach.
+    @MainActor
+    func testAWholeSessionWithOnlyCheckTapsEndsOnFinish() throws {
+        let app = openFocused()
+        let activeRow = app.descendants(matching: .any).matching(NSPredicate(format: "value == 'Next set.'")).firstMatch
+        let finish = element(app, "session.allDone.finish")
+        var seen: [String] = []
+
+        while !finish.exists {
+            XCTAssertLessThan(seen.count, 17, "Upper A has 17 sets: still not done after \(seen.count) checks")
+            if seen.count >= 17 { break }
+            requireExists(activeRow, "an active row after \(seen.count) checks")
+            let id = activeRow.identifier
+            XCTAssertFalse(seen.contains(id), "\(id) was the active row twice: the last ✓ did not move on")
+            seen.append(id)
+            activeRow.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.5)).tap()
+            // Moved on: another row is active (the page may have changed, 0.6 s later), or the session is done.
+            let deadline = Date().addingTimeInterval(patience)
+            while Date() < deadline, !finish.exists, !(activeRow.exists && activeRow.identifier != id) {
+                _ = activeRow.waitForExistence(timeout: 0.25)
+            }
+        }
+
+        XCTAssertEqual(seen.count, 17, "every set was checked once: \(seen)")
+        requireExists(finish, "the All sets done card")
+        var scrolls = 0
+        while !finish.isHittable && scrolls < 4 {
+            app.swipeUp()
+            scrolls += 1
+        }
+        XCTAssertTrue(finish.isHittable, "Finish can be tapped")
+        for n in 0...4 {
+            XCTAssertTrue(tile(app, n).label.hasSuffix("done"), "tile \(n): \(tile(app, n).label)")
+        }
+    }
+
     // MARK: relaunch and remove
 
     @MainActor

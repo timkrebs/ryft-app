@@ -14,8 +14,8 @@ enum ExerciseSheet: Identifiable {
     }
 }
 
-/// One exercise on the Focused layout's page: title, chips, notes, warm-ups, the set table, Add set, last time
-/// (design.md §2.3 to §2.6). Holds no sheets; what it opens goes through its closures.
+/// One exercise on the Focused layout's page: title, chips, notes, warm-ups, the set table, Add set, "All sets done", last
+/// time (design.md §2.3 to §2.6). Holds no sheets; what it opens goes through its closures.
 struct ExercisePage: View {
     var controller: SessionController
     let exercise: LocalSessionExercise
@@ -24,10 +24,14 @@ struct ExercisePage: View {
     var onRemove: () -> Void
     var onPlates: () -> Void
     var onHistory: () -> Void
+    var onFinish: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.sessionVoiceOverFocus) private var voiceOverFocus
+
+    /// The footer's scroll anchor.
+    private static let allDoneAnchor = "session.page.allDone"
 
     private var motion: Animation? { Theme.Motion.respecting(reduceMotion) }
     private var warmups: [LocalSet] { exercise.orderedSets.filter(\.isWarmup) }
@@ -49,6 +53,13 @@ struct ExercisePage: View {
                     }
                     if !exercise.sets.isEmpty { table }
                     addSet
+                    // On every page: the user can be on any of them when the last set is checked (L1: stay).
+                    if controller.isAllDone {
+                        AllSetsDoneCard(exercises: controller.exercises.count, sets: controller.session.completedSetCount,
+                                        onFinish: onFinish)
+                            .padding(.top, 8)
+                            .id(Self.allDoneAnchor)
+                    }
                     if exercise.lastTime.contains(where: { !$0.isWarmup }) {
                         LastTimeCard(sets: exercise.lastTime, loadType: exercise.loadType, columns: columns, onTap: onHistory)
                             .padding(.top, 8)
@@ -62,6 +73,10 @@ struct ExercisePage: View {
             .onChange(of: controller.focus) { _, focus in
                 guard let focus, exercise.sets.contains(where: { $0.id == focus.setID }) else { return }
                 withAnimation(motion) { proxy.scrollTo(focus.setID, anchor: .center) }
+            }
+            .onChange(of: controller.advance?.id) { _, _ in
+                guard case .allDone = controller.advance?.step, exercise.id == controller.pageExerciseID else { return }
+                withAnimation(motion) { proxy.scrollTo(Self.allDoneAnchor, anchor: .bottom) }
             }
             .onAppear {
                 if let focus = controller.focus, exercise.sets.contains(where: { $0.id == focus.setID }) {
@@ -293,26 +308,27 @@ struct ExercisePage: View {
     private var table: some View {
         VStack(alignment: .leading, spacing: 4) {
             SetTableHeader(loadType: exercise.loadType, columns: columns)
-            let current = controller.currentSetID
+            let active = controller.activeSet(in: exercise)?.id
             if isExpanded, !warmups.isEmpty {
                 let warmups = warmups
                 ForEach(Array(warmups.enumerated()), id: \.element.id) { i, set in
-                    row(set, number: i + 1, count: warmups.count, current: current)
+                    row(set, number: i + 1, count: warmups.count, active: active)
                 }
                 addWarmup
             }
             let working = working
             ForEach(Array(working.enumerated()), id: \.element.id) { i, set in
-                row(set, number: i + 1, count: working.count, current: current)
+                row(set, number: i + 1, count: working.count, active: active)
             }
         }
     }
 
-    private func row(_ set: LocalSet, number: Int, count: Int, current: UUID?) -> some View {
+    private func row(_ set: LocalSet, number: Int, count: Int, active: UUID?) -> some View {
         SetRow(controller: controller, set: set, exercise: exercise, number: number, count: count,
-               swipeToDelete: false, columns: columns)
+               swipeToDelete: false, columns: columns,
+               rowState: FocusedRowState(isCompleted: set.isCompleted, isActive: set.id == active))
             .id(set.id) // scroll anchor for the keypad
-            .currentSetHighlight(current == set.id, setID: set.id)
+            .currentSetHighlight(set.id == active, setID: set.id)
     }
 
     private var addSet: some View {
@@ -524,7 +540,7 @@ private struct PageTitleFocus: ViewModifier {
 private func page(_ scenario: FocusedPreview.Scenario) -> some View {
     let c = FocusedPreview.controller(scenario)
     return ExercisePage(controller: c, exercise: c.pageExercise ?? c.exercises[0], columns: .regular, onSheet: { _ in }, onRemove: {},
-                        onPlates: {}, onHistory: {})
+                        onPlates: {}, onHistory: {}, onFinish: {})
         .background(Theme.background)
 }
 
@@ -534,6 +550,26 @@ private func page(_ scenario: FocusedPreview.Scenario) -> some View {
 
 #Preview("Page · light") {
     page(.midSession).previewEnvironment(scheme: .light)
+}
+
+#Preview("Page · a tapped row, dark") {
+    page(.tappedRow).previewEnvironment()
+}
+
+#Preview("Page · a tapped row, light") {
+    page(.tappedRow).previewEnvironment(scheme: .light)
+}
+
+#Preview("Page · no history, dark") {
+    page(.oneExercise).previewEnvironment()
+}
+
+#Preview("Page · no history, light") {
+    page(.oneExercise).previewEnvironment(scheme: .light)
+}
+
+#Preview("Page · all done") {
+    page(.allDone).previewEnvironment()
 }
 
 #Preview("Page · warm-ups folded") {
