@@ -46,3 +46,24 @@ Round 3 (sync-engineer, ae5df6d): the end-to-end join test waits on `ReadSchedul
 (0 issues in 80 repetitions); `Harness.statusReads` reads the mock under its lock (the other flake); `SyncService.run`'s
 success path has the account guard too, with a test. ADR 0013 rules 3, 4, 6 and 7 updated by the lead for rounds 2–3.
 Follow-up: about 46 test lines read `MockPlatformAPI.calls` without the lock; a locked getter fixes them all.
+
+Round 4 (automated reviewer on the merge candidate; verified by sync-engineer, b16a1d7). All four claims reproduced with
+failing tests on 83778a5 (25 issues in 10 of 13 tests; the controls passed), then fixed. `ScoringWordOrderTests`.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| V1 | A push during a later page records `.scored`, then the upload's completion says `.pending`. In the background nothing answers it, so a calibrating day stays on "Scoring your night…". The same on a retry after a backoff, a queued `.daysChanged`, and a push merged into one (a day never written went pending). | **Real, fixed.** `SyncService.acceptedAt`, fed by the pages and by `.daysChanged` on arrival (`SyncSteps.accepted`): `awaiting` keeps a `.scored` word said at or after the day's last accepted write. A page accepted after the push is a new write and still says pending. |
+| V2 | A word outlives its side: `SyncService.upload` returns the days whoever is signed in, the demo switch cancels nothing, and `isSignedIn` passes for B or for demo. `acceptedBefore` too. | **Real, fixed.** `awaiting` carries `ledgerGeneration` from the run's start, and `LiveSyncSteps` drops an earlier generation, on success, partial failure and a kept backoff. The account path needs a direct A → B (`AuthService.apply` has that branch); with a sign-out between, `isSignedIn` already dropped the word. Demo needs only the Profile switch. |
+| V3 | `LiveSyncSteps.scored` had no admission: a delayed push brought back the ledger, and after a sign-out the widget file the wipe removed. | **Real, fixed.** `guard readsScoringStatus`. |
+| V4 | A push before the first poll leaves a cached `waiting_for_sleep` over a scored, calibrating row, and has already ended the polling. | **Real, fixed.** A `.scored` word lets a row that says `scored` override it. Any other row, or none, stays waiting (F2). |
+| — | ADR 0013 rules 2, 3, 6 and 7 need the changes above. | Lead, as for rounds 2–3. |
+| — | An admitted delayed push of A's can arrive during B's session: the payload names no account. | Open. Bounded: a day's "scored", no data of A's; the next late read answers it. |
+| — | A `.daysChanged` queued before a demo switch runs in the next generation, so its word lands on the new side until a late read. An account change drops the queue. | Open. |
+| — | A push refused by the admission still ends a wait for its day (`scoring.signal`). | Open. Demo only: the wait refreshes early. |
+
+Mutation proof: each fix reverted alone fails its tests, and nine finer mutants are killed (`>=` → `>`, always keep
+`.scored`, pages or `.daysChanged` not recorded, a generation read late on the success or the partial-failure path, the
+generation not from the ledger, the admission without demo or without sign-in, no sign-in check on `awaiting`, any row
+beating `waiting_for_sleep`). 0 issues in 40 repetitions of the suite. Not killed: clearing `acceptedAt` in
+`forgetScoringWords` changes no behaviour (a stale time is older than any later push); it's there so one account's days
+don't stay in memory.
