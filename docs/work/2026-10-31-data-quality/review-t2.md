@@ -48,22 +48,39 @@ success path has the account guard too, with a test. ADR 0013 rules 3, 4, 6 and 
 Follow-up: about 46 test lines read `MockPlatformAPI.calls` without the lock; a locked getter fixes them all.
 
 Round 4 (automated reviewer on the merge candidate; verified by sync-engineer, b16a1d7). All four claims reproduced with
-failing tests on 83778a5 (25 issues in 10 of 13 tests; the controls passed), then fixed. `ScoringWordOrderTests`.
+failing tests on 83778a5 (26 issues in 11 of the suite's 14 tests, run on that commit's sync sources; the 3 controls
+passed), then fixed. `ScoringWordOrderTests`.
 
 | # | Finding | Decision |
 | --- | --- | --- |
-| V1 | A push during a later page records `.scored`, then the upload's completion says `.pending`. In the background nothing answers it, so a calibrating day stays on "Scoring your night…". The same on a retry after a backoff, a queued `.daysChanged`, and a push merged into one (a day never written went pending). | **Real, fixed.** `SyncService.acceptedAt`, fed by the pages and by `.daysChanged` on arrival (`SyncSteps.accepted`): `awaiting` keeps a `.scored` word said at or after the day's last accepted write. A page accepted after the push is a new write and still says pending. |
+| V1 | A push during a later page records `.scored`, then the upload's completion says `.pending`. In the background nothing answers it, so a calibrating day stays on "Scoring your night…". The same on a retry after a backoff, a queued `.daysChanged`, and a push merged into one (a day never written went pending). | **Real, fixed for one case.** `awaiting` leaves out a day a push named since its last accepted write, fed by the pages and by `.daysChanged` on arrival (`SyncSteps.accepted`). That resolves only the case where every page touching the day precedes the push. A background run with a later page touching today stays pending until the app opens, because the platform drops a throttled refresh (5 minutes per account, `API.md`, Push). The `BGAppRefresh` follow-up closes it. The guard here first read `acceptedAt`; W1 replaced it. |
 | V2 | A word outlives its side: `SyncService.upload` returns the days whoever is signed in, the demo switch cancels nothing, and `isSignedIn` passes for B or for demo. `acceptedBefore` too. | **Real, fixed.** `awaiting` carries `ledgerGeneration` from the run's start, and `LiveSyncSteps` drops an earlier generation, on success, partial failure and a kept backoff. The account path needs a direct A → B (`AuthService.apply` has that branch); with a sign-out between, `isSignedIn` already dropped the word. Demo needs only the Profile switch. |
-| V3 | `LiveSyncSteps.scored` had no admission: a delayed push brought back the ledger, and after a sign-out the widget file the wipe removed. | **Real, fixed.** `guard readsScoringStatus`. |
+| V3 | `LiveSyncSteps.scored` had no admission: a delayed push brought back the ledger after a sign-out or the demo switch cleared it. | **Real, fixed.** `guard readsScoringStatus`. |
 | V4 | A push before the first poll leaves a cached `waiting_for_sleep` over a scored, calibrating row, and has already ended the polling. | **Real, fixed.** A `.scored` word lets a row that says `scored` override it. Any other row, or none, stays waiting (F2). |
 | — | ADR 0013 rules 2, 3, 6 and 7 need the changes above. | Lead, as for rounds 2–3. |
 | — | An admitted delayed push of A's can arrive during B's session: the payload names no account. | Open. Bounded: a day's "scored", no data of A's; the next late read answers it. |
 | — | A `.daysChanged` queued before a demo switch runs in the next generation, so its word lands on the new side until a late read. An account change drops the queue. | Open. |
 | — | A push refused by the admission still ends a wait for its day (`scoring.signal`). | Open. Demo only: the wait refreshes early. |
 
-Mutation proof: each fix reverted alone fails its tests, and nine finer mutants are killed (`>=` → `>`, always keep
+Mutation proof: each fix reverted alone fails its tests, and eleven finer mutants are killed (`>=` → `>`, always keep
 `.scored`, pages or `.daysChanged` not recorded, a generation read late on the success or the partial-failure path, the
 generation not from the ledger, the admission without demo or without sign-in, no sign-in check on `awaiting`, any row
-beating `waiting_for_sleep`). 0 issues in 40 repetitions of the suite. Not killed: clearing `acceptedAt` in
-`forgetScoringWords` changes no behaviour (a stale time is older than any later push); it's there so one account's days
-don't stay in memory.
+beating `waiting_for_sleep`). 0 issues in 40 repetitions of the suite. The generation at the `.daysChanged` site wasn't
+mutated: nothing long awaits between its capture and its use. Round 5 replaced the two `acceptedAt` mutants; see below.
+
+Round 5 (code-reviewer and ios-architect on b16a1d7 and 524a3d2, nothing blocking; verified by sync-engineer, 128ac4a).
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| W1 | The guard read `ledger[day]`, which a late status read can empty. A push answered by a pull during an upload that then ends in the background went back to pending with no wait. So did a push merged into a queued `.daysChanged` whose day a poll answered, though nothing wrote that day. A clock set back an hour also kept `.scored` over a real write. | **Real, fixed.** All three reproduced on 524a3d2. `heardSinceWrite` replaces `acceptedAt`: a push adds the day, an accepted write removes it, `awaiting` leaves out what's in the set, and no clock is compared. `scoringLedger` stays the only answer. |
+| W2 | The comment on `awaiting` says a write "is answered", but a push is an inference and names no write. | **Fixed.** The phone takes it as answered. |
+| W3 | V3's file assertion leaned on the double: `Switches` wipes nothing, so yesterday's row survives and a file appears. A real wipe leaves `.firstImport`, which writes none. | **Fixed.** V3 is about the ledger, and the assertion is gone. V2's widget assertions stay: a `.pending` word writes a file on an empty store too. |
+| W4 | No test held the ADR's exception that a refused push leaves demo's `.pending` word. | **Fixed.** `aPushRefusedInDemoDataEndsTheWaitAndLeavesItsWord`. |
+| W5 | A `fullResync` upload runs outside the coordinator. On a direct A → B, a run of B's that joins it gets A's days in B's generation. | Open. |
+| W6 | A stale `scored` row beats a true `waiting_for_sleep` when `refreshDay` failed after a deleted night. | Open. Accepted limit in ADR 0013. |
+| — | A push refused in demo that merges into a queued `.daysChanged` goes pending (probed on 128ac4a's code). | Open. Demo only, until the next read. ADR 0013. |
+
+Mutation proof for the new guard: eight mutants, each killed by the tests it should fail: `accepted` removes nothing, a
+push adds nothing, `awaiting` ignores the set, one write clears every day, `forgetScoringWords` keeps the set, pages not
+recorded, `.daysChanged` not recorded, and the guard needing the ledger's word again (the bug itself). The push's
+account field is `API_REQUESTS.md` → Sync and performance §5. ADR 0013 rules 2, 6 and 7 follow.

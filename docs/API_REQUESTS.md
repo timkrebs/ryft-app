@@ -277,6 +277,15 @@ for the platform; nothing here is sent before the platform says it takes it.
    `latest`) and HealthKit's own counts are enough. If a reinstalled phone should show
    what the platform already holds per category, `SyncStatus.counts` (records per
    `SourceKind`) would do; not requested yet.
+5. **(New 2026-11-04) Which account a silent scoring push is for.** The refresh push carries only the day (`{"ryft":
+   {"kind": "refresh", "day": "2026-10-19"}}`). APNs can deliver it late, so a push for account A can arrive after a
+   direct change to account B on the same phone, and the app can't tell. It then takes that day as scored for B: no data
+   of A's, but it can hold back B's "being scored" until a later status read (ADR 0013, "A delayed push from another
+   account").
+   - **Proposal:** an additive `ryft.account` on the `refresh` push, the id the app knows as `User.id`. If that id
+     shouldn't pass through APNs, an opaque per-account value that `GET /v1/me` also returns does the same job.
+   - **What the app does with it:** drops a push whose `account` isn't the signed-in one, and treats a push without it
+     as today, so old and new payloads work during a rollout.
 
 ## Universal links: the AASA (open, 2026-10-20)
 

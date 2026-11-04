@@ -3,11 +3,12 @@
 - Status: Accepted (2026-10-31, data quality D3b / T2, `docs/work/2026-10-31-data-quality/architecture.md` §D3b,
   `docs/work/2026-10-31-data-quality/review-t2.md` F1–F7)
 - Deciders: ios-lead; recorded by ios-architect
-- Applies to: `Ryft/Sync/ScoringWord.swift`, `Ryft/Sync/SyncService.swift` (`scoringLedger`, `awaiting`, `scored`,
-  `receive(_:requestedAt:)`, `accountChanged`, `forgetScoringWords`), `Ryft/Sync/SyncCoordinator.swift` (`SyncSteps`,
-  the pipeline, `awaitScoring`, `stillScoring`, `ScoringSignal`, `LiveSyncSteps`), `Ryft/Persistence/Repository.swift`
-  (`scoringLedger`, `widgetFacts`), `Ryft/Features/Today/TodayViewModel.swift` (`TodayStates.todayState`), and every
-  future path that writes data the platform scores
+- Applies to: `Ryft/Sync/ScoringWord.swift`, `Ryft/Sync/SyncService.swift` (`scoringLedger`, `heardSinceWrite`, `accepted`,
+  `awaiting`, `scored`, `receive(_:requestedAt:)`, `accountChanged`, `forgetScoringWords`),
+  `Ryft/Sync/SyncCoordinator.swift` (`SyncSteps`, the pipeline, `awaitScoring`, `stillScoring`, `ScoringSignal`,
+  `LiveSyncSteps`), `Ryft/Persistence/Repository.swift` (`scoringLedger`, `widgetFacts`),
+  `Ryft/Features/Today/TodayViewModel.swift` (`TodayStates.todayState`), and every future path that writes data the
+  platform scores
 
 ## Context
 
@@ -47,8 +48,9 @@
    - `AppState.syncStatus` (and `Repository.todayStatus`, which is derived from it) stays the platform's raw last
      answer. Only the status read's store closure writes it, and nothing patches it with the phone's word.
 2. **Only `SyncCoordinator` steps write it.**
-   - The writers are `SyncSteps.awaiting(_:)` and `SyncSteps.scored(_:)`, implemented by `LiveSyncSteps`. Besides them,
-     only `receive(_:requestedAt:)` may drop answered words, and only the clears in rule 6 may empty the ledger.
+   - The writers are `SyncSteps.awaiting(_:generation:)` and `SyncSteps.scored(_:)`, implemented by `LiveSyncSteps`.
+     Besides them, only `receive(_:requestedAt:)` may drop answered words, and only the clears in rule 6 may empty the
+     ledger.
    - Every write path reaches the ledger through the coordinator. It does so either through the days its upload
      touched (`POST /v1/sync`'s `days_touched`, including T4's deletions) or through `.daysChanged(days:)` (activities,
      the Train import, any future recompute). No path calls `SyncService.awaiting` or `scored` directly, and no view
@@ -57,7 +59,23 @@
      still says the days those pages touched. That includes pages accepted by an attempt that a transient failure
      ended before a retry (`touchedSoFar`, `acceptedBefore`).
    - Words are said in the background too, so the foreground return and the widget already show "being scored".
-   - A word that arrives after a sign-out is dropped (`LiveSyncSteps.awaiting` checks `isSignedIn`).
+   - **A push outlives the word about the write before it.** `awaiting` leaves out a day a push named since the
+     platform last accepted a write touching it. A push names a day, not a write, so the phone takes that write as
+     answered, and in the background nothing would answer a `.pending` said over it. A page accepted after the push,
+     or a later `.daysChanged`, is a new write and still says `.pending`.
+   - `SyncService.heardSinceWrite` holds those days. `scored` adds a day and `accepted` removes it, in the order of
+     the calls, so no clock compares a push with a write. It doesn't read the ledger, because a late status read can
+     drop the push's word there before the run says its own (review-t2 W1). `scoringLedger` stays the only answer:
+     the set is `awaiting`'s private ordering input, nothing else reads it, and Today and the widget never see it.
+   - `awaiting` relies on `accepted` having run for every written day. It is called where the write is accepted, not
+     where the word is said: each page from the engine's `.accepted` event, before the upload moves on or returns, and
+     a `.daysChanged` on arrival (`SyncSteps.accepted`), so a run queued behind another keeps its order with a push.
+     The one day without it is a push's merged into a `.daysChanged`: no write touched it, so it stays out. A new write
+     path calls `accepted` before it says its word.
+   - **A word belongs to its side.** A run says its words with the `ledgerGeneration` it began in, and
+     `LiveSyncSteps.awaiting` drops a word from an earlier generation or after a sign-out (`isSignedIn`).
+     `LiveSyncSteps.scored` drops a push that fails the admission (`readsScoringStatus`: signed in, configured, not
+     demo), because a delayed push would bring back the ledger the switch cleared.
 3. **A word is answered by a status read requested at least the server's status cache time after it, on the phone's
    clock.**
    - The threshold is `ScoringWord.statusCacheTime`, 10 s from `API.md`. It is defined once.
@@ -66,8 +84,10 @@
    - A read that doesn't know when it was asked (`receive` with `requestedAt: nil`, as in onboarding) answers no word.
    - Once a read has answered a word, the platform's state for that day rules, whatever it says.
    - Until then the word adjusts the platform's state. `.pending` wins over anything. `.scored` wins over everything
-     except `waiting_for_sleep`: a day without last night's sleep stays waiting, and a cached `stale` becomes scored,
-     because the push means new data arrived.
+     except `waiting_for_sleep`, unless the day's row says `scored`: a day without last night's sleep stays waiting,
+     and a cached `stale` becomes scored, because the push means new data arrived. A `waiting_for_sleep` beside a row
+     that says `scored` is a status from before the night, and the push has already ended the polling that would
+     replace it. Any other row, or none, stays waiting.
 4. **No status read sent sooner than the cache time after a write may end a wait.**
    - `awaitScoring` sends its first read after `max(minimumPollDelay, expected_within_sec, statusCacheTime)`.
    - The ledger decides when a wait ends, not the poll's own timing. A poll can join a `ReadScheduler` flight that was
@@ -93,8 +113,10 @@
    - `SyncService.accountChanged()` runs on every `auth.accountID` change, sign-out included, and goes through
      `forgetScoringWords()`.
    - `forgetScoringWords()` bumps `ledgerGeneration`; the days a wait gave up on (`waitedOut`) belong to one generation,
-     so they are forgotten too.
-   - An upload that ends after the account changed keeps none of its days, on success, failure or cancel.
+     so they are forgotten too. `heardSinceWrite` goes with the ledger: a push for one side says nothing about the
+     next side's writes.
+   - A run's words die with their generation. An upload that ends after the account changed or the demo switch says
+     none of its days, on success, failure or cancel, and that includes days kept across a backoff.
    - A run says only the days of an upload it actually started; a cancel before the first upload says none.
    - `SyncService.forgetScoringWords()` runs on the demo switch, from `RyftApp` and from
      `ProfileViewModel.demoModeChanged`.
@@ -113,7 +135,17 @@
      `aDayAWaitGaveUpOnIsWaitedForAgainOnceTheWordsAreForgotten`;
    - `ScoringLedgerTests`: `aPushOverAStaleDayIsScored`, `aWordForManyDaysRepublishesTheWidgetOnce`,
      `aWordSaidAfterASignOutIsDropped`, `anUploadThatEndsAfterTheAccountWentKeepsNoneOfItsDays`,
-     `anUploadThatDidNotStartReportsNoDaysTouched`.
+     `anUploadThatDidNotStartReportsNoDaysTouched`;
+   - `ScoringWordOrderTests`: `aPushForAnEarlierPageOutlivesTheUploadsWord`,
+     `aPageAcceptedAfterThePushWritesTheDayAgain`, `aPushDuringTheBackoffOutlivesTheRetrysWord`,
+     `aPushAnsweredWhileTheUploadRunsStaysAnswered`, `aPushAnsweredBehindAWaitIsNotPendingInTheMergedRun`,
+     `aClockSetBackDoesNotHideAWrite`, `aPushIsForgottenWithTheLedger`,
+     `aPushMergedIntoADaysChangedRunStaysScored`, `aDaysChangedKeepsToItsOrderWithThePush`,
+     `anUploadThatOutlivesItsSideSaysNothing`, `daysKeptAcrossABackoffDieWithTheirSide`,
+     `anUploadThatStaysOnItsSideSaysItsDays`, `theRunAfterTheSwitchSaysItsOwnWord`, `aPushAfterASignOutSaysNothing`,
+     `aPushInDemoDataSaysNothing`, `aPushRefusedInDemoDataEndsTheWaitAndLeavesItsWord`,
+     `aPushForTheSignedInAccountIsItsWord`,
+     `aPushBeforeTheFirstPollLandsACalibratingDayOverACachedWaiting`, `aScoredRowBeatsACachedWaitingOnlyAfterAPush`.
 
    A new write path adds a test that its days reach `FakeSteps.awaiting` through the coordinator.
 
@@ -153,12 +185,33 @@
   is the price of rule 6. Revisit it only if diagnostics show it happening.
 - **No push arrives** (notifications off, or not registered). A word said in the background keeps the widget on
   "being scored" until the app is opened. The `BGAppRefresh` follow-up bounds this.
+- **A later page's push is dropped.** Rule 2 only resolves the case where every page touching the day precedes the
+  push. If a later page touches the day again, the word is rightly `.pending`, but the platform sends at most one
+  refresh per 5 minutes per account (`API.md`, Push), so in the background that word stays until the app is opened.
+  The `BGAppRefresh` follow-up closes this too.
 - **A write path that bypasses the coordinator.**
   - Profile → Rescore (`state.source.recompute`) predates this ADR. It writes outside the pipeline and shows its own
     "Rescoring" line, so Today doesn't say "being scored" for those days.
   - It moves to `.daysChanged` (or the platform's `pending_days` covers it) in a follow-up, not here.
   - Review check: no `awaiting(`/`scored(` calls outside `SyncCoordinator.swift`, and no writes to
     `AppState.syncStatus` outside the status read.
+- **A delayed push from another account.** The payload names no account, so a push of account A's during B's session
+  passes the admission. It carries only a day's "scored", no data of A's, though that word can also hold back B's
+  `.pending` for a write before it (rule 2). A late read answers it. A real fix needs an account field in the push:
+  `API_REQUESTS.md` → Sync and performance §5.
+- **A `.daysChanged` queued before a demo switch.** The switch cancels nothing, so the queued run starts in the new
+  generation and its word lands on the new side until a late read. This goes both ways, because
+  `LiveSyncSteps.awaiting` doesn't ask about demo data. An account change drops the queue.
+- **A refused push still ends a wait.** `run` signals the wait whatever the admission said, so a push refused in demo
+  data ends a wait for its day. This affects demo data only. The run refreshes early, and the wait's `.pending` word
+  stays until the next status read, because a run that sent nothing doesn't ask in demo data. It is an exception to
+  rule 5. A refused push never enters `heardSinceWrite` either, so one merged into a queued `.daysChanged` goes
+  `.pending` though nothing wrote it, in demo data only and until the next status read.
+- **A stale `scored` row can beat a true `waiting_for_sleep`.** If the night was deleted and `refreshDay` failed, the
+  row still says `scored` while the platform's status rightly says waiting. A push then lets that row win (rule 3), so
+  the day shows as scored until a late read answers the word. Accepted: it needs a deleted night, a failed read and a
+  push together, the wrong state lasts until the next late read, and telling it apart from the case rule 3 fixes would
+  take a read the push has just ended.
 
 **Rejected alternatives:**
 - **Rewrite `AppState.syncStatus`** (the audit's G3 fix: after a push, remove the day from `pending_days` and set
