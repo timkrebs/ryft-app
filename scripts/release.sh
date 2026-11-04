@@ -26,7 +26,8 @@ dry=${DRY_RUN:-}
 # A clean main, equal to origin/main.
 [ "$(git symbolic-ref --quiet --short HEAD || true)" = main ] || die "not on main (git switch main)"
 [ -z "$(git status --porcelain)" ] || die "the working tree has changes; commit or stash them first"
-git fetch --quiet --tags origin main
+# Only the version tags: testflight-external moves, and fetching it again would stop this script.
+git fetch --quiet origin main 'refs/tags/v*:refs/tags/v*'
 [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || die "main isn't origin/main (git pull)"
 
 semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
