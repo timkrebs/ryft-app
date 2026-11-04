@@ -40,7 +40,9 @@ struct FocusedSessionView: View {
                 pager
             }
             SessionToastOverlay(controller: controller)
+            if controller.restPillState != .hidden { pillRow }
         }
+        .animation(Theme.Motion.respecting(reduceMotion), value: controller.restPillState)
         .environment(\.sessionVoiceOverFocus, $voiceOverFocus)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .onAppear { controller.pinPage() }
@@ -127,6 +129,20 @@ struct FocusedSessionView: View {
         }
     }
 
+    /// A stack row, as the toast (architecture.md §8): the page ends above it, so no margin is needed, and `SessionView`'s
+    /// keypad sits below it. `session.restBar` marks a rest under way, as on List's bar.
+    private var pillRow: some View {
+        RestPill(controller: controller) {
+            controller.focus = nil
+            sheet = controller.pageExerciseID.map(ExerciseSheet.rest)
+        }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .transition(.opacity)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(controller.restPillState == .idle ? "" : "session.restBar")
+    }
+
     /// No pager with no pages: the + tile above is the way in.
     private var emptyPage: some View {
         VStack {
@@ -152,6 +168,10 @@ struct FocusedSessionView: View {
             if let ex = row(id) { EditTargetsSheet(controller: controller, exercise: ex) }
         case let .notes(id):
             if let ex = row(id) { ExerciseNotesSheet(controller: controller, exercise: ex) }
+        case let .rest(id):
+            if let ex = row(id) { RestSheet(controller: controller, exercise: ex) }
+        case let .restChoices(id):
+            if let ex = row(id) { RestChoicesSheet(controller: controller, exercise: ex) }
         }
     }
 }
@@ -205,6 +225,20 @@ private func session(_ scenario: FocusedPreview.Scenario) -> some View {
 
 #Preview("Focused · all done, light") {
     session(.allDone).previewEnvironment(scheme: .light)
+}
+
+#Preview("Focused · rest running, dark") {
+    session(.restRunning).previewEnvironment()
+}
+
+#Preview("Focused · rest running, light") {
+    session(.restRunning).previewEnvironment(scheme: .light)
+}
+
+#Preview("Focused · rest running, keypad") {
+    let c = FocusedPreview.controller(.restRunning)
+    if let ex = c.pageExercise { c.edit(ex.orderedSets[0], .kg) }
+    return SessionView(controller: c).previewEnvironment()
 }
 
 #Preview("Focused · 320 pt", traits: .fixedLayout(width: 320, height: 693)) {

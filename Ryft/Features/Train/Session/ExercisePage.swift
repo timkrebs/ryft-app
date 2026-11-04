@@ -3,13 +3,15 @@ import SwiftUI
 /// The per-exercise sheets of the Focused layout. `FocusedSessionView` holds them above the pages, by row id: pages lose
 /// their state on a round trip, and a page can move under an opening sheet (architecture.md §8).
 enum ExerciseSheet: Identifiable {
-    case replace(UUID), targets(UUID), notes(UUID)
+    case replace(UUID), targets(UUID), notes(UUID), rest(UUID), restChoices(UUID)
 
     var id: String {
         switch self {
         case let .replace(id): return "replace.\(id)"
         case let .targets(id): return "targets.\(id)"
         case let .notes(id): return "notes.\(id)"
+        case let .rest(id): return "rest.\(id)"
+        case let .restChoices(id): return "restChoices.\(id)"
         }
     }
 }
@@ -205,19 +207,22 @@ struct ExercisePage: View {
         .accessibilityHint(Self.sheetHint)
         .accessibilityIdentifier("session.chip.targets")
 
-        Menu {
-            RestChoices(controller: controller, exercise: exercise)
+        Button {
+            controller.focus = nil
+            onSheet(.restChoices(exercise.id))
         } label: {
             SessionChip(text: String(localized: "Rest \(Fmt.clock(TimeInterval(exercise.restSec)))"), leading: "timer", trailing: "pencil")
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(Text(
             "Rest, \(Self.spokenDuration(exercise.restSec))",
             comment: "VoiceOver: the rest chip on an exercise's page. 1: e.g. 1 minute, 15 seconds."
         ))
+        .accessibilityHint(Self.sheetHint)
         .accessibilityIdentifier("session.chip.rest")
     }
 
-    private static let sheetHint = Text("Opens a sheet", comment: "VoiceOver hint on the chips of an exercise's page in a workout.")
+    static let sheetHint = Text("Opens a sheet", comment: "VoiceOver hint on the chips of an exercise's page in a workout.")
 
     private static func spokenDuration(_ seconds: Int) -> String {
         Duration.seconds(seconds).formatted(.units(allowed: [.minutes, .seconds], width: .wide))
