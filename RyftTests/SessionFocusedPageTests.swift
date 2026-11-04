@@ -638,6 +638,84 @@ struct SessionFocusedPageTests {
         #expect(r.controller.advanceStates[0].sets[0].isWarmup)
     }
 
+    // MARK: a keypad on a folding warm-up
+
+    /// Row's first two sets are warm-ups, the group open. Its third is a working set.
+    private func withOpenWarmups(_ r: ReplaceRig) -> [LocalSet] {
+        let sets = r.row.orderedSets
+        sets[0].isWarmup = true
+        sets[1].isWarmup = true
+        r.store.save()
+        r.controller.setWarmups(expanded: true, for: r.row)
+        return sets
+    }
+
+    @Test func foldingClosesAKeypadOnAWarmUp() {
+        let r = rig()
+        let sets = withOpenWarmups(r)
+        r.controller.edit(sets[0], .kg)
+        r.controller.setWarmups(expanded: false, for: r.row)
+        #expect(r.controller.focus == nil)
+    }
+
+    @Test func foldingLeavesAKeypadOnAWorkingSet() {
+        let r = rig()
+        let sets = withOpenWarmups(r)
+        r.controller.edit(sets[2], .kg)
+        r.controller.setWarmups(expanded: false, for: r.row)
+        #expect(r.controller.focus?.setID == sets[2].id)
+    }
+
+    @Test func foldingAnotherExerciseLeavesAKeypadOnAWarmUp() {
+        let r = rig()
+        let sets = withOpenWarmups(r)
+        r.x.orderedSets[0].isWarmup = true
+        r.store.save()
+        r.controller.setWarmups(expanded: true, for: r.x)
+        r.controller.edit(sets[0], .kg)
+        r.controller.setWarmups(expanded: false, for: r.x)
+        #expect(r.controller.focus?.setID == sets[0].id)
+    }
+
+    @Test func openingTheGroupLeavesTheKeypad() {
+        let r = rig()
+        let sets = withOpenWarmups(r)
+        r.controller.edit(sets[0], .kg)
+        r.controller.setWarmups(expanded: true, for: r.row)
+        #expect(r.controller.focus?.setID == sets[0].id)
+    }
+
+    /// The set being checked is another one, so `toggleCheck`'s own close doesn't cover this.
+    @Test func checkingTheLastWarmUpClosesAKeypadOnAnEarlierOne() {
+        let r = rig()
+        let sets = withOpenWarmups(r)
+        r.complete(1, of: r.row)
+        r.controller.edit(sets[0], .kg)
+        r.controller.toggleCheck(sets[1], in: r.row)
+        #expect(!r.controller.expandedWarmups.contains(r.row.id), "the group folded itself")
+        #expect(r.controller.focus == nil)
+    }
+
+    @Test func checkingAWarmUpThatDoesNotFoldTheGroupLeavesTheKeypad() {
+        let r = rig()
+        let sets = withOpenWarmups(r)
+        r.controller.edit(sets[0], .kg)
+        r.controller.toggleCheck(sets[1], in: r.row)
+        #expect(r.controller.expandedWarmups.contains(r.row.id))
+        #expect(r.controller.focus?.setID == sets[0].id)
+    }
+
+    @Test func theListLayoutKeepsAKeypadOnAWarmUpWhenTheLastOneIsChecked() {
+        let r = rig(.list)
+        let sets = r.row.orderedSets
+        sets[0].isWarmup = true
+        sets[1].isWarmup = true
+        r.complete(1, of: r.row)
+        r.controller.edit(sets[0], .kg)
+        r.controller.toggleCheck(sets[1], in: r.row)
+        #expect(r.controller.focus?.setID == sets[0].id)
+    }
+
     // MARK: the layout is read once (plan.md L5)
 
     private final class LayoutBox {

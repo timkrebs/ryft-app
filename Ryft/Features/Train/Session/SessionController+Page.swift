@@ -61,13 +61,15 @@ extension SessionController {
         layout == .focused && !expandedWarmups.contains(ex.id)
     }
 
-    /// Folding changes no set and uploads nothing, but "Next:" can change. A tapped warm-up isn't active any more.
+    /// Folding changes no set and uploads nothing, but "Next:" can change. A tapped warm-up isn't active any more, and a
+    /// keypad on a warm-up closes, or digits would go to a hidden row. Auto-fold comes through here too.
     func setWarmups(expanded: Bool, for ex: LocalSessionExercise) {
         if expanded {
             expandedWarmups.insert(ex.id)
         } else {
             expandedWarmups.remove(ex.id)
             if ex.sets.contains(where: { $0.id == tappedSet && $0.isWarmup }) { tappedSet = nil }
+            if let focused = focusedSet, focused.exercise.id == ex.id, focused.set.isWarmup { focus = nil }
         }
         refreshActivity()
     }
