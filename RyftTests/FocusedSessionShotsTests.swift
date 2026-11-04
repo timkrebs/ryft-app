@@ -101,11 +101,14 @@ struct FocusedSessionShotsTests {
         var testDescription: String { name }
     }
 
-    /// Every screen at both widths in both schemes, and the main one at the larger text sizes.
+    /// Every screen at both widths in both schemes, and the main one, the running pill and the rest sheet at the larger
+    /// text sizes.
     nonisolated static let shots: [Shot] = Screen.allCases.flatMap { screen in
         Size.allCases.flatMap { size in [true, false].map { Shot(screen: screen, size: size, dark: $0) } }
     } + Size.allCases.flatMap { size in
-        [TextSize.xl, .ax3].map { Shot(screen: .midSession, size: size, dark: true, text: $0) }
+        [Screen.midSession, .restRunning, .restSheetChanged].flatMap { screen in
+            [TextSize.xl, .ax3].map { Shot(screen: screen, size: size, dark: true, text: $0) }
+        }
     }
 
     @Test("Render and write", arguments: shots)
@@ -141,7 +144,10 @@ struct FocusedSessionShotsTests {
             controller.edit(ex.orderedSets[0], .kg)
         }
         let root = SessionView(controller: controller)
-            .sheet(isPresented: .constant(shot.screen.hasSheet)) { Self.sheet(shot.screen, of: controller) }
+            .sheet(isPresented: .constant(shot.screen.hasSheet)) {
+                // A sheet is a host of its own: the traits below stop at this one.
+                Self.sheet(shot.screen, of: controller).dynamicTypeSize(shot.text.dynamicType)
+            }
             .previewEnvironment(scheme: shot.dark ? .dark : .light)
             .environment(\.dynamicTypeSize, shot.text.dynamicType)
         let host = UIHostingController(rootView: root)
