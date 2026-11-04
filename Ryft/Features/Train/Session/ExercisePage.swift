@@ -33,6 +33,8 @@ struct ExercisePage: View {
     @Environment(\.sessionVoiceOverFocus) private var voiceOverFocus
 
     @State private var viewportHeight: CGFloat = 0
+    /// At the last height: a pill row that comes back takes room from the page.
+    @State private var hadPillRow = false
 
     /// The footer's scroll anchor.
     private static let allDoneAnchor = "session.page.allDone"
@@ -86,11 +88,18 @@ struct ExercisePage: View {
                 guard exercise.id == controller.pageExerciseID else { return }
                 withAnimation(motion) { reveal(id, with: proxy) }
             }
-            // The keypad or a toast took the room. `onChange(of: focus)` runs before the page has shrunk, so its scroll centres
-            // the row in the old height, and the pill row and the keypad would cover it.
+            // `onChange(of: focus)` runs before the page has its new height, so its scroll centres the row in the old one, and
+            // the pill row and the keypad would cover it. `followsResize` says which heights move the page.
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                defer { viewportHeight = height }
-                guard height < viewportHeight, exercise.id == controller.pageExerciseID else { return }
+                let pillRow = controller.restPillState != .hidden
+                defer {
+                    viewportHeight = height
+                    hadPillRow = pillRow
+                }
+                guard exercise.id == controller.pageExerciseID,
+                      Self.followsResize(from: viewportHeight, to: height, keypadHere: keypadSetID != nil,
+                                         toastUp: controller.undo != nil || controller.notice != nil,
+                                         pillRowCame: pillRow && !hadPillRow) else { return }
                 withAnimation(motion) { keepRowInView(with: proxy) }
             }
             .onAppear { keepRowInView(with: proxy) }
@@ -105,9 +114,23 @@ struct ExercisePage: View {
         proxy.scrollTo(id)
     }
 
+    /// The set the keypad is on, if it's on this page.
+    private var keypadSetID: UUID? {
+        guard let focus = controller.focus, exercise.sets.contains(where: { $0.id == focus.setID }) else { return nil }
+        return focus.setID
+    }
+
+    /// The page moves for what covers the row, and for nothing else: the offline banner takes room too, and someone reading
+    /// the Last time card keeps their place. With the keypad up the row stays centred either way: a page that appears with
+    /// it starts short of the strip's room and with the wrong columns, and gets its height only when the strip has gone.
+    static func followsResize(from old: CGFloat, to new: CGFloat, keypadHere: Bool, toastUp: Bool, pillRowCame: Bool) -> Bool {
+        if keypadHere { return new != old }
+        return new < old && (toastUp || pillRowCame)
+    }
+
     private func keepRowInView(with proxy: ScrollViewProxy) {
-        if let focus = controller.focus, exercise.sets.contains(where: { $0.id == focus.setID }) {
-            proxy.scrollTo(focus.setID, anchor: .center)
+        if let id = keypadSetID {
+            proxy.scrollTo(id, anchor: .center)
         } else {
             reveal(controller.activeSet(in: exercise)?.id, with: proxy)
         }

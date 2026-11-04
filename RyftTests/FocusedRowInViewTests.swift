@@ -17,8 +17,9 @@ struct FocusedRowInViewTests {
 
     private let tolerance: CGFloat = 1
 
-    private func controller(sets: Int = 8, done: Int = 0, rest running: Bool = false) -> SessionController {
-        let c = FocusedPreview.controller(.midSession)
+    private func controller(sets: Int = 8, done: Int = 0, rest running: Bool = false,
+                            connectivity: ConnectivityMonitor? = nil) -> SessionController {
+        let c = FocusedPreview.controller(.midSession, connectivity: connectivity)
         guard let ex = c.pageExercise else { fatalError("the scenario has a page") }
         while ex.sets.count < sets { c.addSet(to: ex) }
         for set in ex.orderedSets.prefix(done) {
@@ -116,6 +117,48 @@ struct FocusedRowInViewTests {
         }
     }
 
+    // MARK: heights that aren't about the row
+
+    @Test("Someone reading further down keeps their place when the offline banner takes room")
+    func offlineBannerLeavesThePage() async throws {
+        let monitor = ConnectivityMonitor.preview(online: true)
+        let c = controller(connectivity: monitor)
+        defer { c.stop() }
+        try await HostedWindow.run(width: 390, height: 844, SessionView(controller: c)) { w in
+            try await w.settle()
+            let scroll = try #require(w.pageScrollView())
+            let end = scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom
+            scroll.setContentOffset(CGPoint(x: 0, y: end), animated: false)
+            try await w.settle()
+            let read = scroll.contentOffset.y
+            #expect(read > 100, "the active row, set 1, is above the page (offset \(read))")
+            let before = try #require(w.pageViewport())
+            monitor.update(false)
+            try await w.wait("the banner") { (w.pageViewport()?.height ?? before.height) < before.height - 20 }
+            try await w.settle()
+            #expect(abs(scroll.contentOffset.y - read) < 0.5, "the page stays where it was read: \(read) to \(scroll.contentOffset.y)")
+        }
+    }
+
+    typealias ResizeCase = (old: CGFloat, new: CGFloat, keypad: Bool, toast: Bool, pillRow: Bool, moves: Bool)
+
+    nonisolated static let resizes: [ResizeCase] = [
+        (500, 400, true, false, false, true),  // the keypad opened
+        (62, 138, true, false, false, true),   // it was already up, and the strip went
+        (500, 500, true, false, false, false),
+        (500, 440, false, true, false, true),  // a toast
+        (500, 436, false, false, true, true),  // the pill row came back
+        (500, 472, false, false, false, false), // the offline banner
+        (440, 500, false, true, false, false),
+        (472, 500, false, false, false, false),
+        (500, 500, false, true, true, false),
+    ]
+
+    @Test("Which heights move the page", arguments: resizes)
+    func resizeDecision(_ c: ResizeCase) {
+        #expect(ExercisePage.followsResize(from: c.old, to: c.new, keypadHere: c.keypad, toastUp: c.toast, pillRowCame: c.pillRow) == c.moves)
+    }
+
     // MARK: the keypad
 
     struct KeypadCase: Sendable, CustomTestStringConvertible {
@@ -184,16 +227,9 @@ struct FocusedRowInViewTests {
         c.edit(ex.orderedSets[k.index], .kg)
         try await HostedWindow.run(width: k.phone.size.width, height: k.phone.size.height, SessionView(controller: c)) { w in
             try await w.settle()
-            let context = "appeared with the keypad on set \(k.index + 1), \(k.testDescription)"
-            if k.phone == .compact, k.resting {
-                // Measured: the first scroll lands every row 18 pt above a 138 pt page (320 pt, rest running, keypad up). Reported
-                // with this test; when `ExercisePage` is fixed this stops recording and the wrapper must go.
-                withKnownIssue("The row starts 18 pt above the page: the keypad's first scroll ran before the layout settled") {
-                    try expectWhole(k.index + 1, of: 8, in: w, context)
-                }
-            } else {
-                try expectWhole(k.index + 1, of: 8, in: w, context)
-            }
+            // The page starts short of the strip's room, then grows when the strip goes (320 pt, rest running: to 138 pt). Only
+            // the keypad's scroll on that growth keeps the row whole.
+            try expectWhole(k.index + 1, of: 8, in: w, "appeared with the keypad on set \(k.index + 1), \(k.testDescription)")
         }
     }
 }

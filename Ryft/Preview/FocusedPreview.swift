@@ -42,11 +42,12 @@ enum FocusedPreview {
          SessionSet(setIndex: 3, reps: 5, weightKg: 102.5, completedAt: lastTimeDate)]
     }
 
-    static func controller(_ scenario: Scenario) -> SessionController {
+    /// `connectivity`: one the caller flips, so the offline banner can appear under a test.
+    static func controller(_ scenario: Scenario, connectivity: ConnectivityMonitor? = nil) -> SessionController {
         let store = TrainStore(inMemory: true)
-        let offline = scenario == .offline
+        let monitor = connectivity ?? (scenario == .offline ? ConnectivityMonitor.preview(online: false) : nil)
         let sync = TrainSyncService(store: store, remote: { MockTrainSource.shared }, owner: { TrainSyncService.demoOwner },
-                                    monitorsNetwork: offline, connectivity: offline ? .preview(online: false) : nil)
+                                    monitorsNetwork: monitor != nil, connectivity: monitor)
         sync.gate = { _ in nil }
         let session = make(scenario, in: store)
         store.save()
