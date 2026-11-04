@@ -1,6 +1,6 @@
 import Foundation
 
-/// Which exercise the Focused layout shows (architecture.md §1, ADR 0013). Pure, like `SessionAdvance`, whose states it
+/// Which exercise the Focused layout shows (architecture.md §1, ADR 0014). Pure, like `SessionAdvance`, whose states it
 /// reads: no SwiftData and no clock.
 enum SessionPage {
     /// The stored page while its row exists; else the first exercise with an open working set, else the last one.

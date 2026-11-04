@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Ryft
 
-/// The Focused layout's page rules, pure (architecture.md §1, §2; ADR 0013): which exercise shows, where the page goes
+/// The Focused layout's page rules, pure (architecture.md §1, §2; ADR 0014): which exercise shows, where the page goes
 /// when one leaves, and which layout a session opens in. No SwiftData, no clock.
 struct SessionPageTests {
     private typealias A = SessionAdvance

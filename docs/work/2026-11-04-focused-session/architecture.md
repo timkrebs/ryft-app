@@ -4,7 +4,7 @@
 > no swipe to delete in Focused, ✓ on an empty row, German copy, T4's cut).
 
 Owner: ios-architect. Inputs: `brief.md`, `plan.md` (L1 to L14 win over the brief), `design.md` (D1), the session code on
-`origin/main` 0b6069b, ADR 0009. Lasting part: ADR 0013. Synthetic values only.
+`origin/main` 0b6069b, ADR 0009. Lasting part: ADR 0014. Synthetic values only.
 
 ## The decisions
 

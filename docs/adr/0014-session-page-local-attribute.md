@@ -1,4 +1,4 @@
-# 0013 — The live session's page is a local-only attribute on the session row
+# 0014 — The live session's page is a local-only attribute on the session row
 
 - Status: accepted (2026-11-04, focused session D2, `docs/work/2026-11-04-focused-session/architecture.md` §1, §6)
 - Deciders: ios-lead, on ios-architect's proposal (`plan.md`, L10)
