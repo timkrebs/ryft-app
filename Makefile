@@ -1,4 +1,4 @@
-.PHONY: config build test icon fonts screenshots ui-shots lint check-entitlements strings style format archive trackers release
+.PHONY: orbit-shots config build test icon mark-svg check-mark-svg fonts screenshots ui-shots lint check-entitlements strings style format archive trackers release
 
 # Ryft.xcodeproj is the source of truth (CLAUDE.md): change targets, capabilities
 # and packages in Xcode itself.
@@ -17,10 +17,38 @@ build: config
 test: config
 	xcodebuild -scheme Ryft -testPlan Unit -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 
-icon:
+# The mark's tools compile the app's own geometry (Ryft/Design/RyftMark.swift) plus the icon's tile, colours
+# and scale (scripts/icon-spec.swift), so the icons and SVGs can't drift from what the app draws.
+MARK_SOURCES := scripts/icon-spec.swift Ryft/Design/RyftMark.swift
+ICON_COMPARE := build/icon-compare
+
+.build/render-icon: scripts/render-icon.swift $(MARK_SOURCES)
 	mkdir -p .build
-	swiftc -parse-as-library -o .build/render-icon scripts/render-icon.swift Ryft/Design/RyftMark.swift
+	swiftc -parse-as-library -o $@ $^
+
+.build/mark-svg: scripts/mark-svg.swift $(MARK_SOURCES)
+	mkdir -p .build
+	swiftc -parse-as-library -o $@ $^
+
+# The three 1024 icons into the asset catalog with the outer ring spanning 0.869 of the tile (95 % of the previous
+# 0.915; Light and Dark in the readiness gauge's colours, Tinted white on black), and for comparison into
+# build/icon-compare/: the monochrome mark at 0.915 and the coloured ones at 0.915, 0.963 and 0.80 (nearer Apple's
+# icon grid), plus the rings-monochrome, dots-coloured alternative at 0.869. The tools read the colours from Ryft/Assets.xcassets, so they run from the repo root.
+icon: .build/render-icon
+	mkdir -p $(ICON_COMPARE)
 	.build/render-icon
+	.build/render-icon --mono --ring-span 0.915 --suffix -mono-0.915 $(ICON_COMPARE)
+	.build/render-icon --dots --suffix -dots-0.869 $(ICON_COMPARE)
+	.build/render-icon --ring-span 0.915 --suffix -0.915 $(ICON_COMPARE)
+	.build/render-icon --ring-span 0.963 --suffix -0.963 $(ICON_COMPARE)
+	.build/render-icon --ring-span 0.80 --suffix -0.80 $(ICON_COMPARE)
+
+# design/ryft-mark.svg and design/ryft-app-icon-{light,dark}.svg from the Swift geometry.
+mark-svg: .build/mark-svg
+	.build/mark-svg
+
+check-mark-svg: .build/mark-svg
+	.build/mark-svg --check
 
 fonts:
 	scripts/fetch-fonts.sh
@@ -45,8 +73,9 @@ strings: build
 
 # String catalogs complete in English and German, nothing stale; the bundled tracker catalog current; the GPS
 # fixture tracks match scripts/make-tracks.py; the built-in exercise snapshot matches the platform's seed (only
-# where ../plattform is checked out); the import's source-key golden file agrees with an independent fold (ADR 0007).
-lint: check-entitlements
+# where ../plattform is checked out); the import's source-key golden file agrees with an independent fold (ADR 0007);
+# the mark's SVGs match the Swift geometry (needs swiftc, i.e. macOS).
+lint: check-entitlements check-mark-svg
 	python3 scripts/lint-strings.py
 	python3 scripts/check-shared-types.py
 	python3 scripts/trackers.py --self-test
@@ -96,3 +125,13 @@ archive: config lint
 # merge, release.yml tags vX.Y.Z and uploads it to TestFlight (docs/CI.md). DRY_RUN=1 stops before the push.
 release:
 	@DRY_RUN='$(DRY_RUN)' sh scripts/release.sh $(if $(filter command line,$(origin VERSION)),$(VERSION),$(BUMP))
+
+# The OrbitGauge's screenshots (light and dark) and the contrast numbers into build/orbit-shots/, for the design note
+# (docs/work/2026-10-29-orbit-gauge/design.md). Runs the two Orbit test suites on the simulator named by ORBIT_DEVICE.
+ORBIT_DEVICE ?= iPhone 17
+ORBIT_SHOTS := $(abspath build/orbit-shots)
+orbit-shots: config
+	mkdir -p $(ORBIT_SHOTS)
+	TEST_RUNNER_ORBIT_SHOTS_DIR=$(ORBIT_SHOTS) xcodebuild -scheme Ryft -destination 'platform=iOS Simulator,name=$(ORBIT_DEVICE)' \
+		-derivedDataPath $(DERIVED) -only-testing:RyftTests/OrbitGaugeShotsTests -only-testing:RyftTests/OrbitGaugeContrastTests \
+		-only-testing:RyftTests/OrbitGaugeGeometryTests test

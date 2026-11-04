@@ -84,7 +84,8 @@ baseline (or to the window's mean). There is a selection haptic on each day chan
 | Component | Use |
 | --- | --- |
 | `TrendChart` | daily series |
-| `MetricGauge` | ring as instrument, 72 / 112 / 160 |
+| `OrbitGauge` | Today's readiness and the widget: the RYFT mark as a gauge, 72 / 112 / 160 (see below) |
+| `MetricGauge` | ring as instrument, 72 / 112 / 160 (the Strain tab) |
 | `RangeBar` | value within a personal range |
 | `DeltaLabel` | change against a reference |
 | `ZoneBar` | heart-rate-zone minutes |
@@ -92,3 +93,39 @@ baseline (or to the window's mean). There is a selection haptic on each day chan
 | `Hypnogram` | Sleep tab |
 
 Every component has dark and light `#Preview`s.
+
+### OrbitGauge
+
+The app icon's orbits carry the four scores; arc length is the score, the dot at its head is today. The centre ring is
+Readiness (its band colour, the number inside); the inner orbit carries Recovery (teal, counter-clockwise from the top)
+and Sleep performance (`metricSleep`, clockwise), each half starting 12.5° from the vertical so the two dots never meet;
+the outer orbit carries Strain (`metricStrain`, clockwise, 21 = a whole turn). Tracks are `surfaceRaised` with the air
+around each dot cut out, caps round. A missing score is a hollow dot at its start, never an arc and never a zero; zero
+is a filled dot with no arc. Nothing rotates on its own; a new value moves the arcs on `Theme.Motion.slow`, and under
+Reduce Motion it cross-fades. The number is omitted below a 56 pt dial. One VoiceOver element: "Overall readiness",
+then "71, High. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21", a missing score "Sleep, not scored".
+
+**Calibrating** (baselines still learning). The outer orbit becomes 7 round-capped segments, with the seam at the top
+under the hollow Strain dot. The tips are 9° from the top and 5° apart. Counted nights are `accent` and the rest are
+track, filling clockwise one segment every 60 ms (the final count at once under Reduce Motion). The inner orbit and the
+centre ring stay tracks, and all three dots are hollow. "3 / 7" takes the number's place ("3" alone at `.small`). The
+segments count whichever signal is filling, so the counter never sits still. VoiceOver: "Baselines", then "3 of 7
+nights…". A readiness that is already scored while the baseline still learns (S2) draws the plain scored orbit; the
+note under it says what's learning.
+
+**Pending** (last night is being scored). The previous scored day's orbit, its arcs and dots at 0.6 opacity. They
+breathe between 1.0 and 0.75 of that over 1.4 s, and are still once scoring takes longer than usual or under Reduce
+Motion. The tracks stay at full strength. The arcs are below 3:1 on purpose: they are yesterday's, and the number
+(`textTertiary`, ≥ 4.5:1) and VoiceOver ("Not scored yet. Last scored: …") carry the values. Without a previous day:
+tracks, hollow dots and a dash. Today names the day under the gauge ("Last scored: Yesterday").
+
+Captions never break a word: they wrap between words and shrink a word that is wider than the line.
+
+**Strain band** (`strainBand`, optional; Today and the widget pass nil until the platform serves a range). A thin rail
+(`metricStrain` at 0.5, butt caps) inside the outer orbit marks today's recommended range on the 0-21 scale; from `.medium`
+up. Past its upper end the arc and its dot turn `alert`; below or inside it they stay `metricStrain`, and the number stays blue. VoiceOver adds
+"today's recommended range 8 to 13". Calibrating draws no band; pending dims yesterday's. Details: design.md §11 in `docs/work/2026-10-29-orbit-gauge/`.
+
+The drawing is shared with the widget (`Shared/OrbitGaugeDrawing.swift`, colours by asset name in
+`OrbitGaugePalette`, ADR 0010); `Ryft/Design/OrbitGauge.swift` adds the number, caption, VoiceOver and motion.
+Geometry, contrast and what was rejected: `docs/work/2026-10-29-orbit-gauge/design.md`.

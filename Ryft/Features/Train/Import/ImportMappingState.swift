@@ -202,6 +202,14 @@ struct ImportMappingState: Equatable, Sendable {
         }
     }
 
+    /// The other rows that map to the same library exercise (a check row's suggestion too). Legal, so it never blocks,
+    /// but never silent either: both rows' sets end up in one exercise's history, and a plan day gets the exercise
+    /// twice (beta feedback 2, §4). New rows have their own derived ids and never share.
+    func sharing(_ row: ImportMappingRow) -> [ImportMappingRow] {
+        guard let id = row.exerciseID else { return [] }
+        return rows.filter { $0.id != row.id && $0.exerciseID == id }
+    }
+
     /// In "Needs your attention": what blocks, and an open question.
     func needsAttention(_ row: ImportMappingRow) -> Bool { blocks(row) || isQuestionOpen(row) }
 

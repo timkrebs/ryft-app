@@ -33,6 +33,7 @@ struct ProfileView: View {
                 sleepSection
                 privacy
                 data
+                if model.showsTraining { training }
                 if model.showsNotifications { notifications }
                 if screens.journal.isLive { journal }
                 appearance
@@ -533,6 +534,26 @@ struct ProfileView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("profile.notifications")
+        }
+    }
+
+    // MARK: training
+
+    private var training: some View {
+        ProfileSection(title: "Training") {
+            Toggle(isOn: Bindable(settings).jumpToNextExercise) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Jump to next exercise", comment: "Profile → Training toggle: after the last set of an exercise, the workout scrolls to the next one.")
+                        .font(.ryft(.body))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text("Jumps to the next set when you finish an exercise.", comment: "Footer under the Profile → Training toggle \"Jump to next exercise\".")
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .tint(Theme.accent)
+            .accessibilityIdentifier("profile.jumpToNext")
         }
     }
 

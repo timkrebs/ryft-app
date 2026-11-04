@@ -66,9 +66,14 @@ struct MetricTile: View {
         .accessibilityAddTraits(action == nil ? [] : .isButton)
     }
 
-    /// "7h 10m, Yesterday, not today's score" while dimmed; "75 %, High" otherwise.
+    /// "7h 10m, Yesterday, not today's score" while dimmed; "75 %, High" otherwise; "No data, calibrating" for the
+    /// placeholder with a caption (Recovery beside the baselines counter).
     private var spokenValue: Text {
-        if value == Fmt.placeholder { return Text("No data") }
+        if value == Fmt.placeholder {
+            guard let caption else { return Text("No data") }
+            return Text("No data, \(caption)",
+                        comment: "VoiceOver value of a Today tile without a number, with the line under it, e.g. “No data, calibrating”.")
+        }
         guard let caption else { return Text(value) }
         if isDimmed { return Text("\(value), \(caption), not today's score") }
         return Text(verbatim: "\(value), \(caption)")

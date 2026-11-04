@@ -19,7 +19,8 @@ enum SessionFactory {
             e.targetKindRaw = pe.targetKind.rawValue
             e.targetValue = pe.targetValue
             e.targetKg = target?.targetKg ?? (pe.targetKind == .kg ? pe.targetValue : nil)
-            e.lastTime = target?.lastTime ?? []
+            // The platform's list holds every occurrence of the exercise; each row gets its own.
+            e.lastTime = LastTimeOccurrence.sets(target?.lastTime ?? [], for: pe, in: day.exercises)
             for i in 0..<(e.targetSets ?? pe.sets) { appendSet(index: i, to: e, in: store) }
         }
         store.save()

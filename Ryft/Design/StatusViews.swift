@@ -1152,7 +1152,8 @@ struct TrackerSetupCard: View {
 
     @ViewBuilder private var buttons: some View {
         if tracker.integration == .vendorApp, let store = tracker.appStoreURL {
-            // The App Store page, which says "Open" itself when the app is installed: no URL schemes (ADR 0002).
+            // The App Store page, which says "Open" itself when the app is installed. Only Today's hint opens the app by
+            // its compiled scheme (`Tracker.appURL`, plan.md decision 3 (data quality), ADR 0012); this card keeps the store page.
             PrimaryButton(verbatim: String(localized: "\(tracker.appTitle) in the App Store"), style: .secondary) {
                 openURL(store)
             }

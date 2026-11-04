@@ -1,4 +1,144 @@
-# Status — 2026-10-28
+# Status — 2026-10-31
+
+## Data quality (`CLAUDE_FOLLOWUP_DATA_QUALITY.md`, in progress)
+
+Plan and notes: `docs/work/2026-10-31-data-quality/`.
+
+**Release gate (Needs you, before the next External beta or App Store build):** on a device, check that
+`garminconnect://` and `oura://` open Garmin Connect and Oura, with the app installed and without it (without: the hint
+must show the App Store page). A scheme that fails is removed from `CatalogValidator.appSchemes` and `Info.plist` in one
+change (ADR 0012 rule 7).
+
+## OrbitGauge: the logo becomes the readiness gauge (`CLAUDE_FOLLOWUP_ORBIT_GAUGE.md`)
+
+Plan, design note, architecture, review log and shots: `docs/work/2026-10-29-orbit-gauge/`.
+
+**Done**
+
+| PR | What |
+| --- | --- |
+| #76 | `OrbitGauge` replaces `MetricGauge` on Today and in the readiness widget. Readiness is in the centre, Recovery and Sleep on the inner orbit, Strain on the outer (0–21). The drawing is shared with the widget (`Shared/`, ADR 0010). The locked widget is a plain ring with "00" until unlocked. |
+| #78 | Calibrating: 7 segments fill night by night ("3 / 7"). Pending: the previous scored day dimmed, breathing, with "Last scored: …". `BaselineGauge` and `PendingGauge` are removed. |
+| #79 | The gauge assembles on a cold start in 0.85 s, once per launch, on a `TimelineView` clock; Reduce Motion and Low Power Mode get a 250 ms fade. No launch regression: main-thread busy is 854 → 842 ms (`perf-baseline.md`, `perf-branch.md`). |
+| #81 | The strain band: a rail for today's recommended range, and the arc turns alert past its upper end; VoiceOver says "above today's recommended range". **Hidden:** the platform has no per-day range yet, so production passes none and the gauge renders byte-identical to before. |
+
+**Simulator and tests only**
+- Everything was checked in the simulator: previews, `ImageRenderer` pixel tests, contrast tests, VoiceOver strings in en and de, and cold-launch recordings in en/de × dark/light × standard/AX3 × Reduce Motion.
+- The 44 pt render reads as the app icon.
+
+**On device** (the user's iPhone 16 Pro, iOS 27.0.1, a Debug build of `main` 5bafd50, 2026-10-30)
+- **Cold launch:** an Animation Hitches trace of 3 cold launches found one 16.7 ms hitch, 1.45 s after the first frame and outside the 0.85 s entrance; there were no hitches in the entrance. Main-thread busy was 495 ms in the first 2 s, with 12 ms of it in `OrbitGauge`. The user saw it as smooth.
+- **Reduce Motion and Low Power Mode:** both fade (the user).
+- **The widget:** hidden on the locked Lock Screen. It looks right in StandBy and on the tinted home screen (the user).
+- **Today:** a screenshot with real data (a missing Sleep score shows as a hollow dot) matches the design. It wasn't committed.
+
+**Open (Needs you)**
+- **On a device:**
+  - the clear home screen, and the calibrating and pending widgets;
+  - Reduce Motion turned off in Settings while the app is open: the gauge must look complete;
+  - VoiceOver on the gauge.
+- **Platform:** "Readiness → recommended strain range per day" (`DailyScore.strain_target_lo/hi`, `API_REQUESTS.md` → Charts and gauges #2). Once it exists, api-contract-keeper mirrors it, and one mapping line turns the band on. The Strain tab's `MetricGauge` target uses the same value.
+
+**Follow-ups (not blocking)**
+- **Demo mode, first launch:** an app-wide main-thread stall of about 400 ms after seeding. Pre-existing; for the performance-profiler.
+- **Light mode:** the first frame after launch is dark grey, because the launch screen is dark-first.
+- **Pending:** "Scoring your night" appears twice, in the status pill and under the gauge.
+- **Demo:** the Strain tile shows a raw value next to "calibrating".
+- **The widget's "Baselines n of 7"** doesn't name the signal it counts. That needs a snapshot field.
+- **The dark-mode strain rail** is at 2.3:1 on purpose. If it's too faint on a device, the next step is 0.6 (2.85:1).
+
+## Beta feedback 2 (`CLAUDE_FOLLOWUP_BETA_FEEDBACK_2.md`)
+
+Plan, design, investigation and review: `docs/work/2026-10-29-beta-feedback-2/`.
+
+**Done**
+
+| PR | What |
+| --- | --- |
+| #72 | "Last time" per exercise occurrence (§4): two of the same exercise in one workout no longer show identical lists. |
+| #73 | The baseline counter counts whichever signal is filling (F3): it no longer sticks at 0 / 7 for a Garmin user without HRV. |
+| #75 | Replace an exercise during a workout, and edit its sets, reps, weight, rest and notes (F1). Done sets stay with the old exercise; Undo; "also change the plan" for your own plans. Swipe a set row to delete it. |
+| #77 | Jump to the next exercise after its last set, with the rest timer as a compact bar pinned under the clock (F2). Profile → Training → Jump to next exercise, on by default. |
+
+All in en and de.
+
+**Open (Needs you)**
+- Reply to the three App Store Connect feedback entries once the build is out.
+- Check the history for incline against flat bench (§4).
+- N1 on Today with the Garmin account.
+- **On a device:**
+  - VoiceOver: the rest-time swipe, and the focus after a jump;
+  - Voice Control "Tap Skip";
+  - the 10 s Undo toast under VoiceOver and Switch Control;
+  - the Live Activity after Finish.
+
+**Follow-ups**
+- `pruneCollapsed()` at the top of `toggleCheck` (T2 review).
+- At AX3, the session header and the set-table columns wrap letter by letter.
+- `ImportPlanAssembly.latestWeight` gives two source rows mapped to one exercise the same kg target (import ticket).
+- Catalog: the German for "Learning your baseline — %lld nights to go." is still `machine_translated`; for the localization-editor to review. German says baseline three ways ("Ausgangswerte", "Basis" in the gauge's VoiceOver, "Grundbedarf" for sleep).
+
+## CI: a fresh simulator per job (#80)
+
+The UI-test job hung before any test ran ("The test runner hung before establishing connection") on the one reused "RYFT CI" simulator. It happened on #76 five times, and also on #77, #79, #81 and `main` after #78. #80 creates a new simulator for every job and deletes it and its parallel-testing clones afterwards. Local runs reuse one "RYFT CI local". *Open: waiting for the merge.* Until it's in, the fix for a hang is to delete the "RYFT CI" device while no job runs, then rerun.
+
+**Runner housekeeping (Needs you, once):** `~/Library/Developer/XCTestDevices` held 277 leaked clones and the disk was at 90 %. These are only Xcode's throwaway test clones. While no CI job and no local test run is going: `xcrun simctl --set ~/Library/Developer/XCTestDevices delete all`.
+
+## Public beta readiness: minimum age 16 and the External notes (feat/beta-age-16)
+
+Plan: `../docs/work/2026-10-29-public-beta/plan.md`.
+
+**Done**
+- Minimum age 16 (was 13): `OnboardingCoordinator.minimumAge` / `birthYears(now:)` feed onboarding's About you
+  and Profile → birth year (1920 … this year − 16); the mock platform answers `422` outside that range. Valid under
+  the platform's old (− 13) and new (− 16) check. Tests: `birthYearsStopAtTheMinimumAgeOf16`,
+  `aBirthYearUnder16IsRefusedWithTheRange`.
+- Consent screen: "You must be at least 16 to use RYFT." (en, de).
+- `docs/TESTFLIGHT_NOTES.md`: the External entry for friends (en 1,480 / de 1,727 characters).
+- Profile keeps a birth year saved under the old rule (e.g. 2012) visible in its picker instead of a blank one.
+- `docs/TESTFLIGHT.md`: §3 the age and the new-account flow; §4 the demo account's consent after a new policy
+  version, the review notes' data list (as on the consent screen), the age, and "What do you wear?".
+
+**Simulator / preview only**
+- Consent and About you previews (dark, light); unit tests on the iPhone 18 Pro simulator.
+
+**Open (Needs you)**
+- `today.myday` on for the External testers (the notes ask them to try My Day).
+- App Store Connect: the age rating fits 16+; Test Information and Review Notes from `docs/TESTFLIGHT.md` §4.
+- `seed_demo.sh` again once the new privacy version (#61) is in force.
+- The platform: which time zone "this year" uses in the − 16 check. The app uses the phone's; in the first hour of
+  1 January (Berlin) a UTC check would refuse the newest year the app offers.
+- `make test` names an "iPhone 17 Pro" simulator that isn't installed on this Mac (iPhone 18 Pro was used).
+
+## New orbit mark and app icon (design/new-orbit-mark)
+
+Plan: `docs/work/2026-10-28-new-orbit-mark/plan.md`. Reference: `../docs/briefs/assets/2026-10-28-new-app-icon-reference.jpg`.
+
+**Done**
+- `RyftMark` draws the new mark (three rings, three dots) from `RyftMarkGeometry` (100-box), with an optical-size rule
+  below 39.6 pt (stroke ≥ 1.25 pt; dots and air grow by √k; inner ring dropped below 22 pt); every caller
+  unchanged. `RyftMarkGeometryTests` pin the nominal numbers and keep every arc ≥ 15° from 18 pt up.
+- App icons (Light and Dark in the readiness gauge's colours on Mist / Graphite, Tinted = white on black and
+  monochrome; 1024², no alpha) from `make icon`. Strain = outer ring and dot (`MetricStrain`); the inner orbit splits at
+  the vertical: Sleep (`MetricSleep`) clockwise of the top with the dot at -76°, Recovery (`Accent`) counter-clockwise
+  with the dot at 180°; the centre ring is Readiness in the High band (`Accent`). Colours are read from
+  `Assets.xcassets` (light values on Light, dark values on Dark), each ≥ 4.5:1 on its tile (≥ 3:1 is checked by
+  `make icon`). The outer ring spans 0.869 of the tile: 95 % of the previous 0.915 (0.86925 rounded), which was 95 % of
+  the reference's 0.963. Mark frame 976.3 px. `make icon` also writes the mono 0.915 and the coloured 0.915, 0.963 and
+  0.80 and a dots-only variant into `build/icon-compare/`. `RyftMarkShape(part:)` draws one part; the in-app mark stays
+  monochrome.
+- `design/ryft-mark.svg` and `design/ryft-app-icon-{light,dark}.svg` generated from the same numbers
+  (`make mark-svg`); `make lint` checks they're current (`check-mark-svg`). Tile, colours and scale live in
+  `scripts/icon-spec.swift`, shared by both tools.
+- The widget's AppIcon set has no images and the widget target sets no app icon name: left alone.
+
+**Simulator / preview only**
+- The mark in RyftHeader (`Header`, dark and light), Today (`Today · dark`, `Today · light`) and the import card.
+  The icons were checked as rendered PNGs, not on a home screen.
+
+**Open**
+- The user checks the coloured 0.869 icon on his home screen (light, dark, tinted).
+- `design/brand-board.png` still shows the old mark; the 2026-10-28 brief supersedes it until it's redrawn.
 
 ## 2026-10-28: version releases through a PR
 
