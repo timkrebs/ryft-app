@@ -177,6 +177,17 @@ is the auth session, and `Set` is `SessionSet` as in the mirror.
      muscles.
    - **Screens affected:** the replace-exercise sheet in an active session.
 
+## Focused session (open, 2026-11-04)
+
+1. **Which session `last_time` came from.** The workout screen's last-time card heads its table with the date and the
+   session's title ("Tue 3 Nov · Upper"). `PlanTarget.last_time` is `[Set]`, so the app has no title, and only a date
+   when `completed_at` is set.
+   - **Proposal:** add `PlanTarget.last_time_session`: `{ "id": "…", "title": "Upper", "started_at": "…" }`, or `null`
+     with an empty `last_time`. The same on whatever serves a single exercise's last time, for exercises added or
+     replaced during a session.
+   - **Until then:** the card shows the date from `completed_at`, and a plain "Last time" without one. Nothing waits on
+     this.
+
 ## Charts and gauges (open, 2026-10-19)
 
 The Today / chart redesign asked for fields `API.md` doesn't have. The app doesn't

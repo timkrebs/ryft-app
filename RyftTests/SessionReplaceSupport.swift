@@ -45,7 +45,8 @@ final class ReplaceRig {
     let incline = MockTrain.inclineDB
     let other = MockTrain.dip
 
-    init(builtinPlan: Bool = false) {
+    /// `sessionLayout`: how the controller shows the session (the Focused tests build the rig with `.focused`).
+    init(builtinPlan: Bool = false, sessionLayout: SessionLayout = .list) {
         sync = TrainSyncService(store: store, remote: { [api] in api }, owner: { "test" }, debounce: .seconds(3600),
                                 monitorsNetwork: false)
         sync.gate = { _ in nil }
@@ -82,7 +83,8 @@ final class ReplaceRig {
             s.weightKg = [80, 80, nil, nil][i]
         }
         store.save()
-        controller = SessionController(session: session, sync: sync, liveActivity: nil, clock: clock, library: library)
+        controller = SessionController(session: session, sync: sync, liveActivity: nil, clock: clock, library: library,
+                                       layout: sessionLayout)
     }
 
     deinit { MainActor.assumeIsolated { controller.stop() } }

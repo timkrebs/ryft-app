@@ -192,6 +192,12 @@ extension SessionController {
         return PlanChangeOption(dayName: day.name, isAvailable: sync.isOnline)
     }
 
+    /// What the replace sheet shows for `ex`.
+    func replaceContext(for ex: LocalSessionExercise) -> ReplaceContext {
+        ReplaceContext(name: ex.name, exerciseID: ex.exerciseId, kind: replaceKind(for: ex),
+                       plan: planChangeOption(for: ex), offline: !sync.isOnline)
+    }
+
     /// The menu's Replace: the keypad closes for the sheet; Undo brings it back.
     func beginReplace() {
         focusBeforeReplace = focus
@@ -229,6 +235,8 @@ extension SessionController {
         sync.hold(self.id)
         store.save()
         refreshActivity()
+        // A split leaves only done sets on X, so the page follows to the row that continues (only if it was on X).
+        if let inserted, pageExerciseID == ex.id { showPage(inserted) }
 
         let undoID = UUID()
         var planSave: Task<Plan?, Never>?
@@ -259,6 +267,8 @@ extension SessionController {
         // Signed out or another account since: the session isn't there to restore.
         guard u.generation == sync.generation, isUnderway,
               let x = session.exercises.first(where: { $0.id == u.before.id }) else { return }
+        // The toast is screen-wide, so Undo can come from any page; it lands on what came back, and `edit` below is safe.
+        showPage(x.id)
         let now = Date.now
 
         if let yID = u.inserted, let y = session.exercises.first(where: { $0.id == yID }) {
@@ -303,7 +313,11 @@ extension SessionController {
         }
         session.deletedSetIDs.removeAll { restored.contains($0) }
         renumber()
-        if let f = u.focus, let set = x.sets.first(where: { $0.id == f.setID }) { edit(set, f.field) }
+        if let f = u.focus, let set = x.sets.first(where: { $0.id == f.setID }) {
+            // The group may have folded since: the keypad never comes back on a hidden row.
+            if set.isWarmup, isFolded(x) { setWarmups(expanded: true, for: x) }
+            edit(set, f.field)
+        }
         store.save()
         edited()
 

@@ -1,4 +1,4 @@
-.PHONY: orbit-shots config build test icon mark-svg check-mark-svg fonts screenshots ui-shots lint check-entitlements strings style format archive trackers release
+.PHONY: orbit-shots config build test icon mark-svg check-mark-svg fonts screenshots ui-shots lint check-entitlements strings style format archive trackers release focused-shots
 
 # Ryft.xcodeproj is the source of truth (CLAUDE.md): change targets, capabilities
 # and packages in Xcode itself.
@@ -135,3 +135,13 @@ orbit-shots: config
 	TEST_RUNNER_ORBIT_SHOTS_DIR=$(ORBIT_SHOTS) xcodebuild -scheme Ryft -destination 'platform=iOS Simulator,name=$(ORBIT_DEVICE)' \
 		-derivedDataPath $(DERIVED) -only-testing:RyftTests/OrbitGaugeShotsTests -only-testing:RyftTests/OrbitGaugeContrastTests \
 		-only-testing:RyftTests/OrbitGaugeGeometryTests test
+
+# The Focused session's screens from the preview mocks (light and dark, 390 and 320 pt, XL and AX3 for the main one) as PNGs
+# in FOCUSED_SHOTS, for the design note and ui-validator: <screen>-<width>-<scheme>-<text size>.png. Runs one suite of the
+# Unit plan on FOCUSED_DESTINATION. Another device: make focused-shots FOCUSED_DESTINATION='id=<udid>'
+FOCUSED_DESTINATION ?= name=iPhone 18 Pro
+FOCUSED_SHOTS ?= $(abspath build/focused-shots)
+focused-shots: config
+	mkdir -p $(FOCUSED_SHOTS)
+	TEST_RUNNER_FOCUSED_SHOTS_DIR=$(FOCUSED_SHOTS) xcodebuild -scheme Ryft -testPlan Unit -destination 'platform=iOS Simulator,$(FOCUSED_DESTINATION)' \
+		-derivedDataPath $(DERIVED) -parallel-testing-enabled NO -only-testing:RyftTests/FocusedSessionShotsTests test

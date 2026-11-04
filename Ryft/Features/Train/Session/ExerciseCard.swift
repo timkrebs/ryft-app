@@ -1,5 +1,34 @@
 import SwiftUI
 
+/// The Focused set table's columns at a width (design.md §2.5): the row, its header and the last-time card share them,
+/// so a column reads straight down the page. The two fields take what's left, equally.
+struct SetTableColumns: Equatable {
+    let number: CGFloat
+    let fourth: CGFloat
+    let check: CGFloat
+    let gap: CGFloat
+    /// The kg and reps numerals.
+    let numeral: CGFloat
+    /// Page padding, into which the number's 44 pt hit area reaches.
+    let padding: CGFloat
+    let headerTracking: CGFloat
+
+    /// 390 pt class.
+    static let regular = SetTableColumns(number: 36, fourth: 56, check: 56, gap: 6, numeral: 22, padding: 16, headerTracking: 2)
+    /// 320 pt (Display Zoom).
+    static let compact = SetTableColumns(number: 28, fourth: 48, check: 56, gap: 4, numeral: 20, padding: 12, headerTracking: 1)
+
+    static func fitting(width: CGFloat) -> SetTableColumns {
+        width > 0 && width < 360 ? .compact : .regular
+    }
+
+    /// The number's hit area, 44 x 56, in its own coordinates: left into the page padding, then right into the gap.
+    var numberHitArea: CGRect {
+        let left = min(padding, 44 - number)
+        return CGRect(x: -left, y: 0, width: 44, height: 56)
+    }
+}
+
 /// One set: number (tap: warm-up), kg, reps, RPE, check. 56 pt tall, large
 /// monospaced numbers; empty fields show last time / the target ghosted.
 struct SetRow: View {
@@ -8,6 +37,11 @@ struct SetRow: View {
     let exercise: LocalSessionExercise
     let number: Int
     let count: Int
+    /// Off in Focused: inside the pager the row's gesture gets no drag, and one that wins kills page swipes (L16). The
+    /// context menu and the VoiceOver action stay.
+    var swipeToDelete = true
+    /// Focused's table; nil: the list's card.
+    var columns: SetTableColumns?
 
     @State private var confirmDelete = false
     /// How far the row is swiped open (0 or less); "Delete" shows in the space it leaves.
@@ -31,7 +65,7 @@ struct SetRow: View {
             }
             .clipped()
             // Unchecked rows only; a vertical drag stays the list's scroll.
-            .simultaneousGesture(swipeGesture, including: set.isCompleted ? .subviews : .all)
+            .simultaneousGesture(swipeGesture, including: swipeToDelete && !set.isCompleted ? .all : .subviews)
             .onChange(of: set.isCompleted) { _, done in if done { swipe = 0 } }
             .contextMenu {
                 Button(set.isWarmup ? "Mark as working set" : "Mark as warm-up", systemImage: "flame") {
@@ -39,7 +73,7 @@ struct SetRow: View {
                 }
                 Button("Delete set", systemImage: "trash", role: .destructive) { requestDelete() }
             }
-            .confirmationDialog("Delete set \(number)?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            .confirmationDialog(deleteTitle, isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button("Delete set", role: .destructive) { controller.delete(set, from: exercise) }
             }
             // VoiceOver: one element per set with actions.
@@ -51,25 +85,25 @@ struct SetRow: View {
                 controller.toggleCheck(set, in: exercise)
             }
             .accessibilityAction(named: Text("Edit weight")) { controller.edit(set, .kg) }
-            .accessibilityAction(named: Text("Edit reps")) { controller.edit(set, .reps) }
+            .modifier(EditRepsAction(offered: storedValue == nil) { controller.edit(set, .reps) })
             .accessibilityAction(named: Text("Edit RPE")) { controller.edit(set, .rpe) }
             .accessibilityAction(named: Text(set.isWarmup ? "Mark as working set" : "Mark as warm-up")) {
                 controller.toggleWarmup(set)
             }
             .accessibilityAction(named: Text("Delete set")) { requestDelete() }
-            .accessibilityIdentifier("set.\(exercise.position).\(number)")
+            .accessibilityIdentifier("\(isFocusedWarmup ? "warmup" : "set").\(exercise.position).\(number)")
     }
 
     private var row: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: columns?.gap ?? 6) {
             Button {
                 tap { controller.toggleWarmup(set) }
             } label: {
                 Text(set.isWarmup ? "W" : "\(number)")
                     .font(.ryftNumber(size: 17))
                     .foregroundStyle(set.isWarmup ? Theme.warning : Theme.textSecondary)
-                    .frame(width: 40, height: 56)
-                    .contentShape(Rectangle())
+                    .frame(width: columns?.number ?? 40, height: 56)
+                    .contentShape(columns.map { Path($0.numberHitArea) } ?? Path(CGRect(x: 0, y: 0, width: 40, height: 56)))
             }
             .buttonStyle(.plain)
             .accessibilityHidden(true)
@@ -77,9 +111,13 @@ struct SetRow: View {
             if usesWeight {
                 field(.kg, value: set.weightKg.map(Fmt.kgNumber), ghost: ghost.kg.map(Fmt.kgNumber))
             }
-            field(.reps, value: set.reps.map(String.init), ghost: ghost.reps.map(String.init))
+            if let stored = storedValue {
+                readOnlyField(stored)
+            } else {
+                field(.reps, value: set.reps.map(String.init), ghost: ghost.reps.map(String.init))
+            }
             field(.rpe, value: set.rpe.map(Fmt.kgNumber), ghost: nil)
-                .frame(maxWidth: 64)
+                .frame(minWidth: columns?.fourth, maxWidth: columns?.fourth ?? 64)
 
             Button {
                 tap { controller.toggleCheck(set, in: exercise) }
@@ -147,6 +185,13 @@ struct SetRow: View {
         action()
     }
 
+    /// Focused numbers warm-ups on their own: "1" is a warm-up and a working set, so they need telling apart.
+    private var isFocusedWarmup: Bool { columns != nil && set.isWarmup }
+
+    private var deleteTitle: Text {
+        isFocusedWarmup ? Text("Delete \(String(localized: "warm-up"))?") : Text("Delete set \(number)?")
+    }
+
     /// A set with values (or checked) asks first; an empty one goes at once.
     private func requestDelete() {
         withAnimation(reduceMotion ? nil : Theme.Motion.quick) { swipe = 0 }
@@ -161,16 +206,54 @@ struct SetRow: View {
     private var accessibilityText: String {
         var parts = [String(localized: "Set \(number) of \(count)")]
         if set.isWarmup { parts.append(String(localized: "warm-up")) }
-        let reps = set.reps ?? ghost.reps, kg = set.weightKg ?? ghost.kg
+        let reps = Self.spokenReps(set.reps, ghost: ghost.reps, stored: storedValue), kg = set.weightKg ?? ghost.kg
         switch (reps, kg) {
         case let (r?, k?): parts.append(String(localized: "\(r) reps at \(Fmt.kgNumber(k)) kilograms"))
         case let (r?, nil): parts.append(String(localized: "\(r) reps"))
         case let (nil, k?): parts.append(String(localized: "\(Fmt.kgNumber(k)) kilograms"))
         default: break
         }
+        if showsBodyweightGlyph { parts.append(String(localized: "bodyweight", comment: "VoiceOver: a set with no added load, in a workout.")) }
+        if let stored = storedValue { parts.append(stored.spoken) }
         if let rpe = set.rpe { parts.append(String(localized: "RPE \(Fmt.kgNumber(rpe))")) }
         parts.append(set.isCompleted ? String(localized: "completed") : String(localized: "not done"))
         return parts.joined(separator: ", ")
+    }
+
+    /// A row with a stored time or distance has no reps to suggest: VoiceOver reads what the row shows.
+    static func spokenReps(_ reps: Int?, ghost: Int?, stored: SetStoredValue?) -> Int? {
+        reps ?? (stored == nil ? ghost : nil)
+    }
+
+    /// Focused: a time or distance this set got from an import or another client. There is no entry for them (L20), so
+    /// the field reads the stored value and isn't a button (design.md §3.2).
+    private var storedValue: SetStoredValue? {
+        columns == nil ? nil : SetStoredValue(reps: set.reps, durationSec: set.durationSec, distanceM: set.distanceM)
+    }
+
+    /// Focused: a bodyweight set with no added load and no ghost says so instead of a dash.
+    private var showsBodyweightGlyph: Bool {
+        columns != nil && exercise.loadType == .bodyweight && set.weightKg == nil && ghost.kg == nil
+    }
+
+    private func readOnlyField(_ stored: SetStoredValue) -> some View {
+        Text(stored.text)
+            .font(.ryftNumber(size: columns?.numeral ?? 22))
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .foregroundStyle(Theme.textSecondary)
+            .frame(maxWidth: .infinity, minHeight: 48)
+    }
+
+    /// Focused's RPE is quieter than kg and reps, and empty when unset: a table without RPE stays calm (design.md §2.5).
+    private func emptyText(_ f: SetFocus.Field) -> String {
+        columns != nil && f == .rpe ? "" : Fmt.placeholder
+    }
+
+    private func numeralSize(_ f: SetFocus.Field) -> CGFloat {
+        guard let columns else { return 22 }
+        return f == .rpe ? 17 : columns.numeral
     }
 
     private func field(_ f: SetFocus.Field, value: String?, ghost: String?) -> some View {
@@ -179,19 +262,62 @@ struct SetRow: View {
         return Button {
             tap { controller.edit(set, f) }
         } label: {
-            Text(shown ?? ghost ?? Fmt.placeholder)
-                .font(.ryftNumber(size: 22))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-                .foregroundStyle(shown == nil ? Theme.textTertiary.opacity(0.7) : Theme.textPrimary)
-                .frame(maxWidth: .infinity, minHeight: 48)
-                .background(Theme.surfaceRaised.opacity(focused ? 1 : 0.55),
-                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(focused ? Theme.accent : .clear, lineWidth: 2))
+            Group {
+                if f == .kg, showsBodyweightGlyph, shown == nil {
+                    Image(systemName: "figure.stand")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Theme.textSecondary)
+                } else {
+                    Text(shown ?? ghost ?? emptyText(f))
+                        .font(.ryftNumber(size: numeralSize(f)))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(columns == nil ? 0.6 : 0.75)
+                        .foregroundStyle(shown == nil ? Theme.textTertiary.opacity(0.7) : Theme.textPrimary)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(Theme.surfaceRaised.opacity(focused ? 1 : 0.55),
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(focused ? Theme.accent : .clear, lineWidth: 2))
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// A time or distance in a set's reps slot, read-only: what the Focused table and its last-time card show for a set
+/// that has one and no reps (design.md §3.2). Nil for a set with reps, or with neither.
+/// The set row's "Edit reps". A modifier rather than `accessibilityActions`, so the actions keep their order and List's
+/// row, where it is always offered, stays as it was.
+private struct EditRepsAction: ViewModifier {
+    let offered: Bool
+    let edit: () -> Void
+
+    func body(content: Content) -> some View {
+        if offered {
+            content.accessibilityAction(named: Text("Edit reps"), edit)
+        } else {
+            content
+        }
+    }
+}
+
+struct SetStoredValue: Equatable {
+    let text: String
+    let spoken: String
+
+    init?(reps: Int?, durationSec: Int?, distanceM: Double?) {
+        guard reps == nil else { return nil }
+        if let durationSec {
+            text = Fmt.clock(TimeInterval(durationSec))
+            spoken = String(localized: "time \(text)", comment: "VoiceOver: a set's stored time, e.g. time 0:45.")
+        } else if let distanceM {
+            text = Fmt.distance(meters: distanceM)
+            spoken = String(localized: "distance \(text)", comment: "VoiceOver: a set's stored distance, e.g. distance 5.0 km.")
+        } else {
+            return nil
+        }
     }
 }
 
@@ -241,7 +367,7 @@ struct ExerciseCard: View {
             Text("Its sets in this workout are deleted.")
         }
         .sheet(isPresented: $showsReplace) {
-            AddExerciseSheet(replacing: replaceContext) { picked, alsoChangePlan in
+            AddExerciseSheet(replacing: controller.replaceContext(for: exercise)) { picked, alsoChangePlan in
                 let ex = exercise, window = SessionController.undoWindow(voiceOver: voiceOver, switchControl: switchControl)
                 Task { await controller.replace(ex, with: picked, alsoChangePlan: alsoChangePlan, window: window) }
             }
@@ -255,60 +381,10 @@ struct ExerciseCard: View {
         }
     }
 
-    private var replaceContext: ReplaceContext {
-        ReplaceContext(name: exercise.name, exerciseID: exercise.exerciseId, kind: controller.replaceKind(for: exercise),
-                       plan: controller.planChangeOption(for: exercise), offline: !controller.sync.isOnline)
-    }
-
-    /// The `…` menu and the header's context menu, in one order (ui.md §1): Replace · Edit targets · Notes ·
-    /// Plate calculator (barbell) · History · Rest ▸ · Superset ─ Remove.
-    @ViewBuilder
     private var menuItems: some View {
-        Section {
-            Button {
-                controller.beginReplace()
-                showsReplace = true
-            } label: {
-                Label(String(localized: "Replace exercise…", comment: "Exercise menu in a workout: pick another exercise for this one."),
-                      systemImage: "arrow.triangle.2.circlepath")
-            }
-            .disabled(!controller.canReplace(exercise))
-            .accessibilityIdentifier("session.replace")
-            Button {
-                controller.focus = nil
-                showsTargets = true
-            } label: {
-                Label(String(localized: "Edit targets…", comment: "Exercise menu in a workout: sets, reps, weight and rest for this workout."),
-                      systemImage: "slider.horizontal.3")
-            }
-            .accessibilityIdentifier("session.editTargets")
-            Button {
-                controller.focus = nil
-                showsNotes = true
-            } label: {
-                Label(String(localized: "Notes", comment: "Exercise menu in a workout: this exercise's notes."),
-                      systemImage: "note.text")
-            }
-            if exercise.kind == .barbell {
-                Button("Plate calculator", systemImage: "circle.grid.cross") { onPlates() }
-            }
-            Button("History", systemImage: "chart.xyaxis.line") { onHistory() }
-            Menu {
-                ForEach([60, 90, 120, 150, 180, 240, 300], id: \.self) { sec in
-                    Button(Fmt.clock(TimeInterval(sec))) { controller.setRest(sec, for: exercise) }
-                }
-            } label: {
-                Label("Rest \(Fmt.clock(TimeInterval(exercise.restSec)))", systemImage: "timer")
-            }
-            if exercise.supersetGroup != nil {
-                Button("Remove from superset", systemImage: "link.badge.plus") { controller.toggleSuperset(exercise) }
-            } else if controller.canLinkBelow(exercise) {
-                Button("Superset with next", systemImage: "link") { controller.toggleSuperset(exercise) }
-            }
-        }
-        Section {
-            Button("Remove exercise", systemImage: "trash", role: .destructive) { confirmRemove = true }
-        }
+        ExerciseMenuItems(controller: controller, exercise: exercise,
+                          onReplace: { showsReplace = true }, onTargets: { showsTargets = true }, onNotes: { showsNotes = true },
+                          onPlates: onPlates, onHistory: onHistory, onRemove: { confirmRemove = true })
     }
 
     private var header: some View {
