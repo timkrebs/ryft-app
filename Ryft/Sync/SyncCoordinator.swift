@@ -34,9 +34,15 @@ protocol SyncSteps: AnyObject {
     func report(_ phase: SyncPhase)
     /// The platform accepted a write that touches `days` (an upload's `days_touched`, a `daysChanged`): Today and
     /// the widget show them as being scored until the platform's word (`ScoringWord`). In the background too.
-    func awaiting(_ days: [String])
-    /// A silent push named `days`: scored, whatever an earlier status read said. Before the refresh.
+    /// `generation`: `ledgerGeneration` when the run began. A word from an earlier one is dropped: its account or
+    /// demo side has gone, and the ledger it belonged to with it.
+    func awaiting(_ days: [String], generation: Int)
+    /// A silent push named `days`: scored, whatever an earlier status read said. Before the refresh. Dropped for
+    /// anyone but an account that can read the status: the push isn't demo data's, nor a signed-out phone's.
     func scored(_ days: [String])
+    /// The platform took a `.daysChanged` write to `days` (an upload's pages report themselves): only a push after
+    /// this answers it, however long the run that says the word waits behind another.
+    func accepted(_ days: [String])
     /// A run that sent nothing may ask `GET /v1/me/sync` for days the platform still scores (signed in, configured,
     /// not demo data).
     var readsScoringStatus: Bool { get }
@@ -57,8 +63,9 @@ extension SyncSteps {
     /// Steps without a user-initiated path (test fakes) ask the ordinary way.
     func syncStatus(userInitiated: Bool) async throws -> SyncStatus { try await syncStatus() }
     /// Fakes that don't record the scoring words.
-    func awaiting(_ days: [String]) {}
+    func awaiting(_ days: [String], generation: Int) {}
     func scored(_ days: [String]) {}
+    func accepted(_ days: [String]) {}
     /// Fakes that don't say: a run that sent nothing asks nothing.
     var readsScoringStatus: Bool { false }
     var awaitedDays: [String] { [] }
@@ -193,6 +200,7 @@ actor SyncCoordinator {
     /// however it ended; a joined rerun calls it after its own upload.
     @discardableResult
     func run(_ trigger: Trigger, afterUpload: (@Sendable () -> Void)? = nil) async -> Outcome {
+        if case .daysChanged(let days) = trigger { await steps.accepted(days) }
         if case .silentPush(let days) = trigger {
             // The platform's word that these days are scored, before any refresh: the waiting run's, or its own.
             await steps.scored(days)
@@ -375,6 +383,8 @@ actor SyncCoordinator {
             afterUpload.forEach { $0() }
         }
         defer { uploadDone() }
+        // Whose words this run says: an account change or the demo switch during it forgets them (`awaiting`).
+        let generation = await steps.ledgerGeneration
         // An upload that ended early (failed, cancelled) after the platform accepted pages: those days are being
         // scored all the same (`touchedSoFar` is empty once the account is gone). Owed only once this run entered an
         // upload: before that, `touchedSoFar` is an earlier run's.
@@ -386,7 +396,7 @@ actor SyncCoordinator {
             let days = acceptedBefore.union(await steps.touchedSoFar).sorted()
             guard !days.isEmpty else { return }
             await scoring.written(days)
-            await steps.awaiting(days)
+            await steps.awaiting(days, generation: generation)
         }
         do {
             let touched: [String]
@@ -400,7 +410,7 @@ actor SyncCoordinator {
                 outcome.touched = days
                 try Task.checkCancellation()
                 await scoring.written(days)
-                await steps.awaiting(days)
+                await steps.awaiting(days, generation: generation)
                 if await inBackground() {
                     // As after an upload in the background: the silent push refreshes once scoring is done.
                     try Task.checkCancellation()
@@ -426,7 +436,7 @@ actor SyncCoordinator {
                 outcome.waitingForUnlock = await steps.isWaitingForUnlock
                 if !written.isEmpty {
                     await scoring.written(written)
-                    await steps.awaiting(written)
+                    await steps.awaiting(written, generation: generation)
                 }
                 try Task.checkCancellation()
                 if await inBackground() {
@@ -806,14 +816,22 @@ final class LiveSyncSteps: SyncSteps {
         sync.advance(to: phase)
     }
 
-    /// Signed out meanwhile (a sign-out races the pipeline's cancel): nobody's word.
-    func awaiting(_ days: [String]) {
-        guard state.env.auth.isSignedIn else { return }
+    /// Signed out meanwhile (a sign-out races the pipeline's cancel), or another account or side since the run began
+    /// (an upload ends on its own, and the demo switch doesn't stop it): nobody's word.
+    func awaiting(_ days: [String], generation: Int) {
+        guard generation == sync.ledgerGeneration, state.env.auth.isSignedIn else { return }
         sync.awaiting(days)
     }
 
+    /// `AppDelegate.refresh` forwards every push and `run` says its word first, so the admission is asked here: a push
+    /// delayed past a sign-out or into demo data is nobody's, and would bring back the ledger and the widget's file.
     func scored(_ days: [String]) {
+        guard readsScoringStatus else { return }
         sync.scored(days)
+    }
+
+    func accepted(_ days: [String]) {
+        sync.accepted(days)
     }
 
     var readsScoringStatus: Bool {

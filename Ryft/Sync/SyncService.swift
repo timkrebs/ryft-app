@@ -81,6 +81,9 @@ final class SyncService {
     private(set) var scoringLedger: [String: ScoringWord] = [:] {
         didSet { if scoringLedger != oldValue { ledgerChanged?() } }
     }
+    /// When the platform last accepted a write touching each day, on this phone's clock (`accepted`): a push after it
+    /// answers that write, and the upload's word about it, said later, doesn't replace the push's (`awaiting`).
+    @ObservationIgnored private var acceptedAt: [String: Date] = [:]
     /// Called when `scoringLedger` changed (`LiveSyncSteps` connects the widget's republish).
     @ObservationIgnored var ledgerChanged: (@MainActor () -> Void)?
     /// Counts the times the ledger was forgotten (`accountChanged`, `forgetScoringWords`): what the coordinator
@@ -179,6 +182,7 @@ final class SyncService {
     /// wait gave up on.
     func forgetScoringWords() {
         scoringLedger = [:]
+        acceptedAt = [:]
         ledgerGeneration += 1
     }
 
@@ -340,6 +344,7 @@ final class SyncService {
             activity = .uploading(stream, records: records)
         case .accepted(_, let response):
             lastUploaded += response.samples + response.sleep + response.workouts
+            accepted(response.daysTouched)
         case .state(let state):
             engineState = state
         }
@@ -368,13 +373,23 @@ final class SyncService {
         await syncNow()
     }
 
+    /// The platform accepted a write that touches `days`, now: an upload's page, or a `.daysChanged`.
+    func accepted(_ days: [String]) {
+        let at = env.clock.now()
+        for day in days { acceptedAt[day] = at }
+    }
+
     /// The platform accepted a write that touches `days` (the coordinator's `awaiting` step): they're being scored
-    /// from now on (`ScoringWord`).
+    /// from now on (`ScoringWord`), except a day a push named since its last accepted write: that write is answered,
+    /// and with no poll in the background nothing would answer the word.
     func awaiting(_ days: [String]) {
         let word = ScoringWord(kind: .pending, at: env.clock.now())
         // Built aside and stored once: one widget publish (`ledgerChanged`) for a resync's 90 days.
         var ledger = scoringLedger
-        for day in days { ledger[day] = word }
+        for day in days {
+            if let heard = ledger[day], heard.kind == .scored, heard.at >= acceptedAt[day, default: .distantPast] { continue }
+            ledger[day] = word
+        }
         scoringLedger = ledger
         writtenSinceStart = true
     }

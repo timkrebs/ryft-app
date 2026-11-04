@@ -2,9 +2,19 @@ import Foundation
 import Testing
 @testable import Ryft
 
+extension LiveSyncSteps {
+    /// A word of the ledger as it is now.
+    func awaiting(_ days: [String]) { awaiting(days, generation: ledgerGeneration) }
+}
+
 /// How an upload that outlived its account ended.
 enum UploadEnding: String, CaseIterable, Sendable {
     case cancelled, failed, finished
+}
+
+/// What took over from the account an upload began for.
+enum LedgerSwitch: String, CaseIterable, Sendable {
+    case anotherAccount, demoData
 }
 
 /// The platform's day reads, scripted: the days the test put in, and today unscored until it puts today in.
@@ -46,6 +56,45 @@ private final class ScriptedDays: RyftDataSource, @unchecked Sendable {
     func deleteMe() async throws -> AccountDeleted { try await base.deleteMe() }
 }
 
+/// An account and a demo switch a test can flip: a real `AuthService` on `MockAuthClient` and `Settings` of its own
+/// (never `Settings.shared`), as `RyftApp` has them.
+@MainActor
+private final class Switches {
+    nonisolated static let a = UUID(uuidString: "0000000A-0000-4000-8000-00000000000A") ?? UUID()
+    nonisolated static let b = UUID(uuidString: "0000000B-0000-4000-8000-00000000000B") ?? UUID()
+    let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
+    let settings: Settings
+    let client = MockAuthClient(session: .preview(id: Switches.a))
+    let auth: AuthService
+
+    init() {
+        let settings = Settings(defaults: defaults)
+        settings.demoMode = false
+        self.settings = settings
+        auth = AuthService(client: client, settings: settings, defaults: defaults, wipeLocalData: { _ in },
+                           deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                           postAppleAuthorization: { _ in })
+    }
+
+    func env(api: MockPlatformAPI, health: MockHealthStore, clock: TestClock) -> AppEnvironment {
+        let demoAPI = MockPlatformAPI()
+        api.now = { clock.now() }
+        demoAPI.now = { clock.now() }
+        let env = AppEnvironment(settings: settings, health: health, liveAPI: api, demoAPI: demoAPI, auth: auth,
+                                 persistence: TrainStore(inMemory: true), clock: clock, notifier: MockNotifier(),
+                                 flags: StaticFlags([:]), connectivity: .preview(online: true), defaults: defaults,
+                                 demoOverride: nil)
+        env.reads.random = { $0.lowerBound }
+        env.reads.budget = RequestBudget(clock: clock, maxStarts: .max)
+        return env
+    }
+
+    func signIn(_ id: UUID) async {
+        client.signInSession = .preview(id: id)
+        _ = await auth.logIn(email: "someone@example.com", password: "0123456789")
+    }
+}
+
 /// Today's view model on the live pipeline (`LiveSyncSteps` over `SyncService`), `MockHealthStore`, the mock
 /// platform and `TestClock`, at 07:30 with yesterday scored at 76.
 @MainActor
@@ -62,12 +111,14 @@ private final class Harness {
     let sync: SyncService
     let pipeline: SyncCoordinator
     let vm: TodayViewModel
+    static let stream = HealthStream.quantity(.heartRate)
 
     /// `firstSync`: no anchors yet (the first score's window goes first, the backfill after it) and nothing scored.
-    /// `expected`: the upload's `expected_within_sec`.
-    init(inBackground: Bool = false, firstSync: Bool = false, night: Bool = true, expected: Int = 20) {
+    /// `expected`: the upload's `expected_within_sec`. `switches`: an account and a demo switch the test can flip.
+    init(inBackground: Bool = false, firstSync: Bool = false, night: Bool = true, expected: Int = 20,
+         switches: Switches? = nil) {
         api = MockPlatformAPI(screens: days)
-        let stream = HealthStream.quantity(.heartRate)
+        let stream = Self.stream
         health = MockHealthStore(streams: [stream])
         if firstSync {
             if night { health.recent = [stream: [Self.night()]] }
@@ -77,8 +128,10 @@ private final class Harness {
             if night { health.pages = [stream: [Self.night()]] }
         }
         clock = TestClock(now: Self.now)
-        let env = AppEnvironment.test(api: api, health: health, clock: clock)
+        let env = switches?.env(api: api, health: health, clock: clock) ?? AppEnvironment.test(api: api, health: health, clock: clock)
         state = AppState(env: env)
+        // Live demo binding, so not the test env: this harness keeps away from the real widget file.
+        if switches != nil { state.repository.widgetFile = nil }
         sync = SyncService.ungated(env: env)
         pipeline = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: sync), clock: clock, inBackground: inBackground)
         vm = TodayViewModel(state: state, sync: sync, coordinator: pipeline, apiStatus: APIStatus())
@@ -157,6 +210,78 @@ private final class Harness {
 
     func lands(readiness: Int = 74) async -> Bool {
         await eventually { vm.hero == .score && vm.readiness == Double(readiness) }
+    }
+
+    // MARK: uploads held open
+
+    /// Three pages of the night; `page`'s answer waits a second on the clock.
+    func holdsPage(_ page: Int, pages: Int = 3) {
+        health.pages = [Self.stream: (0..<pages).map { _ in Self.night() }]
+        api.beforeSync = { [api, clock] in if api.count("sync") == page { try? await clock.sleep(for: .seconds(1)) } }
+    }
+
+    /// `page` of the upload is on its way, and the pages before it are accepted.
+    func uploadsPage(_ page: Int) async -> Bool {
+        await eventually { clock.pendingSleeps == 1 && api.count("sync") == page }
+    }
+
+    /// The silent push, on its way: queued behind the running upload once its word is said.
+    func pushes(_ day: String) async -> Task<SyncCoordinator.Outcome, Never> {
+        let pipeline = pipeline
+        let push = Task { await pipeline.run(.silentPush(days: [day])) }
+        #expect(await eventually { sync.scoringLedger[day]?.kind == .scored })
+        return push
+    }
+
+    /// The rerun behind the upload is `trigger` (the coordinator's own state, polled).
+    func queues(_ trigger: SyncCoordinator.Trigger) async -> Bool {
+        for _ in 0..<5_000 {
+            if await pipeline.queuedRunTrigger == trigger { return true }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return false
+    }
+
+    /// The widget's file, somewhere of the test's own.
+    func widgetFile() -> URL {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("ledger-\(UUID().uuidString).json")
+        state.repository.widgetFile = file
+        state.repository.reloadWidget = {}
+        return file
+    }
+
+    /// What the widget's file shows.
+    func widgetKind(_ file: URL) -> ReadinessSnapshot.Kind? {
+        (try? Data(contentsOf: file)).flatMap { try? ReadinessSnapshot.decoder.decode(ReadinessSnapshot.self, from: $0) }?.kind
+    }
+
+    /// Scored, with the row's calibrating night: what stays "Scoring your night…" if the word stays pending.
+    func scoredCalibrating() {
+        scores(readiness: nil, calibrating: true)
+    }
+
+    // MARK: the switches, as RyftApp reacts
+
+    /// `.onChange(of: auth.accountID)`.
+    func accountChanged(from old: String?) {
+        let pipeline = pipeline
+        Task { await pipeline.cancel() }
+        state.accountChanged(from: old)
+        sync.accountChanged()
+    }
+
+    /// Account A hands over to account B, or demo data goes on. Each as the app does it.
+    func switches(_ to: LedgerSwitch, _ world: Switches) async {
+        switch to {
+        case .anotherAccount:
+            let old = world.auth.accountID
+            await world.signIn(Switches.b)
+            #expect(world.auth.accountID != old && world.auth.isSignedIn)
+            accountChanged(from: old)
+        case .demoData:
+            world.settings.demoMode = true
+            sync.forgetScoringWords()
+        }
     }
 }
 
@@ -706,6 +831,277 @@ struct ScoringLedgerTests {
             #expect(state.repository.widgetFacts.scoringState == .waitingForSleep, "demo \(on)")
             #expect(widgetKind(file) == .waitingForSleep, "demo \(on)") // republished
         }
+    }
+}
+
+/// Review round 4 of #88: who may say a word, and which of two words about a day stands.
+@Suite("Scoring ledger: whose word, and which came last")
+@MainActor
+struct ScoringWordOrderTests {
+    // MARK: a push and the upload around it
+
+    /// Finding 1: a push for the first page, while the second is on its way. The upload's word comes after the push,
+    /// about a write from before it: in the background nothing else would answer it, and a calibrating night stays on
+    /// "Scoring your night…" although its push arrived.
+    @Test func aPushForAnEarlierPageOutlivesTheUploadsWord() async {
+        let h = Harness(inBackground: true)
+        h.holdsPage(2, pages: 2)
+        let page = h.api.syncResponse
+        let answer = SyncResponse(samples: 2, sleep: 0, workouts: 0, daysTouched: [h.yesterday],
+                                  scoring: SyncScoring(queuedDays: [h.yesterday], expectedWithinSec: 20))
+        let hold = h.api.beforeSync
+        h.api.beforeSync = { [api = h.api] in
+            if api.count("sync") == 2 { api.syncResponse = answer }
+            await hold?()
+        }
+        let run = Task { await h.pipeline.run(.healthKit) }
+        #expect(await h.uploadsPage(2))
+        h.scoredCalibrating()
+        let push = await h.pushes(h.today)
+        h.clock.advance(by: .seconds(1))
+        _ = await run.value
+        _ = await push.value
+        #expect(page.daysTouched == [h.today])
+        #expect(h.sync.scoringLedger[h.today]?.kind == .scored)
+        #expect(h.sync.scoringLedger[h.yesterday]?.kind == .pending) // the second page's: nothing answered it
+        #expect(await eventually { h.vm.hero == .calibrating(nights: 2) }, "\(h.vm.hero)")
+        #expect(h.state.repository.widgetFacts.scoringState == .scored)
+    }
+
+    /// The other way round: the page accepted after the push wrote the day again, so that push can't have scored it.
+    @Test func aPageAcceptedAfterThePushWritesTheDayAgain() async {
+        let h = Harness(inBackground: true)
+        h.holdsPage(2, pages: 2)
+        let run = Task { await h.pipeline.run(.healthKit) }
+        #expect(await h.uploadsPage(2))
+        let push = await h.pushes(h.today)
+        h.clock.advance(by: .seconds(1))
+        _ = await run.value
+        _ = await push.value
+        #expect(h.sync.scoringLedger[h.today]?.kind == .pending)
+        // Its own push answers it.
+        _ = await h.pipeline.run(.silentPush(days: [h.today]))
+        #expect(h.sync.scoringLedger[h.today]?.kind == .scored)
+    }
+
+    /// The page before a transient failure is accepted, the push comes during the backoff, and the retry writes other days.
+    @Test func aPushDuringTheBackoffOutlivesTheRetrysWord() async {
+        let h = Harness(inBackground: true)
+        h.holdsPage(0, pages: 2)
+        let answer = SyncResponse(samples: 2, sleep: 0, workouts: 0, daysTouched: [h.yesterday],
+                                  scoring: SyncScoring(queuedDays: [h.yesterday], expectedWithinSec: 20))
+        h.api.beforeSync = { [api = h.api] in
+            if api.count("sync") == 1 { api.failNext = APIError.transport(URLError(.timedOut)) }
+            if api.count("sync") == 3 { api.syncResponse = answer }
+        }
+        let run = Task { await h.pipeline.run(.healthKit) }
+        #expect(await eventually { h.clock.pendingSleeps == 1 && h.api.count("sync") == 2 }) // the backoff
+        let push = await h.pushes(h.today)
+        h.clock.advance(by: SyncCoordinator.firstBackoff)
+        _ = await run.value
+        _ = await push.value
+        #expect(h.api.count("sync") == 3)
+        #expect(h.sync.scoringLedger[h.today]?.kind == .scored)
+        #expect(h.sync.scoringLedger[h.yesterday]?.kind == .pending)
+    }
+
+    /// A push merged into a queued `.daysChanged` run is one wait for all the days, not a write to the pushed day.
+    @Test func aPushMergedIntoADaysChangedRunStaysScored() async {
+        let h = Harness(inBackground: true)
+        h.holdsPage(1, pages: 1)
+        let run = Task { await h.pipeline.run(.healthKit) }
+        #expect(await h.uploadsPage(1))
+        let push = await h.pushes("2026-10-12")
+        let changed = Task { await h.pipeline.run(.daysChanged(days: [h.yesterday])) }
+        #expect(await h.queues(.daysChanged(days: ["2026-10-12", h.yesterday])))
+        h.clock.advance(by: .seconds(1))
+        _ = await run.value
+        _ = await push.value
+        _ = await changed.value
+        #expect(h.sync.scoringLedger["2026-10-12"]?.kind == .scored)
+        #expect(h.sync.scoringLedger[h.yesterday]?.kind == .pending)
+    }
+
+    /// A `.daysChanged` queued behind the upload was accepted before the push that follows it. A later write to the
+    /// pushed day stays a write.
+    @Test func aDaysChangedKeepsToItsOrderWithThePush() async {
+        let h = Harness(inBackground: true)
+        h.holdsPage(1, pages: 1)
+        let run = Task { await h.pipeline.run(.healthKit) }
+        #expect(await h.uploadsPage(1))
+        let changed = Task { await h.pipeline.run(.daysChanged(days: [h.yesterday])) }
+        #expect(await h.queues(.daysChanged(days: [h.yesterday])))
+        let push = await h.pushes(h.yesterday)
+        h.clock.advance(by: .seconds(1))
+        _ = await run.value
+        _ = await changed.value
+        _ = await push.value
+        #expect(h.sync.scoringLedger[h.yesterday]?.kind == .scored)
+        // Written again after that push.
+        h.clock.advance(by: .seconds(1))
+        _ = await h.pipeline.run(.daysChanged(days: [h.yesterday]))
+        #expect(h.sync.scoringLedger[h.yesterday]?.kind == .pending)
+    }
+
+    // MARK: whose word: an upload that outlives its side
+
+    /// Finding 2: an upload of A's ends after the switch, however it ends. `LiveSyncSteps.awaiting` checked only that
+    /// somebody is signed in, and `SyncService.upload` returns the days on success whoever is signed in by then.
+    @Test(arguments: LedgerSwitch.allCases, UploadEnding.allCases)
+    func anUploadThatOutlivesItsSideSaysNothing(to: LedgerSwitch, ending: UploadEnding) async {
+        let world = Switches()
+        let h = Harness(inBackground: true, switches: world)
+        let file = h.widgetFile()
+        defer { try? FileManager.default.removeItem(at: file) }
+        await h.pipeline.refreshStatus()
+        h.state.repository.publishWidget()
+        h.holdsPage(2, pages: ending == .finished ? 2 : 3)
+        let run = Task { await h.pipeline.run(.healthKit) }
+        #expect(await h.uploadsPage(2))
+        await h.switches(to, world)
+        switch ending {
+        case .cancelled: await h.pipeline.cancel()
+        case .failed: h.api.failNext = APIError.http(422, "bad") // the third page
+        case .finished: break // the last page's answer was on its way
+        }
+        h.clock.advance(by: .seconds(1))
+        _ = await run.value
+        #expect(h.sync.scoringLedger.isEmpty, "\(h.sync.scoringLedger)")
+        #expect(h.widgetKind(file) != .pending)
+    }
+
+    /// Finding 2: the days a failed attempt's pages touched, kept across the backoff. The retry finds demo data on and
+    /// sends nothing, or the account's cancel ends the backoff: the kept days were still said.
+    @Test(arguments: LedgerSwitch.allCases)
+    func daysKeptAcrossABackoffDieWithTheirSide(to: LedgerSwitch) async {
+        let world = Switches()
+        let h = Harness(inBackground: true, switches: world)
+        let file = h.widgetFile()
+        defer { try? FileManager.default.removeItem(at: file) }
+        await h.pipeline.refreshStatus()
+        h.state.repository.publishWidget()
+        h.holdsPage(0, pages: 2)
+        h.api.beforeSync = { [api = h.api] in
+            if api.count("sync") == 1 { api.failNext = APIError.transport(URLError(.timedOut)) }
+        }
+        let run = Task { await h.pipeline.run(.healthKit) }
+        #expect(await eventually { h.clock.pendingSleeps == 1 && h.api.count("sync") == 2 }) // the backoff
+        await h.switches(to, world)
+        if to == .demoData { h.clock.advance(by: SyncCoordinator.firstBackoff) }
+        _ = await run.value
+        #expect(h.sync.scoringLedger.isEmpty, "\(h.sync.scoringLedger)")
+        #expect(h.widgetKind(file) != .pending)
+    }
+
+    /// The upload's account is still in, and no switch happened: the day is its word, as ever.
+    @Test func anUploadThatStaysOnItsSideSaysItsDays() async {
+        let world = Switches()
+        let h = Harness(inBackground: true, switches: world)
+        h.holdsPage(2, pages: 2)
+        let run = Task { await h.pipeline.run(.healthKit) }
+        #expect(await h.uploadsPage(2))
+        h.clock.advance(by: .seconds(1))
+        _ = await run.value
+        #expect(h.sync.scoringLedger[h.today]?.kind == .pending)
+    }
+
+    /// The switch forgets the words of the side that left, not the next side's: a run that starts after it says its own.
+    @Test func theRunAfterTheSwitchSaysItsOwnWord() async {
+        let world = Switches()
+        let h = Harness(inBackground: true, switches: world)
+        h.holdsPage(2, pages: 2)
+        let run = Task { await h.pipeline.run(.healthKit) }
+        #expect(await h.uploadsPage(2))
+        await h.switches(.anotherAccount, world)
+        h.clock.advance(by: .seconds(1))
+        _ = await run.value
+        #expect(h.sync.scoringLedger.isEmpty)
+        h.health.pages = [Harness.stream: (0..<3).map { _ in Harness.night() }] // one past the two A's upload read
+        h.api.beforeSync = nil
+        let syncs = h.api.count("sync")
+        _ = await h.pipeline.run(.healthKit)
+        #expect(h.api.count("sync") == syncs + 1)
+        #expect(h.sync.scoringLedger[h.today]?.kind == .pending)
+    }
+
+    // MARK: whose word: a push
+
+    /// Finding 3: a delayed push after the sign-out wiped the widget. The word came back, and with it a file for
+    /// the lock screen that the wipe had removed.
+    @Test func aPushAfterASignOutSaysNothing() async {
+        let world = Switches()
+        let h = Harness(switches: world)
+        let file = h.widgetFile()
+        defer { try? FileManager.default.removeItem(at: file) }
+        let old = world.auth.accountID
+        await world.auth.signOut()
+        h.accountChanged(from: old)
+        _ = await h.pipeline.run(.silentPush(days: [h.today]))
+        #expect(h.sync.scoringLedger.isEmpty, "\(h.sync.scoringLedger)")
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
+    /// Finding 3: the real account's delayed push in demo data: the word isn't demo's, and Today and the widget are.
+    @Test func aPushInDemoDataSaysNothing() async {
+        let world = Switches()
+        let h = Harness(switches: world)
+        let file = h.widgetFile()
+        defer { try? FileManager.default.removeItem(at: file) }
+        await h.switches(.demoData, world)
+        h.state.syncStatus = SyncStatus(gate: nil, lastSyncAt: nil, lastSyncDevice: nil, latest: [:],
+                                        today: TodayState(day: h.today, state: .pending, scoredAt: nil, modelVersion: "2026.10.1"),
+                                        pendingDays: [h.today], expectedWithinSec: 20, resyncRequestedAt: nil)
+        _ = await h.pipeline.run(.silentPush(days: [h.today]))
+        #expect(h.sync.scoringLedger.isEmpty, "\(h.sync.scoringLedger)")
+        #expect(h.state.repository.widgetFacts.scoringState == .pending)
+    }
+
+    /// Out of demo data again, a push is the account's.
+    @Test func aPushForTheSignedInAccountIsItsWord() async {
+        let world = Switches()
+        let h = Harness(switches: world)
+        _ = await h.pipeline.run(.silentPush(days: [h.today]))
+        #expect(h.sync.scoringLedger[h.today]?.kind == .scored)
+        await h.switches(.demoData, world)
+        world.settings.demoMode = false
+        h.sync.forgetScoringWords()
+        _ = await h.pipeline.run(.silentPush(days: [h.yesterday]))
+        #expect(h.sync.scoringLedger[h.yesterday]?.kind == .scored)
+    }
+
+    // MARK: a push over a cached `waiting_for_sleep`
+
+    /// Finding 4: a push before the first poll. The status from before the upload still says `waiting_for_sleep`, the
+    /// refresh brought the scored, calibrating row, and the push ended the polling that would have corrected it.
+    @Test func aPushBeforeTheFirstPollLandsACalibratingDayOverACachedWaiting() async {
+        let h = Harness()
+        await h.pipeline.refreshStatus()
+        #expect(h.state.syncStatus?.today.state == .waitingForSleep)
+        let run = Task { await h.pipeline.run(.healthKit) }
+        #expect(await h.waitsOnTheClock())
+        h.scoredCalibrating()
+        await h.pipeline.run(.silentPush(days: [h.today]))
+        _ = await run.value
+        #expect(h.state.syncStatus?.today.state == .waitingForSleep) // no poll came
+        #expect(await eventually { h.vm.hero == .calibrating(nights: 2) }, "\(h.vm.hero)")
+        #expect(h.state.repository.widgetFacts.scoringState == .scored)
+    }
+
+    @Test func aScoredRowBeatsACachedWaitingOnlyAfterAPush() {
+        let day = "2026-10-19", at = Harness.now
+        let waiting = TodayState(day: day, state: .waitingForSleep, scoredAt: nil, modelVersion: "2026.10.1")
+        let scoredRow = DailyScore(day: day, computedAt: at, scoringState: .scored)
+        let pushed = ScoringWord(kind: .scored, at: at), written = ScoringWord(kind: .pending, at: at)
+        #expect(ScoringWord.state(day: day, word: pushed, status: waiting, row: scoredRow) == .scored)
+        // A row that doesn't say so: nothing scored the night (F2).
+        for state in [ScoringState.waitingForSleep, .pending, .stale, nil] {
+            let row = DailyScore(day: day, computedAt: at, scoringState: state)
+            #expect(ScoringWord.state(day: day, word: pushed, status: waiting, row: row) == .waitingForSleep)
+        }
+        #expect(ScoringWord.state(day: day, word: pushed, status: waiting, row: nil) == .waitingForSleep)
+        // No push: the platform's status rules over the row. A pending word wins over both.
+        #expect(ScoringWord.state(day: day, word: nil, status: waiting, row: scoredRow) == .waitingForSleep)
+        #expect(ScoringWord.state(day: day, word: written, status: waiting, row: scoredRow) == .pending)
     }
 }
 

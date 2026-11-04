@@ -32,13 +32,14 @@ struct ScoringWord: Equatable, Sendable {
     /// The platform's: its latest status when it's about `day`, else the cached row's. While no later status read has
     /// answered this phone's word, the word adjusts it: `pending` wins over anything; `scored` rules out `pending` and
     /// `stale` (the push means new data arrived), but a push for a day without last night's sleep leaves it waiting
-    /// for sleep.
+    /// for sleep. A `waiting_for_sleep` beside a row that says scored is a status from before the night: the push
+    /// ended the polling that would replace it, so the row rules.
     static func state(day: String, word: ScoringWord?, status: TodayState?, row: DailyScore?) -> ScoringState? {
         let platform = status?.day == day ? status?.state : row?.scoringState
         switch word?.kind {
         case nil: return platform
         case .pending?: return .pending
-        case .scored?: return platform == .waitingForSleep ? .waitingForSleep : .scored
+        case .scored?: return platform == .waitingForSleep && row?.scoringState != .scored ? .waitingForSleep : .scored
         }
     }
 

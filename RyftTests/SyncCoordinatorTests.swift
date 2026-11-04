@@ -101,7 +101,7 @@ private final class FakeSteps: SyncSteps {
     /// The scoring words (and the phases) go into `events` too, in order with the stages.
     var recordsWords = false
     private(set) var awaited: [[String]] = []
-    func awaiting(_ days: [String]) {
+    func awaiting(_ days: [String], generation: Int) {
         awaited.append(days)
         if recordsWords { events.append("awaiting:\(days.joined(separator: ","))") }
     }
