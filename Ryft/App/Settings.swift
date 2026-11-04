@@ -35,6 +35,11 @@ final class Settings {
     var jumpToNextExercise: Bool {
         didSet { defaults.set(jumpToNextExercise, forKey: "train.jumpToNext") }
     }
+    /// Profile → Training → Session layout. Counts only with `train.focused_session` on (`SessionLayout.effective`);
+    /// a device preference, so it stays on log-out.
+    var sessionLayout: SessionLayout {
+        didSet { defaults.set(sessionLayout.rawValue, forKey: "train.sessionLayout") }
+    }
 
     enum Appearance: String, CaseIterable, Identifiable {
         case dark, light, system
@@ -89,6 +94,7 @@ final class Settings {
         appearance = defaults.string(forKey: "appearance").flatMap(Appearance.init(rawValue:)) ?? .dark
         healthIntroDone = defaults.bool(forKey: "health.introDone")
         jumpToNextExercise = defaults.object(forKey: "train.jumpToNext") == nil || defaults.bool(forKey: "train.jumpToNext")
+        sessionLayout = defaults.string(forKey: "train.sessionLayout").flatMap(SessionLayout.init(rawValue:)) ?? .focused
         #if DEBUG
         devAPIURLOverride = defaults.string(forKey: "dev.apiURL") ?? ""
         devIngestURLOverride = defaults.string(forKey: "dev.ingestURL") ?? ""
@@ -136,6 +142,18 @@ final class Settings {
         let s = string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: s), url.host != nil else { return nil }
         return url
+    }
+}
+
+/// How the live session shows its exercises: one per page, or all in one list.
+enum SessionLayout: String, CaseIterable, Identifiable {
+    case focused, list
+
+    var id: String { rawValue }
+
+    /// What a session opens in: the stored choice while `train.focused_session` is on, List otherwise (plan.md, L5).
+    static func effective(flagOn: Bool, stored: SessionLayout) -> SessionLayout {
+        flagOn ? stored : .list
     }
 }
 
