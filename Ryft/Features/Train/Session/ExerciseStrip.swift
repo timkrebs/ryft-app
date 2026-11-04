@@ -124,6 +124,11 @@ struct ExerciseStrip: View {
                 guard let id else { return }
                 withAnimation(motion) { proxy.scrollTo(id, anchor: .center) }
             }
+            // Reorder moves the tile without changing the page.
+            .onChange(of: controller.exerciseGroups.flatMap { $0.map(\.id) }) {
+                guard let page else { return }
+                withAnimation(motion) { proxy.scrollTo(page, anchor: .center) }
+            }
         }
         .accessibilityElement(children: voiceOver ? .ignore : .contain)
         .accessibilityLabel(Text("Exercises", comment: "Exercise strip in a workout, VoiceOver: the adjustable element's label."))

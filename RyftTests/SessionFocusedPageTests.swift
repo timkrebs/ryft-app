@@ -456,6 +456,65 @@ struct SessionFocusedPageTests {
         #expect(r.controller.focus == SetFocus(setID: set.id, field: .reps))
     }
 
+    /// C3: the warm-up's group folded while Undo was on offer; the keypad never comes back on a hidden row.
+    @Test func aStoredTimeOrDistanceRowSpeaksNoGhostReps() {
+        let time = SetStoredValue(reps: nil, durationSec: 45, distanceM: nil)
+        let distance = SetStoredValue(reps: nil, durationSec: nil, distanceM: 5000)
+        #expect(SetRow.spokenReps(nil, ghost: 8, stored: time) == nil)
+        #expect(SetRow.spokenReps(nil, ghost: 8, stored: distance) == nil)
+        #expect(SetRow.spokenReps(nil, ghost: 8, stored: nil) == 8)
+        #expect(SetRow.spokenReps(6, ghost: 8, stored: nil) == 6)
+    }
+
+    @Test func undoOpensAFoldedGroupBeforeTheKeypadReturnsToItsWarmUp() async throws {
+        let r = rig()
+        let warmup = try #require(r.x.orderedSets.first)
+        warmup.isWarmup = true
+        r.store.save()
+        r.controller.jump(to: r.x.id)
+        r.controller.setWarmups(expanded: true, for: r.x)
+        r.controller.edit(warmup, .reps)
+        r.controller.beginReplace()
+        await r.controller.replaceExercise(r.x, with: r.incline)
+        #expect(r.x.orderedSets.first?.isWarmup == true, "the in-place replace keeps the flag")
+        r.controller.setWarmups(expanded: false, for: r.x)
+        #expect(r.controller.isFolded(r.x) && r.controller.undo != nil)
+
+        r.controller.undoReplace()
+
+        #expect(r.controller.expandedWarmups.contains(r.x.id), "the group is open again")
+        #expect(!r.controller.isFolded(r.x))
+        #expect(r.controller.focus == SetFocus(setID: warmup.id, field: .reps))
+    }
+
+    @Test func undoLeavesTheGroupAloneWhenItIsStillOpen() async throws {
+        let r = rig()
+        let warmup = try #require(r.x.orderedSets.first)
+        warmup.isWarmup = true
+        r.store.save()
+        r.controller.jump(to: r.x.id)
+        r.controller.setWarmups(expanded: true, for: r.x)
+        r.controller.edit(warmup, .reps)
+        r.controller.beginReplace()
+        await r.controller.replaceExercise(r.x, with: r.incline)
+        r.controller.undoReplace()
+        #expect(r.controller.expandedWarmups == [r.x.id])
+        #expect(r.controller.focus == SetFocus(setID: warmup.id, field: .reps))
+    }
+
+    @Test func undoInListNeverTouchesTheWarmUpGroups() async throws {
+        let r = rig(.list)
+        let warmup = try #require(r.x.orderedSets.first)
+        warmup.isWarmup = true
+        r.store.save()
+        r.controller.edit(warmup, .reps)
+        r.controller.beginReplace()
+        await r.controller.replaceExercise(r.x, with: r.incline)
+        r.controller.undoReplace()
+        #expect(r.controller.expandedWarmups.isEmpty, "List has no groups to open")
+        #expect(r.controller.focus == SetFocus(setID: warmup.id, field: .reps), "and the keypad still returns")
+    }
+
     @Test func aKeypadOpenOnAnotherPageClosesWhenUndoLands() async throws {
         let r = rig()
         await r.controller.replaceExercise(r.x, with: r.incline)
