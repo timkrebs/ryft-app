@@ -8,6 +8,8 @@ import UIKit
 /// `run` waits for the one before, so suites running side by side can't read each other's frames.
 @MainActor
 final class HostedWindow {
+    /// UIKit's accessibility calls are main-actor: nesting in the class doesn't carry its isolation over.
+    @MainActor
     struct Node {
         let label: String
         let value: String?
@@ -23,6 +25,8 @@ final class HostedWindow {
         func activate() -> Bool { object.accessibilityActivate() }
 
         var isAdjustable: Bool { traits.contains(.adjustable) }
+        /// What Voice Control takes for this element.
+        var inputLabels: [String] { object.accessibilityUserInputLabels ?? [] }
         func increment() { object.accessibilityIncrement() }
         func decrement() { object.accessibilityDecrement() }
 
@@ -160,8 +164,8 @@ final class HostedWindow {
         }
     }
 
-    /// Waits until the layout stopped moving: every frame and the page's scroll offset the same for 250 ms (a scroll is an
-    /// animation of 250 ms).
+    /// Waits until the layout stopped moving: every frame and the page's scroll offset the same for 500 ms, twice a scroll's
+    /// 250 ms animation, so a runner that stalls in the middle of one doesn't read as quiet.
     func settle(timeout: Duration = .seconds(6)) async throws {
         func snapshot() -> String {
             nodes().map { "\($0.label)@\($0.frame)" }.joined(separator: "|") + "|\(pageScrollView()?.contentOffset ?? .zero)"
@@ -170,7 +174,7 @@ final class HostedWindow {
         let deadline = ContinuousClock.now + timeout
         while same < 10 {
             guard ContinuousClock.now < deadline else { throw HostError.timeout("the layout to settle") }
-            try await Task.sleep(for: .milliseconds(25))
+            try await Task.sleep(for: .milliseconds(50))
             let now = snapshot()
             same = now == last ? same + 1 : 0
             last = now

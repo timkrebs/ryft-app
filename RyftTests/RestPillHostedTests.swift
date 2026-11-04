@@ -284,10 +284,10 @@ struct RestPillHostedTests {
     @Test("A −15 that runs the rest out turns the sheet into the idle one")
     func runningOutTurnsIdle() async throws {
         let r = rig()
-        r.controller.startRest(for: r.row, seconds: 10)
         try await HostedWindow.run(width: 390, height: 844, RestSheet(controller: r.controller, exercise: r.row)) { w in
-            try await w.settle()
-            #expect(w.node("Skip rest") != nil)
+            // Started here: `run` can wait behind another suite's window, and this rest runs on real time.
+            r.controller.startRest(for: r.row, seconds: 14)
+            try await w.wait("the running sheet") { w.node("Skip rest") != nil }
             w.node("Fifteen seconds less")?.activate()
             #expect(r.controller.rest.phase == .finished)
             #expect(r.controller.restsEnded == 1)
@@ -296,6 +296,26 @@ struct RestPillHostedTests {
             #expect(value(w) == RestSpeech.duration(r.row.restSec), "the idle value is the exercise's rest")
             #expect(w.node("Fifteen seconds less")?.isEnabled == true)
             #expect(r.row.restSec == 150)
+        }
+    }
+
+    @Test("Start answers to what the screen says as well as to the words VoiceOver says")
+    func startInputLabels() async throws {
+        let r = rig()
+        try await HostedWindow.run(width: 390, height: 844, RestSheet(controller: r.controller, exercise: r.row, seconds: 75)) { w in
+            try await w.settle()
+            #expect(w.node("Start rest")?.inputLabels == ["Start rest 1:15", "Start rest 1 minute 15 seconds"])
+        }
+    }
+
+    @Test("\"This rest only\" stands apart from the button that changes the exercise: above it, about the steppers")
+    func captionSitsAboveSave() async throws {
+        let r = rig()
+        try await HostedWindow.run(width: 390, height: 844, RestSheet(controller: r.controller, exercise: r.row, seconds: 75)) { w in
+            try await w.settle()
+            let caption = try #require(w.node("Changes the length of this rest only."))
+            let save = try #require(w.node("Set as rest for this exercise"))
+            #expect(caption.frame.maxY <= save.frame.minY)
         }
     }
 
@@ -325,12 +345,16 @@ struct RestPillHostedTests {
 
     @Test("The running pill is one adjustable button with a Skip action; the idle one is neither")
     func pillAccessibility() async throws {
-        let running = FocusedPreview.controller(.restRunning)
+        let running = FocusedPreview.controller(.midSession)
         defer { running.stop() }
+        let exercise = try #require(running.pageExercise)
         try await HostedWindow.run(width: 390, height: 844, SessionView(controller: running)) { w in
+            running.startRest(for: exercise, seconds: 114)
+            try await w.wait("the running pill") { pill(w)?.isAdjustable == true }
             try await w.settle()
             let node = try #require(pill(w))
-            #expect(node.value == "1 minute 55 seconds left, next Barbell row set 1 of 4", "\(node.value ?? "nil")")
+            // The words only: the clock runs here, and `spokenWarmup` pins the exact value at a fixed date.
+            #expect(node.value?.contains("left, next Barbell row set 1 of 4") == true, "\(node.value ?? "nil")")
             #expect(node.isAdjustable)
             #expect(node.actionNames == ["Skip rest"])
             let before = running.rest.remaining(at: .now)
