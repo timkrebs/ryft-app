@@ -251,15 +251,56 @@ struct OrbitGaugeBandRenderTests {
         }
     }
 
+    /// The two trees (the static drawing and the entrance's settled state) are rasterised by SwiftUI separately, and the
+    /// static one sometimes comes out slightly different for a while. Measured 2026-11-04: for tens of seconds in a
+    /// process, `strain 4.0, dark` had 7 anti-aliased edge pixels off by one level, the same 7 every time; the entrance's
+    /// frame was unchanged and a re-render of the static one matched itself. A probe saw it after an entrance render too,
+    /// up to 19 pixels at one level, so the trigger may be render order; it isn't known. Byte equality failed on that.
+    /// So: equal up to `tolerance` levels in a channel in at most `maxPixels` pixels. A different colour, position, size
+    /// or opacity of anything moves far more pixels or far more levels; what this no longer sees is a difference of
+    /// 2 levels or less in up to 64 of 266 256 pixels, which nobody can see.
+    private static let tolerance = 2, maxPixels = 64
+
+    static func nearlyEqual(_ a: [UInt8], _ b: [UInt8]) -> Bool {
+        guard a.count == b.count else { return false }
+        var off = 0
+        for i in stride(from: 0, to: a.count, by: 4) {
+            var worst = 0
+            for k in 0..<4 { worst = max(worst, abs(Int(a[i + k]) - Int(b[i + k]))) }
+            if worst > tolerance { return false }
+            if worst > 0 { off += 1 }
+        }
+        return off <= maxPixels
+    }
+
     @Test func theEntrancesLastFrameEqualsTheStaticRenderWithABand() throws {
         for strain in [4.0, 9.6, 16.5] as [Double] {
             for (schemeName, scheme, _) in Self.schemes {
                 let still = try #require(render(.scored(values(strain: strain, band: Self.band)), .large, scheme))
                 let end = try #require(render(.scored(values(strain: strain, band: Self.band)), .large, scheme,
                                               entrance: .assemble, frozenAt: OrbitEntranceFrame.end))
-                #expect(end.bytes == still.bytes, "strain \(strain), \(schemeName)")
+                #expect(Self.nearlyEqual(end.bytes, still.bytes), "strain \(strain), \(schemeName)")
             }
         }
+    }
+
+    /// The tolerance of the test above is narrow and not vacuous: the 7 one-level pixels it exists for pass, in any
+    /// colour channel; one level past the tolerance doesn't, one pixel past the count doesn't, nor does a different size.
+    @Test func theToleranceIsNarrow() {
+        let base = [UInt8](repeating: 40, count: 4 * 1000)
+        func changed(_ pixels: Int, by delta: Int, channel: Int = 1) -> [UInt8] {
+            var b = base
+            for p in 0..<pixels { b[p * 4 + channel] = UInt8(40 + delta) }
+            return b
+        }
+        #expect(Self.nearlyEqual(base, base))
+        #expect(Self.nearlyEqual(base, changed(7, by: 1)))
+        #expect(Self.nearlyEqual(base, changed(64, by: 2)))
+        #expect(!Self.nearlyEqual(base, changed(1, by: 3)))
+        #expect(!Self.nearlyEqual(base, changed(1, by: 3, channel: 0)))
+        #expect(!Self.nearlyEqual(base, changed(1, by: 3, channel: 2)))
+        #expect(!Self.nearlyEqual(base, changed(65, by: 1)))
+        #expect(!Self.nearlyEqual(base, Array(base.dropLast(4))))
     }
 
     // MARK: animatable sweep
