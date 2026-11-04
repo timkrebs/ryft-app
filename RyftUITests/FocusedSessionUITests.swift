@@ -99,6 +99,7 @@ final class FocusedSessionUITests: XCTestCase {
         requireExists(element(app, "set.0.1"), "List's first set row")
         XCTAssertFalse(element(app, "session.strip.0").exists, "no strip with the flag off")
         XCTAssertFalse(element(app, "session.page.title").exists, "no page")
+        XCTAssertFalse(element(app, "session.column").exists, "no fourth column but RPE")
     }
 
     @MainActor
@@ -113,6 +114,65 @@ final class FocusedSessionUITests: XCTestCase {
         for id in ["session.chip.replace", "session.chip.targets", "session.chip.rest"] {
             requireExists(element(app, id), id)
         }
+    }
+
+    // MARK: the fourth column
+
+    private func column(_ app: XCUIApplication) -> XCUIElement { element(app, "session.column") }
+
+    private func assertColumn(_ value: String, in app: XCUIApplication) {
+        wait(column(app), until: "value == '\(value)'", "the column shows \(value)")
+    }
+
+    /// The header cycles the column, each row and last time follow, and it doesn't reach the sets.
+    @MainActor
+    func testTheColumnHeaderCyclesAndTheRowsFollow() throws {
+        let app = openFocused()
+        requireExists(column(app), "the fourth column's header is a button")
+        assertColumn("Estimated 1RM", in: app)
+        let row = element(app, "set.0.1")
+        wait(row, until: "label CONTAINS 'estimated one-rep max'", "the row says its estimate")
+        column(app).tap()
+        assertColumn("Estimated 10RM", in: app)
+        wait(row, until: "label CONTAINS 'estimated ten-rep max'", "and in the next mode")
+        column(app).tap()
+        assertColumn("RPE", in: app)
+        wait(row, until: "NOT label CONTAINS 'estimated'", "RPE has no estimate")
+        column(app).tap()
+        assertColumn("Estimated 1RM", in: app)
+    }
+
+    /// RPE doesn't depend on the column: the context menu opens its field, and the row says what was typed.
+    @MainActor
+    func testEditRPEWorksFromAnEstimateColumn() throws {
+        let app = openFocused()
+        assertColumn("Estimated 1RM", in: app)
+        let row = element(app, "set.0.1")
+        row.press(forDuration: 1.0)
+        let edit = app.buttons["Edit RPE"]
+        requireExists(edit, "the row's context menu has Edit RPE")
+        edit.tap()
+        assertColumn("RPE", in: app)
+        app.buttons["8"].tap()
+        app.buttons["Done"].tap()
+        wait(row, until: "label CONTAINS 'RPE 8'", "the row says its RPE")
+        assertColumn("RPE", in: app) // nothing was chosen, and RPE is in use now: the default rule
+    }
+
+    /// The choice outlives the session on screen.
+    @MainActor
+    func testTheColumnChoiceSurvivesARelaunch() throws {
+        var app = openFocused()
+        column(app).tap()
+        assertColumn("Estimated 10RM", in: app)
+        app.terminate()
+        app = launch(extra: Self.focusedOn, reset: false)
+        let resume = app.buttons["train.resume"]
+        requireExists(resume, "the workout in progress is offered again")
+        app.reveal(resume)
+        resume.tap()
+        requireExists(column(app), "the header is back")
+        assertColumn("Estimated 10RM", in: app)
     }
 
     // MARK: paging
