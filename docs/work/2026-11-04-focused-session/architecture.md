@@ -358,11 +358,10 @@ demo plan's.
 ```swift
 enum SessionLayout: String { case list, focused }                 // Settings.swift, next to Appearance
 var sessionLayout: SessionLayout                                  // didSet writes "train.sessionLayout"
-sessionLayout = defaults.string(forKey: "train.sessionLayout").flatMap(SessionLayout.init(rawValue:)) ?? .list
+sessionLayout = defaults.string(forKey: "train.sessionLayout").flatMap(SessionLayout.init(rawValue:)) ?? .focused
 ```
 
-`-train.sessionLayout focused` works because launch arguments reach `defaults`, as `-appearance dark` already does. T5
-flips `?? .list` and adds the picker. A device preference, like `train.jumpToNext`: it stays on log-out. The coordinator
+`-train.sessionLayout focused` works because launch arguments reach `defaults`, as `-appearance dark` already does. The flag is the gate (L5): `SessionLayout.effective` gives List when it is off, whatever is stored. T5 adds the picker. A device preference, like `train.jumpToNext`: it stays on log-out. The coordinator
 holds `sessionLayout: @MainActor () -> SessionLayout = { Settings.shared.sessionLayout }`, as it holds `jumpToNext`, and
 passes it to `SessionController.init(…, layout:)` as a value, default `.list`, so no existing test or preview changes.
 `SessionView` reads `controller.layout`; Observation tracks `Settings`, and there is one owner.
