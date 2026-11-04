@@ -481,6 +481,11 @@ final class Repository {
         didSet { if todayStatus != oldValue { publishWidget() } }
     }
 
+    /// The phone's word about the days being scored, read from its one store (`SyncService.scoringLedger`;
+    /// `LiveSyncSteps` connects it, and SyncService republishes the widget when it changes): today's adjusts
+    /// `todayStatus` as on Today (`ScoringWord.state`). None in tests and previews that don't connect it.
+    @ObservationIgnored var scoringLedger: @MainActor () -> [String: ScoringWord] = { [:] }
+
     /// Tonight's bedtime from Bedtime & wake (`BedtimePlanner`): "Bed by 22:41" on the widget
     /// in the evening.
     var tonightBedtime: Date? {
@@ -512,7 +517,8 @@ final class Repository {
         let key = DayFormat.string(from: now)
         let today = score(key)
         var facts = TodayScoreFacts(day: key, today: today,
-                                    scoringState: todayStatus?.day == key ? todayStatus?.state : today?.scoringState,
+                                    scoringState: ScoringWord.state(day: key, word: scoringLedger()[key], status: todayStatus,
+                                                                    row: today),
                                     prior: history(from: DayFormat.shift(now, days: -(AppState.historyDays - 1)), to: now)
                                         .filter { $0.day < key })
         facts.devicesSetup = env.flags.isOn(.devicesSetup)
@@ -1059,8 +1065,9 @@ final class ReadScheduler {
         }
     }
 
-    /// Writes an answer into the read models; any caller's, since every store for one key is the same.
-    typealias Store = @MainActor (any Sendable) -> Void
+    /// Writes an answer into the read models; any caller's, since every store for one key is the same. With the
+    /// flight's start: when the answer was asked for, on this phone's clock (retries only ask later).
+    typealias Store = @MainActor (any Sendable, Date) -> Void
 
     @MainActor
     private final class Flight {
@@ -1073,6 +1080,8 @@ final class ReadScheduler {
         /// One shared rerun for `.changed` callers that need data newer than this flight, and its store.
         var followUp: Outcome?
         var followUpStore: Store?
+        /// Callers that joined it in progress (`joiners(for:)`).
+        var joiners = 0
 
         init(started: Date) {
             self.started = started
@@ -1110,6 +1119,22 @@ final class ReadScheduler {
         }
         return try await outcome.value() as? T
     }
+
+    /// The same, and `store` learns when the flight that answered was started: a caller that joined a flight gets
+    /// that flight's start, not its own (`SyncService.receive(_:requestedAt:)`).
+    @discardableResult
+    func run<T: Sendable>(_ key: ReadKey, mode: ReadMode = .latest, userInitiated: Bool = false,
+                          storeAsked: @escaping @MainActor (T, Date) -> Void,
+                          _ fetch: @escaping @MainActor () async throws -> T) async throws -> T? {
+        try Task.checkCancellation()
+        let store: Store = { value, started in if let value = value as? T { storeAsked(value, started) } }
+        guard let outcome = enter(key, mode: mode, userInitiated: userInitiated, store: store, fetch) else { return nil }
+        return try await outcome.value() as? T
+    }
+
+    /// How many callers joined `key`'s flight in progress (none when nothing is in flight). For tests that need a read
+    /// to have joined an earlier flight, not started its own; nothing in the app decides by it.
+    func joiners(for key: ReadKey) -> Int { flights[key]?.joiners ?? 0 }
 
     /// Cancels every read in flight (sign-out, account change): their callers are released with
     /// `CancellationError`, nothing is recorded or stored for them.
@@ -1166,6 +1191,7 @@ final class ReadScheduler {
                 return flight.followUp ?? followUp(after: flight, key, userInitiated: userInitiated, fetch)
             }
             if flight.store == nil { flight.store = store }
+            flight.joiners += 1
             return flight.outcome
         }
         return start(key, store: store, fetch).outcome
@@ -1190,7 +1216,7 @@ final class ReadScheduler {
                     let signposts = Signposts.reads
                     let interval = signposts.beginInterval("store", id: signposts.makeSignpostID(),
                                                            "\(key.resource.rawValue, privacy: .public)")
-                    store(value)
+                    store(value, flight.started)
                     signposts.endInterval("store", interval)
                 }
                 result = .success(value)
@@ -1238,7 +1264,7 @@ final class ReadScheduler {
 
     private static func erase<T: Sendable>(_ store: (@MainActor (T) -> Void)?) -> Store? {
         guard let store else { return nil }
-        return { value in if let value = value as? T { store(value) } }
+        return { value, _ in if let value = value as? T { store(value) } }
     }
 
     /// The tries for one flight: single attempts through the budget, backoff between them.
