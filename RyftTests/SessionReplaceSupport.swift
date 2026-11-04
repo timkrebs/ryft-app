@@ -84,7 +84,7 @@ final class ReplaceRig {
         }
         store.save()
         controller = SessionController(session: session, sync: sync, liveActivity: nil, clock: clock, library: library,
-                                       layout: { sessionLayout })
+                                       layout: sessionLayout)
     }
 
     deinit { MainActor.assumeIsolated { controller.stop() } }

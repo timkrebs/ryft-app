@@ -95,7 +95,7 @@ func jump(to id: UUID) {
     showPage(id)
 }
 func showPage(_ id: UUID?) {
-    guard layout() == .focused, id != session.currentExerciseID else { return }   // List never writes it
+    guard layout == .focused, id != session.currentExerciseID else { return }   // List never writes it
     if let focused = focusedSet, focused.exercise.id != id { focus = nil }
     tappedSet = nil
     session.currentExerciseID = id
@@ -176,7 +176,7 @@ page, so neighbours render correctly during a swipe. `nil` means no open row, an
 **The planner stays; its input changes.** In Focused, a folded group's warm-ups are left out of the states it sees:
 
 ```swift
-func isFolded(_ ex: LocalSessionExercise) -> Bool { layout() == .focused && !expandedWarmups.contains(ex.id) }
+func isFolded(_ ex: LocalSessionExercise) -> Bool { layout == .focused && !expandedWarmups.contains(ex.id) }
 func plannerStates(of list: [LocalSessionExercise]) -> [SessionAdvance.ExerciseState]   // states(of:) minus folded warm-ups
 ```
 
@@ -364,8 +364,8 @@ sessionLayout = defaults.string(forKey: "train.sessionLayout").flatMap(SessionLa
 `-train.sessionLayout focused` works because launch arguments reach `defaults`, as `-appearance dark` already does. T5
 flips `?? .list` and adds the picker. A device preference, like `train.jumpToNext`: it stays on log-out. The coordinator
 holds `sessionLayout: @MainActor () -> SessionLayout = { Settings.shared.sessionLayout }`, as it holds `jumpToNext`, and
-passes it to `SessionController.init(…, layout:)`, default `{ .list }`, so no existing test or preview changes.
-`SessionView` reads `controller.layout()`; Observation tracks `Settings`, and there is one owner.
+passes it to `SessionController.init(…, layout:)` as a value, default `.list`, so no existing test or preview changes.
+`SessionView` reads `controller.layout`; Observation tracks `Settings`, and there is one owner.
 
 ## 9. What could go wrong
 
@@ -406,7 +406,7 @@ Everything in `Ryft/` unless noted. New files need no project edit (synchronized
 6. `Features/Train/Session/SessionController+Page.swift` (new): §2, plus `isFolded`, `setWarmups(expanded:for:)`, `addWarmup(to:)`.
 7. `Features/Train/Session/SessionController+Advance.swift`: `plannerStates`, used by `advanceStates` and `nextOpenSet`.
 8. `Features/Train/Session/SessionController+Replace.swift`: `showPage` in `replace` (split) and `undoReplace`.
-9. `Features/Train/TrainCoordinator.swift`: `sessionLayout`, `open()`; `TrainPreview.liveController(layout:)`.
+9. `Features/Train/TrainCoordinator.swift`: `sessionLayout`, `open()`.
 10. `Features/Train/Session/ExerciseCard.swift`: `SetRow.swipeToDelete`; `menuItems` moves to `ExerciseMenuItems.swift` (new).
 11. `Features/Train/Session/SessionView.swift`: `listContent`, the switch, a `SessionActions` value for the shared sheets.
 12. New in `Features/Train/Session/`: `SessionPager.swift`, `ExerciseStrip.swift`, `ExercisePage.swift`,
@@ -437,7 +437,7 @@ Everything in `Ryft/` unless noted. New files need no project edit (synchronized
 
 ## Test strategy
 
-Everything with `TestClock` and `TrainStore(inMemory:)`, `layout: { .focused }`, as in `SessionAutoAdvanceTests`.
+Everything with `TestClock` and `TrainStore(inMemory:)`, `layout: .focused`, as in `SessionAutoAdvanceTests`.
 
 - **Pure tables:** `resolve` (present, nil, gone, all done, empty), `neighbour`, `activeSet` (every row of L6 and §3).
 - **No upload:** after `jump`, `follow`, `pinPage`, folding and `startRest(for:)`, `updatedAt` and `pendingOps()` are unchanged,

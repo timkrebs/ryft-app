@@ -68,13 +68,13 @@ final class SessionController: Identifiable {
 
     /// `liveActivity` is nil in previews and tests.
     init(session: LocalSession, sync: TrainSyncService, liveActivity: RestActivityController?,
-         clock: AppClock = SystemClock(), library: SessionLibrary? = nil, layout: @MainActor () -> SessionLayout = { .list }) {
+         clock: AppClock = SystemClock(), library: SessionLibrary? = nil, layout: SessionLayout = .list) {
         self.session = session
         self.sessionID = session.id
         self.sync = sync
         self.clock = clock
         self.library = library
-        self.layout = layout()
+        self.layout = layout
         self.liveActivity = liveActivity
         rest = RestTimer(endsAt: session.restEndsAt, total: session.restTotal, now: .now)
         machine = LiveSessionMachine.make { [weak self] to, _ in self?.phase = to }

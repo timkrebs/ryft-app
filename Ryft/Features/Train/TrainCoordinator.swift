@@ -148,7 +148,7 @@ final class TrainCoordinator {
         let controller = live?.session.id == s.id
             ? live
             : SessionController(session: s, sync: sync, liveActivity: liveActivity, clock: clock, library: library,
-                                layout: sessionLayout)
+                                layout: sessionLayout())
         controller?.jumpToNext = jumpToNext
         if live !== controller { live?.stop() }
         // The start sheet must be gone before the full-screen session can appear.
@@ -260,10 +260,10 @@ enum TrainPreview {
     static let coordinator = TrainCoordinator(sync: sync, library: library)
 
     /// The live session preview's controller (no Live Activity from previews).
-    static func liveController(layout: SessionLayout = .list) -> SessionController {
+    static func liveController() -> SessionController {
         let s = store.activeSession() ?? MockTrain.liveSession(in: store)
         coordinator.refreshActive()
-        return SessionController(session: s, sync: sync, liveActivity: nil, library: library, layout: { layout })
+        return SessionController(session: s, sync: sync, liveActivity: nil, library: library)
     }
 }
 

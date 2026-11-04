@@ -241,7 +241,7 @@ struct SessionFocusedPageTests {
         let r = rig()
         r.controller.jump(to: r.curl.id)
         let rebuilt = SessionController(session: r.session, sync: r.sync, liveActivity: nil, clock: r.clock,
-                                        library: r.library, layout: { .focused })
+                                        library: r.library, layout: .focused)
         defer { rebuilt.stop() }
         #expect(rebuilt.pageExerciseID == r.curl.id)
     }
@@ -249,7 +249,7 @@ struct SessionFocusedPageTests {
     @Test func aRebuildWithoutAPageStoresNothingUntilTheScreenPinsIt() {
         let r = rig()
         let rebuilt = SessionController(session: r.session, sync: r.sync, liveActivity: nil, clock: r.clock,
-                                        library: r.library, layout: { .focused })
+                                        library: r.library, layout: .focused)
         defer { rebuilt.stop() }
         #expect(r.session.currentExerciseID == nil && rebuilt.pageExerciseID == r.row.id)
     }
@@ -272,7 +272,7 @@ struct SessionFocusedPageTests {
         r.controller.jump(to: r.curl.id)
         // A List controller's remove leaves the id behind (it never writes the page).
         let list = SessionController(session: r.session, sync: r.sync, liveActivity: nil, clock: r.clock, library: r.library,
-                                     layout: { .list })
+                                     layout: .list)
         defer { list.stop() }
         list.remove(r.curl)
         #expect(r.session.currentExerciseID == r.curl.id, "the stale id is still there")
@@ -794,36 +794,6 @@ struct SessionFocusedPageTests {
         @MainActor func read() -> SessionLayout { reads += 1; return layout }
     }
 
-    private func controller(on r: ReplaceRig, _ box: LayoutBox) -> SessionController {
-        SessionController(session: r.session, sync: r.sync, liveActivity: nil, clock: r.clock, library: r.library,
-                          layout: { box.read() })
-    }
-
-    @Test func aFlagChangeMidSessionDoesNotChangeARunningFocusedController() {
-        let r = rig()
-        let box = LayoutBox(.focused)
-        let c = controller(on: r, box)
-        defer { c.stop() }
-        box.layout = .list
-        c.jump(to: r.curl.id)
-        c.remove(r.curl)
-        #expect(c.layout == .focused)
-        #expect(r.session.currentExerciseID == r.lateral.id, "still writes the page")
-        #expect(box.reads == 1, "asked once, when the controller was built")
-    }
-
-    @Test func aFlagChangeMidSessionDoesNotChangeARunningListController() {
-        let r = rig()
-        let box = LayoutBox(.list)
-        let c = controller(on: r, box)
-        defer { c.stop() }
-        box.layout = .focused
-        c.jump(to: r.curl.id)
-        #expect(c.layout == .list && r.session.currentExerciseID == nil)
-        #expect(c.advanceStates == SessionController.states(of: c.exercises))
-        #expect(box.reads == 1)
-    }
-
     @Test func theCoordinatorReadsItWhenTheControllerIsBuiltAndNotWhenItIsResumed() {
         let r = rig()
         let coordinator = TrainCoordinator(sync: r.sync, library: TrainLibrary.preview(store: r.store), liveActivities: false)
@@ -838,7 +808,7 @@ struct SessionFocusedPageTests {
         #expect(box.reads == 1)
         coordinator.close()
         coordinator.resume()
-        #expect(coordinator.live?.layout == .list, "the next session picks the new value up")
+        #expect(coordinator.live?.layout == .list, "reopening picks the new value up")
         #expect(box.reads == 2)
     }
 }

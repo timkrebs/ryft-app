@@ -36,7 +36,7 @@ enum FocusedPreview {
         sync.gate = { _ in nil }
         let session = make(scenario, in: store)
         store.save()
-        let controller = SessionController(session: session, sync: sync, liveActivity: nil, layout: { .focused })
+        let controller = SessionController(session: session, sync: sync, liveActivity: nil, layout: .focused)
         if scenario == .warmupsOpen, let ex = controller.pageExercise { controller.setWarmups(expanded: true, for: ex) }
         return controller
     }
