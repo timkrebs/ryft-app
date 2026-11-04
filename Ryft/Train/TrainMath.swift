@@ -12,6 +12,12 @@ enum E1RM {
         return w * (1 + Double(min(r, maxReps)) / 30)
     }
 
+    /// The load for ten reps on the same line: from `e1RM = w × (1 + 10 / 30)`, `w = e1RM × 30 / 40`. It goes through
+    /// `estimate`, so the cap holds (L13): 15 reps read as 12.
+    static func tenRM(weightKg: Double?, reps: Int?) -> Double? {
+        estimate(weightKg: weightKg, reps: reps).map { $0 * 30 / 40 }
+    }
+
     /// Best estimate over the working sets (warm-ups don't count).
     static func best(of sets: [SessionSet]) -> Double? {
         sets.filter { !$0.isWarmup }.compactMap { estimate(weightKg: $0.weightKg, reps: $0.reps) }.max()
