@@ -1,0 +1,104 @@
+import Foundation
+
+/// The Focused layout's page and warm-up groups (architecture.md §2 to §5, ADR 0013). A page change is no edit: it
+/// never calls `sessionChanged`, so it reaches neither `updatedAt` nor the outbox, and the undo window keeps running.
+extension SessionController {
+    // MARK: the page
+
+    /// The exercise on screen: the pager's and the strip's only source.
+    var pageExerciseID: UUID? {
+        SessionPage.resolve(stored: session.currentExerciseID, in: Self.states(of: exercises))
+    }
+
+    var pageExercise: LocalSessionExercise? {
+        guard let id = pageExerciseID else { return nil }
+        return exercises.first { $0.id == id }
+    }
+
+    /// The user moved: a swipe, a strip tap or adjust, the + tile. No jump for the next 3 s. An echo of the page that
+    /// already shows returns here, so a programmatic move can't stamp the window.
+    func jump(to id: UUID) {
+        guard id != pageExerciseID, exercises.contains(where: { $0.id == id }) else { return }
+        userScrolled()
+        showPage(id)
+    }
+
+    /// The planner moved (`advance`): no stamp, or the next flip of a superset would stay. Only `to` counts, and a row
+    /// that went since the decision is ignored.
+    func follow(_ request: AdvanceRequest) {
+        guard case let .advance(_, to) = request.step, exercises.contains(where: { $0.id == to.exerciseID }) else { return }
+        showPage(to.exerciseID)
+    }
+
+    /// The screen appeared, or the resolved page changed: what `resolve` chose is stored, so a nil page can't move by
+    /// itself as sets get checked.
+    func pinPage() {
+        showPage(pageExerciseID)
+    }
+
+    /// The summary closed. Not at Finish: that can wait 10 s on screen, and the fallback would flip the page behind it.
+    func clearPage() {
+        showPage(nil)
+    }
+
+    /// Every page change ends here. Invariant: an open keypad's set is on the current page. `commitBuffer` runs on
+    /// every key, so closing the keypad has nothing to flush.
+    func showPage(_ id: UUID?) {
+        guard layout == .focused, id != session.currentExerciseID else { return }
+        if let focused = focusedSet, focused.exercise.id != id { focus = nil }
+        tappedSet = nil
+        session.currentExerciseID = id
+        store.save()
+    }
+
+    /// `ex` is about to go: its page moves first, while `focusedSet` still finds the row.
+    func leavePage(of ex: LocalSessionExercise) {
+        guard layout == .focused, ex.id == pageExerciseID else { return }
+        showPage(SessionPage.neighbour(of: ex.id, in: exercises.map(\.id)))
+    }
+
+    // MARK: warm-up groups
+
+    /// Focused hides this exercise's warm-ups: they leave the planner's input too (`plannerStates`). Always false in List.
+    func isFolded(_ ex: LocalSessionExercise) -> Bool {
+        layout == .focused && !expandedWarmups.contains(ex.id)
+    }
+
+    /// Folding changes no set and uploads nothing, but "Next:" can change. A tapped warm-up isn't active any more.
+    func setWarmups(expanded: Bool, for ex: LocalSessionExercise) {
+        if expanded {
+            expandedWarmups.insert(ex.id)
+        } else {
+            expandedWarmups.remove(ex.id)
+            if ex.sets.contains(where: { $0.id == tappedSet && $0.isWarmup }) { tappedSet = nil }
+        }
+        refreshActivity()
+    }
+
+    /// The group folds itself once its last warm-up is checked (L6). `expandedWarmups` is empty in List: nothing happens.
+    func foldWarmupsIfDone(after set: LocalSet, in ex: LocalSessionExercise) {
+        guard set.isWarmup, expandedWarmups.contains(ex.id),
+              !ex.sets.contains(where: { $0.isWarmup && !$0.isCompleted }) else { return }
+        setWarmups(expanded: false, for: ex)
+    }
+
+    /// The `…` menu and the open group: a new set at the end, as a warm-up, shown at once (`toggleWarmup`).
+    func addWarmup(to ex: LocalSessionExercise) {
+        toggleWarmup(addSet(to: ex))
+    }
+
+    // MARK: strip
+
+    /// Consecutive exercises of one superset group together: the strip's bar, List's bracket.
+    var exerciseGroups: [[LocalSessionExercise]] {
+        var out: [[LocalSessionExercise]] = []
+        for ex in exercises {
+            if let g = ex.supersetGroup, let last = out.last?.last, last.supersetGroup == g {
+                out[out.count - 1].append(ex)
+            } else {
+                out.append([ex])
+            }
+        }
+        return out
+    }
+}

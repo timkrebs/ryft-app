@@ -229,6 +229,8 @@ extension SessionController {
         sync.hold(self.id)
         store.save()
         refreshActivity()
+        // A split leaves only done sets on X, so the page follows to the row that continues (only if it was on X).
+        if let inserted, pageExerciseID == ex.id { showPage(inserted) }
 
         let undoID = UUID()
         var planSave: Task<Plan?, Never>?
@@ -259,6 +261,8 @@ extension SessionController {
         // Signed out or another account since: the session isn't there to restore.
         guard u.generation == sync.generation, isUnderway,
               let x = session.exercises.first(where: { $0.id == u.before.id }) else { return }
+        // The toast is screen-wide, so Undo can come from any page; it lands on what came back, and `edit` below is safe.
+        showPage(x.id)
         let now = Date.now
 
         if let yID = u.inserted, let y = session.exercises.first(where: { $0.id == yID }) {
