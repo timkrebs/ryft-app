@@ -94,6 +94,8 @@ Store "What's New".
 - German: the end of a workout reads „Alle Sätze geschafft“ instead of „Alle Sätze erledigt“.
 
 ### Fixed
+- Today: after a sync, last night shows as being scored on every path (a background sync, a relaunch, a pull),
+  and a calibrating day no longer stays on "Scoring your night…" after its score arrives.
 - Today's baseline counter no longer sits at 0 of 7 when your tracker sends no HRV: it counts the resting-heart-rate
   nights that are filling and says why, shows your readiness when there is one, and never puts a recovery percentage
   beside the counter. With a tracker that doesn't share HRV chosen in setup, Today says so from the first week
