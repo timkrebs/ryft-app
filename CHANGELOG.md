@@ -93,6 +93,7 @@ Store "What's New".
   until you agree. Deleting an activity, a night or a workout reaches RYFT even without it.
 
 ### Fixed
+- If this iPhone can't delete your training data when you sign out, RYFT tries again when another account signs in.
 - Today's baseline counter no longer sits at 0 of 7 when your tracker sends no HRV: it counts the resting-heart-rate
   nights that are filling and says why, shows your readiness when there is one, and never puts a recovery percentage
   beside the counter. With a tracker that doesn't share HRV chosen in setup, Today says so from the first week

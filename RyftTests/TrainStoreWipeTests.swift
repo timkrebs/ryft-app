@@ -581,7 +581,7 @@ struct TrainStoreWipeTests {
     }
 
     /// Which chunks are parked work is read from the activities, so with no answer every chunk stays, the other
-    /// account's too until the wipe that can read. A kept chunk is the only copy of that track.
+    /// account's too, until another account's wipe or this account's return. A kept chunk is the only copy of that track.
     @Test func aFailedReadTakesNoParkedTrack() throws {
         let disk = try StoreOnDisk()
         let unsent = activity(), theirs = activity("account-b")
@@ -662,8 +662,6 @@ struct TrainStoreWipeTests {
         try rig.disk.expectNothingLeft()
     }
 
-    /// Signed in over another account: a token refresh must not write the new id over the one that makes the next
-    /// launch wipe again.
     /// Nothing for the save to fail on: the account's day stays in the file and the next account must not find it.
     @Test(arguments: WipeValues.endings)
     func aRefusedDeleteKeepsTheAccountSoTheNextOneWipesAgain(_ ending: AuthService.SignOutReason) async throws {
@@ -685,6 +683,8 @@ struct TrainStoreWipeTests {
         #expect(try rig.disk.inFile[.cachedDay] == 0)
     }
 
+    /// Signed in over another account: a token refresh must not write the new id over the one that makes the next
+    /// launch wipe again.
     @Test func aRefusedWipeAtSignInIsTriedAgainAtTheNextLaunch() async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         rig.disk.session(checked: true)
