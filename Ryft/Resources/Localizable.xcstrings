@@ -125,7 +125,15 @@
       }
     },
     "%@ left" : {
-      "comment" : "VoiceOver, the rest pill: the time left, e.g. 1 minute 54 seconds left."
+      "comment" : "VoiceOver, the rest pill: the time left, e.g. 1 minute 54 seconds left.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "noch %@"
+          }
+        }
+      }
     },
     "%@ need %@, which %@ doesn't share" : {
       "comment" : "Setup card's features line: features (several), the signals they need, the app that doesn't share them.",
@@ -3391,7 +3399,15 @@
       }
     },
     "Changes the length of this rest only." : {
-      "comment" : "The rest sheet in a workout, under Set as rest for this exercise: the steppers alone don't change the exercise."
+      "comment" : "The rest sheet in a workout, under Set as rest for this exercise: the steppers alone don't change the exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ändert nur die Länge dieser Pause."
+          }
+        }
+      }
     },
     "Changing a setting doesn't rescore past days on its own." : {
       "localizations" : {
@@ -5547,10 +5563,26 @@
       }
     },
     "next %@ set %lld of %lld" : {
-      "comment" : "VoiceOver, the rest pill: the next set, e.g. next Bench press set 2 of 4."
+      "comment" : "VoiceOver, the rest pill: the next set, e.g. next Bench press set 2 of 4.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "nächster Satz: %@, Satz %lld von %lld"
+          }
+        }
+      }
     },
     "next %@ warm-up %lld of %lld" : {
-      "comment" : "VoiceOver, the rest pill: the next set when it is a warm-up, e.g. next Bench press warm-up 1 of 2."
+      "comment" : "VoiceOver, the rest pill: the next set when it is a warm-up, e.g. next Bench press warm-up 1 of 2.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "nächster Aufwärmsatz: %@, Aufwärmsatz %lld von %lld"
+          }
+        }
+      }
     },
     "No data, %@" : {
       "comment" : "VoiceOver value of a Today tile without a number, with the line under it, e.g. “No data, calibrating”.",
@@ -5564,7 +5596,15 @@
       }
     },
     "Not running. Starts at %@" : {
-      "comment" : "VoiceOver, the idle rest pill. 1: the exercise's rest, e.g. 1 minute 15 seconds."
+      "comment" : "VoiceOver, the idle rest pill. 1: the exercise's rest, e.g. 1 minute 15 seconds.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Läuft nicht. Startet mit %@"
+          }
+        }
+      }
     },
     "not started" : {
       "comment" : "Exercise strip, VoiceOver: an exercise with no set checked.",
@@ -5765,7 +5805,15 @@
       }
     },
     "Rest for this exercise" : {
-      "comment" : "Title of the sheet behind the rest chip in a workout."
+      "comment" : "Title of the sheet behind the rest chip in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pause für diese Übung"
+          }
+        }
+      }
     },
     "Rest, %@" : {
       "comment" : "VoiceOver: the rest chip on an exercise's page. 1: e.g. 1 minute, 15 seconds.",
@@ -5812,7 +5860,15 @@
       }
     },
     "Set as rest for this exercise" : {
-      "comment" : "The rest sheet in a workout: keeps the chosen length for this exercise."
+      "comment" : "The rest sheet in a workout: keeps the chosen length for this exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Als Pause für diese Übung festlegen"
+          }
+        }
+      }
     },
     "Set target" : {
       "comment" : "The target chip of an exercise without a target, in a workout.",
@@ -5859,7 +5915,15 @@
       }
     },
     "Start rest %@" : {
-      "comment" : "The rest sheet's button in a workout, and its VoiceOver label. 1: the length, e.g. 1:15."
+      "comment" : "The rest sheet's button in a workout, and its VoiceOver label. 1: the length, e.g. 1:15.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pause %@ starten"
+          }
+        }
+      }
     },
     "superset with %@" : {
       "comment" : "Exercise strip, VoiceOver, after the exercise. 1: the other exercises of its superset.",
