@@ -29,6 +29,8 @@ struct SessionPager<Page: View>: View {
     }
 }
 
+#if DEBUG
+// Verbatim: a Debug build compiles this block, so `#if DEBUG` alone would still extract its strings into the catalog.
 private struct SessionPagerPreview: View {
     @State private var selection: UUID?
     private let pages = [UUID(), UUID(), UUID()]
@@ -36,10 +38,10 @@ private struct SessionPagerPreview: View {
     var body: some View {
         SessionPager(pages: pages, selection: $selection, onDrag: {}) { id in
             VStack(spacing: 8) {
-                Text("Page \((pages.firstIndex(of: id) ?? 0) + 1)")
+                Text(verbatim: "Page \((pages.firstIndex(of: id) ?? 0) + 1)")
                     .font(.ryft(.headline))
                     .foregroundStyle(Theme.textPrimary)
-                Text("Swipe sideways")
+                Text(verbatim: "Swipe sideways")
                     .font(.ryft(.caption))
                     .foregroundStyle(Theme.textSecondary)
             }
@@ -57,3 +59,4 @@ private struct SessionPagerPreview: View {
 #Preview("Pager · light") {
     SessionPagerPreview().previewEnvironment(scheme: .light)
 }
+#endif
