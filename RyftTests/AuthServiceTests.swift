@@ -46,7 +46,7 @@ struct AuthServiceTests {
         let wipes = self.wipes, codes = self.appleCodes
         // Developer API key mode lives in the simulator's real defaults; these tests are about sessions.
         Settings.shared.apiKeyMode = false
-        return AuthService(client: client, defaults: defaults, wipeLocalData: { wipes.calls += 1; wipes.last = $0 },
+        return AuthService(client: client, defaults: defaults, wipeLocalData: { wipes.calls += 1; wipes.last = $0; return true },
                            deleteRemoteAccount: deleteRemote,
                            postAppleAuthorization: { code in
                                codes.sent.append(code)
@@ -83,7 +83,7 @@ struct AuthServiceTests {
 
     @Test func unconfiguredClientExplainsInsteadOfCrashing() async {
         Settings.shared.apiKeyMode = false
-        let auth = AuthService(client: nil, defaults: defaults, wipeLocalData: { _ in },
+        let auth = AuthService(client: nil, defaults: defaults, wipeLocalData: { _ in true },
                                deleteRemoteAccount: { AuthServiceTests.deleted })
         #expect(!auth.isConfigured)
         await auth.logIn(email: "a@b.de", password: "0123456789")

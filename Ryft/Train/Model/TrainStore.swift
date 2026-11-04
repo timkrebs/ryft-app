@@ -20,6 +20,8 @@ final class TrainStore {
     var context: ModelContext { container.mainContext }
     /// On disk. False in memory: asked for (tests, previews, demo data), or the file couldn't be opened.
     let isDurable: Bool
+    /// Asked for a file and got memory (`init`): what's in that file is out of reach, so a wipe can't take it.
+    private let lostItsFile: Bool
 
     convenience init(inMemory: Bool = false) {
         // In memory, each instance gets its own name, so tests and previews never share a store.
@@ -48,6 +50,7 @@ final class TrainStore {
         do {
             container = try ModelContainer(for: Self.schema, configurations: config)
             isDurable = !config.isStoredInMemoryOnly
+            lostItsFile = false
         } catch {
             // A store that can't be opened must not keep the app from launching.
             // Domain and code only: a store error's description can quote values.
@@ -56,6 +59,7 @@ final class TrainStore {
             let memory = ModelConfiguration("TrainFallback", schema: Self.schema, isStoredInMemoryOnly: true,
                                             cloudKitDatabase: .none)
             isDurable = false
+            lostItsFile = true
             do {
                 container = try ModelContainer(for: Self.schema, configurations: memory)
             } catch {
@@ -70,11 +74,17 @@ final class TrainStore {
         container.configurations.first { !$0.isStoredInMemoryOnly }?.url
     }
 
-    func save() {
+    /// False when the store refused: the changes stay pending in the context, and aren't in the file.
+    @discardableResult
+    func save() -> Bool {
         do {
             try context.save()
+            return true
         } catch {
-            Self.log.error("Train save failed: \(error.localizedDescription, privacy: .public)")
+            // Domain and code only: a store error's description can quote values.
+            let e = error as NSError
+            Self.log.error("Train save failed: \(e.domain, privacy: .public) \(e.code, privacy: .public)")
+            return false
         }
     }
 
@@ -207,7 +217,8 @@ final class TrainStore {
     /// wipe deleted (`TrainSyncService.Generation`).
     private(set) var epoch = 0
 
-    func wipe() {
+    @discardableResult
+    func wipe() -> Bool {
         wipe(parkingActivitiesOf: nil)
     }
 
@@ -216,19 +227,24 @@ final class TrainStore {
     /// `parkedAt` (`now` unless already parked, so the 30-day limit never restarts). Every other row of those tables
     /// goes, any account's. `nil`: they all go (sign-out, deletion, another account). A5 parks the account's
     /// `LocalPrivacyZone` rows too; A3b deletes vault keys first.
-    func wipe(parkingActivitiesOf account: String?, at now: Date = Date()) {
+    ///
+    /// False when the file may still hold the account's data: the final save was refused, or the store runs in memory
+    /// because the file couldn't be opened. `AuthService` then keeps the account's id, so the next account wipes again.
+    @discardableResult
+    func wipe(parkingActivitiesOf account: String?, at now: Date = Date()) -> Bool {
         epoch += 1
         // One by one, the way `PendingImport` goes below. A batch delete of `LocalSet` or `LocalSessionExercise` throws
         // on saved rows (their inverse), and none sees a session that was only inserted, which the `save()` below would
-        // then write. Sessions first: their cascade takes the children, the other two are for orphans.
+        // then write. Children first, orphans included: the save is measurably faster than when the sessions' cascade
+        // finds them.
+        for set in (try? context.fetch(FetchDescriptor<LocalSet>())) ?? [] { context.delete(set) }
+        for exercise in (try? context.fetch(FetchDescriptor<LocalSessionExercise>())) ?? [] { context.delete(exercise) }
         for session in (try? context.fetch(FetchDescriptor<LocalSession>())) ?? [] {
             // Read now: a live workout still holds this row until the account change, and reading either list on a
             // deleted row is a fatal error unless it was resolved before the delete.
             _ = (session.deletedSetIDs, session.deletedExerciseIDs)
             context.delete(session)
         }
-        for exercise in (try? context.fetch(FetchDescriptor<LocalSessionExercise>())) ?? [] { context.delete(exercise) }
-        for set in (try? context.fetch(FetchDescriptor<LocalSet>())) ?? [] { context.delete(set) }
         try? context.delete(model: CachedExercise.self)
         try? context.delete(model: CachedPlan.self)
         try? context.delete(model: PendingTrainOp.self)
@@ -246,7 +262,7 @@ final class TrainStore {
         try? context.delete(model: CachedWorkout.self)
         try? context.delete(model: CachedDocument.self)
         wipeActivities(parking: account, at: now)
-        save()
+        return save() && !lostItsFile
     }
 
     private func wipeActivities(parking account: String?, at now: Date) {

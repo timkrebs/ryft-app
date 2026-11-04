@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import SQLite3
 import SwiftData
 import Testing
 @testable import Ryft
@@ -67,6 +68,22 @@ private final class StoreOnDisk {
         return session
     }
 
+    /// A refusal in the file itself, so `context.save()` really fails and the app needs no seam for it. A runtime error,
+    /// as a full disk would be: Core Data takes a `RAISE` (a constraint error) for an optimistic-locking conflict and
+    /// aborts the process after its retries. One transaction, so nothing of a refused save lands.
+    func refuseDeletes() throws {
+        try sql("CREATE TRIGGER wipe_refused BEFORE DELETE ON ZLOCALSET BEGIN SELECT abs(-9223372036854775808); END")
+    }
+
+    func allowDeletes() throws { try sql("DROP TRIGGER wipe_refused") }
+
+    private func sql(_ statement: String) throws {
+        var db: OpaquePointer?
+        defer { sqlite3_close(db) }
+        try #require(sqlite3_open(url.path, &db) == SQLITE_OK)
+        try #require(sqlite3_exec(db, statement, nil, nil, nil) == SQLITE_OK)
+    }
+
     func expectNothingLeft(sourceLocation: SourceLocation = #_sourceLocation) throws {
         #expect(try inContext == .none, "the app's context", sourceLocation: sourceLocation)
         #expect(try inFreshContext == .none, "the file, through a fresh context", sourceLocation: sourceLocation)
@@ -81,6 +98,10 @@ private enum WipeValues {
     static let account = "account-a"
     static let now = Date(timeIntervalSince1970: 1_800_000_000)
     static let earlier = Date(timeIntervalSince1970: 1_799_000_000)
+    /// How a session ends with nobody signed in afterwards.
+    static let endings: [AuthService.SignOutReason] = [.user, .sessionExpired, .accountDeleted(background: false)]
+    static let accountA = UUID(uuidString: "0000000A-0000-4000-8000-0000000000D1") ?? UUID()
+    static let accountB = UUID(uuidString: "0000000B-0000-4000-8000-0000000000D2") ?? UUID()
 }
 
 @MainActor
@@ -180,7 +201,6 @@ struct TrainStoreWipeTests {
         let disk = try StoreOnDisk()
         let context = disk.store.context
         disk.session(checked: true)
-        disk.session(saved: false)
 
         let edited = activity(), alreadyParked = activity(), confirmed = activity(revision: 1), theirs = activity("account-b")
         let keptChunk = chunk(of: edited), goneChunk = chunk(of: confirmed)
@@ -192,6 +212,9 @@ struct TrainStoreWipeTests {
         for row in [editedNight, confirmedNight, theirNight] { context.insert(row) }
         disk.store.save()
         // Never saved, and edits nothing has saved: a rollback would take these.
+        disk.session(saved: false)
+        #expect(try disk.inContext.sessions == 2)
+        #expect(try disk.inFreshContext.sessions == 1)
         let unsaved = activity()
         context.insert(unsaved)
         edited.notes = "Hills"
@@ -262,30 +285,56 @@ struct TrainStoreWipeTests {
     }
 
     /// The throw behind `try?` leaves nothing but this log line, so the log is where it can be seen. A failed batch
-    /// delete after the wipe is the control: the log is read, and once that line shows, so would one from the wipe.
+    /// delete after the wipe is the control: it proves the log shows such a line. Markers in the same log split the two,
+    /// because a log entry's date runs milliseconds behind `Date()`, which put the wipe's lines before a date taken
+    /// first and hid them.
     @Test func noBatchDeleteIsTriedOnSessionRows() async throws {
+        let run = UUID().uuidString
         let disk = try StoreOnDisk()
         disk.session(checked: true)
-        let start = Date()
-        disk.store.wipe()
-        let end = Date()
-
         let control = try StoreOnDisk()
         control.session()
+
+        Self.log.notice("\(run, privacy: .public) wipe")
+        disk.store.wipe()
+        Self.log.notice("\(run, privacy: .public) control")
         do {
             try control.store.context.delete(model: LocalSet.self)
-            return // Not refused on this OS: there is no line to look for, and `everyRowGoesThroughTheContext` still runs.
+            withKnownIssue("This OS doesn't refuse the batch delete, so this guard has no line to look for") {
+                Issue.record("`everyRowGoesThroughTheContext` still runs; look at this test again")
+            }
+            return
         } catch {}
-        #expect(await eventually(timeout: .seconds(10)) { !Self.failedBatchDeletes(since: end).isEmpty })
-        #expect(Self.failedBatchDeletes(since: start).allSatisfy { $0 >= end })
+        Self.log.notice("\(run, privacy: .public) end")
+
+        let lines = await Self.logLines(of: run)
+        let wipeLine = try #require(lines.firstIndex(of: "\(run) wipe"))
+        let controlLine = try #require(lines.firstIndex(of: "\(run) control"))
+        #expect(wipeLine < controlLine)
+        #expect(!lines[wipeLine..<controlLine].contains(where: Self.isFailedBatchDelete), "no line from the wipe")
+        #expect(lines[controlLine...].contains(where: Self.isFailedBatchDelete), "the control's line")
     }
 
-    private static func failedBatchDeletes(since start: Date) -> [Date] {
-        guard let log = try? OSLogStore(scope: .currentProcessIdentifier),
-              let entries = try? log.getEntries(at: log.position(date: start),
-                                                matching: NSPredicate(format: "composedMessage CONTAINS %@", "Batch delete failed"))
-        else { return [] }
-        return entries.map(\.date).filter { $0 >= start }
+    private static let log = Logger(subsystem: "dev.timkrebs.ryft.tests", category: "wipe")
+
+    private nonisolated static func isFailedBatchDelete(_ line: String) -> Bool { line.contains("Batch delete failed") }
+
+    /// `run`'s markers and every failed batch delete, oldest first, up to the `end` marker that says the snapshot is
+    /// complete. Off the main actor: reading the log takes seconds, which real-clock tests beside this one would feel.
+    @concurrent
+    private nonisolated static func logLines(of run: String) async -> [String] {
+        let since = Date().addingTimeInterval(-60)
+        let matching = NSPredicate(format: "composedMessage CONTAINS %@ OR composedMessage CONTAINS %@", run, "Batch delete failed")
+        var lines: [String] = []
+        for _ in 0..<10 {
+            if let store = try? OSLogStore(scope: .currentProcessIdentifier),
+               let entries = try? store.getEntries(at: store.position(date: since), matching: matching) {
+                lines = entries.map(\.composedMessage)
+            }
+            if lines.contains("\(run) end") { break }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        return lines
     }
 
     // MARK: what still holds a row
@@ -329,7 +378,8 @@ struct TrainStoreWipeTests {
         rig.session.uploaded = true
         rig.session.uploadedTo = "test"
         rig.session.deletedSetIDs = [UUID()]
-        rig.store.save()
+        rig.store.enqueue(.put, sessionID: rig.session.id, account: "test")
+        #expect(rig.store.pendingOps().count == 1)
         let generation = rig.sync.generation
         let epoch = rig.store.epoch
 
@@ -341,5 +391,160 @@ struct TrainStoreWipeTests {
         await rig.sync.flush()
         #expect(rig.api.count("putSession") == 0)
         #expect(rig.api.count("deleteSession") == 0)
+    }
+
+    // MARK: a wipe that doesn't reach the file
+
+    @Test(arguments: WipeValues.parkings)
+    func aRefusedSaveIsReported(_ parking: String?) throws {
+        let disk = try StoreOnDisk()
+        disk.session(checked: true)
+        try disk.refuseDeletes()
+        #expect(!disk.store.wipe(parkingActivitiesOf: parking))
+        #expect(try disk.inFreshContext == .init(sessions: 1, exercises: 2, sets: 6), "the refusal held")
+        try disk.allowDeletes()
+        #expect(disk.store.wipe(parkingActivitiesOf: parking), "what's pending goes with the next one")
+        try disk.expectNothingLeft()
+    }
+
+    /// Memory that was asked for has no file to leave behind; memory after a failed open does.
+    @Test func aStoreThatLostItsFileNeverReportsAWipe() throws {
+        let disk = try StoreOnDisk()
+        let inTheWay = disk.folder.appendingPathComponent("file")
+        try Data([1]).write(to: inTheWay)
+        let lost = TrainStore(url: inTheWay.appendingPathComponent("Train.store"))
+        #expect(!lost.isDurable)
+        #expect(!lost.wipe())
+        #expect(!lost.wipe(parkingActivitiesOf: "account-a"))
+        #expect(TrainStore(inMemory: true).wipe())
+        #expect(disk.store.wipe())
+    }
+
+    @Test(arguments: WipeValues.endings)
+    func aWipeThatReachesTheFileClearsTheAccount(_ ending: AuthService.SignOutReason) async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        rig.disk.session(checked: true)
+        await rig.end(ending)
+        #expect(rig.lastUser == nil)
+        try rig.disk.expectNothingLeft()
+    }
+
+    /// The app acts wiped, and may be killed before anything saves again. The kept id is all that's left to say so: a
+    /// sign-in that found none wouldn't wipe, and the next account would get this workout and upload it as its own.
+    @Test(arguments: WipeValues.endings)
+    func aRefusedWipeKeepsTheAccountSoTheNextOneWipesAgain(_ ending: AuthService.SignOutReason) async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        rig.disk.session(checked: true)
+        try rig.disk.refuseDeletes()
+
+        await rig.end(ending)
+        #expect(rig.auth.accountID == nil)
+        #expect(rig.lastUser == WipeValues.accountA.uuidString)
+        #expect(try rig.disk.inFreshContext == .init(sessions: 1, exercises: 2, sets: 6))
+
+        rig.relaunch(signedInAs: nil)
+        try rig.disk.allowDeletes()
+        await rig.signIn(WipeValues.accountB)
+
+        #expect(rig.auth.accountID == WipeValues.accountB.uuidString)
+        #expect(rig.lastUser == WipeValues.accountB.uuidString)
+        try rig.disk.expectNothingLeft()
+    }
+
+    /// Signed in over another account: a token refresh must not write the new id over the one that makes the next
+    /// launch wipe again.
+    @Test func aRefusedWipeAtSignInIsTriedAgainAtTheNextLaunch() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        rig.disk.session(checked: true)
+        try rig.disk.refuseDeletes()
+
+        await rig.signIn(WipeValues.accountB)
+        #expect(rig.auth.accountID == WipeValues.accountB.uuidString)
+        #expect(rig.lastUser == WipeValues.accountA.uuidString)
+        rig.client.emit(.tokenRefreshed, .preview(id: WipeValues.accountB))
+        await rig.settle()
+        #expect(rig.lastUser == WipeValues.accountA.uuidString)
+
+        rig.relaunch(signedInAs: WipeValues.accountB)
+        try rig.disk.allowDeletes()
+        rig.relaunch(signedInAs: WipeValues.accountB)
+        #expect(rig.lastUser == WipeValues.accountB.uuidString)
+        try rig.disk.expectNothingLeft()
+    }
+
+    /// The session ended while the platform deleted: its wipe cleared the id, and the deletion's own wipe, refused,
+    /// puts it back.
+    @Test func aRefusedWipeAfterADeletionKeepsTheAccount() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        rig.duringDeletion = { [weak rig] in
+            await rig?.auth.rejectedAfterRefresh()
+            #expect(rig?.lastUser == nil)
+            rig?.disk.session(checked: true)
+            try? rig?.disk.refuseDeletes()
+        }
+        #expect(await rig.auth.deleteAccount())
+        #expect(rig.lastUser == WipeValues.accountA.uuidString)
+    }
+}
+
+/// A real `AuthService` on a store on disk, and a relaunch: a new service and store on the same file and defaults, as
+/// after a kill. Nothing of the old process's pending changes carries over.
+@MainActor
+private final class WipingAuth {
+    let disk: StoreOnDisk
+    let defaults = UserDefaults(suiteName: "ryft.tests.wipe.\(UUID().uuidString)") ?? .standard
+    private(set) var client: MockAuthClient
+    private(set) var auth: AuthService
+    var duringDeletion: (@MainActor () async -> Void)?
+
+    init(signedInAs account: UUID) throws {
+        let disk = try StoreOnDisk()
+        self.disk = disk
+        client = MockAuthClient(session: .preview(id: account))
+        auth = Self.service(client, disk, defaults, nil)
+        rewire()
+    }
+
+    var lastUser: String? { defaults.string(forKey: AccountScope.defaultsKey) }
+
+    private static func service(_ client: MockAuthClient, _ disk: StoreOnDisk, _ defaults: UserDefaults,
+                                _ deletion: (@Sendable @MainActor () async -> Void)?) -> AuthService {
+        AuthService(client: client, settings: Settings(defaults: defaults), defaults: defaults,
+                    wipeLocalData: { wipe in disk.store.wipe(parkingActivitiesOf: wipe.parking) },
+                    deleteRemoteAccount: {
+                        await deletion?()
+                        return AccountDeleted(status: "deleted", authUserDeleted: true)
+                    },
+                    postAppleAuthorization: { _ in })
+    }
+
+    /// The deletion's hook reads `duringDeletion` when it runs.
+    private func rewire() {
+        auth = Self.service(client, disk, defaults) { [weak self] in await self?.duringDeletion?() }
+    }
+
+    func relaunch(signedInAs account: UUID?) {
+        disk.relaunch()
+        client = MockAuthClient(session: account.map { .preview(id: $0) })
+        rewire()
+    }
+
+    func settle() async {
+        for _ in 0..<20 { await Task.yield() }
+    }
+
+    func signIn(_ id: UUID) async {
+        client.signInSession = .preview(id: id)
+        _ = await auth.logIn(email: "synthetic@example.com", password: "0123456789")
+        await settle()
+    }
+
+    func end(_ ending: AuthService.SignOutReason) async {
+        if case .accountDeleted = ending {
+            await auth.deleteAccount()
+        } else {
+            await auth.signOut(reason: ending)
+        }
+        await settle()
     }
 }

@@ -39,8 +39,9 @@ private final class AccountHarness {
         var recorded: (AuthService.Wipe) -> Void = { _ in }
         auth = AuthService(client: client, settings: settings, defaults: defaults,
                            wipeLocalData: { wipe in
-                               persistence.wipe(parkingActivitiesOf: wipe.parking, at: clock.now())
+                               let wiped = persistence.wipe(parkingActivitiesOf: wipe.parking, at: clock.now())
                                recorded(wipe)
+                               return wiped
                            },
                            deleteRemoteAccount: {
                                await duringDeletion.run?()

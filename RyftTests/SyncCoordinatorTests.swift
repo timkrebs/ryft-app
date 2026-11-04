@@ -825,7 +825,7 @@ private func readGraph(api: MockPlatformAPI = MockPlatformAPI(), online: Bool = 
 @MainActor
 private func testAuth(_ client: MockAuthClient) -> AuthService {
     AuthService(client: client, defaults: UserDefaults(suiteName: "ryft.test.auth.\(UUID().uuidString)") ?? .standard,
-                wipeLocalData: { _ in }, deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                wipeLocalData: { _ in true }, deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
                 postAppleAuthorization: { _ in })
 }
 

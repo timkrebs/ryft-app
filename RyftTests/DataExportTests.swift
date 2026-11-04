@@ -88,7 +88,7 @@ struct DataExportAccountTests {
         let clock = TestClock()
         let client = MockAuthClient(session: .preview())
         let auth = AuthService(client: client, defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard,
-                               wipeLocalData: { _ in },
+                               wipeLocalData: { _ in true },
                                deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
                                postAppleAuthorization: { _ in })
         let env = AppEnvironment.test(api: api, clock: clock, auth: auth)
@@ -198,7 +198,7 @@ struct AccountBindingTests {
     @Test func anAccountThatWentAndCameBackIsntCurrent() async throws {
         let client = MockAuthClient(session: .preview())
         let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
-        let auth = AuthService(client: client, defaults: defaults, wipeLocalData: { _ in },
+        let auth = AuthService(client: client, defaults: defaults, wipeLocalData: { _ in true },
                                deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
                                postAppleAuthorization: { _ in })
         let env = AppEnvironment.test(auth: auth)

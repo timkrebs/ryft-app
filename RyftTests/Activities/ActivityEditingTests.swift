@@ -329,7 +329,7 @@ struct AddSleepModelTests {
     @Test func aFailedSaveKeepsTheOldNight() async throws {
         let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
         let auth = AuthService(client: MockAuthClient(session: .preview()), settings: Settings(defaults: defaults),
-                               defaults: defaults, wipeLocalData: { _ in })
+                               defaults: defaults, wipeLocalData: { _ in true })
         let env = AppEnvironment.test(auth: auth, flags: [.activitiesManual: true])
         let wake = Calendar.current.startOfDay(for: env.clock.now()).addingTimeInterval(-86_400 + 6.5 * 3_600)
         let old = try #require(env.activities.saveSleep(day: DayFormat.string(from: wake), bed: wake.addingTimeInterval(-8 * 3_600),
@@ -511,7 +511,7 @@ struct ActivityDeleteAndGateTests {
         let hold = RequestHold()
         let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
         let auth = AuthService(client: MockAuthClient(session: .preview()), settings: Settings(defaults: defaults),
-                               defaults: defaults, wipeLocalData: { _ in },
+                               defaults: defaults, wipeLocalData: { _ in true },
                                deleteRemoteAccount: {
                                    await hold.wait()
                                    return AccountDeleted(status: "deleted", authUserDeleted: true)

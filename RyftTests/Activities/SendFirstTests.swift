@@ -22,7 +22,7 @@ private struct SendFirstGraph {
          deleteRemote: @escaping () async throws -> AccountDeleted = { AccountDeleted(status: "deleted", authUserDeleted: true) }) {
         let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
         auth = AuthService(client: client, settings: Settings(defaults: defaults), defaults: defaults,
-                           wipeLocalData: { _ in }, deleteRemoteAccount: deleteRemote, postAppleAuthorization: { _ in })
+                           wipeLocalData: { _ in true }, deleteRemoteAccount: deleteRemote, postAppleAuthorization: { _ in })
         env = .test(api: api, clock: clock, auth: auth, flags: [.activitiesManual: true], online: online)
         env.uploader.random = { $0.lowerBound }
         env.uploader.gate = { _ in nil } // consent given: what goes up, goes up
