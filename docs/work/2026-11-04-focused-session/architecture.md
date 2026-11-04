@@ -461,7 +461,7 @@ Everything with `TestClock` and `TrainStore(inMemory:)`, `layout: .focused`, as 
 - **D1 §3.1, the check on an empty active row** (asked of this note, the lead decides). Feasible without touching
   `toggleCheck`: a small `checkActive(_:in:)` in T2 opens the keypad on the first empty field when the row has no value and
   no ghost, for `.weight` and `.bodyweight` only; time and distance rows have no field to open until T6. The VoiceOver
-  "Check off" action stays `toggleCheck`.
+  "Check off" action first stayed `toggleCheck`; L23 replaced that, it follows the same rule.
 - **D1 to change:** §2.5, §5.3 and §8 on swipe to delete (§6 here). §3.1 row 6: an unchecked set is active, whatever its
   position (brief; L6, an uncheck is a tap). §2.7: the 64 pt margin goes (§8 here).
 - **Found on the way, left alone so List doesn't change:** `remove` leaves `focus` set when the keypad is on that exercise, so
