@@ -7,6 +7,13 @@ struct AutoFold: Equatable {
     let exerciseID: UUID
 }
 
+/// The check on the active row found nothing to log and opened the keypad (L23): the view says why under VoiceOver. A new
+/// `id` per check.
+struct EmptyCheck: Equatable {
+    let id = UUID()
+    let setID: UUID
+}
+
 /// The Focused layout's page and warm-up groups (architecture.md §2 to §5, ADR 0013). A page change is no edit: it
 /// never calls `sessionChanged`, so it reaches neither `updatedAt` nor the outbox, and the undo window keeps running.
 extension SessionController {
@@ -95,6 +102,7 @@ extension SessionController {
     func checkActive(_ set: LocalSet, in ex: LocalSessionExercise) {
         if let field = missingField(of: set, in: ex) {
             edit(set, field)
+            emptyCheck = EmptyCheck(setID: set.id)
         } else {
             toggleCheck(set, in: ex)
         }

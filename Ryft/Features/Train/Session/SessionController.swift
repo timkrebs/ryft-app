@@ -124,6 +124,8 @@ final class SessionController: Identifiable {
     var expandedWarmups: Set<UUID> = []
     /// The latest group that folded itself, for the view.
     var autoFold: AutoFold?
+    /// The latest check that opened the keypad instead of logging, for the view.
+    var emptyCheck: EmptyCheck?
 
     /// After an edit (a set checked, unchecked, added, deleted or changed; an exercise added,
     /// removed or moved): the lock screen's next set follows.

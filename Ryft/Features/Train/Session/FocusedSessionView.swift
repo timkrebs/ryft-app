@@ -16,6 +16,8 @@ struct FocusedSessionView: View {
     @State private var width: CGFloat = 0
     @State private var sheet: ExerciseSheet?
     @State private var removing: UUID?
+    /// One pending focus move: a new one replaces it, so an old one can't land after it or after the screen went.
+    @State private var voiceOverMove: Task<Void, Never>?
 
     private var columns: SetTableColumns { .fitting(width: width) }
 
@@ -46,6 +48,8 @@ struct FocusedSessionView: View {
         .onChange(of: controller.pageExerciseID) { _, _ in controller.pinPage() }
         .onChange(of: controller.advance?.id) { _, _ in perform(controller.advance) }
         .onChange(of: controller.autoFold?.id) { _, _ in focusAfterFold(controller.autoFold) }
+        .onChange(of: controller.emptyCheck?.id) { _, _ in announceEmptyCheck() }
+        .onDisappear { voiceOverMove?.cancel() }
         .sheet(item: $sheet) { content(for: $0) }
         .confirmationDialog(Text("Remove \(row(removing)?.name ?? "")?"),
                             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
@@ -83,10 +87,21 @@ struct FocusedSessionView: View {
         moveVoiceOver(to: controller.activeSet(in: ex)?.id ?? ex.id, announcing: nil)
     }
 
-    private func moveVoiceOver(to id: UUID, announcing text: String?) {
-        Task { @MainActor in
-            try? await Task.sleep(for: Self.focusDelay)
-            voiceOverFocus = id
+    /// The row didn't change and nothing was logged, so VoiceOver says why (L23). Focus stays on the row. It replaces a
+    /// pending move: the user acted since, and its announcement would cut this one off.
+    private func announceEmptyCheck() {
+        guard voiceOver, controller.emptyCheck != nil else { return }
+        moveVoiceOver(to: nil, announcing: String(
+            localized: "Nothing logged yet. Enter a value on the keypad.",
+            comment: "VoiceOver announcement when a set is checked off with no values: nothing is logged and the keypad opens."))
+    }
+
+    /// `to` nil: only the announcement, after the same wait, so the keypad's appearing doesn't cut it off.
+    private func moveVoiceOver(to id: UUID?, announcing text: String?) {
+        voiceOverMove?.cancel()
+        voiceOverMove = Task { @MainActor in
+            do { try await Task.sleep(for: Self.focusDelay) } catch { return }
+            if let id { voiceOverFocus = id }
             if let text { AccessibilityNotification.Announcement(text).post() }
         }
     }
