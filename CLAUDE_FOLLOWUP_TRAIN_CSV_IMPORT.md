@@ -21,29 +21,29 @@ his data — the repo is public.
 
 `*_Plans.csv`
 ```
-"New plan · 4 weeks";2026-06-07          ← plan name · duration in weeks ; start date
-"Day 1 · Torso"                          ← day index · day name
-"1. Incline Bench Press · Barbell";"4 sets";"10 reps"   ← order. exercise · equipment ; sets ; target reps
+"New plan · 4 weeks";2026-01-05          ← plan name · duration in weeks ; start date
+"Day 1 · Upper"                          ← day index · day name
+"1. Bench Press · Barbell";"4 sets";"10 reps"   ← order. exercise · equipment ; sets ; target reps
 …
-"Day 2 · Limbs"
+"Day 2 · Lower"
 …
 ```
 
 `*_Workouts.csv` — blocks separated by an empty line, newest first:
 ```
-"Torso · Standalone workout";"2026-07-05 3:28 pm";"38 min"            ← day name · standalone ; local start ; duration
-"Limbs · Day 2 · Week 4 · New plan";"2026-06-24 6:18 am";"1:08 hr"   ← day name · Day n · Week w · plan name
-"1. Incline Bench Press · Barbell · 10 reps"                          ← order. exercise · equipment · target reps
+"Upper · Standalone workout";"2026-02-01 4:15 pm";"45 min"            ← day name · standalone ; local start ; duration
+"Lower · Day 2 · Week 4 · New plan";"2026-01-28 7:30 am";"1:10 hr"   ← day name · Day n · Week w · plan name
+"1. Bench Press · Barbell · 10 reps"                          ← order. exercise · equipment · target reps
 #;KG;REPS                                                             ← set table header (unit column: KG or LBS)
-1;60;10
-2;90;6
+1;75;10
+2;80;6
 1;-;-                ← set not performed → skip (count as skipped, not zero)
-1;+96;10             ← bodyweight exercise with "+N" → see §2
-1;72.5;10            ← decimal point (handle decimal comma too)
+1;+10;10             ← bodyweight exercise with "+N" → see §2
+1;72.5;8             ← decimal point (handle decimal comma too)
 ```
-Durations seen: `38 min`, `1:03 hr` (h:mm). Times: `3:28 pm` (12 h); also accept 24 h (`15:28`) and German exports
+Durations seen: `45 min`, `1:10 hr` (h:mm). Times: `4:15 pm` (12 h); also accept 24 h (`16:15`) and German exports
 (decimal comma, `Std.`/`Min.` if they exist — make the token table data-driven). Exercises can differ between weeks of the
-same plan day (week 1–3 had Romanian Deadlifts, week 4 didn't) — that's history, not an error.
+same plan day (an exercise in weeks 1–3 can be gone in week 4) — that's history, not an error.
 
 ## 1. Importer architecture (ios-architect → sync-engineer)
 
@@ -69,7 +69,7 @@ same plan day (week 1–3 had Romanian Deadlifts, week 4 didn't) — that's hist
 - **Review screen:** every distinct imported exercise once, with its match and confidence; ✓ for exact/alias, "check" for
   fuzzy, "new" for none. The user can pick another library exercise or **create a custom exercise** (name + equipment +
   muscle group; `POST /v1/exercises` with an app id). Remember the user's choices (per source name) for future imports.
-- **Bodyweight "+N":** ask once per exercise: "‘+96’ for Dips — is that added weight, or your body weight?" (options: added
+- **Bodyweight "+N":** ask once per exercise: "‘+10’ for Dips — is that added weight, or your body weight?" (options: added
   weight → load = N kg added; body weight → bodyweight set with 0 added; ignore weight). Store as the platform's bodyweight
   convention (check `API.md` → Train for how bodyweight and added load are modelled; request it if missing).
 
@@ -78,12 +78,12 @@ same plan day (week 1–3 had Romanian Deadlifts, week 4 didn't) — that's hist
 Entry: Strain → My Plans → **New Plan** → **Import from file** (also Profile → Data → Import training data, and RYFT appears
 in the Share sheet / "Open in" for `.csv` files exported from Files — declare the document type `public.comma-separated-values-text`).
 1. **Pick file** (`.fileImporter`, CSV and plain text; one or both files; multi-select).
-2. **Detected:** "Alpha Progression export · 1 plan · 2 days · 19 exercises · 12 workouts from 8 Jun to 5 Jul 2026" + warnings.
+2. **Detected:** "Alpha Progression export · 1 plan · 2 days · 8 exercises · 6 workouts from 5 Jan to 1 Feb 2026" + warnings.
 3. **Choose what to import:** Plan (toggle) · Workout history (toggle, with date range) · "Make this my active plan"
    (enrol, start date = today or the file's start date).
 4. **Map exercises** (§2).
 5. **Preview:** the plan as RYFT will show it; history as a list with totals (sessions, sets, volume). Duplicates flagged (§4).
-6. **Import** with progress; result: "Imported 1 plan and 12 workouts · 3 sets skipped (no weight or reps)" and buttons
+6. **Import** with progress; result: "Imported 1 plan and 6 workouts · 2 sets skipped (no weight or reps)" and buttons
    to open the plan and the history. Errors are per item, never all-or-nothing; a retry continues where it stopped.
 
 Plan details: plan name from the file (editable), weeks from "· 4 weeks", day names and order, sets × target reps per
@@ -110,8 +110,8 @@ exercise. Starting weights aren't in the plan file: if history is imported, pref
 - Matching: exact, alias, fuzzy, equipment filter, user override persistence.
 - Ids: same input → same ids; one extra workout → one new id.
 - Flow: view-model tests for each step; UI test in demo mode importing the synthetic files.
-- Manual: the user's real files from `local-samples/` (12 workouts, 1 plan) → expected counts in the result screen; verify
-  e1RM for Bench Press and Squats from the imported history.
+- Manual: the user's own files from `local-samples/` → expected counts in the result screen; verify e1RM from the imported
+  history.
 
 ## Ship
 

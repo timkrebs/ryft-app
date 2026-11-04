@@ -7,13 +7,11 @@ start right away. Owners: **debugger** (§0), **api-contract-keeper**, **ui-desi
 
 ## The report
 
-TestFlight, 2026-10-22 10:38, build `20261021.141128`, iPhone17,1, iOS 27.0.1:
+A beta tester reported that the baseline counter wasn't moving.
 
-> "The Baseline counter is not moving after 1 day. Please look into this issue."
-
-Screenshot (Today): "Learning your baseline — 7 nights to go", gauge **Baselines 0 / 7**, "Scoring your latest data"
-(spinner line), a hint "Nothing new from **Connect** since Wed 11:24 PM. Open the Connect app to sync it to Apple
-Health.", tiles Sleep 6 h 28 m, **Recovery 74 % High**, Strain —. The user wears a **Garmin** and has ~90 days of history.
+Today showed: "Learning your baseline — 7 nights to go", gauge **Baselines 0 / 7**, "Scoring your latest data" (spinner
+line), a hint naming the source as "**Connect**" with the last sample from the night before, and **Recovery** with a value
+while Strain was empty. This shape fits a **Garmin** wearer with months of history.
 
 ## Root cause (verify in §0, but this is the likely one)
 
@@ -23,14 +21,14 @@ Health.", tiles Sleep 6 h 28 m, **Recovery 74 % High**, Strain —. The user wea
 - **Garmin Connect does not write HRV to Apple Health** (Garmin keeps HRV in its own app; third-party apps that read
   Apple Health document the same; Oura's HRV export is also reported as missing — verify both against the vendors'
   current docs). So `lnHRVBase.N` is 0 forever → `baseline_days` is 0 forever → Garmin users stay "calibrating" and
-  never get Readiness, while Recovery is still computed from RHR + sleep (the 74 %). The counter will never move.
+  never get Readiness, while Recovery is still computed from RHR + sleep. The counter will never move.
 - Secondary issues on the same screen: the source is shown as "**Connect**" (HealthKit's source name) instead of
-  "Garmin Connect"; "Scoring your latest data" stays up although nothing new arrived since 23:24 (the night hasn't
+  "Garmin Connect"; "Scoring your latest data" stays up although nothing new arrived overnight (the night hasn't
   reached Apple Health because Garmin Connect wasn't opened) — that's "waiting for your tracker", not "scoring".
 
 ## 0. Confirm (debugger)
 
-- In the user's data: `User.sources` (kinds per source) — expect `hr`, `sleep`, `steps`, `workout`, maybe `resp`/`spo2`,
+- In the tester's data: `User.sources` (kinds per source) — expect `hr`, `sleep`, `steps`, `workout`, maybe `resp`/`spo2`,
   **no `hrv`** for Garmin. Ask the user for Profile → Data sources (or `scripts/user.sh <id>` on the platform side).
 - `GET /v1/days?from=…` for the last 14 days: `baseline_days` 0 throughout, `calibrating: true`, `hrv_ms: null`.
 - Record the cause in `docs/STATUS.md` → Incidents. If it's something else, stop and report before building §1.
@@ -41,7 +39,7 @@ The platform will (see its brief): count baseline nights from resting heart rate
 separately, compute Recovery from the signals that exist, and say which ones were used. Mirror the new fields
 (**api-contract-keeper**, from `API.md`'s changelog: expected `DailyScore.hrv_baseline_days`, `recovery_inputs`,
 `User.sources[].kinds` already exists) and then:
-- The baseline gauge counts the platform's `baseline_days` (now RHR-based) — for the user it should jump to 7/7
+- The baseline gauge counts the platform's `baseline_days` (now RHR-based) — for that tester it should jump to 7/7
   after the rescore.
 - Recovery and Readiness detail show **"Based on resting heart rate, sleep and breathing rate. Your tracker doesn't
   share HRV with Apple Health."** when `recovery_inputs` lacks `hrv`, with a link to the tracker's guide (§2).
