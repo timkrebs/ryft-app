@@ -102,6 +102,44 @@ extension SessionController {
         }
     }
 
+    // MARK: the table
+
+    /// Focused's rows top to bottom: an open group's warm-ups, then the working sets. Not `setIndex` order: `addWarmup` gives
+    /// a warm-up the highest index and the group sits above the table.
+    func tableRows(of ex: LocalSessionExercise) -> [LocalSet] {
+        let sets = ex.orderedSets
+        let working = sets.filter { !$0.isWarmup }
+        return isFolded(ex) ? working : sets.filter(\.isWarmup) + working
+    }
+
+    /// Where the keypad's Next goes. In Focused: down the table, past what it can't edit (a read-only row has no reps to go
+    /// to). A folded warm-up isn't in the table, so it can't get the keypad.
+    func nextRow(after set: LocalSet, in ex: LocalSessionExercise) -> LocalSet? {
+        guard layout == .focused else { return ex.orderedSets.first { $0.setIndex > set.setIndex } }
+        let rows = tableRows(of: ex)
+        guard let i = rows.firstIndex(where: { $0.id == set.id }) else { return nil }
+        return rows[(i + 1)...].first { !isReadOnly($0) }
+    }
+
+    /// A set's number as the user reads it: Focused numbers warm-ups and working sets apart, as its table does. List
+    /// counts every set.
+    func position(of set: LocalSet, in ex: LocalSessionExercise) -> (number: Int, count: Int, isWarmup: Bool) {
+        let sets = ex.orderedSets
+        let peers = layout == .focused ? sets.filter { $0.isWarmup == set.isWarmup } : sets
+        return ((peers.firstIndex { $0.id == set.id } ?? 0) + 1, peers.count, layout == .focused && set.isWarmup)
+    }
+
+    /// What VoiceOver hears when the page moves on its own: "Bench press, set 1 of 4". `nil` with no open row.
+    func pageAnnouncement(of ex: LocalSessionExercise) -> String? {
+        guard let set = activeSet(in: ex) else { return nil }
+        let at = position(of: set, in: ex)
+        return at.isWarmup
+            ? String(localized: "\(ex.name), warm-up \(at.number) of \(at.count)",
+                     comment: "VoiceOver: the page moved to the next exercise, on a warm-up, e.g. Bench press, warm-up 1 of 2.")
+            : String(localized: "\(ex.name), set \(at.number) of \(at.count)",
+                     comment: "VoiceOver: the page moved to the next exercise, e.g. Bench press, set 1 of 4.")
+    }
+
     // MARK: read-only rows
 
     /// Focused shows a stored time or distance and has no entry for it (L20), so the row has no reps field for the keypad.
