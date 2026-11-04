@@ -1,4 +1,4 @@
-.PHONY: focused-shots orbit-shots config build test icon mark-svg check-mark-svg fonts screenshots ui-shots lint check-entitlements strings style format archive trackers
+.PHONY: orbit-shots config build test icon mark-svg check-mark-svg fonts screenshots ui-shots lint check-entitlements strings style format archive trackers release focused-shots
 
 # Ryft.xcodeproj is the source of truth (CLAUDE.md): change targets, capabilities
 # and packages in Xcode itself.
@@ -106,7 +106,7 @@ format:
 # A local Release archive (symbols, the paid team's distribution signing). TestFlight
 # uploads can come from here or from CI (docs/CI.md): both number builds with
 # scripts/build-number.sh (UTC yyyyMMdd.HHmmss), so numbers only go up either way.
-# The version is VERSION, raised by the release workflow.
+# The version is VERSION, raised by `make release`.
 ARCHIVE := build/Ryft.xcarchive
 BUILD_NUMBER ?= $(shell sh scripts/build-number.sh)
 VERSION := $(shell tr -d '[:space:]' < VERSION)
@@ -119,6 +119,12 @@ archive: config lint
 	xcodebuild -exportArchive -archivePath $(ARCHIVE) -exportPath build/export \
 		-exportOptionsPlist scripts/ExportOptions.plist -allowProvisioningUpdates
 	@echo "Upload build/export/Ryft.ipa with Xcode Organizer or: xcrun altool --upload-app -f build/export/Ryft.ipa -t ios"
+
+# A new version through a pull request (main's ruleset takes nothing else): from a clean, up-to-date main,
+# `make release BUMP=patch|minor|major` or `make release VERSION=1.4.0` opens the PR `release: X.Y.Z`; after its
+# merge, release.yml tags vX.Y.Z and uploads it to TestFlight (docs/CI.md). DRY_RUN=1 stops before the push.
+release:
+	@DRY_RUN='$(DRY_RUN)' sh scripts/release.sh $(if $(filter command line,$(origin VERSION)),$(VERSION),$(BUMP))
 
 # The OrbitGauge's screenshots (light and dark) and the contrast numbers into build/orbit-shots/, for the design note
 # (docs/work/2026-10-29-orbit-gauge/design.md). Runs the two Orbit test suites on the simulator named by ORBIT_DEVICE.
