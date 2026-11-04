@@ -99,6 +99,12 @@ final class FocusedSessionUITests: XCTestCase {
         requireExists(element(app, "set.0.1"), "List's first set row")
         XCTAssertFalse(element(app, "session.strip.0").exists, "no strip with the flag off")
         XCTAssertFalse(element(app, "session.page.title").exists, "no page")
+        XCTAssertFalse(element(app, "session.restPill").exists, "no pill with the flag off")
+        // T3: List keeps its pinned bar for a rest, and still no pill.
+        element(app, "set.0.1").coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.5)).tap()
+        requireExists(element(app, "session.restBar"), "List's rest bar after a check")
+        XCTAssertFalse(element(app, "session.restPill").exists, "the pill never shows in List")
+        requireExists(app.buttons["Skip rest"], "the bar's Skip")
     }
 
     @MainActor
@@ -304,6 +310,64 @@ final class FocusedSessionUITests: XCTestCase {
         XCTAssertEqual(chip.label, chipLabel, "the exercise's rest stays")
     }
 
+    /// T3, design.md §4c: the idle sheet's −15 and +15 change the length Start begins; only "Set as rest for this exercise"
+    /// changes the exercise, and the floor is 0:15. The sheet's value is read from its accessibility value.
+    @MainActor
+    func testTheIdleSheetsLengthIsTheRestStartBeginsUntilItIsSetForTheExercise() throws {
+        let app = openFocused()
+        let chip = element(app, "session.chip.rest")
+        requireExists(chip, "the rest chip")
+        let pill = element(app, "session.restPill")
+        requireExists(pill, "the idle pill")
+        let chipLabel = chip.label
+
+        pill.tap()
+        let value = element(app, "restSheet.value")
+        requireExists(value, "the idle sheet")
+        let initial = value.value as? String ?? ""
+        XCTAssertTrue(initial.contains("minute"), "the exercise's rest: \(initial)")
+        let less = element(app, "restSheet.less"), more = element(app, "restSheet.more")
+        more.tap()
+        wait(value, until: "value != %@".replacingOccurrences(of: "%@", with: "'\(initial)'"), "+15 changes the length")
+        let longer = value.value as? String ?? ""
+        requireExists(element(app, "restSheet.save"), "a changed length can be kept")
+        less.tap()
+        wait(value, until: "value == %@".replacingOccurrences(of: "%@", with: "'\(initial)'"), "−15 takes it back")
+        waitForAbsence(element(app, "restSheet.save"), "back at the exercise's own length: nothing to keep")
+
+        more.tap()
+        wait(value, until: "value == %@".replacingOccurrences(of: "%@", with: "'\(longer)'"), "+15 again")
+        element(app, "restSheet.save").tap()
+        waitForAbsence(element(app, "restSheet.save"), "kept: the length is the exercise's now")
+        element(app, "restSheet.done").tap()
+        waitForAbsence(value, "Done closes the sheet")
+        XCTAssertNotEqual(chip.label, chipLabel, "the chip shows the kept length: \(chip.label)")
+        XCTAssertEqual(element(app, "session.restBar").exists, false, "nothing started")
+    }
+
+    /// The floor: 1:00 from the chip's choices, three times −15, and the key is off at 0:15 (the ceiling is a unit test: 59
+    /// taps would take a minute).
+    @MainActor
+    func testTheIdleSheetStopsAtFifteenSeconds() throws {
+        let app = openFocused()
+        element(app, "session.chip.rest").tap()
+        let choice = element(app, "restChoice.60")
+        requireExists(choice, "the rest choices")
+        choice.tap()
+        wait(element(app, "session.chip.rest"), until: "label CONTAINS '1 minute'", "the exercise rests 1:00")
+
+        element(app, "session.restPill").tap()
+        let value = element(app, "restSheet.value")
+        requireExists(value, "the idle sheet")
+        wait(value, until: "value == '1 minute'", "it starts at the exercise's 1:00")
+        let less = element(app, "restSheet.less")
+        for _ in 0..<3 { less.tap() }
+        wait(value, until: "value == '15 seconds'", "three steps down are 0:15")
+        wait(less, until: "isEnabled == false", "−15 is off at the floor")
+        XCTAssertTrue(element(app, "restSheet.start").isEnabled, "0:15 can start")
+        XCTAssertTrue(element(app, "restSheet.more").isEnabled)
+    }
+
     // MARK: warm-ups
 
     @MainActor
@@ -330,7 +394,7 @@ final class FocusedSessionUITests: XCTestCase {
 
     // MARK: auto-advance
 
-    /// T2: Upper A (17 sets over five exercises, the last two a superset) logged with ✓ taps alone. Each tap is on the row
+    /// T2, T3: Upper A (17 sets over five exercises, the last two a superset) logged with ✓ taps and the rest pill alone. Each tap is on the row
     /// VoiceOver calls "Next set." (the active row), and the next one must be a different row: the page follows the planner
     /// on its own, including the superset's flips. It ends on a Finish button the user can reach.
     @MainActor
@@ -338,6 +402,7 @@ final class FocusedSessionUITests: XCTestCase {
         let app = openFocused()
         let activeRow = app.descendants(matching: .any).matching(NSPredicate(format: "value == 'Next set.'")).firstMatch
         let finish = element(app, "session.allDone.finish")
+        let pill = element(app, "session.restPill")
         var seen: [String] = []
 
         while !finish.exists {
@@ -348,6 +413,21 @@ final class FocusedSessionUITests: XCTestCase {
             XCTAssertFalse(seen.contains(id), "\(id) was the active row twice: the last ✓ did not move on")
             seen.append(id)
             activeRow.coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.5)).tap()
+            // T3: the pill is there after every check but the last, and the first check starts a rest on it.
+            if seen.count < 17 {
+                requireExists(pill, "the rest pill after check \(seen.count)")
+                if seen.count == 1 { wait(pill, until: "value CONTAINS 'left, next'", "the first check runs the rest on the pill") }
+            }
+            // Mid-session, the pill alone ends a rest: open its sheet, Skip. Before the superset's round (sets 1 to 5).
+            if seen.count == 3 {
+                wait(pill, until: "value CONTAINS 'left, next'", "a rest is running to skip")
+                pill.tap()
+                let skip = element(app, "restSheet.skip")
+                requireExists(skip, "the running sheet")
+                skip.tap()
+                waitForAbsence(skip, "Skip closes the sheet")
+                wait(pill, until: "value BEGINSWITH 'Not running'", "Skip ended the rest")
+            }
             // Moved on: another row is active (the page may have changed, 0.6 s later), or the session is done.
             let deadline = Date().addingTimeInterval(patience)
             while Date() < deadline, !finish.exists, !(activeRow.exists && activeRow.identifier != id) {
@@ -357,6 +437,9 @@ final class FocusedSessionUITests: XCTestCase {
 
         XCTAssertEqual(seen.count, 17, "every set was checked once: \(seen)")
         requireExists(finish, "the All sets done card")
+        // The last set starts no rest, and there is nothing to rest for: no pill and no bar.
+        waitForAbsence(pill, "no pill once every set is done")
+        XCTAssertFalse(element(app, "session.restBar").exists, "no rest under way after the last set")
         var scrolls = 0
         while !finish.isHittable && scrolls < 4 {
             app.swipeUp()
