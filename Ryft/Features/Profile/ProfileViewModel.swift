@@ -270,6 +270,8 @@ final class ProfileViewModel {
     func demoModeChanged(_ on: Bool) {
         // Demo data's flags are its own: off again, the account's cached flags, never demo's.
         (env.flags as? FlagStore)?.setDemo(on)
+        // So is which day is being scored (`ScoringWord`).
+        sync.forgetScoringWords()
         // What was matched in demo's training import was never this account's, and neither is its upload.
         if !on {
             ImportMappingStore.forgetDemo(in: env.persistence)
@@ -555,6 +557,7 @@ final class SyncDetailsModel {
         if let status = state.syncStatus {
             lines.append("server today \(status.today.day) \(status.today.state.rawValue) · pending \(status.pendingDays.joined(separator: ",")) · expected \(status.expectedWithinSec) s")
         }
+        lines.append("scoring words \(ScoringWord.diagnosticLine(sync.scoringLedger))")
         lines.append("scoring since \(scoringSince.map { $0.ISO8601Format() } ?? "-") · expected \(expectedScoringSec) s · slow \(scoringIsSlow)")
         for row in streams {
             guard let p = row.progress else { lines.append("\(row.id): -"); continue }

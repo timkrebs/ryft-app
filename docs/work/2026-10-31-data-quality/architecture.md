@@ -446,7 +446,8 @@ The platform should confirm that value or invalidate the cache on ingest and on 
 ### The shape
 
 - **`SyncService.scoringLedger: [day: (word: .pending | .scored, at: Date)]`.** It is in memory only. It is cleared by
-  `accountChanged()` and by a sign-out wipe. A relaunch starts from the platform's word and G2's poll.
+  `accountChanged()` (a sign-out included) and by the demo switch (`forgetScoringWords()`, review F4). A relaunch
+  starts from the platform's word and G2's poll.
 - **Two new steps**, recorded via `LiveSyncSteps`:
   - **`SyncSteps.awaiting(_ days:)`** is called by the pipeline right after an upload or a `daysChanged` that touched
     days, **in the background too**. This is the audit's G1, plus background runs: the foreground return then already
@@ -456,14 +457,33 @@ The platform should confirm that value or invalidate the cache on ingest and on 
 - **`receive(status, requestedAt:)`** drops a ledger entry once a status read requested at least the cache time after
   the entry has answered. The answer is then the platform's word, whatever it says. `ReadScheduler` knows when a flight
   started, and it passes that time through the `store:` closure.
-- **One pure function**, `ScoringWord.state(day:status:ledger:row:)` (in `Sync/`), replaces the bodies of
-  `TodayStates.todayState` (`TodayViewModel.swift:859`) and the expression at `Repository.swift:515`. A newer ledger
-  entry wins over the status; otherwise it is the status if it is about d, else the row. `LiveSyncSteps` hands the same
-  ledger entry for today to `Repository` when it records it, so the widget can't disagree.
+- **One pure function**, `ScoringWord.state(day:word:status:row:)` (in `Sync/`), replaces the bodies of
+  `TodayStates.todayState` (`TodayViewModel.swift:859`) and the expression at `Repository.swift:515`. While no late
+  status read has answered it, a `pending` word wins over anything and a `scored` word rules out `pending` only (review
+  F2); otherwise it is the status if it is about d, else the row. *Superseded in review round 1 (F4):* `LiveSyncSteps`
+  no longer hands a copy to `Repository`. `Repository.scoringLedger` is a closure that reads `SyncService`'s ledger,
+  and `SyncService` republishes the widget on every change, so there is one store.
 - **G2 stays where the audit put it**, in the coordinator's `touched.isEmpty` branch (`SyncCoordinator.swift:376`).
   That branch decides *when to ask*, not *what is true*: in the foreground and outside demo, ask the status, and when
   it lists days, wait for and refresh them as a `daysChanged` does. Also keep `scoringWaitStart` when `receive` set it
-  first (the audit's note).
+  first (the audit's note). As built after review round 1 (F3, F7, N3): the wait also covers the ledger's unanswered
+  pending days, skips days an earlier wait gave up on until a write touches them, reuses a status read under 10 s
+  old, uses that status's `expected_within_sec`, and refreshes what's stale without waiting behind the wait.
+
+### Review round 1 (#88, 15e94e6) and ADR 0013
+
+The review (`review-t2.md`) kept the design and tightened three things. ADR 0013 records the resulting rules.
+- **The 10 s floor (F1).** A wait sends its first `GET /v1/me/sync` no sooner than `ScoringWord.statusCacheTime`
+  (10 s) after it began, and it ignores answers asked sooner (a gate excepted). Before the fix, with
+  `expected_within_sec` < 10, a cached answer from before the write could end the wait and leave a calibrating day on
+  "Scoring your night…".
+- **One store (F4).** The Repository's copy of the ledger is gone. The widget reads `SyncService.scoringLedger`
+  through a closure, as it reads `chosenTrackers`. `SyncService.ledgerChanged` republishes it. The account change and
+  the demo switch both clear the one owner.
+- **Partial-failure words (F5).** If an upload fails or is cancelled after the platform accepted pages, the
+  coordinator says `awaiting` for the days those pages touched. That includes pages accepted by an attempt that a
+  transient failure ended before a retry. T4's deletions rely on this. A word that arrives after a sign-out is dropped
+  (N1).
 
 ### Files: one writer, sync-engineer
 
@@ -500,4 +520,9 @@ The platform should confirm that value or invalidate the cache on ingest and on 
 - **The tally undercounts after an update**, until it covers the window. That is why the count is `nil` until then,
   never low.
 - **Ledger versus server cache:** if the platform's status cache is longer than assumed, a pull right after a push can
-  briefly show "scoring" again. It is bounded by the next poll, and open question 6 removes it.
+  briefly show "scoring" again. **In the foreground only**, the next poll bounds it: the pull is itself a run that sent
+  nothing, so it waits for the listed day and polls until the platform answers. In the background no run polls (the
+  scoring wait is skipped), so only a silent push or the next foreground run answers a word said there. Without a push
+  (notifications off) the widget can say "being scored" until the app is opened. The follow-up is a `BGAppRefresh`
+  that asks `GET /v1/me/sync` once when old pending words exist (`review-t2.md`, architect S4). Open question 6
+  removes the cache case itself.
