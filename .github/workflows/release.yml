@@ -1,76 +1,79 @@
-# Manual release: bump VERSION (MARKETING_VERSION), tag vX.Y.Z, archive that tag
-# and upload it to TestFlight's internal group. Submitting for App Review stays a
-# person's decision in App Store Connect (docs/CI.md).
+# A version release, second half: when a release PR (`make release`, scripts/release.sh) lands on main and raises
+# VERSION, tag vX.Y.Z on that commit, archive the tag and upload it to TestFlight's internal group. Submitting for App
+# Review stays a person's decision in App Store Connect (docs/CI.md).
+#
+# The VERSION bump itself goes through a pull request: main's ruleset requires a PR, linear history and the required
+# checks with no bypass, so this workflow never pushes a branch. It only pushes the tag.
 name: Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      bump:
-        description: Which part of the version to raise
-        type: choice
-        options: [patch, minor, major]
-        default: minor
-      version:
-        description: Or an explicit version (e.g. 1.4.0); overrides bump
-        type: string
-        default: ""
+  push:
+    branches: [main]
+    paths: [VERSION]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: testflight
   cancel-in-progress: false
 
 jobs:
-  bump:
+  tag:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the vX.Y.Z tag
     outputs:
-      version: ${{ steps.bump.outputs.version }}
-      notes: ${{ steps.bump.outputs.notes }}
+      version: ${{ steps.tag.outputs.version }}
+      notes: ${{ steps.tag.outputs.notes }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - id: bump
+      - id: tag
         env:
-          BUMP: ${{ inputs.bump }}
-          EXPLICIT: ${{ inputs.version }}
+          BEFORE: ${{ github.event.before }}
         run: |
-          current="$(tr -d '[:space:]' < VERSION)"
-          if [ -n "$EXPLICIT" ]; then
-            next="$EXPLICIT"
-          else
-            IFS=. read -r major minor patch <<< "$current"
-            case "$BUMP" in
-              major) next="$((major + 1)).0.0" ;;
-              minor) next="$major.$((minor + 1)).0" ;;
-              patch) next="$major.$minor.$((patch + 1))" ;;
-            esac
+          version="$(tr -d '[:space:]' < VERSION)"
+          tag="v$version"
+          echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::VERSION isn't X.Y.Z: $version"; exit 1; }
+          # Only a raise is a release: a revert of a release PR lowers VERSION and must not tag or upload anything.
+          git cat-file -e "$BEFORE^{commit}" 2>/dev/null || BEFORE="$GITHUB_SHA~1"
+          previous="$(git show "$BEFORE:VERSION" | tr -d '[:space:]')"
+          if [ "$version" = "$previous" ] || [ "$(printf '%s\n%s\n' "$previous" "$version" | sort -V | tail -n1)" != "$version" ]; then
+            echo "::error::VERSION went from $previous to $version; only a raise is released"
+            exit 1
           fi
-          echo "$next" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::Bad version $next"; exit 1; }
-          git rev-parse -q --verify "v$next" >/dev/null && { echo "::error::v$next exists"; exit 1; }
-          last="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
-          echo "$next" > VERSION
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "release: $next"
-          git tag "v$next"
-          git push origin HEAD "v$next"
-          echo "version=$next" >> "$GITHUB_OUTPUT"
+          # A tag on another commit stops the release. The same commit means a re-run, which carries on.
+          if existing="$(git rev-parse -q --verify "refs/tags/$tag^{commit}")"; then
+            if [ "$existing" != "$GITHUB_SHA" ]; then
+              echo "::error::$tag already exists on $existing, not on $GITHUB_SHA"
+              exit 1
+            fi
+            echo "$tag is already on $GITHUB_SHA (a re-run)"
+          else
+            git tag "$tag" "$GITHUB_SHA"
+            git push origin "refs/tags/$tag"
+          fi
+          # What to Test: the commits since the previous version, without the release commit itself.
+          last="$(git describe --tags --abbrev=0 --match 'v*' "$GITHUB_SHA~1" 2>/dev/null || true)"
+          delim="NOTES_$(openssl rand -hex 8)"
           {
-            echo "notes<<EOF"
-            echo "RYFT $next"
-            git log --no-merges --pretty='- %s' -n 40 ${last:+$last..}HEAD~1
-            echo "EOF"
+            echo "version=$version"
+            echo "notes<<$delim"
+            echo "RYFT $version"
+            git log --no-merges --pretty='- %s' -n 40 "${last:+$last..}$GITHUB_SHA~1"
+            echo "$delim"
           } >> "$GITHUB_OUTPUT"
 
   testflight:
-    needs: bump
+    needs: tag
+    permissions:
+      contents: write   # the build/<number> tag
     uses: ./.github/workflows/_testflight.yml
     with:
-      ref: v${{ needs.bump.outputs.version }}
+      ref: v${{ needs.tag.outputs.version }}
+      environment: internal-testflight
       group: Internal
-      notes: ${{ needs.bump.outputs.notes }}
+      notes: ${{ needs.tag.outputs.notes }}
     secrets: inherit
