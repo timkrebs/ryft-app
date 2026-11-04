@@ -251,6 +251,74 @@ extension SessionManualRestTests {
         #expect(r.session.restEndsAt == nil)
     }
 
+    enum LastOpenSet: String, CaseIterable, Sendable, CustomTestStringConvertible {
+        case deleted = "deleted", warmedUp = "made a warm-up", exerciseRemoved = "its exercise removed"
+        var testDescription: String { rawValue }
+    }
+
+    /// Every set checked but `Curl`'s last, with a rest running on `Row`.
+    private func restOnTheLastOpenSet(_ r: ReplaceRig) throws -> LocalSet {
+        for ex in r.controller.exercises { r.complete(ex.orderedSets.count, of: ex) }
+        let last = try #require(r.curl.orderedSets.last)
+        last.completedAt = nil
+        r.controller.startRest(for: r.row)
+        #expect(r.controller.rest.isRunning)
+        #expect(!r.controller.isAllDone)
+        return last
+    }
+
+    private func take(_ last: LocalSet, _ path: LastOpenSet, _ r: ReplaceRig) {
+        switch path {
+        case .deleted: r.controller.delete(last, from: r.curl)
+        case .warmedUp: r.controller.toggleWarmup(last)
+        case .exerciseRemoved: r.controller.remove(r.curl)
+        }
+    }
+
+    @Test("Focused: an edit that leaves nothing open ends the rest, or it would run on with no pill", arguments: LastOpenSet.allCases)
+    func editEndsTheRest(_ path: LastOpenSet) throws {
+        let r = rig()
+        let c = r.controller
+        take(try restOnTheLastOpenSet(r), path, r)
+        #expect(c.isAllDone)
+        #expect(c.rest.phase == .idle, "no pill, so no rest")
+        #expect(c.restPillState == .hidden)
+        #expect(r.session.restEndsAt == nil)
+        #expect(r.session.restTotal == 0)
+        #expect(c.restsEnded == 0, "ended, not run out: no Rest over and no haptic")
+    }
+
+    @Test("List: the same edits leave the rest alone, its bar stays", arguments: LastOpenSet.allCases)
+    func listKeepsTheRest(_ path: LastOpenSet) throws {
+        let r = rig(.list)
+        take(try restOnTheLastOpenSet(r), path, r)
+        #expect(r.controller.isAllDone)
+        #expect(r.controller.rest.isRunning)
+        #expect(r.session.restEndsAt != nil)
+    }
+
+    @Test("Focused: removing the last exercise ends the rest")
+    func noExercisesEndTheRest() {
+        let r = rig()
+        let c = r.controller
+        c.startRest(for: r.row)
+        for ex in c.exercises { c.remove(ex) }
+        #expect(c.exercises.isEmpty)
+        #expect(c.rest.phase == .idle)
+        #expect(r.session.restEndsAt == nil)
+    }
+
+    @Test("Focused: an edit that leaves a set open keeps the rest")
+    func openSetKeepsTheRest() throws {
+        let r = rig()
+        let c = r.controller
+        _ = try restOnTheLastOpenSet(r)
+        c.delete(try #require(r.curl.orderedSets.first), from: r.curl)
+        #expect(!c.isAllDone)
+        #expect(c.rest.isRunning, "Curl's last set is still open")
+        #expect(c.restPillState == .running)
+    }
+
     @Test("The preview scenarios the shots use: running 1:54, and Rest over that holds")
     func scenarios() {
         let running = FocusedPreview.controller(.restRunning)

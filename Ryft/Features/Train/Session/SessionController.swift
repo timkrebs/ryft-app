@@ -297,6 +297,9 @@ final class SessionController: Identifiable {
     func edited() {
         pruneCollapsed()
         sync.sessionChanged(session)
+        // Focused hides the pill with nothing left to do, so a rest would run on with no Skip and no ±15, and end on the
+        // lock screen alone. As after the last set's check; a delete, a warm-up or a remove gets here too. List keeps its bar.
+        if layout == .focused, rest.isRunning, exercises.isEmpty || isAllDone { skipRest() }
         refreshActivity()
     }
 
