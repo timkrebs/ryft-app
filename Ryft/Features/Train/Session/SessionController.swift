@@ -22,6 +22,9 @@ final class SessionController: Identifiable {
     let clock: AppClock
     /// Last time for a replacement and the plan for "Also change the plan"; nil in previews without a library.
     let library: SessionLibrary?
+    /// List or Focused, set when the controller is built. It holds while the session is on screen; reopening builds a new
+    /// controller and picks up the flag, which suits a rollback.
+    let layout: SessionLayout
 
     /// The workout's phase (`LiveSessionMachine`): active, resting, paused, finishing,
     /// completed or discarded. The rest timer moves it between active and resting.
@@ -66,12 +69,13 @@ final class SessionController: Identifiable {
 
     /// `liveActivity` is nil in previews and tests.
     init(session: LocalSession, sync: TrainSyncService, liveActivity: RestActivityController?,
-         clock: AppClock = SystemClock(), library: SessionLibrary? = nil) {
+         clock: AppClock = SystemClock(), library: SessionLibrary? = nil, layout: SessionLayout = .list) {
         self.session = session
         self.sessionID = session.id
         self.sync = sync
         self.clock = clock
         self.library = library
+        self.layout = layout
         self.liveActivity = liveActivity
         rest = RestTimer(endsAt: session.restEndsAt, total: session.restTotal, now: .now)
         machine = LiveSessionMachine.make { [weak self] to, _ in self?.phase = to }
@@ -110,6 +114,14 @@ final class SessionController: Identifiable {
     @ObservationIgnored var lastManualScroll: Date?
     /// The exercise of the last check: the current-set highlight follows its `nextUp(after:)`.
     var lastCheckedExercise: UUID?
+
+    // MARK: focused page state (SessionController+Page.swift)
+
+    /// The row the user made active, over the first open set; a page change, a check or a fold clears it. UI state,
+    /// not persisted.
+    var tappedSet: UUID?
+    /// Exercises whose warm-up group is open. Starts folded (L6); UI state, not persisted: a rebuild folds them again.
+    var expandedWarmups: Set<UUID> = []
 
     /// After an edit (a set checked, unchecked, added, deleted or changed; an exercise added,
     /// removed or moved): the lock screen's next set follows.
@@ -215,11 +227,14 @@ final class SessionController: Identifiable {
             // First: it sets the exercise checked last, so the rest's lock-screen "next" is right at once.
             scheduleAdvance(after: set, in: ex)
             startRest(after: ex)
+            foldWarmupsIfDone(after: set, in: ex)
         }
         changed(set)
     }
 
     func toggleWarmup(_ set: LocalSet) {
+        // Focused: a row that becomes a warm-up stays on screen, in its open group.
+        if layout == .focused, !set.isWarmup, let ex = set.exercise { expandedWarmups.insert(ex.id) }
         set.isWarmup.toggle()
         changed(set)
     }
@@ -328,14 +343,14 @@ final class SessionController: Identifiable {
         changed(set)
     }
 
-    /// kg → reps → the next set's kg.
+    /// kg → reps → the next set's kg. A read-only row (`isReadOnly`) has no reps to go to and is passed over.
     func nextField() {
         guard let focus, let target = focusedSet else { return }
         let set = target.set, ex = target.exercise
         switch focus.field {
-        case .kg: edit(set, .reps)
-        case .reps, .rpe:
-            if let next = ex.orderedSets.first(where: { $0.setIndex > set.setIndex }) {
+        case .kg where !isReadOnly(set): edit(set, .reps)
+        case .kg, .reps, .rpe:
+            if let next = ex.orderedSets.first(where: { $0.setIndex > set.setIndex && !isReadOnly($0) }) {
                 edit(next, ex.loadType == .weight ? .kg : .reps)
             } else {
                 self.focus = nil
@@ -382,14 +397,17 @@ final class SessionController: Identifiable {
 
     // MARK: exercises
 
-    func add(_ exercise: Exercise) {
+    @discardableResult
+    func add(_ exercise: Exercise) -> LocalSessionExercise {
         dropUndo()
-        SessionFactory.add(exercise, to: session, sets: 3, in: store)
+        let row = SessionFactory.add(exercise, to: session, sets: 3, in: store)
         edited()
+        return row
     }
 
     func remove(_ ex: LocalSessionExercise) {
         dropUndo()
+        leavePage(of: ex)
         session.deletedSetIDs.append(contentsOf: ex.sets.map(\.id))
         session.deletedExerciseIDs.append(ex.id)
         if let group = ex.supersetGroup { ungroup(group, leaving: ex) }

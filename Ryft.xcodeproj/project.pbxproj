@@ -849,7 +849,7 @@
 			repositoryURL = "https://github.com/supabase/supabase-swift";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 2.55.4;
+				minimumVersion = 2.55.6;
 			};
 			traits = (
 			);

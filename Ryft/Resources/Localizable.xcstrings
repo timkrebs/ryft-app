@@ -267,6 +267,28 @@
         }
       }
     },
+    "%@, done" : {
+      "comment" : "VoiceOver: the warm-up pill once every warm-up is checked. 1: e.g. 2 warm-up sets.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, erledigt"
+          }
+        }
+      }
+    },
+    "%@, history" : {
+      "comment" : "VoiceOver: the exercise's title on its page in a workout, which opens its history.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, Verlauf"
+          }
+        }
+      }
+    },
     "%@, maximum" : {
       "comment" : "VoiceOver value of an Edit targets stepper at its highest, e.g. 15:00 rest. 1: value.",
       "localizations" : {
@@ -1674,6 +1696,17 @@
         }
       }
     },
+    "%lld warm-up sets" : {
+      "comment" : "The warm-up pill on an exercise's page.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Aufwärmsätze"
+          }
+        }
+      }
+    },
     "%lld workouts" : {
       "comment" : "Training import: a count of workouts.",
       "localizations" : {
@@ -2054,6 +2087,17 @@
         }
       }
     },
+    "+kg" : {
+      "comment" : "Set table's column in a workout: load added to bodyweight. Shown uppercase.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "+kg"
+          }
+        }
+      }
+    },
     "0 workouts in this range" : {
       "comment" : "Training import C4.",
       "localizations" : {
@@ -2072,6 +2116,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "1 Satz ist erledigt und bleibt."
+          }
+        }
+      }
+    },
+    "1 warm-up set" : {
+      "comment" : "The warm-up pill on an exercise's page, one set.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 Aufwärmsatz"
           }
         }
       }
@@ -2438,6 +2493,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Zu deinem Tag hinzufügen"
+          }
+        }
+      }
+    },
+    "Add warm-up set" : {
+      "comment" : "Exercise menu in a workout: adds a warm-up set to this exercise.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aufwärmsatz hinzufügen"
           }
         }
       }
@@ -3154,6 +3220,17 @@
         }
       }
     },
+    "bodyweight" : {
+      "comment" : "VoiceOver: a set with no added load, in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Körpergewicht"
+          }
+        }
+      }
+    },
     "Breathing rate" : {
       "comment" : "A signal on a setup card and a row name in Check sync.",
       "localizations" : {
@@ -3592,6 +3669,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Eingeklappt"
+          }
+        }
+      }
+    },
+    "collapsed" : {
+      "comment" : "VoiceOver: the warm-up group is folded.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "eingeklappt"
           }
         }
       }
@@ -4091,6 +4179,17 @@
         }
       }
     },
+    "distance %@" : {
+      "comment" : "VoiceOver: a set's stored distance, e.g. distance 5.0 km.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Distanz %@"
+          }
+        }
+      }
+    },
     "Distance (optional)" : {
       "comment" : "Add activity: the distance group's label.",
       "localizations" : {
@@ -4098,6 +4197,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Distanz (optional)"
+          }
+        }
+      }
+    },
+    "done" : {
+      "comment" : "Exercise strip, VoiceOver: all of an exercise's working sets are checked.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "erledigt"
           }
         }
       }
@@ -4183,6 +4293,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ziele bearbeiten"
+          }
+        }
+      }
+    },
+    "Edit targets, %@" : {
+      "comment" : "VoiceOver: the target chip on an exercise's page. 1: the target, e.g. 3 × 8–10 @ 30 kg.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziele bearbeiten, %@"
           }
         }
       }
@@ -4378,6 +4499,28 @@
         }
       }
     },
+    "Exercise %lld of %lld, %@, %@" : {
+      "comment" : "Exercise strip, VoiceOver. 1: position, 2: exercises, 3: name, 4: done, in progress or not started.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übung %lld von %lld, %@, %@"
+          }
+        }
+      }
+    },
+    "Exercises" : {
+      "comment" : "Exercise strip in a workout, VoiceOver: the adjustable element's label.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übungen"
+          }
+        }
+      }
+    },
     "Expanded" : {
       "comment" : "VoiceOver value of an open setup card.",
       "localizations" : {
@@ -4395,6 +4538,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nicht einmal die Schritte deines iPhones kommen an. RYFT darf Health womöglich nicht lesen."
+          }
+        }
+      }
+    },
+    "expanded" : {
+      "comment" : "VoiceOver: the warm-up group is open.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ausgeklappt"
           }
         }
       }
@@ -5214,6 +5368,17 @@
         }
       }
     },
+    "in progress" : {
+      "comment" : "Exercise strip, VoiceOver: the exercise on screen, or one with a set checked.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "aktiv"
+          }
+        }
+      }
+    },
     "In your RYFT account, on servers in the EU. Never sold, never used for advertising." : {
       "localizations" : {
         "de" : {
@@ -5276,6 +5441,39 @@
         }
       }
     },
+    "Last time" : {
+      "comment" : "Heading of the last-time card in a workout, without a date. Shown uppercase.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letztes Mal"
+          }
+        }
+      }
+    },
+    "Last time · %@" : {
+      "comment" : "Heading of the last-time card in a workout. 1: the date, e.g. Tue 3 Nov. Shown uppercase.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letztes Mal · %@"
+          }
+        }
+      }
+    },
+    "Last time, %@: %@" : {
+      "comment" : "VoiceOver: the last-time card. 1: the date, 2: its sets.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letztes Mal, %@: %@"
+          }
+        }
+      }
+    },
     "Learning your HRV baseline: %lld of %lld nights. No resting heart rate has reached RYFT yet, so recovery uses HRV and sleep." : {
       "comment" : "Note under Today's gauge: only HRV fills, no resting HR arrived. Arguments: nights so far, nights needed (7).",
       "localizations" : {
@@ -5305,6 +5503,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Keine Daten, %@"
+          }
+        }
+      }
+    },
+    "not started" : {
+      "comment" : "Exercise strip, VoiceOver: an exercise with no set checked.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "noch offen"
           }
         }
       }
@@ -5342,6 +5551,28 @@
         }
       }
     },
+    "Opens a sheet" : {
+      "comment" : "VoiceOver hint on the chips of an exercise's page in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet ein Fenster"
+          }
+        }
+      }
+    },
+    "Opens history" : {
+      "comment" : "VoiceOver hint on the last-time card of an exercise's page.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet den Verlauf"
+          }
+        }
+      }
+    },
     "Replace %@" : {
       "comment" : "Title of the sheet that replaces an exercise mid-workout. 1: exercise name.",
       "localizations" : {
@@ -5349,6 +5580,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ ersetzen"
+          }
+        }
+      }
+    },
+    "Replace exercise, %@" : {
+      "comment" : "VoiceOver: the equipment chip on an exercise's page. 1: the equipment.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Übung ersetzen, %@"
           }
         }
       }
@@ -5441,6 +5683,17 @@
         }
       }
     },
+    "Rest, %@" : {
+      "comment" : "VoiceOver: the rest chip on an exercise's page. 1: e.g. 1 minute, 15 seconds.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pause, %@"
+          }
+        }
+      }
+    },
     "Restored %@." : {
       "comment" : "VoiceOver after Undo of a replaced exercise. 1: exercise name.",
       "localizations" : {
@@ -5463,6 +5716,28 @@
         }
       }
     },
+    "set %lld, %@" : {
+      "comment" : "VoiceOver: one row of the last-time card. 1: its number, 2: e.g. 10 reps at 75 kilograms.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Satz %lld, %@"
+          }
+        }
+      }
+    },
+    "Set target" : {
+      "comment" : "The target chip of an exercise without a target, in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziel festlegen"
+          }
+        }
+      }
+    },
     "Sets with values can't be removed here. Delete them in the list." : {
       "comment" : "Edit targets: the sets stepper can't go lower because a set has values.",
       "localizations" : {
@@ -5474,6 +5749,17 @@
         }
       }
     },
+    "Shows or hides the warm-up sets" : {
+      "comment" : "VoiceOver hint on the warm-up pill.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt oder verbirgt die Aufwärmsätze"
+          }
+        }
+      }
+    },
     "Similar" : {
       "comment" : "Section of exercises like the one being replaced.",
       "localizations" : {
@@ -5481,6 +5767,27 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ähnlich"
+          }
+        }
+      }
+    },
+    "superset with %@" : {
+      "comment" : "Exercise strip, VoiceOver, after the exercise. 1: the other exercises of its superset.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supersatz mit %@"
+          }
+        }
+      }
+    },
+    "Superset with %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supersatz mit %@"
           }
         }
       }
@@ -10787,6 +11094,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dieses Workout steht auch in einer anderen gewählten Datei und wird einmal importiert"
+          }
+        }
+      }
+    },
+    "time %@" : {
+      "comment" : "VoiceOver: a set's stored time, e.g. time 0:45.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeit %@"
           }
         }
       }

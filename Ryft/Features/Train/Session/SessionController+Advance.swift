@@ -13,7 +13,7 @@ extension SessionController {
     // MARK: what's next (one definition)
 
     /// The planner's view of the list: exercises in order, sets in `setIndex` order.
-    var advanceStates: [SessionAdvance.ExerciseState] { Self.states(of: exercises) }
+    var advanceStates: [SessionAdvance.ExerciseState] { plannerStates(of: exercises) }
 
     static func states(of exercises: [LocalSessionExercise]) -> [SessionAdvance.ExerciseState] {
         exercises.map { ex in
@@ -23,10 +23,22 @@ extension SessionController {
         }
     }
 
+    /// `states(of:)` for the planner: in Focused a folded group's warm-ups leave the input, so it can't offer a row the
+    /// page doesn't show. In List nothing is folded, so these are `states(of:)` unchanged.
+    func plannerStates(of list: [LocalSessionExercise]) -> [SessionAdvance.ExerciseState] {
+        let states = Self.states(of: list)
+        guard layout == .focused else { return states }
+        return zip(list, states).map { ex, state in
+            guard isFolded(ex) else { return state }
+            return SessionAdvance.ExerciseState(id: state.id, supersetGroup: state.supersetGroup,
+                                                sets: state.sets.filter { !$0.isWarmup })
+        }
+    }
+
     /// `SessionAdvance.next` mapped back to the models: behind `nextUp`, the highlight and the rest bar's "Next:".
     func nextOpenSet(after exerciseID: UUID?) -> (exercise: LocalSessionExercise, set: LocalSet)? {
         let list = exercises
-        guard let ref = SessionAdvance.next(after: exerciseID, in: Self.states(of: list)),
+        guard let ref = SessionAdvance.next(after: exerciseID, in: plannerStates(of: list)),
               let ex = list.first(where: { $0.id == ref.exerciseID }),
               let set = ex.sets.first(where: { $0.id == ref.setID }) else { return nil }
         return (ex, set)

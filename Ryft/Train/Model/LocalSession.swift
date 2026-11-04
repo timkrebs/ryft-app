@@ -37,6 +37,10 @@ final class LocalSession {
     /// The running rest timer, so it survives the app being killed.
     var restEndsAt: Date?
     var restTotal: Double = 0
+    /// The exercise the Focused layout shows (ADR 0014). Local only: never on `wire`, and written with `store.save()`
+    /// alone (`SessionController.showPage`), so a page change reaches neither `updatedAt` nor the outbox. Nil from
+    /// builds before it and from the List layout: `SessionPage.resolve` picks the page, and the screen pins that.
+    var currentExerciseID: UUID?
     var updatedAt: Date
 
     init(id: UUID = UUID(), title: String, startedAt: Date = .now, planDayId: UUID? = nil) {

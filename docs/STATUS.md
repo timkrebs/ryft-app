@@ -1,4 +1,12 @@
-# Status — 2026-10-31
+# Status — 2026-11-04
+
+## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, in progress)
+
+Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session/`. Five stacked PRs. All of it ships dark behind the remote flag `train.focused_session`: flag off or absent stays the List layout.
+
+- **T1 layout:** built, PR open. The strip, one exercise per page, chips, warm-up group, last-time card. The old rest card still sits above the strip until T3, and every row looks the same until T2.
+- **Verified:** simulator only, iOS 27.0, 390 pt in the app, 320 pt in renders.
+- **Before the flag goes on:** a run on iOS 17 (no such runtime on this Mac), a device run with a real plan, VoiceOver by hand.
 
 ## Data quality (`CLAUDE_FOLLOWUP_DATA_QUALITY.md`, in progress)
 
@@ -140,6 +148,20 @@ Plan: `docs/work/2026-10-28-new-orbit-mark/plan.md`. Reference: `../docs/briefs/
 - The user checks the coloured 0.869 icon on his home screen (light, dark, tinted).
 - `design/brand-board.png` still shows the old mark; the 2026-10-28 brief supersedes it until it's redrawn.
 
+## 2026-10-28: version releases through a PR
+
+`release.yml`'s first run (run 40672342483) pushed tag `v1.1.0` and then failed: its `VERSION` commit went straight to
+`main`, which the ruleset rejects (PR, linear history, required checks, no bypass). The tag has since been deleted on
+origin. Now:
+- `make release BUMP=patch|minor|major` (or `VERSION=X.Y.Z`) on a clean `main` opens the PR `release: X.Y.Z` with
+  `VERSION` raised and CHANGELOG's Unreleased moved under the version (`scripts/release.sh`, `DRY_RUN=1` to try);
+- after the merge, `release.yml` (on a push to `main` that changes `VERSION`) tags `vX.Y.Z` on the merge commit and
+  calls `_testflight.yml` for it (Internal), as before.
+
+Verified: `make lint`, a dry run from `main` (1.0.0 → 1.1.0), CI on the PR. **Not run yet:** the tagging workflow itself
+(it runs on the first merged release PR). The tag push uses `GITHUB_TOKEN`, as the `build/*` tags and the failed run's
+`v1.1.0` did; the rulesets weren't read through the API in this session.
+
 ## Session 2026-10-23 → 26: activities, calibration, training import, consent gates, CI and TestFlight
 
 ### Landed on `main`
@@ -229,8 +251,8 @@ Plan: `docs/work/2026-10-28-new-orbit-mark/plan.md`. Reference: `../docs/briefs/
     - the app doesn't send `assist_kg` yet (assisted sets import reps only); a follow-up now that T4 is answered;
     - ask the platform to confirm `ImportResult.message` never echoes file values (Details shows it, cut at 200 chars).
 - **Release tooling before the App Store 1.0:**
-  - `release.yml` can't produce 1.0.0: an unchanged version makes the commit fail, and its push to `main` is rejected by
-    the ruleset;
+  - ~~`release.yml` pushes to `main`~~: since 2026-10-28 a version goes through a PR (`make release`, then `release.yml`
+    tags on the merge; see the top). There's still no path for a hotfix from `release/X.Y`;
   - `docs/RELEASING.md` is missing, and `docs/APP_STORE.md` is stale;
   - `weekly.yml`'s 07:00 Berlin gate skips delayed runs;
   - an iOS 17/18 check, which Xcode 27.1 can't run on simulators.
