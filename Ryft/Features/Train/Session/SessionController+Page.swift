@@ -31,14 +31,11 @@ extension SessionController {
     }
 
     /// The screen appeared, or the resolved page changed: what `resolve` chose is stored, so a nil page can't move by
-    /// itself as sets get checked.
+    /// itself as sets get checked. Not once the session has ended: the cover's last change arrives after Discard deleted
+    /// the row, and after Finish it would move the stored page during the dismissal.
     func pinPage() {
+        guard isUnderway else { return }
         showPage(pageExerciseID)
-    }
-
-    /// The summary closed. Not at Finish: that can wait 10 s on screen, and the fallback would flip the page behind it.
-    func clearPage() {
-        showPage(nil)
     }
 
     /// Every page change ends here. Invariant: an open keypad's set is on the current page. `commitBuffer` runs on

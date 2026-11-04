@@ -26,7 +26,7 @@ struct SessionFocusedPageTests {
 
     /// Every way the page changes without an edit.
     enum Move: String, CaseIterable, Sendable {
-        case jump, jumpAndBack, follow, pin, clear
+        case jump, jumpAndBack, follow, pin
     }
 
     private func perform(_ move: Move, on r: ReplaceRig) {
@@ -40,7 +40,6 @@ struct SessionFocusedPageTests {
             c.follow(AdvanceRequest(id: UUID(), step: .advance(collapse: [], to: .init(exerciseID: r.curl.id,
                                                                                          setID: r.curl.orderedSets[0].id))))
         case .pin: c.pinPage()
-        case .clear: c.clearPage()
         }
     }
 
@@ -76,8 +75,7 @@ struct SessionFocusedPageTests {
         #expect(r.controller.pageExerciseID == r.row.id)
         r.controller.jump(to: r.curl.id)
         #expect(r.controller.pageExerciseID == r.curl.id && r.session.currentExerciseID == r.curl.id)
-        r.controller.clearPage()
-        #expect(r.session.currentExerciseID == nil)
+        r.session.currentExerciseID = nil
         r.controller.pinPage()
         #expect(r.session.currentExerciseID == r.row.id, "pin stores what resolve chose")
     }
@@ -477,38 +475,61 @@ struct SessionFocusedPageTests {
         #expect(r.controller.focus == nil && r.controller.pageExerciseID == r.x.id)
     }
 
-    // MARK: the summary closes (architecture.md §1)
+    // MARK: the session has ended (ADR 0013 §5)
 
-    @Test func clearPageDropsTheStoredPage() {
-        let r = rig()
-        r.controller.jump(to: r.curl.id)
-        r.controller.clearPage()
-        #expect(r.session.currentExerciseID == nil)
+    enum Ending: String, CaseIterable, Sendable {
+        case finishing, finished, discarded
     }
 
-    @Test func theSummaryClosingClearsThePageAndWritesNothing() {
+    /// The cover's last `onChange` arrives after the session ended. The page is unpinned here, so a pin that got through
+    /// would store what `resolve` chose: on Discard, on a deleted row.
+    @Test(arguments: Ending.allCases)
+    func afterTheSessionEndsPinPageWritesNothing(_ ending: Ending) async {
+        let r = rig()
+        let c = r.controller
+        switch ending {
+        case .finishing:
+            let finish = Task { await c.finish() }
+            await r.settle { c.isFinishing }
+            #expect(c.isFinishing)
+            c.pinPage()
+            #expect(r.session.currentExerciseID == nil, "\(ending)")
+            _ = await finish.value
+        case .finished:
+            _ = await c.finish()
+            c.pinPage()
+            #expect(r.session.currentExerciseID == nil, "\(ending)")
+        case .discarded:
+            c.discard()
+            c.pinPage()
+            #expect(r.session.currentExerciseID == nil, "\(ending)")
+        }
+        #expect(!c.isUnderway)
+    }
+
+    @Test func theSummaryClosingLeavesThePageOnTheCompletedRow() async {
         let r = rig()
         let coordinator = TrainCoordinator(sync: r.sync, library: TrainLibrary.preview(store: r.store), liveActivities: false)
         coordinator.live = r.controller
         r.controller.jump(to: r.curl.id)
-        let before = Written(r)
+        _ = await r.controller.finish()
         coordinator.summaryDone()
-        #expect(r.session.currentExerciseID == nil)
+        r.controller.pinPage() // what the cover's last change does
         #expect(coordinator.live == nil && coordinator.summary == nil)
-        #expect(Written(r) == before)
+        #expect(r.session.currentExerciseID == r.curl.id, "unread on the completed row, and it goes with the row")
     }
 
     @Test func finishLeavesThePageForTheSummary() async {
         let r = rig()
         r.controller.jump(to: r.curl.id)
         _ = await r.controller.finish()
-        #expect(r.session.currentExerciseID == r.curl.id, "cleared at Done, not behind the Finish spinner")
+        #expect(r.session.currentExerciseID == r.curl.id, "no flip behind the Finish spinner")
     }
 
     // MARK: List never writes the page
 
     enum ListMove: String, CaseIterable, Sendable {
-        case jump, pin, follow, clear, removeCurrent, splitReplace
+        case jump, pin, follow, removeCurrent, splitReplace
     }
 
     @Test(arguments: ListMove.allCases)
@@ -520,7 +541,6 @@ struct SessionFocusedPageTests {
         case .jump: c.jump(to: r.curl.id)
         case .pin: c.pinPage()
         case .follow: c.follow(request(to: r.curl))
-        case .clear: c.clearPage()
         case .removeCurrent:
             if let ex = c.pageExercise { c.remove(ex) }
         case .splitReplace:
@@ -534,7 +554,6 @@ struct SessionFocusedPageTests {
         let r = rig(.list)
         r.session.currentExerciseID = r.x.id
         r.controller.jump(to: r.curl.id)
-        r.controller.clearPage()
         r.controller.remove(r.x)
         #expect(r.session.currentExerciseID == r.x.id)
     }

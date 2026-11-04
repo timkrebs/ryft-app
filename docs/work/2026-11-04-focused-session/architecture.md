@@ -51,10 +51,12 @@ so this is checked, not assumed:
 **Lifetime.**
 - Survives a relaunch and a rebuild: it's on the row. A rebuild is routine, not only a kill: `close()` sets `live = nil`,
   so minimise and reopen builds a new controller.
-- Cleared in `TrainCoordinator.summaryDone()` through `controller.clearPage()`, not in `finish()`. `finish()` can wait 10 s
-  on the screen, and clearing there would run the fallback and flip the page behind the Finish spinner.
-- If the app dies with the summary open, the id stays on a completed row. It is unread (`activeSession()` fetches in
-  progress only, and `apply` never moves a session back) and goes with the row.
+- Never cleared. The id stays on the completed row, unread (`activeSession()` fetches in progress only, and `apply` never
+  moves a session back), and goes with the row. Clearing in `finish()` would run the fallback and flip the page behind the
+  Finish spinner, which can wait 10 s on the screen. Clearing at the summary's Done would be undone by the re-pin 15 ms
+  later and would move the stored page during the dismissal.
+- `pinPage()` writes only while the session is underway (`isUnderway`). The cover's last `onChange` arrives after `live`
+  is nil: after Discard it would write to the deleted row.
 
 **Fallback.** `SessionPage.resolve(stored:in:)` returns:
 1. `stored` while that row exists;
@@ -82,8 +84,7 @@ var pageExerciseID: UUID? { get }                // resolved; the pager's and th
 var pageExercise: LocalSessionExercise? { get }
 func jump(to exerciseID: UUID)                   // the user: swipe, strip tap, strip adjust, the + tile
 func follow(_ request: AdvanceRequest)           // the planner: what the view does with `advance`
-func pinPage()                                   // on appear
-func clearPage()                                 // the summary closed
+func pinPage()                                   // on appear and when the page changes, while underway
 func showPage(_ id: UUID?)                       // the funnel: every page change, internal for +Replace
 ```
 
@@ -405,7 +406,7 @@ Everything in `Ryft/` unless noted. New files need no project edit (synchronized
 6. `Features/Train/Session/SessionController+Page.swift` (new): §2, plus `isFolded`, `setWarmups(expanded:for:)`, `addWarmup(to:)`.
 7. `Features/Train/Session/SessionController+Advance.swift`: `plannerStates`, used by `advanceStates` and `nextOpenSet`.
 8. `Features/Train/Session/SessionController+Replace.swift`: `showPage` in `replace` (split) and `undoReplace`.
-9. `Features/Train/TrainCoordinator.swift`: `sessionLayout`, `open()`, `summaryDone()`; `TrainPreview.liveController(layout:)`.
+9. `Features/Train/TrainCoordinator.swift`: `sessionLayout`, `open()`; `TrainPreview.liveController(layout:)`.
 10. `Features/Train/Session/ExerciseCard.swift`: `SetRow.swipeToDelete`; `menuItems` moves to `ExerciseMenuItems.swift` (new).
 11. `Features/Train/Session/SessionView.swift`: `listContent`, the switch, a `SessionActions` value for the shared sheets.
 12. New in `Features/Train/Session/`: `SessionPager.swift`, `ExerciseStrip.swift`, `ExercisePage.swift`,

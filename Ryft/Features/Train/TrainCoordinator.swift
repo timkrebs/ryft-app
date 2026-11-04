@@ -217,7 +217,6 @@ final class TrainCoordinator {
 
     func summaryDone() {
         summary = nil
-        live?.clearPage()
         live = nil
     }
 

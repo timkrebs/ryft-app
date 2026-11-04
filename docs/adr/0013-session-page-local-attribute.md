@@ -23,8 +23,9 @@ that fails to migrate sends the app to an in-memory store, and the user's local 
 3. **It is written in one place** (`SessionController.showPage`), and only in the Focused layout.
 4. **What is shown is resolved, not stored:** the row if it exists, else the first exercise with an open working set, else
    the last one. A nil value is pinned once when the screen appears, so the page never moves by itself.
-5. **It is cleared when the summary closes**, not at Finish: clearing during Finish's wait would flip the page behind it. A
-   value left on a completed row is unread and goes with the row.
+5. **It is never cleared.** The value stays on the completed row, unread (`activeSession()` fetches in progress only, and
+   `apply` never moves a session back), and goes with the row. Clearing it would flip the page behind Finish's wait or
+   during the dismissal, so `pinPage()` also stops once the session has ended.
 6. **Every new attribute of this kind extends `TrainOutboxSchemaUpgradeTests`** in the PR that adds it.
 
 ## Consequences
