@@ -5584,6 +5584,17 @@
         }
       }
     },
+    "Nothing logged yet. Enter a value on the keypad." : {
+      "comment" : "VoiceOver announcement when a set is checked off with no values: nothing is logged and the keypad opens.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noch nichts geloggt. Gib einen Wert auf der Zahlentastatur ein."
+          }
+        }
+      }
+    },
     "Offline. Showing your saved exercise library." : {
       "comment" : "Caption in the replace sheet without a connection.",
       "localizations" : {
