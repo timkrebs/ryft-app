@@ -218,10 +218,17 @@ final class TrainStore {
     /// `LocalPrivacyZone` rows too; A3b deletes vault keys first.
     func wipe(parkingActivitiesOf account: String?, at now: Date = Date()) {
         epoch += 1
-        // Batch deletes skip cascade rules, so children go explicitly.
-        try? context.delete(model: LocalSet.self)
-        try? context.delete(model: LocalSessionExercise.self)
-        try? context.delete(model: LocalSession.self)
+        // One by one, the way `PendingImport` goes below. A batch delete of `LocalSet` or `LocalSessionExercise` throws
+        // on saved rows (their inverse), and none sees a session that was only inserted, which the `save()` below would
+        // then write. Sessions first: their cascade takes the children, the other two are for orphans.
+        for session in (try? context.fetch(FetchDescriptor<LocalSession>())) ?? [] {
+            // Read now: a live workout still holds this row until the account change, and reading either list on a
+            // deleted row is a fatal error unless it was resolved before the delete.
+            _ = (session.deletedSetIDs, session.deletedExerciseIDs)
+            context.delete(session)
+        }
+        for exercise in (try? context.fetch(FetchDescriptor<LocalSessionExercise>())) ?? [] { context.delete(exercise) }
+        for set in (try? context.fetch(FetchDescriptor<LocalSet>())) ?? [] { context.delete(set) }
         try? context.delete(model: CachedExercise.self)
         try? context.delete(model: CachedPlan.self)
         try? context.delete(model: PendingTrainOp.self)
