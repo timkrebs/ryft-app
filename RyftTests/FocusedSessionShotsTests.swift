@@ -56,7 +56,7 @@ struct FocusedSessionShotsTests {
             switch self {
             case .standard: .large
             case .xl: .extraLarge
-            case .ax3: .accessibilityLarge
+            case .ax3: .accessibilityExtraLarge
             }
         }
 

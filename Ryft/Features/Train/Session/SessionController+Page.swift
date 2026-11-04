@@ -5,9 +5,11 @@ import Foundation
 extension SessionController {
     // MARK: the page
 
-    /// The exercise on screen: the pager's and the strip's only source.
+    /// The exercise on screen: the pager's and the strip's only source. Read on every update, so a stored page that still
+    /// exists, the usual case, builds no planner states.
     var pageExerciseID: UUID? {
-        SessionPage.resolve(stored: session.currentExerciseID, in: Self.states(of: exercises))
+        if let stored = session.currentExerciseID, exercises.contains(where: { $0.id == stored }) { return stored }
+        return SessionPage.resolve(stored: nil, in: Self.states(of: exercises))
     }
 
     var pageExercise: LocalSessionExercise? {

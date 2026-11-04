@@ -29,7 +29,6 @@ struct ExercisePage: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.sessionVoiceOverFocus) private var voiceOverFocus
 
-    private var usesWeight: Bool { exercise.loadType == .weight || exercise.loadType == .bodyweight }
     private var motion: Animation? { Theme.Motion.respecting(reduceMotion) }
     private var warmups: [LocalSet] { exercise.orderedSets.filter(\.isWarmup) }
     private var working: [LocalSet] { exercise.orderedSets.filter { !$0.isWarmup } }
@@ -293,25 +292,26 @@ struct ExercisePage: View {
     private var table: some View {
         VStack(alignment: .leading, spacing: 4) {
             SetTableHeader(loadType: exercise.loadType, columns: columns)
+            let current = controller.currentSetID
             if isExpanded, !warmups.isEmpty {
                 let warmups = warmups
                 ForEach(Array(warmups.enumerated()), id: \.element.id) { i, set in
-                    row(set, number: i + 1, count: warmups.count)
+                    row(set, number: i + 1, count: warmups.count, current: current)
                 }
                 addWarmup
             }
             let working = working
             ForEach(Array(working.enumerated()), id: \.element.id) { i, set in
-                row(set, number: i + 1, count: working.count)
+                row(set, number: i + 1, count: working.count, current: current)
             }
         }
     }
 
-    private func row(_ set: LocalSet, number: Int, count: Int) -> some View {
+    private func row(_ set: LocalSet, number: Int, count: Int, current: UUID?) -> some View {
         SetRow(controller: controller, set: set, exercise: exercise, number: number, count: count,
                swipeToDelete: false, columns: columns)
             .id(set.id) // scroll anchor for the keypad
-            .currentSetHighlight(controller.currentSetID == set.id, setID: set.id)
+            .currentSetHighlight(current == set.id, setID: set.id)
     }
 
     private var addSet: some View {

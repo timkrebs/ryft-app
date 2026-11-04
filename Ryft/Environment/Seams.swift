@@ -136,8 +136,8 @@ enum FeatureFlag: String, CaseIterable, Identifiable, Sendable {
     /// Training import from a CSV file (My Plans, Profile → Data, Open in) and its upload. Off, nothing is sent and a
     /// saved import waits (the kill switch). On in the PR that ships the import's "Open in" keys.
     case trainImport = "train.import"
-    /// The live session one exercise at a time (Focused). Off or absent, every session is List, whatever Profile says;
-    /// the layout is read once per controller, so a config refresh never changes a running session (plan.md, L5).
+    /// The live session one exercise at a time (Focused). Off or absent, every session is List, whatever Profile says.
+    /// The layout holds while the session is on screen; reopening picks up the flag, which suits a rollback (plan.md, L5).
     case focusedSession = "train.focused_session"
 
     var id: String { rawValue }

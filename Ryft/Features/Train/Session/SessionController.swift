@@ -22,7 +22,8 @@ final class SessionController: Identifiable {
     let clock: AppClock
     /// Last time for a replacement and the plan for "Also change the plan"; nil in previews without a library.
     let library: SessionLibrary?
-    /// List or Focused, read once when the controller is built: a config refresh never changes a running session.
+    /// List or Focused, set when the controller is built. It holds while the session is on screen; reopening builds a new
+    /// controller and picks up the flag, which suits a rollback.
     let layout: SessionLayout
 
     /// The workout's phase (`LiveSessionMachine`): active, resting, paused, finishing,
