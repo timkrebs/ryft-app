@@ -37,6 +37,7 @@ landed, so the "supersedes" clause doesn't apply as written: this brief builds o
 | L19 | T4 is the RM column only. The last-time table is in T1, and T1's fourth column is RPE until T4. | Design §7. |
 | L20 | No T6: time and distance keep today's behaviour (a wide reps field, stored values read-only). Entry for them is not in this brief. | `SetFocus.Field` has no time or distance today, so parity holds. Noted as an open item. |
 | L21 | Finish's capsule loses its fill in Focused until every set is done, in T5, checked on renders first. | Three filled teal controls otherwise (design §4). |
+| L22 | Two wordings change with the flag off too: the German value of "All sets done" (L18, in T2) and the setting's label "Advance to the next exercise" (L4, in T5). Each PR that ships one names it in its body, and it gets a CHANGELOG line. | Copy only, it reveals nothing of the new layout, and holding them behind the flag means two keys for one meaning. "Nothing changes with the flag off" stays strict for layout and behaviour. Settles the conflict between the acceptance criterion and L4, L18. |
 
 ## Tickets
 
@@ -59,7 +60,7 @@ UI tests run List unchanged until the flag is on by default for them in T5.
 ## Acceptance criteria
 
 The brief's sections are the criteria, read with the decisions above. On top, for every PR:
-- With the flag off nothing changes at all, for anyone.
+- With the flag off nothing changes at all, for anyone, apart from the two wordings in L22.
 - A page change writes nothing to the session's `updatedAt` and queues no upload.
 - Strict build, zero warnings in our code, `make lint`, Unit plan green; Previews dark and light for every new view.
 - Catalog diff in the tens of lines, no re-serialising, no attribution trailers or footers.
