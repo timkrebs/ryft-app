@@ -260,7 +260,7 @@ final class FocusedSessionUITests: XCTestCase {
         requireExists(chip, "the rest chip")
         XCTAssertTrue(chip.label.contains("3 minutes"), "Bench rests 3:00 in the demo plan: \(chip.label)")
         chip.tap()
-        let choice = app.buttons["1:00"]
+        let choice = element(app, "restChoice.60")
         requireExists(choice, "the rest choices")
         choice.tap()
         wait(chip, until: "label CONTAINS '1 minute'", "the chip shows the new rest")
