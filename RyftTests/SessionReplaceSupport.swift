@@ -37,6 +37,8 @@ final class ReplaceRig {
     let library = FakeSessionLibrary()
     let session: LocalSession
     let controller: SessionController
+    /// Its own: `Settings.shared` is process-wide, and the fourth column's choice lives there.
+    let settings = Settings(defaults: UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard)
     let peBench = UUID(), peRow = UUID()
     let plan: Plan
     let row: LocalSessionExercise, x: LocalSessionExercise, lateral: LocalSessionExercise, curl: LocalSessionExercise
@@ -84,7 +86,7 @@ final class ReplaceRig {
         }
         store.save()
         controller = SessionController(session: session, sync: sync, liveActivity: nil, clock: clock, library: library,
-                                       layout: sessionLayout)
+                                       layout: sessionLayout, settings: settings)
     }
 
     deinit { MainActor.assumeIsolated { controller.stop() } }

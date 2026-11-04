@@ -122,6 +122,7 @@ struct RyftApp: App {
         if UserDefaults.standard.bool(forKey: "RyftResetTrain") {
             TrainStore.shared.wipe()
             TrainCoordinator.shared.refreshActive()
+            Settings.shared.setColumn = nil
         }
         // UI tests: `-importUploadsUnavailable YES`, the import before the platform's contract (V5).
         ImportDemoFiles.applyLaunchArguments(to: env)

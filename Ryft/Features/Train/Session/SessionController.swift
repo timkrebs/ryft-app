@@ -25,6 +25,8 @@ final class SessionController: Identifiable {
     /// List or Focused, set when the controller is built. It holds while the session is on screen; reopening builds a new
     /// controller and picks up the flag, which suits a rollback.
     let layout: SessionLayout
+    /// The fourth column's stored choice (SessionController+Column.swift).
+    @ObservationIgnored let settings: Settings
 
     /// The workout's phase (`LiveSessionMachine`): active, resting, paused, finishing,
     /// completed or discarded. The rest timer moves it between active and resting.
@@ -69,13 +71,15 @@ final class SessionController: Identifiable {
 
     /// `liveActivity` is nil in previews and tests.
     init(session: LocalSession, sync: TrainSyncService, liveActivity: RestActivityController?,
-         clock: AppClock = SystemClock(), library: SessionLibrary? = nil, layout: SessionLayout = .list) {
+         clock: AppClock = SystemClock(), library: SessionLibrary? = nil, layout: SessionLayout = .list,
+         settings: Settings = .shared) {
         self.session = session
         self.sessionID = session.id
         self.sync = sync
         self.clock = clock
         self.library = library
         self.layout = layout
+        self.settings = settings
         self.liveActivity = liveActivity
         rest = RestTimer(endsAt: session.restEndsAt, total: session.restTotal, now: .now)
         machine = LiveSessionMachine.make { [weak self] to, _ in self?.phase = to }
