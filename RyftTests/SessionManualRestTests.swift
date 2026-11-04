@@ -56,6 +56,7 @@ struct SessionManualRestTests {
 
     @Test("Focused: Rest over goes back to idle after its moment")
     func restOverSettles() async {
+        #expect(SessionController.restOverHold == .seconds(1), "design.md §2.7: the pill says it for 1 s")
         let r = rig()
         endRest(r)
         #expect(r.controller.rest.phase == .finished)
@@ -72,7 +73,8 @@ struct SessionManualRestTests {
         await r.settle { r.clock.pendingSleeps >= 1 }
         r.controller.startRest(for: r.row)
         r.clock.advance(by: SessionController.restOverHold)
-        await r.settle { r.clock.pendingSleeps == 0 }
+        // The woken task runs on the next turns; `pendingSleeps` is already 0, so wait them out.
+        await r.settle()
         #expect(r.controller.rest.isRunning)
     }
 

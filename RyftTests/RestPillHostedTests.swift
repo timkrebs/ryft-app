@@ -114,6 +114,9 @@ struct RestPillHostedTests {
         StripCase(width: 320, height: 693, keypad: true, resting: true, strip: false),
         StripCase(width: 390, height: 844, keypad: true, resting: false, strip: true),
         StripCase(width: 390, height: 844, keypad: true, resting: true, strip: true),
+        // A page between 296 and 360 pt tall: room enough for the strip until the pill row takes its 64 pt.
+        StripCase(width: 320, height: 820, keypad: true, resting: false, strip: true),
+        StripCase(width: 320, height: 820, keypad: true, resting: true, strip: false),
     ]
 
     @Test("The strip gives way to the keypad at 320 pt and only there", arguments: stripCases)

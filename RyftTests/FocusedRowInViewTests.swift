@@ -147,4 +147,53 @@ struct FocusedRowInViewTests {
             try expectWhole(index + 1, of: 8, in: w, "\(phone.rawValue), keypad on set \(index + 1), \(resting ? "resting" : "idle")")
         }
     }
+
+    struct MoveCase: Sendable, CustomTestStringConvertible {
+        let phone: Phone
+        let resting: Bool
+        var testDescription: String { "\(phone.rawValue), \(resting ? "resting" : "idle")" }
+    }
+
+    nonisolated static let moveCases = Phone.allCases.flatMap { phone in [false, true].map { MoveCase(phone: phone, resting: $0) } }
+
+    /// The page doesn't change height when the keypad goes from one row to another, so only the focus change can scroll.
+    @Test("The keypad moving to another row (Next, or a tap on a row) brings that row into view", arguments: moveCases)
+    func keypadMovesToAnotherRow(_ m: MoveCase) async throws {
+        let c = controller(rest: m.resting)
+        defer { c.stop() }
+        let ex = try #require(c.pageExercise)
+        try await HostedWindow.run(width: m.phone.size.width, height: m.phone.size.height, SessionView(controller: c)) { w in
+            try await w.settle()
+            c.edit(ex.orderedSets[0], .kg)
+            try await w.wait("the keypad") { w.node("Current value") != nil }
+            try await w.settle()
+            for index in [7, 3, 6, 0] {
+                c.edit(ex.orderedSets[index], .kg)
+                try await w.settle()
+                try expectWhole(index + 1, of: 8, in: w, "\(m.testDescription), keypad moved to set \(index + 1)")
+            }
+        }
+    }
+
+    /// The session screen comes back (Minimise, then open it again) with the keypad still on a row.
+    @Test("A page that appears with the keypad already up shows its row", arguments: keypadCases)
+    func pageAppearsWithTheKeypadUp(_ k: KeypadCase) async throws {
+        let c = controller(rest: k.resting)
+        defer { c.stop() }
+        let ex = try #require(c.pageExercise)
+        c.edit(ex.orderedSets[k.index], .kg)
+        try await HostedWindow.run(width: k.phone.size.width, height: k.phone.size.height, SessionView(controller: c)) { w in
+            try await w.settle()
+            let context = "appeared with the keypad on set \(k.index + 1), \(k.testDescription)"
+            if k.phone == .compact, k.resting {
+                // Measured: the first scroll lands every row 18 pt above a 138 pt page (320 pt, rest running, keypad up). Reported
+                // with this test; when `ExercisePage` is fixed this stops recording and the wrapper must go.
+                withKnownIssue("The row starts 18 pt above the page: the keypad's first scroll ran before the layout settled") {
+                    try expectWhole(k.index + 1, of: 8, in: w, context)
+                }
+            } else {
+                try expectWhole(k.index + 1, of: 8, in: w, context)
+            }
+        }
+    }
 }
