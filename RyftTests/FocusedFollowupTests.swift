@@ -5,12 +5,6 @@ import Testing
 @MainActor
 @Suite("Focused follow-ups")
 struct FocusedFollowupTests {
-    private func rig(_ layout: SessionLayout) -> ReplaceRig {
-        let r = ReplaceRig(sessionLayout: layout)
-        r.controller.settings.setColumn = nil
-        return r
-    }
-
     /// A new page with last time's sets: 8 reps at `kg`.
     private func added(_ exercise: Exercise, to r: ReplaceRig, kg: Double?) -> LocalSessionExercise {
         let ex = SessionFactory.add(exercise, to: r.session, sets: 3, in: r.store)
@@ -23,7 +17,7 @@ struct FocusedFollowupTests {
 
     @Test("Focused: ✓ logs the added load the row shows")
     func focusedLogsTheAddedLoad() {
-        let r = rig(.focused)
+        let r = ReplaceRig(sessionLayout: .focused)
         let ex = added(MockTrain.pullUp, to: r, kg: 10)
         let set = ex.orderedSets[0]
         #expect(r.controller.ghost(for: set, in: ex).kg == 10)
@@ -35,7 +29,7 @@ struct FocusedFollowupTests {
 
     @Test("List: ✓ logs no added load, as before")
     func listLogsNone() {
-        let r = rig(.list)
+        let r = ReplaceRig(sessionLayout: .list)
         let ex = added(MockTrain.pullUp, to: r, kg: 10)
         let set = ex.orderedSets[0]
         r.controller.toggleCheck(set, in: ex)
@@ -46,7 +40,7 @@ struct FocusedFollowupTests {
 
     @Test("Focused: with no added load to show, ✓ logs none")
     func noLoadToLog() {
-        let r = rig(.focused)
+        let r = ReplaceRig(sessionLayout: .focused)
         let ex = added(MockTrain.pullUp, to: r, kg: nil)
         let set = ex.orderedSets[0]
         r.controller.toggleCheck(set, in: ex)
@@ -56,7 +50,7 @@ struct FocusedFollowupTests {
 
     @Test("Focused: a typed load isn't replaced by the ghost")
     func aTypedLoadStays() {
-        let r = rig(.focused)
+        let r = ReplaceRig(sessionLayout: .focused)
         let ex = added(MockTrain.pullUp, to: r, kg: 10)
         let set = ex.orderedSets[0]
         set.weightKg = 5
@@ -64,10 +58,35 @@ struct FocusedFollowupTests {
         #expect(set.weightKg == 5)
     }
 
+    @Test("Focused: a done row's estimate is the one the ghost showed")
+    func theDoneRowKeepsItsEstimate() {
+        let r = ReplaceRig(sessionLayout: .focused)
+        r.controller.settings.setColumn = .e1rm
+        let ex = added(MockTrain.pullUp, to: r, kg: 10)
+        let set = ex.orderedSets[0]
+        let shown = r.controller.columnText(of: set, in: ex)
+        #expect(shown != Fmt.placeholder)
+        r.controller.toggleCheck(set, in: ex)
+        #expect(set.isCompleted)
+        #expect(r.controller.columnText(of: set, in: ex) == shown)
+    }
+
+    @Test("Focused: an uncheck keeps what ✓ logged")
+    func anUncheckKeepsTheValue() {
+        let r = ReplaceRig(sessionLayout: .focused)
+        let ex = added(MockTrain.pullUp, to: r, kg: 10)
+        let set = ex.orderedSets[0]
+        r.controller.toggleCheck(set, in: ex)
+        r.controller.toggleCheck(set, in: ex)
+        #expect(!set.isCompleted)
+        #expect(set.weightKg == 10)
+        #expect(set.reps == 8)
+    }
+
     @Test("Time and distance fill no kg in either layout", arguments: [SessionLayout.focused, .list])
     func timeAndDistanceStay(_ layout: SessionLayout) {
         for exercise in [MockTrain.plank, MockTrain.erg] {
-            let r = rig(layout)
+            let r = ReplaceRig(sessionLayout: layout)
             let ex = added(exercise, to: r, kg: 10)
             let set = ex.orderedSets[0]
             r.controller.toggleCheck(set, in: ex)
@@ -80,7 +99,7 @@ struct FocusedFollowupTests {
 
     @Test("List: removing the exercise under the keypad closes the keypad")
     func listRemoveClosesTheKeypad() {
-        let r = rig(.list)
+        let r = ReplaceRig(sessionLayout: .list)
         r.controller.edit(r.x.orderedSets[0], .kg)
         r.controller.remove(r.x)
         #expect(r.controller.focus == nil)
@@ -88,7 +107,7 @@ struct FocusedFollowupTests {
 
     @Test("List: removing another exercise leaves the keypad open")
     func listRemoveElsewhereKeepsIt() {
-        let r = rig(.list)
+        let r = ReplaceRig(sessionLayout: .list)
         let focus = SetFocus(setID: r.x.orderedSets[0].id, field: .kg)
         r.controller.edit(r.x.orderedSets[0], .kg)
         r.controller.remove(r.curl)
@@ -98,7 +117,7 @@ struct FocusedFollowupTests {
     /// `leavePage` has nowhere to go and no page to clear: `showPage(nil)` matches the stored nil and returns.
     @Test("Focused: removing a lone exercise with no stored page closes the keypad")
     func focusedLoneExercise() {
-        let r = rig(.focused)
+        let r = ReplaceRig(sessionLayout: .focused)
         for ex in [r.x, r.lateral, r.curl] { r.controller.remove(ex) }
         r.session.currentExerciseID = nil
         r.controller.edit(r.row.orderedSets[0], .kg)
@@ -109,7 +128,7 @@ struct FocusedFollowupTests {
 
     @Test("Focused: removing the page's exercise closes the keypad, as it did")
     func focusedPage() {
-        let r = rig(.focused)
+        let r = ReplaceRig(sessionLayout: .focused)
         r.controller.showPage(r.x.id)
         r.controller.edit(r.x.orderedSets[0], .kg)
         r.controller.remove(r.x)

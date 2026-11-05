@@ -254,7 +254,8 @@ final class SessionController: Identifiable {
         } else {
             let g = ghost(for: set, in: ex)
             if set.reps == nil { set.reps = g.reps }
-            // Focused shows a bodyweight row's added load as a ghost, so ✓ logs it, as any other ghost. List shows none and stays.
+            // Focused logs a bodyweight row's added-load ghost, as any other ghost. List keeps today's behaviour for now: it shows
+            // that ghost and ✓ doesn't log it.
             if set.weightKg == nil, ex.loadType == .weight || (layout == .focused && ex.loadType == .bodyweight) { set.weightKg = g.kg }
             set.completedAt = .now
             setsChecked += 1
