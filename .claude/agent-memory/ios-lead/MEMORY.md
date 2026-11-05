@@ -13,3 +13,5 @@
 - [Merge authority](merge-authority.md) — per PR list unless broad; threads block merging; one at a time, docs PRs last
 - [Squash keeps old commits](squash-keeps-old-commits.md) — refs/pull/N/head survives; redact before opening a PR
 - [Visual check, whole matrix](visual-check-whole-matrix.md) — one clean shot hid a regression; measure every size before pushing
+- [Alpine is light only](alpine-light-only.md) — fonts and corners must not reach dark until the dark pass; dark must not move
+- [Exercise images](exercise-images.md) — commissioned set chosen; the app writes the spec, hiring is the user's
