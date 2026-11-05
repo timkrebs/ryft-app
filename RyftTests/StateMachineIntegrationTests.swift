@@ -10,7 +10,7 @@ import Auth
 struct StateMachineIntegrationTests {
     private func auth(_ client: MockAuthClient) -> AuthService {
         AuthService(client: client, defaults: UserDefaults(suiteName: "ryft.sm.\(UUID().uuidString)")!,
-                    wipeLocalData: { _ in }, deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                    wipeLocalData: { _ in true }, deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
                     postAppleAuthorization: { _ in })
     }
 

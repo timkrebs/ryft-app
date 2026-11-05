@@ -71,7 +71,7 @@ private final class Switches {
         let settings = Settings(defaults: defaults)
         settings.demoMode = false
         self.settings = settings
-        auth = AuthService(client: client, settings: settings, defaults: defaults, wipeLocalData: { _ in },
+        auth = AuthService(client: client, settings: settings, defaults: defaults, wipeLocalData: { _ in true },
                            deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
                            postAppleAuthorization: { _ in })
     }
