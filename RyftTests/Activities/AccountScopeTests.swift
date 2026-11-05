@@ -137,7 +137,7 @@ struct AccountScopeTests {
 
         await h.auth.rejectedAfterRefresh() // a final 401
         #expect(h.auth.state == .signedOut)
-        #expect(h.wipes == [AuthService.Wipe(reason: .sessionExpired, account: a)])
+        #expect(h.wipes.map(\.reason) == [.sessionExpired] && h.wipes.map(\.account) == [a])
 
         let kept = Set(h.rows().map(\.id))
         #expect(kept == [pending, deleting, recording])

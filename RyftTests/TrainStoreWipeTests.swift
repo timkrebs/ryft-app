@@ -11,7 +11,7 @@ import Testing
 /// A store in its own folder, so a test can read the file three ways. The reopened store is bound to a variable: an
 /// inline `TrainStore(url:).context` lets the container go while the context is in use, which crashes the test process.
 @MainActor
-private final class StoreOnDisk {
+final class StoreOnDisk {
     struct Rows: Equatable {
         var sessions: Int, exercises: Int, sets: Int
         static let none = Rows(sessions: 0, exercises: 0, sets: 0)
@@ -206,7 +206,7 @@ enum WipedTable: String, CaseIterable {
     }
 }
 
-private enum WipeValues {
+enum WipeValues {
     /// `nil`: sign-out, deletion, another account. An account: a session expiry parking its activities.
     static let parkings: [String?] = [nil, "account-a"]
     static let account = "account-a"
@@ -722,37 +722,49 @@ struct TrainStoreWipeTests {
 /// A real `AuthService` on a store on disk, and a relaunch: a new service and store on the same file and defaults, as
 /// after a kill. Nothing of the old process's pending changes carries over.
 @MainActor
-private final class WipingAuth {
+final class WipingAuth {
     let disk: StoreOnDisk
     let defaults = UserDefaults(suiteName: "ryft.tests.wipe.\(UUID().uuidString)") ?? .standard
+    let clock = TestClock(now: WipeValues.now)
     private(set) var client: MockAuthClient
     private(set) var auth: AuthService
     var duringDeletion: (@MainActor () async -> Void)?
+    /// Runs as the store's wipe starts, with what it was asked for.
+    var atTheWipe: (@MainActor (AuthService.Wipe) -> Void)?
 
     init(signedInAs account: UUID) throws {
         let disk = try StoreOnDisk()
         self.disk = disk
         client = MockAuthClient(session: .preview(id: account))
-        auth = Self.service(client, disk, defaults, nil)
+        auth = AuthService(client: client, settings: Settings(defaults: defaults), defaults: defaults,
+                           wipeLocalData: { _ in true },
+                           deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                           postAppleAuthorization: { _ in })
         rewire()
     }
 
     var lastUser: String? { defaults.string(forKey: AccountScope.defaultsKey) }
 
-    private static func service(_ client: MockAuthClient, _ disk: StoreOnDisk, _ defaults: UserDefaults,
-                                _ deletion: (@Sendable @MainActor () async -> Void)?) -> AuthService {
-        AuthService(client: client, settings: Settings(defaults: defaults), defaults: defaults,
-                    wipeLocalData: { wipe in disk.store.wipe(parkingActivitiesOf: wipe.parking) },
-                    deleteRemoteAccount: {
-                        await deletion?()
-                        return AccountDeleted(status: "deleted", authUserDeleted: true)
-                    },
-                    postAppleAuthorization: { _ in })
-    }
+    /// In the store's folder, so it goes with it.
+    var ledgerFile: URL { disk.folder.appendingPathComponent("account-wipe.json") }
+    /// What the next launch would read.
+    var ledgerOnDisk: OwedWipe? { WipeLedger(file: ledgerFile).entry }
 
-    /// The deletion's hook reads `duringDeletion` when it runs.
+    /// The hooks read `duringDeletion` and `atTheWipe` when they run. A new ledger, as in a new process: nothing of the
+    /// old one's memory carries over.
     private func rewire() {
-        auth = Self.service(client, disk, defaults) { [weak self] in await self?.duringDeletion?() }
+        let disk = disk, clock = clock
+        auth = AuthService(client: client, settings: Settings(defaults: defaults), defaults: defaults,
+                           wipeLocalData: { [weak self] wipe in
+                               self?.atTheWipe?(wipe)
+                               return disk.store.wipe(parkingActivitiesOf: wipe.parking, at: wipe.since)
+                           },
+                           deleteRemoteAccount: { [weak self] in
+                               await self?.duringDeletion?()
+                               return AccountDeleted(status: "deleted", authUserDeleted: true)
+                           },
+                           postAppleAuthorization: { _ in },
+                           ledger: WipeLedger(file: ledgerFile), now: { clock.now() })
     }
 
     func relaunch(signedInAs account: UUID?) {

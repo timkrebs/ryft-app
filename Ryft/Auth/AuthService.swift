@@ -152,7 +152,8 @@ enum Nonce {
 @MainActor
 @Observable
 final class AuthService {
-    static let shared = AuthService(client: SupabaseConfig.current.map(SupabaseAuthClient.init(config:)))
+    static let shared = AuthService(client: SupabaseConfig.current.map(SupabaseAuthClient.init(config:)),
+                                    ledger: WipeLedger(file: WipeLedger.liveFile))
 
     /// Accounts need at least this many characters (the Supabase project's
     /// minimum must not be higher).
@@ -167,7 +168,7 @@ final class AuthService {
     }
 
     /// Why the account ended, for the one-line notice on Welcome.
-    enum SignOutReason: Equatable {
+    enum SignOutReason: Equatable, Codable {
         case user
         /// A second 401, a revoked refresh token, or a deleted account elsewhere.
         case sessionExpired
@@ -176,11 +177,13 @@ final class AuthService {
     }
 
     /// One wipe of this phone's per-account data, and what it keeps (design.md §8.4).
-    struct Wipe: Equatable {
+    struct Wipe: Equatable, Codable {
         /// Why the session ended; nil when another account's session replaced it.
         let reason: SignOutReason?
         /// The account that's leaving, when known.
         let account: String?
+        /// When this wipe was first owed: parked rows carry it as `parkedAt`, so a retry doesn't restart their 30 days.
+        var since = Date()
 
         /// Whose activities, manual sleep and privacy zones stay, parked and bound to their account for 30 days:
         /// the leaving account's after a session expiry (it may sign in again), nobody's otherwise.
@@ -241,6 +244,10 @@ final class AuthService {
     /// what `Wipe.parking` keeps. AppState resets itself on `accountID` changes. False when the store may still hold
     /// the data: `lastUserKey` then keeps the account, so the next sign-in as another one wipes again.
     private let wipeLocalData: @MainActor (Wipe) -> Bool
+    /// The wipe that was started and hasn't finished.
+    private let ledger: WipeLedger
+    /// Dates the ledger's entries.
+    private let now: () -> Date
     /// `DELETE /v1/me`; injected so tests don't need the platform.
     private let deleteRemoteAccount: () async throws -> AccountDeleted
     /// `POST /v1/me/apple-authorization`; injected for tests.
@@ -251,13 +258,16 @@ final class AuthService {
     init(client: AuthClientProtocol?, settings: Settings = .shared, defaults: UserDefaults = .standard,
          wipeLocalData: @escaping @MainActor (Wipe) -> Bool = AuthService.wipeSharedLocalData,
          deleteRemoteAccount: @escaping () async throws -> AccountDeleted = { try await APIClient.shared.deleteMe() },
-         postAppleAuthorization: @escaping (String) async throws -> Void = { try await APIClient.shared.postAppleAuthorization(code: $0) }) {
+         postAppleAuthorization: @escaping (String) async throws -> Void = { try await APIClient.shared.postAppleAuthorization(code: $0) },
+         ledger: WipeLedger? = nil, now: @escaping () -> Date = { Date() }) {
         self.client = client
         self.settings = settings
         self.defaults = defaults
         self.wipeLocalData = wipeLocalData
         self.deleteRemoteAccount = deleteRemoteAccount
         self.postAppleAuthorization = postAppleAuthorization
+        self.ledger = ledger ?? WipeLedger(file: nil)
+        self.now = now
         machine = AuthMachine.make { [weak self] to, _ in self?.phase = to }
         // Read the Keychain synchronously so a relaunch goes straight to Today; the
         // SDK refreshes an expired token in the background. Without a stored session
@@ -595,9 +605,14 @@ final class AuthService {
         #if DEBUG
         if settings.apiKeyMode {
             settings.apiKeyMode = false
-            wipe(Wipe(reason: reason, account: nil))
+            perform(Wipe(reason: reason, account: nil))
         }
         #endif
+        // Written down while the session is still stored: from here a kill leaves a debt. Without a session `apply`
+        // won't wipe, so nothing would ever end an entry.
+        if let leaving = session?.user.id.uuidString {
+            ledger.begin(Wipe(reason: leavingReason(reason, of: leaving), account: leaving), at: now())
+        }
         // The SDK drops the local session before calling /logout, so this also works offline.
         try? await client?.signOut()
         apply(nil, reason: reason)
@@ -687,17 +702,18 @@ final class AuthService {
     private func apply(_ newSession: Session?, reason: SignOutReason? = nil) {
         if newSession != nil, session == nil { signOutNotice = nil }
         let leaving = session?.user.id.uuidString
-        // While its deletion runs, the account's session ending for any reason ends as the deletion (its outcome isn't
-        // known yet; `Wipe.parking` is what matters). A deletion's own reason keeps its `background`.
-        let real = reason ?? endingReason ?? .sessionExpired
-        let deleting = deletingAccount != nil && deletingAccount == leaving
-        let ending: SignOutReason? = newSession != nil ? nil : (deleting ? real.asDeletion : real)
+        let ending = newSession != nil ? nil : leavingReason(reason ?? endingReason ?? .sessionExpired, of: leaving)
         let previousID = session?.user.id ?? defaults.string(forKey: Self.lastUserKey).flatMap(UUID.init(uuidString:))
         if let newSession {
             // A different account on this phone starts from scratch.
             var wiped = true
             if let previousID, previousID != newSession.user.id {
                 wiped = wipe(Wipe(reason: nil, account: previousID.uuidString))
+            } else if newSession.user.id != session?.user.id, ledger.entry?.wipe.account == newSession.user.id.uuidString {
+                // Its own account is back and this sign-in doesn't wipe, so the rows are its work again. An entry left
+                // standing would date this account's next expiry from the old one, and its parked rows would run out
+                // early. A token refresh during a sign-out isn't a return: the session is still published.
+                ledger.clear()
             }
             // Not on a token refresh, and not after a failed wipe: the id that stays makes the next launch wipe again.
             if wiped, newSession.user.id != session?.user.id {
@@ -727,8 +743,26 @@ final class AuthService {
 
     private static let lastUserKey = AccountScope.defaultsKey
 
+    /// While its deletion runs, the account's session ending for any reason ends as the deletion (its outcome isn't
+    /// known yet; `Wipe.parking` is what matters). A deletion's own reason keeps its `background`.
+    private func leavingReason(_ real: SignOutReason, of leaving: String?) -> SignOutReason {
+        deletingAccount != nil && deletingAccount == leaving ? real.asDeletion : real
+    }
+
+    /// Written down first. A wipe that returned false leaves the entry.
     @discardableResult
     private func wipe(_ wipe: Wipe) -> Bool {
+        let at = now()
+        ledger.begin(wipe, at: at)
+        // An entry this wipe doesn't park with is another debt, and its date isn't this wipe's.
+        let since = ledger.entry.flatMap { $0.wipe.parking == wipe.parking ? $0.since : nil } ?? at
+        let wiped = perform(Wipe(reason: wipe.reason, account: wipe.account, since: since))
+        if wiped { ledger.clear() }
+        return wiped
+    }
+
+    @discardableResult
+    private func perform(_ wipe: Wipe) -> Bool {
         let wiped = wipeLocalData(wipe)
         onWipe?(wipe)
         return wiped
@@ -752,7 +786,7 @@ final class AuthService {
         Settings.shared.clearPerUserState()
         // Cached read models, logged sessions, the offline library and queued uploads are per account; after an
         // expiry the account's unconfirmed activities stay, parked (design.md §8.4).
-        let wiped = TrainStore.shared.wipe(parkingActivitiesOf: wipe.parking)
+        let wiped = TrainStore.shared.wipe(parkingActivitiesOf: wipe.parking, at: wipe.since)
         // Its replay stops now, not when the app's account-change handler runs a runloop later.
         TrainSyncService.shared.accountChanged()
         TrainLibrary.shared.wipe()

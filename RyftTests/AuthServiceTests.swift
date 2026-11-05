@@ -346,7 +346,7 @@ struct AuthServiceTests {
         let auth = make(MockAuthClient(session: .preview()))
         await auth.rejectedAfterRefresh()
         #expect(wipes.calls == 1)
-        #expect(wipes.last == AuthService.Wipe(reason: .sessionExpired, account: id) && wipes.last?.parking == id)
+        #expect(wipes.last?.reason == .sessionExpired && wipes.last?.account == id && wipes.last?.parking == id)
         #expect(AuthService.Wipe(reason: .user, account: id).parking == nil)
         #expect(AuthService.Wipe(reason: .accountDeleted(background: true), account: id).parking == nil)
         #expect(AuthService.Wipe(reason: nil, account: id).parking == nil)
