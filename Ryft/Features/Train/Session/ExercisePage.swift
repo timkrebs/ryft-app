@@ -428,12 +428,12 @@ struct SetTableHeader: View {
                 }
                 Text("Reps").frame(maxWidth: .infinity, minHeight: 24, maxHeight: 24)
             }
+            .textCase(.uppercase)
             .accessibilityHidden(true)
             fourth
             Color.clear.frame(width: columns.check, height: 1).accessibilityHidden(true)
         }
         .font(.ryft(.label))
-        .textCase(.uppercase)
         .tracking(columns.headerTracking)
         .foregroundStyle(Theme.textTertiary)
         .lineLimit(1)
@@ -445,6 +445,7 @@ struct SetTableHeader: View {
     private var fourth: some View {
         if let onCycle {
             Button(action: onCycle) {
+                // The titles are uppercase as they are. A `textCase` here would reach the VoiceOver label: "TABLE COLUMN".
                 Text(verbatim: column.title)
                     .foregroundStyle(Theme.textSecondary)
                     .frame(width: columns.fourth, height: 24)

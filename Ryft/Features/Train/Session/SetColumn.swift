@@ -29,7 +29,7 @@ enum SetColumn: String, CaseIterable, Sendable {
         return targetKind == .rpe || sessionHasRPE ? .rpe : .e1rm
     }
 
-    /// The column's header. Shown uppercase.
+    /// The column's header, uppercase as it stands: `SetTableHeader` can't use `textCase` on it.
     var title: String {
         switch self {
         case .e1rm:
