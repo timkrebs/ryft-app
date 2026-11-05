@@ -11,6 +11,7 @@ Store "What's New".
 ## [Unreleased]
 
 ### Added
+- Light appearance in black and white: the new monochrome palette (text, surfaces, separators, metric and stage greys); dark appearance unchanged for now.
 - Today, Sleep, Strain and Insights from your watch or ring through Apple Health:
   readiness, recovery, strain and sleep against your own baseline.
 - Sleep need broken down (baseline, strain, debt, nap credit), sleep quality and
