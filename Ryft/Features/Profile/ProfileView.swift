@@ -567,7 +567,7 @@ struct ProfileView: View {
                 .foregroundStyle(Theme.textPrimary)
             SegmentedPicker(selection: Bindable(settings).sessionLayout, options: SessionLayout.allCases, title: \.title)
                 .accessibilityIdentifier("profile.sessionLayout")
-            Text("Applies the next time you open a workout.", comment: "Footer under Profile → Training → Session layout.")
+            Text("Focused: one exercise at a time. List: all exercises on one screen. Applies the next time you open a workout.", comment: "Footer under Profile → Training → Session layout.")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)

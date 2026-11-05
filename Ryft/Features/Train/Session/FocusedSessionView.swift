@@ -37,8 +37,9 @@ struct FocusedSessionView: View {
         keypadOpen && columns.isCompact && height - ExerciseStrip.height(typeSize) - pillRow < roomWithKeypad
     }
 
-    /// The page's soft top edge. Its title row starts lower than this, at every size: `ExercisePage` keeps it clear.
-    static let topFade: CGFloat = 10
+    /// The page's soft top edge, about a line of text, so nothing shows cut in half under the header. `ExercisePage` keeps its
+    /// title clear of it.
+    static let topFade: CGFloat = 16
 
     /// Longer than the page's move: a row isn't in the accessibility tree while its page is hidden.
     private static let focusDelay: Duration = .milliseconds(350)

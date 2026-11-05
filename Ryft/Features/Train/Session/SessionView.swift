@@ -31,14 +31,13 @@ private struct FocusedFinishLabel: ViewModifier {
     }
 }
 
-/// The keypad's text stops growing in Focused, where every point it takes is the page's: at 320 pt and AX3, with a rest and
-/// the keypad up, the row being edited wouldn't fit. List keeps its sizes.
-private struct FocusedHeaderText: ViewModifier {
+/// The keypad's text stops growing at Focused's 320 pt, where every point it takes is the page's: at AX3, with a rest and the
+/// keypad up, the row being edited wouldn't fit. Wider screens and List keep their sizes.
+private struct CompactKeypadText: ViewModifier {
     let isOn: Bool
-    let cap: DynamicTypeSize
 
     func body(content: Content) -> some View {
-        if isOn { content.dynamicTypeSize(...cap) } else { content }
+        if isOn { content.dynamicTypeSize(...DynamicTypeSize.xxLarge) } else { content }
     }
 }
 
@@ -98,9 +97,11 @@ struct SessionView: View {
             } else {
                 listContent
             }
-            if controller.focus != nil {
+            // A session reopened with its keypad up: laid out before there's a width, it squeezes a 320 pt page to nothing and
+            // the pager gives up its page, and with it the keypad.
+            if controller.focus != nil, controller.layout == .list || width > 0 {
                 NumberPad(controller: controller) { kg in plates = PlateRequest(kg: kg, fromKeypad: true) }
-                    .modifier(FocusedHeaderText(isOn: controller.layout == .focused, cap: .xxLarge))
+                    .modifier(CompactKeypadText(isOn: isCompactHeader))
                     .transition(.move(edge: .bottom))
             }
         }
@@ -220,6 +221,8 @@ struct SessionView: View {
                 .padding(.horizontal, isCompactHeader ? 14 : 18)
                 .frame(minHeight: headerButton)
                 .background(controller.finishIsFilled ? Theme.accent : Theme.surface, in: Capsule())
+                // The capsule's own edge is under 1.2:1 on the background, in either scheme.
+                .overlay { if !controller.finishIsFilled { Capsule().strokeBorder(Theme.accent, lineWidth: 1) } }
             }
             .disabled(controller.isFinishing)
             .accessibilityIdentifier("session.finish")

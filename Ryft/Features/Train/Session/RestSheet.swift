@@ -138,7 +138,10 @@ struct RestSheet: View {
                 controller.startRest(for: exercise, seconds: draft.seconds)
                 dismiss()
             } label: {
+                // Two lines at the largest sizes, German above all.
                 startLabel(Fmt.clock(TimeInterval(draft.seconds)))
+                    .multilineTextAlignment(.center)
+                    .padding(.vertical, 8)
             }
             .buttonStyle(TealButtonStyle())
             .disabled(!draft.canStart)

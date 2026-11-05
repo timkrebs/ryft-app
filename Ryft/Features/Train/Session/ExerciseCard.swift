@@ -132,7 +132,7 @@ struct SetRow: View {
     private var rowHeight: CGFloat { columns?.rowHeight ?? 56 }
 
     private var row: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: rpeLineIsQuiet ? 0 : 4) {
             cells
             if let columns, controller.showsRPELine(of: set, in: exercise, columns: columns) { rpeLine }
         }
@@ -197,7 +197,7 @@ struct SetRow: View {
     /// RPE at the sizes without a fourth column (design.md §5.1): "RPE 8.5", full width, 44 high. It takes the row's taps as
     /// the field does.
     private var rpeLine: some View {
-        let focused = controller.focus == SetFocus(setID: set.id, field: .rpe)
+        let focused = rpeLineIsFocused
         let shown = focused ? (controller.buffer.isEmpty ? nil : controller.displayBuffer) : set.rpe.map(Fmt.kgNumber)
         return Button {
             tapField(.rpe)
@@ -206,7 +206,8 @@ struct SetRow: View {
                 .font(.ryft(.callout))
                 .monospacedDigit()
                 .foregroundStyle(shown == nil || set.isCompleted ? Theme.textSecondary : Theme.textPrimary)
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: rpeLineIsQuiet ? .topLeading : .center)
+                .padding(.leading, rpeLineIsQuiet ? (columns?.number ?? 0) + (columns?.gap ?? 0) : 0)
                 .background(raisedFill.opacity(fieldOpacity(.rpe, focused: focused)),
                             in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -215,6 +216,11 @@ struct SetRow: View {
         }
         .buttonStyle(.plain)
     }
+
+    private var rpeLineIsFocused: Bool { controller.focus == SetFocus(setID: set.id, field: .rpe) }
+    /// A line with no field behind it reads as a caption, so it sits under its own row's values. Centred, with the same gap above
+    /// and below, it read as the next row's.
+    private var rpeLineIsQuiet: Bool { fieldOpacity(.rpe, focused: rpeLineIsFocused) == 0 }
 
     // MARK: Focused's states (design.md §2.5, §2.8)
 
@@ -271,8 +277,7 @@ struct SetRow: View {
     private func valueColor(hasValue: Bool, hasGhost: Bool) -> Color {
         switch rowState {
         case nil: hasValue ? Theme.textPrimary : Theme.textTertiary.opacity(0.7)
-        case .done: hasValue ? Theme.textSecondary : Theme.textTertiary
-        case .active, .upcoming: hasValue ? Theme.textPrimary : hasGhost ? Theme.textSecondary : Theme.textTertiary
+        case let state?: FocusedRowInk.value(state, hasValue: hasValue, hasGhost: hasGhost)
         }
     }
 
