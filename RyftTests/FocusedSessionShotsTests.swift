@@ -114,6 +114,8 @@ struct FocusedSessionShotsTests {
         var text: TextSize = .standard
 
         var name: String { "\(screen.rawValue)-\(size.rawValue)-\(dark ? "dark" : "light")-\(text.rawValue)" }
+        /// The fourth column's screens are taller, so last time's card is in the picture with the table above it.
+        var frame: CGRect { screen.column == nil ? size.frame : size.frame.insetBy(dx: 0, dy: -150).offsetBy(dx: 0, dy: 150) }
         var testDescription: String { name }
     }
 
@@ -169,7 +171,7 @@ struct FocusedSessionShotsTests {
         let host = UIHostingController(rootView: root)
         host.traitOverrides.preferredContentSizeCategory = shot.text.category
 
-        let frame = shot.size.frame
+        let frame = shot.frame
         let window = UIWindow(windowScene: scene)
         window.frame = frame
         window.windowLevel = .alert + 1
