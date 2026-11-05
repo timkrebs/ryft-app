@@ -3078,17 +3078,6 @@
         }
       }
     },
-    "Applies the next time you open a workout." : {
-      "comment" : "Footer under Profile → Training → Session layout.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Gilt, sobald du das nächste Training öffnest."
-          }
-        }
-      }
-    },
     "Apps and devices that sent data to RYFT in the last 30 days." : {
       "comment" : "Footnote of Seen in Apple Health.",
       "localizations" : {
@@ -4797,6 +4786,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Fokus"
+          }
+        }
+      }
+    },
+    "Focused: one exercise at a time. List: all exercises on one screen. Applies the next time you open a workout." : {
+      "comment" : "Footer under Profile → Training → Session layout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fokus: eine Übung pro Seite. Liste: alle Übungen auf einem Bildschirm. Gilt, sobald du das nächste Training öffnest."
           }
         }
       }
@@ -11543,7 +11543,7 @@
       }
     },
     "Training" : {
-      "comment" : "Profile: the section with training preferences (Jump to next exercise).",
+      "comment" : "Profile: the section with training preferences (Advance to the next exercise).",
       "localizations" : {
         "de" : {
           "stringUnit" : {
