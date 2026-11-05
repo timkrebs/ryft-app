@@ -1,21 +1,22 @@
-# Status — 2026-11-04
+# Status — 2026-11-05
 
-## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, in progress)
+## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, built, flag off)
 
 Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session/`. Five stacked PRs. All of it ships dark behind the remote flag `train.focused_session`: flag off or absent stays the List layout.
 
 - **T1 layout:** merged (#90). The strip, one exercise per page, chips, warm-up group, last-time card. The old rest card still sits above the strip until T3.
 - **T2 active set:** merged (#92). One active row, upcoming sets prefilled from the one before, a check on the active row logs it and moves on, the page follows after 0.6 s unless the user moved in the last 3 s. Tapping an open row makes it active; ✓ on a done row marks it not done.
 - **T3 rest pill:** merged (#95). The pill replaces the rest card: ready, running, finished, with a sheet for the length. The strip hides at 320 with a rest and a keypad up, and the keypad row stays in view.
-- **T4 RM column:** built, PR open. The table's fourth column is estimated 1RM, estimated 10RM or RPE; its header cycles them and last time follows. The choice is kept per user.
-- **Verified:** simulator only, iOS 27.0, 390 pt in the app, 320 pt in renders.
-- **Before the flag goes on:** a run on iOS 17 (no such runtime on this Mac), a device run with a real plan, VoiceOver by hand.
+- **T4 RM column:** merged (#96). The table's fourth column is estimated 1RM, estimated 10RM or RPE; its header cycles them and last time follows. The choice is kept per user.
+- **T5 polish:** built, branch `feat/focused-polish`. Sizes up to AX3 (the fourth column gives way to an RPE line), Finish filled only when every set is done, Profile → Training → Session layout, light contrast from tokens, "Next" after a remove, smoke selection and the VoiceOver checklist. The flag stays off. With it off the only change is the toggle's label, "Advance to the next exercise".
+- **Verified on the simulator:** iOS 27.0, UI tests at 390 pt, renders at 320 and 390 pt in dark and light, default, AX1 and AX3, English and German.
+- **Not verified on a device:** nothing in T1 to T5 has run on one.
+- **Before the flag goes on:** a run on iOS 17 (no such runtime on this Mac), a device run with a real plan, VoiceOver by hand with `docs/work/2026-11-04-focused-session/voiceover-checklist.md`.
 
 ## Sign-out wipe
 
 `TrainStore.wipe` deletes session rows object by object, because a batch delete on them fails, and it reports every step. On a failed wipe `AuthService` keeps the leaving account's id, so the next account wipes again.
 
-- **T4 RM column:** built, PR open. The table's fourth column is estimated 1RM, estimated 10RM or RPE; its header cycles them and last time follows. The choice is kept per user.
 - **Verified:** simulator only, iOS 27.0. 44,500 rows take 3.4 s in Debug, on the main thread.
 - **Before the next External build:** run `TrainStoreWipeTests` once on iOS 17. If a table's batch delete always throws there, every launch after an account switch wipes again, and that wipe takes the new account's unsent work too.
 - **Recovery ticket, not started:**

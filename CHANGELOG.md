@@ -18,6 +18,8 @@ Store "What's New".
 - Strength training: plans, a live session with rest timer, records and history.
 - Import plans and workouts from another training app's CSV export (read on your iPhone; only what you confirm is
   sent). Not switched on yet.
+- A focused workout screen: one exercise at a time with the next set ready to check, a strip of exercises, an estimated
+  1RM or 10RM column, and the rest timer as a pill at the bottom. Not switched on yet.
 - Morning journal ("How was yesterday?") and how habits change the morning after.
 - Notifications for the morning score, scored workouts, records and missing data, with
   quiet hours.
@@ -60,6 +62,8 @@ Store "What's New".
   plan too), and edit its sets, reps, weight, rest and notes for this workout; swipe a set row to delete it.
 
 ### Changed
+- Profile → Training: "Jump to next exercise" is now "Advance to the next exercise". It works as before, and your
+  choice stays.
 - Today: when your tracker's app has gone quiet, the hint says how it syncs and opens the app in one tap (the App
   Store page when it isn't installed).
 - The app icon (light and dark) now carries the readiness gauge's colours and sits 5 % smaller on its tile.

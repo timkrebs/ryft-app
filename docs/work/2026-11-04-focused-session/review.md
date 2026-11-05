@@ -141,3 +141,18 @@ No blocking finding, and no bug in the maths, the default rule, persistence or f
 | 6 | A test name claimed to measure width | Renamed |
 
 Left for T5: `HostedWindow` turns automation off rather than restoring it, and one local UI run straight after Unit on the same simulator failed with `kAXErrorAPIDisabled`. CI runs the same order and passed on #95.
+
+## PR 5 (T5), calls made while building
+
+| Item | Call |
+| --- | --- |
+| Next after a remove | With no check to follow, it names the page's own active row, which is what the user sees (plan, Risks). A superset of three that loses its checked member names the partner, because the partner is that row. Both are pinned by tests |
+| Light contrast | Token maths, compositing in gamma sRGB, then WCAG luminance. Estimate on the active row: `textPrimary` in light, 13.7:1 (was 4.51:1, not the 4.42:1 quoted). Upcoming ✓ outline: `textTertiary` in light, 4.72:1 (was 1.14:1). W needs nothing: 4.61:1 on background, 5.18:1 on its pill, never on the tint. The change is `FocusedRowInk`, so `textSecondary` and flag-off screens stay as they were |
+| Dark ✓ outline | Unchanged and short of 3:1, at 1.45:1. Open for the designer: item 17 asked about light |
+| Pill and last time at 320 with AX3 | The pill never covered the card. The page ends above the pill row, so what looked covered was the fold. `thePillCoversNothing` pins it, no code change |
+| Column header affordance | A dotted underline in `textTertiary`. It takes no width, so "E1RM" still fits the 48 pt column |
+| Landscape | The app is portrait only (`Info.plist`), nothing to build |
+| Note line at 320 | Holds as one line with an ellipsis, no change |
+| `…` menu order | Already matched the design. `.menuOrder(.fixed)` keeps it so when the menu opens upward, and a UI test reads it |
+| L22 | Only the label changed. The footer stays "Jumps to the next set…", though §6 lists a new one: L22 names the label |
+| Still open | A page `TabView` preloaded doesn't reveal its row on arrival (from T3's review) |
