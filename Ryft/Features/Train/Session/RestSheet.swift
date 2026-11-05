@@ -32,6 +32,9 @@ struct RestSheet: View {
     private var isRunning: Bool { controller.rest.isRunning }
     private var keySize: CGFloat { typeSize >= .accessibility3 ? 64 : 56 }
 
+    /// −15 and +15. A fixed size, as every number here, so they grow by hand with the key.
+    static func keyNumeral(_ typeSize: DynamicTypeSize) -> CGFloat { typeSize >= .accessibility3 ? 26 : 17 }
+
     var body: some View {
         RestSheetFrame(title: Text("Rest"), detents: detents) {
             VStack(spacing: 16) {
@@ -102,7 +105,7 @@ struct RestSheet: View {
             }
         } label: {
             Text(verbatim: key.title)
-                .font(.ryftNumber(size: 17))
+                .font(.ryftNumber(size: Self.keyNumeral(typeSize)))
                 .monospacedDigit()
                 .lineLimit(1)
                 .foregroundStyle(enabled ? Theme.accent : Theme.textTertiary)
@@ -135,7 +138,10 @@ struct RestSheet: View {
                 controller.startRest(for: exercise, seconds: draft.seconds)
                 dismiss()
             } label: {
+                // Two lines at the largest sizes, German above all.
                 startLabel(Fmt.clock(TimeInterval(draft.seconds)))
+                    .multilineTextAlignment(.center)
+                    .padding(.vertical, 8)
             }
             .buttonStyle(TealButtonStyle())
             .disabled(!draft.canStart)

@@ -141,3 +141,74 @@ No blocking finding, and no bug in the maths, the default rule, persistence or f
 | 6 | A test name claimed to measure width | Renamed |
 
 Left for T5: `HostedWindow` turns automation off rather than restoring it, and one local UI run straight after Unit on the same simulator failed with `kAXErrorAPIDisabled`. CI runs the same order and passed on #95.
+
+## PR 5 (T5), calls made while building
+
+| Item | Call |
+| --- | --- |
+| Next after a remove | With no check to follow, it names the page's own active row, which is what the user sees (plan, Risks). A superset of three that loses its checked member names the partner, because the partner is that row. Both are pinned by tests |
+| Light contrast | Token maths, compositing in gamma sRGB, then WCAG luminance. Estimate on the active row: `textPrimary` in light, 13.7:1 (was 4.51:1, not the 4.42:1 quoted). Upcoming ✓ outline: `textTertiary` in light, 4.72:1 (was 1.14:1). W needs nothing: 4.61:1 on background, 5.18:1 on its pill, never on the tint. The change is `FocusedRowInk`, so `textSecondary` and flag-off screens stay as they were |
+| Dark ✓ outline | Unchanged and short of 3:1, at 1.45:1. Open for the designer: item 17 asked about light |
+| Pill and last time at 320 with AX3 | The pill never covered the card. The page ends above the pill row, so what looked covered was the fold. `thePillCoversNothing` pins it, no code change |
+| Column header affordance | A dotted underline in `textTertiary`. It takes no width, so "E1RM" still fits the 48 pt column |
+| Landscape | The app is portrait only (`Info.plist`), nothing to build |
+| Note line at 320 | Holds as one line with an ellipsis, no change |
+| `…` menu order | Already matched the design. `.menuOrder(.fixed)` keeps it so when the menu opens upward, and a UI test reads it |
+| L22 | Only the label changed. The footer stays "Jumps to the next set…", though §6 lists a new one: L22 names the label |
+| Still open | A page `TabView` preloaded doesn't reveal its row on arrival (from T3's review) |
+
+## PR 5 (T5), reviews at `bbfaace`
+
+The coordinator's list from the three reviews, grouped here by subject. Nothing was blocking in the code. Fixes are on `feat/focused-polish` after `bbfaace`.
+
+### code-reviewer
+
+| Finding | Decision |
+| --- | --- |
+| `JumpToNextUITests` left `UISmoke`, and it is the only end-to-end test of List's jump | Back in `UISmoke`, alongside the four |
+| The old label is still in `TESTFLIGHT_NOTES.md`, `CHANGELOG.md` and the "Training" comment | New label everywhere, and L22's Changed line stays |
+| The evidence for leaving automation on read stronger than it is, and the CI sentence was wrong | `ui-test-plan.md` corrected: all runs serial, the cure inferred, probably no effect on CI |
+| Nothing reaches `onHistory` or `onPlates` | A hosted test activates the title and the `…` menu and sees plates listed. A menu runs an item only from a real touch, so choosing plates is in `testTheOptionsMenuKeepsTheDesignsOrder` |
+| Finish's German word is promised, and the test was English with `> 60` | German case, and the capsule must be the word's own width |
+| Nothing pins that the layout survives log-out | One assertion in `logOutClearsIt` |
+| Keypad text capped on wide screens too | Capped only at 320. `CompactTextCap` replaces `FocusedHeaderText`. Open: at 390 and AX3 German now shows „Scheib/en“ and „Fe…“ on the keypad (`rest-keypad-390-dark-ax3`). It matches List and pre-T5, so it is no regression; capping 390 higher would fix it |
+| The title cap came out in T5 because no test needed it, and English looked fine | Wrong: the German render read "Upp…" beside „Beenden“. Back at `.accessibility1` at 320, pinned by `theTitleHoldsItsWord` in both languages |
+| Found while fixing that: a keypad laid out before the width is known squeezes a 320 pt page at AX3, and the pager gives up its page and the keypad. Reachable by reopening a session with the keypad up | In Focused the keypad waits for the width. `keypadBeforeLayout` pins it |
+| After check and uncheck in a superset, Next named the partner while the row marked Next was the unchecked one | Focused's uncheck clears `lastCheckedExercise` when it is that exercise. List untouched |
+
+### ui-validator
+
+| Finding | Decision |
+| --- | --- |
+| An unfilled Finish has no visible edge: 1.19:1 in dark, 1.13:1 in light | 1 pt `accent` outline until it fills |
+| A done row's "RPE 8,5" floats between rows and reads as the next row's | A quiet line sits under its own row, left-aligned and with no gap |
+| The 10 pt top fade is shorter than a line of text | 16 pt, and the title stays clear of it |
+| German rest sheet at 320 and AX3: the button wraps left-aligned | Centred, with 8 pt of vertical padding. The sheet is a `ScrollView` already |
+| Ghosts on the active row in dark given as 4.18:1 | Not reproduced. By token maths, gamma sRGB as in the light fixes, it is 4.93:1, so the ghost is unchanged. The dash on an empty active field was 4.40:1 and now uses the same grey, pinned by `theActiveField` |
+| A tester can't tell what Focused means | The picker's footer says what each layout is |
+
+### performance-profiler
+
+| Finding | Decision |
+| --- | --- |
+| `lastTime` decodes JSON on every read, about 7 times per row through `ghost` | `SessionController.lastTime(of:)`, keyed by exercise and validated against `lastTimeData`. Numbers below |
+| How many pages `TabView` keeps live | Measured: not the whole session. Below |
+| `column(for:)` scans the whole session | Follow-up, not this PR |
+| `showPage` runs `store.save()` mid-swipe | Follow-up, not this PR |
+| `onGeometryChange` on raw `size` | Follow-up, not this PR |
+| The merge writes unchanged fields | Follow-up, not this PR |
+| `restPillValue` per tick without VoiceOver | Follow-up, not this PR |
+| The 4 Hz ticker | Follow-up, not this PR |
+| Closure parameters on `ExercisePage` | Follow-up, not this PR |
+
+**`ExercisePage` bodies in a 12-exercise session**, at 390 pt on the simulator, from page 6, with a temporary counter:
+
+| Event | Bodies | Distinct pages |
+| --- | --- | --- |
+| First render | 4 | 2 |
+| One ✓ | 2 | 2 |
+| One swipe | 5 | 3 |
+
+So `TabView` keeps about the current page and a neighbour live, and a page is not a cost that grows with the session. The swipe was `setContentOffset(animated:)` on the pager, in a hosted window, not a finger.
+
+**`lastTime` cache:** 1,000 `ghost` calls on an exercise with 6 sets of last time (841 bytes), Debug build, simulator, 4 rounds in a temporary test: 42.3 ms before, 8.4 ms after, about 5 times faster. What is left is `orderedSets` and the warm-up filter. The first read still decodes once. The copy is on `SessionController`, not the model, and every read compares `lastTimeData`, so a replace or an undo can't serve old sets. `ExercisePage` reads it too; List's `ExerciseCard` does through `ghost`, with the same values.

@@ -2661,6 +2661,17 @@
         }
       }
     },
+    "Advance to the next exercise" : {
+      "comment" : "Profile → Training toggle: after the last set of an exercise, the workout moves on to the next one.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zur nächsten Übung wechseln"
+          }
+        }
+      }
+    },
     "Agree and continue" : {
       "localizations" : {
         "de" : {
@@ -4768,6 +4779,28 @@
         }
       }
     },
+    "Focused" : {
+      "comment" : "Profile → Training → Session layout: one exercise per page.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fokus"
+          }
+        }
+      }
+    },
+    "Focused: one exercise at a time. List: all exercises on one screen. Applies the next time you open a workout." : {
+      "comment" : "Footer under Profile → Training → Session layout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fokus: eine Übung pro Seite. Liste: alle Übungen auf einem Bildschirm. Gilt, sobald du das nächste Training öffnest."
+          }
+        }
+      }
+    },
     "For a night no tracker recorded." : {
       "comment" : "Add sleep: what the sheet is for, for any night.",
       "localizations" : {
@@ -5914,6 +5947,17 @@
         }
       }
     },
+    "Session layout" : {
+      "comment" : "Profile → Training: how a workout shows its exercises, one per page or all in one list.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trainingsansicht"
+          }
+        }
+      }
+    },
     "Set as rest for this exercise" : {
       "comment" : "The rest sheet in a workout: keeps the chosen length for this exercise.",
       "localizations" : {
@@ -6034,19 +6078,8 @@
         }
       }
     },
-    "Jump to next exercise" : {
-      "comment" : "Profile → Training toggle: after the last set of an exercise, the workout scrolls to the next one.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zur nächsten Übung springen"
-          }
-        }
-      }
-    },
     "Jumps to the next set when you finish an exercise." : {
-      "comment" : "Footer under the Profile → Training toggle \"Jump to next exercise\".",
+      "comment" : "Footer under the Profile → Training toggle \"Advance to the next exercise\".",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -6574,6 +6607,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "geladen %@"
+          }
+        }
+      }
+    },
+    "List" : {
+      "comment" : "Profile → Training → Session layout: all exercises in one list.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Liste"
           }
         }
       }
@@ -11499,7 +11543,7 @@
       }
     },
     "Training" : {
-      "comment" : "Profile: the section with training preferences (Jump to next exercise).",
+      "comment" : "Profile: the section with training preferences (Advance to the next exercise).",
       "localizations" : {
         "de" : {
           "stringUnit" : {

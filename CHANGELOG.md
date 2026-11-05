@@ -18,6 +18,8 @@ Store "What's New".
 - Strength training: plans, a live session with rest timer, records and history.
 - Import plans and workouts from another training app's CSV export (read on your iPhone; only what you confirm is
   sent). Not switched on yet.
+- A focused workout screen: one exercise at a time with the next set ready to check, a strip of exercises, an estimated
+  1RM or 10RM column, and the rest timer as a pill at the bottom. Not switched on yet.
 - Morning journal ("How was yesterday?") and how habits change the morning after.
 - Notifications for the morning score, scored workouts, records and missing data, with
   quiet hours.
@@ -35,7 +37,7 @@ Store "What's New".
 - The workout on the Lock Screen and in the Dynamic Island for the whole session: elapsed time
   and the next set (e.g. "Bench press · set 3 of 4 · 5 × 80 kg"), the rest countdown between.
 - After the last set of an exercise the workout folds it into one line and scrolls to the next set (Profile →
-  Training → Jump to next exercise, on by default). The rest timer is a compact bar pinned under the clock.
+  Training → Advance to the next exercise, on by default). The rest timer is a compact bar pinned under the clock.
 - Save your strength workouts to Apple Health, if you want: asked once after your first
   logged workout, and in Profile → Data. RYFT writes only the workout, nothing else, and
   not when your watch recorded the session too. The workout summary says where its heart
@@ -60,6 +62,8 @@ Store "What's New".
   plan too), and edit its sets, reps, weight, rest and notes for this workout; swipe a set row to delete it.
 
 ### Changed
+- Profile → Training: "Jump to next exercise" is now "Advance to the next exercise". It works as before, and your
+  choice stays.
 - Today: when your tracker's app has gone quiet, the hint says how it syncs and opens the app in one tap (the App
   Store page when it isn't installed).
 - The app icon (light and dark) now carries the readiness gauge's colours and sits 5 % smaller on its tile.

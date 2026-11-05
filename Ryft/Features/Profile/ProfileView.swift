@@ -543,10 +543,12 @@ struct ProfileView: View {
         ProfileSection(title: "Training") {
             Toggle(isOn: Bindable(settings).jumpToNextExercise) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Jump to next exercise", comment: "Profile → Training toggle: after the last set of an exercise, the workout scrolls to the next one.")
+                    Text("Advance to the next exercise",
+                         comment: "Profile → Training toggle: after the last set of an exercise, the workout moves on to the next one.")
                         .font(.ryft(.body))
                         .foregroundStyle(Theme.textPrimary)
-                    Text("Jumps to the next set when you finish an exercise.", comment: "Footer under the Profile → Training toggle \"Jump to next exercise\".")
+                    Text("Jumps to the next set when you finish an exercise.",
+                         comment: "Footer under the Profile → Training toggle \"Advance to the next exercise\".")
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -554,6 +556,22 @@ struct ProfileView: View {
             }
             .tint(Theme.accent)
             .accessibilityIdentifier("profile.jumpToNext")
+            if model.showsSessionLayout { sessionLayout }
+        }
+    }
+
+    private var sessionLayout: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Session layout", comment: "Profile → Training: how a workout shows its exercises, one per page or all in one list.")
+                .font(.ryft(.body))
+                .foregroundStyle(Theme.textPrimary)
+            SegmentedPicker(selection: Bindable(settings).sessionLayout, options: SessionLayout.allCases, title: \.title)
+                .accessibilityIdentifier("profile.sessionLayout")
+            Text("Focused: one exercise at a time. List: all exercises on one screen. Applies the next time you open a workout.",
+                 comment: "Footer under Profile → Training → Session layout.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

@@ -27,6 +27,7 @@ struct FocusedSessionShotsTests {
         case column10RM = "column-10rm"
         case columnRPE = "column-rpe"
         case columnBodyweight = "column-bodyweight"
+        case longNote = "long-note"
         case restRunning = "rest-running"
         case restOver = "rest-over"
         case restKeypad = "rest-keypad"
@@ -51,6 +52,7 @@ struct FocusedSessionShotsTests {
             case .many: .manyExercises
             case .columnE1RM, .column10RM, .columnRPE: .estimates
             case .columnBodyweight: .bodyweightEstimates
+            case .longNote: .longNote
             case .restRunning, .restKeypad, .restSheetRunning: .restRunning
             case .restOver: .restOver
             }
@@ -88,12 +90,13 @@ struct FocusedSessionShotsTests {
 
     enum TextSize: String, CaseIterable, Sendable {
         case standard = "default"
-        case xl, ax3
+        case xl, ax1, ax3
 
         var category: UIContentSizeCategory {
             switch self {
             case .standard: .large
             case .xl: .extraLarge
+            case .ax1: .accessibilityMedium
             case .ax3: .accessibilityExtraLarge
             }
         }
@@ -102,6 +105,7 @@ struct FocusedSessionShotsTests {
             switch self {
             case .standard: .large
             case .xl: .xLarge
+            case .ax1: .accessibility1
             case .ax3: .accessibility3
             }
         }
@@ -119,13 +123,18 @@ struct FocusedSessionShotsTests {
         var testDescription: String { name }
     }
 
-    /// Every screen at both widths in both schemes, and the main one, the fourth column, the running pill and the rest sheet
-    /// at the larger text sizes.
+    /// Every screen at both widths in both schemes, and the ones text size changes at the larger sizes: the main one, the
+    /// fourth column, RPE's line, the warm-ups, the done header, the pill beside the keypad and the rest sheet, with the
+    /// table's two sizes in light too.
     nonisolated static let shots: [Shot] = Screen.allCases.flatMap { screen in
         Size.allCases.flatMap { size in [true, false].map { Shot(screen: screen, size: size, dark: $0) } }
     } + Size.allCases.flatMap { size in
-        [Screen.midSession, .columnE1RM, .restRunning, .restSheetChanged].flatMap { screen in
-            [TextSize.xl, .ax3].map { Shot(screen: screen, size: size, dark: true, text: $0) }
+        [Screen.midSession, .columnE1RM, .columnRPE, .warmupsOpen, .allDone, .restRunning, .restKeypad, .restSheetChanged].flatMap { screen in
+            [TextSize.xl, .ax1, .ax3].map { Shot(screen: screen, size: size, dark: true, text: $0) }
+        }
+    } + Size.allCases.flatMap { size in
+        [Screen.columnRPE, .warmupsOpen].flatMap { screen in
+            [TextSize.ax1, .ax3].map { Shot(screen: screen, size: size, dark: false, text: $0) }
         }
     }
 

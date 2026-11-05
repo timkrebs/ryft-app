@@ -195,9 +195,7 @@ final class LocalSessionExercise {
 
     /// Ghost values for set `index`: last time's set, else the target.
     func ghost(forSetAt index: Int) -> (reps: Int?, kg: Double?) {
-        let last = lastTime.filter { !$0.isWarmup }
-        if index < last.count { return (last[index].reps, last[index].weightKg) }
-        return (targetRepsMin, targetKg ?? last.last?.weightKg)
+        ghost(forSetAt: index, lastTime: lastTime)
     }
 
     var wire: SessionExercise {

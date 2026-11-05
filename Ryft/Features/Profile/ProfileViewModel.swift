@@ -251,8 +251,10 @@ final class ProfileViewModel {
     /// The preferences belong to a platform account. With `push.enabled` off the
     /// screen explains the rollout instead.
     var showsNotifications: Bool { auth.isSignedIn && !env.isDemo }
-    /// Profile → Training (Jump to next exercise) only where Train is on, like the other Train surfaces.
+    /// Profile → Training (Advance to the next exercise) only where Train is on, like the other Train surfaces.
     var showsTraining: Bool { env.flags.isOn(.trainEnabled) }
+    /// Profile → Training → Session layout. With the flag off a session is always List, so there is nothing to choose (L5).
+    var showsSessionLayout: Bool { env.flags.isOn(.focusedSession) }
 
     // MARK: demo data
 

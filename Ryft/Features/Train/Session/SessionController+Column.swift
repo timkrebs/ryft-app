@@ -33,6 +33,15 @@ extension SessionController {
         return column(for: ex).text(weightKg: values.kg, reps: values.reps, rpe: set.rpe)
     }
 
+    /// Whether `set`'s row has an RPE line, at the sizes without a fourth column (design.md §5.1): when it holds an RPE or the
+    /// keypad is on it, and on the active row of an exercise whose column would be RPE, as the way in. The other rows stay
+    /// one line: a table of empty lines would push the sets apart at the sizes with the least room.
+    func showsRPELine(of set: LocalSet, in ex: LocalSessionExercise, columns: SetTableColumns) -> Bool {
+        guard !columns.hasFourth else { return false }
+        if set.rpe != nil || focus == SetFocus(setID: set.id, field: .rpe) { return true }
+        return !set.isCompleted && activeSet(in: ex)?.id == set.id && column(for: ex) == .rpe
+    }
+
     /// What VoiceOver adds for an estimate. The row says its RPE in any column, so nothing here for that one.
     func columnSpoken(of set: LocalSet, in ex: LocalSessionExercise) -> String? {
         let shown = column(for: ex)

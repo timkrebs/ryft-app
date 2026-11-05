@@ -152,8 +152,10 @@ struct SetColumnSettingTests {
         let d = defaults()
         let settings = Settings(defaults: d)
         settings.setColumn = .tenRM
+        settings.sessionLayout = .list
         settings.clearPerUserState()
         #expect(settings.setColumn == nil)
+        #expect(settings.sessionLayout == .list, "a choice about the device's screen, not the account")
         #expect(Settings(defaults: d).setColumn == nil, "gone from disk too: the next account starts on the default")
     }
 }

@@ -22,6 +22,8 @@ enum FocusedPreview {
         case estimates
         /// A bodyweight page: done with no load, done with added load, then ghosts.
         case bodyweightEstimates
+        /// `midSession` with a note far longer than its one line.
+        case longNote
         case oneExercise, manyExercises
         case offline
         case empty
@@ -63,6 +65,9 @@ enum FocusedPreview {
         let controller = SessionController(session: session, sync: sync, liveActivity: nil,
                                            clock: scenario == .restOver ? HeldClock() : SystemClock(), layout: .focused, settings: settings)
         if scenario == .warmupsOpen, let ex = controller.pageExercise { controller.setWarmups(expanded: true, for: ex) }
+        if scenario == .longNote {
+            controller.pageExercise?.notes = "Slow on the way down, pause at the bottom and keep the elbows in the whole way up"
+        }
         if scenario == .tappedRow, let ex = controller.pageExercise {
             ex.orderedSets[1].reps = 7
             controller.activate(ex.orderedSets[2])
@@ -77,7 +82,7 @@ enum FocusedPreview {
 
     private static func make(_ scenario: Scenario, in store: TrainStore) -> LocalSession {
         switch scenario {
-        case .midSession, .offline, .tappedRow, .restRunning, .restOver:
+        case .midSession, .offline, .tappedRow, .restRunning, .restOver, .longNote:
             return midSession(in: store)
         case .allDone:
             return allDone(in: store)
