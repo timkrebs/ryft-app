@@ -12,3 +12,4 @@
 - [One simulator at a time](simulators-one-at-a-time.md) — no burners or concurrent sims; a wedged service needs the user's killall
 - [Merge authority](merge-authority.md) — per PR list unless broad; threads block merging; one at a time, docs PRs last
 - [Squash keeps old commits](squash-keeps-old-commits.md) — refs/pull/N/head survives; redact before opening a PR
+- [Visual check, whole matrix](visual-check-whole-matrix.md) — one clean shot hid a regression; measure every size before pushing
