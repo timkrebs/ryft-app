@@ -130,16 +130,21 @@ final class FocusedSessionUITests: XCTestCase {
         let app = openFocused()
         requireExists(column(app), "the fourth column's header is a button")
         assertColumn("Estimated 1RM", in: app)
-        let row = element(app, "set.0.1")
+        let row = element(app, "set.0.1"), lastTime = element(app, "session.lastTime")
+        requireExists(lastTime, "the demo plan's first exercise has last time")
         wait(row, until: "label CONTAINS 'estimated one-rep max'", "the row says its estimate")
+        wait(lastTime, until: "label CONTAINS 'estimated one-rep max'", "last time reads the same column")
         column(app).tap()
         assertColumn("Estimated 10RM", in: app)
         wait(row, until: "label CONTAINS 'estimated ten-rep max'", "and in the next mode")
+        wait(lastTime, until: "label CONTAINS 'estimated ten-rep max'", "last time follows")
         column(app).tap()
         assertColumn("RPE", in: app)
         wait(row, until: "NOT label CONTAINS 'estimated'", "RPE has no estimate")
+        wait(lastTime, until: "NOT label CONTAINS 'estimated'", "nor has last time")
         column(app).tap()
         assertColumn("Estimated 1RM", in: app)
+        wait(lastTime, until: "label CONTAINS 'estimated one-rep max'", "last time comes round with it")
     }
 
     /// RPE doesn't depend on the column: the context menu opens its field, and the row says what was typed.
@@ -159,12 +164,16 @@ final class FocusedSessionUITests: XCTestCase {
         assertColumn("RPE", in: app) // nothing was chosen, and RPE is in use now: the default rule
     }
 
-    /// The choice outlives the session on screen.
+    /// The choice outlives the session on screen. `UserDefaults` writes to memory at once and reaches disk through
+    /// cfprefsd a moment later, so a kill right after the tap could lose it, and that would be the test's doing: no user
+    /// quits within that window. Going to the background first is what a real quit does.
     @MainActor
     func testTheColumnChoiceSurvivesARelaunch() throws {
         var app = openFocused()
         column(app).tap()
         assertColumn("Estimated 10RM", in: app)
+        XCUIDevice.shared.press(.home)
+        wait(app, until: "state != \(XCUIApplication.State.runningForeground.rawValue)", "the app left the foreground")
         app.terminate()
         app = launch(extra: Self.focusedOn, reset: false)
         let resume = app.buttons["train.resume"]

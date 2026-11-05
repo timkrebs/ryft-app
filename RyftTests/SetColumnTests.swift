@@ -14,7 +14,7 @@ struct SetColumnTests {
         #expect(SetColumn.rpe.next == .e1rm)
     }
 
-    @Test func theHeadersAreShortEnoughForTheColumn() {
+    @Test func theHeadersReadE1RMTenRMAndRPE() {
         #expect(SetColumn.e1rm.title == "E1RM")
         #expect(SetColumn.tenRM.title == "10RM")
         #expect(SetColumn.rpe.title == "RPE")
