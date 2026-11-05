@@ -5,9 +5,26 @@
 Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session/`. Five stacked PRs. All of it ships dark behind the remote flag `train.focused_session`: flag off or absent stays the List layout.
 
 - **T1 layout:** merged (#90). The strip, one exercise per page, chips, warm-up group, last-time card. The old rest card still sits above the strip until T3.
-- **T2 active set:** built, PR open. One active row, upcoming sets prefilled from the one before, a check on the active row logs it and moves on, the page follows after 0.6 s unless the user moved in the last 3 s. Tapping an open row makes it active; ✓ on a done row marks it not done.
+- **T2 active set:** merged (#92). One active row, upcoming sets prefilled from the one before, a check on the active row logs it and moves on, the page follows after 0.6 s unless the user moved in the last 3 s. Tapping an open row makes it active; ✓ on a done row marks it not done.
+- **T3 rest pill:** built, PR open. The pill replaces the rest card: ready, running, finished, with a sheet for the length. The strip hides at 320 with a rest and a keypad up, and the keypad row stays in view.
 - **Verified:** simulator only, iOS 27.0, 390 pt in the app, 320 pt in renders.
 - **Before the flag goes on:** a run on iOS 17 (no such runtime on this Mac), a device run with a real plan, VoiceOver by hand.
+
+## Sign-out wipe
+
+`TrainStore.wipe` deletes session rows object by object, because a batch delete on them fails, and it reports every step. On a failed wipe `AuthService` keeps the leaving account's id, so the next account wipes again.
+
+- **Verified:** simulator only, iOS 27.0. 44,500 rows take 3.4 s in Debug, on the main thread.
+- **Before the next External build:** run `TrainStoreWipeTests` once on iOS 17. If a table's batch delete always throws there, every launch after an account switch wipes again, and that wipe takes the new account's unsent work too.
+- **Recovery ticket, not started:**
+  - one stored id can't name two owners, and a second failure overwrites it;
+  - there's no launch-time retry for "kept id, nobody signed in";
+  - when parking can't read the activities, chunks stay outside the 30-day limit;
+  - a refused `CachedDay` delete can put the leaving account's readiness back on the lock screen;
+  - a sign-in over a failed wipe reads the old account's rows until the next launch;
+  - the deletion notice can claim more than happened;
+  - a kill mid-wipe, the Live Activity left up, and never-saved rows in other tables;
+  - WAL and backup residue.
 
 ## Data quality (`CLAUDE_FOLLOWUP_DATA_QUALITY.md`, in progress)
 

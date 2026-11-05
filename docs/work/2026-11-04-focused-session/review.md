@@ -100,3 +100,20 @@ No blocking finding. Flag off matches `origin/main` in dark and light, English a
 | N2 | The rest card's "Next:" truncates in German | T3 replaces it |
 | N3 | The chip row clips the pencil in German | No change: same as T1, the fade is there |
 | N4 | The upcoming ✓ outline measures 1.14:1 in light | T5 |
+
+## PR 3 (T3), code-reviewer on `3852960..8776ade`
+
+One blocking finding, in the tests only. Flag-off List unchanged: `restBarState` guards on `layout == .list`, `settleRestOver` returns early there, and the strings diff is 8 keys added, all with German.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| 1 | Blocking, test only: hosted tests started a rest before waiting for the shared window, so the margin on an exact "left" string shrank with the queue | Fixed in `34f5c83`: rests start inside `run` |
+| 2 | Deleting the last open set while a rest runs hides the pill; the lock screen keeps counting and the haptic fires with nothing on screen | Fixed in `62f9d71`: `edited()` skips the rest in Focused when no exercises or every set is done, the same rule `startRest(after:)` applies |
+| 3 | `keepRowInView` treated any shrink as a reason to pull the page, so the offline banner could drag a reader back | Fixed in `52aa2b6`: `followsResize` reveals only for the keypad, a toast and the pill row returning. A toast can still move a reader; accepted, it is one move per toast |
+| 4 | `.height(426)` runs out above default text | Fixed in `339aa09`: any size above `.large` opens at `.large`, default and below offer both |
+| 5 | `settle` quiet window equals the scroll animation; `withKnownIssue` is non-intermittent | Fixed in `34f5c83` and `52aa2b6`: 10 polls 50 ms apart, the known issue removed with the 18 pt bug |
+| 6 | The footer read as describing the button above it | Fixed in `339aa09`: caption moved above "Set as rest for this exercise" |
+| 7 | Start had no input labels | Fixed in `339aa09` |
+| Known | The active row 18 pt out at 320 with a keypad and a rest | Fixed in `52aa2b6`: no-anchor `scrollTo`, re-run on growth while the keypad is on this page. The real-frame measure was up to +189 pt below the page before, 0 after |
+
+Left for T5: the page is 138 pt rather than 220 at 320 with keypad and rest; VoiceOver focus when the pill swaps branches at a Skip or run-out; a page `TabView` preloaded doesn't reveal its row on arrival.

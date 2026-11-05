@@ -3,13 +3,15 @@ import SwiftUI
 /// The per-exercise sheets of the Focused layout. `FocusedSessionView` holds them above the pages, by row id: pages lose
 /// their state on a round trip, and a page can move under an opening sheet (architecture.md §8).
 enum ExerciseSheet: Identifiable {
-    case replace(UUID), targets(UUID), notes(UUID)
+    case replace(UUID), targets(UUID), notes(UUID), rest(UUID), restChoices(UUID)
 
     var id: String {
         switch self {
         case let .replace(id): return "replace.\(id)"
         case let .targets(id): return "targets.\(id)"
         case let .notes(id): return "notes.\(id)"
+        case let .rest(id): return "rest.\(id)"
+        case let .restChoices(id): return "restChoices.\(id)"
         }
     }
 }
@@ -29,6 +31,10 @@ struct ExercisePage: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.sessionVoiceOverFocus) private var voiceOverFocus
+
+    @State private var viewportHeight: CGFloat = 0
+    /// At the last height: a pill row that comes back takes room from the page.
+    @State private var hadPillRow = false
 
     /// The footer's scroll anchor.
     private static let allDoneAnchor = "session.page.allDone"
@@ -79,11 +85,55 @@ struct ExercisePage: View {
                 guard case .allDone = controller.advance?.step, exercise.id == controller.pageExerciseID else { return }
                 withAnimation(motion) { proxy.scrollTo(Self.allDoneAnchor, anchor: .bottom) }
             }
-            .onAppear {
-                if let focus = controller.focus, exercise.sets.contains(where: { $0.id == focus.setID }) {
-                    proxy.scrollTo(focus.setID, anchor: .center)
-                }
+            .onChange(of: controller.activeSet(in: exercise)?.id) { _, id in
+                guard exercise.id == controller.pageExerciseID else { return }
+                withAnimation(motion) { reveal(id, with: proxy) }
             }
+            // `onChange(of: focus)` runs before the page has its new height, so its scroll centres the row in the old one, and
+            // the pill row and the keypad would cover it. `followsResize` says which heights move the page.
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                let pillRow = controller.restPillState != .hidden
+                defer {
+                    viewportHeight = height
+                    hadPillRow = pillRow
+                }
+                guard exercise.id == controller.pageExerciseID,
+                      Self.followsResize(from: viewportHeight, to: height, keypadHere: keypadSetID != nil,
+                                         toastUp: controller.undo != nil || controller.notice != nil,
+                                         pillRowCame: pillRow && !hadPillRow) else { return }
+                withAnimation(motion) { keepRowInView(with: proxy) }
+            }
+            .onAppear { keepRowInView(with: proxy) }
+        }
+    }
+
+    /// The active row below the page's end, past the pill row's top (review N6b): the next set after a check, or a page
+    /// that opens on set 5. No anchor is the smallest scroll, none at all for a row that shows whole, so rows don't move
+    /// under the thumb. The keypad has its own scroll, to the focused row.
+    private func reveal(_ id: UUID?, with proxy: ScrollViewProxy) {
+        guard let id, controller.focus == nil else { return }
+        proxy.scrollTo(id)
+    }
+
+    /// The set the keypad is on, if it's on this page.
+    private var keypadSetID: UUID? {
+        guard let focus = controller.focus, exercise.sets.contains(where: { $0.id == focus.setID }) else { return nil }
+        return focus.setID
+    }
+
+    /// The page moves for what covers the row, and for nothing else: the offline banner takes room too, and someone reading
+    /// the Last time card keeps their place. With the keypad up the row stays centred either way: a page that appears with
+    /// it starts short of the strip's room and with the wrong columns, and gets its height only when the strip has gone.
+    static func followsResize(from old: CGFloat, to new: CGFloat, keypadHere: Bool, toastUp: Bool, pillRowCame: Bool) -> Bool {
+        if keypadHere { return new != old }
+        return new < old && (toastUp || pillRowCame)
+    }
+
+    private func keepRowInView(with proxy: ScrollViewProxy) {
+        if let id = keypadSetID {
+            proxy.scrollTo(id, anchor: .center)
+        } else {
+            reveal(controller.activeSet(in: exercise)?.id, with: proxy)
         }
     }
 
@@ -206,19 +256,22 @@ struct ExercisePage: View {
         .accessibilityHint(Self.sheetHint)
         .accessibilityIdentifier("session.chip.targets")
 
-        Menu {
-            RestChoices(controller: controller, exercise: exercise)
+        Button {
+            controller.focus = nil
+            onSheet(.restChoices(exercise.id))
         } label: {
             SessionChip(text: String(localized: "Rest \(Fmt.clock(TimeInterval(exercise.restSec)))"), leading: "timer", trailing: "pencil")
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(Text(
             "Rest, \(Self.spokenDuration(exercise.restSec))",
             comment: "VoiceOver: the rest chip on an exercise's page. 1: e.g. 1 minute, 15 seconds."
         ))
+        .accessibilityHint(Self.sheetHint)
         .accessibilityIdentifier("session.chip.rest")
     }
 
-    private static let sheetHint = Text("Opens a sheet", comment: "VoiceOver hint on the chips of an exercise's page in a workout.")
+    static let sheetHint = Text("Opens a sheet", comment: "VoiceOver hint on the chips of an exercise's page in a workout.")
 
     private static func spokenDuration(_ seconds: Int) -> String {
         Duration.seconds(seconds).formatted(.units(allowed: [.minutes, .seconds], width: .wide))

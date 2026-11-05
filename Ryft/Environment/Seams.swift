@@ -14,9 +14,9 @@ protocol Persistence: AnyObject {
     var context: ModelContext { get }
     /// On disk; false when the store lives in memory only (a recording wouldn't survive the app closing).
     var isDurable: Bool { get }
-    func save()
+    @discardableResult func save() -> Bool
     /// Everything the signed-in user left behind (sign-out, account switch).
-    func wipe()
+    @discardableResult func wipe() -> Bool
     /// Small keyed documents (`CachedDocument`), wiped with the rest.
     func document<T: Decodable>(_ type: T.Type, key: String) -> T?
     func saveDocument<T: Encodable>(_ value: T, key: String, at date: Date)

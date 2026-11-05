@@ -68,13 +68,15 @@ struct ExerciseMenuItems: View {
     }
 }
 
-/// The rest presets of the `…` menu's Rest item and of the Focused page's Rest chip.
+/// The rest presets of the `…` menu's Rest item; the Focused page's Rest chip shows them in `RestChoicesSheet`.
 struct RestChoices: View {
     var controller: SessionController
     let exercise: LocalSessionExercise
 
+    static let presets = [60, 90, 120, 150, 180, 240, 300]
+
     var body: some View {
-        ForEach([60, 90, 120, 150, 180, 240, 300], id: \.self) { sec in
+        ForEach(Self.presets, id: \.self) { sec in
             Button(Fmt.clock(TimeInterval(sec))) { controller.setRest(sec, for: exercise) }
         }
     }

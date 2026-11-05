@@ -203,7 +203,7 @@ final class AuthService {
     /// Runs when the account changes (signed in, signed out, another account), before the new session (or none) is
     /// published: so before `accountID` observers, the first upload and the first read. `from` and `to` are the
     /// accounts; `reason` says why `from`'s session ended (nil for a sign-in). Activities purge other accounts' rows
-    /// by `to` here (design.md §8.4); it doesn't rely on `lastUserKey`, which a sign-out removes.
+    /// by `to` here (design.md §8.4); it doesn't rely on `lastUserKey`, which a sign-out removes unless its wipe failed.
     @ObservationIgnored var onAccountWillChange: (@MainActor (_ from: String?, _ to: String?, _ reason: SignOutReason?) -> Void)?
     /// Runs inside every wipe, right after the local data went: services stop the leaving account's work now, not a
     /// runloop later when the app's account-change handler runs.
@@ -238,8 +238,9 @@ final class AuthService {
     private let defaults: UserDefaults
     /// Per-user local state to drop when the account ends or changes: cached
     /// responses, HealthKit anchors, per-user defaults; after an expiry, all but
-    /// what `Wipe.parking` keeps. AppState resets itself on `accountID` changes.
-    private let wipeLocalData: @MainActor (Wipe) -> Void
+    /// what `Wipe.parking` keeps. AppState resets itself on `accountID` changes. False when the store may still hold
+    /// the data: `lastUserKey` then keeps the account, so the next sign-in as another one wipes again.
+    private let wipeLocalData: @MainActor (Wipe) -> Bool
     /// `DELETE /v1/me`; injected so tests don't need the platform.
     private let deleteRemoteAccount: () async throws -> AccountDeleted
     /// `POST /v1/me/apple-authorization`; injected for tests.
@@ -248,7 +249,7 @@ final class AuthService {
     private var pendingNonce: String?
 
     init(client: AuthClientProtocol?, settings: Settings = .shared, defaults: UserDefaults = .standard,
-         wipeLocalData: @escaping @MainActor (Wipe) -> Void = AuthService.wipeSharedLocalData,
+         wipeLocalData: @escaping @MainActor (Wipe) -> Bool = AuthService.wipeSharedLocalData,
          deleteRemoteAccount: @escaping () async throws -> AccountDeleted = { try await APIClient.shared.deleteMe() },
          postAppleAuthorization: @escaping (String) async throws -> Void = { try await APIClient.shared.postAppleAuthorization(code: $0) }) {
         self.client = client
@@ -640,7 +641,7 @@ final class AuthService {
             // wipe would take what it parked: the deleted account's data already went when its session ended.
             if accountChanges == changesAtStart + 1 {
                 signOutNotice = reason.notice
-                wipe(Wipe(reason: reason, account: account))
+                wipeLeaving(Wipe(reason: reason, account: account))
             }
         } else if session?.user.id.uuidString == account {
             await signOut(reason: reason)
@@ -694,14 +695,17 @@ final class AuthService {
         let previousID = session?.user.id ?? defaults.string(forKey: Self.lastUserKey).flatMap(UUID.init(uuidString:))
         if let newSession {
             // A different account on this phone starts from scratch.
+            var wiped = true
             if let previousID, previousID != newSession.user.id {
-                wipe(Wipe(reason: nil, account: previousID.uuidString))
+                wiped = wipe(Wipe(reason: nil, account: previousID.uuidString))
             }
-            defaults.set(newSession.user.id.uuidString, forKey: Self.lastUserKey)
+            // Not on a token refresh, and not after a failed wipe: the id that stays makes the next launch wipe again.
+            if wiped, newSession.user.id != session?.user.id {
+                defaults.set(newSession.user.id.uuidString, forKey: Self.lastUserKey)
+            }
         } else if session != nil {
             // Logged out (by the user, account deleted, or the session expired).
-            wipe(Wipe(reason: ending, account: leaving))
-            defaults.removeObject(forKey: Self.lastUserKey)
+            wipeLeaving(Wipe(reason: ending, account: leaving))
             needsNewPassword = false
         }
         if newSession?.user.id != session?.user.id {
@@ -723,20 +727,32 @@ final class AuthService {
 
     private static let lastUserKey = AccountScope.defaultsKey
 
-    private func wipe(_ wipe: Wipe) {
-        wipeLocalData(wipe)
+    @discardableResult
+    private func wipe(_ wipe: Wipe) -> Bool {
+        let wiped = wipeLocalData(wipe)
         onWipe?(wipe)
+        return wiped
+    }
+
+    /// A wipe that leaves nobody signed in. Failed, the leaving account stays in `lastUserKey`: its data may still be
+    /// in the store, and without the id the next account's sign-in wouldn't wipe and would get that data.
+    private func wipeLeaving(_ wipe: Wipe) {
+        if self.wipe(wipe) {
+            defaults.removeObject(forKey: Self.lastUserKey)
+        } else if let account = wipe.account {
+            defaults.set(account, forKey: Self.lastUserKey)
+        }
     }
 
     /// Live wipe: cached API responses, HealthKit anchors (the next account
-    /// re-syncs the full backfill) and per-user UserDefaults.
-    static func wipeSharedLocalData(_ wipe: Wipe) {
+    /// re-syncs the full backfill) and per-user UserDefaults. False when the store may still hold the data.
+    static func wipeSharedLocalData(_ wipe: Wipe) -> Bool {
         HealthKitManager.shared.resetAnchors()
         SyncEngineState.wipe(defaults: .standard)
         Settings.shared.clearPerUserState()
         // Cached read models, logged sessions, the offline library and queued uploads are per account; after an
         // expiry the account's unconfirmed activities stay, parked (design.md §8.4).
-        TrainStore.shared.wipe(parkingActivitiesOf: wipe.parking)
+        let wiped = TrainStore.shared.wipe(parkingActivitiesOf: wipe.parking)
         // Its replay stops now, not when the app's account-change handler runs a runloop later.
         TrainSyncService.shared.accountChanged()
         TrainLibrary.shared.wipe()
@@ -753,6 +769,7 @@ final class AuthService {
         // A sign-out while the export's share sheet is open (a final 401, or the account deleted): the file holds all
         // of the account's data.
         DataExport.removeFiles()
+        return wiped
     }
 }
 

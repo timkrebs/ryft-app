@@ -27,10 +27,17 @@ struct FocusedSessionShotsTests {
         case column10RM = "column-10rm"
         case columnRPE = "column-rpe"
         case columnBodyweight = "column-bodyweight"
+        case restRunning = "rest-running"
+        case restOver = "rest-over"
+        case restKeypad = "rest-keypad"
+        case restSheetIdle = "rest-sheet-idle"
+        case restSheetChanged = "rest-sheet-changed"
+        case restSheetRunning = "rest-sheet-running"
+        case restChoices = "rest-choices"
 
         var scenario: FocusedPreview.Scenario {
             switch self {
-            case .midSession, .keypad: .midSession
+            case .midSession, .keypad, .restSheetIdle, .restSheetChanged, .restChoices: .midSession
             case .tappedRow: .tappedRow
             case .allDone: .allDone
             case .noHistory: .oneExercise
@@ -44,6 +51,8 @@ struct FocusedSessionShotsTests {
             case .many: .manyExercises
             case .columnE1RM, .column10RM, .columnRPE: .estimates
             case .columnBodyweight: .bodyweightEstimates
+            case .restRunning, .restKeypad, .restSheetRunning: .restRunning
+            case .restOver: .restOver
             }
         }
 
@@ -54,6 +63,13 @@ struct FocusedSessionShotsTests {
             case .column10RM: .tenRM
             case .columnRPE: .rpe
             default: nil
+            }
+        }
+
+        var hasSheet: Bool {
+            switch self {
+            case .restSheetIdle, .restSheetChanged, .restSheetRunning, .restChoices: true
+            default: false
             }
         }
     }
@@ -101,11 +117,12 @@ struct FocusedSessionShotsTests {
         var testDescription: String { name }
     }
 
-    /// Every screen at both widths in both schemes, and the main one and the fourth column at the larger text sizes.
+    /// Every screen at both widths in both schemes, and the main one, the fourth column, the running pill and the rest sheet
+    /// at the larger text sizes.
     nonisolated static let shots: [Shot] = Screen.allCases.flatMap { screen in
         Size.allCases.flatMap { size in [true, false].map { Shot(screen: screen, size: size, dark: $0) } }
     } + Size.allCases.flatMap { size in
-        [Screen.midSession, .columnE1RM].flatMap { screen in
+        [Screen.midSession, .columnE1RM, .restRunning, .restSheetChanged].flatMap { screen in
             [TextSize.xl, .ax3].map { Shot(screen: screen, size: size, dark: true, text: $0) }
         }
     }
@@ -126,10 +143,27 @@ struct FocusedSessionShotsTests {
         return nil
     }
 
+    @ViewBuilder
+    private static func sheet(_ screen: Screen, of controller: SessionController) -> some View {
+        if let ex = controller.pageExercise {
+            if screen == .restChoices {
+                RestChoicesSheet(controller: controller, exercise: ex)
+            } else {
+                RestSheet(controller: controller, exercise: ex, seconds: screen == .restSheetChanged ? ex.restSec + 30 : nil)
+            }
+        }
+    }
+
     private static func render(_ shot: Shot, in scene: UIWindowScene) async -> UIImage {
         let controller = FocusedPreview.controller(shot.screen.scenario, column: shot.screen.column)
-        if shot.screen == .keypad, let ex = controller.pageExercise { controller.edit(ex.orderedSets[0], .kg) }
+        if shot.screen == .keypad || shot.screen == .restKeypad, let ex = controller.pageExercise {
+            controller.edit(ex.orderedSets[0], .kg)
+        }
         let root = SessionView(controller: controller)
+            .sheet(isPresented: .constant(shot.screen.hasSheet)) {
+                // A sheet is a host of its own: the traits below stop at this one.
+                Self.sheet(shot.screen, of: controller).dynamicTypeSize(shot.text.dynamicType)
+            }
             .previewEnvironment(scheme: shot.dark ? .dark : .light)
             .environment(\.dynamicTypeSize, shot.text.dynamicType)
         let host = UIHostingController(rootView: root)
@@ -148,7 +182,7 @@ struct FocusedSessionShotsTests {
             controller.stop()
         }
         // SwiftUI lays out and scrolls the strip to its tile between run-loop turns; a window gives no event to wait for.
-        try? await Task.sleep(for: .seconds(0.6))
+        try? await Task.sleep(for: .seconds(shot.screen.hasSheet ? 1.5 : 0.6))
 
         let format = UIGraphicsImageRendererFormat()
         format.scale = 2

@@ -13,13 +13,26 @@ struct FocusedSessionView: View {
     /// Moves it: a strip double tap (the title), an advance and an auto-fold (the active row). Titles and rows bind to it
     /// (`sessionVoiceOverFocus`).
     @AccessibilityFocusState private var voiceOverFocus: UUID?
-    @State private var width: CGFloat = 0
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var size: CGSize = .zero
     @State private var sheet: ExerciseSheet?
     @State private var removing: UUID?
     /// One pending focus move: a new one replaces it, so an old one can't land after it or after the screen went.
     @State private var voiceOverMove: Task<Void, Never>?
 
-    private var columns: SetTableColumns { .fitting(width: width) }
+    private var columns: SetTableColumns { .fitting(width: size.width) }
+    private var hidesStrip: Bool {
+        Self.hidesStrip(columns: columns, keypadOpen: controller.focus != nil, height: size.height,
+                        pillRow: controller.restPillState == .hidden ? 0 : RestPill.rowHeight(typeSize))
+    }
+
+    /// The page's least room beside the keypad at 320 pt (design.md §5.1): under it the strip gives way until Done.
+    private static let roomWithKeypad: CGFloat = 220
+
+    /// `height` is this view's, strip and pill row included, so hiding the strip doesn't change the answer.
+    static func hidesStrip(columns: SetTableColumns, keypadOpen: Bool, height: CGFloat, pillRow: CGFloat) -> Bool {
+        keypadOpen && columns == .compact && height - ExerciseStrip.height - pillRow < roomWithKeypad
+    }
 
     /// Longer than the page's move: a row isn't in the accessibility tree while its page is hidden.
     private static let focusDelay: Duration = .milliseconds(350)
@@ -31,8 +44,11 @@ struct FocusedSessionView: View {
     var body: some View {
         VStack(spacing: 0) {
             if !controller.sync.isOnline { offlineBanner }
-            ExerciseStrip(controller: controller, inset: columns.padding, onAdd: actions.addExercise, onReorder: actions.reorder) {
-                voiceOverFocus = $0
+            if !hidesStrip {
+                ExerciseStrip(controller: controller, inset: columns.padding, onAdd: actions.addExercise, onReorder: actions.reorder) {
+                    voiceOverFocus = $0
+                }
+                .transition(.opacity)
             }
             if controller.exercises.isEmpty {
                 emptyPage
@@ -40,9 +56,12 @@ struct FocusedSessionView: View {
                 pager
             }
             SessionToastOverlay(controller: controller)
+            if controller.restPillState != .hidden { pillRow }
         }
+        .animation(Theme.Motion.respecting(reduceMotion), value: controller.restPillState)
+        .animation(Theme.Motion.respecting(reduceMotion), value: hidesStrip)
         .environment(\.sessionVoiceOverFocus, $voiceOverFocus)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
         .onAppear { controller.pinPage() }
         // The first exercise of an empty session: nothing to swipe from, and `resolve` chose it.
         .onChange(of: controller.pageExerciseID) { _, _ in controller.pinPage() }
@@ -127,6 +146,20 @@ struct FocusedSessionView: View {
         }
     }
 
+    /// A stack row, as the toast (architecture.md §8): the page ends above it, so no margin is needed, and `SessionView`'s
+    /// keypad sits below it. `session.restBar` marks a rest under way, as on List's bar.
+    private var pillRow: some View {
+        RestPill(controller: controller) {
+            controller.focus = nil
+            sheet = controller.pageExerciseID.map(ExerciseSheet.rest)
+        }
+        .padding(.vertical, RestPill.rowPadding)
+        .frame(maxWidth: .infinity)
+        .transition(.opacity)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(controller.restPillState == .idle ? "" : "session.restBar")
+    }
+
     /// No pager with no pages: the + tile above is the way in.
     private var emptyPage: some View {
         VStack {
@@ -152,6 +185,10 @@ struct FocusedSessionView: View {
             if let ex = row(id) { EditTargetsSheet(controller: controller, exercise: ex) }
         case let .notes(id):
             if let ex = row(id) { ExerciseNotesSheet(controller: controller, exercise: ex) }
+        case let .rest(id):
+            if let ex = row(id) { RestSheet(controller: controller, exercise: ex) }
+        case let .restChoices(id):
+            if let ex = row(id) { RestChoicesSheet(controller: controller, exercise: ex) }
         }
     }
 }
@@ -205,6 +242,20 @@ private func session(_ scenario: FocusedPreview.Scenario) -> some View {
 
 #Preview("Focused · all done, light") {
     session(.allDone).previewEnvironment(scheme: .light)
+}
+
+#Preview("Focused · rest running, dark") {
+    session(.restRunning).previewEnvironment()
+}
+
+#Preview("Focused · rest running, light") {
+    session(.restRunning).previewEnvironment(scheme: .light)
+}
+
+#Preview("Focused · rest running, keypad") {
+    let c = FocusedPreview.controller(.restRunning)
+    if let ex = c.pageExercise { c.edit(ex.orderedSets[0], .kg) }
+    return SessionView(controller: c).previewEnvironment()
 }
 
 #Preview("Focused · 320 pt", traits: .fixedLayout(width: 320, height: 693)) {

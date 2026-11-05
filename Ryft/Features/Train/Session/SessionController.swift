@@ -47,6 +47,10 @@ final class SessionController: Identifiable {
     private(set) var restsEnded = 0
 
     private var ticker: Task<Void, Never>?
+    /// Ends the pill's "Rest over" (`settleRestOver`).
+    @ObservationIgnored private var restOverTask: Task<Void, Never>?
+    /// How long the pill says "Rest over" (design.md §2.7).
+    static let restOverHold: Duration = .seconds(1)
     private let liveActivity: RestActivityController?
 
     // MARK: replace and undo state (SessionController+Replace.swift)
@@ -165,6 +169,8 @@ final class SessionController: Identifiable {
     func stop() {
         ticker?.cancel()
         ticker = nil
+        restOverTask?.cancel()
+        restOverTask = nil
         cancelAdvance()
         dropUndo()
     }
@@ -295,6 +301,9 @@ final class SessionController: Identifiable {
     func edited() {
         pruneCollapsed()
         sync.sessionChanged(session)
+        // Focused hides the pill with nothing left to do, so a rest would run on with no Skip and no ±15, and end on the
+        // lock screen alone. As after the last set's check; a delete, a warm-up or a remove gets here too. List keeps its bar.
+        if layout == .focused, rest.isRunning, exercises.isEmpty || isAllDone { skipRest() }
         refreshActivity()
     }
 
@@ -512,7 +521,14 @@ final class SessionController: Identifiable {
                 return
             }
         }
-        rest.start(seconds: ex.restSec, now: .now)
+        startRest(for: ex)
+    }
+
+    /// A rest with no set checked (the rest sheet's Start), and the last step of a rest after a check. `seconds` is the
+    /// sheet's value, else the exercise's rest. Nothing else moves: no check counted, no advance, the active row stays,
+    /// and `persistRest` writes only the rest's own fields, so nothing is uploaded.
+    func startRest(for ex: LocalSessionExercise, seconds: Int? = nil) {
+        rest.start(seconds: seconds ?? ex.restSec, now: .now)
         followRest()
         persistRest(exercise: ex.name)
     }
@@ -558,6 +574,19 @@ final class SessionController: Identifiable {
         store.save()
         lastActivityNext = nextLabel()
         liveActivity?.finish(session: session.id, next: lastActivityNext ?? "")
+        settleRestOver()
+    }
+
+    /// Focused: the pill says "Rest over" for a moment and goes back to idle by itself. Here, not on the pill: the rest can
+    /// end behind a sheet. List keeps its banner until it is dismissed. `dismiss` leaves a rest started since alone.
+    private func settleRestOver() {
+        guard layout == .focused else { return }
+        restOverTask?.cancel()
+        restOverTask = Task { [weak self, clock] in
+            do { try await clock.sleep(for: Self.restOverHold) } catch { return }
+            guard !Task.isCancelled else { return }
+            self?.dismissRestBanner()
+        }
     }
 
     private func startTicker() {
