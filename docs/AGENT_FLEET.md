@@ -107,7 +107,7 @@ From VS Code's terminal in `app/`:
 claude --agent ios-lead          # the lead is the main session and delegates
 ```
 
-Then paste a brief, e.g. "Run `CLAUDE_FOLLOWUP_SYNC_PERFORMANCE.md`." In a normal session you can also
+Then paste a brief, e.g. "Run `CLAUDE_FOLLOWUP_TRACKER_SETUP.md`." In a normal session you can also
 address one agent directly: "Use the code-reviewer agent on this branch." `/agents` lists and edits them.
 
 **Cost and context:** each agent is a separate context. Reviewers in parallel are cheap and worth it; don't
