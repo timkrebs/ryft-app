@@ -20,19 +20,32 @@ struct FocusedSessionView: View {
     /// One pending focus move: a new one replaces it, so an old one can't land after it or after the screen went.
     @State private var voiceOverMove: Task<Void, Never>?
 
-    private var columns: SetTableColumns { .fitting(width: size.width) }
+    private var columns: SetTableColumns { .fitting(width: size.width, typeSize: typeSize) }
     private var hidesStrip: Bool {
         Self.hidesStrip(columns: columns, keypadOpen: controller.focus != nil, height: size.height,
-                        pillRow: controller.restPillState == .hidden ? 0 : RestPill.rowHeight(typeSize))
+                        pillRow: controller.restPillState == .hidden ? 0 : RestPill.rowHeight(typeSize), typeSize: typeSize)
     }
 
-    /// The page's least room beside the keypad at 320 pt (design.md §5.1): under it the strip gives way until Done.
+    /// The page's least room beside the keypad at 320 pt (design.md §5.1): under it the strip gives way until Done. With a
+    /// rest running too, the page gets 138 pt even then. That stays: it holds the row being edited, whole, with about 40 pt of
+    /// each neighbour, and the rest of the room belongs to the 56 pt keys and the running pill (design.md §2.5, §2.7).
     private static let roomWithKeypad: CGFloat = 220
 
     /// `height` is this view's, strip and pill row included, so hiding the strip doesn't change the answer.
-    static func hidesStrip(columns: SetTableColumns, keypadOpen: Bool, height: CGFloat, pillRow: CGFloat) -> Bool {
-        keypadOpen && columns == .compact && height - ExerciseStrip.height - pillRow < roomWithKeypad
+    static func hidesStrip(columns: SetTableColumns, keypadOpen: Bool, height: CGFloat, pillRow: CGFloat,
+                           typeSize: DynamicTypeSize) -> Bool {
+        keypadOpen && columns.isCompact && height - ExerciseStrip.height(typeSize) - pillRow < roomWithKeypad
     }
+
+    /// The page's soft top edge, about a line of text, so nothing shows cut in half under the header. `ExercisePage` keeps its
+    /// title clear of it.
+    static let topFade: CGFloat = 16
+    /// Beside the keypad with the strip gone, the page ends right under the header, usually mid-line: solid for what shows of
+    /// that line, then a short fade. On the 138 pt page with a rest running, set 1's labels sit at y=13..37, so the fade runs
+    /// into their line box and stops above the letters, with a pixel or so to spare at AX3. Longer dims their tops; a shorter
+    /// solid part lets the half line back at AX1. Checked at 320 at all four shot sizes, en and de.
+    static let keypadFade: CGFloat = 18
+    private static let keypadFadeSolid = 0.75
 
     /// Longer than the page's move: a row isn't in the accessibility tree while its page is hidden.
     private static let focusDelay: Duration = .milliseconds(350)
@@ -143,6 +156,16 @@ struct FocusedSessionView: View {
                              onSheet: { sheet = $0 }, onRemove: { removing = ex.id },
                              onPlates: { actions.plates(ex) }, onHistory: { actions.history(ex) }, onFinish: actions.finish)
             }
+        }
+        // Rows scroll out under the strip through a soft edge rather than a cut. Above any title at rest, so it only shows
+        // once the page moved.
+        .overlay(alignment: .top) {
+            LinearGradient(stops: [.init(color: Theme.background, location: hidesStrip ? Self.keypadFadeSolid : 0),
+                                   .init(color: Theme.background.opacity(0), location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: hidesStrip ? Self.keypadFade : Self.topFade)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
     }
 

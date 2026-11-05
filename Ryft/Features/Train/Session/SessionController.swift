@@ -122,6 +122,8 @@ final class SessionController: Identifiable {
     @ObservationIgnored var lastManualScroll: Date?
     /// The exercise of the last check: the current-set highlight follows its `nextUp(after:)`.
     var lastCheckedExercise: UUID?
+    /// `lastTime(of:)`'s decoded copies, with the bytes each came from. Never read as state, so no view depends on it.
+    @ObservationIgnored var lastTimeCache: [UUID: (data: Data?, sets: [SessionSet])] = [:]
 
     // MARK: focused page state (SessionController+Page.swift)
 
@@ -183,7 +185,7 @@ final class SessionController: Identifiable {
 
     /// Ghost values for a set: last time / the target, else the set above it.
     func ghost(for set: LocalSet, in ex: LocalSessionExercise) -> (reps: Int?, kg: Double?) {
-        let g = ex.ghost(forSetAt: workingIndex(of: set, in: ex))
+        let g = ex.ghost(forSetAt: workingIndex(of: set, in: ex), lastTime: lastTime(of: ex))
         if g.reps != nil || g.kg != nil { return g }
         let above = ex.orderedSets.last { $0.setIndex < set.setIndex && ($0.reps != nil || $0.weightKg != nil) }
         return (above?.reps, above?.weightKg)
@@ -227,9 +229,13 @@ final class SessionController: Identifiable {
 
     /// After `ex` (default: the exercise checked last): a superset's partner first, then the list below, wrapping
     /// to the top; an exercise without an open working set is skipped (`SessionAdvance.next`, lead decision D-a).
-    /// Focused, before any check here (a relaunch on page 3): from the page, not from the top.
+    /// Focused with no check to follow (a relaunch on page 3, or the checked exercise was removed): the row on the page. The
+    /// planner's "after" means "just checked", which would skip that row for its superset partner.
     func nextUp(after ex: LocalSessionExercise?) -> (exercise: LocalSessionExercise, set: LocalSet)? {
-        nextOpenSet(after: ex?.id ?? lastCheckedExercise ?? (layout == .focused ? pageExerciseID : nil))
+        if let id = ex?.id ?? lastCheckedExercise { return nextOpenSet(after: id) }
+        guard layout == .focused else { return nextOpenSet(after: nil) }
+        if let page = pageExercise, Self.hasOpenWorkingSet(page), let set = activeSet(in: page) { return (page, set) }
+        return nextOpenSet(after: pageExerciseID)
     }
 
     // MARK: sets
@@ -242,11 +248,15 @@ final class SessionController: Identifiable {
             if layout == .focused {
                 tappedSet = set.id
                 if focus?.setID != set.id { focus = nil }
+                // Nothing to follow any more: a superset's partner would be named while the row marked Next is this one.
+                if lastCheckedExercise == ex.id { lastCheckedExercise = nil }
             }
         } else {
             let g = ghost(for: set, in: ex)
             if set.reps == nil { set.reps = g.reps }
-            if set.weightKg == nil, ex.loadType == .weight { set.weightKg = g.kg }
+            // Focused logs a bodyweight row's added-load ghost, as any other ghost. List keeps today's behaviour for now: it shows
+            // that ghost and ✓ doesn't log it.
+            if set.weightKg == nil, ex.loadType == .weight || (layout == .focused && ex.loadType == .bodyweight) { set.weightKg = g.kg }
             set.completedAt = .now
             setsChecked += 1
             if layout == .focused {
@@ -452,6 +462,9 @@ final class SessionController: Identifiable {
     func remove(_ ex: LocalSessionExercise) {
         dropUndo()
         leavePage(of: ex)
+        // List has no page to leave, and `showPage` does nothing for a lone exercise with no page stored: the keypad would stay
+        // up over a set that's gone, with every key going nowhere.
+        if let focus, ex.sets.contains(where: { $0.id == focus.setID }) { self.focus = nil }
         session.deletedSetIDs.append(contentsOf: ex.sets.map(\.id))
         session.deletedExerciseIDs.append(ex.id)
         if let group = ex.supersetGroup { ungroup(group, leaving: ex) }

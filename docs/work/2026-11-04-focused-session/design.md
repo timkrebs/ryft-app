@@ -41,7 +41,9 @@ Rejected, with the reason:
 - **Pinning the idle pill while the pad is open.** Costs 64 pt on 693 pt Display Zoom screens for a rarely used
   action.
 - **A second "advance" toggle** (plan L4): the existing `train.jumpToNext` gets the new label.
-- **Landscape strip and side-by-side pages** stay out of PR 1; PR 5 decides after a device run.
+- **Landscape strip and side-by-side pages.** PR 5 decided: none. The app is portrait only (`UISupportedInterfaceOrientations`
+  in `Info.plist`), so a phone never reaches them, and opening landscape for one screen would open it for the whole app
+  with the flag off too.
 
 ---
 
@@ -123,8 +125,9 @@ Incline dumbbell press  v                       [ ... ]     title row: 44 high
   fade on the trailing edge when it overflows (320: it does, by about 40 pt). Never accent: three accent chips
   would outweigh the check.
   1. **Equipment**: `arrow.triangle.2.circlepath` + `ExerciseKind.title` ("Dumbbell"). Opens the Replace sheet
-     (`controller.beginReplace()`, as the menu does). Disabled look (text `textTertiary`) when
-     `!canReplace(exercise)`; VoiceOver says "dimmed".
+     (`controller.beginReplace()`, as the menu does). Disabled look (text `textTertiary`, about 4.9:1 on the chip in
+     both schemes) when `!canReplace(exercise)`; VoiceOver says "dimmed". The chip isn't a `.plain` button: a disabled plain
+     button dims its label a second time.
   2. **Target**: `exercise.targetText` ("3 x 8-10 @ 30 kg") + `pencil`. Opens `EditTargetsSheet`. No target:
      "Set target" + `pencil`. This replaces the accent target line of today's card; the text is no longer accent.
   3. **Rest**: `timer` + "Rest 1:15" + `pencil`. Opens the **rest sheet** (section 2.7), medium detent.
@@ -301,7 +304,7 @@ later ticket (T6, section 7).
 | `LoadType` | Columns in PR 1 (parity, as today) | 4th column | Ghost | Header | Target (T6, needs `SetFocus.Field` + pad modes) |
 | --- | --- | --- | --- | --- | --- |
 | **weight** | `#` `KG` `REPS` 4th check | RPE (PR 1), E1RM / 10RM / RPE (PR 4) | `ghost(for:in:)` as today | `#` `KG` `REPS` `RPE` | same |
-| **bodyweight** | `#` `+KG` `REPS` 4th check. `+KG` = added load (T3). | RPE; RM column shows "-" with no added load (L13, `E1RM.estimate` needs weight above 0) | reps ghost; empty `+KG` shows a `figure.stand` glyph (16 pt, `textSecondary`) meaning "bodyweight", VoiceOver "bodyweight" | `+KG` | same |
+| **bodyweight** | `#` `+KG` `REPS` 4th check. `+KG` = added load (T3). | RPE; RM column shows "-" with no added load (L13, `E1RM.estimate` needs weight above 0) | reps ghost, and last time's added load as a ghost, which ✓ logs in Focused and not in List; an empty `+KG` with neither shows a `figure.stand` glyph (16 pt, `textSecondary`) meaning "bodyweight", VoiceOver "bodyweight" | `+KG` | same |
 | **time** | `#` `REPS`, **spanning the KG slot too** (one wide field, 2 x 74 + 4 = 152 at 320) 4th check | RPE | none (as today) | `REPS` | `#` `TIME` (m:ss, wide field) 4th check; the 4th column is RPE |
 | **distance** | as time | RPE | none | `REPS` | `#` `DIST` `TIME` check; 4th column dropped (the two fields take it) |
 
@@ -391,6 +394,42 @@ pill never cover the active row (the focused row is scrolled `.center` into the 
 open and fewer than 220 pt left, the **strip hides** until Done, instantly under Reduce Motion, 250 ms fade
 otherwise).
 
+As built in T5:
+
+- **The page at 320 with keypad and rest is 138 pt, not 220.** It stays: 138 pt holds the active row whole plus about
+  40 pt of its neighbours, and the keys and the running pill keep their room. Taking the 82 pt back would mean a
+  shorter keypad or hiding the pill. `FocusedSessionView.hidesStrip` carries the same reasoning.
+- **Keypad text caps at `.xxLarge` at 320 only.** Above that the keypad ate the page at 320 and AX3, and the row couldn't
+  stay in view. The cap keeps it whole with the strip hidden. The keypad waits for the first width in Focused: laid out before it, the
+  pager gave up its page. An RPE line (row 112 pt) may not fit whole there; the page
+  still scrolls.
+  At 390 and AX3 the keypad keeps growing, as in List and before T5, so German breaks there: „Scheiben“ wraps mid-word and
+  „Fertig“ is cut. Open.
+- **A quiet RPE line is its row's caption**, on a done row or an upcoming one that holds an RPE. It comes up over the row's
+  empty lower edge by `rowHeight - 48`, 16 pt at AX3 and 8 at AX1. A field is `rowHeight - 8` high and starts 4 pt down, so
+  that leaves it 44 pt, and the line stops short of the ✓. The gap to its own values is smaller than the gap to the next
+  row. Such a row is 92 pt at AX1 and at AX3.
+- **The session title caps at `.accessibility1` at 320.** Beside „Beenden“ at AX3 it was cut to "Upp…".
+- **Finish caps at `.large` at 320 and `.xxLarge` elsewhere**, one line, with the large content viewer. That's how
+  "Finish" and „Beenden“ never break mid-word in a 48 pt capsule at AX3.
+- **The column header shows it can be tapped with a dotted underline** in `textTertiary`. It takes no width, so "E1RM"
+  still fits its 48 pt column.
+- **The pager has a soft top edge, 16 pt** (`FocusedSessionView.topFade`). It fades from `background`, doesn't take
+  touches and is hidden from VoiceOver. The page's content starts 4 pt lower at default sizes and 16 pt lower at
+  accessibility sizes, so the title stays clear of it. Beside the keypad with the strip gone it is 18 pt, solid for the first 75% (`keypadFade`):
+  the page ends right under the header there, usually mid-line. With a rest running, set 1's labels sit at y=13..37, so the
+  fade overlaps their line box but stops above the letters, by a pixel or so at AX3. With no rest running the labels are
+  well clear, and the note line above them can sit under the fade with its top softened, most at xl. It stays readable.
+- **`FocusedRowInk` holds the row's light choices, by token maths.** An estimate on the active row is `textPrimary` in
+  light, where grey clears 4.5:1 by 0.01 at 4.51:1. An upcoming ✓'s outline is `textTertiary` in light, 4.72:1. Dark
+  keeps the tokens above, except that the outline there is 1.45:1, still open.
+- **A ghost on the active row in dark is 4.93:1**, `textSecondary` on `surfaceRaised`, so it needs no change. The empty
+  dash there was `textTertiary` at 4.40:1, and the active row now uses `textSecondary` for it too.
+- **An unfilled Finish has a 1 pt `accent` outline.** The capsule's edge alone is 1.19:1 in dark and 1.13:1 in light. There
+  is no outline at all-done, when it fills, or in List.
+- **Where the fourth column is dropped, the estimates are still spoken by VoiceOver.** The header is gone too, so the
+  mode can't change at those sizes.
+
 ### 5.2 VoiceOver checklist (for ui-validator)
 
 Only the **current page** is in the accessibility tree; other pages are `accessibilityHidden`. Reading order:
@@ -406,12 +445,14 @@ Only the **current page** is in the accessibility tree; other pages are `accessi
 5. Superset line (if any), then the **three chips** as buttons: "Replace exercise, Dumbbell", "Edit targets, 3 x 8 to
    10 at 30 kilograms", "Rest, 1 minute 15 seconds" (each with hint "Opens a sheet"). A disabled chip says "dimmed".
 6. Notes button (if any): "Notes: ..." with hint "Edits the notes".
-7. **Warm-up pill**: button, "2 warm-up sets", value "collapsed" or "expanded"; hint "Shows the warm-up sets".
-8. **Table**: header row hidden. Then **each row one element** (children ignored), in order warm-ups (if open),
-   working sets: "Set 2 of 4, 10 reps at 75 kilograms, not done" (existing `accessibilityText` form), traits
-   button, plus `selected` when done; **value "Next set." on the active row**; default action = check or uncheck; actions
-   "Edit weight", "Edit reps", "Edit RPE", "Mark as warm-up / working set", "Delete set" (unchanged). Ghost values are
-   read as "planned 10 reps at 75 kilograms". In PR 4 the label adds "estimated one-rep max 100 kilograms".
+7. **Warm-up pill**: button, "2 warm-up sets", value "collapsed" or "expanded"; hint "Shows or hides the warm-up sets".
+8. **Table**: the `#`, KG/+KG and REPS header labels are hidden. The fourth header is a button when the exercise has
+   weight or bodyweight load (not time or distance): label "Table column", value the current mode ("Estimated 1RM",
+   "Estimated 10RM" or "RPE"), hint "Switches between estimated 1RM, estimated 10RM and RPE". A tap cycles E1RM → 10RM →
+   RPE. It takes the 44 pt minimum height and the column width. It is also reachable by Voice Control as "E1RM",
+   "Estimated 1RM" or "Table column". In the last-time card and on time or distance pages the header is hidden plain
+   text. Each row's label adds the current estimate ("estimated one-rep max 100 kilograms" or "estimated ten-rep max 75
+   kilograms") with nothing for a dash, and RPE is read from the row's own RPE part in any mode.
 9. **Add set** button. For an open group, "Add warm-up set".
 10. If `isAllDone`: "All sets done" (header), "5 exercises, 17 sets", **Finish workout** (the existing card).
 11. **Last-time card**: one button, label "Last time, Tue 3 November: set 1, 10 reps at 75 kilograms; set 2, 6 reps at
@@ -448,13 +489,16 @@ VoiceOver or Switch Control on (`SessionController.undoWindow`).
 ## 6. Copy (new strings, en and de, du-form)
 
 Existing keys are reused wherever the text fits, so the catalog diff stays small. German reuses the app's terms:
-**Pause** (rest), **Supersatz**, **Aufwärmsatz**, **erledigt**. (The brief's "geschafft" for "All sets done" is dropped:
-the shipped string is "Alle Sätze erledigt"; one phrase for one thing.) Not written to the catalog by this ticket.
+**Pause** (rest), **Supersatz**, **Aufwärmsatz**, **erledigt**. "All sets done" is "Alle Sätze geschafft", the brief's
+wording (L18). Not written to the catalog by this ticket.
 
 | Where | English | German |
 | --- | --- | --- |
 | **Profile toggle (L4)**, label | Advance to the next exercise | Zur nächsten Übung wechseln |
-| Profile toggle, footer (replaces "Jumps to the next set when you finish an exercise.") | Moves on to the next exercise after your last set. | Wechselt nach deinem letzten Satz zur nächsten Übung. |
+| Profile toggle, footer | Jumps to the next set when you finish an exercise. | Kept as it was: L22 changes the label only |
+| Session layout picker, title | Session layout | Trainingsansicht |
+| Session layout picker, options | Focused / List | Fokus / Liste |
+| Session layout picker, footer | Focused: one exercise at a time. List: all exercises on one screen. Applies the next time you open a workout. | Fokus: eine Übung pro Seite. Liste: alle Übungen auf einem Bildschirm. Gilt, sobald du das nächste Training öffnest. |
 | Strip, VoiceOver label | Exercises | Übungen |
 | Strip, value | Exercise %lld of %lld, %@, %@ | Übung %1$lld von %2$lld, %3$@, %4$@ |
 | Strip status, done | done | erledigt |
@@ -482,8 +526,8 @@ the shipped string is "Alle Sätze erledigt"; one phrase for one thing.) Not wri
 | Last-time heading | Last time . %@ (date) / Last time | Letztes Mal . %@ / Letztes Mal |
 | Last-time card, VoiceOver | Last time, %@: %@ | Letztes Mal, %@: %@ |
 | Last-time card, hint | Opens history | Öffnet den Verlauf |
-| All sets done | All sets done | Alle Sätze erledigt (existing) |
-| Rest pill, VoiceOver label | Rest timer | Pausentimer (existing) |
+| All sets done | All sets done | Alle Sätze geschafft (L18) |
+| Rest pill, VoiceOver label | Rest ("Rest timer" is an input label) | Pause („Pausentimer“ is an input label) |
 | Rest pill, idle value | Not running. Starts at %@ | Läuft nicht. Startet bei %@ |
 | Rest pill, ending (visible, 1 s) | Rest over | Pause vorbei (existing) |
 | Rest sheet, title | Rest | Pause |

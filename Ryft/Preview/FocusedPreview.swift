@@ -22,7 +22,11 @@ enum FocusedPreview {
         case estimates
         /// A bodyweight page: done with no load, done with added load, then ghosts.
         case bodyweightEstimates
+        /// `midSession` with a note far longer than its one line.
+        case longNote
         case oneExercise, manyExercises
+        /// The only exercise of the session, with last time's card and a set logged.
+        case oneExerciseStarted
         case offline
         case empty
         /// `midSession` with a rest running, 1:54 left.
@@ -63,6 +67,9 @@ enum FocusedPreview {
         let controller = SessionController(session: session, sync: sync, liveActivity: nil,
                                            clock: scenario == .restOver ? HeldClock() : SystemClock(), layout: .focused, settings: settings)
         if scenario == .warmupsOpen, let ex = controller.pageExercise { controller.setWarmups(expanded: true, for: ex) }
+        if scenario == .longNote {
+            controller.pageExercise?.notes = "Slow on the way down, pause at the bottom and keep the elbows in the whole way up"
+        }
         if scenario == .tappedRow, let ex = controller.pageExercise {
             ex.orderedSets[1].reps = 7
             controller.activate(ex.orderedSets[2])
@@ -77,7 +84,7 @@ enum FocusedPreview {
 
     private static func make(_ scenario: Scenario, in store: TrainStore) -> LocalSession {
         switch scenario {
-        case .midSession, .offline, .tappedRow, .restRunning, .restOver:
+        case .midSession, .offline, .tappedRow, .restRunning, .restOver, .longNote:
             return midSession(in: store)
         case .allDone:
             return allDone(in: store)
@@ -97,6 +104,14 @@ enum FocusedPreview {
             return bodyweightEstimates(in: store)
         case .oneExercise:
             return single(MockTrain.bench, in: store)
+        case .oneExerciseStarted:
+            let s = single(MockTrain.bench, in: store)
+            let ex = s.orderedExercises[0]
+            ex.lastTime = lastTime
+            ex.orderedSets[0].reps = 10
+            ex.orderedSets[0].weightKg = 75
+            ex.orderedSets[0].completedAt = .now.addingTimeInterval(-150)
+            return s
         case .manyExercises:
             let s = SessionFactory.empty(in: store)
             for ex in MockTrain.exercises.prefix(12) { SessionFactory.add(ex, to: s, in: store) }

@@ -3,6 +3,22 @@
 Newest first. Paste the entry into App Store Connect → TestFlight → the build → What to
 Test (English and German).
 
+## When `train.focused_session` is on — the focused workout screen (en + de)
+
+Add these lines to the build's WHAT'S NEW only for a build that testers get with the flag on. With the flag off they see the List layout and none of this applies.
+
+**en**
+
+```text
+The workout screen shows one exercise at a time with the next set ready to check; the rest timer is the pill at the bottom.
+```
+
+**de**
+
+```text
+Der Trainingsbildschirm zeigt eine Übung nach der anderen, der nächste Satz ist bereit zum Abhaken; der Pausentimer ist die Kapsel unten.
+```
+
 ## Next build — beta feedback 2 and the readiness orbit (en + de)
 
 Set the build number when it's uploaded. Character counts (the text between the `text` fences): en 2,199, de 2,489.
@@ -21,7 +37,7 @@ TRY FIRST
 WHAT'S NEW
 1. Replace an exercise during a workout: tap the ellipsis button on an exercise (or long-press it) and choose Replace exercise…. Sets you've already done stay with the old exercise, and the new one continues with the rest. Undo is there for 5 seconds. Also change the plan is off by default and applies from your next session.
 2. Edit an exercise's sets, reps, weight, rest and notes for this workout. Swipe a set row to delete it.
-3. Jump to next exercise: after the last set, the exercise folds into one line and the next set scrolls up. Profile → Training → Jump to next exercise, on by default.
+3. Advance to the next exercise: after the last set, the exercise folds into one line and the next set scrolls up. Profile → Training → Advance to the next exercise, on by default.
 4. The rest timer is a compact bar under the clock, with the next set below it.
 5. Last time: an exercise that appears twice in one workout shows its own last sets for each place.
 6. Today's baseline counter counts whichever signal is filling. If your tracker doesn't share HRV with Apple Health, the counter counts what does arrive, such as resting heart rate, instead of staying at 0 of 7.
@@ -51,7 +67,7 @@ PROBIER ZUERST
 WAS NEU IST
 1. Übung während des Trainings ersetzen: Tippe bei einer Übung auf das Menü (…) oder halte sie gedrückt, und wähle „Übung ersetzen …“. Schon erledigte Sätze bleiben bei der alten Übung, die neue setzt mit den übrigen fort. „Rückgängig“ bleibt 5 Sekunden lang. „Auch im Plan ändern“ ist standardmäßig aus und gilt ab deiner nächsten Einheit.
 2. Sätze, Wiederholungen, Gewicht, Pause und Notizen einer Übung kannst du für dieses Training ändern. Wische über eine Satzzeile, um sie zu löschen.
-3. Zur nächsten Übung springen: Nach dem letzten Satz klappt die Übung auf eine Zeile zusammen, und der nächste Satz rückt nach oben. Profil → Training → „Zur nächsten Übung springen“, standardmäßig an.
+3. Zur nächsten Übung wechseln: Nach dem letzten Satz klappt die Übung auf eine Zeile zusammen, und der nächste Satz rückt nach oben. Profil → Training → „Zur nächsten Übung wechseln“, standardmäßig an.
 4. Die Pausenzeit ist eine kompakte Leiste unter der Uhr, darunter steht der nächste Satz.
 5. Letztes Mal: Kommt eine Übung zweimal in einem Training vor, zeigt jede Stelle ihre eigenen letzten Sätze.
 6. Der Zähler für die Ausgangswerte zählt, was gerade ankommt. Sendet dein Tracker HRV nicht an Apple Health, zählt er zum Beispiel den Ruhepuls und bleibt nicht mehr bei 0 von 7 stehen.

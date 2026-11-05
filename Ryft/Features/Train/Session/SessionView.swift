@@ -12,6 +12,37 @@ struct SessionActions {
     var finish: () -> Void
 }
 
+/// Focused's Finish stays one word in a 48 pt capsule at every text size, "Beenden" and at 320 pt too (design.md §5.1). The
+/// header is full, so its size stops growing, and a long press shows it large. List's header keeps its own rules.
+private struct FocusedFinishLabel: ViewModifier {
+    let isOn: Bool
+    let isCompact: Bool
+
+    func body(content: Content) -> some View {
+        if isOn {
+            content
+                .lineLimit(1)
+                .fixedSize()
+                .dynamicTypeSize(...(isCompact ? DynamicTypeSize.large : .xxLarge))
+                .accessibilityShowsLargeContentViewer()
+        } else {
+            content
+        }
+    }
+}
+
+/// Text that stops growing at Focused's 320 pt. The keypad: every point it takes is the page's, and at AX3 with a rest the row
+/// being edited wouldn't fit. The session's title: beside „Beenden“ at AX3 it was cut to "Upp…". Wider screens and List keep
+/// their sizes.
+private struct CompactTextCap: ViewModifier {
+    let isOn: Bool
+    let cap: DynamicTypeSize
+
+    func body(content: Content) -> some View {
+        if isOn { content.dynamicTypeSize(...cap) } else { content }
+    }
+}
+
 /// The live session, optimised for sweaty thumbs: 56 pt targets, large
 /// monospaced numbers, haptics on set check and rest end, the screen stays on.
 /// Nothing destructive happens without a confirmation.
@@ -68,8 +99,11 @@ struct SessionView: View {
             } else {
                 listContent
             }
-            if controller.focus != nil {
+            // A session reopened with its keypad up: laid out before there's a width, it squeezes a 320 pt page to nothing and
+            // the pager gives up its page, and with it the keypad.
+            if controller.focus != nil, controller.layout == .list || width > 0 {
                 NumberPad(controller: controller) { kg in plates = PlateRequest(kg: kg, fromKeypad: true) }
+                    .modifier(CompactTextCap(isOn: isCompactHeader, cap: .xxLarge))
                     .transition(.move(edge: .bottom))
             }
         }
@@ -129,8 +163,9 @@ struct SessionView: View {
     // MARK: header
 
     /// Focused at 320 pt (design.md §2.1): an hour clock doesn't fit the middle at 30 pt. The list keeps its header.
-    private var isCompactHeader: Bool { controller.layout == .focused && SetTableColumns.fitting(width: width) == .compact }
-    private var headerButton: CGFloat { isCompactHeader ? 44 : 48 }
+    private var isCompactHeader: Bool { controller.layout == .focused && SetTableColumns.fitting(width: width).isCompact }
+    /// §5.1: at AX3 `…` and Finish keep 48, at 320 too.
+    private var headerButton: CGFloat { isCompactHeader && typeSize < .accessibility3 ? 44 : 48 }
 
     private var header: some View {
         HStack(spacing: isCompactHeader ? 6 : 8) {
@@ -151,6 +186,7 @@ struct SessionView: View {
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
+                    .modifier(CompactTextCap(isOn: isCompactHeader, cap: .accessibility1))
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text(Fmt.clock(controller.elapsed(at: context.date)))
                         .font(.ryftNumber(size: isCompactHeader ? 26 : 30))
@@ -180,13 +216,16 @@ struct SessionView: View {
                 confirmFinish = true
             } label: {
                 Group {
-                    if controller.isFinishing { ProgressView().tint(Theme.onAccent) } else { Text("Finish") }
+                    if controller.isFinishing { ProgressView().tint(finishInk) } else { Text("Finish") }
                 }
                 .font(.ryft(.headline))
-                .foregroundStyle(Theme.onAccent)
-                .padding(.horizontal, 18)
+                .foregroundStyle(finishInk)
+                .modifier(FocusedFinishLabel(isOn: controller.layout == .focused, isCompact: isCompactHeader))
+                .padding(.horizontal, isCompactHeader ? 14 : 18)
                 .frame(minHeight: headerButton)
-                .background(Theme.accent, in: Capsule())
+                .background(controller.finishIsFilled ? Theme.accent : Theme.surface, in: Capsule())
+                // The capsule's own edge is under 1.2:1 on the background, in either scheme.
+                .overlay { if !controller.finishIsFilled { Capsule().strokeBorder(Theme.accent, lineWidth: 1) } }
             }
             .disabled(controller.isFinishing)
             .accessibilityIdentifier("session.finish")
@@ -194,6 +233,8 @@ struct SessionView: View {
         .padding(.horizontal, isCompactHeader ? 12 : 16)
         .padding(.vertical, 8)
     }
+
+    private var finishInk: Color { controller.finishIsFilled ? Theme.onAccent : Theme.accent }
 
     // MARK: exercises
 

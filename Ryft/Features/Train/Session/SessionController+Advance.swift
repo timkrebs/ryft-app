@@ -55,6 +55,10 @@ extension SessionController {
     /// it shows with the setting off too (D-d).
     var isAllDone: Bool { SessionAdvance.isAllDone(advanceStates) }
 
+    /// Whether Finish is a filled capsule (L21). In Focused it waits for the last set: the check and a running pill are the
+    /// screen's filled controls until then (design.md §4). List keeps its header.
+    var finishIsFilled: Bool { layout == .list || isAllDone }
+
     // MARK: collapsed cards
 
     /// A finished card is shown collapsed. Derived, so a card that has an open working set again (an uncheck, a new

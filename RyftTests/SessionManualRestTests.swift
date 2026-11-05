@@ -147,7 +147,7 @@ struct SessionManualRestTests {
         (.regular, true, 202 + 76, 64, false),
     ] as [(SetTableColumns, Bool, CGFloat, CGFloat, Bool)])
     func stripGivesWay(_ c: (columns: SetTableColumns, keypad: Bool, height: CGFloat, pill: CGFloat, hides: Bool)) {
-        #expect(FocusedSessionView.hidesStrip(columns: c.columns, keypadOpen: c.keypad, height: c.height, pillRow: c.pill) == c.hides)
+        #expect(FocusedSessionView.hidesStrip(columns: c.columns, keypadOpen: c.keypad, height: c.height, pillRow: c.pill, typeSize: .large) == c.hides)
     }
 
     // MARK: what VoiceOver hears
@@ -533,7 +533,7 @@ extension SessionManualRestTests {
         (.regular, true, 100, 64, false),
     ] as [(SetTableColumns, Bool, CGFloat, CGFloat, Bool)])
     func stripEdge(_ c: (columns: SetTableColumns, keypad: Bool, height: CGFloat, pill: CGFloat, hides: Bool)) {
-        #expect(FocusedSessionView.hidesStrip(columns: c.columns, keypadOpen: c.keypad, height: c.height, pillRow: c.pill) == c.hides)
+        #expect(FocusedSessionView.hidesStrip(columns: c.columns, keypadOpen: c.keypad, height: c.height, pillRow: c.pill, typeSize: .large) == c.hides)
     }
 
     // MARK: what VoiceOver hears
