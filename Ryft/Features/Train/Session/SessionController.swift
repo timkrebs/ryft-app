@@ -254,7 +254,8 @@ final class SessionController: Identifiable {
         } else {
             let g = ghost(for: set, in: ex)
             if set.reps == nil { set.reps = g.reps }
-            if set.weightKg == nil, ex.loadType == .weight { set.weightKg = g.kg }
+            // Focused shows a bodyweight row's added load as a ghost, so ✓ logs it, as any other ghost. List shows none and stays.
+            if set.weightKg == nil, ex.loadType == .weight || (layout == .focused && ex.loadType == .bodyweight) { set.weightKg = g.kg }
             set.completedAt = .now
             setsChecked += 1
             if layout == .focused {
@@ -460,6 +461,9 @@ final class SessionController: Identifiable {
     func remove(_ ex: LocalSessionExercise) {
         dropUndo()
         leavePage(of: ex)
+        // List has no page to leave, and `showPage` does nothing for a lone exercise with no page stored: the keypad would stay
+        // up over a set that's gone, with every key going nowhere.
+        if let focus, ex.sets.contains(where: { $0.id == focus.setID }) { self.focus = nil }
         session.deletedSetIDs.append(contentsOf: ex.sets.map(\.id))
         session.deletedExerciseIDs.append(ex.id)
         if let group = ex.supersetGroup { ungroup(group, leaving: ex) }
