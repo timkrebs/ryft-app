@@ -73,6 +73,8 @@ struct ExercisePage: View {
                     }
                 }
                 .padding(.horizontal, columns.padding)
+                // A title taller than its 44 pt row has no air of its own to sit under the top fade with.
+                .padding(.top, typeSize.isAccessibilitySize ? FocusedSessionView.topFade : 0)
                 .padding(.bottom, 24)
                 .animation(motion, value: isExpanded)
             }
@@ -182,6 +184,8 @@ struct ExercisePage: View {
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
+            // The design's order wherever it opens: iOS flips an automatic menu so the first item is nearest the finger.
+            .menuOrder(.fixed)
             .accessibilityLabel(Text("Options for \(exercise.name)"))
         }
     }
@@ -430,7 +434,7 @@ struct SetTableHeader: View {
             }
             .textCase(.uppercase)
             .accessibilityHidden(true)
-            fourth
+            if columns.hasFourth { fourth }
             Color.clear.frame(width: columns.check, height: 1).accessibilityHidden(true)
         }
         .font(.ryft(.label))
@@ -446,7 +450,9 @@ struct SetTableHeader: View {
         if let onCycle {
             Button(action: onCycle) {
                 // The titles are uppercase as they are. A `textCase` here would reach the VoiceOver label: "TABLE COLUMN".
+                // The dots say it can be tapped, at no cost in width: 48 pt holds "E1RM" and nothing beside it.
                 Text(verbatim: column.title)
+                    .underline(true, pattern: .dot, color: Theme.textTertiary)
                     .foregroundStyle(Theme.textSecondary)
                     .frame(width: columns.fourth, height: 24)
                     .frame(height: 44, alignment: .bottom)
@@ -540,7 +546,7 @@ struct LastTimeCard: View {
             Text(verbatim: "\(number)").frame(width: columns.number)
             if usesWeight { Text(set.weightKg.map(Fmt.kgNumber) ?? Fmt.placeholder).frame(maxWidth: .infinity) }
             Text(stored?.text ?? set.reps.map(String.init) ?? Fmt.placeholder).frame(maxWidth: .infinity)
-            Text(verbatim: fourth).frame(width: columns.fourth)
+            if columns.hasFourth { Text(verbatim: fourth).frame(width: columns.fourth) }
             Color.clear.frame(width: columns.check, height: 1)
         }
         .font(.ryftNumber(size: 17))
@@ -548,7 +554,7 @@ struct LastTimeCard: View {
         .foregroundStyle(Theme.textSecondary)
         .lineLimit(1)
         .minimumScaleFactor(0.75)
-        .frame(height: 36)
+        .frame(height: columns.lastTimeRow)
     }
 
     private var moreText: String {
@@ -698,6 +704,31 @@ private func page(_ scenario: FocusedPreview.Scenario) -> some View {
 
 #Preview("Page · AX3") {
     page(.midSession).previewEnvironment().dynamicTypeSize(.accessibility3)
+}
+
+@MainActor
+private func largeText(_ typeSize: DynamicTypeSize, width: CGFloat = 390) -> some View {
+    let c = FocusedPreview.controller(.estimates, column: .rpe)
+    return ExercisePage(controller: c, exercise: c.pageExercise ?? c.exercises[0], columns: .fitting(width: width, typeSize: typeSize),
+                        onSheet: { _ in }, onRemove: {}, onPlates: {}, onHistory: {}, onFinish: {})
+        .background(Theme.background)
+        .dynamicTypeSize(typeSize)
+}
+
+#Preview("Page · AX3, RPE line, dark") {
+    largeText(.accessibility3).previewEnvironment()
+}
+
+#Preview("Page · AX3, RPE line, light") {
+    largeText(.accessibility3).previewEnvironment(scheme: .light)
+}
+
+#Preview("Page · AX1 at 320 pt, dark", traits: .fixedLayout(width: 320, height: 693)) {
+    largeText(.accessibility1, width: 320).previewEnvironment()
+}
+
+#Preview("Page · AX1 at 320 pt, light", traits: .fixedLayout(width: 320, height: 693)) {
+    largeText(.accessibility1, width: 320).previewEnvironment(scheme: .light)
 }
 
 #Preview("Last time · dark and light", traits: .sizeThatFitsLayout) {

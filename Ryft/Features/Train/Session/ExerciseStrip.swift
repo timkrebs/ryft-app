@@ -46,22 +46,27 @@ struct ExerciseTile: View {
     let number: Int
     let isCurrent: Bool
     let isDone: Bool
+    var size: CGFloat = ExerciseTile.size
 
     static let size: CGFloat = 56
+    /// From AX3 (design.md §5.1).
+    static let largeSize: CGFloat = 64
     private static let corner: CGFloat = 14
+
+    private var isLarge: Bool { size >= Self.largeSize }
 
     var body: some View {
         VStack(spacing: 3) {
             Image(systemName: symbol)
-                .font(.system(size: 20, weight: .medium))
+                .font(.system(size: isLarge ? 24 : 20, weight: .medium))
                 // A fixed box, so the numbers below it share one baseline.
-                .frame(width: 22, height: 22)
+                .frame(width: isLarge ? 26 : 22, height: isLarge ? 26 : 22)
             Text(verbatim: "\(number)")
-                .font(.ryftNumber(size: 11))
+                .font(.ryftNumber(size: isLarge ? 14 : 11))
                 .monospacedDigit()
         }
         .foregroundStyle(isCurrent ? Theme.textPrimary : Theme.textSecondary)
-        .frame(width: Self.size, height: Self.size)
+        .frame(width: size, height: size)
         .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
         .overlay {
             if isCurrent {
@@ -95,10 +100,19 @@ struct ExerciseStrip: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private static let gap: CGFloat = 8
     /// 8 top, 56 tile, 3 gap, 3 bar, 6 bottom.
     static let height: CGFloat = 76
+
+    static func tileSize(_ typeSize: DynamicTypeSize) -> CGFloat {
+        typeSize >= .accessibility3 ? ExerciseTile.largeSize : ExerciseTile.size
+    }
+
+    static func height(_ typeSize: DynamicTypeSize) -> CGFloat {
+        height + tileSize(typeSize) - ExerciseTile.size
+    }
 
     private var page: UUID? { controller.pageExerciseID }
     private var motion: Animation? { Theme.Motion.respecting(reduceMotion) }
@@ -113,10 +127,10 @@ struct ExerciseStrip: View {
                 .padding(.horizontal, inset)
                 .padding(.top, 8)
                 // Top-aligned, so a strip without a superset's bar doesn't sit 3 pt lower.
-                .frame(height: Self.height, alignment: .top)
+                .frame(height: Self.height(typeSize), alignment: .top)
             }
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-            .frame(height: Self.height)
+            .frame(height: Self.height(typeSize))
             .onAppear {
                 if let page { proxy.scrollTo(page, anchor: .center) }
             }
@@ -166,7 +180,8 @@ struct ExerciseStrip: View {
     private func tile(_ ex: LocalSessionExercise) -> some View {
         let number = (controller.exercises.firstIndex { $0.id == ex.id } ?? 0) + 1
         let done = Self.isDone(ex)
-        return ExerciseTile(symbol: ex.kind.tileSymbol, number: number, isCurrent: ex.id == page, isDone: done)
+        return ExerciseTile(symbol: ex.kind.tileSymbol, number: number, isCurrent: ex.id == page, isDone: done,
+                            size: Self.tileSize(typeSize))
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .onTapGesture {
                 withAnimation(motion) { controller.jump(to: ex.id) }
@@ -186,7 +201,7 @@ struct ExerciseStrip: View {
             Image(systemName: "plus")
                 .font(.system(size: 20, weight: .medium))
                 .foregroundStyle(Theme.textSecondary)
-                .frame(width: ExerciseTile.size, height: ExerciseTile.size)
+                .frame(width: Self.tileSize(typeSize), height: Self.tileSize(typeSize))
                 .overlay {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .strokeBorder(Theme.separator, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))

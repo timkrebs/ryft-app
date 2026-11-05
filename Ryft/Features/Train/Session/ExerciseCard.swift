@@ -8,24 +8,44 @@ struct SetTableColumns: Equatable {
     let check: CGFloat
     let gap: CGFloat
     /// The kg and reps numerals.
-    let numeral: CGFloat
+    var numeral: CGFloat
     /// Page padding, into which the number's 44 pt hit area reaches.
     let padding: CGFloat
     let headerTracking: CGFloat
+    /// The 320 pt table, whatever the text size.
+    var isCompact = false
+    /// Off at the sizes where the fields need its room. RPE then moves to a line of the row.
+    var hasFourth = true
+    var rowHeight: CGFloat = 56
+    var lastTimeRow: CGFloat = 36
 
     /// 390 pt class.
     static let regular = SetTableColumns(number: 36, fourth: 56, check: 56, gap: 6, numeral: 22, padding: 16, headerTracking: 2)
     /// 320 pt (Display Zoom).
-    static let compact = SetTableColumns(number: 28, fourth: 48, check: 56, gap: 4, numeral: 20, padding: 12, headerTracking: 1)
+    static let compact = SetTableColumns(number: 28, fourth: 48, check: 56, gap: 4, numeral: 20, padding: 12, headerTracking: 1,
+                                         isCompact: true)
 
-    static func fitting(width: CGFloat) -> SetTableColumns {
-        width > 0 && width < 360 ? .compact : .regular
+    /// The table at a width and a text size (design.md §5.1). From AX1 the numerals grow, and at 320 the fourth column goes,
+    /// because a field would be under the 66 pt that holds "102.5". From AX3 it goes everywhere.
+    static func fitting(width: CGFloat, typeSize: DynamicTypeSize = .large) -> SetTableColumns {
+        var columns = width > 0 && width < 360 ? compact : regular
+        if typeSize >= .accessibility1 {
+            columns.numeral = 26
+            columns.lastTimeRow = 44
+            columns.hasFourth = !columns.isCompact
+        }
+        if typeSize >= .accessibility3 {
+            columns.numeral = 30
+            columns.rowHeight = 64
+            columns.hasFourth = false
+        }
+        return columns
     }
 
-    /// The number's hit area, 44 x 56, in its own coordinates: left into the page padding, then right into the gap.
+    /// The number's hit area, 44 wide and a row high, in its own coordinates: left into the page padding, then right into the gap.
     var numberHitArea: CGRect {
         let left = min(padding, 44 - number)
-        return CGRect(x: -left, y: 0, width: 44, height: 56)
+        return CGRect(x: -left, y: 0, width: 44, height: rowHeight)
     }
 }
 
@@ -108,7 +128,17 @@ struct SetRow: View {
             .accessibilityIdentifier("\(isFocusedWarmup ? "warmup" : "set").\(exercise.position).\(number)")
     }
 
+    /// Focused's row height, with the field and the check filling it as at the default size. List's is 56.
+    private var rowHeight: CGFloat { columns?.rowHeight ?? 56 }
+
     private var row: some View {
+        VStack(spacing: 4) {
+            cells
+            if let columns, controller.showsRPELine(of: set, in: exercise, columns: columns) { rpeLine }
+        }
+    }
+
+    private var cells: some View {
         HStack(spacing: columns?.gap ?? 6) {
             Button {
                 tap { controller.toggleWarmup(set) }
@@ -116,7 +146,7 @@ struct SetRow: View {
                 Text(set.isWarmup ? "W" : "\(number)")
                     .font(.ryftNumber(size: 17))
                     .foregroundStyle(numberColor)
-                    .frame(width: columns?.number ?? 40, height: 56)
+                    .frame(width: columns?.number ?? 40, height: rowHeight)
                     .background { if rowState == .active { activePill } }
                     .contentShape(columns.map { Path($0.numberHitArea) } ?? Path(CGRect(x: 0, y: 0, width: 40, height: 56)))
             }
@@ -131,11 +161,13 @@ struct SetRow: View {
             } else {
                 field(.reps, value: set.reps.map(String.init), ghost: ghost.reps.map(String.init))
             }
-            if controller.column(for: exercise) == .rpe {
-                field(.rpe, value: set.rpe.map(Fmt.kgNumber), ghost: nil)
-                    .frame(minWidth: columns?.fourth, maxWidth: columns?.fourth ?? 64)
-            } else {
-                estimateCell
+            if columns?.hasFourth != false {
+                if controller.column(for: exercise) == .rpe {
+                    field(.rpe, value: set.rpe.map(Fmt.kgNumber), ghost: nil)
+                        .frame(minWidth: columns?.fourth, maxWidth: columns?.fourth ?? 64)
+                } else {
+                    estimateCell
+                }
             }
 
             Button {
@@ -144,11 +176,12 @@ struct SetRow: View {
                 Image(systemName: "checkmark")
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(checkGlyph)
-                    .frame(width: 56, height: 56)
+                    .frame(width: 56, height: rowHeight)
                     .background(checkFill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay {
                         if rowState == .upcoming {
-                            RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.surfaceRaised, lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(FocusedRowInk.upcomingOutline(colorScheme), lineWidth: 1)
                         }
                     }
                     .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -156,9 +189,31 @@ struct SetRow: View {
             .buttonStyle(PressableButtonStyle())
             .accessibilityHidden(true)
         }
-        .frame(minHeight: 56)
+        .frame(minHeight: rowHeight)
         .background(rowState == nil && set.isCompleted ? Theme.accent.opacity(0.06) : .clear,
                     in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    /// RPE at the sizes without a fourth column (design.md §5.1): "RPE 8.5", full width, 44 high. It takes the row's taps as
+    /// the field does.
+    private var rpeLine: some View {
+        let focused = controller.focus == SetFocus(setID: set.id, field: .rpe)
+        let shown = focused ? (controller.buffer.isEmpty ? nil : controller.displayBuffer) : set.rpe.map(Fmt.kgNumber)
+        return Button {
+            tapField(.rpe)
+        } label: {
+            Text("RPE \(shown ?? Fmt.placeholder)")
+                .font(.ryft(.callout))
+                .monospacedDigit()
+                .foregroundStyle(shown == nil || set.isCompleted ? Theme.textSecondary : Theme.textPrimary)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(raisedFill.opacity(fieldOpacity(.rpe, focused: focused)),
+                            in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(focused ? Theme.accent : .clear, lineWidth: 2))
+                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: Focused's states (design.md §2.5, §2.8)
@@ -348,7 +403,7 @@ struct SetRow: View {
             .lineLimit(1)
             .minimumScaleFactor(0.75)
             .foregroundStyle(rowState == .active ? Theme.textPrimary : Theme.textSecondary)
-            .frame(maxWidth: .infinity, minHeight: 48)
+            .frame(maxWidth: .infinity, minHeight: rowHeight - 8)
     }
 
     /// The estimate: read-only, grey on every row (brief, PR 1), the dash quieter still (design.md §2.8).
@@ -359,7 +414,7 @@ struct SetRow: View {
             .monospacedDigit()
             .lineLimit(1)
             .minimumScaleFactor(0.75)
-            .foregroundStyle(text == Fmt.placeholder ? Theme.textTertiary : Theme.textSecondary)
+            .foregroundStyle(FocusedRowInk.estimate(active: rowState == .active, isDash: text == Fmt.placeholder, colorScheme))
             .frame(width: columns?.fourth, height: 48)
             .contentShape(Rectangle())
             // As the RPE field in this cell: the first tap on an upcoming row makes it active. The value stays read-only.
@@ -379,18 +434,22 @@ struct SetRow: View {
         return f == .rpe ? 17 : columns.numeral
     }
 
+    private func tapField(_ f: SetFocus.Field) {
+        tap {
+            // An upcoming row's first tap makes it active. With the keypad up it moves there, as in List.
+            if rowState == .upcoming, controller.focus == nil {
+                controller.activate(set)
+            } else {
+                controller.edit(set, f)
+            }
+        }
+    }
+
     private func field(_ f: SetFocus.Field, value: String?, ghost: String?) -> some View {
         let focused = controller.focus == SetFocus(setID: set.id, field: f)
         let shown = focused ? (controller.buffer.isEmpty ? nil : controller.displayBuffer) : value
         return Button {
-            tap {
-                // An upcoming row's first tap makes it active. With the keypad up it moves there, as in List.
-                if rowState == .upcoming, controller.focus == nil {
-                    controller.activate(set)
-                } else {
-                    controller.edit(set, f)
-                }
-            }
+            tapField(f)
         } label: {
             Group {
                 if f == .kg, showsBodyweightGlyph, shown == nil {
@@ -406,7 +465,7 @@ struct SetRow: View {
                         .foregroundStyle(valueColor(hasValue: shown != nil, hasGhost: ghost != nil))
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 48)
+            .frame(maxWidth: .infinity, minHeight: rowHeight - 8)
             .background(raisedFill.opacity(fieldOpacity(f, focused: focused)),
                         in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
