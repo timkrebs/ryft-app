@@ -37,11 +37,11 @@ xcodebuild test -scheme Ryft -testPlan UISmoke -destination "id=<udid>" -derived
 
 `HostedWindow` leaves the automation setting on. The brief asked it to restore the earlier value, but that value reads false on a fresh simulator, so restoring is the same as switching it off.
 
-| `HostedWindow` after its last window | erase, full Unit, one UI test |
+| `HostedWindow` after its last window | erase, full Unit, then UI tests |
 | --- | --- |
-| Switches it off (`main`) | failed, 1 of 1 |
-| Restores the earlier value | failed, 2 of 4 |
-| Leaves it on | passed, 3 of 3 |
+| Switches it off (`main`) | AX failure in 1 of 1 |
+| Restores the earlier value | AX failure in 2 of 4 |
+| Leaves it on | no AX failure in 5 of 5 (3 runs of one test, 2 of all of `UISmoke`) |
 
 The failure is "Timed out waiting for AX loaded notification" or `kAXErrorAPIDisabled`, and it comes and goes, so these counts are few. The cause is inferred from them, not shown. If it comes back, shut down, erase and boot the simulator. CI runs Unit and then `UISmoke` on one simulator, with Unit in parallel and up to two retries on a failing UI test. It has passed in that order.
 
