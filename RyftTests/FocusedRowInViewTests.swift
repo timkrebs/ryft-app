@@ -75,18 +75,20 @@ struct FocusedRowInViewTests {
             try await w.settle()
             let scroll = try #require(w.pageScrollView())
             let start = scroll.contentOffset.y
-            for n in 1...5 {
+            for n in 1...4 {
                 try check(c)
                 try await w.settle()
                 #expect(abs(scroll.contentOffset.y - start) < 0.5, "set \(n + 1) shows whole: the page stays (offset \(scroll.contentOffset.y))")
             }
-            // Set 7 ends 39 pt below the page: it comes in flush with the bottom edge and no further.
-            try check(c)
-            try await w.settle()
-            let viewport = try #require(w.pageViewport())
-            let row = try #require(w.node("Set 7 of 8"))
-            #expect(scroll.contentOffset.y > start + 20, "set 7 was hidden: the page scrolled (offset \(scroll.contentOffset.y))")
-            #expect(abs(row.frame.maxY - viewport.maxY) <= 2, "flush with the bottom edge, not centred: \(row.frame.maxY - viewport.maxY) pt off")
+            // Sets 6 and 7 end 3 and 63 pt below the page: each comes in flush with the bottom edge and no further.
+            for n in 6...7 {
+                try check(c)
+                try await w.settle()
+                let viewport = try #require(w.pageViewport())
+                let row = try #require(w.node("Set \(n) of 8"))
+                #expect(scroll.contentOffset.y > start + 1, "set \(n) was hidden: the page scrolled (offset \(scroll.contentOffset.y))")
+                #expect(abs(row.frame.maxY - viewport.maxY) <= 2, "flush with the bottom edge, not centred: \(row.frame.maxY - viewport.maxY) pt off")
+            }
         }
     }
 

@@ -170,6 +170,23 @@ final class FocusedSessionUITests: XCTestCase {
         assertColumn("RPE", in: app) // nothing was chosen, and RPE is in use now: the default rule
     }
 
+    /// The estimate is read-only, but its cell takes a tap like the fields beside it: the first one on an upcoming row makes
+    /// it active. A touch: a row's children are hidden from the tree, so nothing else reaches the cell.
+    @MainActor
+    func testATapOnAnEstimateActivatesAnUpcomingRow() throws {
+        let app = openFocused()
+        assertColumn("Estimated 1RM", in: app)
+        let first = element(app, "set.0.1"), second = element(app, "set.0.2")
+        requireExists(second, "an upcoming row")
+        wait(first, until: "value == 'Next set.'", "the first row starts active")
+        // Under the header: the rows and the header share their columns.
+        let header = column(app).frame, row = second.frame
+        second.coordinate(withNormalizedOffset: CGVector(dx: (header.midX - row.minX) / row.width, dy: 0.5)).tap()
+        wait(second, until: "value == 'Next set.'", "the row the tap was on is active")
+        XCTAssertNotEqual(first.value as? String, "Next set.", "one active row")
+        XCTAssertFalse(app.buttons["Done"].exists, "the cell is read-only: no keypad")
+    }
+
     /// The choice outlives the session on screen. `UserDefaults` writes to memory at once and reaches disk through
     /// cfprefsd a moment later, so a kill right after the tap could lose it, and that would be the test's doing: no user
     /// quits within that window. Going to the background first is what a real quit does.
