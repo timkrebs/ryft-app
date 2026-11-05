@@ -2213,29 +2213,43 @@ struct PullInvalidationTests {
     /// Perf 1 as a number. Before, Today's `body` read the scheduler's `states` and `inFlight` and the
     /// store's days, so every one of these events invalidated it. Now it reads `isLoading` and
     /// `refreshInputs`, which change only when what Today shows could change.
+    ///
+    /// `isLoading` is on while any of the six reads is in flight, so how often it flips depends on whether the
+    /// reads overlap, and that is the order in which the pull's unstructured tasks reach the main actor: today and
+    /// the status read in one window or two, the rest of the reads before or after those land. Counted in one
+    /// run that gave 2, 4 or, once in 300, 6 publishes (CI, 2026-11-04: "published 6 of 14"). The budget now holds
+    /// every start until all six reads are in flight, so they share one window and the count is the same every run.
     @Test func aPullChangesWhatTodayObservesAFewTimes() async {
         let api = MockPlatformAPI()
         let (env, state, clock) = readGraph(api: api)
         await state.refresh(force: true)
-        let events = Calls(), published = Calls()
+        let events = Calls(), loadingFlips = Calls(), inputChanges = Calls()
         func counting(_ body: () -> Void) {
             let before = (state.isLoading, state.refreshInputs)
             body()
             events.count += 1
-            if state.isLoading != before.0 || state.refreshInputs != before.1 { published.count += 1 }
+            if state.isLoading != before.0 { loadingFlips.count += 1 }
+            if state.refreshInputs != before.1 { inputChanges.count += 1 }
         }
         let reads = env.reads.onChange, days = state.repository.onDaysChanged
         env.reads.onChange = { change in counting { reads?(change) } }
         state.repository.onDaysChanged = { counting { days?() } }
 
         let c = SyncCoordinator(steps: SlowUploadSteps(state: state, clock: clock, uploadDuration: .zero), clock: clock)
-        await state.pullToRefresh(coordinator: c)
+        await env.reads.budget.holdBack(seconds: 1)
+        let pull = Task { await state.pullToRefresh(coordinator: c) }
+        // 6 reads (today, sync status, history, me, trends, insights), none sent yet.
+        #expect(await eventually { env.reads.inFlight.count == 6 })
+        clock.advance(by: .seconds(1))
+        await pull.value
         await state.pullPhases?.value
 
-        // 6 reads (today, sync status, history, me, trends, insights): start and land each, plus the stores.
+        // Start and land each of the six, plus the stores.
         #expect(events.count >= 12, "events \(events.count)")
-        // Measured 2026-10-22: 14 events (plus 6 writes of `states`, also observed before), 4 changes now.
-        #expect(published.count <= 4, "published \(published.count) of \(events.count)")
+        // Measured 2026-10-22: 14 events (plus 6 writes of `states`, also observed then); now `isLoading` on once and
+        // off once, and `refreshInputs` when today's and history's fetch times moved (the clock advanced a second).
+        #expect(loadingFlips.count == 2, "isLoading flipped \(loadingFlips.count) times in \(events.count) events")
+        #expect(inputChanges.count <= 2, "refreshInputs changed \(inputChanges.count) times in \(events.count) events")
     }
 }
 
