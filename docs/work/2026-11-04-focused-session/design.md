@@ -41,7 +41,9 @@ Rejected, with the reason:
 - **Pinning the idle pill while the pad is open.** Costs 64 pt on 693 pt Display Zoom screens for a rarely used
   action.
 - **A second "advance" toggle** (plan L4): the existing `train.jumpToNext` gets the new label.
-- **Landscape strip and side-by-side pages** stay out of PR 1; PR 5 decides after a device run.
+- **Landscape strip and side-by-side pages.** PR 5 decided: none. The app is portrait only (`UISupportedInterfaceOrientations`
+  in `Info.plist`), so a phone never reaches them, and opening landscape for one screen would open it for the whole app
+  with the flag off too.
 
 ---
 
@@ -407,11 +409,13 @@ Only the **current page** is in the accessibility tree; other pages are `accessi
    10 at 30 kilograms", "Rest, 1 minute 15 seconds" (each with hint "Opens a sheet"). A disabled chip says "dimmed".
 6. Notes button (if any): "Notes: ..." with hint "Edits the notes".
 7. **Warm-up pill**: button, "2 warm-up sets", value "collapsed" or "expanded"; hint "Shows the warm-up sets".
-8. **Table**: header row hidden. Then **each row one element** (children ignored), in order warm-ups (if open),
-   working sets: "Set 2 of 4, 10 reps at 75 kilograms, not done" (existing `accessibilityText` form), traits
-   button, plus `selected` when done; **value "Next set." on the active row**; default action = check or uncheck; actions
-   "Edit weight", "Edit reps", "Edit RPE", "Mark as warm-up / working set", "Delete set" (unchanged). Ghost values are
-   read as "planned 10 reps at 75 kilograms". In PR 4 the label adds "estimated one-rep max 100 kilograms".
+8. **Table**: the `#`, KG/+KG and REPS header labels are hidden. The fourth header is a button when the exercise has
+   weight or bodyweight load (not time or distance): label "Table column", value the current mode ("Estimated 1RM",
+   "Estimated 10RM" or "RPE"), hint "Switches between estimated 1RM, estimated 10RM and RPE". A tap cycles E1RM → 10RM →
+   RPE. It takes the 44 pt minimum height and the column width. It is also reachable by Voice Control as "E1RM",
+   "Estimated 1RM" or "Table column". In the last-time card and on time or distance pages the header is hidden plain
+   text. Each row's label adds the current estimate ("estimated one-rep max 100 kilograms" or "estimated ten-rep max 75
+   kilograms") with nothing for a dash, and RPE is read from the row's own RPE part in any mode.
 9. **Add set** button. For an open group, "Add warm-up set".
 10. If `isAllDone`: "All sets done" (header), "5 exercises, 17 sets", **Finish workout** (the existing card).
 11. **Last-time card**: one button, label "Last time, Tue 3 November: set 1, 10 reps at 75 kilograms; set 2, 6 reps at
@@ -448,8 +452,8 @@ VoiceOver or Switch Control on (`SessionController.undoWindow`).
 ## 6. Copy (new strings, en and de, du-form)
 
 Existing keys are reused wherever the text fits, so the catalog diff stays small. German reuses the app's terms:
-**Pause** (rest), **Supersatz**, **Aufwärmsatz**, **erledigt**. (The brief's "geschafft" for "All sets done" is dropped:
-the shipped string is "Alle Sätze erledigt"; one phrase for one thing.) Not written to the catalog by this ticket.
+**Pause** (rest), **Supersatz**, **Aufwärmsatz**, **erledigt**. "All sets done" is "Alle Sätze geschafft", the brief's
+wording (L18). Not written to the catalog by this ticket.
 
 | Where | English | German |
 | --- | --- | --- |
@@ -482,7 +486,7 @@ the shipped string is "Alle Sätze erledigt"; one phrase for one thing.) Not wri
 | Last-time heading | Last time . %@ (date) / Last time | Letztes Mal . %@ / Letztes Mal |
 | Last-time card, VoiceOver | Last time, %@: %@ | Letztes Mal, %@: %@ |
 | Last-time card, hint | Opens history | Öffnet den Verlauf |
-| All sets done | All sets done | Alle Sätze erledigt (existing) |
+| All sets done | All sets done | Alle Sätze geschafft (L18) |
 | Rest pill, VoiceOver label | Rest timer | Pausentimer (existing) |
 | Rest pill, idle value | Not running. Starts at %@ | Läuft nicht. Startet bei %@ |
 | Rest pill, ending (visible, 1 s) | Rest over | Pause vorbei (existing) |
