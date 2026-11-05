@@ -13509,14 +13509,8 @@
       "localizations" : {
         "de" : {
           "stringUnit" : {
-            "state" : "machine_translated",
+            "state" : "translated",
             "value" : "%1$lld Wiederholungen mit %2$@ Kilogramm"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$lld reps at %2$@ kilograms"
           }
         }
       }
