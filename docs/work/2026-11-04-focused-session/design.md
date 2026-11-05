@@ -405,9 +405,10 @@ As built in T5:
   still scrolls.
   At 390 and AX3 the keypad keeps growing, as in List and before T5, so German breaks there: „Scheiben“ wraps mid-word and
   „Fertig“ is cut. Open.
-- **A done row's RPE line is its caption.** It comes up over the row's empty lower edge by `rowHeight - 44`, 20 pt at AX3
-  and 12 at AX1, which leaves the row's fields 44 pt, and it stops short of the ✓. The gap to its own values is smaller
-  than the gap to the next row. A done row with a line is 88 pt at AX3.
+- **A quiet RPE line is its row's caption**, on a done row or an upcoming one that holds an RPE. It comes up over the row's
+  empty lower edge by `rowHeight - 48`, 16 pt at AX3 and 8 at AX1. A field is `rowHeight - 8` high and starts 4 pt down, so
+  that leaves it 44 pt, and the line stops short of the ✓. The gap to its own values is smaller than the gap to the next
+  row. Such a row is 92 pt at AX1 and at AX3.
 - **The session title caps at `.accessibility1` at 320.** Beside „Beenden“ at AX3 it was cut to "Upp…".
 - **Finish caps at `.large` at 320 and `.xxLarge` elsewhere**, one line, with the large content viewer. That's how
   "Finish" and „Beenden“ never break mid-word in a 48 pt capsule at AX3.
@@ -415,8 +416,9 @@ As built in T5:
   still fits its 48 pt column.
 - **The pager has a soft top edge, 16 pt** (`FocusedSessionView.topFade`). It fades from `background`, doesn't take
   touches and is hidden from VoiceOver. The page's content starts 4 pt lower at default sizes and 16 pt lower at
-  accessibility sizes, so the title stays clear of it. Beside the keypad with the strip gone it is 28 pt, solid for the first 65% (`keypadFade`):
-  the page ends right under the header there, usually mid-line.
+  accessibility sizes, so the title stays clear of it. Beside the keypad with the strip gone it is 22 pt, solid for the first half (`keypadFade`):
+  the page ends right under the header there, usually mid-line. With a rest running, set 1's labels sit at y=13..37, so the
+  fade overlaps their line box but stops above the letters.
 - **`FocusedRowInk` holds the row's light choices, by token maths.** An estimate on the active row is `textPrimary` in
   light, where grey clears 4.5:1 by 0.01 at 4.51:1. An upcoming ✓'s outline is `textTertiary` in light, 4.72:1. Dark
   keeps the tokens above, except that the outline there is 1.45:1, still open.
