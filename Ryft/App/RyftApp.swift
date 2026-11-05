@@ -123,6 +123,7 @@ struct RyftApp: App {
             TrainStore.shared.wipe()
             TrainCoordinator.shared.refreshActive()
             Settings.shared.setColumn = nil
+            Settings.shared.sessionLayout = .focused
         }
         // UI tests: `-importUploadsUnavailable YES`, the import before the platform's contract (V5).
         ImportDemoFiles.applyLaunchArguments(to: env)

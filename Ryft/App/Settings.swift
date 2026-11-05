@@ -158,6 +158,13 @@ enum SessionLayout: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    var title: String {
+        switch self {
+        case .focused: return String(localized: "Focused", comment: "Profile → Training → Session layout: one exercise per page.")
+        case .list: return String(localized: "List", comment: "Profile → Training → Session layout: all exercises in one list.")
+        }
+    }
+
     /// What a session opens in: the stored choice while `train.focused_session` is on, List otherwise (plan.md, L5).
     static func effective(flagOn: Bool, stored: SessionLayout) -> SessionLayout {
         flagOn ? stored : .list

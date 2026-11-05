@@ -273,6 +273,18 @@ struct FlagGateTests {
         #expect(NotificationSettingsViewModel(state: on, push: PushRegistrar(env: on.env)).isRolledOut)
     }
 
+    /// L5: with the flag off a session is always List, so Profile has nothing to choose.
+    @Test func sessionLayoutShowsOnlyWithItsFlag() {
+        func model(_ flags: [FeatureFlag: Bool]) -> ProfileViewModel {
+            let s = state(flags)
+            let sync = SyncService.ungated(env: s.env)
+            return ProfileViewModel(state: s, sync: sync, coordinator: SyncCoordinator(steps: LiveSyncSteps(state: s, sync: sync), clock: s.env.clock))
+        }
+        #expect(!model([:]).showsSessionLayout)
+        #expect(!model([.focusedSession: false]).showsSessionLayout)
+        #expect(model([.focusedSession: true]).showsSessionLayout)
+    }
+
     @Test func notificationsRowShowsWhenSignedIn() {
         let s = state([:])
         let sync = SyncService.ungated(env: s.env)
