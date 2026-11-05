@@ -19,3 +19,9 @@ On 2026-10-26, P2 (#57) was stacked on A2 (#54). The merge re-added A2's `syncGa
 3. Run a strict build before pushing.
 
 See [[integration-branch]].
+
+Also, from the focused session PRs (2026-11-04):
+- If the parent was squashed, merge the parent's old head first, then record `main` with `-s ours` when the two trees are
+  byte-identical. Prove it: `git diff --name-status` and sorted changed lines of `main..HEAD` equal the branch's own delta.
+- Git can't see a signature change meeting another PR's new caller: after a merge, grep closures and compile. `wipeLocalData`
+  gained a Bool return in one PR and a test written in another stopped building.

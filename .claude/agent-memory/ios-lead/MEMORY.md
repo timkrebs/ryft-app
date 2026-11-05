@@ -8,3 +8,7 @@
 - [Hosted test language](hosted-test-language.md) — -testLanguage didn't localize hosted renders; set sim AppleLanguages, no parallel, boot before spawn
 - [Stacked branch after squash](stacked-branch-after-squash.md) — merging main can resurrect replaced code; diff merged tree vs branch head
 - [External TestFlight hold](external-testflight-hold.md) — no External promotion until the training import is live (2026-10-27)
+- [Agent "waiting" notices](agent-waiting-notice.md) — prove nothing; check ps and new output within minutes, leave no marker loops
+- [One simulator at a time](simulators-one-at-a-time.md) — no burners or concurrent sims; a wedged service needs the user's killall
+- [Merge authority](merge-authority.md) — per PR list unless broad; threads block merging; one at a time, docs PRs last
+- [Squash keeps old commits](squash-keeps-old-commits.md) — refs/pull/N/head survives; redact before opening a PR
