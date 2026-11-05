@@ -216,3 +216,5 @@ So `TabView` keeps about the current page and a neighbour live, and a page is no
 **Second visual pass:** ui-validator on the merged T5, 24 images read, no blockers, brand board checked, ships to testers behind the flag. Three of its notes are fixed on `fix/focused-followups`: the done row's RPE line, the keypad's top edge and the dimmed equipment chip. The ghost figure is corrected to 4.93:1; the 4.18:1 in the review was wrong.
 
 **Review of #99 (the follow-ups):** nothing blocking. Fixed on the same branch: the quiet RPE line took 4 pt of a field's 44, so a tap on the lower "80" at AX3 opened RPE (lift now `rowHeight - 48`); the comments on List's ghost and on the fade's end were false; L17 updated. Open and with the user: List shows a bodyweight row's added-load ghost and ✓ doesn't log it.
+
+**Fade, after #99's review:** 22 pt at 50% solid let the half line back at AX1, and it dimmed the tops of the labels at AX3. It is now 18 pt at 75%, checked by crop at 320 at four sizes, dark and light, en and de. Open and not in this PR: the same kind of fragment at `rest-keypad-390-dark-ax3`, which comes from `topFade` and is in the older shots too.

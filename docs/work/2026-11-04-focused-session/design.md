@@ -416,9 +416,10 @@ As built in T5:
   still fits its 48 pt column.
 - **The pager has a soft top edge, 16 pt** (`FocusedSessionView.topFade`). It fades from `background`, doesn't take
   touches and is hidden from VoiceOver. The page's content starts 4 pt lower at default sizes and 16 pt lower at
-  accessibility sizes, so the title stays clear of it. Beside the keypad with the strip gone it is 22 pt, solid for the first half (`keypadFade`):
+  accessibility sizes, so the title stays clear of it. Beside the keypad with the strip gone it is 18 pt, solid for the first 75% (`keypadFade`):
   the page ends right under the header there, usually mid-line. With a rest running, set 1's labels sit at y=13..37, so the
-  fade overlaps their line box but stops above the letters.
+  fade overlaps their line box but stops above the letters, by a pixel or so at AX3. With no rest running the labels are
+  well clear, and the note line above them can sit under the fade with its top softened, most at xl. It stays readable.
 - **`FocusedRowInk` holds the row's light choices, by token maths.** An estimate on the active row is `textPrimary` in
   light, where grey clears 4.5:1 by 0.01 at 4.51:1. An upcoming ✓'s outline is `textTertiary` in light, 4.72:1. Dark
   keeps the tokens above, except that the outline there is 1.45:1, still open.
