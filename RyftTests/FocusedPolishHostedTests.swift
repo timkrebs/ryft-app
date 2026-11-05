@@ -72,21 +72,27 @@ struct FocusedPolishHostedTests {
         }
     }
 
-    /// „Beenden“ takes the title's room: uncapped, this read "Upp…".
+    /// „Beenden“ takes the title's room: uncapped, this read "Upp…". The title and the clock are one element, whose frame is the
+    /// room the title has. It stops growing at AX1, so the element is no taller at AX3.
     @Test("The session's title stays whole beside Finish at 320 pt and AX3", arguments: ["en", "de"])
     func theTitleHoldsItsWord(language: String) async throws {
-        let controller = FocusedPreview.controller(.midSession)
-        defer { controller.stop() }
-        let title = controller.session.title
+        var frames: [CGRect] = []
+        var title = ""
+        for s in [Self.compactAX1, Self.compactAX3] {
+            let controller = FocusedPreview.controller(.midSession)
+            defer { controller.stop() }
+            title = controller.session.title
+            try await HostedWindow.run(width: s.width, height: s.height, typeSize: s.size, category: s.category,
+                                       SessionView(controller: controller).environment(\.locale, Locale(identifier: language))) { w in
+                try await w.settle()
+                frames.append(try #require(w.node(title), "\(w.nodes().map(\.label).prefix(6))").frame)
+            }
+        }
         let word = UIHostingController(rootView: Text(verbatim: title).font(.ryft(.callout))
             .environment(\.dynamicTypeSize, .accessibility1))
         let width = word.sizeThatFits(in: CGSize(width: 400, height: 200)).width
-        try await HostedWindow.run(width: 320, height: 693, typeSize: .accessibility3, category: .accessibilityExtraLarge,
-                                   SessionView(controller: controller).environment(\.locale, Locale(identifier: language))) { w in
-            try await w.settle()
-            let node = try #require(w.node(title, exactly: true), "\(w.nodes().map(\.label).prefix(8))")
-            #expect(abs(node.frame.width - width) < 1, "\(node.frame), the word is \(width)")
-        }
+        #expect(frames[1].width >= width, "\(frames[1]), the word is \(width)")
+        #expect(abs(frames[1].height - frames[0].height) < 0.5, "AX1 \(frames[0]), AX3 \(frames[1])")
     }
 
     @Test("An unfilled Finish has an accent outline, and a filled one reads as accent to its edge", arguments: [true, false])

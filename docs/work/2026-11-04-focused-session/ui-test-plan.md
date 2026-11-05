@@ -47,7 +47,9 @@ Each row is read back from the commands that ran: every Unit run here was serial
 
 The failure comes and goes and these counts are few, so the cure is inferred from them, not shown.
 
-Leaving it on doesn't rule the failure out. With the setting on, a run of two UI tests straight after a complete `UISmoke` run failed with `kAXErrorAPIDisabled` from its first launch, and the same two failed again after a rebuild. After the simulator was shut down and booted, they passed. So that state lives in the booted simulator, and it can come UI after UI, with no Unit run between. Its cause isn't known. If it comes back, shut the simulator down and boot it.
+Leaving it on doesn't rule the failure out. With the setting on, a run of two UI tests straight after a complete `UISmoke` run failed with `kAXErrorAPIDisabled` from its first launch, and the same two failed again after a rebuild. After the simulator was shut down and booted, they passed. On a second try the same order passed without a reboot, so it happens 1 time in 2 here, not every time. That state lives in the booted simulator, and it can come UI after UI, with no Unit run between. Its cause isn't known. If it comes back, shut the simulator down and boot it.
+
+Separately, twice a Unit-plan run started straight after a passing UI run stalled before its first test, and stopped only at my time limit. A shutdown and boot cleared that too.
 
 This probably does nothing on CI. `TestPlans/Unit` runs in parallel there, so the hosted tests run in simulator clones, and the setting likely never reaches the simulator `UISmoke` uses. That is reasoning from the plan, not a measurement. It helps a local serial run followed by a UI run on one simulator.
 
