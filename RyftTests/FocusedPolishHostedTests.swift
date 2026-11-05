@@ -72,6 +72,23 @@ struct FocusedPolishHostedTests {
         }
     }
 
+    /// „Beenden“ takes the title's room: uncapped, this read "Upp…".
+    @Test("The session's title stays whole beside Finish at 320 pt and AX3", arguments: ["en", "de"])
+    func theTitleHoldsItsWord(language: String) async throws {
+        let controller = FocusedPreview.controller(.midSession)
+        defer { controller.stop() }
+        let title = controller.session.title
+        let word = UIHostingController(rootView: Text(verbatim: title).font(.ryft(.callout))
+            .environment(\.dynamicTypeSize, .accessibility1))
+        let width = word.sizeThatFits(in: CGSize(width: 400, height: 200)).width
+        try await HostedWindow.run(width: 320, height: 693, typeSize: .accessibility3, category: .accessibilityExtraLarge,
+                                   SessionView(controller: controller).environment(\.locale, Locale(identifier: language))) { w in
+            try await w.settle()
+            let node = try #require(w.node(title, exactly: true), "\(w.nodes().map(\.label).prefix(8))")
+            #expect(abs(node.frame.width - width) < 1, "\(node.frame), the word is \(width)")
+        }
+    }
+
     @Test("An unfilled Finish has an accent outline, and a filled one reads as accent to its edge", arguments: [true, false])
     func finishOutline(dark: Bool) async throws {
         let controller = FocusedPreview.controller(.midSession)

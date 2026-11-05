@@ -171,7 +171,8 @@ The coordinator's list from the three reviews, grouped here by subject. Nothing 
 | Nothing reaches `onHistory` or `onPlates` | A hosted test activates the title and the `…` menu and sees plates listed. A menu runs an item only from a real touch, so choosing plates is in `testTheOptionsMenuKeepsTheDesignsOrder` |
 | Finish's German word is promised, and the test was English with `> 60` | German case, and the capsule must be the word's own width |
 | Nothing pins that the layout survives log-out | One assertion in `logOutClearsIt` |
-| Keypad text capped on wide screens too | Capped only at 320. `CompactKeypadText` replaces `FocusedHeaderText` |
+| Keypad text capped on wide screens too | Capped only at 320. `CompactTextCap` replaces `FocusedHeaderText`. Open: at 390 and AX3 German now shows „Scheib/en“ and „Fe…“ on the keypad (`rest-keypad-390-dark-ax3`). It matches List and pre-T5, so it is no regression; capping 390 higher would fix it |
+| The title cap came out in T5 because no test needed it, and English looked fine | Wrong: the German render read "Upp…" beside „Beenden“. Back at `.accessibility1` at 320, pinned by `theTitleHoldsItsWord` in both languages |
 | Found while fixing that: a keypad laid out before the width is known squeezes a 320 pt page at AX3, and the pager gives up its page and the keypad. Reachable by reopening a session with the keypad up | In Focused the keypad waits for the width. `keypadBeforeLayout` pins it |
 | After check and uncheck in a superset, Next named the partner while the row marked Next was the unchecked one | Focused's uncheck clears `lastCheckedExercise` when it is that exercise. List untouched |
 

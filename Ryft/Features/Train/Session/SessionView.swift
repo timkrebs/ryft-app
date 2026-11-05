@@ -31,13 +31,15 @@ private struct FocusedFinishLabel: ViewModifier {
     }
 }
 
-/// The keypad's text stops growing at Focused's 320 pt, where every point it takes is the page's: at AX3, with a rest and the
-/// keypad up, the row being edited wouldn't fit. Wider screens and List keep their sizes.
-private struct CompactKeypadText: ViewModifier {
+/// Text that stops growing at Focused's 320 pt. The keypad: every point it takes is the page's, and at AX3 with a rest the row
+/// being edited wouldn't fit. The session's title: beside „Beenden“ at AX3 it was cut to "Upp…". Wider screens and List keep
+/// their sizes.
+private struct CompactTextCap: ViewModifier {
     let isOn: Bool
+    let cap: DynamicTypeSize
 
     func body(content: Content) -> some View {
-        if isOn { content.dynamicTypeSize(...DynamicTypeSize.xxLarge) } else { content }
+        if isOn { content.dynamicTypeSize(...cap) } else { content }
     }
 }
 
@@ -101,7 +103,7 @@ struct SessionView: View {
             // the pager gives up its page, and with it the keypad.
             if controller.focus != nil, controller.layout == .list || width > 0 {
                 NumberPad(controller: controller) { kg in plates = PlateRequest(kg: kg, fromKeypad: true) }
-                    .modifier(CompactKeypadText(isOn: isCompactHeader))
+                    .modifier(CompactTextCap(isOn: isCompactHeader, cap: .xxLarge))
                     .transition(.move(edge: .bottom))
             }
         }
@@ -184,6 +186,7 @@ struct SessionView: View {
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
+                    .modifier(CompactTextCap(isOn: isCompactHeader, cap: .accessibility1))
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text(Fmt.clock(controller.elapsed(at: context.date)))
                         .font(.ryftNumber(size: isCompactHeader ? 26 : 30))

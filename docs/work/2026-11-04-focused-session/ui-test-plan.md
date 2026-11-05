@@ -43,9 +43,11 @@ xcodebuild test -scheme Ryft -testPlan UISmoke -destination "id=<udid>" -derived
 | Restores the earlier value | serial | AX failure in 2 of 4 |
 | Leaves it on | serial | no AX failure in 6 of 6: 3 runs of one test, 3 of all of `UISmoke` |
 
-Each row is read back from the commands that ran: every Unit run here was serial (`-parallel-testing-enabled NO`). The first `UISmoke` run in the last row stopped at my 580 s limit, after a failure of my own assertion, with no AX failure up to there. `kAXErrorAPIDisabled` itself comes from T4 and isn't counted here. The error reproduced here was "Timed out waiting for AX loaded notification", taken to be the same class.
+Each row is read back from the commands that ran: every Unit run here was serial (`-parallel-testing-enabled NO`). The first `UISmoke` run in the last row stopped at my 580 s limit, after a failure of my own assertion, with no AX failure up to there. The error in the table was "Timed out waiting for AX loaded notification", taken to be the same class as T4's `kAXErrorAPIDisabled`.
 
-The failure comes and goes and these counts are few, so the cure is inferred from them, not shown. If it comes back, shut down, erase and boot the simulator.
+The failure comes and goes and these counts are few, so the cure is inferred from them, not shown.
+
+Leaving it on doesn't rule the failure out. With the setting on, a run of two UI tests straight after a complete `UISmoke` run failed with `kAXErrorAPIDisabled` from its first launch, and the same two failed again after a rebuild. After the simulator was shut down and booted, they passed. So that state lives in the booted simulator, and it can come UI after UI, with no Unit run between. Its cause isn't known. If it comes back, shut the simulator down and boot it.
 
 This probably does nothing on CI. `TestPlans/Unit` runs in parallel there, so the hosted tests run in simulator clones, and the setting likely never reaches the simulator `UISmoke` uses. That is reasoning from the plan, not a measurement. It helps a local serial run followed by a UI run on one simulator.
 

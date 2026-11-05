@@ -402,6 +402,9 @@ As built in T5:
   stay in view. The cap keeps it whole with the strip hidden. The keypad waits for the first width in Focused: laid out before it, the
   pager gave up its page. An RPE line (row 112 pt) may not fit whole there; the page
   still scrolls.
+  At 390 and AX3 the keypad keeps growing, as in List and before T5, so German breaks there: „Scheiben“ wraps mid-word and
+  „Fertig“ is cut. Open.
+- **The session title caps at `.accessibility1` at 320.** Beside „Beenden“ at AX3 it was cut to "Upp…".
 - **Finish caps at `.large` at 320 and `.xxLarge` elsewhere**, one line, with the large content viewer. That's how
   "Finish" and „Beenden“ never break mid-word in a 48 pt capsule at AX3.
 - **The column header shows it can be tapped with a dotted underline** in `textTertiary`. It takes no width, so "E1RM"
