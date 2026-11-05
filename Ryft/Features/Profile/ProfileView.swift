@@ -543,10 +543,12 @@ struct ProfileView: View {
         ProfileSection(title: "Training") {
             Toggle(isOn: Bindable(settings).jumpToNextExercise) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Advance to the next exercise", comment: "Profile → Training toggle: after the last set of an exercise, the workout moves on to the next one.")
+                    Text("Advance to the next exercise",
+                         comment: "Profile → Training toggle: after the last set of an exercise, the workout moves on to the next one.")
                         .font(.ryft(.body))
                         .foregroundStyle(Theme.textPrimary)
-                    Text("Jumps to the next set when you finish an exercise.", comment: "Footer under the Profile → Training toggle \"Advance to the next exercise\".")
+                    Text("Jumps to the next set when you finish an exercise.",
+                         comment: "Footer under the Profile → Training toggle \"Advance to the next exercise\".")
                         .font(.ryft(.caption))
                         .foregroundStyle(Theme.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
