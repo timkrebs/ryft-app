@@ -3,6 +3,22 @@
 Newest first. Paste the entry into App Store Connect → TestFlight → the build → What to
 Test (English and German).
 
+## When `train.focused_session` is on — the focused workout screen (en + de)
+
+Add these lines to the build's WHAT'S NEW only for a build that testers get with the flag on. With the flag off they see the List layout and none of this applies.
+
+**en**
+
+```text
+The workout screen shows one exercise at a time with the next set ready to check; the rest timer is the pill at the bottom.
+```
+
+**de**
+
+```text
+Der Trainingsbildschirm zeigt eine Übung nach der anderen, der nächste Satz ist bereit zum Abhaken; der Pausentimer ist die Kapsel unten.
+```
+
 ## Next build — beta feedback 2 and the readiness orbit (en + de)
 
 Set the build number when it's uploaded. Character counts (the text between the `text` fences): en 2,199, de 2,489.
