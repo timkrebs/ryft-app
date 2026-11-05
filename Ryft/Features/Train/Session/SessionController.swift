@@ -227,9 +227,13 @@ final class SessionController: Identifiable {
 
     /// After `ex` (default: the exercise checked last): a superset's partner first, then the list below, wrapping
     /// to the top; an exercise without an open working set is skipped (`SessionAdvance.next`, lead decision D-a).
-    /// Focused, before any check here (a relaunch on page 3): from the page, not from the top.
+    /// Focused with no check to follow (a relaunch on page 3, or the checked exercise was removed): the row on the page. The
+    /// planner's "after" means "just checked", which would skip that row for its superset partner.
     func nextUp(after ex: LocalSessionExercise?) -> (exercise: LocalSessionExercise, set: LocalSet)? {
-        nextOpenSet(after: ex?.id ?? lastCheckedExercise ?? (layout == .focused ? pageExerciseID : nil))
+        if let id = ex?.id ?? lastCheckedExercise { return nextOpenSet(after: id) }
+        guard layout == .focused else { return nextOpenSet(after: nil) }
+        if let page = pageExercise, Self.hasOpenWorkingSet(page), let set = activeSet(in: page) { return (page, set) }
+        return nextOpenSet(after: pageExerciseID)
     }
 
     // MARK: sets
