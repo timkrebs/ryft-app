@@ -66,15 +66,15 @@ struct ExercisePage: View {
                             .padding(.top, 8)
                             .id(Self.allDoneAnchor)
                     }
-                    if exercise.lastTime.contains(where: { !$0.isWarmup }) {
-                        LastTimeCard(sets: exercise.lastTime, loadType: exercise.loadType, columns: columns,
+                    if controller.lastTime(of: exercise).contains(where: { !$0.isWarmup }) {
+                        LastTimeCard(sets: controller.lastTime(of: exercise), loadType: exercise.loadType, columns: columns,
                                      column: controller.column(for: exercise), onTap: onHistory)
                             .padding(.top, 8)
                     }
                 }
                 .padding(.horizontal, columns.padding)
-                // A title taller than its 44 pt row has no air of its own to sit under the top fade with.
-                .padding(.top, typeSize.isAccessibilitySize ? FocusedSessionView.topFade : 0)
+                // The title stays clear of the top fade: a 44 pt row has about 12 pt of air of its own, a taller title none.
+                .padding(.top, typeSize.isAccessibilitySize ? FocusedSessionView.topFade : FocusedSessionView.topFade - 12)
                 .padding(.bottom, 24)
                 .animation(motion, value: isExpanded)
             }
