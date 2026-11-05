@@ -21,6 +21,7 @@
     {
       "selectedTests": [
         "StoreSmokeUITests",
+        "JumpToNextUITests",
         "FocusedSessionUITests\/testAWholeSessionWithOnlyCheckTapsEndsOnFinish",
         "FocusedSessionUITests\/testTheRestPillRunsSkipsAndStartsARest",
         "FocusedSessionUITests\/testWithTheFlagOffTheSessionIsTheList",
