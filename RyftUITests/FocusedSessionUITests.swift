@@ -92,6 +92,36 @@ final class FocusedSessionUITests: XCTestCase {
 
     // MARK: the flag
 
+    private func training(in app: XCUIApplication) -> XCUIElement {
+        app.tabBars.buttons["Profile"].tap()
+        let toggle = element(app, "profile.jumpToNext")
+        requireExists(toggle, "Profile → Training")
+        var swipes = 0
+        while !toggle.isHittable && swipes < 10 {
+            app.swipeUp()
+            swipes += 1
+        }
+        return toggle
+    }
+
+    /// T5, L4, L5: the toggle's new name in both states, and the layout's picker only with the flag on, where it decides the
+    /// next session.
+    @MainActor
+    func testProfileOffersTheLayoutOnlyWithTheFlag() throws {
+        var app = launch()
+        XCTAssertTrue(training(in: app).label.contains("Advance to the next exercise"), "the setting's new name, flag off too (L22)")
+        XCTAssertFalse(element(app, "profile.sessionLayout").exists, "no choice with the flag off")
+
+        app = launch(extra: Self.focusedOn)
+        XCTAssertTrue(training(in: app).label.contains("Advance to the next exercise"))
+        requireExists(element(app, "profile.sessionLayout"), "the choice with the flag on")
+        app.buttons["List"].tap()
+        app.tabBars.buttons["Strain"].tap()
+        startTodaysPlan(in: app)
+        requireExists(element(app, "set.0.1"), "List's first set row")
+        XCTAssertFalse(element(app, "session.strip.0").exists, "List was chosen")
+    }
+
     @MainActor
     func testWithTheFlagOffTheSessionIsTheList() throws {
         let app = launch()
@@ -534,6 +564,29 @@ final class FocusedSessionUITests: XCTestCase {
         XCTAssertTrue(finish.isHittable, "Finish can be tapped")
         for n in 0...4 {
             XCTAssertTrue(tile(app, n).label.hasSuffix("done"), "tile \(n): \(tile(app, n).label)")
+        }
+        // The done-when: it ends on Finish, not on a Finish that could be tapped.
+        finish.tap()
+        let confirm = app.sheets.buttons["Finish workout"].firstMatch
+        requireExists(confirm, "the same confirmation as the header's Finish")
+        confirm.tap()
+        requireExists(element(app, "summary.done"), "the workout's summary: the session has ended")
+    }
+
+    /// T5, design.md §2.3: the `…` menu's items in order, top to bottom, wherever it opens.
+    @MainActor
+    func testTheOptionsMenuKeepsTheDesignsOrder() throws {
+        let app = openFocused()
+        // The plan's first exercise is on a barbell, so the calculator is in the list.
+        requireExists(element(app, "session.chip.replace"), "the page")
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Options for'")).firstMatch.tap()
+        let items = ["Replace exercise…", "Edit targets…", "Notes", "Plate calculator", "History", "Superset with next", "Remove exercise"]
+        var last = -CGFloat.infinity
+        for label in items {
+            let item = app.buttons[label].firstMatch
+            requireExists(item, label)
+            XCTAssertGreaterThan(item.frame.minY, last, "\(label) is out of order")
+            last = item.frame.minY
         }
     }
 

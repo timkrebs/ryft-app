@@ -67,7 +67,7 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
   | Plan | Runs | Settings |
   | --- | --- | --- |
   | `Unit` | PRs, `main` | `RyftTests` without `PerformanceTests`; parallel, random order, 60 s per test, coverage of the `Ryft` target only |
-  | `UISmoke` | PRs, `main` | `RyftUITests/StoreSmokeUITests` (demo mode, no server or HealthKit); a failing test is retried up to twice |
+  | `UISmoke` | PRs, `main` | The tests listed in `TestPlans/UISmoke.xctestplan`, among them four of `FocusedSessionUITests` (demo mode, no server or HealthKit); a failing test is retried up to twice. The step has 15 minutes and took about 8 in November 2026, so a whole slow class doesn't fit: pick the tests that carry its acceptance criteria and leave the rest to `Full`. |
   | `Full` | nightly, manual | every unit and UI test plus `PerformanceTests` |
 
   - Swift Testing parallelism is capped at 4 tests in flight (`Unit` and `Full`,
