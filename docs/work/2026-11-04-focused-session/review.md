@@ -212,3 +212,5 @@ The coordinator's list from the three reviews, grouped here by subject. Nothing 
 So `TabView` keeps about the current page and a neighbour live, and a page is not a cost that grows with the session. The swipe was `setContentOffset(animated:)` on the pager, in a hosted window, not a finger.
 
 **`lastTime` cache:** 1,000 `ghost` calls on an exercise with 6 sets of last time (841 bytes), Debug build, simulator, 4 rounds in a temporary test: 42.3 ms before, 8.4 ms after, about 5 times faster. What is left is `orderedSets` and the warm-up filter. The first read still decodes once. The copy is on `SessionController`, not the model, and every read compares `lastTimeData`, so a replace or an undo can't serve old sets. `ExercisePage` reads it too; List's `ExerciseCard` does through `ghost`, with the same values.
+
+**Second visual pass:** ui-validator on the merged T5, 24 images read, no blockers, brand board checked, ships to testers behind the flag. Three of its notes are fixed on `fix/focused-followups`: the done row's RPE line, the keypad's top edge and the dimmed equipment chip. The ghost figure is corrected to 4.93:1; the 4.18:1 in the review was wrong.

@@ -125,8 +125,9 @@ Incline dumbbell press  v                       [ ... ]     title row: 44 high
   fade on the trailing edge when it overflows (320: it does, by about 40 pt). Never accent: three accent chips
   would outweigh the check.
   1. **Equipment**: `arrow.triangle.2.circlepath` + `ExerciseKind.title` ("Dumbbell"). Opens the Replace sheet
-     (`controller.beginReplace()`, as the menu does). Disabled look (text `textTertiary`) when
-     `!canReplace(exercise)`; VoiceOver says "dimmed".
+     (`controller.beginReplace()`, as the menu does). Disabled look (text `textTertiary`, about 4.9:1 on the chip in
+     both schemes) when `!canReplace(exercise)`; VoiceOver says "dimmed". The chip isn't a `.plain` button: a disabled plain
+     button dims its label a second time.
   2. **Target**: `exercise.targetText` ("3 x 8-10 @ 30 kg") + `pencil`. Opens `EditTargetsSheet`. No target:
      "Set target" + `pencil`. This replaces the accent target line of today's card; the text is no longer accent.
   3. **Rest**: `timer` + "Rest 1:15" + `pencil`. Opens the **rest sheet** (section 2.7), medium detent.
@@ -303,7 +304,7 @@ later ticket (T6, section 7).
 | `LoadType` | Columns in PR 1 (parity, as today) | 4th column | Ghost | Header | Target (T6, needs `SetFocus.Field` + pad modes) |
 | --- | --- | --- | --- | --- | --- |
 | **weight** | `#` `KG` `REPS` 4th check | RPE (PR 1), E1RM / 10RM / RPE (PR 4) | `ghost(for:in:)` as today | `#` `KG` `REPS` `RPE` | same |
-| **bodyweight** | `#` `+KG` `REPS` 4th check. `+KG` = added load (T3). | RPE; RM column shows "-" with no added load (L13, `E1RM.estimate` needs weight above 0) | reps ghost; empty `+KG` shows a `figure.stand` glyph (16 pt, `textSecondary`) meaning "bodyweight", VoiceOver "bodyweight" | `+KG` | same |
+| **bodyweight** | `#` `+KG` `REPS` 4th check. `+KG` = added load (T3). | RPE; RM column shows "-" with no added load (L13, `E1RM.estimate` needs weight above 0) | reps ghost, and last time's added load as a ghost, which ✓ logs in Focused and not in List; an empty `+KG` with neither shows a `figure.stand` glyph (16 pt, `textSecondary`) meaning "bodyweight", VoiceOver "bodyweight" | `+KG` | same |
 | **time** | `#` `REPS`, **spanning the KG slot too** (one wide field, 2 x 74 + 4 = 152 at 320) 4th check | RPE | none (as today) | `REPS` | `#` `TIME` (m:ss, wide field) 4th check; the 4th column is RPE |
 | **distance** | as time | RPE | none | `REPS` | `#` `DIST` `TIME` check; 4th column dropped (the two fields take it) |
 
@@ -404,6 +405,9 @@ As built in T5:
   still scrolls.
   At 390 and AX3 the keypad keeps growing, as in List and before T5, so German breaks there: „Scheiben“ wraps mid-word and
   „Fertig“ is cut. Open.
+- **A done row's RPE line is its caption.** It comes up over the row's empty lower edge by `rowHeight - 44`, 20 pt at AX3
+  and 12 at AX1, which leaves the row's fields 44 pt, and it stops short of the ✓. The gap to its own values is smaller
+  than the gap to the next row. A done row with a line is 88 pt at AX3.
 - **The session title caps at `.accessibility1` at 320.** Beside „Beenden“ at AX3 it was cut to "Upp…".
 - **Finish caps at `.large` at 320 and `.xxLarge` elsewhere**, one line, with the large content viewer. That's how
   "Finish" and „Beenden“ never break mid-word in a 48 pt capsule at AX3.
@@ -411,7 +415,8 @@ As built in T5:
   still fits its 48 pt column.
 - **The pager has a soft top edge, 16 pt** (`FocusedSessionView.topFade`). It fades from `background`, doesn't take
   touches and is hidden from VoiceOver. The page's content starts 4 pt lower at default sizes and 16 pt lower at
-  accessibility sizes, so the title stays clear of it.
+  accessibility sizes, so the title stays clear of it. Beside the keypad with the strip gone it is 28 pt, solid for the first 65% (`keypadFade`):
+  the page ends right under the header there, usually mid-line.
 - **`FocusedRowInk` holds the row's light choices, by token maths.** An estimate on the active row is `textPrimary` in
   light, where grey clears 4.5:1 by 0.01 at 4.51:1. An upcoming ✓'s outline is `textTertiary` in light, 4.72:1. Dark
   keeps the tokens above, except that the outline there is 1.45:1, still open.
