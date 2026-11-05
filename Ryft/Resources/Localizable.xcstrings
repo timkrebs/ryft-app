@@ -2164,6 +2164,17 @@
         }
       }
     },
+    "10RM" : {
+      "comment" : "Set table's column in a workout: the load the set puts at ten reps. Keep it short, the column is 48 pt wide.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "10RM"
+          }
+        }
+      }
+    },
     "1 set is done and stays." : {
       "comment" : "Edit targets, under the sets stepper.",
       "localizations" : {
@@ -4300,6 +4311,17 @@
         }
       }
     },
+    "E1RM" : {
+      "comment" : "Set table's column in a workout: the set's estimated one-rep max. Keep it short, the column is 48 pt wide.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "E1RM"
+          }
+        }
+      }
+    },
     "Each night's sleep need starts from this baseline, plus top-ups for strain and sleep debt, minus naps." : {
       "localizations" : {
         "de" : {
@@ -4545,6 +4567,17 @@
         }
       }
     },
+    "Estimated 10RM" : {
+      "comment" : "VoiceOver: what the set table's column shows in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geschätztes 10RM"
+          }
+        }
+      }
+    },
     "Estimated from your age" : {
       "localizations" : {
         "de" : {
@@ -4561,6 +4594,28 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aus deinem Alter geschätzt (Jahrgang %@)"
+          }
+        }
+      }
+    },
+    "estimated one-rep max %@ kilograms" : {
+      "comment" : "VoiceOver: a set's estimate in a workout, e.g. estimated one-rep max 100 kilograms.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "geschätztes 1RM %@ Kilogramm"
+          }
+        }
+      }
+    },
+    "estimated ten-rep max %@ kilograms" : {
+      "comment" : "VoiceOver: a set's estimate in a workout, e.g. estimated ten-rep max 75 kilograms.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "geschätztes 10RM %@ Kilogramm"
           }
         }
       }
@@ -10626,6 +10681,17 @@
         }
       }
     },
+    "Switches between estimated 1RM, estimated 10RM and RPE" : {
+      "comment" : "VoiceOver hint on the set table's fourth column header in a workout.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wechselt zwischen geschätztem 1RM, geschätztem 10RM und RPE"
+          }
+        }
+      }
+    },
     "Sync details" : {
       "localizations" : {
         "de" : {
@@ -10672,6 +10738,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Synchronisiert · %@"
+          }
+        }
+      }
+    },
+    "Table column" : {
+      "comment" : "VoiceOver: the set table's fourth column header in a workout, a button. Its value says what the column shows.",
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tabellenspalte"
           }
         }
       }

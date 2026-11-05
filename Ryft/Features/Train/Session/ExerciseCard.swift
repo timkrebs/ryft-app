@@ -80,6 +80,10 @@ struct SetRow: View {
             .simultaneousGesture(swipeGesture, including: swipeToDelete && !set.isCompleted ? .all : .subviews)
             .onChange(of: set.isCompleted) { _, done in if done { swipe = 0 } }
             .contextMenu {
+                // Focused's column can be an estimate, so RPE needs a way in from any of them (design.md §7).
+                if columns != nil {
+                    Button("Edit RPE", systemImage: "pencil") { controller.edit(set, .rpe) }
+                }
                 Button(set.isWarmup ? "Mark as working set" : "Mark as warm-up", systemImage: "flame") {
                     controller.toggleWarmup(set)
                 }
@@ -127,8 +131,12 @@ struct SetRow: View {
             } else {
                 field(.reps, value: set.reps.map(String.init), ghost: ghost.reps.map(String.init))
             }
-            field(.rpe, value: set.rpe.map(Fmt.kgNumber), ghost: nil)
-                .frame(minWidth: columns?.fourth, maxWidth: columns?.fourth ?? 64)
+            if controller.column(for: exercise) == .rpe {
+                field(.rpe, value: set.rpe.map(Fmt.kgNumber), ghost: nil)
+                    .frame(minWidth: columns?.fourth, maxWidth: columns?.fourth ?? 64)
+            } else {
+                estimateCell
+            }
 
             Button {
                 tap { check() }
@@ -311,6 +319,7 @@ struct SetRow: View {
         }
         if showsBodyweightGlyph { parts.append(String(localized: "bodyweight", comment: "VoiceOver: a set with no added load, in a workout.")) }
         if let stored = storedValue { parts.append(stored.spoken) }
+        if let estimate = controller.columnSpoken(of: set, in: exercise) { parts.append(estimate) }
         if let rpe = set.rpe { parts.append(String(localized: "RPE \(Fmt.kgNumber(rpe))")) }
         parts.append(set.isCompleted ? String(localized: "completed") : String(localized: "not done"))
         return parts.joined(separator: ", ")
@@ -340,6 +349,24 @@ struct SetRow: View {
             .minimumScaleFactor(0.75)
             .foregroundStyle(rowState == .active ? Theme.textPrimary : Theme.textSecondary)
             .frame(maxWidth: .infinity, minHeight: 48)
+    }
+
+    /// The estimate: read-only, grey on every row (brief, PR 1), the dash quieter still (design.md §2.8).
+    private var estimateCell: some View {
+        let text = controller.columnText(of: set, in: exercise)
+        return Text(verbatim: text)
+            .font(.ryftNumber(size: numeralSize(.rpe)))
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .foregroundStyle(text == Fmt.placeholder ? Theme.textTertiary : Theme.textSecondary)
+            .frame(width: columns?.fourth, height: 48)
+            .contentShape(Rectangle())
+            // As the RPE field in this cell: the first tap on an upcoming row makes it active. The value stays read-only.
+            .onTapGesture {
+                guard rowState == .upcoming, controller.focus == nil else { return }
+                tap { controller.activate(set) }
+            }
     }
 
     /// Focused's RPE is quieter than kg and reps, and empty when unset: a table without RPE stays calm (design.md §2.5).

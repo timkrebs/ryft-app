@@ -23,6 +23,10 @@ struct FocusedSessionShotsTests {
         case timeAndDistance = "time-and-distance"
         case keypad, offline, empty
         case many = "twelve-exercises"
+        case columnE1RM = "column-e1rm"
+        case column10RM = "column-10rm"
+        case columnRPE = "column-rpe"
+        case columnBodyweight = "column-bodyweight"
         case restRunning = "rest-running"
         case restOver = "rest-over"
         case restKeypad = "rest-keypad"
@@ -45,8 +49,20 @@ struct FocusedSessionShotsTests {
             case .offline: .offline
             case .empty: .empty
             case .many: .manyExercises
+            case .columnE1RM, .column10RM, .columnRPE: .estimates
+            case .columnBodyweight: .bodyweightEstimates
             case .restRunning, .restKeypad, .restSheetRunning: .restRunning
             case .restOver: .restOver
+            }
+        }
+
+        /// The fourth column, as if picked with the header; the other screens have the default rule's.
+        var column: SetColumn? {
+            switch self {
+            case .columnE1RM, .columnBodyweight: .e1rm
+            case .column10RM: .tenRM
+            case .columnRPE: .rpe
+            default: nil
             }
         }
 
@@ -98,15 +114,17 @@ struct FocusedSessionShotsTests {
         var text: TextSize = .standard
 
         var name: String { "\(screen.rawValue)-\(size.rawValue)-\(dark ? "dark" : "light")-\(text.rawValue)" }
+        /// The fourth column's screens are taller, so last time's card is in the picture with the table above it.
+        var frame: CGRect { screen.column == nil ? size.frame : size.frame.insetBy(dx: 0, dy: -150).offsetBy(dx: 0, dy: 150) }
         var testDescription: String { name }
     }
 
-    /// Every screen at both widths in both schemes, and the main one, the running pill and the rest sheet at the larger
-    /// text sizes.
+    /// Every screen at both widths in both schemes, and the main one, the fourth column, the running pill and the rest sheet
+    /// at the larger text sizes.
     nonisolated static let shots: [Shot] = Screen.allCases.flatMap { screen in
         Size.allCases.flatMap { size in [true, false].map { Shot(screen: screen, size: size, dark: $0) } }
     } + Size.allCases.flatMap { size in
-        [Screen.midSession, .restRunning, .restSheetChanged].flatMap { screen in
+        [Screen.midSession, .columnE1RM, .restRunning, .restSheetChanged].flatMap { screen in
             [TextSize.xl, .ax3].map { Shot(screen: screen, size: size, dark: true, text: $0) }
         }
     }
@@ -139,7 +157,7 @@ struct FocusedSessionShotsTests {
     }
 
     private static func render(_ shot: Shot, in scene: UIWindowScene) async -> UIImage {
-        let controller = FocusedPreview.controller(shot.screen.scenario)
+        let controller = FocusedPreview.controller(shot.screen.scenario, column: shot.screen.column)
         if shot.screen == .keypad || shot.screen == .restKeypad, let ex = controller.pageExercise {
             controller.edit(ex.orderedSets[0], .kg)
         }
@@ -153,7 +171,7 @@ struct FocusedSessionShotsTests {
         let host = UIHostingController(rootView: root)
         host.traitOverrides.preferredContentSizeCategory = shot.text.category
 
-        let frame = shot.size.frame
+        let frame = shot.frame
         let window = UIWindow(windowScene: scene)
         window.frame = frame
         window.windowLevel = .alert + 1

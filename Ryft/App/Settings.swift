@@ -40,6 +40,11 @@ final class Settings {
     var sessionLayout: SessionLayout {
         didSet { defaults.set(sessionLayout.rawValue, forKey: "train.sessionLayout") }
     }
+    /// The Focused table's fourth column, picked with its header. `nil`: never picked, the default rule decides
+    /// (`SetColumn.shown`). Per user, unlike the two above: it goes on log-out.
+    var setColumn: SetColumn? {
+        didSet { defaults.set(setColumn?.rawValue, forKey: "train.setColumn") }
+    }
 
     enum Appearance: String, CaseIterable, Identifiable {
         case dark, light, system
@@ -95,6 +100,7 @@ final class Settings {
         healthIntroDone = defaults.bool(forKey: "health.introDone")
         jumpToNextExercise = defaults.object(forKey: "train.jumpToNext") == nil || defaults.bool(forKey: "train.jumpToNext")
         sessionLayout = defaults.string(forKey: "train.sessionLayout").flatMap(SessionLayout.init(rawValue:)) ?? .focused
+        setColumn = defaults.string(forKey: "train.setColumn").flatMap(SetColumn.init(rawValue:))
         #if DEBUG
         devAPIURLOverride = defaults.string(forKey: "dev.apiURL") ?? ""
         devIngestURLOverride = defaults.string(forKey: "dev.ingestURL") ?? ""
@@ -135,6 +141,7 @@ final class Settings {
     func clearPerUserState() {
         lastSync = nil
         healthIntroDone = false
+        setColumn = nil
         defaults.removeObject(forKey: "insights.dismissed")
     }
 

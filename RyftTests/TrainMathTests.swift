@@ -22,6 +22,33 @@ struct E1RMTests {
         #expect(E1RM.estimate(weightKg: 100, reps: 0) == nil)
     }
 
+    @Test("The brief's pins", arguments: [(kg: 80.0, reps: 6, e1rm: 96.0, tenRM: 72.0), (kg: 75.0, reps: 10, e1rm: 100.0, tenRM: 75.0)])
+    func tenRMPins(_ pin: (kg: Double, reps: Int, e1rm: Double, tenRM: Double)) throws {
+        let e = try #require(E1RM.estimate(weightKg: pin.kg, reps: pin.reps))
+        let ten = try #require(E1RM.tenRM(weightKg: pin.kg, reps: pin.reps))
+        #expect(abs(e - pin.e1rm) < 1e-9 && abs(ten - pin.tenRM) < 1e-9)
+        #expect(abs(ten - e * 30 / 40) < 1e-9)
+    }
+
+    @Test func tenRepsAreTheirOwnTenRM() throws {
+        let ten = try #require(E1RM.tenRM(weightKg: 82.5, reps: 10))
+        #expect(abs(ten - 82.5) < 1e-9)
+    }
+
+    @Test func tenRMKeepsTheCap() throws {
+        #expect(E1RM.tenRM(weightKg: 60, reps: 15) == E1RM.tenRM(weightKg: 60, reps: 12))
+        let ten = try #require(E1RM.tenRM(weightKg: 60, reps: 15))
+        #expect(abs(ten - 63) < 1e-9) // 60 × 1.4 = 84, not 60 × 1.5 = 90
+    }
+
+    @Test func tenRMHasNoEstimateWithoutOne() {
+        #expect(E1RM.tenRM(weightKg: nil, reps: 5) == nil)
+        #expect(E1RM.tenRM(weightKg: 100, reps: nil) == nil)
+        #expect(E1RM.tenRM(weightKg: 0, reps: 5) == nil)
+        #expect(E1RM.tenRM(weightKg: 100, reps: 0) == nil)
+        #expect(E1RM.tenRM(weightKg: -20, reps: 5) == nil)
+    }
+
     @Test func bestIgnoresWarmups() {
         let sets = [SessionSet(setIndex: 0, reps: 12, weightKg: 140, isWarmup: true),
                     SessionSet(setIndex: 1, reps: 5, weightKg: 100),

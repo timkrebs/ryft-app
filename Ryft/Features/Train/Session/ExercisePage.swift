@@ -67,7 +67,8 @@ struct ExercisePage: View {
                             .id(Self.allDoneAnchor)
                     }
                     if exercise.lastTime.contains(where: { !$0.isWarmup }) {
-                        LastTimeCard(sets: exercise.lastTime, loadType: exercise.loadType, columns: columns, onTap: onHistory)
+                        LastTimeCard(sets: exercise.lastTime, loadType: exercise.loadType, columns: columns,
+                                     column: controller.column(for: exercise), onTap: onHistory)
                             .padding(.top, 8)
                     }
                 }
@@ -360,7 +361,8 @@ struct ExercisePage: View {
 
     private var table: some View {
         VStack(alignment: .leading, spacing: 4) {
-            SetTableHeader(loadType: exercise.loadType, columns: columns)
+            SetTableHeader(loadType: exercise.loadType, columns: columns, column: controller.column(for: exercise),
+                           onCycle: controller.cyclesColumn(of: exercise) ? { controller.cycleColumn(of: exercise) } : nil)
             let active = controller.activeSet(in: exercise)?.id
             if isExpanded, !warmups.isEmpty {
                 let warmups = warmups
@@ -398,40 +400,72 @@ struct ExercisePage: View {
     }
 }
 
-/// The set table's column titles. Labels stop growing at XXXL: a row is read by VoiceOver as one element, so these are
-/// hidden from it, and they share the rows' fixed columns.
+/// The set table's column titles. Labels stop growing at XXXL: a row is read by VoiceOver as one element, so they are
+/// hidden from it, and they share the rows' fixed columns. With `onCycle` the fourth one is a button, 44 pt high, so the
+/// row grows upward and the labels stay on the table.
 struct SetTableHeader: View {
     let loadType: LoadType
     let columns: SetTableColumns
+    let column: SetColumn
+    /// The header's tap. `nil`: plain text, as in the last-time card and for time and distance.
+    var onCycle: (() -> Void)?
 
     private var usesWeight: Bool { loadType == .weight || loadType == .bodyweight }
 
     var body: some View {
-        HStack(spacing: columns.gap) {
-            Text(verbatim: "#").frame(width: columns.number)
-            if usesWeight {
-                Group {
-                    if loadType == .bodyweight {
-                        Text("+kg", comment: "Set table's column in a workout: load added to bodyweight. Shown uppercase.")
-                    } else {
-                        Text("kg")
+        HStack(alignment: .bottom, spacing: columns.gap) {
+            Group {
+                Text(verbatim: "#").frame(width: columns.number, height: 24)
+                if usesWeight {
+                    Group {
+                        if loadType == .bodyweight {
+                            Text("+kg", comment: "Set table's column in a workout: load added to bodyweight. Shown uppercase.")
+                        } else {
+                            Text("kg")
+                        }
                     }
+                    .frame(maxWidth: .infinity, minHeight: 24, maxHeight: 24)
                 }
-                .frame(maxWidth: .infinity)
+                Text("Reps").frame(maxWidth: .infinity, minHeight: 24, maxHeight: 24)
             }
-            Text("Reps").frame(maxWidth: .infinity)
-            Text("RPE").frame(width: columns.fourth)
-            Color.clear.frame(width: columns.check, height: 1)
+            .textCase(.uppercase)
+            .accessibilityHidden(true)
+            fourth
+            Color.clear.frame(width: columns.check, height: 1).accessibilityHidden(true)
         }
         .font(.ryft(.label))
-        .textCase(.uppercase)
         .tracking(columns.headerTracking)
         .foregroundStyle(Theme.textTertiary)
         .lineLimit(1)
         .minimumScaleFactor(0.7)
-        .frame(height: 24)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var fourth: some View {
+        if let onCycle {
+            Button(action: onCycle) {
+                // The titles are uppercase as they are. A `textCase` here would reach the VoiceOver label: "TABLE COLUMN".
+                Text(verbatim: column.title)
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: columns.fourth, height: 24)
+                    .frame(height: 44, alignment: .bottom)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Table column",
+                                     comment: "VoiceOver: the set table's fourth column header in a workout, a button. Its value says what the column shows."))
+            .accessibilityValue(Text(verbatim: column.spokenTitle))
+            // Voice Control goes by what's on screen, and the label doesn't say it: "Tap E1RM".
+            .accessibilityInputLabels([Text(verbatim: column.title), Text(verbatim: column.spokenTitle), Text("Table column")])
+            .accessibilityHint(Text("Switches between estimated 1RM, estimated 10RM and RPE",
+                                    comment: "VoiceOver hint on the set table's fourth column header in a workout."))
+            .accessibilityIdentifier("session.column")
+        } else {
+            Text(verbatim: column.title)
+                .frame(width: columns.fourth, height: 24)
+                .accessibilityHidden(true)
+        }
     }
 }
 
@@ -442,10 +476,15 @@ struct LastTimeCard: View {
     let sets: [SessionSet]
     let loadType: LoadType
     let columns: SetTableColumns
+    /// The table's choice, so the card reads straight down from it.
+    let column: SetColumn
     var onTap: () -> Void
 
     private static let shown = 6
     private var working: [SessionSet] { sets.filter { !$0.isWarmup } }
+    private var listed: [SessionSet] { Array(working.prefix(Self.shown)) }
+    /// The fourth column, top to bottom: what last time logged, there is no ghost here.
+    var fourth: [String] { listed.map { column.text(weightKg: $0.weightKg, reps: $0.reps, rpe: $0.rpe) } }
     private var usesWeight: Bool { loadType == .weight || loadType == .bodyweight }
     private var date: Date? { working.compactMap(\.completedAt).max() }
 
@@ -461,9 +500,10 @@ struct LastTimeCard: View {
                     .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 6)
-                SetTableHeader(loadType: loadType, columns: columns)
-                ForEach(Array(working.prefix(Self.shown).enumerated()), id: \.element.id) { i, set in
-                    row(set, number: i + 1)
+                SetTableHeader(loadType: loadType, columns: columns, column: column)
+                let fourth = fourth
+                ForEach(Array(listed.enumerated()), id: \.element.id) { i, set in
+                    row(set, number: i + 1, fourth: fourth[i])
                 }
                 if working.count > Self.shown {
                     Text(moreText)
@@ -494,13 +534,13 @@ struct LastTimeCard: View {
         }
     }
 
-    private func row(_ set: SessionSet, number: Int) -> some View {
+    private func row(_ set: SessionSet, number: Int, fourth: String) -> some View {
         let stored = SetStoredValue(reps: set.reps, durationSec: set.durationSec, distanceM: set.distanceM)
         return HStack(spacing: columns.gap) {
             Text(verbatim: "\(number)").frame(width: columns.number)
             if usesWeight { Text(set.weightKg.map(Fmt.kgNumber) ?? Fmt.placeholder).frame(maxWidth: .infinity) }
             Text(stored?.text ?? set.reps.map(String.init) ?? Fmt.placeholder).frame(maxWidth: .infinity)
-            Text(set.rpe.map(Fmt.kgNumber) ?? "").frame(width: columns.fourth)
+            Text(verbatim: fourth).frame(width: columns.fourth)
             Color.clear.frame(width: columns.check, height: 1)
         }
         .font(.ryftNumber(size: 17))
@@ -516,11 +556,11 @@ struct LastTimeCard: View {
                comment: "Train session, an exercise's Last time line: sets not listed after the first five.")
     }
 
-    /// "Last time, Tue 3 November: set 1, 10 reps at 75 kilograms; set 2, 6 reps at 80 kilograms".
-    private var spoken: String {
-        let rows = working.prefix(Self.shown).enumerated().map { i, set in
+    /// "Last time, Tue 3 November: set 1, 10 reps at 75 kilograms, estimated one-rep max 100 kilograms; set 2, …".
+    var spoken: String {
+        let rows = listed.enumerated().map { i, set in
             String(
-                localized: "set \(i + 1), \(Self.spoken(set))",
+                localized: "set \(i + 1), \(spoken(set))",
                 comment: "VoiceOver: one row of the last-time card. 1: its number, 2: e.g. 10 reps at 75 kilograms."
             )
         }
@@ -531,7 +571,14 @@ struct LastTimeCard: View {
         return String(localized: "Last time, \(day): \(list)", comment: "VoiceOver: the last-time card. 1: the date, 2: its sets.")
     }
 
-    private static func spoken(_ set: SessionSet) -> String {
+    /// The row's values, then what its fourth column shows.
+    private func spoken(_ set: SessionSet) -> String {
+        let values = Self.spokenValues(set)
+        guard let fourth = column.spoken(weightKg: set.weightKg, reps: set.reps, rpe: set.rpe) else { return values }
+        return "\(values), \(fourth)"
+    }
+
+    private static func spokenValues(_ set: SessionSet) -> String {
         if let stored = SetStoredValue(reps: set.reps, durationSec: set.durationSec, distanceM: set.distanceM) { return stored.spoken }
         switch (set.reps, set.weightKg) {
         case let (r?, k?): return String(localized: "\(r) reps at \(Fmt.kgNumber(k)) kilograms")
@@ -655,13 +702,13 @@ private func page(_ scenario: FocusedPreview.Scenario) -> some View {
 
 #Preview("Last time · dark and light", traits: .sizeThatFitsLayout) {
     SchemePair {
-        LastTimeCard(sets: FocusedPreview.lastTime, loadType: .weight, columns: .regular, onTap: {})
+        LastTimeCard(sets: FocusedPreview.lastTime, loadType: .weight, columns: .regular, column: .rpe, onTap: {})
     }
 }
 
 #Preview("Last time · over six sets, no date", traits: .sizeThatFitsLayout) {
     SchemePair {
         LastTimeCard(sets: (0..<8).map { SessionSet(setIndex: $0, reps: 12 - $0, weightKg: 75) }, loadType: .weight, columns: .compact,
-                     onTap: {})
+                     column: .e1rm, onTap: {})
     }
 }

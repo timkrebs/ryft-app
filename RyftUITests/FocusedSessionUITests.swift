@@ -99,6 +99,7 @@ final class FocusedSessionUITests: XCTestCase {
         requireExists(element(app, "set.0.1"), "List's first set row")
         XCTAssertFalse(element(app, "session.strip.0").exists, "no strip with the flag off")
         XCTAssertFalse(element(app, "session.page.title").exists, "no page")
+        XCTAssertFalse(element(app, "session.column").exists, "no fourth column but RPE")
         XCTAssertFalse(element(app, "session.restPill").exists, "no pill with the flag off")
         // T3: List keeps its pinned bar for a rest, and still no pill.
         element(app, "set.0.1").coordinate(withNormalizedOffset: CGVector(dx: 0.96, dy: 0.5)).tap()
@@ -119,6 +120,91 @@ final class FocusedSessionUITests: XCTestCase {
         for id in ["session.chip.replace", "session.chip.targets", "session.chip.rest"] {
             requireExists(element(app, id), id)
         }
+    }
+
+    // MARK: the fourth column
+
+    private func column(_ app: XCUIApplication) -> XCUIElement { element(app, "session.column") }
+
+    private func assertColumn(_ value: String, in app: XCUIApplication) {
+        wait(column(app), until: "value == '\(value)'", "the column shows \(value)")
+    }
+
+    /// The header cycles the column, each row and last time follow, and it doesn't reach the sets.
+    @MainActor
+    func testTheColumnHeaderCyclesAndTheRowsFollow() throws {
+        let app = openFocused()
+        requireExists(column(app), "the fourth column's header is a button")
+        assertColumn("Estimated 1RM", in: app)
+        let row = element(app, "set.0.1"), lastTime = element(app, "session.lastTime")
+        requireExists(lastTime, "the demo plan's first exercise has last time")
+        wait(row, until: "label CONTAINS 'estimated one-rep max'", "the row says its estimate")
+        wait(lastTime, until: "label CONTAINS 'estimated one-rep max'", "last time reads the same column")
+        column(app).tap()
+        assertColumn("Estimated 10RM", in: app)
+        wait(row, until: "label CONTAINS 'estimated ten-rep max'", "and in the next mode")
+        wait(lastTime, until: "label CONTAINS 'estimated ten-rep max'", "last time follows")
+        column(app).tap()
+        assertColumn("RPE", in: app)
+        wait(row, until: "NOT label CONTAINS 'estimated'", "RPE has no estimate")
+        wait(lastTime, until: "NOT label CONTAINS 'estimated'", "nor has last time")
+        column(app).tap()
+        assertColumn("Estimated 1RM", in: app)
+        wait(lastTime, until: "label CONTAINS 'estimated one-rep max'", "last time comes round with it")
+    }
+
+    /// RPE doesn't depend on the column: the context menu opens its field, and the row says what was typed.
+    @MainActor
+    func testEditRPEWorksFromAnEstimateColumn() throws {
+        let app = openFocused()
+        assertColumn("Estimated 1RM", in: app)
+        let row = element(app, "set.0.1")
+        row.press(forDuration: 1.0)
+        let edit = app.buttons["Edit RPE"]
+        requireExists(edit, "the row's context menu has Edit RPE")
+        edit.tap()
+        assertColumn("RPE", in: app)
+        app.buttons["8"].tap()
+        app.buttons["Done"].tap()
+        wait(row, until: "label CONTAINS 'RPE 8'", "the row says its RPE")
+        assertColumn("RPE", in: app) // nothing was chosen, and RPE is in use now: the default rule
+    }
+
+    /// The estimate is read-only, but its cell takes a tap like the fields beside it: the first one on an upcoming row makes
+    /// it active. A touch: a row's children are hidden from the tree, so nothing else reaches the cell.
+    @MainActor
+    func testATapOnAnEstimateActivatesAnUpcomingRow() throws {
+        let app = openFocused()
+        assertColumn("Estimated 1RM", in: app)
+        let first = element(app, "set.0.1"), second = element(app, "set.0.2")
+        requireExists(second, "an upcoming row")
+        wait(first, until: "value == 'Next set.'", "the first row starts active")
+        // Under the header: the rows and the header share their columns.
+        let header = column(app).frame, row = second.frame
+        second.coordinate(withNormalizedOffset: CGVector(dx: (header.midX - row.minX) / row.width, dy: 0.5)).tap()
+        wait(second, until: "value == 'Next set.'", "the row the tap was on is active")
+        XCTAssertNotEqual(first.value as? String, "Next set.", "one active row")
+        XCTAssertFalse(app.buttons["Done"].exists, "the cell is read-only: no keypad")
+    }
+
+    /// The choice outlives the session on screen. `UserDefaults` writes to memory at once and reaches disk through
+    /// cfprefsd a moment later, so a kill right after the tap could lose it, and that would be the test's doing: no user
+    /// quits within that window. Going to the background first is what a real quit does.
+    @MainActor
+    func testTheColumnChoiceSurvivesARelaunch() throws {
+        var app = openFocused()
+        column(app).tap()
+        assertColumn("Estimated 10RM", in: app)
+        XCUIDevice.shared.press(.home)
+        wait(app, until: "state != \(XCUIApplication.State.runningForeground.rawValue)", "the app left the foreground")
+        app.terminate()
+        app = launch(extra: Self.focusedOn, reset: false)
+        let resume = app.buttons["train.resume"]
+        requireExists(resume, "the workout in progress is offered again")
+        app.reveal(resume)
+        resume.tap()
+        requireExists(column(app), "the header is back")
+        assertColumn("Estimated 10RM", in: app)
     }
 
     // MARK: paging

@@ -117,3 +117,27 @@ One blocking finding, in the tests only. Flag-off List unchanged: `restBarState`
 | Known | The active row 18 pt out at 320 with a keypad and a rest | Fixed in `52aa2b6`: no-anchor `scrollTo`, re-run on growth while the keypad is on this page. The real-frame measure was up to +189 pt below the page before, 0 after |
 
 Left for T5: the page is 138 pt rather than 220 at 320 with keypad and rest; VoiceOver focus when the pill swaps branches at a Skip or run-out; a page `TabView` preloaded doesn't reveal its row on arrival.
+
+## PR 3 (T3), ui-validator on `3021225`
+
+No blocking finding. German sheet at default, XL and XXL, English at XXL and XXXL: the save button stays reachable and the caption stays above it. Pill strings read right in both languages. Flag off: List and `RestBar` render as before, and `RestBar.swift` is unchanged. No pixel diff against `main`.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| 1 | The header's Finish breaks over lines at AX3, in German and at 320 pt | T5 |
+| 2 | −15 and +15 stay 17 pt in a 64 pt key at AX3 | T5 |
+
+## PR 4 (T4), code-reviewer on `2691484..31f3fb3`
+
+No blocking finding, and no bug in the maths, the default rule, persistence or flag off. Strings: 7 keys added, none changed or removed.
+
+| # | Finding | Decision |
+| --- | --- | --- |
+| 1 | The UI tests aren't in the PR smoke plan, so the header button had no PR coverage | Fixed: a hosted test on `HostedWindow` reads and activates the button. T5 adds the UI class to the smoke plan |
+| 2 | Nothing tested that last time follows the column, and a comment claimed it | Fixed: the UI test waits on the card after each tap, and a mutant is killed |
+| 3 | Voice Control couldn't use the name on screen | Fixed: input labels for the title and spoken title |
+| 4 | The estimate cell was a dead spot on an upcoming row | Fixed: a tap activates the row, the value stays read-only |
+| 5 | The AX rules for the column were in no ticket | T5 |
+| 6 | A test name claimed to measure width | Renamed |
+
+Left for T5: `HostedWindow` turns automation off rather than restoring it, and one local UI run straight after Unit on the same simulator failed with `kAXErrorAPIDisabled`. CI runs the same order and passed on #95.

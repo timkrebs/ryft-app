@@ -6,7 +6,8 @@ Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session
 
 - **T1 layout:** merged (#90). The strip, one exercise per page, chips, warm-up group, last-time card. The old rest card still sits above the strip until T3.
 - **T2 active set:** merged (#92). One active row, upcoming sets prefilled from the one before, a check on the active row logs it and moves on, the page follows after 0.6 s unless the user moved in the last 3 s. Tapping an open row makes it active; ✓ on a done row marks it not done.
-- **T3 rest pill:** built, PR open. The pill replaces the rest card: ready, running, finished, with a sheet for the length. The strip hides at 320 with a rest and a keypad up, and the keypad row stays in view.
+- **T3 rest pill:** merged (#95). The pill replaces the rest card: ready, running, finished, with a sheet for the length. The strip hides at 320 with a rest and a keypad up, and the keypad row stays in view.
+- **T4 RM column:** built, PR open. The table's fourth column is estimated 1RM, estimated 10RM or RPE; its header cycles them and last time follows. The choice is kept per user.
 - **Verified:** simulator only, iOS 27.0, 390 pt in the app, 320 pt in renders.
 - **Before the flag goes on:** a run on iOS 17 (no such runtime on this Mac), a device run with a real plan, VoiceOver by hand.
 
@@ -14,6 +15,7 @@ Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session
 
 `TrainStore.wipe` deletes session rows object by object, because a batch delete on them fails, and it reports every step. On a failed wipe `AuthService` keeps the leaving account's id, so the next account wipes again.
 
+- **T4 RM column:** built, PR open. The table's fourth column is estimated 1RM, estimated 10RM or RPE; its header cycles them and last time follows. The choice is kept per user.
 - **Verified:** simulator only, iOS 27.0. 44,500 rows take 3.4 s in Debug, on the main thread.
 - **Before the next External build:** run `TrainStoreWipeTests` once on iOS 17. If a table's batch delete always throws there, every launch after an account switch wipes again, and that wipe takes the new account's unsent work too.
 - **Recovery ticket, not started:**
