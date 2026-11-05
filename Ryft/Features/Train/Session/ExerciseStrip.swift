@@ -98,7 +98,7 @@ struct ExerciseStrip: View {
 
     private static let gap: CGFloat = 8
     /// 8 top, 56 tile, 3 gap, 3 bar, 6 bottom.
-    private static let height: CGFloat = 76
+    static let height: CGFloat = 76
 
     private var page: UUID? { controller.pageExerciseID }
     private var motion: Animation? { Theme.Motion.respecting(reduceMotion) }

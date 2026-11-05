@@ -304,8 +304,10 @@ struct SessionView: View {
 
     /// Hidden, running or over: the bar appears, changes or goes (not every ±15 s). Once every set is done a running
     /// rest is hidden (nothing comes next; the all-done card does); "Rest over" still shows until dismissed (ui.md §7).
+    /// Always hidden in Focused: `RestPill` is its timer.
     private var restBarState: Int {
-        switch controller.rest.phase {
+        guard controller.layout == .list else { return 0 }
+        return switch controller.rest.phase {
         case .idle: 0
         case .running: controller.isAllDone ? 0 : 1
         case .finished: 2

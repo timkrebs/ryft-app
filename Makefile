@@ -136,7 +136,7 @@ orbit-shots: config
 		-derivedDataPath $(DERIVED) -only-testing:RyftTests/OrbitGaugeShotsTests -only-testing:RyftTests/OrbitGaugeContrastTests \
 		-only-testing:RyftTests/OrbitGaugeGeometryTests test
 
-# The Focused session's screens from the preview mocks (light and dark, 390 and 320 pt, XL and AX3 for the main one) as PNGs
+# The Focused session's screens from the preview mocks (light and dark, 390 and 320 pt, XL and AX3 for the main ones) as PNGs
 # in FOCUSED_SHOTS, for the design note and ui-validator: <screen>-<width>-<scheme>-<text size>.png. Runs one suite of the
 # Unit plan on FOCUSED_DESTINATION. Another device: make focused-shots FOCUSED_DESTINATION='id=<udid>'
 FOCUSED_DESTINATION ?= name=iPhone 18 Pro

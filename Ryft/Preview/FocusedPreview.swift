@@ -20,6 +20,16 @@ enum FocusedPreview {
         case oneExercise, manyExercises
         case offline
         case empty
+        /// `midSession` with a rest running, 1:54 left.
+        case restRunning
+        /// `midSession` the moment a rest ended. Its "Rest over" holds: see `HeldClock`.
+        case restOver
+    }
+
+    /// Never reaches the end of a wait: a shot of "Rest over" can't miss its one second on a slow Mac.
+    private final class HeldClock: AppClock {
+        func now() -> Date { Date() }
+        func sleep(for duration: Duration) async throws { try await Task.sleep(for: .seconds(3600)) }
     }
 
     static let lastTimeDate = DateComponents(calendar: .current, year: 2026, month: 11, day: 3, hour: 18).date ?? .now
@@ -32,26 +42,33 @@ enum FocusedPreview {
          SessionSet(setIndex: 3, reps: 5, weightKg: 102.5, completedAt: lastTimeDate)]
     }
 
-    static func controller(_ scenario: Scenario) -> SessionController {
+    /// `connectivity`: one the caller flips, so the offline banner can appear under a test.
+    static func controller(_ scenario: Scenario, connectivity: ConnectivityMonitor? = nil) -> SessionController {
         let store = TrainStore(inMemory: true)
-        let offline = scenario == .offline
+        let monitor = connectivity ?? (scenario == .offline ? ConnectivityMonitor.preview(online: false) : nil)
         let sync = TrainSyncService(store: store, remote: { MockTrainSource.shared }, owner: { TrainSyncService.demoOwner },
-                                    monitorsNetwork: offline, connectivity: offline ? .preview(online: false) : nil)
+                                    monitorsNetwork: monitor != nil, connectivity: monitor)
         sync.gate = { _ in nil }
         let session = make(scenario, in: store)
         store.save()
-        let controller = SessionController(session: session, sync: sync, liveActivity: nil, layout: .focused)
+        let controller = SessionController(session: session, sync: sync, liveActivity: nil,
+                                           clock: scenario == .restOver ? HeldClock() : SystemClock(), layout: .focused)
         if scenario == .warmupsOpen, let ex = controller.pageExercise { controller.setWarmups(expanded: true, for: ex) }
         if scenario == .tappedRow, let ex = controller.pageExercise {
             ex.orderedSets[1].reps = 7
             controller.activate(ex.orderedSets[2])
+        }
+        if scenario == .restRunning, let ex = controller.pageExercise { controller.startRest(for: ex, seconds: 114) }
+        if scenario == .restOver, let ex = controller.pageExercise {
+            controller.startRest(for: ex, seconds: 15)
+            controller.adjustRest(by: -RestTimer.maxRest)
         }
         return controller
     }
 
     private static func make(_ scenario: Scenario, in store: TrainStore) -> LocalSession {
         switch scenario {
-        case .midSession, .offline, .tappedRow:
+        case .midSession, .offline, .tappedRow, .restRunning, .restOver:
             return midSession(in: store)
         case .allDone:
             return allDone(in: store)
