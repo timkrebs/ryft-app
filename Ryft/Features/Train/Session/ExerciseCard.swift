@@ -361,6 +361,12 @@ struct SetRow: View {
             .minimumScaleFactor(0.75)
             .foregroundStyle(text == Fmt.placeholder ? Theme.textTertiary : Theme.textSecondary)
             .frame(width: columns?.fourth, height: 48)
+            .contentShape(Rectangle())
+            // As the RPE field in this cell: the first tap on an upcoming row makes it active. The value stays read-only.
+            .onTapGesture {
+                guard rowState == .upcoming, controller.focus == nil else { return }
+                tap { controller.activate(set) }
+            }
     }
 
     /// Focused's RPE is quieter than kg and reps, and empty when unset: a table without RPE stays calm (design.md §2.5).

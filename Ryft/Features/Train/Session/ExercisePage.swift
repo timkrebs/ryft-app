@@ -402,6 +402,8 @@ struct SetTableHeader: View {
             .accessibilityLabel(Text("Table column",
                                      comment: "VoiceOver: the set table's fourth column header in a workout, a button. Its value says what the column shows."))
             .accessibilityValue(Text(verbatim: column.spokenTitle))
+            // Voice Control goes by what's on screen, and the label doesn't say it: "Tap E1RM".
+            .accessibilityInputLabels([Text(verbatim: column.title), Text(verbatim: column.spokenTitle), Text("Table column")])
             .accessibilityHint(Text("Switches between estimated 1RM, estimated 10RM and RPE",
                                     comment: "VoiceOver hint on the set table's fourth column header in a workout."))
             .accessibilityIdentifier("session.column")
