@@ -50,7 +50,79 @@ struct FocusedPolishHostedTests {
             let finish = try #require(w.node("Finish", exactly: true))
             #expect(abs(finish.frame.height - c.height) < 0.5, "\(finish.frame)")
             #expect(finish.frame.maxX <= c.s.width, "\(finish.frame)")
-            #expect(finish.frame.width > 60, "a word's width, not a syllable's: \(finish.frame)")
+        }
+    }
+
+    /// The word whole, in a capsule its own width: a word that wrapped or was cut has a narrower one.
+    @Test("Finish keeps its whole word at 320 pt, in English and German", arguments: [
+        (compact, "en", "Finish"), (compactAX3, "en", "Finish"), (compact, "de", "Beenden"), (compactAX3, "de", "Beenden"),
+    ])
+    func finishHoldsItsWord(_ c: (s: SizeCase, language: String, word: String)) async throws {
+        let controller = FocusedPreview.controller(.midSession)
+        defer { controller.stop() }
+        let word = UIHostingController(rootView: Text(verbatim: c.word).font(.ryft(.headline))
+            .environment(\.dynamicTypeSize, .large))
+        let width = word.sizeThatFits(in: CGSize(width: 400, height: 100)).width
+        try await HostedWindow.run(width: c.s.width, height: c.s.height, typeSize: c.s.size, category: c.s.category,
+                                   SessionView(controller: controller).environment(\.locale, Locale(identifier: c.language))) { w in
+            try await w.settle()
+            let finish = try #require(w.node(c.word, exactly: true), "\(w.nodes().map(\.label).prefix(8))")
+            #expect(abs(finish.frame.width - (width + 2 * 14)) < 1, "\(finish.frame), the word is \(width)")
+            #expect(abs(finish.frame.height - (c.s.size == .large ? 44 : 48)) < 0.5, "\(finish.frame)")
+        }
+    }
+
+    @Test("An unfilled Finish has an accent outline, and a filled one reads as accent to its edge", arguments: [true, false])
+    func finishOutline(dark: Bool) async throws {
+        let controller = FocusedPreview.controller(.midSession)
+        defer { controller.stop() }
+        try await HostedWindow.run(width: 390, height: 844, dark: dark, SessionView(controller: controller)) { w in
+            try await w.settle()
+            let frame = try #require(w.node("Finish", exactly: true)).frame
+            let scheme: ColorScheme = dark ? .dark : .light
+            let edge = try #require(w.pixel(at: CGPoint(x: frame.minX + 0.5, y: frame.midY)))
+            let inside = try #require(w.pixel(at: CGPoint(x: frame.minX + 4, y: frame.midY)))
+            #expect(Self.isClose(edge, to: Theme.accent, scheme), "\(edge)")
+            #expect(Self.isClose(inside, to: Theme.surface, scheme), "\(inside)")
+        }
+    }
+
+    @Test("At all-done the outline goes with the fill")
+    func finishFilledHasNoOutline() async throws {
+        let controller = FocusedPreview.controller(.allDone)
+        defer { controller.stop() }
+        try await HostedWindow.run(width: 390, height: 844, SessionView(controller: controller)) { w in
+            try await w.settle()
+            let frame = try #require(w.node("Finish", exactly: true)).frame
+            let inside = try #require(w.pixel(at: CGPoint(x: frame.minX + 4, y: frame.midY)))
+            #expect(Self.isClose(inside, to: Theme.accent, .dark), "\(inside)")
+        }
+    }
+
+    private static func isClose(_ p: (r: Double, g: Double, b: Double), to color: Color, _ scheme: ColorScheme) -> Bool {
+        var environment = EnvironmentValues()
+        environment.colorScheme = scheme
+        let c = color.resolve(in: environment)
+        return abs(p.r - Double(c.red)) < 0.06 && abs(p.g - Double(c.green)) < 0.06 && abs(p.b - Double(c.blue)) < 0.06
+    }
+
+    /// Node.activate(), VoiceOver's double tap. The menu lists plates here; the tap on it is a UI test's, because a menu runs an
+    /// item only from a real touch.
+    @Test("The title opens history and the … menu lists plates")
+    func titleAndMenuReachTheirActions() async throws {
+        let controller = FocusedPreview.controller(.midSession)
+        defer { controller.stop() }
+        var history: [UUID] = []
+        let actions = SessionActions(addExercise: {}, reorder: {}, plates: { _ in }, history: { history.append($0.id) },
+                                     userScrolled: {}, finish: {})
+        try await HostedWindow.run(width: 390, height: 844, FocusedSessionView(controller: controller, actions: actions)) { w in
+            try await w.settle()
+            let page = try #require(controller.pageExercise)
+            #expect(page.kind == .barbell)
+            #expect(try #require(w.node("\(page.name), history", exactly: true)).activate())
+            #expect(history == [page.id])
+            #expect(try #require(w.node("Options for \(page.name)", exactly: true)).activate())
+            try await w.wait("the menu lists plates") { w.menuItem("Plate calculator") != nil }
         }
     }
 
@@ -63,7 +135,7 @@ struct FocusedPolishHostedTests {
             try await w.settle()
             // Sets 1 and 2 are done, the second at RPE 8.5, and the third is active.
             #expect(abs(try #require(w.node("Set 1 of")).frame.height - 64) < 0.5)
-            #expect(abs(try #require(w.node("Set 2 of")).frame.height - (64 + 4 + 44)) < 0.5)
+            #expect(abs(try #require(w.node("Set 2 of")).frame.height - (64 + 44)) < 0.5, "a done row's line sits against it")
             #expect(abs(try #require(w.node("Set 3 of")).frame.height - (64 + 4 + 44)) < 0.5, "the active row is the way in")
             #expect(abs(try #require(w.node("Set 4 of")).frame.height - 64) < 0.5)
         }
@@ -115,7 +187,23 @@ struct FocusedPolishHostedTests {
         }
     }
 
-    @Test("At 320 pt with the keypad and a rest, the page holds the row being edited, whole", arguments: [compact, compactAX3])
+    /// A session can come back with its keypad open: there is no width yet when the keypad first lays out.
+    @Test("A keypad open before the first layout keeps its page at 320 pt and AX3")
+    func keypadBeforeLayout() async throws {
+        let c = FocusedPreview.controller(.restRunning)
+        defer { c.stop() }
+        let page = try #require(c.pageExercise)
+        c.edit(page.orderedSets[1], .kg)
+        try await HostedWindow.run(width: 320, height: 693, typeSize: .accessibility3, category: .accessibilityExtraLarge,
+                                   SessionView(controller: c)) { w in
+            try await w.settle()
+            #expect(c.focus != nil, "the keypad stays up")
+            #expect(c.pageExerciseID == page.id, "the pager kept its page")
+            #expect(w.node("Current value") != nil)
+        }
+    }
+
+    @Test("With the keypad and a rest, the page holds the row being edited, whole", arguments: [compact, compactAX3, regularAX3])
     func keypadAndRest(_ s: SizeCase) async throws {
         let c = FocusedPreview.controller(.restRunning)
         defer { c.stop() }

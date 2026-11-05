@@ -137,6 +137,44 @@ struct FocusedPolishTests {
         #expect(!r.controller.showsRPELine(of: set, in: r.row, columns: large))
     }
 
+    // MARK: last time, decoded once
+
+    private func lastSets(_ reps: Int, kg: Double) -> [SessionSet] {
+        (0..<3).map { SessionSet(setIndex: $0, reps: reps, weightKg: kg) }
+    }
+
+    @Test("A ghost matches the model's, for the same stored sets")
+    func theCacheChangesNoGhost() {
+        let r = rig()
+        r.x.lastTime = lastSets(8, kg: 75)
+        let set = r.x.orderedSets[2]
+        for _ in 0..<2 {
+            let g = r.controller.ghost(for: set, in: r.x), model = r.x.ghost(forSetAt: 2)
+            #expect(g.reps == model.reps && g.kg == model.kg)
+        }
+    }
+
+    @Test("Replaced last-time data isn't served stale, and neither is cleared data")
+    func replacedDataIsRead() {
+        let r = rig()
+        r.x.lastTime = lastSets(8, kg: 75)
+        #expect(r.controller.lastTime(of: r.x).first?.reps == 8)
+        r.x.lastTime = lastSets(6, kg: 80)
+        #expect(r.controller.lastTime(of: r.x).first?.reps == 6)
+        #expect(r.controller.lastTime(of: r.x).first?.weightKg == 80)
+        r.x.lastTime = []
+        #expect(r.controller.lastTime(of: r.x).isEmpty)
+    }
+
+    @Test("Each exercise keeps its own copy")
+    func theCacheIsPerExercise() {
+        let r = rig()
+        r.x.lastTime = lastSets(8, kg: 75)
+        r.lateral.lastTime = lastSets(12, kg: 10)
+        #expect(r.controller.lastTime(of: r.x).first?.reps == 8)
+        #expect(r.controller.lastTime(of: r.lateral).first?.reps == 12)
+    }
+
     // MARK: Finish (L21)
 
     private func checkAll(_ r: ReplaceRig) {
@@ -199,7 +237,7 @@ struct FocusedPolishTests {
     @Test("Light: text on the active row's tint holds 4.5:1", arguments: [false, true])
     func theEstimateOnTheActiveRow(isDash: Bool) {
         let ink = FocusedRowInk.estimate(active: true, isDash: isDash, .light)
-        #expect(ink == Theme.textPrimary, "grey clears 4.5:1 here by 0.01, which is no margin")
+        #expect(ink == Theme.textPrimary, "grey is 4.51:1 here, which is no margin")
         #expect(contrast(ink, on: tint(.light), .light) >= 4.5)
     }
 
@@ -213,6 +251,26 @@ struct FocusedPolishTests {
     @Test("Light: the upcoming ✓'s outline holds 3:1 on the background")
     func theOutline() {
         #expect(contrast(FocusedRowInk.upcomingOutline(.light), on: background(.light), .light) >= 3)
+    }
+
+    @Test("Grey on the active row's field holds 4.5:1, with a ghost or empty", arguments: [ColorScheme.light, .dark])
+    func theActiveField(scheme: ColorScheme) {
+        let field = parts(scheme == .light ? Theme.surface : Theme.surfaceRaised, scheme)
+        for hasGhost in [false, true] {
+            let ink = FocusedRowInk.value(.active, hasValue: false, hasGhost: hasGhost)
+            #expect(ink == Theme.textSecondary)
+            #expect(contrast(ink, on: field, scheme) >= 4.5)
+        }
+    }
+
+    @Test("Upcoming and done rows keep their inks")
+    func theOtherRowsInks() {
+        #expect(FocusedRowInk.value(.upcoming, hasValue: false, hasGhost: true) == Theme.textSecondary)
+        #expect(FocusedRowInk.value(.upcoming, hasValue: false, hasGhost: false) == Theme.textTertiary)
+        #expect(FocusedRowInk.value(.upcoming, hasValue: true, hasGhost: false) == Theme.textPrimary)
+        #expect(FocusedRowInk.value(.done, hasValue: true, hasGhost: false) == Theme.textSecondary)
+        #expect(FocusedRowInk.value(.done, hasValue: false, hasGhost: false) == Theme.textTertiary)
+        #expect(FocusedRowInk.value(.active, hasValue: true, hasGhost: false) == Theme.textPrimary)
     }
 
     @Test("Dark keeps the design's tokens")
@@ -260,6 +318,41 @@ struct FocusedPolishTests {
         c.remove(r.row)
         #expect(c.pageExercise?.id == r.x.id)
         #expect(c.nextLabel().hasPrefix(r.x.name), "\(c.nextLabel())")
+    }
+
+    @Test("Check and uncheck in a superset: Next names that row, as the row marked Next does")
+    func anUncheckLeavesNothingToFollow() throws {
+        let r = rig()
+        let page = r.x
+        r.controller.showPage(page.id)
+        let set = try #require(r.controller.activeSet(in: page))
+        r.controller.toggleCheck(set, in: page)
+        #expect(r.controller.nextUp?.exercise.id == r.lateral.id, "the check moves on to its partner")
+        r.controller.toggleCheck(set, in: page)
+        #expect(r.controller.lastCheckedExercise == nil)
+        #expect(r.controller.nextUp?.exercise.id == page.id)
+        #expect(r.controller.nextUp?.set.id == set.id)
+    }
+
+    @Test("An uncheck in another exercise keeps the check to follow")
+    func anUncheckElsewhereKeepsIt() throws {
+        let r = rig()
+        let row = r.row
+        r.controller.showPage(row.id)
+        let first = try #require(r.controller.activeSet(in: row))
+        r.controller.toggleCheck(first, in: row)
+        r.controller.lastCheckedExercise = r.x.id
+        r.controller.toggleCheck(first, in: row)
+        #expect(r.controller.lastCheckedExercise == r.x.id)
+    }
+
+    @Test("List keeps the check to follow after an uncheck")
+    func listKeepsItsCheck() throws {
+        let r = rig(.list)
+        let set = try #require(r.x.orderedSets.first { !$0.isCompleted })
+        r.controller.toggleCheck(set, in: r.x)
+        r.controller.toggleCheck(set, in: r.x)
+        #expect(r.controller.lastCheckedExercise == r.x.id)
     }
 
     @Test("With a check to follow, a superset's partner still comes first")

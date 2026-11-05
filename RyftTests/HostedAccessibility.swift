@@ -105,10 +105,11 @@ final class HostedWindow {
 
     enum HostError: Error { case noScene, timeout(String) }
 
-    /// The simulator's setting, through the same library UI tests use from outside. Never switched off. It reads false on a
-    /// fresh simulator, so putting back the earlier value is the same as switching it off, and a UI run after that can fail
-    /// with "Timed out waiting for AX loaded notification" or `kAXErrorAPIDisabled`. The runs behind this are in the focused
-    /// session's `ui-test-plan.md`. The symbols are looked up at run time, so a runtime without them fails every hosted test
+    /// The simulator's setting, through the same library UI tests use from outside. No window switches it off, and only
+    /// `automationAroundAWindow` writes false, for its test, then puts it back. It reads false on a fresh simulator, so putting
+    /// back the earlier value would be the same as switching it off, and a UI run after that can fail with "Timed out waiting
+    /// for AX loaded notification". That leaving it on prevents this is inferred from a few serial runs, not shown; they are in
+    /// the focused session's `ui-test-plan.md`. The symbols are looked up at run time, so a runtime without them fails every hosted test
     /// at its first `nodes()` (no elements) instead of skipping quietly.
     private static var automationEnabled: Bool {
         get {
@@ -150,6 +151,37 @@ final class HostedWindow {
     /// The first element whose label is `label` (`exactly`) or starts with it.
     func node(_ label: String, exactly: Bool = false) -> Node? {
         nodes().first { exactly ? $0.label == label : $0.label.hasPrefix(label) }
+    }
+
+    /// A menu item on screen, in any of the scene's windows: UIKit draws a menu outside the host. It can be seen, not chosen:
+    /// a menu runs an item only from a real touch, so `FocusedSessionUITests` does that part.
+    func menuItem(_ label: String) -> NSObject? {
+        func find(_ view: UIView) -> NSObject? {
+            if view.accessibilityLabel == label { return view }
+            for sub in view.subviews { if let hit = find(sub) { return hit } }
+            return nil
+        }
+        return window.windowScene?.windows.lazy.compactMap { find($0) }.first
+    }
+
+    /// The colour at `point`, in window points, as drawn: sRGB components from 0 to 1.
+    func pixel(at point: CGPoint) -> (r: Double, g: Double, b: Double)? {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+        guard let cg = image.cgImage, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        var bytes = [UInt8](repeating: 0, count: 4)
+        let x = Int(point.x * 3), y = Int(point.y * 3)
+        let drew = bytes.withUnsafeMutableBytes { raw in
+            let context = CGContext(data: raw.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: space,
+                                    bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+            context?.draw(cg, in: CGRect(x: -x, y: y + 1 - cg.height, width: cg.width, height: cg.height))
+            return context != nil
+        }
+        return drew ? (Double(bytes[0]) / 255, Double(bytes[1]) / 255, Double(bytes[2]) / 255) : nil
     }
 
     /// The page's vertical scroll view: the tall one as wide as the window, not the pager.

@@ -573,7 +573,7 @@ final class FocusedSessionUITests: XCTestCase {
         requireExists(element(app, "summary.done"), "the workout's summary: the session has ended")
     }
 
-    /// T5, design.md §2.3: the `…` menu's items in order, top to bottom, wherever it opens.
+    /// T5, design.md §2.3: the `…` menu's items in order, top to bottom. It opens downward here, so this reads the order, not `.menuOrder(.fixed)`.
     @MainActor
     func testTheOptionsMenuKeepsTheDesignsOrder() throws {
         let app = openFocused()
@@ -588,6 +588,9 @@ final class FocusedSessionUITests: XCTestCase {
             XCTAssertGreaterThan(item.frame.minY, last, "\(label) is out of order")
             last = item.frame.minY
         }
+        // The hosted test can't choose a menu item: this is the one test of `onPlates` from the page.
+        app.buttons["Plate calculator"].firstMatch.tap()
+        requireExists(app.navigationBars["Plate calculator"], "the plate calculator")
     }
 
     // MARK: relaunch and remove
