@@ -25,6 +25,8 @@ enum FocusedPreview {
         /// `midSession` with a note far longer than its one line.
         case longNote
         case oneExercise, manyExercises
+        /// The only exercise of the session, with last time's card and a set logged.
+        case oneExerciseStarted
         case offline
         case empty
         /// `midSession` with a rest running, 1:54 left.
@@ -102,6 +104,14 @@ enum FocusedPreview {
             return bodyweightEstimates(in: store)
         case .oneExercise:
             return single(MockTrain.bench, in: store)
+        case .oneExerciseStarted:
+            let s = single(MockTrain.bench, in: store)
+            let ex = s.orderedExercises[0]
+            ex.lastTime = lastTime
+            ex.orderedSets[0].reps = 10
+            ex.orderedSets[0].weightKg = 75
+            ex.orderedSets[0].completedAt = .now.addingTimeInterval(-150)
+            return s
         case .manyExercises:
             let s = SessionFactory.empty(in: store)
             for ex in MockTrain.exercises.prefix(12) { SessionFactory.add(ex, to: s, in: store) }
