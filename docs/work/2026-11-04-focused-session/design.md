@@ -398,11 +398,24 @@ As built in T5:
 - **The page at 320 with keypad and rest is 138 pt, not 220.** It stays: 138 pt holds the active row whole plus about
   40 pt of its neighbours, and the keys and the running pill keep their room. Taking the 82 pt back would mean a
   shorter keypad or hiding the pill. `FocusedSessionView.hidesStrip` carries the same reasoning.
-- **Keypad text caps at `.xxLarge` in Focused.** Above that the keypad ate the page at 320 and AX3, and the row couldn't
-  stay in view. The cap keeps it whole with the strip hidden. An RPE line (row 112 pt) may not fit whole there; the page
+- **Keypad text caps at `.xxLarge` at 320 only.** Above that the keypad ate the page at 320 and AX3, and the row couldn't
+  stay in view. The cap keeps it whole with the strip hidden. The keypad waits for the first width in Focused: laid out before it, the
+  pager gave up its page. An RPE line (row 112 pt) may not fit whole there; the page
   still scrolls.
 - **Finish caps at `.large` at 320 and `.xxLarge` elsewhere**, one line, with the large content viewer. That's how
   "Finish" and „Beenden“ never break mid-word in a 48 pt capsule at AX3.
+- **The column header shows it can be tapped with a dotted underline** in `textTertiary`. It takes no width, so "E1RM"
+  still fits its 48 pt column.
+- **The pager has a soft top edge, 16 pt** (`FocusedSessionView.topFade`). It fades from `background`, doesn't take
+  touches and is hidden from VoiceOver. The page's content starts 4 pt lower at default sizes and 16 pt lower at
+  accessibility sizes, so the title stays clear of it.
+- **`FocusedRowInk` holds the row's light choices, by token maths.** An estimate on the active row is `textPrimary` in
+  light, where grey clears 4.5:1 by 0.01 at 4.51:1. An upcoming ✓'s outline is `textTertiary` in light, 4.72:1. Dark
+  keeps the tokens above, except that the outline there is 1.45:1, still open.
+- **A ghost on the active row in dark is 4.93:1**, `textSecondary` on `surfaceRaised`, so it needs no change. The empty
+  dash there was `textTertiary` at 4.40:1, and the active row now uses `textSecondary` for it too.
+- **An unfilled Finish has a 1 pt `accent` outline.** The capsule's edge alone is 1.19:1 in dark and 1.13:1 in light. There
+  is no outline at all-done, when it fills, or in List.
 - **Where the fourth column is dropped, the estimates are still spoken by VoiceOver.** The header is gone too, so the
   mode can't change at those sizes.
 
@@ -421,7 +434,7 @@ Only the **current page** is in the accessibility tree; other pages are `accessi
 5. Superset line (if any), then the **three chips** as buttons: "Replace exercise, Dumbbell", "Edit targets, 3 x 8 to
    10 at 30 kilograms", "Rest, 1 minute 15 seconds" (each with hint "Opens a sheet"). A disabled chip says "dimmed".
 6. Notes button (if any): "Notes: ..." with hint "Edits the notes".
-7. **Warm-up pill**: button, "2 warm-up sets", value "collapsed" or "expanded"; hint "Shows the warm-up sets".
+7. **Warm-up pill**: button, "2 warm-up sets", value "collapsed" or "expanded"; hint "Shows or hides the warm-up sets".
 8. **Table**: the `#`, KG/+KG and REPS header labels are hidden. The fourth header is a button when the exercise has
    weight or bodyweight load (not time or distance): label "Table column", value the current mode ("Estimated 1RM",
    "Estimated 10RM" or "RPE"), hint "Switches between estimated 1RM, estimated 10RM and RPE". A tap cycles E1RM → 10RM →
@@ -471,7 +484,10 @@ wording (L18). Not written to the catalog by this ticket.
 | Where | English | German |
 | --- | --- | --- |
 | **Profile toggle (L4)**, label | Advance to the next exercise | Zur nächsten Übung wechseln |
-| Profile toggle, footer (replaces "Jumps to the next set when you finish an exercise.") | Moves on to the next exercise after your last set. | Wechselt nach deinem letzten Satz zur nächsten Übung. |
+| Profile toggle, footer | Jumps to the next set when you finish an exercise. | Kept as it was: L22 changes the label only |
+| Session layout picker, title | Session layout | Trainingsansicht |
+| Session layout picker, options | Focused / List | Fokus / Liste |
+| Session layout picker, footer | Focused: one exercise at a time. List: all exercises on one screen. Applies the next time you open a workout. | Fokus: eine Übung pro Seite. Liste: alle Übungen auf einem Bildschirm. Gilt, sobald du das nächste Training öffnest. |
 | Strip, VoiceOver label | Exercises | Übungen |
 | Strip, value | Exercise %lld of %lld, %@, %@ | Übung %1$lld von %2$lld, %3$@, %4$@ |
 | Strip status, done | done | erledigt |
@@ -500,7 +516,7 @@ wording (L18). Not written to the catalog by this ticket.
 | Last-time card, VoiceOver | Last time, %@: %@ | Letztes Mal, %@: %@ |
 | Last-time card, hint | Opens history | Öffnet den Verlauf |
 | All sets done | All sets done | Alle Sätze geschafft (L18) |
-| Rest pill, VoiceOver label | Rest timer | Pausentimer (existing) |
+| Rest pill, VoiceOver label | Rest ("Rest timer" is an input label) | Pause („Pausentimer“ is an input label) |
 | Rest pill, idle value | Not running. Starts at %@ | Läuft nicht. Startet bei %@ |
 | Rest pill, ending (visible, 1 s) | Rest over | Pause vorbei (existing) |
 | Rest sheet, title | Rest | Pause |
