@@ -41,9 +41,10 @@ struct FocusedSessionView: View {
     /// title clear of it.
     static let topFade: CGFloat = 16
     /// Beside the keypad with the strip gone, the page ends right under the header, usually mid-line: solid for what shows of
-    /// that line, then a fade that ends above the table's header, where `proxy.scrollTo` leaves it with the row centred.
-    static let keypadFade: CGFloat = 28
-    private static let keypadFadeSolid = 0.65
+    /// that line, then a short fade. On the 138 pt page with a rest running, set 1's labels sit at y=13..37, so the fade runs
+    /// over the top of their line. Long enough to hide the half line, short enough to stop above the letters.
+    static let keypadFade: CGFloat = 22
+    private static let keypadFadeSolid = 0.5
 
     /// Longer than the page's move: a row isn't in the accessibility tree while its page is hidden.
     private static let focusDelay: Duration = .milliseconds(350)
