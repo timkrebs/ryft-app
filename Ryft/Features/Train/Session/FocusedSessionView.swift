@@ -40,6 +40,10 @@ struct FocusedSessionView: View {
     /// The page's soft top edge, about a line of text, so nothing shows cut in half under the header. `ExercisePage` keeps its
     /// title clear of it.
     static let topFade: CGFloat = 16
+    /// Beside the keypad with the strip gone, the page ends right under the header, usually mid-line: solid for what shows of
+    /// that line, then a fade that ends above the table's header, where `proxy.scrollTo` leaves it with the row centred.
+    static let keypadFade: CGFloat = 28
+    private static let keypadFadeSolid = 0.65
 
     /// Longer than the page's move: a row isn't in the accessibility tree while its page is hidden.
     private static let focusDelay: Duration = .milliseconds(350)
@@ -154,8 +158,10 @@ struct FocusedSessionView: View {
         // Rows scroll out under the strip through a soft edge rather than a cut. Above any title at rest, so it only shows
         // once the page moved.
         .overlay(alignment: .top) {
-            LinearGradient(colors: [Theme.background, Theme.background.opacity(0)], startPoint: .top, endPoint: .bottom)
-                .frame(height: Self.topFade)
+            LinearGradient(stops: [.init(color: Theme.background, location: hidesStrip ? Self.keypadFadeSolid : 0),
+                                   .init(color: Theme.background.opacity(0), location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: hidesStrip ? Self.keypadFade : Self.topFade)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }

@@ -149,7 +149,7 @@ struct FocusedPolishHostedTests {
         }
     }
 
-    @Test("A row is 64 high at AX3, and one with an RPE adds its 44 pt line")
+    @Test("A row is 64 high at AX3, and one with an RPE adds its line")
     func theRPELineTakesItsRoom() async throws {
         let c = FocusedPreview.controller(.estimates, column: .rpe)
         defer { c.stop() }
@@ -158,7 +158,7 @@ struct FocusedPolishHostedTests {
             try await w.settle()
             // Sets 1 and 2 are done, the second at RPE 8.5, and the third is active.
             #expect(abs(try #require(w.node("Set 1 of")).frame.height - 64) < 0.5)
-            #expect(abs(try #require(w.node("Set 2 of")).frame.height - (64 + 44)) < 0.5, "a done row's line sits against it")
+            #expect(abs(try #require(w.node("Set 2 of")).frame.height - (64 + 44 - 20)) < 0.5, "a done row's line comes up into it")
             #expect(abs(try #require(w.node("Set 3 of")).frame.height - (64 + 4 + 44)) < 0.5, "the active row is the way in")
             #expect(abs(try #require(w.node("Set 4 of")).frame.height - 64) < 0.5)
         }
