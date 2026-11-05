@@ -4,8 +4,8 @@ import UIKit
 
 /// Real views in a real window, measured through the accessibility tree: the frames VoiceOver would use, in screen points.
 /// SwiftUI builds that tree only while the system's accessibility automation is on, which a test process has to switch on
-/// itself (the same switch UI tests flip from outside); it is off again when the last window closes. One window at a time:
-/// `run` waits for the one before, so suites running side by side can't read each other's frames.
+/// itself (the same switch UI tests flip from outside), and it stays on: see `automationEnabled`. One window at a time: `run`
+/// waits for the one before, so suites running side by side can't read each other's frames.
 @MainActor
 final class HostedWindow {
     /// UIKit's accessibility calls are main-actor: nesting in the class doesn't carry its isolation over.
@@ -45,7 +45,6 @@ final class HostedWindow {
     let window: UIWindow
     let host: UIHostingController<AnyView>
     private static var busy = false
-    private static var automation = 0
 
     /// `content` gets the preview environment. `typeSize`: the Dynamic Type size, as the shots set it.
     static func run<Content: View>(width: CGFloat, height: CGFloat, bottomInset: CGFloat = 34, dark: Bool = true,
@@ -63,7 +62,7 @@ final class HostedWindow {
     }
 
     private init(scene: UIWindowScene, root: AnyView, size: CGSize, bottomInset: CGFloat, dark: Bool, category: UIContentSizeCategory) {
-        Self.setAutomation(on: true)
+        Self.automationEnabled = true
         host = UIHostingController(rootView: root)
         host.traitOverrides.preferredContentSizeCategory = category
         host.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
@@ -75,10 +74,25 @@ final class HostedWindow {
         window.isHidden = false
     }
 
+    /// The setting while a window is open and once it has gone, with `before` set first. For `HostedWindowTests`; the real
+    /// value is back afterwards, and it waits its turn so no window of another suite sees the change.
+    static func automationAroundAWindow(before: Bool) async throws -> (during: Bool, after: Bool) {
+        while busy { try await Task.sleep(for: .milliseconds(25)) }
+        busy = true
+        defer { busy = false }
+        let real = automationEnabled
+        defer { automationEnabled = real }
+        automationEnabled = before
+        let hosted = try await HostedWindow(scene: windowScene(), root: AnyView(EmptyView()), size: CGSize(width: 100, height: 100),
+                                            bottomInset: 0, dark: true, category: .large)
+        let during = automationEnabled
+        hosted.close()
+        return (during, automationEnabled)
+    }
+
     private func close() {
         window.isHidden = true
         window.rootViewController = nil
-        Self.setAutomation(on: false)
     }
 
     private static func windowScene() async throws -> UIWindowScene {
@@ -91,13 +105,20 @@ final class HostedWindow {
 
     enum HostError: Error { case noScene, timeout(String) }
 
-    /// Reference-counted: the symbol is looked up at run time, so a runtime without it fails every hosted test at its first
-    /// `nodes()` (no elements) instead of skipping quietly.
-    private static func setAutomation(on: Bool) {
-        automation += on ? 1 : -1
-        guard on ? automation == 1 : automation == 0, let lib = dlopen("/usr/lib/libAccessibility.dylib", RTLD_NOW),
-              let symbol = dlsym(lib, "_AXSSetAutomationEnabled") else { return }
-        unsafeBitCast(symbol, to: (@convention(c) (Bool) -> Void).self)(on)
+    /// The simulator's setting, through the same library UI tests use from outside. Never switched off. It reads false on a
+    /// fresh simulator, so putting back the earlier value is the same as switching it off, and a UI run after that can fail
+    /// with "Timed out waiting for AX loaded notification" or `kAXErrorAPIDisabled`. The runs behind this are in the focused
+    /// session's `ui-test-plan.md`. The symbols are looked up at run time, so a runtime without them fails every hosted test
+    /// at its first `nodes()` (no elements) instead of skipping quietly.
+    private static var automationEnabled: Bool {
+        get {
+            guard let lib = dlopen("/usr/lib/libAccessibility.dylib", RTLD_NOW), let symbol = dlsym(lib, "_AXSAutomationEnabled") else { return false }
+            return unsafeBitCast(symbol, to: (@convention(c) () -> Bool).self)()
+        }
+        set {
+            guard let lib = dlopen("/usr/lib/libAccessibility.dylib", RTLD_NOW), let symbol = dlsym(lib, "_AXSSetAutomationEnabled") else { return }
+            unsafeBitCast(symbol, to: (@convention(c) (Bool) -> Void).self)(newValue)
+        }
     }
 
     // MARK: the accessibility tree
