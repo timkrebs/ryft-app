@@ -136,6 +136,7 @@ enum FocusedPreview {
         let sets = ex.orderedSets
         log(sets[0], reps: 10, kg: 75)
         log(sets[1], reps: 6, kg: 80)
+        sets[1].rpe = 8.5
         if sets.count > 3 {
             sets[3].reps = 15
             sets[3].weightKg = 102.5
