@@ -31,8 +31,8 @@ private struct FocusedFinishLabel: ViewModifier {
     }
 }
 
-/// Text beside the page that stops growing in Focused, where every point it takes is the page's: at 320 pt and AX3, with a
-/// rest and the keypad up, the row being edited wouldn't fit. List keeps its sizes.
+/// The keypad's text stops growing in Focused, where every point it takes is the page's: at 320 pt and AX3, with a rest and
+/// the keypad up, the row being edited wouldn't fit. List keeps its sizes.
 private struct FocusedHeaderText: ViewModifier {
     let isOn: Bool
     let cap: DynamicTypeSize
@@ -183,7 +183,6 @@ struct SessionView: View {
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
-                    .modifier(FocusedHeaderText(isOn: isCompactHeader, cap: .accessibility1))
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text(Fmt.clock(controller.elapsed(at: context.date)))
                         .font(.ryftNumber(size: isCompactHeader ? 26 : 30))

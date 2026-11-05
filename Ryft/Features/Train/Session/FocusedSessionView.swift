@@ -23,8 +23,7 @@ struct FocusedSessionView: View {
     private var columns: SetTableColumns { .fitting(width: size.width, typeSize: typeSize) }
     private var hidesStrip: Bool {
         Self.hidesStrip(columns: columns, keypadOpen: controller.focus != nil, height: size.height,
-                        pillRow: controller.restPillState == .hidden ? 0 : RestPill.rowHeight(typeSize),
-                        strip: ExerciseStrip.height(typeSize))
+                        pillRow: controller.restPillState == .hidden ? 0 : RestPill.rowHeight(typeSize), typeSize: typeSize)
     }
 
     /// The page's least room beside the keypad at 320 pt (design.md §5.1): under it the strip gives way until Done. With a
@@ -34,8 +33,8 @@ struct FocusedSessionView: View {
 
     /// `height` is this view's, strip and pill row included, so hiding the strip doesn't change the answer.
     static func hidesStrip(columns: SetTableColumns, keypadOpen: Bool, height: CGFloat, pillRow: CGFloat,
-                           strip: CGFloat = ExerciseStrip.height) -> Bool {
-        keypadOpen && columns.isCompact && height - strip - pillRow < roomWithKeypad
+                           typeSize: DynamicTypeSize) -> Bool {
+        keypadOpen && columns.isCompact && height - ExerciseStrip.height(typeSize) - pillRow < roomWithKeypad
     }
 
     /// The page's soft top edge. Its title row starts lower than this, at every size: `ExercisePage` keeps it clear.

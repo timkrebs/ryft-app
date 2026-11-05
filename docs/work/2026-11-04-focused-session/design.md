@@ -398,9 +398,9 @@ As built in T5:
 - **The page at 320 with keypad and rest is 138 pt, not 220.** It stays: 138 pt holds the active row whole plus about
   40 pt of its neighbours, and the keys and the running pill keep their room. Taking the 82 pt back would mean a
   shorter keypad or hiding the pill. `FocusedSessionView.hidesStrip` carries the same reasoning.
-- **Keypad text caps at `.xxLarge`, the session title at `.accessibility1` (at 320 only), in Focused.** Above that the
-  keypad and title ate the page at 320 and AX3, and the row couldn't stay in view. The caps keep it whole with the
-  strip hidden. An RPE line (row 112 pt) may not fit whole there; the page still scrolls.
+- **Keypad text caps at `.xxLarge` in Focused.** Above that the keypad ate the page at 320 and AX3, and the row couldn't
+  stay in view. The cap keeps it whole with the strip hidden. An RPE line (row 112 pt) may not fit whole there; the page
+  still scrolls.
 - **Finish caps at `.large` at 320 and `.xxLarge` elsewhere**, one line, with the large content viewer. That's how
   "Finish" and „Beenden“ never break mid-word in a 48 pt capsule at AX3.
 - **Where the fourth column is dropped, the estimates are still spoken by VoiceOver.** The header is gone too, so the

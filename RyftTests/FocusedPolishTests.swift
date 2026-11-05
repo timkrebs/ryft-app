@@ -67,8 +67,8 @@ struct FocusedPolishTests {
     @Test("At 320 pt the taller strip counts for the room beside the keypad")
     func stripHeightCounts() {
         let compact = SetTableColumns.fitting(width: 320, typeSize: .accessibility3)
-        #expect(FocusedSessionView.hidesStrip(columns: compact, keypadOpen: true, height: 300, pillRow: 0, strip: 84))
-        #expect(!FocusedSessionView.hidesStrip(columns: compact, keypadOpen: true, height: 300, pillRow: 0, strip: 76))
+        #expect(FocusedSessionView.hidesStrip(columns: compact, keypadOpen: true, height: 300, pillRow: 0, typeSize: .accessibility3))
+        #expect(!FocusedSessionView.hidesStrip(columns: compact, keypadOpen: true, height: 300, pillRow: 0, typeSize: .accessibility2))
     }
 
     // MARK: the RPE line
@@ -122,6 +122,19 @@ struct FocusedPolishTests {
         let sets = r.row.orderedSets
         r.controller.edit(sets[1], .rpe)
         #expect(r.controller.showsRPELine(of: sets[1], in: r.row, columns: large))
+    }
+
+    @Test("A done row without an RPE gets the line only while the keypad is on it")
+    func theKeypadOnADoneRow() {
+        let r = rig()
+        let set = r.row.orderedSets[0]
+        set.reps = 5
+        set.completedAt = .now
+        #expect(!r.controller.showsRPELine(of: set, in: r.row, columns: large))
+        r.controller.edit(set, .rpe)
+        #expect(r.controller.showsRPELine(of: set, in: r.row, columns: large))
+        r.controller.focus = nil
+        #expect(!r.controller.showsRPELine(of: set, in: r.row, columns: large))
     }
 
     // MARK: Finish (L21)
@@ -186,12 +199,14 @@ struct FocusedPolishTests {
     @Test("Light: text on the active row's tint holds 4.5:1", arguments: [false, true])
     func theEstimateOnTheActiveRow(isDash: Bool) {
         let ink = FocusedRowInk.estimate(active: true, isDash: isDash, .light)
+        #expect(ink == Theme.textPrimary, "grey clears 4.5:1 here by 0.01, which is no margin")
         #expect(contrast(ink, on: tint(.light), .light) >= 4.5)
     }
 
     @Test("Light: an estimate on a plain row keeps its grey, which holds 4.5:1 there", arguments: [false, true])
     func theEstimateOnAPlainRow(isDash: Bool) {
         let ink = FocusedRowInk.estimate(active: false, isDash: isDash, .light)
+        #expect(ink == (isDash ? Theme.textTertiary : Theme.textSecondary))
         #expect(contrast(ink, on: background(.light), .light) >= 4.5)
     }
 

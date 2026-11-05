@@ -137,8 +137,9 @@ struct FocusedPolishHostedTests {
         try await HostedWindow.run(width: c.s.width, height: c.s.height, typeSize: c.s.size, category: c.s.category,
                                    SessionView(controller: controller)) { w in
             try await w.settle()
-            let add = try #require(w.node("Add exercise")).frame
-            #expect(abs(add.width - c.tile) < 0.5 && abs(add.height - c.tile) < 0.5, "\(add)")
+            for frame in try [#require(w.node("Add exercise")).frame, #require(w.node("\(controller.exercises[0].name), ")).frame] {
+                #expect(abs(frame.width - c.tile) < 0.5 && abs(frame.height - c.tile) < 0.5, "\(frame)")
+            }
         }
     }
 }
