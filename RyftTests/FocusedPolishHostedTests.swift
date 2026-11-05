@@ -158,9 +158,25 @@ struct FocusedPolishHostedTests {
             try await w.settle()
             // Sets 1 and 2 are done, the second at RPE 8.5, and the third is active.
             #expect(abs(try #require(w.node("Set 1 of")).frame.height - 64) < 0.5)
-            #expect(abs(try #require(w.node("Set 2 of")).frame.height - (64 + 44 - 20)) < 0.5, "a done row's line comes up into it")
+            #expect(abs(try #require(w.node("Set 2 of")).frame.height - (64 + 44 - 16)) < 0.5, "a done row's line comes up into it")
             #expect(abs(try #require(w.node("Set 3 of")).frame.height - (64 + 4 + 44)) < 0.5, "the active row is the way in")
             #expect(abs(try #require(w.node("Set 4 of")).frame.height - 64) < 0.5)
+        }
+    }
+
+    /// The line sits on top of the field, so how far it comes up decides the field's target. A touch can't be tried in process:
+    /// SwiftUI's buttons aren't views `hitTest` can tell apart. The height is what's left to pin; `theFieldKeeps44` does the sum.
+    @Test("At AX1 a done row with an RPE and an upcoming one that holds one are both 92 high")
+    func theLineAtAX1() async throws {
+        let c = FocusedPreview.controller(.estimates, column: .rpe)
+        defer { c.stop() }
+        c.pageExercise?.orderedSets[3].rpe = 7
+        try await HostedWindow.run(width: 320, height: 1600, typeSize: .accessibility1, category: .accessibilityMedium,
+                                   SessionView(controller: c)) { w in
+            try await w.settle()
+            #expect(abs(try #require(w.node("Set 1 of")).frame.height - 56) < 0.5)
+            #expect(abs(try #require(w.node("Set 2 of")).frame.height - (56 + 44 - 8)) < 0.5, "done")
+            #expect(abs(try #require(w.node("Set 4 of")).frame.height - (56 + 44 - 8)) < 0.5, "upcoming")
         }
     }
 

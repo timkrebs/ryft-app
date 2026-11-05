@@ -18,8 +18,9 @@ struct SetTableColumns: Equatable {
     var hasFourth = true
     var rowHeight: CGFloat = 56
     var lastTimeRow: CGFloat = 36
-    /// How far a quiet RPE line comes up into its row: as far as leaves the row's fields a 44 pt target.
-    var quietLineLift: CGFloat { rowHeight - 44 }
+    /// How far a quiet RPE line, on a done row or an upcoming one that holds an RPE, comes up into its row. A field is
+    /// `rowHeight - 8` high and centred, so it starts 4 pt down, and the line sits on top of it: this leaves the field 44 pt.
+    var quietLineLift: CGFloat { rowHeight - 48 }
 
     /// 390 pt class.
     static let regular = SetTableColumns(number: 36, fourth: 56, check: 56, gap: 6, numeral: 22, padding: 16, headerTracking: 2)
