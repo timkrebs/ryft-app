@@ -122,7 +122,7 @@ struct CurrentSetHighlight: ViewModifier {
         let highlighted = content
             .background {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Theme.accent.opacity(isCurrent ? 0.10 : 0))
+                    .fill(Theme.accent.opacity(isCurrent ? FocusedRowInk.activeTint : 0))
             }
             .overlay(alignment: .leading) {
                 Capsule()
