@@ -41,7 +41,7 @@ xcodebuild test -scheme Ryft -testPlan UISmoke -destination "id=<udid>" -derived
 | --- | --- | --- |
 | Switches it off (`main`) | serial | AX failure in 1 of 1 |
 | Restores the earlier value | serial | AX failure in 2 of 4 |
-| Leaves it on | serial | no AX failure in 6 of 6: 3 runs of one test, 3 of all of `UISmoke` |
+| Leaves it on | serial | no AX failure in 7 of 7: 3 runs of one test, 4 of all of `UISmoke` |
 
 Each row is read back from the commands that ran: every Unit run here was serial (`-parallel-testing-enabled NO`). The first `UISmoke` run in the last row stopped at my 580 s limit, after a failure of my own assertion, with no AX failure up to there. The error in the table was "Timed out waiting for AX loaded notification", taken to be the same class as T4's `kAXErrorAPIDisabled`.
 
