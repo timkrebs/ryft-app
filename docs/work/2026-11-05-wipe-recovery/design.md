@@ -1,6 +1,6 @@
 # Sign-out wipe recovery: what happens when a wipe fails or the app dies during one
 
-**Status:** proposed, not built. Waits on U1 to U3 in §8.
+**Status:** decided, not built. U1 to U3 are answered in §8; U4 and U5 stay open.
 
 Follow-up to #93 (`train: a sign-out deletes session rows one by one`). Designed against `fix/train-wipe-objects`, head
 `a669d5b`, not `main`. Values are synthetic. Line numbers are that commit's.
@@ -169,7 +169,7 @@ S1 to S4. The brief's S1 is STATUS's first bullet, which is Review 2's S2. Rathe
 | **Live Activity** | `signOut` awaits an `endNow()` before the SDK call. At launch, `endAll(except:)` keeps nothing unless the app has an account and no debt | `end()` is a main-actor `Task`, so moving it ahead of a synchronous wipe changes nothing. The SDK-driven expiry stays synchronous and relies on launch. If the app is never reopened, ActivityKit ends it (assumed, 8 to 12 h) | W4 |
 | **Never-saved rows before A3b** | Before the final save, delete `context.insertedModelsArray` rows of wiped types, keeping what parking keeps. Must merge before A3b | Today's only route is an earlier failed save (Read). Proved on 4 tables, so the batch-only list is wider than activities. It becomes sensitive when A3b adds chunks | W6 |
 | **WAL and history** | After a no-parking wipe, the entry stays as `scrubOnly`, and the next signed-out launch replaces the files | A replace is the only step that removes WAL, free pages and history together, and it reuses W2. An in-process A→B switch and an expiry keep this residue (§7) | W7 |
-| **Backups** | **Needs the user** (§8, U2). Nothing changes until then. The ledger stays in backups with the store, so a restore resumes | `readiness.json` is excluded "never in a device backup" (`Repository.swift:808`), but `CachedDay` holds the same scores in a store that the activities design §2.4 says is backed up. No wipe reaches an existing backup | W8 |
+| **Backups** | Excluded (§8, U2): `Train.store` and the ledger leave device backups in W7 | `readiness.json` is excluded "never in a device backup" (`Repository.swift:808`), but `CachedDay` holds the same scores in a store that the activities design §2.4 says is backed up. No wipe reaches an existing backup | W8 |
 | **Policy wording** | See §8 | The current text says "at once" and "then deleted" | W8 |
 | **Remote flag** | None | Recovery runs before `/v1/config` and while signed out, and a privacy fix shouldn't be switchable off | |
 
@@ -197,7 +197,7 @@ is the failure.
 | W5 | `auth: the notice says what's left on this iPhone` | ios-developer, localization-editor | W1 |
 | W6 | `train: a wipe takes rows never saved` | sync-engineer | #93 |
 | W7 | `train: a sign-out replaces the store's files` | sync-engineer | W2 |
-| W8 | `docs: ADR 0015, architecture, status` | ios-architect | W3, U1, U2 |
+| W8 | `docs: ADR 0016, architecture, status` | ios-architect | W3, U1, U2 |
 
 **W1.** `WipeLedger`, `OwedWipe`, a Codable `Wipe`, `begin` in `signOut` before `client.signOut()` and in `apply` before each
 wipe. `wipe(parkingActivitiesOf:at:)` gets `wipe.since`. The kept-id code stays until W3.
@@ -258,7 +258,7 @@ interrupted sign-out. Remove the kept-id branch (`:742-743`) and the `wiped` gua
 - An expiry never sets `scrubOnly`.
 - History holds no rows of A after a replace.
 
-**W8.** ADR 0015, `docs/ARCHITECTURE.md` (`:208`), STATUS. A brief to platform-lead through head-architect for the policy
+**W8.** ADR 0016, `docs/ARCHITECTURE.md` (`:208`), STATUS. A brief to platform-lead through head-architect for the policy
 text, since the app never edits `../plattform`.
 - ADR accepted, and the policy version named in STATUS.
 
@@ -283,6 +283,14 @@ text, since the app never edits `../plattform`.
   matters if #93 reaches testers before W3.
 
 ## 8. What needs the user
+
+**Decided by the user on 2026-11-05.** The questions below stay as asked, for the record.
+
+- **U1:** the policy wording is confirmed, including the 30-day limit exception (item 2). Item 4 drops its last sentence, about backups, because of U2.
+- **U1 item 5:** one new policy version, released with the build that ships this wipe recovery, bundling any other pending policy lines. So there is one re-consent prompt.
+- **U2:** `Train.store` is excluded from device backups, and the ledger with it. W7 takes this. It reverses the activities design §2.4.
+- **U3:** the hold and the copy are approved as written.
+- **U4, U5:** not decisions. They are runs on the user's hardware and stay open.
 
 **U1. Privacy policy.** Wording is yours as controller, and I'm not giving legal advice. The current version,
 `2026-10-26`, says of an unsent import that it "is kept on your iPhone for up to 30 days and then deleted; signing out or
@@ -322,7 +330,7 @@ External build, with or without this work.
 ## 9. Draft ADR
 
 ```markdown
-# 0015 — An account wipe is a debt written down first, and no session is published over it
+# 0016 — An account wipe is a debt written down first, and no session is published over it
 
 - Status: proposed (2026-11-05)
 - Deciders: ios-lead, on ios-architect's proposal
