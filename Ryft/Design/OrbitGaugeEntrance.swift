@@ -272,7 +272,7 @@ private struct EntranceReplay: View {
             OrbitGauge(mode: mode, size: size, entrance: .assemble)
                 .id(run)
                 .padding(24)
-            Button("Replay") { run += 1 }
+            Button { run += 1 } label: { Text(verbatim: "Replay") }
                 .font(.ryft(.caption))
         }
     }

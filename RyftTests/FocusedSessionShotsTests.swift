@@ -17,6 +17,7 @@ struct FocusedSessionShotsTests {
         case tappedRow = "tapped-row"
         case allDone = "all-done"
         case noHistory = "no-history"
+        case oneExercise = "one-exercise"
         case superset, warmups
         case warmupsOpen = "warmups-open"
         case bodyweight
@@ -42,6 +43,7 @@ struct FocusedSessionShotsTests {
             case .tappedRow: .tappedRow
             case .allDone: .allDone
             case .noHistory: .oneExercise
+            case .oneExercise: .oneExerciseStarted
             case .superset: .superset
             case .warmups: .warmups
             case .warmupsOpen: .warmupsOpen

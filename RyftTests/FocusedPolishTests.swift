@@ -41,6 +41,14 @@ struct FocusedPolishTests {
         #expect(c.numberHitArea.height == t.row, "the number's hit area is a row high")
     }
 
+    @Test("A quiet RPE line leaves the field under it 44 pt, at every size", arguments: tables)
+    func theFieldKeeps44(_ t: TableCase) {
+        let c = SetTableColumns.fitting(width: t.width, typeSize: t.size)
+        let fieldTop: CGFloat = 4, fieldBottom = c.rowHeight - 4
+        let lineTop = c.rowHeight - c.quietLineLift
+        #expect(min(lineTop, fieldBottom) - fieldTop == 44)
+    }
+
     @Test("A text size never changes the width class, which the header and the strip's rule read")
     func widthClassHoldsAtEverySize() {
         for size in DynamicTypeSize.allCases {

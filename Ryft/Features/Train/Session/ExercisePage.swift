@@ -241,7 +241,8 @@ struct ExercisePage: View {
             SessionChip(text: exercise.kind.title, leading: "arrow.triangle.2.circlepath",
                         isEnabled: controller.canReplace(exercise))
         }
-        .buttonStyle(.plain)
+        // Not `.plain`: a disabled plain button dims its label again, to about 2:1. The chip's own `isEnabled` is the dimmed look.
+        .buttonStyle(PressableButtonStyle())
         .disabled(!controller.canReplace(exercise))
         .accessibilityLabel(Text("Replace exercise, \(exercise.kind.title)", comment: "VoiceOver: the equipment chip on an exercise's page. 1: the equipment."))
         .accessibilityHint(Self.sheetHint)

@@ -98,6 +98,7 @@ Store "What's New".
 - German: the end of a workout reads „Alle Sätze geschafft“ instead of „Alle Sätze erledigt“.
 
 ### Fixed
+- Removing an exercise in a workout closes the keypad if it was open on that exercise. It stayed up with keys that did nothing.
 - If this iPhone can't delete your training data when you sign out, RYFT tries again when another account signs in.
 - Today: after a sync, last night shows as being scored on every path (a background sync, a relaunch, a pull),
   and a calibrating day no longer stays on "Scoring your night…" after its score arrives.

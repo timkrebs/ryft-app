@@ -18,6 +18,9 @@ struct SetTableColumns: Equatable {
     var hasFourth = true
     var rowHeight: CGFloat = 56
     var lastTimeRow: CGFloat = 36
+    /// How far a quiet RPE line, on a done row or an upcoming one that holds an RPE, comes up into its row. A field is
+    /// `rowHeight - 8` high and centred, so it starts 4 pt down, and the line sits on top of it: this leaves the field 44 pt.
+    var quietLineLift: CGFloat { rowHeight - 48 }
 
     /// 390 pt class.
     static let regular = SetTableColumns(number: 36, fourth: 56, check: 56, gap: 6, numeral: 22, padding: 16, headerTracking: 2)
@@ -215,11 +218,14 @@ struct SetRow: View {
                 .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
+        // Over the row's empty lower edge, clear of the ✓, so it stays that row's caption. Its 44 pt stay whole.
+        .padding(.trailing, rpeLineIsQuiet ? (columns?.check ?? 0) + (columns?.gap ?? 0) : 0)
+        .padding(.top, rpeLineIsQuiet ? -(columns?.quietLineLift ?? 0) : 0)
     }
 
     private var rpeLineIsFocused: Bool { controller.focus == SetFocus(setID: set.id, field: .rpe) }
-    /// A line with no field behind it reads as a caption, so it sits under its own row's values. Centred, with the same gap above
-    /// and below, it read as the next row's.
+    /// A line with no field behind it reads as a caption, so it sits under its own row's values, nearer them than the next row.
+    /// Centred, with the same gap above and below, it read as the next row's.
     private var rpeLineIsQuiet: Bool { fieldOpacity(.rpe, focused: rpeLineIsFocused) == 0 }
 
     // MARK: Focused's states (design.md §2.5, §2.8)
