@@ -15,6 +15,8 @@ Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session
 
 ## Sign-out wipe
 
+Recovery design, 8 tickets, not built: `docs/work/2026-11-05-wipe-recovery/design.md`. It waits on the user's answers in its §8.
+
 `TrainStore.wipe` deletes session rows object by object, because a batch delete on them fails, and it reports every step. On a failed wipe `AuthService` keeps the leaving account's id, so the next account wipes again.
 
 - **Verified:** simulator only, iOS 27.0. 44,500 rows take 3.4 s in Debug, on the main thread.
