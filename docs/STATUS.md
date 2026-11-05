@@ -10,6 +10,22 @@ Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session
 - **Verified:** simulator only, iOS 27.0, 390 pt in the app, 320 pt in renders.
 - **Before the flag goes on:** a run on iOS 17 (no such runtime on this Mac), a device run with a real plan, VoiceOver by hand.
 
+## Sign-out wipe
+
+`TrainStore.wipe` deletes session rows object by object, because a batch delete on them fails, and it reports every step. On a failed wipe `AuthService` keeps the leaving account's id, so the next account wipes again.
+
+- **Verified:** simulator only, iOS 27.0. 44,500 rows take 3.4 s in Debug, on the main thread.
+- **Before the next External build:** run `TrainStoreWipeTests` once on iOS 17. If a table's batch delete always throws there, every launch after an account switch wipes again, and that wipe takes the new account's unsent work too.
+- **Recovery ticket, not started:**
+  - one stored id can't name two owners, and a second failure overwrites it;
+  - there's no launch-time retry for "kept id, nobody signed in";
+  - when parking can't read the activities, chunks stay outside the 30-day limit;
+  - a refused `CachedDay` delete can put the leaving account's readiness back on the lock screen;
+  - a sign-in over a failed wipe reads the old account's rows until the next launch;
+  - the deletion notice can claim more than happened;
+  - a kill mid-wipe, the Live Activity left up, and never-saved rows in other tables;
+  - WAL and backup residue.
+
 ## Data quality (`CLAUDE_FOLLOWUP_DATA_QUALITY.md`, in progress)
 
 Plan and notes: `docs/work/2026-10-31-data-quality/`.

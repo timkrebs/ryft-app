@@ -90,7 +90,7 @@ struct ActivityUploaderGateTests {
         let hold = RequestHold()
         let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
         let auth = AuthService(client: MockAuthClient(session: .preview()), settings: Settings(defaults: defaults),
-                               defaults: defaults, wipeLocalData: { _ in },
+                               defaults: defaults, wipeLocalData: { _ in true },
                                deleteRemoteAccount: {
                                    await hold.wait()
                                    return AccountDeleted(status: "deleted", authUserDeleted: true)
