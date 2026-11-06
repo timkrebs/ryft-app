@@ -56,8 +56,8 @@ fonts:
 screenshots:
 	scripts/screenshots.sh
 
-# The training import's screens rendered from the preview mocks (RyftTests/Import/ImportScreenshotTests.swift), once in
-# English and once in German, as PNGs in build/ui-shots/<screen>-<state>-<lang>-<light|dark>-<default|ax3|ax5>.png.
+# The training import's screens rendered from the preview mocks (RyftTests/Import/ImportScreenshotTests.swift), in
+# English, as PNGs in build/ui-shots/<screen>-<state>-<lang>-<light|dark>-<default|ax3|ax5>.png.
 # Not the App Store shots (`make screenshots`). Runs on a throwaway simulator of SHOT_DEVICE (deleted afterwards).
 # Another device type: make ui-shots SHOT_DEVICE='iPhone 17'
 SHOT_DEVICE ?= iPhone 18 Pro
@@ -67,11 +67,11 @@ ui-shots: config
 	sh scripts/ui-shots.sh '$(SHOT_DEVICE)' $(UI_SHOTS) $(DERIVED)
 
 # The string catalog from the last build's extracted strings (what Xcode does on build;
-# for sessions without it). Then `make lint` lists what needs German.
+# for sessions without it). Then `make lint` checks the catalogs.
 strings: build
 	python3 scripts/sync-strings.py --derived-data $(DERIVED)
 
-# String catalogs complete in English and German, nothing stale; the bundled tracker catalog current; the GPS
+# String catalogs English only and complete, nothing stale; the bundled tracker catalog current; the GPS
 # fixture tracks match scripts/make-tracks.py; the built-in exercise snapshot matches the platform's seed (only
 # where ../plattform is checked out); the import's source-key golden file agrees with an independent fold (ADR 0007);
 # the mark's SVGs match the Swift geometry (needs swiftc, i.e. macOS).

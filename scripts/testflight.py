@@ -11,7 +11,7 @@ from the environment, as the CI secrets of the same names:
 
 Commands:
     distribute --build N --group NAME [--notes FILE] [--external]
-        Wait until build N has processed, set its "What to Test" (en-US and de-DE),
+        Wait until build N has processed, set its "What to Test" (en-US: the app is English only),
         add it to the beta group, and for an external group submit it for beta review.
         An internal group with "access to all builds" gets every build by itself (App Store
         Connect refuses a manual assignment), so the assignment is skipped; the notes are set.
@@ -117,7 +117,7 @@ def find_build(app: str, number: str, timeout_min: int = 60) -> str:
 def set_notes(build: str, notes: str):
     existing = {loc["attributes"]["locale"]: loc["id"]
                 for loc in call("GET", f"/builds/{build}/betaBuildLocalizations")["data"]}
-    for locale in ("en-US", "de-DE"):
+    for locale in ("en-US",):  # English only: a de-DE "What to Test" is not set any more
         if locale in existing:
             call("PATCH", f"/betaBuildLocalizations/{existing[locale]}",
                  {"data": {"type": "betaBuildLocalizations", "id": existing[locale],

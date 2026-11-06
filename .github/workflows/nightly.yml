@@ -8,8 +8,7 @@ on:
     inputs:
       notes:
         description: >-
-          What to Test, replacing the commit list (max 4000 characters). It goes to en-US and de-DE
-          alike, so write the English block, then the German one.
+          What to Test, replacing the commit list (max 4000 characters). It goes to en-US, the app's only language.
         type: string
         default: ""
 

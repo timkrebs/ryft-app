@@ -19,7 +19,7 @@ flowchart TB
         dev[ios-developer<br/>features · UI]
         sync[sync-engineer<br/>HealthKit · sync · network · persistence]
         api[api-contract-keeper<br/>API.md mirror · fixtures]
-        l10n[localization-editor<br/>en/de · voice · brand]
+        l10n[localization-editor<br/>en · voice · brand]
         test[test-engineer<br/>tests · plans · coverage]
     end
     subgraph verify [Verify · read-only]

@@ -72,7 +72,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Pinned SwiftFormat and SwiftLint
         run: sh scripts/install-tools.sh
-      - name: Strings (English and German complete) and entitlements
+      - name: Strings (English complete) and entitlements
         run: make lint
       - name: SwiftFormat and SwiftLint
         run: make style
