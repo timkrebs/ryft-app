@@ -139,7 +139,7 @@ private struct PlansScreen: View {
         return Card {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
-                    Text(paused ? "Paused" : "Active").ryftLabelStyle(paused ? Theme.warning : Theme.accent)
+                    Text(paused ? "Paused" : "Active").ryftLabelStyle(paused ? Theme.textSecondary : Theme.accent)
                     Spacer()
                     if let week = model.currentWeekText {
                         Text(week)
@@ -290,8 +290,10 @@ private struct PlanDetailScreen: View {
                     Button("Copy and edit") { editing = p.copy() }
                 } else {
                     Button("Edit") { editing = p }
-                    Button("Delete", role: .destructive) { confirmDelete = true }
-                        .foregroundStyle(Theme.alert)
+                    Button(role: .destructive) { confirmDelete = true } label: {
+                        Text("Delete").errorLine()
+                    }
+                    .foregroundStyle(Theme.textPrimary)
                 }
             }
             .font(.ryft(.callout))

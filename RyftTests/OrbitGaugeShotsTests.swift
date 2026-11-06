@@ -17,6 +17,10 @@ import UIKit
         renderer.scale = 3
         guard let image = renderer.uiImage, let data = image.pngData() else { return }
         try? data.write(to: URL(fileURLWithPath: "\(dir)/\(name)-\(scheme == .dark ? "dark" : "light").png"))
+        // Every level and texture has to read without hue.
+        if name.hasPrefix("levels") || name.hasPrefix("past"), let grey = Self.simulate(image, matrix: Self.greyscale)?.pngData() {
+            try? grey.write(to: URL(fileURLWithPath: "\(dir)/\(name)-grey-\(scheme == .dark ? "dark" : "light").png"))
+        }
         // Colour-vision simulation (Machado et al. 2009, severity 1.0) of the shots that show the three orbits.
         if name == "large" || name == "sizes" {
             for (kind, m) in Self.deficiencies {
@@ -26,6 +30,9 @@ import UIKit
             }
         }
     }
+
+    /// Luma, Rec. 709.
+    private static let greyscale: [CGFloat] = [0.2126, 0.7152, 0.0722, 0.2126, 0.7152, 0.0722, 0.2126, 0.7152, 0.0722]
 
     /// Rows of the 3 x 3 matrix applied to (r, g, b).
     private static let deficiencies: [(String, [CGFloat])] = [
@@ -90,6 +97,18 @@ import UIKit
                     OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 82, recovery: 0.8, sleep: 0.9, strain: 12)), size: .medium)
                     OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 50, recovery: 0.5, sleep: 0.7, strain: 12)), size: .medium)
                     OrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 20, recovery: 0.2, sleep: 0.3, strain: 12)), size: .medium)
+                }
+            }
+            for (name, type) in [("default", DynamicTypeSize.large), ("ax3", .accessibility3)] {
+                write("levels-\(name)", scheme: scheme, dir: dir) {
+                    VStack(spacing: 12) {
+                        OrbitLevelPreviewGrid()
+                        OrbitGauge(mode: .scored(.previewBanded(strain: 16.5)), size: .large, caption: .preview)
+                    }
+                    .environment(\.dynamicTypeSize, type)
+                }
+                write("past-\(name)", scheme: scheme, dir: dir) {
+                    OrbitBandPreviewGrid().environment(\.dynamicTypeSize, type)
                 }
             }
             write("stubs", scheme: scheme, dir: dir) {

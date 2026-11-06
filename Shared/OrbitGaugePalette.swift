@@ -33,15 +33,16 @@ struct OrbitGaugePalette {
 
     /// The centre ring's colour: the band of the readiness, `noReadiness` without one.
     func band(forReadiness readiness: Int?) -> Color {
-        guard let readiness else { return noReadiness }
-        switch readiness {
-        case Self.highFrom...: return high
-        case Self.moderateFrom...: return moderate
-        default: return low
+        switch BandStyle(score: readiness) {
+        case .solid: return high
+        case .half: return moderate
+        case .outlined: return low
+        case .none: return noReadiness
         }
     }
 
-    /// The strain arc and dot past the band's upper end: `alert` itself (design.md §11 on why not a mix).
+    /// The ink of the strain arc and dot past the band's upper end: `alert` itself. One ink with `strain` in light, so
+    /// the texture says it (`OrbitGaugeGeometry.PastTexture`), not this colour.
     var strainPastBand: Color { low }
 
     func colour(of orbit: OrbitGaugeGeometry.Orbit) -> Color {

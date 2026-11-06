@@ -124,8 +124,28 @@ enum OrbitGaugeGeometry {
     /// ring. The arc's shift past the band still is (design.md §11).
     static let minDialForBandRail: CGFloat = 90
 
-    /// How much of its colour the rail keeps: `metricStrain` at this opacity.
-    static let bandRailOpacity = 0.5
+    /// How much of its colour the rail keeps: full ink, so the rail reaches 3:1 like every other mark.
+    static let bandRailOpacity = 1.0
+
+    /// How the arc and its dot read past the band. A texture, never a colour: the two are one ink in light.
+    enum PastTexture: Equatable, Sendable {
+        /// An outlined arc and dot filled with the fine hatch.
+        case hatch
+        /// Below `minDialForPastHatch` a hatch would be mush: a dashed arc, and a solid dot with a ring of the ground in it.
+        case dashes
+    }
+
+    /// From here the outer stroke is at least 4.5 pt: two 1 pt edges and 2.5 pt of hatch between them.
+    static let minDialForPastHatch: CGFloat = 131
+    /// The fine hatch, half ink, and the outline around it.
+    static let pastHatchLine: CGFloat = 1, pastHatchPitch: CGFloat = 2, pastEdge: CGFloat = 1
+
+    static func pastTexture(forDial dial: CGFloat) -> PastTexture {
+        dial >= minDialForPastHatch ? .hatch : .dashes
+    }
+
+    /// The dashed stretch's pattern, on and off, in strokes.
+    static func pastDash(stroke: CGFloat) -> [CGFloat] { [1.2 * stroke, 0.8 * stroke] }
 
     /// The band clamped to the strain scale, nil when nothing of it is left (an empty or one-point range, or one wholly
     /// outside 0...21). `ClosedRange` cannot be inverted, so "inverted" input never reaches here.
@@ -150,7 +170,7 @@ enum OrbitGaugeGeometry {
         return BandRail(start: start, sweep: Orbit.strain.headDegrees(for: band.upperBound / scale) - start)
     }
 
-    /// Where the strain arc turns toward alert (degrees clockwise from the top): the band's upper end, only when strain
+    /// Where the strain arc turns textured (degrees clockwise from the top): the band's upper end, only when strain
     /// is above it. nil: below the band, inside it (the end included), missing strain, or no usable band.
     static func strainPastBandDegrees(strain: Double?, band: ClosedRange<Double>?) -> Double? {
         guard let strain, strain.isFinite, let rail = bandRail(for: band) else { return nil }
@@ -158,11 +178,11 @@ enum OrbitGaugeGeometry {
         return min(strain, OrbitGaugeValues.strainScale) > upper ? rail.end : nil
     }
 
-    /// The radial line where the strain arc may turn toward alert: the band's upper end, whether or not strain is past
+    /// The radial line where the strain arc may turn textured: the band's upper end, whether or not strain is past
     /// it (the drawing is one structure and the line does not move with strain). nil: no usable band.
     static func strainSplitDegrees(band: ClosedRange<Double>?) -> Double? { bandRail(for: band)?.end }
 
-    /// The arc and dot's colour decision, for tests and the drawing alike.
+    /// Whether the arc and dot are past the band, for tests and the drawing alike.
     enum StrainTone: Equatable { case plain, pastBand }
 
     static func strainTone(_ values: OrbitGaugeValues) -> StrainTone {
@@ -172,6 +192,31 @@ enum OrbitGaugeGeometry {
     /// The rail is drawn: a usable band, and a dial that has room for it.
     static func drawsBandRail(_ band: ClosedRange<Double>?, dial: CGFloat) -> Bool {
         dial >= minDialForBandRail && bandRail(for: band) != nil
+    }
+
+    // MARK: the centre ring by level
+
+    /// `half`: 16 dashes and 16 gaps at every dial, each an arc of 11.25 degrees.
+    static let ringDashCount = 16
+
+    /// `half`'s pattern on a circle of `radius`, and its phase: a closed circle starts on a quarter of the turn, where the
+    /// pattern repeats, so half a gap there puts a gap's middle at the top and the seam stays hidden in it.
+    static func ringDash(radius: CGFloat) -> (dash: [CGFloat], phase: CGFloat) {
+        let length = 2 * .pi * radius / CGFloat(2 * ringDashCount)
+        return ([length, length], 1.5 * length)
+    }
+
+    /// `outlined`: the width of an edge, and the stroke below which two edges would close up.
+    static let ringEdge: CGFloat = 1
+    static let minStrokeForTwoRingEdges: CGFloat = 3.5
+
+    /// `outlined`: the edges' centreline radii. Two, inside the solid ring's stroke, with the ground between them; one on the
+    /// centreline where the stroke is too thin for that.
+    static func outlinedRingRadii(forDial dial: CGFloat) -> [CGFloat] {
+        let m = metrics(forDial: dial)
+        guard m.centreStroke >= minStrokeForTwoRingEdges else { return [m.centreRadius] }
+        let inset = (m.centreStroke - ringEdge) / 2
+        return [m.centreRadius - inset, m.centreRadius + inset]
     }
 
     // MARK: calibrating segments

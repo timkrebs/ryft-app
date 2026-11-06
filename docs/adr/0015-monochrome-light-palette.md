@@ -36,9 +36,10 @@ the web's source and the app's secondary look, so it can move first.
 
 ## Consequences
 
-- Light mode of the app is monochrome from this change on; readiness bands in light mode are
-  black / grey / black until the band logic moves to fill level, so this should ship together
-  with that pass, not before it.
+- Light mode of the app is monochrome from this change on. The orbit gauge ships with the palette: its
+  centre ring reads by `BandStyle` (solid, dashed, outlined) and past the strain band by texture, because
+  a colour could no longer tell them apart. The other scales follow in their own PR, each with a number or
+  a word beside it until then. ADR 0017 extends this to the dark appearance.
 - The website regenerates its tokens from these values and renders light-only.
-- Contrast: secondary text (#616161 effective) 5.9:1 and tertiary (#737373) 4.7:1 on white; both
+- Contrast: secondary text (#616161 effective) 6.20:1 and tertiary (#737373) 4.76:1 on white; both
   above 4.5:1, so `web/tests/contrast.test.ts` keeps passing.

@@ -25,6 +25,9 @@ enum FocusedRowInk {
         }
     }
 
+    /// The warm-up W, in List, Focused and history: text, so never `warning` (3.45:1 on white in light).
+    static let warmUpMark = Theme.textSecondary
+
     /// The tint under the active row. `CurrentSetHighlight` draws it.
     static let activeTint = 0.10
 }

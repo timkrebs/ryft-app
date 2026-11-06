@@ -163,7 +163,7 @@ struct PlateCalculatorSheet: View {
                         StatRow(title: "Each side", value: perSideText)
                         StatRow(title: "Bar", value: Fmt.kg(load.bar))
                         StatRow(title: "Loaded", value: Fmt.kg(load.total),
-                                valueColor: load.total == target ? Theme.textPrimary : Theme.warning)
+                                valueColor: load.total == target ? Theme.textPrimary : Theme.textSecondary)
                         if load.total != target {
                             Text("\(Fmt.kg(target)) can't be loaded with 2.5–25 kg plates; this is the closest below.")
                                 .font(.ryft(.caption))

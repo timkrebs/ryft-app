@@ -18,7 +18,7 @@ enum CoachMarkTarget: Int, CaseIterable, Hashable, Sendable {
         case .gauges:
             return String(localized: "Recovery and last night's sleep, against your own baseline. The ticks mark the bands; the line underneath compares with the 7 days before.")
         case .physiology:
-            return String(localized: "Tap a tile for the details. The word under recovery is its band, so the colour is never the only cue.")
+            return String(localized: "Tap a tile for the details. The word under recovery is its band, so no colour or mark is ever the only cue.")
         case .trends:
             return String(localized: "The last 7 days. Tap for every metric over 7, 30 or 90 days.")
         }

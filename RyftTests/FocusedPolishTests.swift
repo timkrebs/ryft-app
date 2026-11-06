@@ -288,13 +288,14 @@ struct FocusedPolishTests {
         #expect(FocusedRowInk.estimate(active: true, isDash: true, .dark) == Theme.textTertiary)
     }
 
-    /// `warning` needs no change: on the active row the W sits on its raised pill, never on the tint.
+    /// The W is text, so it's `FocusedRowInk.warmUpMark`, not `warning` (3.45:1 on white in light). On the active row it sits
+    /// on its raised pill, never on the tint.
     @Test("The warm-up W holds 4.5:1 on a plain row and on the active row's pill, in both schemes",
           arguments: [ColorScheme.light, .dark])
     func theWarmUpMark(scheme: ColorScheme) {
-        #expect(contrast(Theme.warning, on: background(scheme), scheme) >= 4.5)
+        #expect(contrast(FocusedRowInk.warmUpMark, on: background(scheme), scheme) >= 4.5)
         let pill = scheme == .light ? Theme.surface : Theme.surfaceRaised
-        #expect(contrast(Theme.warning, on: over(parts(pill, scheme), tint(scheme)), scheme) >= 4.5)
+        #expect(contrast(FocusedRowInk.warmUpMark, on: over(parts(pill, scheme), tint(scheme)), scheme) >= 4.5)
     }
 
     @Test("An unfilled Finish reads 4.5:1 on its capsule", arguments: [ColorScheme.light, .dark])

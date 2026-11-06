@@ -151,7 +151,7 @@ struct SessionDetailView: View {
                         HStack {
                             Text(set.isWarmup ? "W" : "\(i + 1)")
                                 .font(.ryftNumber(size: 14))
-                                .foregroundStyle(set.isWarmup ? Theme.warning : Theme.textTertiary)
+                                .foregroundStyle(set.isWarmup ? FocusedRowInk.warmUpMark : Theme.textTertiary)
                                 .frame(width: 24, alignment: .leading)
                             Text(SetText.short(set))
                                 .font(.ryft(.body))

@@ -91,6 +91,8 @@ struct WidgetOrbitGauge: View {
             VStack(spacing: 12) {
                 WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)))
                 WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 64, recovery: 0.62, strain: 6.2)))
+                WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 28, recovery: 0.24, sleep: 0.41, strain: 17.8)))
+                WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: nil, recovery: 0.62, strain: 6.2)))
                 WidgetOrbitGauge(mode: nil, readiness: 71)
                 WidgetOrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)))
                 WidgetOrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .custom(dial: 104))

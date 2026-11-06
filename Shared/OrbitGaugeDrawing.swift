@@ -78,7 +78,8 @@ extension OrbitGaugeDrawing where Marks == OrbitGaugeMarks, Centre == EmptyView 
 }
 
 /// Tracks in the palette's track colour, with the air around every dot cut out of them, as the mark cuts its rings.
-/// The centre ring's track only where no readiness ring is drawn over it (the stubs, an unknown mode).
+/// The centre ring's track only where no readiness ring is drawn over it (the stubs, an unknown mode). A dashed or outlined
+/// ring shows the background, not a track: `Warning` reaches 3:1 there and not on the track.
 struct OrbitGaugeTracks: View {
     let mode: OrbitGaugeMode?
     let dial: CGFloat
@@ -125,7 +126,7 @@ struct OrbitGaugeTracks: View {
 }
 
 /// The marks of a mode: per orbit the arc and the filled dot of a present score, or the hollow dot of a missing
-/// one; the centre ring in the readiness band's colour when scored. Calibrating adds the filled segments; pending
+/// one; the centre ring by the readiness's level when scored. Calibrating adds the filled segments; pending
 /// draws the previous day's marks at `pendingOpacity`. The other modes draw three hollow dots.
 struct OrbitGaugeMarks: View {
     let mode: OrbitGaugeMode
@@ -155,11 +156,8 @@ struct OrbitGaugeMarks: View {
                       m)
             }
             if let values {
-                let d = m.centreRadius * 2 + m.centreStroke
-                Circle()
-                    .inset(by: m.centreStroke / 2)
-                    .stroke(palette.band(forReadiness: values.readiness), lineWidth: m.centreStroke)
-                    .frame(width: d, height: d)
+                OrbitCentreRing(style: BandStyle(score: values.readiness), dial: dial,
+                                colour: palette.band(forReadiness: values.readiness))
             }
         }
         // One group, so a dot over its arc does not darken twice.
@@ -185,11 +183,13 @@ struct OrbitGaugeMarks: View {
         if let fraction {
             if let split {
                 // A usable band: one structure whatever the strain is, so a change that crosses the band's end moves
-                // the arc and the dot's colour with it (`OrbitStrainArc`, `OrbitStrainDot`).
+                // the arc and the dot's texture with it (`OrbitStrainArc`, `OrbitStrainDot`).
+                let texture = OrbitGaugeGeometry.pastTexture(forDial: dial)
                 OrbitStrainArc(radius: m.radius(of: orbit), stroke: m.stroke(of: orbit),
-                               sweep: orbit.sweep(for: fraction), split: split, plain: colour, past: palette.strainPastBand)
+                               sweep: orbit.sweep(for: fraction), split: split, plain: colour, past: palette.strainPastBand,
+                               texture: texture)
                 OrbitStrainDot(radius: m.radius(of: orbit), sweep: orbit.sweep(for: fraction), dotRadius: m.dotRadius,
-                               split: split, plain: colour, past: palette.strainPastBand)
+                               split: split, plain: colour, past: palette.strainPastBand, texture: texture)
             } else {
                 OrbitArc(radius: m.radius(of: orbit), start: orbit.startDegrees, sweep: orbit.sweep(for: fraction))
                     .stroke(colour, style: StrokeStyle(lineWidth: m.stroke(of: orbit), lineCap: .round))
@@ -226,7 +226,7 @@ extension OrbitGaugeGeometry.Orbit {
 
 // MARK: strain band (PR 4)
 
-/// The band's rail: a thin butt-capped arc inside the outer orbit, `metricStrain` at `bandRailOpacity`, with the air around
+/// The band's rail: a thin butt-capped arc inside the outer orbit, in `metricStrain` at `bandRailOpacity`, with the air around
 /// the strain dot cut out of it the way the tracks are (`cut`: the dot's start and sweep on its orbit, like the tracks').
 /// Draws nothing for an empty band.
 struct OrbitGaugeBandRail: View {
@@ -251,11 +251,11 @@ struct OrbitGaugeBandRail: View {
     }
 }
 
-/// The strain arc with a band: one stroked arc drawn twice, `plain` up to `split` (the band's upper end, degrees from the
-/// top) and `past` beyond it, each clipped to its side of a radial line, so the join is straight, the caps stay round at
-/// both ends and there is no fringe of one colour under the edge of the other. Always this structure for a usable band,
-/// whatever the strain: it is `Animatable` in the sweep, so the past layer grows and shrinks with the arc and nothing swaps
-/// when a change crosses the band's end. Below the split the past layer is empty.
+/// The strain arc with a band: one stroked arc in `plain` up to `split` (the band's upper end, degrees from the top) and, in
+/// `past`, its `texture` beyond it, clipped to its side of a radial line, so the join is straight and the caps stay round at
+/// both ends. Always this structure for a usable band, whatever the strain: it is `Animatable` in the sweep, so the textured
+/// stretch grows and shrinks with the arc and nothing swaps when a change crosses the band's end. Below the split that
+/// stretch is empty.
 struct OrbitStrainArc: View, Animatable {
     var radius: CGFloat
     var stroke: CGFloat
@@ -263,6 +263,7 @@ struct OrbitStrainArc: View, Animatable {
     var split: Double
     var plain: Color
     var past: Color
+    var texture: OrbitGaugeGeometry.PastTexture
 
     var animatableData: Double {
         get { sweep }
@@ -276,13 +277,27 @@ struct OrbitStrainArc: View, Animatable {
             // The start cap reaches a few degrees before the top (it stays `plain`); the far end is under the dot.
             arc.foregroundStyle(plain).clipShape(OrbitWedge(from: -8, to: split))
             if sweep > split {
-                arc.foregroundStyle(past).clipShape(OrbitWedge(from: split, to: min(sweep + 4, 357)))
+                pastStretch
             }
+        }
+    }
+
+    @ViewBuilder
+    private var pastStretch: some View {
+        switch texture {
+        case .hatch:
+            OrbitHatched(shape: OrbitArcStroke(radius: radius, stroke: stroke, sweep: sweep), colour: past)
+                .clipShape(OrbitWedge(from: split, to: min(sweep + 4, 357)))
+        case .dashes:
+            // Starts at the split, so the dashes stay put while the arc grows.
+            OrbitArc(radius: radius, start: split, sweep: sweep - split)
+                .stroke(past, style: StrokeStyle(lineWidth: stroke, lineCap: .butt,
+                                                   dash: OrbitGaugeGeometry.pastDash(stroke: stroke)))
         }
     }
 }
 
-/// The strain dot with a band: `past` once its head is beyond `split`, `plain` before, decided from the animated sweep
+/// The strain dot with a band: textured once its head is beyond `split`, plain before, decided from the animated sweep
 /// (it switches at the moment the head crosses the line, not at the end of the animation).
 struct OrbitStrainDot: View, Animatable {
     var radius: CGFloat
@@ -291,6 +306,7 @@ struct OrbitStrainDot: View, Animatable {
     var split: Double
     var plain: Color
     var past: Color
+    var texture: OrbitGaugeGeometry.PastTexture
 
     var animatableData: Double {
         get { sweep }
@@ -298,8 +314,100 @@ struct OrbitStrainDot: View, Animatable {
     }
 
     var body: some View {
-        OrbitDot(radius: radius, start: 0, sweep: sweep, dotRadius: dotRadius)
-            .fill(sweep > split ? past : plain)
+        let dot = OrbitDot(radius: radius, start: 0, sweep: sweep, dotRadius: dotRadius)
+        if sweep > split {
+            OrbitPastDot(dot: dot, colour: past, texture: texture)
+        } else {
+            dot.fill(plain)
+        }
+    }
+}
+
+/// The dot past the band. It clears what is under it from the layer it is drawn in (the arc's end), so the caller's marks
+/// sit in a `compositingGroup`, as the rail's cut-out does.
+struct OrbitPastDot: View {
+    let dot: OrbitDot
+    let colour: Color
+    let texture: OrbitGaugeGeometry.PastTexture
+
+    /// The ring of the ground inside the dashed texture's dot, and how far in from the dot's edge it sits.
+    private static let ringWidth: CGFloat = 1, ringInset: CGFloat = 1.5
+
+    var body: some View {
+        switch texture {
+        case .hatch:
+            ZStack {
+                dot.fill(.black).blendMode(.destinationOut)
+                OrbitHatched(shape: dot, colour: colour)
+            }
+        case .dashes:
+            ZStack {
+                dot.fill(colour)
+                OrbitDot(radius: dot.radius, start: dot.start, sweep: dot.sweep, dotRadius: dot.dotRadius - Self.ringInset)
+                    .stroke(.black, lineWidth: Self.ringWidth)
+                    .blendMode(.destinationOut)
+            }
+        }
+    }
+}
+
+/// A shape outlined inside its edge and filled with the fine hatch.
+struct OrbitHatched<S: Shape>: View {
+    let shape: S
+    let colour: Color
+
+    var body: some View {
+        ZStack {
+            RyftHatch(line: OrbitGaugeGeometry.pastHatchLine, pitch: OrbitGaugeGeometry.pastHatchPitch).fill(colour)
+            // Centred on the edge, so the clip leaves its inner half.
+            shape.stroke(colour, lineWidth: OrbitGaugeGeometry.pastEdge * 2)
+        }
+        .clipShape(shape)
+    }
+}
+
+/// The centre ring of one level, on the stroke of the solid ring: solid, 16 dashes, or outlined. Without a score it is
+/// still today's solid ring, in `noReadiness`; dropping it is `design.md` 4.1's and PR 3's.
+struct OrbitCentreRing: View {
+    let style: BandStyle
+    let dial: CGFloat
+    let colour: Color
+
+    var body: some View {
+        let m = OrbitGaugeGeometry.metrics(forDial: dial)
+        switch style {
+        case .solid, .none:
+            let d = m.centreRadius * 2 + m.centreStroke
+            Circle()
+                .inset(by: m.centreStroke / 2)
+                .stroke(colour, lineWidth: m.centreStroke)
+                .frame(width: d, height: d)
+        case .half:
+            // One dashed circle: 16 arcs in one stroked path bridged gaps at some sizes.
+            let pattern = OrbitGaugeGeometry.ringDash(radius: m.centreRadius)
+            Circle()
+                .stroke(colour, style: StrokeStyle(lineWidth: m.centreStroke, lineCap: .butt,
+                                                   dash: pattern.dash, dashPhase: pattern.phase))
+                .frame(width: m.centreRadius * 2, height: m.centreRadius * 2)
+        case .outlined:
+            ForEach(OrbitGaugeGeometry.outlinedRingRadii(forDial: dial), id: \.self) { radius in
+                Circle()
+                    .stroke(colour, lineWidth: OrbitGaugeGeometry.ringEdge)
+                    .frame(width: radius * 2, height: radius * 2)
+            }
+        }
+    }
+}
+
+/// The area an arc from the top covers when stroked with round caps, to outline it and clip a texture to it.
+struct OrbitArcStroke: Shape {
+    var radius: CGFloat
+    var stroke: CGFloat
+    var sweep: Double
+
+    func path(in rect: CGRect) -> Path {
+        OrbitArc(radius: radius, start: 0, sweep: sweep).path(in: rect)
+            .strokedPath(StrokeStyle(lineWidth: stroke, lineCap: .round))
     }
 }
 

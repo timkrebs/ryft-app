@@ -295,7 +295,7 @@ struct SleepScheduleView: View {
                 .font(.ryft(.body))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
-        .foregroundStyle(Theme.warning)
+        .foregroundStyle(Theme.textSecondary)
         .accessibilityIdentifier("schedule.turnOff")
     }
 
@@ -406,8 +406,9 @@ struct SleepScheduleView: View {
                 refused
             } else if let problem = planner.alarmProblem {
                 Text(problem)
+                    .warningLine()
                     .font(.ryft(.caption))
-                    .foregroundStyle(Theme.warning)
+                    .foregroundStyle(Theme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -422,8 +423,9 @@ struct SleepScheduleView: View {
     private var refused: some View {
         HStack {
             Text("Not allowed in iOS Settings.")
+                .warningLine()
                 .font(.ryft(.caption))
-                .foregroundStyle(Theme.warning)
+                .foregroundStyle(Theme.textPrimary)
             Spacer()
             Button("Open Settings") {
                 if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }

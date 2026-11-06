@@ -210,7 +210,7 @@ struct DebugComponentCatalog: View {
                 VStack(alignment: .leading, spacing: 12) {
                     CardHeader(title: "Trends", trailing: "7 days", showsChevron: true)
                     StatRow(title: "Bedtime", value: "22:58")
-                    StatRow(title: "Sleep debt", value: "1h 05m", valueColor: Theme.warning)
+                    StatRow(title: "Sleep debt", value: "1h 05m", warns: true)
                     StatRow(title: "Timezone", value: "Europe/Berlin", detail: "Phone: Europe/Lisbon")
                 }
             }

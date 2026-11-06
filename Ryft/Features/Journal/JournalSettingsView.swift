@@ -19,7 +19,7 @@ struct JournalSettingsView: View {
     var body: some View {
         List {
             if let error {
-                Section { Text(error).font(.ryft(.callout)).foregroundStyle(Theme.alert) }
+                Section { Text(error).errorLine().font(.ryft(.callout)).foregroundStyle(Theme.textPrimary) }
                     .listRowBackground(Theme.surface)
             }
             ForEach(groups, id: \.0) { category, behaviors in
@@ -122,7 +122,7 @@ struct AddBehaviorSheet: View {
                     }
                 }
                 if let error {
-                    Section { Text(error).foregroundStyle(Theme.alert) }
+                    Section { Text(error).errorLine().foregroundStyle(Theme.textPrimary) }
                 }
             }
             .scrollContentBackground(.hidden)
