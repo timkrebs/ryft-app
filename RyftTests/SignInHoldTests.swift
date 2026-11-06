@@ -121,17 +121,19 @@ struct SignInHoldTests {
     }
 
     /// The link is spent, so the launch that lets its account in asks for the new password, once.
-    @Test(arguments: ["ryft://auth/callback?code=synthetic&type=recovery", "ryft://auth/callback?code=synthetic"])
-    func aHeldRecoveryLinkAsksAtTheLaunchThatPublishes(_ link: String) async throws {
+    @Test(arguments: [("ryft://auth/callback?code=synthetic&type=recovery", false, true),
+                      ("ryft://auth/callback?code=synthetic", true, true),
+                      ("ryft://auth/callback?code=synthetic", false, false)])
+    func aHeldRecoveryLinkAsksAtTheLaunchThatPublishes(_ link: (url: String, requested: Bool, asks: Bool)) async throws {
         let rig = try await refused()
-        await rig.auth.sendPasswordReset(email: "synthetic@example.com")
+        if link.requested { await rig.auth.sendPasswordReset(email: "synthetic@example.com") }
         rig.client.signInSession = .preview(id: accountB)
-        #expect(await rig.auth.handle(try #require(URL(string: link))))
+        #expect(await rig.auth.handle(try #require(URL(string: link.url))))
         #expect(rig.auth.needsNewPassword == false)
 
         rig.relaunch(signedInAs: accountB)
         #expect(rig.auth.accountID == b)
-        #expect(rig.auth.needsNewPassword)
+        #expect(rig.auth.needsNewPassword == link.asks)
 
         rig.relaunch(signedInAs: accountB)
         #expect(rig.auth.needsNewPassword == false)
@@ -355,7 +357,7 @@ struct SignInHoldTests {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         WipeLedger(file: rig.ledgerFile).begin(Wipe(reason: .user, account: a), at: rig.clock.now())
         let hold = Hold()
-        rig.relaunch(signedInAs: WipeValues.accountA) { await hold.wait(); }
+        rig.relaunch(signedInAs: WipeValues.accountA) { await hold.wait() }
         let client = rig.client
         #expect(await eventually { client.signOutCount == 1 })
         #expect(await logIn(rig, as: accountB) == false)
