@@ -391,6 +391,23 @@ struct SignInHoldTests {
         #expect(rig.ledgerOnDisk == nil)
     }
 
+    /// No id says otherwise, so the entry's name stands: a true wipe that ran during the SDK call, or a repeat of one,
+    /// can take the id and leave the debt.
+    @Test func aReturnWithNoOwnerLeftIsStillAReturn() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        let work = try unsent(of: a, in: rig)
+        rig.disk.fill([.cachedDay])
+        try rig.disk.refuseDeletes(of: .cachedDay)
+        await rig.end(.sessionExpired)
+        rig.defaults.removeObject(forKey: AccountScope.defaultsKey)
+        try rig.disk.allowDeletes()
+
+        #expect(await logIn(rig, as: WipeValues.accountA))
+
+        #expect(rig.wipes.last?.parking == a)
+        #expect(try activities(rig).contains(work))
+    }
+
     /// The name on the entry isn't enough: `lastUserKey` says the store holds someone else's rows.
     @Test(arguments: [true, false])
     func aReturnOverAnotherOwnersRowsWipesThem(_ healthy: Bool) async throws {
@@ -453,6 +470,24 @@ struct SignInHoldTests {
             expectHeld(rig, for: WipeValues.accountA)
             #expect(rig.ledgerOnDisk?.wipe.reason?.isDeletion == true)
         }
+    }
+
+    /// A sign-out's notice goes with a sign-in, not with a refresh of the session that's ending.
+    @Test func aRefreshDuringASignOutKeepsItsNotice() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        await rig.settle()
+        let hold = Hold(), auth = rig.auth, client = rig.client
+        client.onSignOut = { await hold.wait() }
+        let signOut = Task { await auth.signOut(reason: .sessionExpired) }
+        #expect(await eventually { client.signOutCount == 1 })
+
+        client.emit(.tokenRefreshed, .preview(id: WipeValues.accountA))
+        await rig.settle()
+        #expect(auth.signOutNotice != nil)
+
+        hold.open()
+        await signOut.value
+        #expect(auth.signOutNotice != nil)
     }
 
     // MARK: whose state is this

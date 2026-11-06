@@ -741,6 +741,8 @@ struct TrainStoreWipeTests {
 
         await rig.signIn(WipeValues.accountB)
         #expect(rig.auth.accountID == nil)
+        #expect(rig.wipes.last?.account == WipeValues.accountA.uuidString, "the entry names who's leaving")
+        #expect(rig.wipes.last?.storeOnly == true)
     }
 }
 
