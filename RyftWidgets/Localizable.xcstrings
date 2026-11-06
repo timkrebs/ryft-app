@@ -2,335 +2,57 @@
   "sourceLanguage" : "en",
   "strings" : {
     "%@, not scored" : {
-      "comment" : "Widget VoiceOver: a score that is missing (not scored), after its name (Recovery, Sleep, Strain).",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@, nicht bewertet"
-          }
-        }
-      }
+      "comment" : "Widget VoiceOver: a score that is missing (not scored), after its name (Recovery, Sleep, Strain)."
     },
-    "Baselines %lld of %lld" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ausgangswerte %1$lld von %2$lld"
-          }
-        }
-      }
-    },
-    "Bed by %@" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ins Bett um %@"
-          }
-        }
-      }
-    },
-    "High" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hoch"
-          }
-        }
-      }
-    },
-    "Last readiness %lld." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Letzte Bereitschaft %lld."
-          }
-        }
-      }
-    },
-    "Low" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Niedrig"
-          }
-        }
-      }
-    },
-    "Moderate" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mittel"
-          }
-        }
-      }
-    },
+    "Baselines %lld of %lld" : {},
+    "Bed by %@" : {},
+    "High" : {},
+    "Last readiness %lld." : {},
+    "Low" : {},
+    "Moderate" : {},
     "Next: %@" : {
-      "comment" : "Live Activity: the next set, e.g. Next: Bench press · set 3 of 4.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "Als Nächstes: %@"
-          }
-        }
-      }
+      "comment" : "Live Activity: the next set, e.g. Next: Bench press · set 3 of 4."
     },
-    "Open" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Öffnen"
-          }
-        }
-      }
-    },
-    "Open RYFT to see your readiness." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Öffne RYFT, um deine Bereitschaft zu sehen."
-          }
-        }
-      }
-    },
-    "Readiness" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bereitschaft"
-          }
-        }
-      }
-    },
-    "Readiness %lld · %@" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bereitschaft %1$lld · %2$@"
-          }
-        }
-      }
-    },
-    "Readiness %lld, %@" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bereitschaft %1$lld, %2$@"
-          }
-        }
-      }
-    },
+    "Open" : {},
+    "Open RYFT to see your readiness." : {},
+    "Readiness" : {},
+    "Readiness %lld · %@" : {},
+    "Readiness %lld, %@" : {},
     "Recovery" : {
-      "comment" : "Widget VoiceOver: the Recovery score's name, before “no data”.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Erholung"
-          }
-        }
-      }
+      "comment" : "Widget VoiceOver: the Recovery score's name, before “no data”."
     },
     "Recovery %@ percent" : {
-      "comment" : "Widget VoiceOver: Recovery with its value, e.g. 71.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Erholung %@ Prozent"
-          }
-        }
-      }
+      "comment" : "Widget VoiceOver: Recovery with its value, e.g. 71."
     },
     "Rest" : {
-      "comment" : "Dynamic Island label of the rest timer.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "Pause"
-          }
-        }
-      }
+      "comment" : "Dynamic Island label of the rest timer."
     },
     "REST" : {
-      "comment" : "Lock screen label of the rest timer (uppercase).",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "PAUSE"
-          }
-        }
-      }
+      "comment" : "Lock screen label of the rest timer (uppercase)."
     },
-    "Scoring your night…" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deine Nacht wird bewertet …"
-          }
-        }
-      }
-    },
+    "Scoring your night…" : {},
     "Sleep" : {
-      "comment" : "Widget VoiceOver: the Sleep score's name, before “no data”.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Schlaf"
-          }
-        }
-      }
+      "comment" : "Widget VoiceOver: the Sleep score's name, before “no data”."
     },
     "Sleep %@ percent" : {
-      "comment" : "Widget VoiceOver: sleep performance with its value, e.g. 88.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Schlaf %@ Prozent"
-          }
-        }
-      }
+      "comment" : "Widget VoiceOver: sleep performance with its value, e.g. 88."
     },
-    "SNOOZING" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SCHLUMMERT"
-          }
-        }
-      }
-    },
-    "Snoozing" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Schlummert"
-          }
-        }
-      }
-    },
-    "Start or resume workout" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Workout starten oder fortsetzen"
-          }
-        }
-      }
-    },
-    "Start workout" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Workout starten"
-          }
-        }
-      }
-    },
-    "Starts a strength workout in RYFT, or resumes the one in progress." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Startet ein Krafttraining in RYFT oder setzt das laufende Workout fort."
-          }
-        }
-      }
-    },
+    "SNOOZING" : {},
+    "Snoozing" : {},
+    "Start or resume workout" : {},
+    "Start workout" : {},
+    "Starts a strength workout in RYFT, or resumes the one in progress." : {},
     "Strain" : {
-      "comment" : "Widget VoiceOver: the Strain score's name, before “no data”.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Belastung"
-          }
-        }
-      }
+      "comment" : "Widget VoiceOver: the Strain score's name, before “no data”."
     },
     "Strain %@ of 21" : {
-      "comment" : "Widget VoiceOver: Strain on its 0 to 21 scale, e.g. 9.6.",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Belastung %@ von 21"
-          }
-        }
-      }
+      "comment" : "Widget VoiceOver: Strain on its 0 to 21 scale, e.g. 9.6."
     },
-    "Today's readiness, or how far scoring your night is." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deine Bereitschaft heute, oder wie weit die Bewertung deiner Nacht ist."
-          }
-        }
-      }
-    },
-    "Waiting for last night" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Warte auf die letzte Nacht"
-          }
-        }
-      }
-    },
-    "Your alarm rings again" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dein Wecker klingelt gleich wieder"
-          }
-        }
-      }
-    },
-    "WORKOUT" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "WORKOUT"
-          }
-        }
-      }
-    },
-    "Workout" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Workout"
-          }
-        }
-      }
-    }
+    "Today's readiness, or how far scoring your night is." : {},
+    "Waiting for last night" : {},
+    "Your alarm rings again" : {},
+    "WORKOUT" : {},
+    "Workout" : {}
   },
   "version" : "1.3"
 }

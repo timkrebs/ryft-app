@@ -10,12 +10,6 @@
             "state" : "translated",
             "value" : "Ryft"
           }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "Ryft"
-          }
         }
       }
     },
@@ -26,12 +20,6 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ryft"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
             "value" : "Ryft"
           }
         }
@@ -46,12 +34,6 @@
             "state" : "translated",
             "value" : "RYFT sets the wake-up alarm you choose in Bedtime & wake, so it rings even in Silent mode and Focus."
           }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "RYFT stellt den Wecker, den du in „Schlafenszeit & Aufwachen“ wählst, damit er auch im Stumm-Modus und bei Fokus klingelt."
-          }
         }
       }
     },
@@ -64,12 +46,6 @@
             "state" : "translated",
             "value" : "RYFT reads heart rate, HRV, resting heart rate, breathing rate, blood oxygen, VO₂ max, steps, active energy, sleep and workouts to calculate your recovery, strain and sleep scores. The data is sent to your RYFT account and never used for advertising."
           }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "machine_translated",
-            "value" : "RYFT liest Herzfrequenz, HRV, Ruhepuls, Atemfrequenz, Blutsauerstoff, VO₂max, Schritte, aktive Energie, Schlaf und Workouts, um deine Erholungs-, Belastungs- und Schlafwerte zu berechnen. Die Daten werden an dein RYFT-Konto gesendet und nie für Werbung verwendet."
-          }
         }
       }
     },
@@ -81,12 +57,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "RYFT saves your strength workouts to Apple Health, only if you turn it on. It writes nothing else."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "RYFT speichert deine Krafttrainings in Apple Health, nur wenn du das einschaltest. Sonst schreibt RYFT nichts."
           }
         }
       }
