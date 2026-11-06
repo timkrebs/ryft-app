@@ -101,6 +101,8 @@ Store "What's New".
 ### Fixed
 - Removing an exercise in a workout closes the keypad if it was open on that exercise. It stayed up with keys that did nothing.
 - If this iPhone can't delete your training data when you sign out, RYFT tries again when another account signs in.
+- A sign-out or account deletion that RYFT couldn't finish on this iPhone, because the app was closed or the iPhone refused,
+  finishes the next time you open RYFT. Until it has, a different account can't sign in on this iPhone, and RYFT says so.
 - Today: after a sync, last night shows as being scored on every path (a background sync, a relaunch, a pull),
   and a calibrating day no longer stays on "Scoring your night…" after its score arrives.
 - Today's baseline counter no longer sits at 0 of 7 when your tracker sends no HRV: it counts the resting-heart-rate

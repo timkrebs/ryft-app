@@ -25,7 +25,7 @@ enum BackgroundWork {
     static func register(coordinator: SyncCoordinator, backlogBytes: @escaping @MainActor () -> Int?,
                          afterRefresh: @escaping @MainActor () async -> Void = {},
                          expired: @escaping @MainActor () -> Void = {},
-                         compact: @escaping @MainActor () -> Void) {
+                         compact: @escaping @MainActor () async -> Void) {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: refreshTaskID, using: nil) { task in
             guard let task = task as? BGAppRefreshTask else { return }
             scheduleRefresh()
@@ -55,7 +55,7 @@ enum BackgroundWork {
             guard let task = task as? BGProcessingTask else { return }
             scheduleCompaction()
             Task { @MainActor in
-                compact()
+                await compact()
                 task.setTaskCompleted(success: true)
             }
         }

@@ -1,6 +1,6 @@
 # Sign-out wipe recovery: what happens when a wipe fails or the app dies during one
 
-**Status:** decided, not built. U1 to U3 are answered in §8; U4 and U5 stay open.
+**Status:** decided; W1 to W3 built. U1 to U3 are answered in §8; U4 and U5 stay open.
 
 Follow-up to #93 (`train: a sign-out deletes session rows one by one`). Designed against `fix/train-wipe-objects`, head
 `a669d5b`, not `main`. Values are synthetic. Line numbers are that commit's.
@@ -65,6 +65,8 @@ struct OwedWipe: Codable, Equatable {
     var since: Date { wipe.since } // the first begin; stamped as `parkedAt`, starts the 30-day bound
     var deviceStepsDone = false   // set after the first pass, so a retry runs only the store step
     var scrubOnly = false         // the wipe succeeded; only file residue is left (W7)
+    var endsOwnSession = true     // false only on a W1 entry; a published-over entry sets publishedOver instead
+    var publishedOver = false     // its account came back after a refused pass and works over it (W3)
 }
 
 @MainActor final class WipeLedger {
@@ -73,13 +75,15 @@ struct OwedWipe: Codable, Equatable {
     func begin(_ wipe: AuthService.Wipe, at: Date)   // merges, see below
     func update(_ change: (inout OwedWipe) -> Void)
     func clear()
+    var forStoreStep: OwedWipe?   // what this launch's `AuthService` resolved, memory only (W2)
 }
 ```
 
 - **Writes:** atomic, `.completeFileProtectionUntilFirstUserAuthentication`, the same class as the Keychain session.
 - **`since` lives in `Wipe`** (W1), so `OwedWipe.since` reads it, a retry runs `entry.wipe` as it stands, and I4 needs no
   second copy. W1 also stores `storeOnly`, because W1 builds write the file W2 reads. Nothing sets it before W2.
-- **Reading the format:** a missing `storeOnly`, `deviceStepsDone` or `scrubOnly` reads as false. `since` is required.
+- **Reading the format:** a missing `storeOnly`, `deviceStepsDone`, `scrubOnly`, `endsOwnSession` or `publishedOver` reads as false. `since`
+  is required. A missing `endsOwnSession` is how a W1 build's entry is told apart (W2).
 - **Merging `begin`:** the earliest `since` stays. Anything that doesn't park the same account narrows the entry to no
   parking: a different account, a nil reason, or the same account's `.user` or deletion. A deletion's reason always
   replaces the entry's, for W5's notice. It never widens back. The entry keeps its first account, and a wipe already asked
@@ -95,9 +99,16 @@ struct OwedWipe: Codable, Equatable {
 - **I1.** While an entry that isn't `scrubOnly` exists, no new session is published, except the entry's own account signing
   in again, which ends the entry. The leaving session stays published only until its own `apply(nil)`, inside the same
   sign-out.
-- **I2.** The entry is written before the first destructive step and before the SDK drops the session. Only a wipe that
-  returned true removes it, with one exception: the entry's own account signing in ends it, and until W3 that's with no
-  attempt, so W1 changes no sign-in. A stored session restored at launch isn't a sign-in: the entry survives it.
+- **I2.** The entry is written before the first destructive step and before the SDK drops the session. Three things remove
+  it:
+  - A wipe that returned true, once the replace left no files and an interrupted sign-out's `client.signOut()` has run,
+    in a process with no refused pass. After a refusal only a later launch's pass can (W3).
+  - `.forget`: an entry an account was published over, with that account's session stored, or a scrub with any session.
+    No wipe runs. The first is `publishedOver`, a return after a refused pass (W3), or a W1 build's entry unless it's a
+    deletion: that account's rows are its own. A `publishedOver` entry the launch couldn't read goes the same way in
+    `publish`.
+
+  A stored session restored at launch isn't a sign-in. Unless `.forget` applies, the entry survives it.
 - **I3.** `auth.lastUserID` means only "whose data the store holds". The debt lives only in the ledger.
 - **I4.** A retry parks with `at: since`.
 - **I5.** Nothing writes to the widget while a debt exists.
@@ -109,24 +120,28 @@ stateDiagram-v2
     Owed --> Clean: wipe true, a parking wipe
     Owed --> Scrub: wipe true, no parking (W7)
     Owed --> Owed: wipe false, or kill
-    Owed --> Clean: the same account signs in, after one attempt (W3; no attempt before it)
+    Owed --> Clean: the same account signs in, after one true attempt, no pass refused in this process (W3)
+    Owed --> Owed: the same account signs in after a refusal: published, the entry marked published over (W3)
+    Owed --> Clean: forget, its account stored: publishedOver, or a W1 entry not of a deletion (W2, W3)
     Scrub --> Clean: next launch signed out, files replaced
     Scrub --> Clean: any session published
+    Scrub --> Clean: forget, any session stored at launch (W2)
 ```
 
 ### At launch
 
 The store step runs in `static let TrainStore.shared`, before the container opens, so every route to the store passes it.
-`AuthService.init` runs first and narrows the entry when it reads another account's stored session. `AppEnvironment.live`
-passes `auth: .shared` ahead of `TrainStore.shared` (Read). If that order ever flips, the launch falls back to the object
-wipe and the gate, and the next launch converges.
+`AuthService.init` runs first, resolves the entry, and leaves it in `forStoreStep`, the only thing the store step reads.
+`AppEnvironment.live` passes `auth: .shared` ahead of `TrainStore.shared` (Read). If that order ever flips, `forStoreStep`
+is nil, so the launch falls back to the object wipe and the gate, and the next launch converges.
 
 | Entry | Stored session | Before the store opens | After |
 |---|---|---|---|
 | none | any | nothing | as today |
 | owed, no parking | none | replace files | run the wipe, clear, signed out |
 | owed, no parking | another account | replace files | run the wipe, clear, publish it |
-| owed, no parking | the entry's account | replace files | sign-out was interrupted: run the wipe, clear, `client.signOut()`, signed out |
+| `publishedOver`, or a W1 build's and not a deletion | the entry's account | nothing | clear, publish it: the rows may be live work (W2, W3) |
+| owed, no parking | the entry's account | replace files | sign-out was interrupted: run the wipe, `client.signOut()`, clear, signed out |
 | owed, parking, within 30 days | none | nothing | object wipe after the first frame, `at: since` |
 | owed, parking, within 30 days | the entry's account | nothing | same, and `client.signOut()`; not published |
 | owed, parking | another account | narrowed, replace files | run the wipe, clear, publish it |
@@ -136,25 +151,41 @@ wipe and the gate, and the next launch converges.
 
 - **Replace files** means removing `Train.store`, `-wal`, `-shm` and `.Train_SUPPORT` at the configuration's URL, then
   the app-container orphan through `OrphanedStoreCleanup.run`, reusing its names and `decide`.
-- **The wipe always runs after a replace.** If a file couldn't be removed, or SwiftData copied an orphan back, the object
-  wipe still catches it, and the entry clears only on true.
+- **The wipe always runs after a replace.** If SwiftData copied an orphan back, the object wipe still catches it, and the
+  entry clears only on true. A file the replace couldn't remove counts as false whatever the store answers, so the entry
+  stays and the next launch replaces again (W2).
 - **If the wipe still fails,** the gate below applies.
 - **The retry** also runs from the nightly compaction beside `deleteExpiredParked`, so a background-only run can reach it.
+  Not after a pass refused in that process: a true answer there proves nothing, and the next sign-in would be published
+  over what it left (W3).
 
 ### At sign-in (`apply`, the one chokepoint)
 
 | Entry and owner | Action |
 |---|---|
-| Neither, or both are this account | publish |
-| Another account in the entry or `lastUserID` | `begin`, wipe with no parking. True: clear and publish. False: **hold** |
-| The entry's own account signs in | one attempt with the entry's parking, then clear, publish either way. The rows are its own, and keeping the entry would let a later launch take its live work |
+| No entry, and `lastUserID` is nil or this account | publish |
+| An interrupted sign-out's `client.signOut()` is running | **hold**, with no attempt: the entry stands until the call returns (W3) |
+| The entry's own account, in a late `.initialSession` | **hold**: that's an interrupted sign-out the launch couldn't read, and the next launch's table ends it |
+| `publishedOver`, the entry's own account, `lastUserID` nil or this account | as `.forget`, ahead of the two rows either side, restoring too: publish with no pass, and clear unless a pass was refused in this process. This is how a launch before the first unlock reads the mark |
+| The entry's own account signs in | one attempt with the entry's parking, then publish either way: the rows are its own. A true attempt in a process with no refused pass ends the debt. Otherwise the entry stands, marked `publishedOver`, so the next launch doesn't take this account's live work: stored, it's `.forget`; not stored, its row as usual. If the disk refuses the mark, the file goes and this process keeps the entry |
+| A pass was refused in this process, and anything else | **hold**, with no attempt, until the next launch |
+| Anything else: another account in the entry or `lastUserID`, or an entry that isn't a return | `begin`, wipe with no parking. True: clear and publish. False: **hold** |
 
-**Hold** means B's publish is skipped: `apply` returns before `session`, `accountChanges` and the hooks change for B, and the
+An entry naming this account is a return only if `lastUserID` is nil or this account, the entry isn't a deletion's, and it
+has `endsOwnSession`, which is W1's alone to lack. So a debt with no owner left still holds: `publish` reads the entry, not only the id.
+
+**Once a pass has been refused in a process, nothing in that process ends that debt.** A refused save leaves an inserted row
+in the context, a batch delete doesn't see it, and the next pass's save answers true and writes it. Only a later launch's
+fresh context or replace is proof. So a later true answer is read as false in `settled`, the one place a pass ends an entry:
+for SDK events, later sign-ins, the first frame and the compaction alike. That's what "Close RYFT and open it again" asks for.
+
+**Hold** means B's publish is skipped: `publish` throws before `session`, `accountChanges` and the hooks change for B, and the
 phase becomes `signedOut`. If A is still published (a deep link signing B in over A), A's session ends first, hooks
 included, so a wiped account never stays on screen. `accountID` is then nil, so sync, uploads, flags and reads stay idle
 (Read). The SDK keeps B's session in the Keychain, so
 the next launch publishes B without another login. Welcome shows the reason through `errorMessage`. No new phase or
-screen. Later SDK events for B re-enter `apply`, so a retry that succeeds publishes B.
+screen. After a refused pass the next launch publishes B. A hold with no refused pass, in the two cases above that make no
+attempt, ends with B's next SDK event once the debt is gone. The message goes when the debt ends with nobody stored.
 
 ## 5. Decisions
 
@@ -200,16 +231,18 @@ is the failure.
 |---|---|---|---|
 | W1 | `auth: a wipe is written down before it starts` | sync-engineer | #93 |
 | W2 | `train: an owed wipe finishes before the store opens` | sync-engineer | W1 |
-| W3 | `auth: no session over an owed wipe` | ios-developer, localization-editor | W2 |
-| W4 | `today: nothing of a leaving account on the lock screen` | ios-developer | W1 |
+| W3 | `auth: no session over an owed wipe` | sync-engineer | W2 |
+| W4 | `today: nothing of a leaving account on the lock screen`, delivered notifications, push registration | ios-developer | W1 |
 | W5 | `auth: the notice says what's left on this iPhone` | ios-developer, localization-editor | W1 |
 | W6 | `train: a wipe takes rows never saved` | sync-engineer | #93 |
 | W7 | `train: a sign-out replaces the store's files` | sync-engineer | W2 |
 | W8 | `docs: ADR 0016, architecture, status` | ios-architect | W3, U1, U2 |
+| W9 | `auth: a deletion is written down before the DELETE` | not assigned | W1 |
+| W10 | `auth: a held Sign in with Apple keeps its authorization code` | not assigned | W3 |
 
 **W1.** `WipeLedger`, `OwedWipe`, a Codable `Wipe`, `begin` in `signOut` before `client.signOut()` and in `apply` before each
-wipe. `TrainStore.wipe(_: Wipe)` is the one call and passes `wipe.since`. The kept-id code stays until W3. The entry's own
-account signing in ends the entry with no wipe, except a session restored at launch (I2).
+wipe. `TrainStore.wipe(_: Wipe)` is the one call and passes `wipe.since`. W1 kept the kept-id code, and the entry's own
+account signing in ended the entry with no wipe, except a session restored at launch. W3 replaced both.
 - The mock client sees an entry on disk with reason and account when `signOut()` is called, for all three endings.
 - True clears the entry. False keeps it, surviving a new `WipeLedger` on the same file.
 - Merge: the earliest `since` stays, another account removes parking, and nothing widens it back.
@@ -226,6 +259,56 @@ and keeps the entry, so that account can work over an entry for weeks, and its r
 launch table's "the entry's account" rows read as a fresh interruption and would sign it out and replace the files. Resolve
 this before the first W2 build: a deletion's entry must still resume, and a stale `.user` or expiry entry must not take
 live work. Until then such an entry dates a later parking of the same account early (§7).
+
+**Resolved: a key in the file, not an age.** W2 builds write `endsOwnSession: true` in every entry. A W1 build never did. An
+entry with its own account's session stored then reads as follows:
+
+| Written by | Reason | Path |
+|---|---|---|
+| W2 or later | any | Interrupted sign-out, the launch table as written |
+| W1 | deletion | The same. The account is gone on the server, so nothing under the session can be live work |
+| W1 | `.user`, expiry, or nil | Clear the entry, publish the account, wipe nothing |
+
+Why this and not an age: no build publishes an account over an entry without marking it: a return sets `publishedOver`. So with the key and no mark, the entry can
+only be a kill inside the sign-out, however old it is. Without it the account may have worked on for weeks. An age limit would guess
+both ways, and it would have to trust the clock. The price is one case: a `.user` sign-out killed in a W1 build's window and
+first reopened in a W2 build isn't finished, and the user is still signed in, as that W1 build would have left them. No data
+is lost, and the sign-out is one tap.
+
+The key says nothing about another account. An entry with no own session takes its row as usual, whoever wrote it. With the
+hold no live work can sit under it. A W2 build alone could publish B over A's entry, and the next launch would then replace
+B's rows, which is why W2 doesn't ship without W3 (§6). W3 reads a key from a W2 build as a W3 one for the same reason.
+
+**Found building W2.**
+- **A wipe inside `AuthService.init` crashed the app.** It runs inside `AppEnvironment.live`'s `swift_once`, and
+  `TrainSyncService.accountChanged()` read `owner()`, which reads `AppEnvironment.live`. Proved on the iOS 27 simulator with
+  a planted entry: the process died at launch and the entry stayed, so every launch would crash. `main`'s launch wipe for a
+  kept id has the same route. `accountChanged()` now counts on the next step, as `init` does.
+- **The store step reads `forStoreStep`, not the file.** A file read would let a store opened first replace live work, on a
+  stale entry or a scrub with a session.
+- **`client.signOut()` runs before the first SDK event is read,** and the phase leaves `restoring` at once, so no event can
+  publish the session that's ending. The entry stays until that call has run, so a kill between the wipe and the call ends
+  the session at the next launch. A repeat runs only the store step.
+- **A replace that left files keeps the entry.** `StoreReset.Outcome.leftFiles` covers the store and the app-container copy,
+  and a doubt in `OrphanedStoreCleanup.decide` isn't a failure. It reaches `AuthService` through the ledger, because a scrub
+  has no wipe to answer false. A guard that refuses a URL logs an error and keeps its text fixed: no path.
+- **The store step includes what shows or holds its rows:** `ReadinessSnapshot.clear()`, `TrainSyncService.accountChanged()`
+  and `TrainLibrary.wipe()` stay on a retry. The widget clear can't be a device step: after a refused first pass, `onWipe`
+  writes the file again from the `CachedDay` that survived, with `session` still A. A device step is everything else.
+- **`deviceStepsDone` counts for the entry's own account.** A wipe of another account still runs its device steps. The flag
+  is the source, and `Wipe.storeOnly` is set from it on each pass.
+- **The first-frame task does more than the ticket says.** `finishOwedWipe(train:bedtime:)` also calls
+  `trainCoordinator.accountChanged()`: an expiry wipes logged sessions, and the coordinator would keep a deleted row, which
+  is fatal to read. `.task` and the compaction both call this one method, and the compaction now waits for it.
+- **`finishOwedWipe` runs once per process, and never over a session, published or stored.** A launch before the first unlock
+  reads neither the entry nor the session, and both can appear in the same process. That session goes through the launch
+  table at the next launch. An interrupted sign-out's session, being ended, is the one exception.
+- **W3's held session fits that guard.** `session` is nil and B is stored, so the retry stays out of the way: `publish`
+  retries on B's next event, the next launch runs the table, and a retry here couldn't publish B anyway.
+- **A resume in a launch with no scene** (a HealthKit delivery that then ends) doesn't reach `.task` or the compaction. A's
+  reminders and alarms then go at the next foreground or background refresh, through `planTonight` (§7).
+
+Tests:
 - An entry of each reason with a stored session of its own account, written by a W1 build and aged, takes the path chosen
   above, and a deletion's rows go.
 - With an entry and all 18 tables full, a relaunch leaves every table at 0 and no entry, for each ending.
@@ -238,30 +321,79 @@ live work. Until then such an entry dates a later parking of the same account ea
 - A resume after a successful replace does no object deletes (`ModelContext.didSave` is empty).
 - Bedtime: after a resume, the mock notifier has no pending reminder of A.
 
-**W3.** Hold in `apply`, a throwing path so `logIn`, `signUp` and `handle` report failure. The same-account rule, which
-replaces W1's clear with no attempt. The interrupted sign-out. Remove the kept-id branch (`:742-743`) and the `wiped` guard
-(`:703`). Rewrite `aRefusedWipeAtSignInIsTriedAgainAtTheNextLaunch`.
+**W3.** The hold, in `AuthService.publish`, which throws so `logIn`, `signUp` and `handle` report failure. The same-account
+rule, which replaces W1's clear with no attempt. The interrupted sign-out was built in W2. The kept-id branch and the `wiped`
+guard are gone. `aRefusedWipeAtSignInIsTriedAgainAtTheNextLaunch` is rewritten.
 
 The same-account rule must not trust the entry's account alone. Neither route is new with W1:
 - **Rows of another account.** A's wipe fails, B is published, B's sign-out dies after `begin`, and A signs in: the entry
-  still names A, and A would read B's rows.
+  still names A, and A would read B's rows. With the hold only a build before it can leave that, so the rule asks for
+  `endsOwnSession`, and for `lastUserID` to be nil or A.
 - **A deleted account.** A's `accountDeleted(background: true)` wipe fails, and A signs in while the removal runs: a
   deletion's entry isn't a return.
 
+**Found building W3.**
+- **The launch path holds too.** A resume that failed used to go on to `apply(stored)`, try once more and publish. It now
+  holds, and a refused pass keeps every later route in the process from trying again. `currentSession` returns an expired
+  session too, so an expired B goes the same way, and its refresh event finds the hold. If the launch made no pass, because
+  the entry is parked, B's first event makes the one attempt.
+- **A late `.initialSession` is the only way a stored session reaches `publish` while restoring.** The launch couldn't read
+  the session or the entry, and the event brings both. An entry of that account means an interrupted sign-out, so it's
+  held, and the next launch's table ends it. It isn't published and it isn't a return.
+- **During an interrupted sign-out's SDK call nobody is published, the entry's own account included.** The entry stands
+  until the call returns whatever a wipe answers, and a true wipe has already taken `lastUserID`, so only the ledger shows
+  the debt. A kill would resume the entry over the session. The call may also drop that session, so it isn't tried either.
+- **The message is derived, not set.** Every auth screen clears `errorMessage` as it appears, and at launch the hold starts
+  before Welcome does. `errorMessage` reads a call's failure, or else the hold.
+- **A failed wipe no longer writes `lastUserID` back.** The debt is the ledger's (I3). So a debt can stand with no id: a
+  deletion's wipe, refused, after the same session's expiry wipe had succeeded. If the ledger can't be written either, a
+  sign-out's id stays where it was, which covers every case but that one.
+- **`AccountScope` follows `session`.** `publish` writes it each time, so anchors, the workout's account and the outbox never
+  read another account's id while one is published. API key mode (Debug) has no id.
+- **Nothing runs under a held account.** `accessToken()` throws `signedOut` without a published session, however many tokens
+  the SDK has, so a nil-owner op of A's that `belongs` to a nil owner stays queued, and B can't bind a surviving row of A.
+  Sign in with Apple's authorization code isn't sent either. It lasts five minutes, so if the hold outlives that, B's
+  deletion can't revoke the Apple grant. That's already how a `422` behaves.
+- **A held B's parked narrowing stays, as a stated exception to Goal 3.** B's attempt narrows A's parked entry, and A coming
+  back afterwards then gets a no-parking attempt. The next launch with B stored would narrow it anyway, and the approved
+  policy says another account signing in removes them. `aSignInOverAParkedDebtNarrowsIt` pins it.
+- **A return after a refusal stands as `publishedOver`.** Its own field, not a false `endsOwnSession`: at a sign-in that one
+  means "a W1 build's, wipe", and this one means "live work, don't". The next launch forgets it if the account is stored, and
+  takes its row if it isn't. Before the first unlock the launch reads neither, so `publish` does what `.forget` would. The
+  account signing out or expiring sets it back, because that entry is its own end again.
+- **A held recovery link's question ends with its session.** The key goes in `apply(nil)` once nothing is stored, and it's
+  not on the wiped keys: `clearTheWay`'s wipe runs after `handle` writes it. A launch before the first unlock reads nothing
+  stored, so a held link's question can be lost there. It fails soft: the account has a session and can reset again.
+- **A held recovery link is remembered by account.** `recoveryRequestedRecently` can't serve a later launch: the request
+  alone doesn't say a link was opened, so a normal log-in within the hour would be asked for a new password at the next launch,
+  and a `type=recovery` link doesn't set it. `handle` writes the account before `publish`, and the publish of that account
+  asks, whenever it is. The hour doesn't apply: the link was already checked.
+- **The scrub clear in `clearTheWay` is W7's to review.** It ends a `scrubOnly` entry at any publish, without going through
+  `settled` and whatever the process has refused. Nothing sets `scrubOnly` yet. W7 must decide what a scrub owed in a
+  process with a refused pass means, and whether files the scrub left should keep it.
+
 Tests:
 - B over a refused wipe: `accountID == nil`, `accountChanges` unchanged, no hook ran, `logIn` is false, the message shows,
-  and `client.currentSession` is still B.
+  and `client.currentSession` is still B. The same for `signUp`, `handle` and Sign in with Apple.
 - Then a relaunch: B is published, every table is at 0, and `lastUserID` is B.
 - B over a published A with a refused wipe: `accountID == nil`, and A's hooks ran.
 - Review 2's sequence (A fails, B fails, relaunch healthy, B signs in) leaves no row of A.
-- A refresh event while held publishes nothing unless the wipe then returns true.
-- Same account: one attempt, published either way, no entry, and no wipe on the next launch.
+- A refresh event while held publishes nothing and attempts nothing after a refused pass, however healthy the store looks,
+  until the next launch.
+- A true pass after a refusal, with an inserted row that survived it, leaves the entry standing.
+- Same account: one attempt, published either way, and no wipe on the next launch. No entry after a true attempt in a process
+  with no refused pass. Otherwise it stands as published over, and that next launch ends it.
 - Entry A with stored A: not published, and `client.signOut()` ran once.
 - While signed in, `AccountScope.current` always equals `accountID`.
-- `make lint`: strings in en and de.
+- The launch: a resume that failed holds with one attempt, a kept id with no entry holds, a late `.initialSession` of the
+  entry's account holds, and another account's clears the debt first.
+- B or A signing in during an interrupted sign-out's SDK call: held, with entry A kept and no id left.
+- A's wipe fails, B is held and leaves, A signs in and works, relaunch: no entry, no replace, and A's work is there.
+- Both routes of the same-account rule, each with the wipe true and false.
 
 **W4.** The guard in `publishWidget`, the reorder in `wipeSharedLocalData`, `endNow()`, and a pure
-`keptLiveActivity(active:hasAccount:owed:)`.
+`keptLiveActivity(active:hasAccount:owed:)`. Removing delivered notifications. A hold over a published A leaving A's push
+registration: `beforeSignOut` doesn't run there.
 - A refused `CachedDay`, then `tonightBedtime = nil`: `readiness.json` is absent.
 - The `readiness.json` file is removed before the store step (a refused store still leaves it absent).
 - `endNow()` ran before `client.signOut()`.
@@ -287,13 +419,35 @@ Tests:
 text, since the app never edits `../plattform`.
 - ADR accepted, and the policy version named in STATUS.
 
+**W9.** A durable deletion marker before the DELETE. A kill during an account deletion leaves no entry today, because the
+first `begin` follows the server call, so the deletion later reads as an expiry.
+
+**W10.** A held Sign in with Apple loses its authorization code, which lasts five minutes and is sent only after a publish,
+so the grant can't be revoked later.
+
 ## 7. Risks
 
 - **The replace is the only code that deletes a live store.** Only a real `begin` can arm it, it never runs on an unreadable
   entry, and with parking it runs only past the limit. Mutation-test the guard.
 - **A wrong "same account" reading** signs a user out. That's an annoyance and it fails safe.
-- **Stuck on Welcome.** If the files can't be removed and the wipe keeps failing, B stays held. The message says to reopen,
-  which won't help here; deleting the app should (assumed). No path to it was found, so no extra screen.
+- **Stuck on Welcome.** If a file can't be removed, the entry stays even when the object wipe succeeds (W2), so B stays held.
+  That includes a support folder the orphan cleanup can't remove. The message says to reopen, which won't help here;
+  deleting the app should (assumed). No path to it was found, so no extra screen. Decided to stay as recorded, and it goes
+  to the user.
+- **A returning account works on a poisoned context.** The same-account rule publishes A either way. If its attempt was
+  refused, the store's context keeps the pending deletes, so its saves keep failing until the refusal ends, when the deletes
+  land, or until the next launch. Today's behaviour for any refused wipe (§2), and a held B is spared it.
+- **A mark the disk refuses.** On a full disk the old file would read as an interrupted sign-out and take A's work, so the
+  return removes the file, which needs no space. This process keeps the entry, so A's own end later keeps its age, and the
+  refusal keeps B held. The next launch has no debt over A and no entry to fall back on, and `lastUserID` still makes another
+  account's sign-in wipe. If the remove fails too, the old file stands. That's one more failure on top of a refused pass and
+  a full disk. Accepted.
+- **A return's debt spans its session.** In a process with a refused pass the entry stands while A works. If A's session
+  then expires there, the entry stays a no-parking one (parking never widens), so the next launch's replace takes rows that
+  expiry parked. It takes a refusal, a return and an expiry in one process.
+- **A W1 build's entry over a held account.** A held on its own W1 entry and stored at the next launch takes the W2 table's
+  `.forget`, so it's published without a wipe. It takes a W1 entry, a retry at launch that left files, and a sign-in, and the
+  last tagged build predates W1. Accepted.
 - **`ModelConfiguration.url` before opening, and the replace itself, are unverified on iOS 17.** STATUS's iOS 17 run stays
   a release gate.
 - **Residue that stays:** an in-process A→B switch leaves A's values in the WAL and free pages of B's store, and A's row
@@ -302,14 +456,18 @@ text, since the app never edits `../plattform`.
 - **The main thread still blocks during a wipe:** 3.4 s for 44,500 rows in Debug, and an expiry's retry does too. A kill
   during it is now safe, but a progress line can't render meanwhile. Measure on a device (performance-profiler). Moving it
   off the main actor is its own design.
-- **A debt that survives a launch dates a later parking early.** W1 keeps an entry when a stored session is restored, or a
-  deletion killed before the Keychain delete would be forgotten. A later expiry of that account then parks at the entry's
-  `since`, so the row expires sooner than 30 days after that expiry. Accepted: it's bounded, shorter retention is the safe
-  direction, and W2 resolves the entry at launch. `aDebtThatSurvivedALaunchDatesTheNextParking` pins it.
+- **A debt that survives a launch dates a later parking early, in W1 builds.** W1 keeps an entry when a stored session is
+  restored, or a deletion killed before the Keychain delete would be forgotten. A later expiry of that account then parks at
+  the entry's `since`. W2 resolves the entry at the first launch, so it stops there: `aStaleEntryDoesntDateTheNextParking`.
+- **A build installed over a W2 build, going back to W1,** would publish an account over an entry that has the key. Back on
+  W2 that reads as an interrupted sign-out, and live work goes. Assumed rare: it takes a kill in a window of milliseconds on
+  a build that was then reinstalled backwards. Accepted.
+- **A resume in a launch that never gets a scene** runs the wipe but not the reminders' teardown (W2). They go at the next
+  foreground or background refresh, through `planTonight`, and they hold no health values. Accepted by the lead.
 - **Review 1's N1:** `wipe` hit a SwiftData fatal error under an artificial limit. It's now a kill with an entry on disk, so
   a launch replace recovers it. Not reproduced at a realistic limit.
 - **An upgrade from a #93 build** with key A and B signed in wipes once more, taking B's unsent work, as #93 would. This only
-  matters if #93 reaches testers before W3.
+  matters if #93 reaches testers before W3. If that wipe is refused, B is held.
 
 ## 8. What needs the user
 
@@ -375,8 +533,9 @@ anchors. One id can't say both, and a retry at launch took the next account's un
 ## Decision
 
 1. **A wipe is recorded before it starts.** A file, written atomically before the first destructive step and before the SDK
-   drops the session, removed when a wipe returned true or its own account signs in (decision 3). Not UserDefaults: it may
-   not reach the disk before a crash.
+   drops the session. It's removed when a wipe returned true, when its own account signs in (decision 3), or at a launch
+   that finds a W1 build's entry over that account's live session, unless it's a deletion, or a scrub with any session.
+   Not UserDefaults: it may not reach the disk before a crash.
 2. **`auth.lastUserID` only says whose data the store holds.** The debt lives only in the ledger.
 3. **No session is published over a debt,** except the entry's own account returning, which ends it after one attempt. A
    sign-in held this way changes no account state, and the SDK keeps its session for the next launch.

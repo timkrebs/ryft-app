@@ -11,6 +11,13 @@ struct OwedWipe: Equatable {
     var deviceStepsDone = false
     /// The wipe succeeded and only file residue is left.
     var scrubOnly = false
+    /// Written by a build that ends this account's stored session at launch instead of publishing it, so with that
+    /// session stored the entry is a sign-out a kill interrupted. Missing means a W1 build, which published the account
+    /// over the entry and went on: its rows may be live work, or someone else's (design.md, W2 and W3).
+    var endsOwnSession = true
+    /// The entry's account came back in a process with a refused pass, and works over this entry: the rows are its own,
+    /// and only its own end makes this a sign-out again.
+    var publishedOver = false
 
     /// The first `begin`: stamped as `parkedAt`, and it starts the 30-day bound.
     var since: Date { wipe.since }
@@ -18,13 +25,15 @@ struct OwedWipe: Equatable {
 
 /// A key this build doesn't know yet, or one a build before it didn't write, reads as false: a retry that does too much.
 extension OwedWipe: Codable {
-    private enum CodingKeys: String, CodingKey { case wipe, deviceStepsDone, scrubOnly }
+    private enum CodingKeys: String, CodingKey { case wipe, deviceStepsDone, scrubOnly, endsOwnSession, publishedOver }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         wipe = try values.decode(AuthService.Wipe.self, forKey: .wipe)
         deviceStepsDone = try values.decodeIfPresent(Bool.self, forKey: .deviceStepsDone) ?? false
         scrubOnly = try values.decodeIfPresent(Bool.self, forKey: .scrubOnly) ?? false
+        endsOwnSession = try values.decodeIfPresent(Bool.self, forKey: .endsOwnSession) ?? false
+        publishedOver = try values.decodeIfPresent(Bool.self, forKey: .publishedOver) ?? false
     }
 }
 
@@ -39,9 +48,18 @@ final class WipeLedger {
         URL.applicationSupportDirectory.appendingPathComponent("account-wipe.json")
     }
 
+    /// The app's ledger: `AuthService.shared` resolves it and `TrainStore.shared` reads what that left for the store step.
+    static let live = WipeLedger(file: liveFile)
+
     /// `nil` keeps everything in memory: previews, and tests that aren't about the file.
     private let file: URL?
     private var held: OwedWipe?
+
+    /// What this launch's `AuthService` resolved for the store step, in memory only. Nil until it ran, so a store opened
+    /// first deletes nothing: the launch falls back to the object wipe.
+    var forStoreStep: OwedWipe?
+    /// The store step left files behind, so this launch can't call the debt paid, whatever the wipe answers.
+    var storeStepLeftFiles = false
 
     init(file: URL?) {
         self.file = file
@@ -59,6 +77,8 @@ final class WipeLedger {
     func begin(_ wipe: AuthService.Wipe, at now: Date) {
         if var owed = entry {
             owed.wipe = Self.merged(owed.wipe, wipe, since: min(owed.since, now))
+            // The account published over it is leaving: from here it's that sign-out.
+            if wipe.reason != nil, wipe.account == owed.wipe.account { owed.publishedOver = false }
             held = owed
         } else {
             var first = wipe
@@ -68,15 +88,23 @@ final class WipeLedger {
         write()
     }
 
-    func update(_ change: (inout OwedWipe) -> Void) {
-        guard var owed = entry else { return }
+    /// False when the change is only in memory: the file, if there's one, still says what it did.
+    @discardableResult
+    func update(_ change: (inout OwedWipe) -> Void) -> Bool {
+        guard var owed = entry else { return true }
         change(&owed)
         held = owed
-        write()
+        return write()
     }
 
     func clear() {
         held = nil
+        removeFile()
+    }
+
+    /// The file goes and this process keeps the entry: for a value the disk wouldn't take, when no entry on the next
+    /// launch is safer than the one there. A remove needs no free space.
+    func removeFile() {
         guard let file else { return }
         do {
             try FileManager.default.removeItem(at: file)
@@ -101,13 +129,16 @@ final class WipeLedger {
         return try? JSONDecoder().decode(OwedWipe.self, from: data)
     }
 
-    private func write() {
-        guard let file, let held else { return }
+    @discardableResult
+    private func write() -> Bool {
+        guard let file, let held else { return true }
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(held).write(to: file, options: Self.writeOptions)
+            return true
         } catch {
             logFailure("write", error)
+            return false
         }
     }
 

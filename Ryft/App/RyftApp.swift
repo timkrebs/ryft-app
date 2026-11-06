@@ -94,8 +94,11 @@ struct RyftApp: App {
                                     }
                                 },
                                 expired: { [uploader = state.env.uploader] in uploader.stopReplay() },
-                                compact: { [repository = state.repository, activities = state.env.activities] in
-                                    repository.compact()
+                                compact: { [state, bedtime = screens.bedtime] in
+                                    let activities = state.env.activities
+                                    state.repository.compact()
+                                    // A background-only run reaches an owed wipe here.
+                                    await AuthService.shared.finishOwedWipe(train: .shared, bedtime: bedtime)
                                     // Rows a session expiry parked more than 30 days ago.
                                     activities.deleteExpiredParked()
                                 })
@@ -234,6 +237,7 @@ struct RyftApp: App {
                 // passed; below the work the user waits for.
                 .task(priority: .utility) {
                     await LaunchSignpost.afterFirstFrame()
+                    await auth.finishOwedWipe(train: trainCoordinator, bedtime: screens.bedtime)
                     // Activities a session expiry parked more than 30 days ago go (design.md §8.4).
                     env.activities.deleteExpiredParked()
                     // The tracker catalog: decoded off the main actor, its cached download re-validated.

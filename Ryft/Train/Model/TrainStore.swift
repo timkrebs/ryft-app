@@ -9,7 +9,9 @@ import OSLog
 /// tests, previews and demo data. Everything runs on the main context; documents are small.
 @MainActor
 final class TrainStore {
-    static let shared = TrainStore()
+    /// Every route to the store passes the launch's store step first: an owed wipe that can't wait for the object wipe
+    /// replaces the files before the container opens (`StoreReset`).
+    static let shared = TrainStore(opening: liveConfiguration(), ledger: .live, orphans: .current(), now: Date())
 
     static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "train")
     static let schema = Schema([LocalSession.self, LocalSessionExercise.self, LocalSet.self,
@@ -24,6 +26,10 @@ final class TrainStore {
     private let lostItsFile: Bool
 
     convenience init(inMemory: Bool = false) {
+        self.init(configuration: Self.liveConfiguration(inMemory: inMemory))
+    }
+
+    static func liveConfiguration(inMemory: Bool = false) -> ModelConfiguration {
         // In memory, each instance gets its own name, so tests and previews never share a store.
         //
         // On disk the store lives in the App Group container: the app has the `group.dev.timkrebs.ryft` entitlement,
@@ -35,15 +41,27 @@ final class TrainStore {
         //
         // Never CloudKit: `.automatic` would start mirroring the health read models to iCloud the day the app gets an
         // iCloud capability.
-        let config = ModelConfiguration(inMemory ? "Train-\(UUID().uuidString)" : "Train", schema: Self.schema,
-                                        isStoredInMemoryOnly: inMemory, groupContainer: .automatic, cloudKitDatabase: .none)
-        self.init(configuration: config)
+        ModelConfiguration(inMemory ? "Train-\(UUID().uuidString)" : "Train", schema: schema, isStoredInMemoryOnly: inMemory,
+                           groupContainer: .automatic, cloudKitDatabase: .none)
     }
 
     /// Tests: a store on disk at `url` (its own folder), never CloudKit. What only a file shows (external storage,
     /// a wipe's leftovers) is tested on it, never on the app's own store.
     convenience init(url: URL) {
         self.init(configuration: ModelConfiguration(schema: Self.schema, url: url, cloudKitDatabase: .none))
+    }
+
+    /// Tests: the launch's way in, on a store of their own.
+    convenience init(url: URL, ledger: WipeLedger, orphans: OrphanedStoreCleanup.Locations, now: Date) {
+        self.init(opening: ModelConfiguration(schema: Self.schema, url: url, cloudKitDatabase: .none), ledger: ledger,
+                  orphans: orphans, now: now)
+    }
+
+    private convenience init(opening config: ModelConfiguration, ledger: WipeLedger,
+                             orphans: OrphanedStoreCleanup.Locations, now: Date) {
+        ledger.storeStepLeftFiles = StoreReset.run(entry: ledger.forStoreStep, store: config.url, orphans: orphans,
+                                                   now: now).leftFiles
+        self.init(configuration: config)
     }
 
     private init(configuration config: ModelConfiguration) {
@@ -236,7 +254,7 @@ final class TrainStore {
     ///
     /// True when the store took every step: each delete and fetch here succeeded, the final save was accepted, and the
     /// store is on the file it was asked for. False: the file may still hold the account's data, and `AuthService` keeps
-    /// the account's id so the next account wipes again. A step that fails doesn't stop the ones after it, with one
+    /// the ledger's entry, so no account is published over it. A step that fails doesn't stop the ones after it, with one
     /// exception: when parking can't read the activities, every chunk stays, because a kept chunk is the only copy of a
     /// track. Those rows carry no `parkedAt`, so the 30-day limit doesn't reach them until an account signs in.
     ///

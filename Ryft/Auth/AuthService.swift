@@ -153,7 +153,7 @@ enum Nonce {
 @Observable
 final class AuthService {
     static let shared = AuthService(client: SupabaseConfig.current.map(SupabaseAuthClient.init(config:)),
-                                    ledger: WipeLedger(file: WipeLedger.liveFile))
+                                    ledger: .live)
 
     /// Accounts need at least this many characters (the Supabase project's
     /// minimum must not be higher).
@@ -231,7 +231,15 @@ final class AuthService {
     private var otherWork = false
     /// Busy: buttons show a spinner.
     var isWorking: Bool { phase == .signingIn || otherWork }
-    var errorMessage: String?
+    /// A call's failure, or else why a sign-in is held. Screens clear the failure as they appear; the hold outlives
+    /// that, because at launch Welcome appears after it started.
+    var errorMessage: String? {
+        get { failureMessage ?? (signInHeld ? AuthMessage.signInHeld : nil) }
+        set { failureMessage = newValue }
+    }
+    private var failureMessage: String?
+    /// The SDK has a session this app didn't publish: a wipe is still owed (`hold()`).
+    private var signInHeld = false
     /// Status and request ID when a platform call (Delete account) failed.
     private(set) var errorDetails: String?
     /// A password-reset link was opened: show "Set new password".
@@ -244,12 +252,25 @@ final class AuthService {
     /// Per-user local state to drop when the account ends or changes: cached
     /// responses, HealthKit anchors, per-user defaults; after an expiry, all but
     /// what `Wipe.parking` keeps. AppState resets itself on `accountID` changes. False when the store may still hold
-    /// the data: `lastUserKey` then keeps the account, so the next sign-in as another one wipes again.
+    /// the data: the ledger's entry then stays, and no session is published over it.
     private let wipeLocalData: @MainActor (Wipe) -> Bool
     /// The wipe that was started and hasn't finished.
     private let ledger: WipeLedger
     /// Dates the ledger's entries.
     private let now: () -> Date
+    /// This launch took an owed wipe up: what a wipe at launch can't reach still has to follow (`finishOwedWipe`).
+    @ObservationIgnored private var resumedOwedWipe = false
+    /// The ledger's retry had its one try in this process.
+    @ObservationIgnored private var triedOwedWipe = false
+    /// A pass was refused in this process, so none here can prove a wipe: a batch delete doesn't see a row its context
+    /// only inserted, and a later pass can answer true and write it. The debt stands until a later launch's fresh
+    /// context or replace.
+    @ObservationIgnored private var passRefused = false
+    /// An interrupted sign-out's `client.signOut()` hasn't returned. The entry outlives a wipe meanwhile: without it a
+    /// kill here would publish the session at the next launch.
+    @ObservationIgnored private var endingStoredSession = false
+    /// A wipe returned true while that ran, so the entry ends with it.
+    @ObservationIgnored private var wipedWhileEnding = false
     /// `DELETE /v1/me`; injected so tests don't need the platform.
     private let deleteRemoteAccount: () async throws -> AccountDeleted
     /// `POST /v1/me/apple-authorization`; injected for tests.
@@ -274,18 +295,25 @@ final class AuthService {
         // Read the Keychain synchronously so a relaunch goes straight to Today; the
         // SDK refreshes an expired token in the background. Without a stored session
         // the splash stays until the SDK's first event (or a short timeout).
-        let stored = client?.currentSession
+        let (stored, endsStoredSession) = resumeOwedWipe(stored: client?.currentSession)
         apply(stored)
         guard let client else {
             machine.enter(.signedOut)
             return
         }
+        // Not restoring: an interrupted sign-out's session is never published, whatever the SDK reports for it.
+        if endsStoredSession { machine.enter(.signedOut) }
         observation = Task { [weak self] in
+            // Before the first event, so that none of them can carry the session this ends.
+            if endsStoredSession {
+                try? await client.signOut()
+                self?.storedSessionEnded()
+            }
             for await change in client.authStateChanges {
                 guard let self else { return }
                 if change.event == .initialSession {
-                    // Only ends restoring: the stored session was applied above, and a
-                    // late initial event must not undo a sign-out that happened since.
+                    // Only ends restoring: the stored session was resolved above, and a late initial event must not
+                    // undo a sign-out that happened since. It publishes only what the Keychain didn't answer with then.
                     if self.isRestoring, let s = change.session { self.apply(s) }
                     if self.isRestoring { self.machine.enter(.signedOut) }
                     continue
@@ -399,7 +427,7 @@ final class AuthService {
                     // Not fatal: the platform shows the email until a name is known.
                 }
             }
-            self.apply(session)
+            try self.publish(session)
             signedIn = true
         }
         if signedIn, let authorizationCode { await sendAppleAuthorization(authorizationCode) }
@@ -474,7 +502,7 @@ final class AuthService {
             otherWork = true
             defer { otherWork = false }
             do {
-                apply(try await client.linkApple(idToken: idToken, nonce: nonce))
+                try publish(try await client.linkApple(idToken: idToken, nonce: nonce))
                 await loadSignInMethods()
                 if let code = credential.authorizationCode.flatMap({ String(data: $0, encoding: .utf8) }) {
                     await sendAppleAuthorization(code)
@@ -503,7 +531,7 @@ final class AuthService {
                                                   fullName: name.trimmingCharacters(in: .whitespacesAndNewlines),
                                                   redirectTo: SupabaseConfig.redirectURL)
             if let session {
-                self.apply(session)
+                try self.publish(session)
                 outcome = .signedIn
             } else {
                 outcome = .confirmEmail
@@ -516,7 +544,7 @@ final class AuthService {
     func logIn(email: String, password: String) async -> Bool {
         var ok = false
         await run(.signIn) { client in
-            self.apply(try await client.signIn(email: Self.normalized(email), password: password))
+            try self.publish(try await client.signIn(email: Self.normalized(email), password: password))
             ok = true
         }
         return ok
@@ -566,15 +594,18 @@ final class AuthService {
         guard SupabaseConfig.isAuthCallback(url) else { return false }
         await run(.link) { client in
             let session = try await client.session(from: url)
-            let recovering = Self.isRecoveryLink(url) || self.recoveryRequestedRecently
-            self.defaults.removeObject(forKey: Self.recoveryKey)
-            self.apply(session)
-            if recovering { self.needsNewPassword = true }
+            // Written first: a held link's session is published at a later launch, which `publish` tells by this.
+            if Self.isRecoveryLink(url) || self.recoveryRequestedRecently {
+                self.defaults.set(session.user.id.uuidString, forKey: Self.recoveringKey)
+            }
+            try self.publish(session)
         }
         return true
     }
 
     private static let recoveryKey = "auth.recoveryRequestedAt"
+    /// The account a recovery link signed in, until its session is published: `recoveryKey` can't say a link was opened.
+    private static let recoveringKey = "auth.recoveringAccount"
 
     /// Supabase reset links are valid for an hour by default.
     private var recoveryRequestedRecently: Bool {
@@ -694,46 +725,110 @@ final class AuthService {
         }
         do {
             try await body(client)
+        } catch is SignInHeld {
+            // `errorMessage` says why.
         } catch {
             errorMessage = AuthMessage.text(for: error, during: context)
         }
     }
 
-    /// `reason`: why a session that ends here ended. Without one (the SDK ended it on its own) it's an expiry,
-    /// which keeps the account's unsent activities parked rather than deleting them.
+    /// What the SDK reported or the launch restored. A sign-in the user is waiting for goes through `publish`, which
+    /// says when it's held. `reason`: why a session that ends here ended. Without one (the SDK ended it on its own) it's
+    /// an expiry, which keeps the account's unsent activities parked rather than deleting them.
     private func apply(_ newSession: Session?, reason: SignOutReason? = nil) {
-        if newSession != nil, session == nil { signOutNotice = nil }
-        let leaving = session?.user.id.uuidString
-        let ending = newSession != nil ? nil : leavingReason(reason ?? endingReason ?? .sessionExpired, of: leaving)
-        let previousID = session?.user.id ?? defaults.string(forKey: Self.lastUserKey).flatMap(UUID.init(uuidString:))
         if let newSession {
-            // A different account on this phone starts from scratch.
-            var wiped = true
-            if let previousID, previousID != newSession.user.id {
-                wiped = wipe(Wipe(reason: nil, account: previousID.uuidString))
-            } else if !isRestoring, newSession.user.id != session?.user.id,
-                      ledger.entry?.wipe.account == newSession.user.id.uuidString {
-                // Its own account signed in and this sign-in doesn't wipe, so the rows are its work again. An entry left
-                // standing would date this account's next expiry from the old one, and its parked rows would run out
-                // early. Not a stored session at launch: that's a kill inside the sign-out, of a deletion too, and only
-                // the entry can resume it. Not a token refresh during a sign-out: the session is still published.
-                ledger.clear()
-            }
-            // Not on a token refresh, and not after a failed wipe: the id that stays makes the next launch wipe again.
-            if wiped, newSession.user.id != session?.user.id {
-                defaults.set(newSession.user.id.uuidString, forKey: Self.lastUserKey)
-            }
-        } else if session != nil {
+            try? publish(newSession)
+            return
+        }
+        // The recovery link's session has gone, so that question has no account to ask any more.
+        if client?.currentSession == nil { defaults.removeObject(forKey: Self.recoveringKey) }
+        let leaving = session?.user.id.uuidString
+        let ending = leavingReason(reason ?? endingReason ?? .sessionExpired, of: leaving)
+        if session != nil {
             // Logged out (by the user, account deleted, or the session expired).
             wipeLeaving(Wipe(reason: ending, account: leaving))
             needsNewPassword = false
         }
+        replaceSession(with: nil, ending: ending)
+    }
+
+    /// The one way to `session`. `AccountScope` follows it, so per-account state is always the published account's.
+    private func publish(_ newSession: Session) throws {
+        if newSession.user.id != session?.user.id { try clearTheWay(for: newSession.user.id) }
+        if session == nil { signOutNotice = nil }
+        signInHeld = false
+        defaults.set(newSession.user.id.uuidString, forKey: Self.lastUserKey)
+        if defaults.string(forKey: Self.recoveringKey) == newSession.user.id.uuidString {
+            needsNewPassword = true
+            defaults.removeObject(forKey: Self.recoveryKey)
+        }
+        defaults.removeObject(forKey: Self.recoveringKey)
+        replaceSession(with: newSession, ending: nil)
+    }
+
+    /// No session over an owed wipe (design.md §4, At sign-in). Reads the ledger as well as the owner: a debt can stand
+    /// with no owner left, after a wipe that returned true during a sign-out's SDK call or that a deletion repeated.
+    private func clearTheWay(for incoming: UUID) throws {
+        // The entry stands until the SDK call returns, whatever a wipe answers: a kill now would resume it over this
+        // session. The call may take this session with it too, so it's neither tried nor published.
+        guard !endingStoredSession else { throw hold() }
+        if ledger.entry?.scrubOnly == true { ledger.clear() }
+        let owed = ledger.entry
+        let owner = session?.user.id ?? defaults.string(forKey: Self.lastUserKey).flatMap(UUID.init(uuidString:))
+        if let owed, owed.wipe.account == incoming.uuidString {
+            // What the launch table's `.forget` does, for a launch that couldn't read either: its rows are live work.
+            // A process with a refused pass doesn't end the debt, and the rows are no less its own.
+            if owed.publishedOver, owner == nil || owner == incoming {
+                if !passRefused { ledger.clear() }
+                return
+            }
+            // A late `.initialSession`: the launch couldn't read the session or the entry, so this is a sign-out a kill
+            // interrupted, not a sign-in. The next launch's table ends it.
+            if isRestoring { throw hold() }
+            if isReturn(owed, of: incoming, owner: owner) {
+                // One attempt, then the rows are its work again, and a true pass has ended the debt. After a refusal
+                // it stands, marked as published over: as it was, the next launch would read an interrupted sign-out
+                // and take this account's live work. If the disk won't take the mark, no file is safer than that one,
+                // and this process still has the entry.
+                retry(owed)
+                if !ledger.update({ $0.publishedOver = true }) { ledger.removeFile() }
+                return
+            }
+        }
+        // A different account on this phone starts from scratch.
+        guard owed != nil || (owner != nil && owner != incoming) else { return }
+        guard !passRefused else { throw hold() }
+        let leaving = owner?.uuidString ?? owed?.wipe.account
+        guard wipe(Wipe(reason: nil, account: leaving)) else { throw hold() }
+    }
+
+    /// The entry's account coming back to its own rows. Its name alone doesn't say that. Another owner's rows are in the
+    /// store if `lastUserKey` names someone else, or if a build before the hold wrote the entry and may have published
+    /// someone over it. And a deletion's entry isn't a return: the account is going, and so are its rows.
+    private func isReturn(_ owed: OwedWipe, of incoming: UUID, owner: UUID?) -> Bool {
+        (owner == nil || owner == incoming) && owed.endsOwnSession && owed.wipe.reason?.isDeletion != true
+    }
+
+    /// Nothing runs under a held account: `accountID` stays nil, and the SDK keeps its session for the next launch to
+    /// publish. A published account's session ends here, hooks included, because a wiped account can't stay on screen.
+    /// After a refused pass the next launch lets it in. Otherwise its next SDK event comes back through `publish`.
+    @discardableResult
+    private func hold() -> SignInHeld {
+        signInHeld = true
+        needsNewPassword = false
+        replaceSession(with: nil, ending: nil)
+        machine.enter(.signedOut)
+        return SignInHeld()
+    }
+
+    /// `ending`: why the leaving session ended; nil for a sign-in.
+    private func replaceSession(with newSession: Session?, ending: SignOutReason?) {
         if newSession?.user.id != session?.user.id {
             // Sign-in methods belong to the account they were loaded for.
             signInMethods = []
             linkError = nil
             accountChanges += 1
-            onAccountWillChange?(leaving, newSession?.user.id.uuidString, ending)
+            onAccountWillChange?(session?.user.id.uuidString, newSession?.user.id.uuidString, ending)
         }
         session = newSession
         user = newSession?.user
@@ -761,9 +856,41 @@ final class AuthService {
         // An entry this wipe doesn't park with is another debt, and its date isn't this wipe's.
         var stamped = wipe
         stamped.since = ledger.entry.flatMap { $0.wipe.parking == wipe.parking ? $0.since : nil } ?? at
-        let wiped = perform(stamped)
-        if wiped { ledger.clear() }
+        // Another account's device steps aren't done by these: that account's own state is still there.
+        stamped.storeOnly = ledger.entry.map { $0.deviceStepsDone && $0.wipe.account == wipe.account } ?? false
+        return settled(stamped)
+    }
+
+    /// The entry as it stands, with no new `begin`: its date is the first attempt's whatever the clock says now.
+    private func retry(_ owed: OwedWipe) {
+        var wipe = owed.wipe
+        wipe.storeOnly = owed.deviceStepsDone
+        if settled(wipe) { forgetOwner() }
+    }
+
+    /// One pass. True ends the entry, and false leaves it with the device steps marked done, so a retry skips them.
+    /// Files the replace left mean false, whatever the store answers, and so does any pass after a refused one.
+    private func settled(_ wipe: Wipe) -> Bool {
+        if !perform(wipe) || ledger.storeStepLeftFiles { passRefused = true }
+        let wiped = !passRefused
+        if wiped, !endingStoredSession {
+            endDebt()
+        } else {
+            ledger.update { $0.deviceStepsDone = true }
+        }
+        wipedWhileEnding = wiped && endingStoredSession
         return wiped
+    }
+
+    private func storedSessionEnded() {
+        endingStoredSession = false
+        if wipedWhileEnding { endDebt() }
+    }
+
+    /// A hold ends with the debt only if nobody is left to publish: a stored session still comes in at the next launch.
+    private func endDebt() {
+        ledger.clear()
+        if client?.currentSession == nil { signInHeld = false }
     }
 
     @discardableResult
@@ -773,41 +900,125 @@ final class AuthService {
         return wiped
     }
 
-    /// A wipe that leaves nobody signed in. Failed, the leaving account stays in `lastUserKey`: its data may still be
-    /// in the store, and without the id the next account's sign-in wouldn't wipe and would get that data.
+    /// A wipe that leaves nobody signed in. Failed, the debt is the ledger's.
     private func wipeLeaving(_ wipe: Wipe) {
-        if self.wipe(wipe) {
-            defaults.removeObject(forKey: Self.lastUserKey)
-        } else if let account = wipe.account {
-            defaults.set(account, forKey: Self.lastUserKey)
+        if self.wipe(wipe) { forgetOwner() }
+    }
+
+    private func forgetOwner() {
+        defaults.removeObject(forKey: Self.lastUserKey)
+    }
+
+    /// The launch table (design.md §4), before anything is published. Runs ahead of the store, which reads what it
+    /// leaves in `forStoreStep`; a wipe here is what first opens it. Returns the session to publish, and whether the
+    /// stored one is ended instead: an interrupted sign-out. A session whose wipe failed here is held. `passRefused` then
+    /// stops the SDK's events, a sign-in and `finishOwedWipe` from trying again. A return and a leaving account still run
+    /// a pass, and none can end the debt.
+    private func resumeOwedWipe(stored: Session?) -> (publish: Session?, endsStored: Bool) {
+        guard let owed = ledger.entry else { return (stored, false) }
+        switch WipeResume.decide(owed, stored: stored?.user.id.uuidString, now: now()) {
+        case .forget:
+            ledger.clear()
+            return (stored, false)
+        case .scrub:
+            ledger.forStoreStep = owed
+            return (nil, false)
+        case .wipeAfterFirstFrame(let endSession):
+            ledger.forStoreStep = owed
+            resumedOwedWipe = true
+            endingStoredSession = endSession
+            return (endSession ? nil : stored, endSession)
+        case .wipeNow(let narrow, let endSession):
+            if narrow { ledger.update { $0.wipe.reason = nil } }
+            ledger.forStoreStep = ledger.entry
+            resumedOwedWipe = true
+            triedOwedWipe = true
+            endingStoredSession = endSession
+            if let entry = ledger.entry { retry(entry) }
+            if endSession { return (nil, true) }
+            guard stored == nil || ledger.entry == nil else {
+                hold()
+                return (nil, false)
+            }
+            return (stored, false)
         }
+    }
+
+    /// After the first frame, and in the nightly compaction. An owed wipe taken up changes no account, so `onChange`
+    /// doesn't run: a kill left the account's reminders and alarms scheduled, and its open workout on a row that's gone.
+    func finishOwedWipe(train: TrainCoordinator, bedtime: BedtimePlanner) async {
+        guard finishOwedWipe() else { return }
+        train.accountChanged()
+        await bedtime.accountChanged()
+    }
+
+    /// The parked wipe the launch left, or a retry of one that failed. True when a wipe was taken up, at this launch or
+    /// now. Never over a session: a published one's rows are its own, and a stored one the launch couldn't read (the
+    /// entry too, before the first unlock) goes through the launch table at the next launch. One this launch is ending
+    /// isn't in the way. Never after a refused pass: the next sign-in would be published over what it left.
+    @discardableResult
+    func finishOwedWipe() -> Bool {
+        defer { resumedOwedWipe = false }
+        guard session == nil, endingStoredSession || client?.currentSession == nil, !triedOwedWipe, !passRefused,
+              let owed = ledger.entry else { return resumedOwedWipe }
+        guard !owed.scrubOnly else {
+            if !ledger.storeStepLeftFiles { ledger.clear() }
+            return resumedOwedWipe
+        }
+        triedOwedWipe = true
+        retry(owed)
+        return true
     }
 
     /// Live wipe: cached API responses, HealthKit anchors (the next account
     /// re-syncs the full backfill) and per-user UserDefaults. False when the store may still hold the data.
     static func wipeSharedLocalData(_ wipe: Wipe) -> Bool {
-        HealthKitManager.shared.resetAnchors()
-        SyncEngineState.wipe(defaults: .standard)
-        Settings.shared.clearPerUserState()
+        steps(of: wipe, before: {
+            HealthKitManager.shared.resetAnchors()
+            SyncEngineState.wipe(defaults: .standard)
+            Settings.shared.clearPerUserState()
+        }, store: wipeStoreStep, after: {
+            RestActivityController.shared.end()
+            // Bedtime & wake's schedules and planned nights (its reminders and alarms go with the
+            // account change: `BedtimePlanner.accountChanged`).
+            BedtimePlanner.wipe(defaults: .standard)
+            // Whether to save workouts to Apple Health is the account's choice.
+            WorkoutHealthExport.wipe(defaults: .standard)
+            // So are the route default, auto-pause and recent sports.
+            ActivityPreferences.wipe(defaults: .standard)
+            // A sign-out while the export's share sheet is open (a final 401, or the account deleted): the file holds
+            // all of the account's data.
+            DataExport.removeFiles()
+        })
+    }
+
+    /// A retry (`storeOnly`) leaves the device steps alone, so it doesn't restart the backfill.
+    static func steps(of wipe: Wipe, before: () -> Void, store: (Wipe) -> Bool, after: () -> Void) -> Bool {
+        if wipe.storeOnly { return store(wipe) }
+        before()
+        let wiped = store(wipe)
+        after()
+        return wiped
+    }
+
+    private static func wipeStoreStep(_ wipe: Wipe) -> Bool {
+        storeStep(wipe, store: { TrainStore.shared.wipe($0) }, memory: {
+            // Its replay stops now, not when the app's account-change handler runs a runloop later.
+            TrainSyncService.shared.accountChanged()
+            TrainLibrary.shared.wipe()
+        })
+    }
+
+    /// The store, and what shows or holds its rows: every pass runs this, a retry too. The first pass's clear doesn't
+    /// last when its store refused: `onWipe` can write the widget again from the row that survived.
+    static func storeStep(_ wipe: Wipe, widget: URL? = ReadinessSnapshot.sharedFile, store: (Wipe) -> Bool,
+                          memory: () -> Void) -> Bool {
+        // The lock screen must not keep showing this account's readiness.
+        ReadinessSnapshot.clear(widget)
         // Cached read models, logged sessions, the offline library and queued uploads are per account; after an
         // expiry the account's unconfirmed activities stay, parked (design.md §8.4).
-        let wiped = TrainStore.shared.wipe(wipe)
-        // Its replay stops now, not when the app's account-change handler runs a runloop later.
-        TrainSyncService.shared.accountChanged()
-        TrainLibrary.shared.wipe()
-        RestActivityController.shared.end()
-        // The lock screen must not keep showing this account's readiness.
-        ReadinessSnapshot.clear()
-        // Bedtime & wake's schedules and planned nights (its reminders and alarms go with the
-        // account change: `BedtimePlanner.accountChanged`).
-        BedtimePlanner.wipe(defaults: .standard)
-        // Whether to save workouts to Apple Health is the account's choice.
-        WorkoutHealthExport.wipe(defaults: .standard)
-        // So are the route default, auto-pause and recent sports.
-        ActivityPreferences.wipe(defaults: .standard)
-        // A sign-out while the export's share sheet is open (a final 401, or the account deleted): the file holds all
-        // of the account's data.
-        DataExport.removeFiles()
+        let wiped = store(wipe)
+        memory()
         return wiped
     }
 }
@@ -849,8 +1060,16 @@ extension AuthService.SignOutReason {
 
 // MARK: - messages
 
+/// A sign-in the SDK accepted and the app won't publish: a wipe is still owed (design.md §4).
+struct SignInHeld: Error {}
+
 /// Calm, inline error copy. Never says whether an email has an account.
 enum AuthMessage {
+    static var signInHeld: String {
+        String(localized: "RYFT couldn't finish removing the previous account from this iPhone. Close RYFT and open it again to continue.",
+               comment: "Welcome and Log in: the new sign-in has to wait until the last account's data is gone from this phone.")
+    }
+
     /// Adding Sign in with Apple to an account.
     static func linkText(for error: Error) -> String {
         if error is URLError || (error as NSError).domain == NSURLErrorDomain {
