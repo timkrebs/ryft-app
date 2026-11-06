@@ -152,6 +152,42 @@ struct SignInHoldTests {
         #expect(rig.auth.needsNewPassword == false)
     }
 
+    /// The held session went away, so the link's question is over: that account logging in later isn't asked.
+    @Test(arguments: [true, false])
+    func aHeldRecoveryLinkEndsWithItsSession(_ byEvent: Bool) async throws {
+        let rig = try await refused()
+        rig.client.signInSession = .preview(id: accountB)
+        #expect(await rig.auth.handle(try #require(URL(string: "ryft://auth/callback?code=synthetic&type=recovery"))))
+
+        if byEvent {
+            rig.client.emit(.signedOut, nil)
+            await rig.settle()
+        } else {
+            await rig.auth.signOut()
+        }
+        rig.relaunch(signedInAs: nil)
+        await rig.settle()
+        #expect(await logIn(rig, as: accountB))
+
+        #expect(rig.auth.needsNewPassword == false)
+    }
+
+    /// Held twice, the session stays stored throughout, and its launch still asks.
+    @Test func aHeldRecoveryLinkOutlivesALaunchThatHolds() async throws {
+        let rig = try await refused()
+        rig.client.signInSession = .preview(id: accountB)
+        #expect(await rig.auth.handle(try #require(URL(string: "ryft://auth/callback?code=synthetic&type=recovery"))))
+        rig.wipesAnswer = false
+        rig.relaunch(signedInAs: accountB)
+        expectHeld(rig, for: accountB)
+
+        rig.wipesAnswer = nil
+        rig.relaunch(signedInAs: accountB)
+
+        #expect(rig.auth.accountID == b)
+        #expect(rig.auth.needsNewPassword)
+    }
+
     /// The link was for the account that's held: another one coming in isn't asked, and the link's turn is over.
     @Test func aHeldRecoveryLinkIsntAnotherAccounts() async throws {
         let rig = try await refused()
@@ -509,7 +545,8 @@ struct SignInHoldTests {
         #expect(rig.auth.errorMessage == nil)
         #expect(rig.wipes.count == before + 1, "the call and the mock's event: the second is a refresh")
         #expect(rig.wipes.last?.storeOnly == true)
-        #expect(rig.ledgerOnDisk?.endsOwnSession == false)
+        #expect(rig.ledgerOnDisk?.publishedOver == true)
+        #expect(rig.ledgerOnDisk?.endsOwnSession == true)
         #expect(rig.lastUser == a)
 
         rig.relaunch(signedInAs: WipeValues.accountA)
@@ -529,7 +566,7 @@ struct SignInHoldTests {
 
         #expect(rig.auth.accountID == a)
         #expect(rig.answers.last == healthy)
-        #expect(rig.ledgerOnDisk?.endsOwnSession == (healthy ? nil : false))
+        #expect(rig.ledgerOnDisk?.publishedOver == (healthy ? nil : true))
     }
 
     /// Published over the entry, and then it signs out: from here it's that sign-out again, so a kill before the SDK
@@ -537,10 +574,10 @@ struct SignInHoldTests {
     @Test func aReturnedAccountSigningOutOwesItsOwnEnd() async throws {
         let rig = try await refused()
         #expect(await logIn(rig, as: WipeValues.accountA))
-        #expect(rig.ledgerOnDisk?.endsOwnSession == false)
+        #expect(rig.ledgerOnDisk?.publishedOver == true)
 
         await rig.end(.user)
-        #expect(rig.ledgerOnDisk?.endsOwnSession == true)
+        #expect(rig.ledgerOnDisk?.publishedOver == false)
 
         rig.relaunch(signedInAs: WipeValues.accountA)
         #expect(rig.auth.accountID == nil)
@@ -661,16 +698,152 @@ struct SignInHoldTests {
 
     /// Only that account's own end makes the entry an interrupted sign-out again.
     @Test func anAccountsOwnEndIsWhatSetsTheKeyBack() throws {
+        let ledger = WipeLedger(file: nil)
+        ledger.begin(Wipe(reason: .user, account: a), at: WipeValues.now)
+        ledger.update { $0.publishedOver = true }
+
+        ledger.begin(Wipe(reason: .user, account: b), at: WipeValues.now)
+        #expect(ledger.entry?.publishedOver == true)
+        ledger.begin(Wipe(reason: nil, account: a), at: WipeValues.now)
+        #expect(ledger.entry?.publishedOver == true)
+        ledger.begin(Wipe(reason: .user, account: a), at: WipeValues.now)
+        #expect(ledger.entry?.publishedOver == false)
+    }
+
+    /// A W1 build's entry stays one: its own account's end doesn't turn it into a W2 sign-out.
+    @Test func aW1BuildsEntryKeepsItsMissingKey() throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         try WipeEntries.fromAW1Build(reason: .user, account: a, since: WipeValues.now).write(to: rig.ledgerFile)
         let ledger = WipeLedger(file: rig.ledgerFile)
 
-        ledger.begin(Wipe(reason: .user, account: b), at: WipeValues.now)
-        #expect(ledger.entry?.endsOwnSession == false)
-        ledger.begin(Wipe(reason: nil, account: a), at: WipeValues.now)
-        #expect(ledger.entry?.endsOwnSession == false)
         ledger.begin(Wipe(reason: .user, account: a), at: WipeValues.now)
-        #expect(ledger.entry?.endsOwnSession == true)
+
+        #expect(ledger.entry?.endsOwnSession == false)
+        #expect(ledger.entry?.publishedOver == false)
+    }
+
+    @Test func aMarkOnAnEntryReadsBack() throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        let ledger = WipeLedger(file: rig.ledgerFile)
+        ledger.begin(Wipe(reason: .user, account: a), at: WipeValues.now)
+        #expect(rig.ledgerOnDisk?.publishedOver == false)
+        ledger.update { $0.publishedOver = true }
+        #expect(rig.ledgerOnDisk?.publishedOver == true)
+    }
+
+    /// The launch before the first unlock reads neither the entry nor the session. Both come back with `route`.
+    private func aLaunchBeforeTheFirstUnlock(_ rig: WipingAuth, reads session: UUID, firstEvent: Bool) async throws {
+        let aside = rig.ledgerFile.appendingPathExtension("locked")
+        try FileManager.default.moveItem(at: rig.ledgerFile, to: aside)
+        rig.relaunch(signedInAs: nil)
+        if firstEvent { await rig.settle() }
+        try FileManager.default.moveItem(at: aside, to: rig.ledgerFile)
+        if firstEvent {
+            rig.client.emit(.tokenRefreshed, .preview(id: session))
+        } else {
+            rig.client.unlock(.preview(id: session))
+        }
+        await rig.settle()
+    }
+
+    /// A marked entry's account comes back as `.forget` would have it, however the session reaches `publish`: its unsent
+    /// rows are live, and no wipe of it runs.
+    @Test(arguments: [(false, true), (false, false), (true, true), (true, false)])
+    func aLaunchThatCouldntReadTheMarkPublishesTheLiveWork(_ route: (firstEvent: Bool, owned: Bool)) async throws {
+        let rig = try await refused()
+        #expect(await logIn(rig, as: WipeValues.accountA))
+        let work = try unsent(of: a, in: rig)
+        let wipes = rig.wipes.count
+        if !route.owned { rig.defaults.removeObject(forKey: AccountScope.defaultsKey) }
+
+        try await aLaunchBeforeTheFirstUnlock(rig, reads: WipeValues.accountA, firstEvent: route.firstEvent)
+
+        #expect(rig.auth.accountID == a)
+        #expect(rig.auth.errorMessage == nil)
+        #expect(rig.ledgerOnDisk == nil)
+        #expect(rig.wipes.count == wipes)
+        #expect(try activities(rig).contains(work))
+    }
+
+    /// The mark speaks for its own account's rows only: with another id in the store, the first event wipes as before.
+    @Test func aMarkOverAnotherOwnerIsNoForget() async throws {
+        let rig = try await refused()
+        #expect(await logIn(rig, as: WipeValues.accountA))
+        rig.defaults.set(b, forKey: AccountScope.defaultsKey)
+        try rig.disk.allowDeletes()
+
+        try await aLaunchBeforeTheFirstUnlock(rig, reads: WipeValues.accountA, firstEvent: true)
+
+        #expect(rig.wipes.last?.account == b)
+        #expect(rig.auth.accountID == a)
+        #expect(rig.ledgerOnDisk == nil)
+    }
+
+    /// Another account's session never reads the mark as its own.
+    @Test func aMarkDoesntLetAnotherAccountIn() async throws {
+        let rig = try await refused()
+        #expect(await logIn(rig, as: WipeValues.accountA))
+        rig.wipesAnswer = false
+
+        try await aLaunchBeforeTheFirstUnlock(rig, reads: accountB, firstEvent: true)
+
+        expectHeld(rig, for: accountB)
+        #expect(rig.ledgerOnDisk?.wipe.account == a)
+    }
+
+    /// A hold ended the marked account, and it comes back to its own live rows in that process: no pass, and with a
+    /// refusal behind it the debt stands.
+    @Test func aMarkedAccountComingBackInTheSameProcessTakesNoPass() async throws {
+        let rig = try await refused()
+        #expect(await logIn(rig, as: WipeValues.accountA))
+        #expect(await logIn(rig, as: accountB) == false)
+        #expect(rig.auth.accountID == nil)
+        let wipes = rig.wipes.count
+
+        #expect(await logIn(rig, as: WipeValues.accountA))
+
+        #expect(rig.auth.accountID == a)
+        #expect(rig.wipes.count == wipes)
+        #expect(rig.ledgerOnDisk?.publishedOver == true)
+    }
+
+    /// A marked entry at a launch that can read it, with its account stored.
+    @Test func theLaunchTableForgetsAMarkedEntry() {
+        var owed = OwedWipe(wipe: Wipe(reason: .user, account: a, since: WipeValues.now))
+        owed.publishedOver = true
+        #expect(WipeResume.decide(owed, stored: a, now: WipeValues.now) == .forget)
+        #expect(WipeResume.decide(owed, stored: b, now: WipeValues.now) == .wipeNow(narrow: false, endSession: false))
+        #expect(WipeResume.decide(owed, stored: nil, now: WipeValues.now) == .wipeNow(narrow: false, endSession: false))
+    }
+
+    /// A full disk: the mark doesn't reach the file, which would read as an interrupted sign-out. No file reads as no
+    /// debt over A, and this process still has the entry, so B stays out.
+    @Test func aMarkTheDiskRefusesRemovesTheFile() async throws {
+        let rig = try await refused()
+        try FileManager.default.removeItem(at: rig.ledgerFile)
+        let inTheWay = rig.ledgerFile.appendingPathComponent("child")
+        try FileManager.default.createDirectory(at: inTheWay, withIntermediateDirectories: true)
+
+        #expect(await logIn(rig, as: WipeValues.accountA))
+
+        #expect(rig.auth.accountID == a)
+        #expect(!FileManager.default.fileExists(atPath: rig.ledgerFile.path))
+        let work = try unsent(of: a, in: rig)
+
+        #expect(await logIn(rig, as: accountB) == false)
+        #expect(rig.auth.accountID == nil)
+
+        rig.relaunch(signedInAs: WipeValues.accountA)
+        #expect(rig.auth.accountID == a)
+        #expect(rig.client.signOutCount == 0)
+        #expect(try activities(rig).contains(work))
+    }
+
+    /// The control: a write that works leaves the file, marked.
+    @Test func aMarkTheDiskTakesKeepsTheFile() async throws {
+        let rig = try await refused()
+        #expect(await logIn(rig, as: WipeValues.accountA))
+        #expect(FileManager.default.fileExists(atPath: rig.ledgerFile.path))
     }
 
     /// `accountDeleted(background: true)`: the account signs in while its removal runs. That isn't a return.

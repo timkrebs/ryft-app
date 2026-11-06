@@ -66,6 +66,7 @@ struct OwedWipe: Codable, Equatable {
     var deviceStepsDone = false   // set after the first pass, so a retry runs only the store step
     var scrubOnly = false         // the wipe succeeded; only file residue is left (W7)
     var endsOwnSession = true     // this build never publishes the entry's account over it (W2)
+    var publishedOver = false     // its account came back after a refused pass and works over it (W3)
 }
 
 @MainActor final class WipeLedger {
@@ -81,7 +82,7 @@ struct OwedWipe: Codable, Equatable {
 - **Writes:** atomic, `.completeFileProtectionUntilFirstUserAuthentication`, the same class as the Keychain session.
 - **`since` lives in `Wipe`** (W1), so `OwedWipe.since` reads it, a retry runs `entry.wipe` as it stands, and I4 needs no
   second copy. W1 also stores `storeOnly`, because W1 builds write the file W2 reads. Nothing sets it before W2.
-- **Reading the format:** a missing `storeOnly`, `deviceStepsDone`, `scrubOnly` or `endsOwnSession` reads as false. `since`
+- **Reading the format:** a missing `storeOnly`, `deviceStepsDone`, `scrubOnly`, `endsOwnSession` or `publishedOver` reads as false. `since`
   is required. A missing `endsOwnSession` is how a W1 build's entry is told apart (W2).
 - **Merging `begin`:** the earliest `since` stays. Anything that doesn't park the same account narrows the entry to no
   parking: a different account, a nil reason, or the same account's `.user` or deletion. A deletion's reason always
@@ -102,9 +103,10 @@ struct OwedWipe: Codable, Equatable {
   it:
   - A wipe that returned true, once the replace left no files and an interrupted sign-out's `client.signOut()` has run,
     in a process with no refused pass. After a refusal only a later launch's pass can (W3).
-  - `.forget` at launch: an entry an account was published over, with that account's session stored, unless it's a
-    deletion, or a scrub with any session. No wipe runs. The first is a W1 build's entry, or a return after a refused pass
-    (W3): that account's rows are its own.
+  - `.forget`: an entry an account was published over, with that account's session stored, or a scrub with any session.
+    No wipe runs. The first is `publishedOver`, a return after a refused pass (W3), or a W1 build's entry unless it's a
+    deletion: that account's rows are its own. A `publishedOver` entry the launch couldn't read goes the same way in
+    `publish`.
 
   A stored session restored at launch isn't a sign-in. Unless `.forget` applies, the entry survives it.
 - **I3.** `auth.lastUserID` means only "whose data the store holds". The debt lives only in the ledger.
@@ -138,7 +140,7 @@ is nil, so the launch falls back to the object wipe and the gate, and the next l
 | none | any | nothing | as today |
 | owed, no parking | none | replace files | run the wipe, clear, signed out |
 | owed, no parking | another account | replace files | run the wipe, clear, publish it |
-| published over (`endsOwnSession` false, or missing in a W1 build's), not a deletion | the entry's account | nothing | clear, publish it: the rows may be live work (W2, W3) |
+| `publishedOver`, or a W1 build's and not a deletion | the entry's account | nothing | clear, publish it: the rows may be live work (W2, W3) |
 | owed, no parking | the entry's account | replace files | sign-out was interrupted: run the wipe, `client.signOut()`, clear, signed out |
 | owed, parking, within 30 days | none | nothing | object wipe after the first frame, `at: since` |
 | owed, parking, within 30 days | the entry's account | nothing | same, and `client.signOut()`; not published |
@@ -164,12 +166,13 @@ is nil, so the launch falls back to the object wipe and the gate, and the next l
 | No entry, and `lastUserID` is nil or this account | publish |
 | An interrupted sign-out's `client.signOut()` is running | **hold**, with no attempt: the entry stands until the call returns (W3) |
 | The entry's own account, in a late `.initialSession` | **hold**: that's an interrupted sign-out the launch couldn't read, and the next launch's table ends it |
-| The entry's own account signs in | one attempt with the entry's parking, then publish either way: the rows are its own. A true attempt in a process with no refused pass ends the debt. Otherwise the entry stands, marked published over (`endsOwnSession` false), so the next launch doesn't take this account's live work: stored, it's `.forget`; not stored, its row as usual |
+| `publishedOver`, the entry's own account, `lastUserID` nil or this account | as `.forget`, ahead of the two rows either side, restoring too: publish with no pass, and clear unless a pass was refused in this process. This is how a launch before the first unlock reads the mark |
+| The entry's own account signs in | one attempt with the entry's parking, then publish either way: the rows are its own. A true attempt in a process with no refused pass ends the debt. Otherwise the entry stands, marked `publishedOver`, so the next launch doesn't take this account's live work: stored, it's `.forget`; not stored, its row as usual. If the disk refuses the mark, the file goes and this process keeps the entry |
 | A pass was refused in this process, and anything else | **hold**, with no attempt, until the next launch |
 | Anything else: another account in the entry or `lastUserID`, or an entry that isn't a return | `begin`, wipe with no parking. True: clear and publish. False: **hold** |
 
 An entry naming this account is a return only if `lastUserID` is nil or this account, the entry isn't a deletion's, and it
-has `endsOwnSession`. So a debt with no owner left still holds: `publish` reads the entry, not only the id.
+has `endsOwnSession`, which is W1's alone to lack. So a debt with no owner left still holds: `publish` reads the entry, not only the id.
 
 **Once a pass has been refused in a process, nothing in that process ends that debt.** A refused save leaves an inserted row
 in the context, a batch delete doesn't see it, and the next pass's save answers true and writes it. Only a later launch's
@@ -354,9 +357,13 @@ The same-account rule must not trust the entry's account alone. Neither route is
 - **A held B's parked narrowing stays, as a stated exception to Goal 3.** B's attempt narrows A's parked entry, and A coming
   back afterwards then gets a no-parking attempt. The next launch with B stored would narrow it anyway, and the approved
   policy says another account signing in removes them. `aSignInOverAParkedDebtNarrowsIt` pins it.
-- **A return after a refusal stands as `endsOwnSession` false.** That's exactly what the key already meant: an account was
-  published over this entry, so its rows may be live. The next launch forgets it if the account is stored, and takes its
-  row if it isn't. The account signing out or expiring sets the key back, because that entry is its own end again.
+- **A return after a refusal stands as `publishedOver`.** Its own field, not a false `endsOwnSession`: at a sign-in that one
+  means "a W1 build's, wipe", and this one means "live work, don't". The next launch forgets it if the account is stored, and
+  takes its row if it isn't. Before the first unlock the launch reads neither, so `publish` does what `.forget` would. The
+  account signing out or expiring sets it back, because that entry is its own end again.
+- **A held recovery link's question ends with its session.** The key goes in `apply(nil)` once nothing is stored, and it's
+  not on the wiped keys: `clearTheWay`'s wipe runs after `handle` writes it. A launch before the first unlock reads nothing
+  stored, so a held link's question can be lost there. It fails soft: the account has a session and can reset again.
 - **A held recovery link is remembered by account.** `recoveryRequestedRecently` can't serve a later launch: the request
   alone doesn't say a link was opened, so a normal log-in within the hour would be asked for a new password at the next launch,
   and a `type=recovery` link doesn't set it. `handle` writes the account before `publish`, and the publish of that account
@@ -430,6 +437,10 @@ so the grant can't be revoked later.
 - **A returning account works on a poisoned context.** The same-account rule publishes A either way. If its attempt was
   refused, the store's context keeps the pending deletes, so its saves keep failing until the refusal ends, when the deletes
   land, or until the next launch. Today's behaviour for any refused wipe (§2), and a held B is spared it.
+- **A mark the disk refuses.** On a full disk the old file would read as an interrupted sign-out and take A's work, so the
+  return removes the file, which needs no space. This process keeps the entry, so B stays held. The next launch has no debt
+  over A and no entry to fall back on, and `lastUserID` still makes another account's sign-in wipe. If the remove fails
+  too, the old file stands. That's one more failure on top of a refused pass and a full disk. Accepted.
 - **A return's debt spans its session.** In a process with a refused pass the entry stands while A works. If A's session
   then expires there, the entry stays a no-parking one (parking never widens), so the next launch's replace takes rows that
   expiry parked. It takes a refusal, a return and an expiry in one process.

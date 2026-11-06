@@ -740,6 +740,8 @@ final class AuthService {
             try? publish(newSession)
             return
         }
+        // The recovery link's session has gone, so that question has no account to ask any more.
+        if client?.currentSession == nil { defaults.removeObject(forKey: Self.recoveringKey) }
         let leaving = session?.user.id.uuidString
         let ending = leavingReason(reason ?? endingReason ?? .sessionExpired, of: leaving)
         if session != nil {
@@ -774,15 +776,22 @@ final class AuthService {
         let owed = ledger.entry
         let owner = session?.user.id ?? defaults.string(forKey: Self.lastUserKey).flatMap(UUID.init(uuidString:))
         if let owed, owed.wipe.account == incoming.uuidString {
+            // What the launch table's `.forget` does, for a launch that couldn't read either: its rows are live work.
+            // A process with a refused pass doesn't end the debt, and the rows are no less its own.
+            if owed.publishedOver, owner == nil || owner == incoming {
+                if !passRefused { ledger.clear() }
+                return
+            }
             // A late `.initialSession`: the launch couldn't read the session or the entry, so this is a sign-out a kill
             // interrupted, not a sign-in. The next launch's table ends it.
             if isRestoring { throw hold() }
             if isReturn(owed, of: incoming, owner: owner) {
                 // One attempt, then the rows are its work again, and a true pass has ended the debt. After a refusal
                 // it stands, marked as published over: as it was, the next launch would read an interrupted sign-out
-                // and take this account's live work.
+                // and take this account's live work. If the disk won't take the mark, no file is safer than that one,
+                // and this process still has the entry.
                 retry(owed)
-                ledger.update { $0.endsOwnSession = false }
+                if !ledger.update({ $0.publishedOver = true }) { ledger.removeFile() }
                 return
             }
         }
@@ -902,8 +911,9 @@ final class AuthService {
 
     /// The launch table (design.md §4), before anything is published. Runs ahead of the store, which reads what it
     /// leaves in `forStoreStep`; a wipe here is what first opens it. Returns the session to publish, and whether the
-    /// stored one is ended instead: an interrupted sign-out. A session whose wipe failed here is held, and `passRefused`
-    /// keeps every later route in this process from trying again: the SDK's events, a sign-in and `finishOwedWipe`.
+    /// stored one is ended instead: an interrupted sign-out. A session whose wipe failed here is held. `passRefused` then
+    /// stops the SDK's events, a sign-in and `finishOwedWipe` from trying again. A return and a leaving account still run
+    /// a pass, and none can end the debt.
     private func resumeOwedWipe(stored: Session?) -> (publish: Session?, endsStored: Bool) {
         guard let owed = ledger.entry else { return (stored, false) }
         switch WipeResume.decide(owed, stored: stored?.user.id.uuidString, now: now()) {

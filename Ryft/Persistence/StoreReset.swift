@@ -16,7 +16,7 @@ enum WipeResume: Equatable {
     static func decide(_ owed: OwedWipe, stored: String?, now: Date) -> WipeResume {
         if owed.scrubOnly { return stored == nil ? .scrub : .forget }
         let own = stored != nil && stored == owed.wipe.account
-        if own, !owed.endsOwnSession, owed.wipe.reason?.isDeletion != true { return .forget }
+        if own, owed.publishedOver || (!owed.endsOwnSession && owed.wipe.reason?.isDeletion != true) { return .forget }
         let another = stored != nil && !own
         if owed.wipe.parking == nil { return .wipeNow(narrow: false, endSession: own) }
         if another || isPastParkingLimit(owed, now: now) { return .wipeNow(narrow: true, endSession: own) }

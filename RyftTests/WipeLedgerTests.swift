@@ -109,7 +109,7 @@ struct WipeLedgerTests {
         try FileManager.default.removeItem(at: folder.file)
         WipeLedger(file: folder.file).begin(Wipe(reason: .user, account: Ledger.b), at: Ledger.first)
         let object = try JSONSerialization.jsonObject(with: Data(contentsOf: folder.file)) as? [String: Any]
-        #expect(Set(object?.keys.map { $0 } ?? []) == ["wipe", "deviceStepsDone", "scrubOnly", "endsOwnSession"],
+        #expect(Set(object?.keys.map { $0 } ?? []) == ["wipe", "deviceStepsDone", "scrubOnly", "endsOwnSession", "publishedOver"],
                 "every flag from the start")
         #expect(object?["endsOwnSession"] as? Bool == true, "the difference between this build and a W1 build")
         let wipe = object?["wipe"] as? [String: Any]
