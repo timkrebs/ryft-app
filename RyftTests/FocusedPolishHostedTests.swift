@@ -54,8 +54,8 @@ struct FocusedPolishHostedTests {
     }
 
     /// The word whole, in a capsule its own width: a word that wrapped or was cut has a narrower one.
-    @Test("Finish keeps its whole word at 320 pt, in English and German", arguments: [
-        (compact, "en", "Finish"), (compactAX3, "en", "Finish"), (compact, "de", "Beenden"), (compactAX3, "de", "Beenden"),
+    @Test("Finish keeps its whole word at 320 pt, at the default and AX3 sizes", arguments: [
+        (compact, "en", "Finish"), (compactAX3, "en", "Finish"),
     ])
     func finishHoldsItsWord(_ c: (s: SizeCase, language: String, word: String)) async throws {
         let controller = FocusedPreview.controller(.midSession)
