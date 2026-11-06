@@ -22,7 +22,7 @@ server deployment with Apple distribution.)
 - `main` green; `make lint` (strings, entitlements) clean; no warnings; privacy manifest and App Privacy
   answers match the code (ask security-privacy-reviewer when unsure).
 - Version: SemVer in `VERSION`; build number from the script (both targets — app and widget extension).
-- Notes: TestFlight "What to Test" en + de from `CHANGELOG.md` → Unreleased; App Review notes current
+- Notes: TestFlight "What to Test" (English, en-US) from `CHANGELOG.md` → Unreleased; App Review notes current
   (demo account works — ask the user to run the platform's `seed_demo.sh` first).
 - Push environment: TestFlight/App Store builds register `production` APNs.
 

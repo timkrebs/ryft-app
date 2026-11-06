@@ -285,26 +285,18 @@ struct OrbitGaugeBandTests {
         #expect(withBand.hasSuffix("Strain, not scored"))
     }
 
-    /// The German template resolves in the app's `de.lproj`, with the locale's decimal comma for the number.
-    @Test func germanResolvesToBelastungMitHeutigemBereich() throws {
-        let path = try #require(Bundle.main.path(forResource: "de", ofType: "lproj"), "the app has a German localization")
-        let german = try #require(Bundle(path: path))
-        let key = "Strain %@ of 21, today's recommended range %@ to %@"
-        let template = german.localizedString(forKey: key, value: "MISSING", table: nil)
-        #expect(template == "Belastung %1$@ von 21, heutiger empfohlener Bereich %2$@ bis %3$@")
+    /// A German region formats the numbers its own way (the decimal comma, never ",0"); the app's words stay English.
+    @Test func numbersInAGermanRegionKeepTheDecimalComma() {
         let de = Locale(identifier: "de_DE")
         let strain = 9.6.formatted(.number.precision(.fractionLength(1)).locale(de))
         let lo = 8.0.formatted(.number.precision(.fractionLength(0...1)).locale(de))
         let hi = 13.0.formatted(.number.precision(.fractionLength(0...1)).locale(de))
         #expect(strain == "9,6" && lo == "8" && hi == "13")
+        let template = "Strain %1$@ of 21, today's recommended range %2$@ to %3$@"
         #expect(String(format: template, locale: de, strain as NSString, lo as NSString, hi as NSString)
-                == "Belastung 9,6 von 21, heutiger empfohlener Bereich 8 bis 13")
-        let above = german.localizedString(forKey: "Strain %@ of 21, above today's recommended range %@ to %@",
-                                           value: "MISSING", table: nil)
-        #expect(above == "Belastung %1$@ von 21, über dem heutigen empfohlenen Bereich %2$@ bis %3$@")
+                == "Strain 9,6 of 21, today's recommended range 8 to 13")
         let high = 16.5.formatted(.number.precision(.fractionLength(1)).locale(de))
-        #expect(String(format: above, locale: de, high as NSString, lo as NSString, hi as NSString)
-                == "Belastung 16,5 von 21, über dem heutigen empfohlenen Bereich 8 bis 13")
+        #expect(high == "16,5")
         // 0 to 1 fraction digits: a half shows, a whole number never gets ",0".
         #expect(8.5.formatted(.number.precision(.fractionLength(0...1)).locale(de)) == "8,5")
         #expect(!lo.contains(",0") && !hi.contains(",0"))

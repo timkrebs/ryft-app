@@ -14,10 +14,7 @@
 #     (Today's rows, ui.md §1.6); nightGap scoringSlow (the night hint and "Taking longer than usual")
 #     blockedHRV blockedNoNight blockedOura learningHRV (honest calibration: N1, N2, N1 both signals, S2; design.md §7 rev. 2)
 #     learningRestingHR learningRestingHRScored blockedEarly (F3: S1 counting resting HR, S2 with it, N1 early)
-#   SHOT_LANG=de: German (files end in -de), in Germany's region (de_DE)
-#   SHOT_LOCALE=de_AT: another region for SHOT_LANG
-# Times use each locale's own clock ("23:17" in German), not this simulator's 24-Hour Time switch
-# (`AppleICUForce12HourTime`), which the app honours as a user's setting.
+# The app is English only, so the shots show the English clock: `-AppleICUForce12HourTime NO` below, as a user's setting.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -47,11 +44,6 @@ xcrun simctl status_bar "$DEVICE" override --time "9:41" --batteryState charged 
 xcrun simctl install "$DEVICE" "$APP"
 mkdir -p "$OUT"
 
-LANG_SHOT=${SHOT_LANG:-}
-case $LANG_SHOT in
-  de) LOCALE_SHOT=${SHOT_LOCALE:-de_DE} ;;
-  *) LOCALE_SHOT=${SHOT_LOCALE:-$LANG_SHOT} ;;
-esac
 for scheme in dark light; do
   for tab in $TABS; do
     xcrun simctl terminate "$DEVICE" "$BUNDLE" 2>/dev/null || true
@@ -62,10 +54,6 @@ for scheme in dark light; do
       *) set -- -RyftTab "$tab" ;;
     esac
     name="$tab-$scheme"
-    if [ -n "$LANG_SHOT" ]; then
-      set -- "$@" -AppleLanguages "($LANG_SHOT)" -AppleLocale "$LOCALE_SHOT"
-      name="$name-$LANG_SHOT"
-    fi
     xcrun simctl launch "$DEVICE" "$BUNDLE" -demoMode YES "$@" -appearance "$scheme" -AppleICUForce12HourTime NO >/dev/null
     sleep "${SHOT_DELAY:-3}"
     xcrun simctl io "$DEVICE" screenshot --type=png "$OUT/$name.png" >/dev/null 2>&1

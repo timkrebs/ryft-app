@@ -7,11 +7,11 @@ final class SessionReplaceUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    private func launch(german: Bool = false) -> XCUIApplication {
+    private func launch() -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
         app.launchArguments = ["-demoMode", "YES", "-RyftTab", "strain", "-appearance", "dark",
-                               "-coachMarks.today.done", "YES", "-RyftResetTrain", "YES"]
-        if german { app.launchArguments += ["-AppleLanguages", "(de)", "-AppleLocale", "de_DE"] }
+                               "-coachMarks.today.done", "YES", "-RyftResetTrain", "YES",
+                               "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
         return app
     }
@@ -63,10 +63,10 @@ final class SessionReplaceUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Options for Cable fly"].exists)
     }
 
-    /// German: deleting a set with values asks first, from the swipe and from the context menu.
+    /// Deleting a set with values asks first, from the swipe and from the context menu.
     @MainActor
-    func testGermanDeleteOfASetWithValuesAsksFirst() throws {
-        let app = launch(german: true)
+    func testDeleteOfASetWithValuesAsksFirst() throws {
+        let app = launch()
         startTodaysPlan(in: app)
 
         let row = app.descendants(matching: .any)["set.0.1"]
@@ -78,19 +78,19 @@ final class SessionReplaceUITests: XCTestCase {
 
         row.swipeLeft()
         check.tap() // the revealed delete button sits where the check was
-        let title = app.staticTexts["Satz 1 löschen?"]
+        let title = app.staticTexts["Delete set 1?"]
         XCTAssertTrue(title.waitForExistence(timeout: 3), "a set with values asks first (swipe)")
-        XCTAssertTrue(app.buttons["Satz löschen"].exists)
-        let cancel = app.buttons["Abbrechen"]
+        XCTAssertTrue(app.buttons["Delete set"].exists)
+        let cancel = app.buttons["Cancel"]
         if cancel.exists { cancel.tap() } else { app.otherElements["PopoverDismissRegion"].firstMatch.tap() }
         XCTAssertTrue(title.waitForNonExistence(timeout: 3))
 
         row.press(forDuration: 1.0)
-        let menuDelete = app.buttons["Satz löschen"]
+        let menuDelete = app.buttons["Delete set"]
         XCTAssertTrue(menuDelete.waitForExistence(timeout: 3), "the context menu's Delete set")
         menuDelete.tap()
         XCTAssertTrue(title.waitForExistence(timeout: 3), "a set with values asks first (context menu)")
-        app.buttons["Satz löschen"].firstMatch.tap()
+        app.buttons["Delete set"].firstMatch.tap()
         XCTAssertTrue(title.waitForNonExistence(timeout: 3))
         XCTAssertTrue(row.waitForExistence(timeout: 3), "the next set is set 1 now")
     }

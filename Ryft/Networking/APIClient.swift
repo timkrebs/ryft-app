@@ -605,9 +605,8 @@ final class APIClient: RyftDataSource {
         return await APIStatus.shared
     }
 
-    static var acceptLanguage: String {
-        Locale.preferredLanguages.prefix(3).joined(separator: ", ")
-    }
+    /// The app is English only, so names and summaries come in English whatever the device's languages are.
+    static let acceptLanguage = "en"
 
     static func dayString(_ d: Date) -> String {
         DayFormat.string(from: d)

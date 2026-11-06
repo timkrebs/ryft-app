@@ -35,7 +35,7 @@ open Ryft.xcodeproj
 ```
 
 `make build` / `make test` build and test for the simulator from the command line.
-`make lint` checks that every string has German and no key is stale. `make archive`
+`make lint` checks that the catalogs are English only, complete and free of stale keys. `make archive`
 builds a Release archive with a timestamp build number and exports an App Store ipa
 (`scripts/ExportOptions.plist`; needs the paid team). The submission checklist is
 `docs/APP_STORE.md`.
@@ -72,7 +72,7 @@ A build without them is broken, never silently pointed elsewhere (`App/PlatformC
 only exists where `Config/Debug.xcconfig` sets `INFOPLIST_PREPROCESSOR_DEFINITIONS =
 RYFT_LOCAL_NETWORKING=1`; the `.example` file does. Because a preprocessed plist can't be
 string-extracted, `Resources/InfoPlist.xcstrings` keeps its entries (display name, Health usage
-texts, with German) as manual entries.
+texts, in English) as manual entries.
 
 Release builds use the production values: point the Release configuration at
 `Config/Production.xcconfig` in Xcode (Project → Info → Configurations), or keep the
@@ -258,7 +258,7 @@ Ryft/
                TrainLibrary (exercises, plans, today), maths, rest timer, Live Activity
   Networking/  APIClient (status handling), APIStatus, v1 wire models, response cache
   Preview/     MockData + MockDataSource, MockAuthClient, preview helpers
-  Resources/   Fonts (fetched), string catalogs (en, de)
+  Resources/   Fonts (fetched), string catalogs (English)
 RyftTests/     Swift Testing unit tests + JSON fixtures from API.md
 RyftUITests/   XCUITest: the Train session flow
 RyftWidgets/   widget extension: rest timer Live Activity

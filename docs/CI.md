@@ -14,7 +14,7 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
 | Workflow | When | What |
 | --- | --- | --- |
 | `ios.yml` | every PR, every push to `main`; 00:30 UTC nightly, or manually | `make lint` (strings), `make style` (SwiftFormat, SwiftLint), build-for-testing with warnings as errors, test plans `Unit` + `UISmoke` (nightly: `Full`), coverage floor, API contract |
-| `nightly.yml` | 01:00 UTC daily, or manually | archive `main`, upload, TestFlight group **Internal**; skipped when nothing landed since the last build. A manual run takes optional `notes` (max 4000 characters, English block then German: the script sends one text to `en-US` and `de-DE`) instead of the commit list: `gh workflow run nightly.yml -f notes="$(cat notes.txt)"` |
+| `nightly.yml` | 01:00 UTC daily, or manually | archive `main`, upload, TestFlight group **Internal**; skipped when nothing landed since the last build. A manual run takes optional `notes` (max 4000 characters, English: the script sends the text to `en-US`, the app's only language) instead of the commit list: `gh workflow run nightly.yml -f notes="$(cat notes.txt)"` |
 | `weekly.yml` | Mondays 07:00 Europe/Berlin, or manually | the newest processed build to group **External**, with the week's commits as What to Test (a manual run can pass `notes` as in `nightly.yml`), submitted for beta review |
 | `release.yml` | a push to `main` that changes `VERSION` (a merged `make release` PR) | tag `vX.Y.Z` on that commit, archive the tag, upload, group **Internal**; see [Versions](#versions-and-build-numbers) |
 | `_testflight.yml` | called by nightly and release | the shared archive → upload → distribute job |
@@ -48,7 +48,7 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
 
 ## PR checks (`ios.yml`)
 
-- **Strings:** `scripts/lint-strings.py` requires English and German to be complete
+- **Strings:** `scripts/lint-strings.py` requires the catalogs to be English only and complete (no `de` localization)
   and nothing stale.
 - **Style:** `.swiftformat` is a small rule set the code already follows
   (`swiftformat --lint .`; `make format` applies it). `.swiftlint.yml` fails only on
@@ -179,7 +179,7 @@ The script uses only the Python standard library; `openssl` signs the ES256 JWT.
 
 - `distribute --build N --group NAME [--notes FILE] [--external]`:
   1. waits until build N has processed (`VALID`, up to 60 min)
-  2. sets What to Test in `en-US` and `de-DE`
+  2. sets What to Test in `en-US`
   3. adds the build to the group, except an internal group with "access to all builds": App Store
      Connect adds every build there itself and refuses a manual assignment, so the script logs
      "Internal gets every build automatically" and moves on

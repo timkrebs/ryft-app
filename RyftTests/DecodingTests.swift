@@ -845,11 +845,12 @@ struct TrackerCatalogTests {
         #expect(c.displayName(ref("Connect", "com.garmin.connect.mobile2")) == "Connect")
     }
 
-    @Test func localizedTextFollowsTheAppsLanguage() {
+    /// English only: a German device or region gets the English catalog text, never the `de` field.
+    @Test func localizedTextIsEnglishWhateverTheLanguage() {
         let text = Localized(en: "Open Garmin Connect.", de: "Öffne Garmin Connect.")
-        #expect(text.value(for: "de") == text.de && text.value(for: "de-DE") == text.de && text.value(for: "DE_at") == text.de)
+        #expect(text.value(for: "de") == text.en && text.value(for: "de-DE") == text.en && text.value(for: "DE_at") == text.en)
         #expect(text.value(for: "en") == text.en && text.value(for: "fr") == text.en && text.value(for: nil) == text.en)
-        #expect(text.current == text.value(for: Bundle.main.preferredLocalizations.first))
+        #expect(text.current == text.en)
     }
 
     @Test func signalsMapToTheirStreams() {

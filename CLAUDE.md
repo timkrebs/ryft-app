@@ -29,7 +29,7 @@ is `../ROADMAP.md`; the user pastes one milestone per session.
 - Build must succeed with zero warnings in our code; HealthKit only works on a device,
   so previews and the simulator must work from `Preview/MockData.swift` without a server.
 - Accessibility: dynamic type, VoiceOver labels on rings and charts, reduced motion.
-  Strings go through `Localizable.xcstrings` (en, de) from milestone M5 on.
+  Strings go through `Localizable.xcstrings`, in English: RYFT is English only (no German localisation).
 - Signing: capabilities are added only through Signing & Capabilities → + Capability,
   never by editing `Ryft.entitlements` by hand, and every key in it must have a matching
   capability (`make check-entitlements`, part of `make lint`). No `associated-domains` key

@@ -10,7 +10,8 @@ and `LocalizedStringKey`), then:
 - removes keys no source uses any more, unless marked `extractionState: manual`
   (Info.plist and push loc-keys are).
 
-Then `make lint` lists what still needs German. Usage (after a build into the same
+Then `make lint` checks the result. A new key's English is the key itself, unless the code gives a `defaultValue`
+(then the key needs no English block) or the key is a manual one (push loc-keys, Info.plist), which needs its `en`. Usage (after a build into the same
 DerivedData, as `make build` does):
 
     python3 scripts/sync-strings.py [--derived-data build/DerivedData]

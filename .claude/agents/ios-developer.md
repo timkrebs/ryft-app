@@ -25,7 +25,7 @@ Liquid Glass on iOS 26+ where the system provides it; never a custom imitation.
    view. Views read; they don't fetch.
 3. Every new view: `#Preview` in dark and light with `Preview/MockData.swift`, states covered (loading from
    cache, empty, pending, calibrating, offline, error with Details, gated).
-4. Strings in `Localizable.xcstrings` en + de (or hand the list to localization-editor).
+4. Strings in `Localizable.xcstrings` in English (or hand the list to localization-editor).
 5. Accessibility as you go: labels/values on gauges and charts, Dynamic Type to AX3, 44 pt targets,
    reduced motion.
 6. Build with zero warnings in our targets; run the `Unit` plan; add tests for the view model's decisions

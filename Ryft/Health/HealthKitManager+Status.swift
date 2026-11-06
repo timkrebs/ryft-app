@@ -244,16 +244,16 @@ enum TrackerSignal: String, CaseIterable, Sendable {
 enum Capability: String, Sendable { case yes, partial, no, unverified }
 
 /// Catalog text in both languages; never through `Localizable.xcstrings` (it changes without a release).
+/// The app is English only, so every screen shows `en` whatever the device's language or region. `de` is still
+/// decoded and validated: the platform sends it (ADR 0002).
 struct Localized<T: Equatable & Sendable>: Equatable, Sendable {
     let en: T
     let de: T
 
-    /// The app's UI language: German when the app runs in German, else English.
-    var current: T { value(for: Bundle.main.preferredLocalizations.first) }
+    /// English: the app has no German.
+    var current: T { en }
 
-    func value(for language: String?) -> T {
-        language?.lowercased().hasPrefix("de") == true ? de : en
-    }
+    func value(for language: String?) -> T { en }
 }
 
 /// A HealthKit source as RYFT sees it.
