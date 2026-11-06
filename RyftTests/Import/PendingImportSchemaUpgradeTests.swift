@@ -70,7 +70,7 @@ struct PendingImportSchemaUpgradeTests {
                                            timeZoneID: "Europe/Berlin", duplicatesChecked: true, payload: Data(),
                                            progressData: Data(), sessionsPerRequest: 50))
         store.save()
-        store.wipe(parkingActivitiesOf: "account-a")
+        store.wipe(parkingActivitiesOf: "account-a", at: Date())
         let left = try store.context.fetchCount(FetchDescriptor<PendingImport>())
         #expect(left == 0)
     }

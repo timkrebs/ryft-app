@@ -25,7 +25,7 @@ struct PendingImportWipeTests {
         store.save()
         #expect(await eventually(timeout: .seconds(10)) { Self.externalFiles(in: folder).count == 1 })
 
-        store.wipe(parkingActivitiesOf: parking)
+        store.wipe(parkingActivitiesOf: parking, at: Date())
         store.save()
         let left = try store.context.fetchCount(FetchDescriptor<PendingImport>())
         #expect(left == 0)
