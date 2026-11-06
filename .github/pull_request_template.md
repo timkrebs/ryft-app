@@ -16,7 +16,7 @@
 
 ## Checklist
 
-- [ ] Strings: English and German (`make lint`)
+- [ ] Strings: English, no other language (`make lint`)
 - [ ] API.md changes are mirrored in `Models.swift`, with a fixture test
 - [ ] No warnings in our targets
 - [ ] An unfinished feature ships dark behind a remote flag

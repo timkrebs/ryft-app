@@ -21,7 +21,7 @@ and Figma workflows don't apply.)
 
 ## What you deliver
 - **Spec** `docs/work/<ticket>/ui.md`: purpose of the screen, hierarchy (what the eye sees first, second),
-  every state with its trigger and copy (en + de draft), interactions, motion (≤ 250 ms, reduced-motion
+  every state with its trigger and copy (English), interactions, motion (≤ 250 ms, reduced-motion
   variant), VoiceOver reading order and labels, Dynamic Type behaviour at AX sizes, dark and light.
 - **Components** in `Design/` when the spec needs a new primitive — token-only, with `#Preview`s in dark and
   light and at AX3. Feature views are the ios-developer's.

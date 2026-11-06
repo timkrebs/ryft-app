@@ -124,12 +124,12 @@ struct TrackerAppLinkTests {
         #expect(hint(storeURL: nil).action { _ in false } == nil)
     }
 
-    @Test func theSyncSentenceFollowsTheScreensLanguage() throws {
+    @Test func theSyncSentenceIsEnglishInEveryRegion() throws {
         let sync = try #require(TrackerCatalog.bundled.tracker("garmin")?.sync)
         var h = hint()
         h.sync = sync
         let de = Locale(identifier: "de_DE")
-        #expect(h.text(now: Self.since, locale: de).hasSuffix("\n" + sync.de))
+        #expect(h.text(now: Self.since, locale: de).hasSuffix("\n" + sync.en))
         #expect(h.text(now: Self.since, locale: Locale(identifier: "en_US")).hasSuffix("\n" + sync.en))
         // An Apple device keeps its own sentence, whatever it carries.
         var watch = hint(isApp: false)
