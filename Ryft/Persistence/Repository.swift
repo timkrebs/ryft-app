@@ -814,8 +814,8 @@ extension ReadinessSnapshot {
     }
 
     /// Sign-out: the next account's readiness, or none, never this one's on the lock screen.
-    static func clear() {
-        guard let file = sharedFile, publish(nil, to: file) else { return }
+    static func clear(_ file: URL? = sharedFile) {
+        guard let file, publish(nil, to: file) else { return }
         WidgetCenter.shared.reloadTimelines(ofKind: widgetKind)
     }
 

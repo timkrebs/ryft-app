@@ -11,6 +11,10 @@ struct OwedWipe: Equatable {
     var deviceStepsDone = false
     /// The wipe succeeded and only file residue is left.
     var scrubOnly = false
+    /// Written by a build that ends this account's stored session at launch instead of publishing it, so with that
+    /// session stored the entry is a sign-out a kill interrupted. Missing means a W1 build, which published the account
+    /// over the entry and went on: its rows may be live work (design.md, W2).
+    var endsOwnSession = true
 
     /// The first `begin`: stamped as `parkedAt`, and it starts the 30-day bound.
     var since: Date { wipe.since }
@@ -18,13 +22,14 @@ struct OwedWipe: Equatable {
 
 /// A key this build doesn't know yet, or one a build before it didn't write, reads as false: a retry that does too much.
 extension OwedWipe: Codable {
-    private enum CodingKeys: String, CodingKey { case wipe, deviceStepsDone, scrubOnly }
+    private enum CodingKeys: String, CodingKey { case wipe, deviceStepsDone, scrubOnly, endsOwnSession }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         wipe = try values.decode(AuthService.Wipe.self, forKey: .wipe)
         deviceStepsDone = try values.decodeIfPresent(Bool.self, forKey: .deviceStepsDone) ?? false
         scrubOnly = try values.decodeIfPresent(Bool.self, forKey: .scrubOnly) ?? false
+        endsOwnSession = try values.decodeIfPresent(Bool.self, forKey: .endsOwnSession) ?? false
     }
 }
 
@@ -39,9 +44,18 @@ final class WipeLedger {
         URL.applicationSupportDirectory.appendingPathComponent("account-wipe.json")
     }
 
+    /// The app's ledger: `AuthService.shared` resolves it and `TrainStore.shared` reads what that left for the store step.
+    static let live = WipeLedger(file: liveFile)
+
     /// `nil` keeps everything in memory: previews, and tests that aren't about the file.
     private let file: URL?
     private var held: OwedWipe?
+
+    /// What this launch's `AuthService` resolved for the store step, in memory only. Nil until it ran, so a store opened
+    /// first deletes nothing: the launch falls back to the object wipe.
+    var forStoreStep: OwedWipe?
+    /// The store step left files behind, so this launch can't call the debt paid, whatever the wipe answers.
+    var storeStepLeftFiles = false
 
     init(file: URL?) {
         self.file = file

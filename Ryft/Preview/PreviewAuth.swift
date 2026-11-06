@@ -52,6 +52,9 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
         return stream
     }
 
+    /// The Keychain answers after the first unlock: a session is there, with no event.
+    func unlock(_ session: Session?) { locked { stored = session } }
+
     /// Simulates the SDK reporting a change (e.g. a revoked refresh token → `.signedOut`).
     func emit(_ event: AuthChangeEvent, _ session: Session?) {
         let targets = locked { () -> [AsyncStream<(event: AuthChangeEvent, session: Session?)>.Continuation] in
