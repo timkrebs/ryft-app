@@ -235,6 +235,7 @@ enum WipeValues {
     /// How a session ends with nobody signed in afterwards.
     static let endings: [AuthService.SignOutReason] = [.user, .sessionExpired, .accountDeleted(background: false)]
     static let accountA = UUID(uuidString: "0000000A-0000-4000-8000-0000000000D1") ?? UUID()
+    static let accountB2 = UUID(uuidString: "0000000C-0000-4000-8000-0000000000D3") ?? UUID()
     static let accountB = UUID(uuidString: "0000000B-0000-4000-8000-0000000000D2") ?? UUID()
 }
 
@@ -660,8 +661,8 @@ struct TrainStoreWipeTests {
         try rig.disk.expectNothingLeft()
     }
 
-    /// The app acts wiped, and may be killed before anything saves again. The kept id is all that's left to say so: a
-    /// sign-in that found none wouldn't wipe, and the next account would get this workout and upload it as its own.
+    /// The app acts wiped, and may be killed before anything saves again. Without the id a sign-in on a ledger that
+    /// couldn't be written wouldn't wipe, and the next account would get this workout and upload it as its own.
     @Test(arguments: WipeValues.endings)
     func aRefusedWipeKeepsTheAccountSoTheNextOneWipesAgain(_ ending: AuthService.SignOutReason) async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
@@ -703,28 +704,30 @@ struct TrainStoreWipeTests {
         #expect(try rig.disk.inFile[.cachedDay] == 0)
     }
 
-    /// Signed in over another account: a token refresh must not write the new id over the one that makes the next
-    /// launch wipe again.
+    /// B is held over A's refused wipe, a token refresh that's refused too changes nothing, and the next launch's
+    /// replace lets it in.
     @Test func aRefusedWipeAtSignInIsTriedAgainAtTheNextLaunch() async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         rig.disk.session(checked: true)
         try rig.disk.refuseDeletes()
 
         await rig.signIn(WipeValues.accountB)
-        #expect(rig.auth.accountID == WipeValues.accountB.uuidString)
+        #expect(rig.auth.accountID == nil)
         #expect(rig.lastUser == WipeValues.accountA.uuidString)
         rig.client.emit(.tokenRefreshed, .preview(id: WipeValues.accountB))
         await rig.settle()
+        #expect(rig.auth.accountID == nil)
         #expect(rig.lastUser == WipeValues.accountA.uuidString)
 
         rig.relaunch(signedInAs: WipeValues.accountB)
+        #expect(rig.auth.accountID == WipeValues.accountB.uuidString)
         #expect(rig.lastUser == WipeValues.accountB.uuidString)
         try rig.disk.expectNothingLeft()
     }
 
-    /// The session ended while the platform deleted: its wipe cleared the id, and the deletion's own wipe, refused,
-    /// puts it back.
-    @Test func aRefusedWipeAfterADeletionKeepsTheAccount() async throws {
+    /// The session ended while the platform deleted: its wipe cleared the id, and the deletion's own wipe, refused, is a
+    /// debt with no id. The entry alone has to stop the next account.
+    @Test func aRefusedWipeAfterADeletionStillHoldsTheNextAccount() async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         rig.duringDeletion = { [weak rig] in
             await rig?.auth.rejectedAfterRefresh()
@@ -733,7 +736,11 @@ struct TrainStoreWipeTests {
             try? rig?.disk.refuseDeletes()
         }
         #expect(await rig.auth.deleteAccount())
-        #expect(rig.lastUser == WipeValues.accountA.uuidString)
+        #expect(rig.lastUser == nil)
+        #expect(rig.ledgerOnDisk?.wipe.account == WipeValues.accountA.uuidString)
+
+        await rig.signIn(WipeValues.accountB)
+        #expect(rig.auth.accountID == nil)
     }
 }
 
@@ -754,6 +761,8 @@ final class WipingAuth {
     private(set) var wipes: [AuthService.Wipe] = []
     /// What every wipe answers instead of the store, which isn't touched.
     var wipesAnswer: Bool?
+    /// The Apple authorization codes sent to the platform.
+    private(set) var appleCodes: [String] = []
     /// The widget's file, for a wipe that goes through the app's own steps.
     var widget: URL?
 
@@ -796,7 +805,7 @@ final class WipingAuth {
                                await self?.duringDeletion?()
                                return AccountDeleted(status: "deleted", authUserDeleted: true)
                            },
-                           postAppleAuthorization: { _ in },
+                           postAppleAuthorization: { [weak self] in self?.appleCodes.append($0) },
                            ledger: ledger, now: { clock.now() })
     }
 

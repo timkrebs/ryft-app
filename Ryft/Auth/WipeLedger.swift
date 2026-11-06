@@ -11,9 +11,9 @@ struct OwedWipe: Equatable {
     var deviceStepsDone = false
     /// The wipe succeeded and only file residue is left.
     var scrubOnly = false
-    /// Written by a build that ends this account's stored session at launch instead of publishing it, so with that
-    /// session stored the entry is a sign-out a kill interrupted. Missing means a W1 build, which published the account
-    /// over the entry and went on: its rows may be live work (design.md, W2).
+    /// Written by a build that publishes no account over an entry: with this account's session stored, the entry is a
+    /// sign-out a kill interrupted, and when the account signs in, the rows are its own. Missing means a W1 build, which
+    /// published over the entry and went on, so its rows may be live work or someone else's (design.md, W2 and W3).
     var endsOwnSession = true
 
     /// The first `begin`: stamped as `parkedAt`, and it starts the 30-day bound.

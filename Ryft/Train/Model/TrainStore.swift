@@ -254,7 +254,7 @@ final class TrainStore {
     ///
     /// True when the store took every step: each delete and fetch here succeeded, the final save was accepted, and the
     /// store is on the file it was asked for. False: the file may still hold the account's data, and `AuthService` keeps
-    /// the account's id so the next account wipes again. A step that fails doesn't stop the ones after it, with one
+    /// the ledger's entry, so no account is published over it. A step that fails doesn't stop the ones after it, with one
     /// exception: when parking can't read the activities, every chunk stays, because a kept chunk is the only copy of a
     /// track. Those rows carry no `parkedAt`, so the 30-day limit doesn't reach them until an account signs in.
     ///

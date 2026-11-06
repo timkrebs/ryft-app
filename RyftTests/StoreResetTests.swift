@@ -566,9 +566,10 @@ struct OwedWipeLaunchTests {
         rig.wipesAnswer = false
         await rig.end(.user)
         await rig.signIn(WipeValues.accountB)
-        #expect(rig.wipes.last?.account == a && rig.wipes.last?.storeOnly == true, "A's again, by the kept id")
+        #expect(rig.wipes.last?.account == a && rig.wipes.last?.storeOnly == true, "A's again, and held")
 
-        await rig.end(.user)
+        rig.defaults.set(b, forKey: AccountScope.defaultsKey)
+        await rig.signIn(WipeValues.accountB2)
         #expect(rig.wipes.last?.account == b && rig.wipes.last?.storeOnly == false)
     }
 
