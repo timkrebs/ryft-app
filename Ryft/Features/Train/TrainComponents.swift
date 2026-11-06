@@ -258,7 +258,7 @@ struct PRBadge: View {
         HStack(spacing: 10) {
             Image(systemName: "trophy.fill")
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Theme.warning)
+                .foregroundStyle(Theme.textPrimary)
                 .frame(width: 34, height: 34)
                 .background(Theme.warning.opacity(0.14), in: Circle())
             VStack(alignment: .leading, spacing: 2) {

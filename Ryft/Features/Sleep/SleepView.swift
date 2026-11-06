@@ -253,8 +253,7 @@ struct SleepDaySection: View {
                     .accessibilityHint(Text("Shows your baseline sleep need to change"))
                 }
                 StatRow(title: "Actual", value: summary.actual, detail: summary.actualOfNeed)
-                StatRow(title: "Sleep debt", value: summary.debt,
-                        valueColor: summary.debtIsHigh ? Theme.warning : Theme.textPrimary)
+                StatRow(title: "Sleep debt", value: summary.debt, warns: summary.debtIsHigh)
             }
         }
     }

@@ -197,33 +197,66 @@ struct OrbitGaugeBandTests {
 
     private static let styles: [(String, UIUserInterfaceStyle)] = [("dark", .dark), ("light", .light)]
 
+    /// One ink with strain in light, so the texture tells them apart (`OrbitGaugeBandRenderTests`); here its 3:1.
     @MainActor
-    @Test func theColourPastTheBandIsAlertAndReachesThreeToOneOnTheTrack() {
+    @Test func theInkPastTheBandIsAlertAndReachesThreeToOneOnTheTrack() {
         let palette = OrbitGaugePalette.assets
         for (name, style) in Self.styles {
             let past = resolve(palette.strainPastBand, style)
             #expect(ratio(past, resolve(Theme.alert, style)) < 1.001, "\(name): it is alert itself")
             #expect(ratio(past, resolve(Theme.surfaceRaised, style)) >= 3, "\(name) on the track")
             #expect(ratio(past, resolve(Theme.background, style)) >= 3, "\(name) on the background")
-            // And it differs from the in-band strain colour, or the shift would say nothing.
-            let plain = resolve(palette.strain, style)
-            let apart = abs(past.r - plain.r) + abs(past.g - plain.g) + abs(past.b - plain.b)
-            #expect(apart > 0.5, "\(name) alert against strain: \(apart)")
         }
     }
 
+    @Test func thePastTextureFollowsTheDial() {
+        #expect(G.minDialForPastHatch == 131)
+        #expect(G.pastTexture(forDial: OrbitGauge.Size.large.dial) == .hatch)
+        #expect(G.pastTexture(forDial: 131) == .hatch)
+        #expect(G.pastTexture(forDial: 130.99) == .dashes)
+        #expect(G.pastTexture(forDial: OrbitGauge.Size.medium.dial) == .dashes)
+        #expect(G.pastTexture(forDial: OrbitGauge.Size.small.dial) == .dashes)
+        // Where the hatch starts there is room for two edges and the hatch between them.
+        #expect(G.metrics(forDial: 131).outerStroke >= 2 * G.pastEdge + 2.5)
+        #expect(G.pastDash(stroke: 10) == [12, 8])
+    }
+
+    /// Half ink, measured on the shape: the share of a grid of points inside the path is `line / pitch`.
+    @Test(arguments: [(1, 2, 0.5), (1, 4, 0.25), (3, 4, 0.75)] as [(CGFloat, CGFloat, Double)])
+    func theHatchCoversLineOverPitch(_ line: CGFloat, _ pitch: CGFloat, _ expected: Double) {
+        let rect = CGRect(x: 0, y: 0, width: 40, height: 40)
+        let path = RyftHatch(line: line, pitch: pitch).path(in: rect)
+        var inside = 0, all = 0
+        for x in stride(from: 0.05, to: 40, by: 0.1) {
+            for y in stride(from: 0.05, to: 40, by: 0.1) {
+                all += 1
+                if path.contains(CGPoint(x: x, y: y)) { inside += 1 }
+            }
+        }
+        #expect(abs(Double(inside) / Double(all) - expected) < 0.01)
+    }
+
+    /// The pattern doesn't move with the shape's size: it only depends on the rect's origin.
+    @Test func theHatchIsAnchoredToItsRect() {
+        let short = RyftHatch().path(in: CGRect(x: 0, y: 0, width: 40, height: 40))
+        let long = RyftHatch().path(in: CGRect(x: 0, y: 0, width: 80, height: 40))
+        for x in stride(from: 0.25, to: 30, by: 0.5) {
+            let p = CGPoint(x: x, y: 10.25)
+            #expect(short.contains(p) == long.contains(p), "\(x)")
+        }
+        #expect(RyftHatch(line: 0).path(in: CGRect(x: 0, y: 0, width: 40, height: 40)).isEmpty)
+        #expect(RyftHatch(pitch: 0).path(in: CGRect(x: 0, y: 0, width: 40, height: 40)).isEmpty)
+    }
+
+    /// The rail is a mark at full colour, so it reaches 3:1 like the arcs. Its width and dash are PR 3's.
     @MainActor
-    @Test func theRailsOpacityIsPinnedAndItsRatioStaysAboveTwo() {
-        #expect(G.bandRailOpacity == 0.5)
+    @Test func theRailIsAtFullOpacityAndReachesThreeToOne() {
+        #expect(G.bandRailOpacity == 1)
         for (name, style) in Self.styles {
             var rail = resolve(OrbitGaugePalette.assets.strain, style)
             rail.a = G.bandRailOpacity
             let background = resolve(Theme.background, style)
-            let onBackground = ratio(over(rail, background), background)
-            // Below 3:1 on purpose (design.md §11: the scale of the target, the arc carries the value); a floor
-            // of 2.0 makes thinning it out a decision, not an accident.
-            #expect(onBackground >= 2.0, "\(name) rail on the background: \(onBackground)")
-            #expect(onBackground < 3, "\(name): documented as sub-3:1, so a change to this needs a design decision")
+            #expect(ratio(over(rail, background), background) >= 3, "\(name) rail on the background")
         }
     }
 
@@ -234,34 +267,34 @@ struct OrbitGaugeBandTests {
     private func upToOne(_ v: Double) -> String { v.formatted(.number.precision(.fractionLength(0...1))) }
 
     @Test func withABandTheStrainSentenceNamesTheRange() {
-        let expected = "Strain \(one(9.6)) of 21, today's recommended range \(upToOne(8)) to \(upToOne(13))"
+        let expected = "Strain \(one(9.6)) of 21, today's band \(upToOne(8)) to \(upToOne(13))"
         #expect(OrbitGauge.spokenStrain(9.6, band: Self.band) == expected)
-        #expect(expected.hasPrefix("Strain 9") && expected.hasSuffix("range 8 to 13"), "whole ends without a decimal: \(expected)")
+        #expect(expected.hasPrefix("Strain 9") && expected.hasSuffix("band 8 to 13"), "whole ends without a decimal: \(expected)")
         #expect(OrbitGauge.spokenValue(.previewBanded(strain: 9.6)).hasSuffix(expected))
         #expect(OrbitGauge.spokenValue(.previewBanded(strain: 9.6)).hasPrefix("71, High. Recovery 71 percent, Sleep 88 percent, "))
     }
 
-    @Test func aboveTheBandTheSentenceSaysAbove() {
-        let above = "Strain \(one(16.5)) of 21, above today's recommended range \(upToOne(8)) to \(upToOne(13))"
-        #expect(OrbitGauge.spokenStrain(16.5, band: Self.band) == above)
-        #expect(above.hasSuffix("above today's recommended range 8 to 13"))
-        #expect(OrbitGauge.spokenValue(.previewBanded(strain: 16.5)).hasSuffix(above))
-        #expect(OrbitGauge.spokenStrain(21, band: Self.band).contains("above today's"))
+    @Test func pastTheBandTheSentenceSaysPast() {
+        let past = "Strain \(one(16.5)) of 21, past today's band \(upToOne(8)) to \(upToOne(13))"
+        #expect(OrbitGauge.spokenStrain(16.5, band: Self.band) == past)
+        #expect(past.hasSuffix("past today's band 8 to 13"))
+        #expect(OrbitGauge.spokenValue(.previewBanded(strain: 16.5)).hasSuffix(past))
+        #expect(OrbitGauge.spokenStrain(21, band: Self.band).contains("past today's band"))
         // Exactly at the upper end, and below or inside it: the plain range sentence.
         for strain in [4.0, 9.6, 13.0] as [Double] {
             let spoken = OrbitGauge.spokenStrain(strain, band: Self.band)
-            #expect(spoken == "Strain \(one(strain)) of 21, today's recommended range 8 to 13", "strain \(strain)")
-            #expect(!spoken.contains("above"))
+            #expect(spoken == "Strain \(one(strain)) of 21, today's band 8 to 13", "strain \(strain)")
+            #expect(!spoken.contains("past"))
         }
-        // The clamped band decides: nothing is above 15...21.
-        #expect(!OrbitGauge.spokenStrain(21, band: 15...40).contains("above"))
+        // The clamped band decides: nothing is past 15...21.
+        #expect(!OrbitGauge.spokenStrain(21, band: 15...40).contains("past"))
     }
 
     @Test func theEndsShowAtMostOneDecimalAndFollowTheClamp() {
-        #expect(OrbitGauge.spokenStrain(9.6, band: 8.5...12.25).hasSuffix("range \(upToOne(8.5)) to \(upToOne(12.25))"))
+        #expect(OrbitGauge.spokenStrain(9.6, band: 8.5...12.25).hasSuffix("band \(upToOne(8.5)) to \(upToOne(12.25))"))
         #expect(OrbitGauge.spokenStrain(9.6, band: 8.5...12.25).contains("12") && !OrbitGauge.spokenStrain(9.6, band: 8.5...12.25).contains("12.25"))
         // As drawn: clamped to the scale.
-        #expect(OrbitGauge.spokenStrain(9.6, band: -3...30).hasSuffix("range 0 to 21"))
+        #expect(OrbitGauge.spokenStrain(9.6, band: -3...30).hasSuffix("band 0 to 21"))
     }
 
     @Test func withoutAUsableBandTheSentenceIsTheOldOne() {
@@ -275,7 +308,7 @@ struct OrbitGaugeBandTests {
         #expect(OrbitGauge.spokenValue(.previewScored) == OrbitGauge.spokenValue(
             OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6, strainBand: nil)))
         #expect(OrbitGauge.spokenValue(.previewScored).hasSuffix(old))
-        #expect(!OrbitGauge.spokenValue(.previewScored).contains("range"))
+        #expect(!OrbitGauge.spokenValue(.previewScored).contains("band"))
     }
 
     @Test func aMissingStrainStillSaysNotScoredWhateverTheBand() {
@@ -292,9 +325,9 @@ struct OrbitGaugeBandTests {
         let lo = 8.0.formatted(.number.precision(.fractionLength(0...1)).locale(de))
         let hi = 13.0.formatted(.number.precision(.fractionLength(0...1)).locale(de))
         #expect(strain == "9,6" && lo == "8" && hi == "13")
-        let template = "Strain %1$@ of 21, today's recommended range %2$@ to %3$@"
+        let template = "Strain %1$@ of 21, today's band %2$@ to %3$@"
         #expect(String(format: template, locale: de, strain as NSString, lo as NSString, hi as NSString)
-                == "Strain 9,6 of 21, today's recommended range 8 to 13")
+                == "Strain 9,6 of 21, today's band 8 to 13")
         let high = 16.5.formatted(.number.precision(.fractionLength(1)).locale(de))
         #expect(high == "16,5")
         // 0 to 1 fraction digits: a half shows, a whole number never gets ",0".

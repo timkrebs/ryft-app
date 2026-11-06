@@ -44,6 +44,8 @@ struct StatRow: View {
     let value: String
     var detail: String? = nil
     var valueColor: Color = Theme.textPrimary
+    /// The value needs attention: `warningLine()` before it.
+    var warns = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -53,6 +55,7 @@ struct StatRow: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 Text(value)
+                    .warningLine(warns)
                     .font(.ryft(.body))
                     .monospacedDigit()
                     .foregroundStyle(valueColor)
@@ -256,7 +259,7 @@ struct CapabilityRow: View {
             VStack(alignment: .leading, spacing: 14) {
                 CardHeader(title: "Trends", trailing: "7 days", showsChevron: true)
                 StatRow(title: "Bedtime", value: "22:50")
-                StatRow(title: "Sleep debt", value: "25m", detail: "Need 8h 06m", valueColor: Theme.warning)
+                StatRow(title: "Sleep debt", value: "25m", detail: "Need 8h 06m", warns: true)
             }
         }
     }

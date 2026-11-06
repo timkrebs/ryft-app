@@ -11,6 +11,7 @@ Store "What's New".
 ## [Unreleased]
 
 ### Added
+- Light appearance in black and white: the new monochrome palette (text, surfaces, separators, metric and stage greys). The orbit gauge shows its level by shape in both appearances, with a solid, dashed or outlined centre ring, and warnings and errors carry a glyph. Dark's palette is unchanged for now.
 - Today, Sleep, Strain and Insights from your watch or ring through Apple Health:
   readiness, recovery, strain and sleep against your own baseline.
 - Sleep need broken down (baseline, strain, debt, nap credit), sleep quality and

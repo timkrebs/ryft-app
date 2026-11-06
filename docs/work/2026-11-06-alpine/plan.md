@@ -16,7 +16,7 @@ These win over the brief and the notes where they differ. The 2026-11-06 answers
 | Good vs bad change (2026-11-05) | Polarity arrows: filled toward better, outlined toward worse. |
 | Zones (2026-11-06) | Hatch for all five, with the label above. Departs from the brief's grey steps. |
 | Caption case (2026-11-06) | Captions stay in sentence case. Labels stay uppercase. Departs from the brief. |
-| German hero (2026-11-06) | "Engineered for peak." stays in English, as a brand line. |
+| English only (2026-11-06) | The app is English only (#105). No German strings and no German validation. German mentions in `design.md` and `architecture.md` are history; this line wins. |
 
 ## Decisions by the lead
 
@@ -41,7 +41,7 @@ These win over the brief and the notes where they differ. The 2026-11-06 answers
 | 5 | `train, insights, profile, onboarding, icon` | ios-developer, release-manager | Welcome and auth no longer force dark |
 | 6 | `design: dark as the inversion` | ios-developer | Default flips to light, `CLAUDE.md` updated |
 
-Each PR is validated by ui-validator in greyscale screenshots, in English and German at large sizes. The dark look stays mixed between PR 2 and PR 6: new type and shape, old colours.
+Each PR is validated by ui-validator in greyscale screenshots, at large sizes. The dark look stays mixed between PR 2 and PR 6: new type and shape, old colours.
 
 ## Facts that differ from the brief
 

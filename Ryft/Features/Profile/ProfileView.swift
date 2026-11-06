@@ -367,8 +367,7 @@ struct ProfileView: View {
     /// Consent to health-data processing: when, for which policy, withdraw or agree.
     private var privacy: some View {
         ProfileSection(title: "Privacy") {
-            StatRow(title: "Health-data consent", value: model.consentText,
-                    valueColor: model.consentIsCurrent ? Theme.textPrimary : Theme.warning)
+            StatRow(title: "Health-data consent", value: model.consentText, warns: !model.consentIsCurrent)
             if let detail = model.consentDetail {
                 Text(detail)
                     .font(.ryft(.caption))
@@ -409,8 +408,7 @@ struct ProfileView: View {
                 .accessibilityIdentifier("profile.devices")
                 Divider().overlay(Theme.separator)
             }
-            StatRow(title: "Apple Health", value: model.healthStatusText,
-                    valueColor: model.healthNeedsAttention ? Theme.warning : Theme.textPrimary)
+            StatRow(title: "Apple Health", value: model.healthStatusText, warns: model.healthNeedsAttention)
             HStack(spacing: 10) {
                 if model.canAskForHealth {
                     PrimaryButton(title: "Allow access", style: .secondary) { await model.requestHealthAccess() }
@@ -704,8 +702,9 @@ struct SyncDetailsView: View {
             }
             if let error = model.lastErrorText {
                 Text(error)
+                    .warningLine()
                     .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(Theme.warning)
+                    .foregroundStyle(Theme.textPrimary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -764,8 +763,9 @@ struct SyncDetailsView: View {
             ForEach(model.requests) { r in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(verbatim: "\(r.transport ?? String(r.status))\(r.code.map { " \($0)" } ?? "") \(r.method) \(redactedPath(r.path))")
+                        .warningLine(!(200..<300).contains(r.status))
                         .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle((200..<300).contains(r.status) ? Theme.textSecondary : Theme.warning)
+                        .foregroundStyle((200..<300).contains(r.status) ? Theme.textSecondary : Theme.textPrimary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Text(verbatim: "\(r.requestID ?? "–") · \(r.date.formatted(date: .omitted, time: .standard))")
@@ -829,9 +829,10 @@ private struct LoadedDataRow: View {
                     .foregroundStyle(Theme.textSecondary)
             }
             Text(row.statusText(now: now))
+                .warningLine(row.isWarning)
                 .font(.ryft(.caption))
                 .monospacedDigit()
-                .foregroundStyle(row.isWarning ? Theme.warning
+                .foregroundStyle(row.isWarning ? Theme.textPrimary
                                  : row.state.consecutiveFailures > 0 ? Theme.textSecondary : Theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -2076,9 +2077,10 @@ struct ReportProblemView: View {
                 .accessibilityIdentifier("report.message")
             if model.showsCount {
                 Text("\(model.length) / 4000")
+                    .warningLine(model.isTooLong)
                     .font(.ryft(.caption))
                     .monospacedDigit()
-                    .foregroundStyle(model.isTooLong ? Theme.warning : Theme.textTertiary)
+                    .foregroundStyle(model.isTooLong ? Theme.textPrimary : Theme.textTertiary)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
             Text("Please don't type health values you'd rather keep private.")

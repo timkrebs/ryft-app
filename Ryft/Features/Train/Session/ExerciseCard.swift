@@ -231,7 +231,7 @@ struct SetRow: View {
     // MARK: Focused's states (design.md §2.5, §2.8)
 
     private var numberColor: Color {
-        if set.isWarmup { return Theme.warning }
+        if set.isWarmup { return FocusedRowInk.warmUpMark }
         return rowState == .active ? Theme.textPrimary : Theme.textSecondary
     }
 

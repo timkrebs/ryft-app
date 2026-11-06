@@ -115,16 +115,21 @@ note under it says what's learning.
 
 **Pending** (last night is being scored). The previous scored day's orbit, its arcs and dots at 0.6 opacity. They
 breathe between 1.0 and 0.75 of that over 1.4 s, and are still once scoring takes longer than usual or under Reduce
-Motion. The tracks stay at full strength. The arcs are below 3:1 on purpose: they are yesterday's, and the number
+Motion. The tracks stay at full strength. The arcs are below 3:1 in places on purpose, 2:1 at least: they are yesterday's, and the number
 (`textTertiary`, ≥ 4.5:1) and VoiceOver ("Not scored yet. Last scored: …") carry the values. Without a previous day:
 tracks, hollow dots and a dash. Today names the day under the gauge ("Last scored: Yesterday").
 
 Captions never break a word: they wrap between words and shrink a word that is wider than the line.
 
+**Centre ring** by `BandStyle`: solid (67 and up), 16 dashes (34 to 66), outlined (below 34), so the shape carries the level, and the
+number and band word stand beside it. Without a readiness it stays today's solid `noReadiness` ring until PR 3 drops it. Pending stays solid
+at every level, dimmed over its track. A scored ring has no track under it: light's moderate is `#8A8A8A`, 3.45:1 on the background and
+2.90:1 on the track.
+
 **Strain band** (`strainBand`, optional; Today and the widget pass nil until the platform serves a range). A thin rail
-(`metricStrain` at 0.5, butt caps) inside the outer orbit marks today's recommended range on the 0-21 scale; from `.medium`
-up. Past its upper end the arc and its dot turn `alert`; below or inside it they stay `metricStrain`, and the number stays blue. VoiceOver adds
-"today's recommended range 8 to 13". Calibrating draws no band; pending dims yesterday's. Details: design.md §11 in `docs/work/2026-10-29-orbit-gauge/`.
+(`metricStrain` at full opacity, butt caps) inside the outer orbit marks today's recommended range on the 0-21 scale; from `.medium`
+up. Past its upper end the arc and its dot turn hatched (dial 131 and up) or dashed (below it), in `alert`, which is one ink with `metricStrain` in
+light, so the texture says it; below or inside it they stay `metricStrain`. VoiceOver adds "today's band 8 to 13", or "past today's band 8 to 13". Calibrating draws no band; pending dims yesterday's. Details: design.md §11 in `docs/work/2026-10-29-orbit-gauge/`.
 
 The drawing is shared with the widget (`Shared/OrbitGaugeDrawing.swift`, colours by asset name in
 `OrbitGaugePalette`, ADR 0010); `Ryft/Design/OrbitGauge.swift` adds the number, caption, VoiceOver and motion.

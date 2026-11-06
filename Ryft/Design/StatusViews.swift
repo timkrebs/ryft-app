@@ -688,7 +688,7 @@ struct CheckRow: View {
         case neutral
         /// A nightly signal last seen before last night.
         case late
-        /// Should arrive and doesn't: amber, with the fix under it.
+        /// Should arrive and doesn't: the glyph, with the fix under it.
         case fix
 
         var symbol: String {
@@ -706,7 +706,7 @@ struct CheckRow: View {
         var color: Color {
             switch self {
             case .ok: return Theme.accent
-            case .fix: return Theme.warning
+            case .fix: return Theme.textPrimary
             case .checking, .late: return Theme.textSecondary
             case .waiting, .expected, .neutral: return Theme.textTertiary
             }

@@ -358,9 +358,11 @@ struct ActivityDetailScreen: View {
                 .accessibilityIdentifier("activityDetail.edit")
             Button(role: .destructive) { confirmsDelete = true } label: {
                 Text("Delete")
+                    .errorLine()
                     .font(.ryft(.callout))
-                    .foregroundStyle(Theme.alert)
+                    .foregroundStyle(Theme.textPrimary)
                     .frame(maxWidth: .infinity, minHeight: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("activityDetail.delete")

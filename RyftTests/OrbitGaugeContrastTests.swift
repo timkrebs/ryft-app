@@ -40,7 +40,7 @@ import UIKit
             let track = resolve(Theme.surfaceRaised, style)
             let graphics: [(String, Color)] = [
                 ("Recovery (accent)", Theme.accent), ("Sleep", Theme.metricSleep), ("Strain", Theme.metricStrain),
-                ("band high (accent)", Theme.accent), ("band moderate (warning)", Theme.warning), ("band low (alert)", Theme.alert),
+                ("band high (accent)", Theme.accent), ("band low (alert)", Theme.alert),
             ]
             for (title, colour) in graphics {
                 let c = resolve(colour, style)
@@ -49,6 +49,11 @@ import UIKit
                 #expect(onTrack >= 3, "\(name) \(title) on track")
                 #expect(onBackground >= 3, "\(name) \(title) on background")
             }
+            // Moderate on the background only: a scored ring has no track under it, and light's `Warning` is 2.90:1 on the
+            // track. `BandStyleTests.theRingIsDrawnByItsLevel` pins the gap between its dashes as the background.
+            let moderate = ratio(resolve(Theme.warning, style), background)
+            lines.append("\(name) band moderate (warning): on background \(String(format: "%.2f", moderate))")
+            #expect(moderate >= 3, "\(name) band moderate on background")
             let primary = over(resolve(Theme.textTertiary, style), background)
             #expect(ratio(primary, background) >= 3, "\(name) centre ring without readiness")
             lines.append("\(name) centre ring without readiness (textTertiary): on background \(String(format: "%.2f", ratio(primary, background)))")
@@ -71,10 +76,11 @@ import UIKit
         }
     }
 
-    /// Pending draws the previous day at `pendingOpacity` on purpose below 3:1 in places (design.md, PR 2: "yesterday,
-    /// not today"; the number carries the value at >= 4.5:1 and VoiceOver says it). Pinning the constant makes raising or
-    /// lowering it a decision, not an accident; this is not an assertion that 0.6 reaches 3:1.
-    @Test func pendingOpacityIsPinnedAndIntentionallyBelowThreeToOne() {
+    /// Pending draws the previous day at `pendingOpacity`, secondary on purpose: the number carries the state at >= 4.5:1 and
+    /// VoiceOver says it. The arcs have a floor, so thinning them is a decision, and a ceiling against their full colour, so
+    /// pending stays dimmer than a scored day. The floor holds at rest; the breath's trough goes under it until PR 3 deletes
+    /// this opacity for the dashed drawing.
+    @Test func pendingOpacityIsPinnedAndTheNumberCarriesTheState() {
         #expect(OrbitGaugeMarks.pendingOpacity == 0.6)
         var lines: [String] = []
         for (name, style) in [("dark", UIUserInterfaceStyle.dark), ("light", .light)] {
@@ -82,18 +88,12 @@ import UIKit
             let track = resolve(Theme.surfaceRaised, style)
             for (title, colour) in [("accent", Theme.accent), ("sleep", Theme.metricSleep), ("strain", Theme.metricStrain)] {
                 var c = resolve(colour, style)
+                let full = ratio(c, track)
                 c.a = OrbitGaugeMarks.pendingOpacity
-                let onBackground = String(format: "%.2f", ratio(over(c, background), background))
-                let onTrack = String(format: "%.2f", ratio(over(c, track), track))
-                lines.append("\(name) pending \(title): background \(onBackground), over track \(onTrack)")
-            }
-            // The light-scheme Sleep and Strain arcs at 0.6 are the documented sub-3:1 case.
-            if style == .light {
-                for colour in [Theme.metricSleep, Theme.metricStrain] {
-                    var c = resolve(colour, style)
-                    c.a = OrbitGaugeMarks.pendingOpacity
-                    #expect(ratio(over(c, background), background) < 3)
-                }
+                let onTrack = ratio(over(c, track), track)
+                lines.append("\(name) pending \(title): over track \(String(format: "%.2f", onTrack)), \(String(format: "%.2f", onTrack / full)) of full")
+                #expect(onTrack >= 2.0, "\(name) \(title) over the track: \(onTrack)")
+                #expect(onTrack < 0.7 * full, "\(name) \(title) stays dimmer than full: \(onTrack) of \(full)")
             }
             // The previous day's number is text in textTertiary: that one must read.
             #expect(ratio(over(resolve(Theme.textTertiary, style), background), background) >= 4.5, "\(name) pending number")

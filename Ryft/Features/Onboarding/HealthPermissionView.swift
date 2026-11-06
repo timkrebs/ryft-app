@@ -1364,8 +1364,9 @@ struct HealthWriteAccessHint: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text("Allow it in Health → Sharing → Apps → RYFT → Workouts.")
+                .warningLine()
                 .font(.ryft(.caption))
-                .foregroundStyle(Theme.warning)
+                .foregroundStyle(Theme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer()
             Button("Open Health") { HealthLinks.open(with: openURL) }

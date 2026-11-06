@@ -118,9 +118,11 @@ struct AddSleepSheet: View {
         if model.isEditing {
             Button(role: .destructive) { confirmsDelete = true } label: {
                 Text("Delete this entry", comment: "Edit sleep: delete the night the user added.")
+                    .errorLine()
                     .font(.ryft(.callout))
-                    .foregroundStyle(Theme.alert)
+                    .foregroundStyle(Theme.textPrimary)
                     .frame(maxWidth: .infinity, minHeight: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("addSleep.delete")

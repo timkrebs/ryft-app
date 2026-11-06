@@ -374,8 +374,9 @@ struct ImportResultView: View {
             model.confirmsDiscardJob = true
         } label: {
             Text("Discard import", comment: "Training import S2: remove the saved import from this iPhone.")
+                .errorLine()
                 .font(.ryft(.callout))
-                .foregroundStyle(Theme.alert)
+                .foregroundStyle(Theme.textPrimary)
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .contentShape(Rectangle())
         }

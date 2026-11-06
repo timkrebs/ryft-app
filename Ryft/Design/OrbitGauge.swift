@@ -399,17 +399,17 @@ struct OrbitGauge: View {
         return "\(readiness). \(scores.joined(separator: ", "))"
     }
 
-    /// "Strain 9.6 of 21", and with a usable band "Strain 9.6 of 21, today's recommended range 8 to 13" (the band as drawn: clamped to
+    /// "Strain 9.6 of 21", and with a usable band "Strain 9.6 of 21, today's band 8 to 13" (the band as drawn: clamped to
     /// 0 to 21; an empty one is not mentioned). Unreachable until the platform serves the band.
     static func spokenStrain(_ strain: Double, band: ClosedRange<Double>?) -> String {
         guard let band = OrbitGaugeGeometry.clampedBand(band) else {
             return String(localized: "Strain \(strainText(strain)) of 21")
         }
-        // Above the band the sentence says so: the arc's colour is never the only carrier.
+        // Past the band the sentence says so: the arc's texture is never the only carrier.
         if OrbitGaugeGeometry.strainPastBandDegrees(strain: strain, band: band) != nil {
-            return String(localized: "Strain \(strainText(strain)) of 21, above today's recommended range \(bandText(band.lowerBound)) to \(bandText(band.upperBound))")
+            return String(localized: "Strain \(strainText(strain)) of 21, past today's band \(bandText(band.lowerBound)) to \(bandText(band.upperBound))")
         }
-        return String(localized: "Strain \(strainText(strain)) of 21, today's recommended range \(bandText(band.lowerBound)) to \(bandText(band.upperBound))")
+        return String(localized: "Strain \(strainText(strain)) of 21, today's band \(bandText(band.lowerBound)) to \(bandText(band.upperBound))")
     }
 
     private static func bandText(_ v: Double) -> String {
@@ -601,6 +601,23 @@ struct OrbitBandPreviewGrid: View {
     }
 }
 
+/// The three levels and no readiness, at the sizes that change the ring's drawing. Internal for the same reason.
+struct OrbitLevelPreviewGrid: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ForEach([Optional(67), 66, 34, 33, nil], id: \.self) { readiness in
+                VStack(spacing: 8) {
+                    let values = OrbitGaugeValues(readiness: readiness, recovery: 0.71, sleep: 0.88, strain: 9.6)
+                    OrbitGauge(mode: .scored(values), size: .large)
+                    OrbitGauge(mode: .scored(values), size: .medium)
+                    OrbitGauge(mode: .scored(values), size: .small)
+                    OrbitGauge(mode: .pending(previous: values), size: .medium, breathes: false)
+                }
+            }
+        }
+    }
+}
+
 struct OrbitBandPreviewModes: View {
     var body: some View {
         // Pending with yesterday's band (dimmed), strain missing (rail only), the band's upper end, a full ring,
@@ -615,6 +632,11 @@ struct OrbitBandPreviewModes: View {
             OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .medium, animatesFill: false)
         }
     }
+}
+
+#Preview("OrbitGauge · levels", traits: .sizeThatFitsLayout) {
+    WidePair { OrbitLevelPreviewGrid() }
+        .frame(width: 900)
 }
 
 #Preview("OrbitGauge · strain band", traits: .sizeThatFitsLayout) {

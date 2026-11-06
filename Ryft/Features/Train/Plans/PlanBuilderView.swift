@@ -82,12 +82,16 @@ private struct PlanBuilderScreen: View {
             ForEach(Array(Set(issues.map(\.message))).sorted(), id: \.self) { message in
                 Label(message, systemImage: "exclamationmark.circle")
                     .font(.ryft(.callout))
-                    .foregroundStyle(Theme.alert)
+                    .foregroundStyle(Theme.textPrimary)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.alert.opacity(0.1), in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
+        .background(Theme.textPrimary.opacity(0.1), in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous)
+                .strokeBorder(Theme.textPrimary, lineWidth: Theme.Metrics.hairline)
+        }
         .accessibilityElement(children: .combine)
     }
 
@@ -174,7 +178,8 @@ private struct PlanBuilderScreen: View {
                 }
                 if model.shownIssues.contains(.emptyDay(dayID: day.wrappedValue.id)) {
                     Text(PlanIssue.emptyDay(dayID: day.wrappedValue.id).message)
-                        .font(.ryft(.caption)).foregroundStyle(Theme.alert)
+                        .errorLine()
+                        .font(.ryft(.caption)).foregroundStyle(Theme.textPrimary)
                 }
                 let count = day.wrappedValue.exercises.count
                 ForEach(Array(day.exercises.enumerated()), id: \.element.id) { i, ex in
@@ -318,7 +323,7 @@ private struct PlanExerciseEditor: View {
     private func has(_ issue: PlanIssue) -> Bool { issues.contains(issue) }
 
     private func issue(_ issue: PlanIssue) -> some View {
-        Text(issue.message).font(.ryft(.caption)).foregroundStyle(Theme.alert)
+        Text(issue.message).errorLine().font(.ryft(.caption)).foregroundStyle(Theme.textPrimary)
     }
 }
 

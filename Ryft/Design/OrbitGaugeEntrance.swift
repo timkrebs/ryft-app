@@ -131,23 +131,19 @@ struct OrbitEntranceStage<Settled: View, Centre: View>: View {
         let glide = frame.glide
         // Outside the bounds at every angle.
         let far = size.frame * 0.62
-        let hasRing = values != nil
         var positions: [OrbitGaugeGeometry.Orbit: (degrees: Double, radius: CGFloat)] = [:]
         for orbit in OrbitGaugeGeometry.Orbit.allCases {
             let sweep = orbit.sweep(for: values.flatMap { orbit.fraction(of: $0) } ?? 0)
             positions[orbit] = frame.dot(orbit, sweep: sweep, orbitRadius: m.radius(of: orbit), farRadius: far)
         }
-        let centreD = m.centreRadius * 2 + m.centreStroke
         return ZStack {
             // Tracks: the air around a dot is cut from its own orbit only, so a dot on its way in leaves no gap in
             // the rings it crosses.
             tracks(frame, m, calibration, positions)
-            // Under the readiness ring only where the static drawing has one too: never a ring that is not there.
-            if hasRing {
-                Circle().trim(from: 0, to: frame.trim(.centre)).rotation(.degrees(-90))
-                    .stroke(palette.band(forReadiness: values?.readiness),
-                            style: StrokeStyle(lineWidth: m.centreStroke, lineCap: .round))
-                    .frame(width: centreD - m.centreStroke, height: centreD - m.centreStroke)
+            // The readiness ring arrives with the glide, as the static drawing has it: never a ring that is not there.
+            if let values {
+                OrbitCentreRing(style: mode.isPending ? .solid : BandStyle(score: values.readiness), dial: size.dial,
+                                colour: palette.band(forReadiness: values.readiness))
                     .opacity(glide * (mode.isPending ? OrbitGaugeMarks.pendingOpacity : 1))
             }
             // The band's rail fades in with the tracks (0 to 250 ms), dimmed with the marks while pending.
@@ -198,7 +194,7 @@ struct OrbitEntranceStage<Settled: View, Centre: View>: View {
         }
         .compositingGroup()
         // The centre ring draws last. Its track stays under it where the static drawing has one (no readiness, or
-        // pending) and hands over to the band-coloured ring during the glide where it has none.
+        // pending) and hands over to the band's ring during the glide where it has none.
         let d = m.centreRadius * 2
         let staysUnder = mode.drawnValues == nil || mode.isPending
         Circle().trim(from: 0, to: frame.trim(.centre)).rotation(.degrees(-90))
@@ -225,17 +221,24 @@ struct OrbitEntranceStage<Settled: View, Centre: View>: View {
                     if let split {
                         OrbitStrainArc(radius: m.radius(of: orbit), stroke: m.stroke(of: orbit),
                                        sweep: orbit.sweep(for: fraction) * glide, split: split,
-                                       plain: colour, past: palette.strainPastBand)
+                                       plain: colour, past: palette.strainPastBand, texture: OrbitGaugeGeometry.pastTexture(forDial: size.dial))
                     } else {
                         OrbitArc(radius: m.radius(of: orbit), start: orbit.startDegrees,
                                  sweep: orbit.sweep(for: fraction) * glide)
                             .stroke(colour, style: StrokeStyle(lineWidth: m.stroke(of: orbit), lineCap: .round))
                     }
                     // The dot turns with the arc once the arc's head is beyond the band (not the dot's flight angle,
-                    // which includes the 40° turn and would flash alert for a band ending below it).
+                    // which includes the 40° turn and would flash the texture for a band ending below it).
                     let sweep = orbit.sweep(for: fraction) * glide
-                    dotShape(position, m).fill(split.map { sweep > $0 } == true ? palette.strainPastBand : colour)
-                        .opacity(min(frame.flight(orbit) * 4, 1))
+                    Group {
+                        if split.map({ sweep > $0 }) == true {
+                            OrbitPastDot(dot: dotShape(position, m), colour: palette.strainPastBand,
+                                         texture: OrbitGaugeGeometry.pastTexture(forDial: size.dial))
+                        } else {
+                            dotShape(position, m).fill(colour)
+                        }
+                    }
+                    .opacity(min(frame.flight(orbit) * 4, 1))
                 } else {
                     dotShape(position, m).stroke(colour, lineWidth: m.hollowStroke)
                         .opacity(min(frame.flight(orbit) * 4, 1))

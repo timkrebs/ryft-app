@@ -40,7 +40,7 @@ The dark appearance only changes colour. Between PR 2 and PR 6 dark carries the 
 | 4 | "the rails' pinned opacity no longer gives the expected ratio over a black separator" | No separator is involved. The rail is `metricStrain` at 0.5 over the background; black at 0.5 on white is **3.95:1**, and the test asserts `< 3`. |
 | 5 | "pending uses `textTertiary` at 0.6" | Pending marks use the arcs' own colours at 0.6; only the number is `textTertiary`. The test fails on the **Strain** arc (black at 0.6 is 5.74:1; the test asserts `< 3`). |
 | 6 | "Dots hollow when pending (as today)" | Today a pending gauge draws the previous day exactly as scored (filled dots) at 0.6; dots are hollow only for a missing score or with no previous day. Section 4.2 follows the brief's §2 and makes pending hollow and dashed. |
-| 7 | "VoiceOver text that named a colour" | None exists. Band words are High / Moderate / Low and "above today's recommended range" already speaks the past-band state. One string names a colour (section 10). |
+| 7 | "VoiceOver text that named a colour" | None exists. Band words are High / Moderate / Low and "past today's band" already speaks the past-band state. One string names a colour (section 10). |
 | 8 | The failing list | Incomplete. `scripts/check-shared-types.py` reports **7 problems**: the widget's `Accent`, `Alert`, `MetricSleep`, `MetricStrain`, `SurfaceRaised`, `TextTertiary`, `Warning` colour sets still hold the old light values. PR 1 copies the app's values (`plan.md`). |
 | 9 | `separator` is "full ink, 1 pt" | True, and it breaks 8 call sites that use `separator` as a **fill or gridline** and thickens 39 row dividers (section 5.5). |
 | 10 | Radii to 0 turns cards into hairline boxes | Only the 56 shapes that read `Theme.Metrics.cardRadius` / `tileRadius` change. 148 other `Capsule()`, `Circle()` and literal `RoundedRectangle(cornerRadius: n)` calls outside previews ignore it (section 5.3). |
@@ -235,7 +235,7 @@ position (inner left, inner right, outer); the grey Sleep arc is an extra cue, n
   - Under 131 (`.medium` 3.85 pt stroke, `.small`) hatch would be mush, so the stretch is a **dashed solid arc**: butt caps, dash
     1.2 x stroke on, 0.8 x stroke off; the dot stays solid with a 1 pt inner ring in the ground colour.
   - `OrbitStrainArc` (one arc drawn twice, clipped at the split by `OrbitWedge`) stays; "past" changes from a colour to a texture. The tone
-    decision and the speech ("above today's recommended range") are unchanged: **no new string**.
+    decision and the speech ("past today's band") are unchanged, except that PR 1 renames the sentence to the brief's wording.
 - **Pending** (the brief: "hairline dashed outlines", "hollow dots when pending"). With a previous day, its marks are drawn as
   **dashed outlines, no fill**: arcs of dial 131 and up as outlined arcs whose two 1 pt edges are dashed (3 on, 2 off); smaller dials as one dashed 1.5 pt
   centreline stroke; dots hollow with a dashed 1.25 pt edge (2 pt at 160); the centre ring is **one dashed 1 pt circle** (the band belongs
@@ -477,7 +477,7 @@ Each keeps its information and view model; what changes is type, surfaces, colou
 | State | Changes | Same |
 | --- | --- | --- |
 | Scored | `01 / TODAY`; orbit in ink; centre ring by band (solid / 16 dashes / outlined); band mark and the band sentence as a `label`; rail dashed; past-band hatch | Number, caption, delta and arrows (polarity), speech |
-| Past the band | hatched stretch and dot | VoiceOver "above today's recommended range" |
+| Past the band | hatched stretch and dot | VoiceOver "past today's band" |
 | Pending | dashed outlines (4.2); number `textTertiary`; breathing | Copy, the 15 s tick, still under Reduce Motion |
 | Pending, no previous day | three hollow dashed dots | |
 | Calibrating | filled segments ink; track grey | "3 / 7", note, link |
@@ -580,7 +580,7 @@ for colour words and the Swift sources for the same inside string literals and a
 | --- | --- | --- | --- | --- |
 | `CoachMarks.swift:21`, the physiology coach mark | "Tap a tile for the details. The word under recovery is its band, so the colour is never the only cue." | "Tippe auf eine Kachel für die Details. Das Wort unter der Erholung nennt ihren Bereich, die Farbe ist also nie der einzige Hinweis." | "Tap a tile for the details. The word under recovery is its band, so no colour or mark is ever the only cue." | "Tippe auf eine Kachel für die Details. Das Wort unter der Erholung nennt ihren Bereich, ein Zeichen oder eine Farbe ist also nie der einzige Hinweis." |
 
-Checked and not naming a colour: the band words High / Moderate / Low, "above today's recommended range", the severity labels, "Dark / Light / System",
+Checked and not naming a colour: the band words High / Moderate / Low, "past today's band", the severity labels, "Dark / Light / System",
 "Appearance", the alarm strings containing "ring", "Pick your watch, band or ring", the zone and stage legends.
 
 New strings the design needs: the hero (11), the eyebrow words (they are the tab names), `01 / 03` (digits, no key). Button labels become caps through `textCase`, not through new keys.
