@@ -65,6 +65,7 @@ struct OwedWipe: Codable, Equatable {
     var since: Date { wipe.since } // the first begin; stamped as `parkedAt`, starts the 30-day bound
     var deviceStepsDone = false   // set after the first pass, so a retry runs only the store step
     var scrubOnly = false         // the wipe succeeded; only file residue is left (W7)
+    var endsOwnSession = true     // this build never publishes the entry's account over it (W2)
 }
 
 @MainActor final class WipeLedger {
@@ -73,13 +74,15 @@ struct OwedWipe: Codable, Equatable {
     func begin(_ wipe: AuthService.Wipe, at: Date)   // merges, see below
     func update(_ change: (inout OwedWipe) -> Void)
     func clear()
+    var forStoreStep: OwedWipe?   // what this launch's `AuthService` resolved, memory only (W2)
 }
 ```
 
 - **Writes:** atomic, `.completeFileProtectionUntilFirstUserAuthentication`, the same class as the Keychain session.
 - **`since` lives in `Wipe`** (W1), so `OwedWipe.since` reads it, a retry runs `entry.wipe` as it stands, and I4 needs no
   second copy. W1 also stores `storeOnly`, because W1 builds write the file W2 reads. Nothing sets it before W2.
-- **Reading the format:** a missing `storeOnly`, `deviceStepsDone` or `scrubOnly` reads as false. `since` is required.
+- **Reading the format:** a missing `storeOnly`, `deviceStepsDone`, `scrubOnly` or `endsOwnSession` reads as false. `since`
+  is required. A missing `endsOwnSession` is how a W1 build's entry is told apart (W2).
 - **Merging `begin`:** the earliest `since` stays. Anything that doesn't park the same account narrows the entry to no
   parking: a different account, a nil reason, or the same account's `.user` or deletion. A deletion's reason always
   replaces the entry's, for W5's notice. It never widens back. The entry keeps its first account, and a wipe already asked
@@ -117,15 +120,16 @@ stateDiagram-v2
 ### At launch
 
 The store step runs in `static let TrainStore.shared`, before the container opens, so every route to the store passes it.
-`AuthService.init` runs first and narrows the entry when it reads another account's stored session. `AppEnvironment.live`
-passes `auth: .shared` ahead of `TrainStore.shared` (Read). If that order ever flips, the launch falls back to the object
-wipe and the gate, and the next launch converges.
+`AuthService.init` runs first, resolves the entry, and leaves it in `forStoreStep`, the only thing the store step reads.
+`AppEnvironment.live` passes `auth: .shared` ahead of `TrainStore.shared` (Read). If that order ever flips, `forStoreStep`
+is nil, so the launch falls back to the object wipe and the gate, and the next launch converges.
 
 | Entry | Stored session | Before the store opens | After |
 |---|---|---|---|
 | none | any | nothing | as today |
 | owed, no parking | none | replace files | run the wipe, clear, signed out |
 | owed, no parking | another account | replace files | run the wipe, clear, publish it |
+| written by a W1 build, not a deletion | the entry's account | nothing | clear, publish it: the rows may be live work (W2) |
 | owed, no parking | the entry's account | replace files | sign-out was interrupted: run the wipe, clear, `client.signOut()`, signed out |
 | owed, parking, within 30 days | none | nothing | object wipe after the first frame, `at: since` |
 | owed, parking, within 30 days | the entry's account | nothing | same, and `client.signOut()`; not published |
@@ -226,6 +230,43 @@ and keeps the entry, so that account can work over an entry for weeks, and its r
 launch table's "the entry's account" rows read as a fresh interruption and would sign it out and replace the files. Resolve
 this before the first W2 build: a deletion's entry must still resume, and a stale `.user` or expiry entry must not take
 live work. Until then such an entry dates a later parking of the same account early (§7).
+
+**Resolved: a key in the file, not an age.** W2 builds write `endsOwnSession: true` in every entry. A W1 build never did. An
+entry with its own account's session stored then reads as follows:
+
+| Written by | Reason | Path |
+|---|---|---|
+| W2 or later | any | Interrupted sign-out, the launch table as written |
+| W1 | deletion | The same. The account is gone on the server, so nothing under the session can be live work |
+| W1 | `.user`, expiry, or nil | Clear the entry, publish the account, wipe nothing |
+
+Why this and not an age: a W2 build never publishes an account over its own entry, so with the key the entry can only be a
+kill inside the sign-out, however old it is. Without it the account may have worked on for weeks. An age limit would guess
+both ways, and it would have to trust the clock. The price is one case: a `.user` sign-out killed in a W1 build's window and
+first reopened in a W2 build isn't finished, and the user is still signed in, as that W1 build would have left them. No data
+is lost, and the sign-out is one tap. An entry with no own session isn't stale whoever wrote it, and takes its row as usual.
+
+**Found building W2.**
+- **A wipe inside `AuthService.init` crashed the app.** It runs inside `AppEnvironment.live`'s `swift_once`, and
+  `TrainSyncService.accountChanged()` read `owner()`, which reads `AppEnvironment.live`. Proved on the iOS 27 simulator with
+  a planted entry: the process died at launch and the entry stayed, so every launch would crash. `main`'s launch wipe for a
+  kept id has the same route. `accountChanged()` now counts on the next step, as `init` does.
+- **The store step reads `forStoreStep`, not the file.** A file read would let a store opened first replace live work, on a
+  stale entry or a scrub with a session.
+- **`client.signOut()` runs before the first SDK event is read,** and the phase leaves `restoring` at once, so no event can
+  publish the session that's ending.
+- **The store step includes what holds its rows in memory:** `TrainSyncService.accountChanged()` and `TrainLibrary.wipe()`
+  stay on a retry. A device step is everything else.
+- **`deviceStepsDone` counts for the entry's own account.** A wipe of another account still runs its device steps. The flag
+  is the source, and `Wipe.storeOnly` is set from it on each pass.
+- **The first-frame task does more than the ticket says.** It also calls `trainCoordinator.accountChanged()`: an expiry wipes
+  logged sessions, and the coordinator would keep a deleted row, which is fatal to read. The compaction does the same.
+- **`finishOwedWipe` runs once per process, and never over a published session.** A launch that already tried leaves the
+  first frame nothing to do.
+- **A resume in a launch with no scene** (a HealthKit delivery that then ends) doesn't reach `.task` or the compaction, so
+  A's reminders stay until the next account change. Open: see §7.
+
+Tests:
 - An entry of each reason with a stored session of its own account, written by a W1 build and aged, takes the path chosen
   above, and a deletion's rows go.
 - With an entry and all 18 tables full, a relaunch leaves every table at 0 and no entry, for each ending.
@@ -302,10 +343,14 @@ text, since the app never edits `../plattform`.
 - **The main thread still blocks during a wipe:** 3.4 s for 44,500 rows in Debug, and an expiry's retry does too. A kill
   during it is now safe, but a progress line can't render meanwhile. Measure on a device (performance-profiler). Moving it
   off the main actor is its own design.
-- **A debt that survives a launch dates a later parking early.** W1 keeps an entry when a stored session is restored, or a
-  deletion killed before the Keychain delete would be forgotten. A later expiry of that account then parks at the entry's
-  `since`, so the row expires sooner than 30 days after that expiry. Accepted: it's bounded, shorter retention is the safe
-  direction, and W2 resolves the entry at launch. `aDebtThatSurvivedALaunchDatesTheNextParking` pins it.
+- **A debt that survives a launch dates a later parking early, in W1 builds.** W1 keeps an entry when a stored session is
+  restored, or a deletion killed before the Keychain delete would be forgotten. A later expiry of that account then parks at
+  the entry's `since`. W2 resolves the entry at the first launch, so it stops there: `aStaleEntryDoesntDateTheNextParking`.
+- **A build installed over a W2 build, going back to W1,** would publish an account over an entry that has the key. Back on
+  W2 that reads as an interrupted sign-out, and live work goes. Assumed rare: it takes a kill in a window of milliseconds on
+  a build that was then reinstalled backwards. Accepted.
+- **A resume in a launch that never gets a scene** runs the wipe but not the reminders' teardown (W2). Bounded by a kill
+  during a sign-out followed by a HealthKit wake before the next open.
 - **Review 1's N1:** `wipe` hit a SwiftData fatal error under an artificial limit. It's now a kill with an entry on disk, so
   a launch replace recovers it. Not reproduced at a realistic limit.
 - **An upgrade from a #93 build** with key A and B signed in wipes once more, taking B's unsent work, as #93 would. This only
