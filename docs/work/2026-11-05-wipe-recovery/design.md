@@ -438,9 +438,10 @@ so the grant can't be revoked later.
   refused, the store's context keeps the pending deletes, so its saves keep failing until the refusal ends, when the deletes
   land, or until the next launch. Today's behaviour for any refused wipe (§2), and a held B is spared it.
 - **A mark the disk refuses.** On a full disk the old file would read as an interrupted sign-out and take A's work, so the
-  return removes the file, which needs no space. This process keeps the entry, so B stays held. The next launch has no debt
-  over A and no entry to fall back on, and `lastUserID` still makes another account's sign-in wipe. If the remove fails
-  too, the old file stands. That's one more failure on top of a refused pass and a full disk. Accepted.
+  return removes the file, which needs no space. This process keeps the entry, so A's own end later keeps its age, and the
+  refusal keeps B held. The next launch has no debt over A and no entry to fall back on, and `lastUserID` still makes another
+  account's sign-in wipe. If the remove fails too, the old file stands. That's one more failure on top of a refused pass and
+  a full disk. Accepted.
 - **A return's debt spans its session.** In a process with a refused pass the entry stands while A works. If A's session
   then expires there, the entry stays a no-parking one (parking never widens), so the next launch's replace takes rows that
   expiry parked. It takes a refusal, a return and an expiry in one process.

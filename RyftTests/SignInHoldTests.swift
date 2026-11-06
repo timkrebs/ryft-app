@@ -817,7 +817,7 @@ struct SignInHoldTests {
     }
 
     /// A full disk: the mark doesn't reach the file, which would read as an interrupted sign-out. No file reads as no
-    /// debt over A, and this process still has the entry, so B stays out.
+    /// debt over A, and the refusal keeps B out of this process.
     @Test func aMarkTheDiskRefusesRemovesTheFile() async throws {
         let rig = try await refused()
         try FileManager.default.removeItem(at: rig.ledgerFile)
@@ -837,6 +837,22 @@ struct SignInHoldTests {
         #expect(rig.auth.accountID == a)
         #expect(rig.client.signOutCount == 0)
         #expect(try activities(rig).contains(work))
+    }
+
+    /// The entry stands in this process with the file gone: A's own end later is the same debt, of the same age, and a
+    /// new one would start the 30-day bound again.
+    @Test func aMarkTheDiskRefusesLeavesTheEntryToThisProcess() async throws {
+        let rig = try await refused()
+        let since = try #require(rig.ledgerOnDisk?.since)
+        try FileManager.default.removeItem(at: rig.ledgerFile)
+        let inTheWay = rig.ledgerFile.appendingPathComponent("child")
+        try FileManager.default.createDirectory(at: inTheWay, withIntermediateDirectories: true)
+        #expect(await logIn(rig, as: WipeValues.accountA))
+        rig.clock.advance(by: .seconds(3600))
+
+        await rig.end(.user)
+
+        #expect(rig.ledgerOnDisk?.since == since)
     }
 
     /// The control: a write that works leaves the file, marked.
