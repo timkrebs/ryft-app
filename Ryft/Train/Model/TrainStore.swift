@@ -219,7 +219,13 @@ final class TrainStore {
 
     @discardableResult
     func wipe() -> Bool {
-        wipe(parkingActivitiesOf: nil)
+        wipe(parkingActivitiesOf: nil, at: Date())
+    }
+
+    /// One owed wipe, the only way an account's wipe reaches the store: what it parks, dated from its first attempt.
+    @discardableResult
+    func wipe(_ wipe: AuthService.Wipe) -> Bool {
+        self.wipe(parkingActivitiesOf: wipe.parking, at: wipe.since)
     }
 
     /// The same, keeping what a session expiry parks (design.md §8.4): of the activity tables, exactly `account`'s
@@ -238,7 +244,7 @@ final class TrainStore {
     /// goes by batch delete survives it and is written by the final save. Parked rows stay, as they should. Nothing
     /// outside this store is covered. A store that was asked to run in memory reports true: it has no file to reach.
     @discardableResult
-    func wipe(parkingActivitiesOf account: String?, at now: Date = Date()) -> Bool {
+    func wipe(parkingActivitiesOf account: String?, at now: Date) -> Bool {
         epoch += 1
         // An array, so every step runs, in this order, whatever the ones before it did.
         let steps = [

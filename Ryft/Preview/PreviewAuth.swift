@@ -23,6 +23,8 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
     var methods = [SignInMethod(provider: "email", email: "tim@example.com", addedAt: nil)]
     /// Linking failures (`identity_already_exists`, `manual_linking_disabled`).
     var linkError: Error?
+    /// Runs inside `signOut()`, before the session is dropped; a test can hold the call here.
+    var onSignOut: (@Sendable () async -> Void)?
 
     // What happened.
     private(set) var refreshCount = 0
@@ -133,7 +135,11 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
     }
 
     func signOut() async throws {
-        locked { signOutCount += 1 }
+        let hook = locked { () -> (@Sendable () async -> Void)? in
+            signOutCount += 1
+            return onSignOut
+        }
+        await hook?()
         emit(.signedOut, nil)
     }
 
