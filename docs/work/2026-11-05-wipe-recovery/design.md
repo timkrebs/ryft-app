@@ -65,7 +65,7 @@ struct OwedWipe: Codable, Equatable {
     var since: Date { wipe.since } // the first begin; stamped as `parkedAt`, starts the 30-day bound
     var deviceStepsDone = false   // set after the first pass, so a retry runs only the store step
     var scrubOnly = false         // the wipe succeeded; only file residue is left (W7)
-    var endsOwnSession = true     // this build never publishes the entry's account over it (W2)
+    var endsOwnSession = true     // false only on a W1 entry; a published-over entry sets publishedOver instead
     var publishedOver = false     // its account came back after a refused pass and works over it (W3)
 }
 
@@ -122,7 +122,7 @@ stateDiagram-v2
     Owed --> Owed: wipe false, or kill
     Owed --> Clean: the same account signs in, after one true attempt, no pass refused in this process (W3)
     Owed --> Owed: the same account signs in after a refusal: published, the entry marked published over (W3)
-    Owed --> Clean: forget, an entry published over, its account stored, not a deletion (W2)
+    Owed --> Clean: forget, its account stored: publishedOver, or a W1 entry not of a deletion (W2, W3)
     Scrub --> Clean: next launch signed out, files replaced
     Scrub --> Clean: any session published
     Scrub --> Clean: forget, any session stored at launch (W2)
@@ -269,7 +269,7 @@ entry with its own account's session stored then reads as follows:
 | W1 | deletion | The same. The account is gone on the server, so nothing under the session can be live work |
 | W1 | `.user`, expiry, or nil | Clear the entry, publish the account, wipe nothing |
 
-Why this and not an age: no build publishes an account over an entry and leaves the key set, so with the key the entry can
+Why this and not an age: no build publishes an account over an entry without marking it: a return sets `publishedOver`. So with the key and no mark, the entry can
 only be a kill inside the sign-out, however old it is. Without it the account may have worked on for weeks. An age limit would guess
 both ways, and it would have to trust the clock. The price is one case: a `.user` sign-out killed in a W1 build's window and
 first reopened in a W2 build isn't finished, and the user is still signed in, as that W1 build would have left them. No data
