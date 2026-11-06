@@ -4,7 +4,7 @@ import Foundation
 import OSLog
 
 /// What a started wipe still owes. The file format: an entry may outlive the build that wrote it.
-struct OwedWipe: Codable, Equatable {
+struct OwedWipe: Equatable {
     /// Reason, account and first date. A retry runs it as it is, so `Wipe.parking` stays the one derivation.
     var wipe: AuthService.Wipe
     /// The first pass reached the device steps: a retry runs only the store step.
@@ -14,6 +14,18 @@ struct OwedWipe: Codable, Equatable {
 
     /// The first `begin`: stamped as `parkedAt`, and it starts the 30-day bound.
     var since: Date { wipe.since }
+}
+
+/// A key this build doesn't know yet, or one a build before it didn't write, reads as false: a retry that does too much.
+extension OwedWipe: Codable {
+    private enum CodingKeys: String, CodingKey { case wipe, deviceStepsDone, scrubOnly }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        wipe = try values.decode(AuthService.Wipe.self, forKey: .wipe)
+        deviceStepsDone = try values.decodeIfPresent(Bool.self, forKey: .deviceStepsDone) ?? false
+        scrubOnly = try values.decodeIfPresent(Bool.self, forKey: .scrubOnly) ?? false
+    }
 }
 
 /// At most one entry, and a later wipe merges into it. Memory first, so a full disk can't lose it during this run.
@@ -43,13 +55,15 @@ final class WipeLedger {
     }
 
     /// Records `wipe`, merged with what's already owed: the earliest date stays, and parking only ever narrows, so a
-    /// wipe that goes on for another account or another reason can't keep rows the entry doesn't.
+    /// wipe for another account or another reason can't keep rows the entry doesn't.
     func begin(_ wipe: AuthService.Wipe, at now: Date) {
         if var owed = entry {
             owed.wipe = Self.merged(owed.wipe, wipe, since: min(owed.since, now))
             held = owed
         } else {
-            held = OwedWipe(wipe: AuthService.Wipe(reason: wipe.reason, account: wipe.account, since: now))
+            var first = wipe
+            first.since = now
+            held = OwedWipe(wipe: first)
         }
         write()
     }
@@ -73,10 +87,13 @@ final class WipeLedger {
         }
     }
 
+    /// A deletion's reason always comes through: its notice is owed too.
     private static func merged(_ owed: AuthService.Wipe, _ next: AuthService.Wipe, since: Date) -> AuthService.Wipe {
+        var merged = owed
+        merged.since = since
         let keeps = owed.parking == nil || owed.parking == next.parking
-        let reason = keeps ? owed.reason : (next.parking == nil ? next.reason : nil)
-        return AuthService.Wipe(reason: reason, account: owed.account, since: since)
+        if !keeps || next.reason?.isDeletion == true { merged.reason = next.parking == nil ? next.reason : nil }
+        return merged
     }
 
     private static func read(_ file: URL) -> OwedWipe? {

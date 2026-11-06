@@ -51,6 +51,12 @@ struct WipeMerge: CustomTestStringConvertible, Sendable {
         WipeMerge(name: "a log out narrows", owed: .sessionExpired, next: .user, reason: .user, parking: nil),
         WipeMerge(name: "a deletion narrows and says so", owed: .sessionExpired, next: .accountDeleted(background: true),
                   reason: .accountDeleted(background: true), parking: nil),
+        WipeMerge(name: "a deletion's reason beats a log out", owed: .user, next: .accountDeleted(background: true),
+                  reason: .accountDeleted(background: true), parking: nil),
+        WipeMerge(name: "a deletion's reason beats a sign-in's", owed: nil, next: .accountDeleted(background: false),
+                  reason: .accountDeleted(background: false), parking: nil),
+        WipeMerge(name: "a log out doesn't undo a deletion", owed: .accountDeleted(background: true), next: .user,
+                  reason: .accountDeleted(background: true), parking: nil),
         WipeMerge(name: "an expiry doesn't widen a log out", owed: .user, next: .sessionExpired, reason: .user, parking: nil),
         WipeMerge(name: "an expiry doesn't widen a deletion", owed: .accountDeleted(background: false), next: .sessionExpired,
                   reason: .accountDeleted(background: false), parking: nil),
@@ -100,14 +106,43 @@ struct WipeLedgerTests {
         let other = try #require(WipeLedger(file: folder.file).entry)
         #expect(other.wipe.reason == .accountDeleted(background: true) && other.wipe.account == nil && other.scrubOnly)
 
+        try FileManager.default.removeItem(at: folder.file)
         WipeLedger(file: folder.file).begin(Wipe(reason: .user, account: Ledger.b), at: Ledger.first)
         let object = try JSONSerialization.jsonObject(with: Data(contentsOf: folder.file)) as? [String: Any]
         #expect(Set(object?.keys.map { $0 } ?? []) == ["wipe", "deviceStepsDone", "scrubOnly"], "both flags from the start")
+        let wipe = object?["wipe"] as? [String: Any]
+        #expect(Set(wipe?.keys.map { $0 } ?? []) == ["reason", "account", "since", "storeOnly"])
     }
 
-    /// The options, not the file: the simulator reports no protection class.
-    @Test func aWriteIsAtomicWithTheSessionsProtectionClass() {
-        #expect(WipeLedger.writeOptions == [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    /// What the first W1 builds wrote, and anything older or leaner: a key that's missing is never a lost debt.
+    @Test(arguments: [
+        #"{"wipe":{"reason":{"sessionExpired":{}},"account":"account-a","since":800000000.5},"deviceStepsDone":false,"scrubOnly":false}"#,
+        #"{"wipe":{"reason":{"sessionExpired":{}},"account":"account-a","since":800000000.5}}"#,
+    ])
+    func anEntryWithoutTheNewerKeysStillReads(_ json: String) throws {
+        let folder = try LedgerFolder()
+        try Data(json.utf8).write(to: folder.file)
+        let entry = try #require(WipeLedger(file: folder.file).entry)
+        #expect(entry.wipe.parking == Ledger.a && entry.since == Ledger.first)
+        #expect(!entry.wipe.storeOnly && !entry.deviceStepsDone && !entry.scrubOnly)
+    }
+
+    /// No date, no bound on what it parks: that entry isn't guessed at.
+    @Test func anEntryWithoutADateIsNoEntry() throws {
+        let folder = try LedgerFolder()
+        try Data(#"{"wipe":{"reason":{"user":{}},"account":"account-a"}}"#.utf8).write(to: folder.file)
+        #expect(WipeLedger(file: folder.file).entry == nil)
+    }
+
+    /// A new file takes the old one's place in one step, so a kill can't leave half of it.
+    @Test func aRewriteReplacesTheFileWhole() throws {
+        let folder = try LedgerFolder()
+        let ledger = WipeLedger(file: folder.file)
+        ledger.begin(Wipe(reason: .user, account: Ledger.a), at: Ledger.first)
+        let first = try FileManager.default.attributesOfItem(atPath: folder.file.path)[.systemFileNumber] as? Int
+        ledger.update { $0.deviceStepsDone = true }
+        let second = try FileManager.default.attributesOfItem(atPath: folder.file.path)[.systemFileNumber] as? Int
+        #expect(first != nil && second != nil && first != second)
     }
 
     @Test func itMakesItsFolder() throws {
@@ -170,6 +205,16 @@ struct WipeLedgerTests {
         ledger.begin(Wipe(reason: .sessionExpired, account: Ledger.a), at: Ledger.later)
         let entry = try #require(ledger.entry)
         #expect(entry.wipe.parking == nil)
+    }
+
+    /// A retry that's down to the store step stays there, whichever wipe writes it down.
+    @Test func storeOnlyOutlivesBeginAndMerge() throws {
+        let folder = try LedgerFolder()
+        let ledger = WipeLedger(file: folder.file)
+        ledger.begin(Wipe(reason: .user, account: Ledger.a, storeOnly: true), at: Ledger.first)
+        #expect(WipeLedger(file: folder.file).entry?.wipe.storeOnly == true)
+        ledger.begin(Wipe(reason: nil, account: Ledger.b), at: Ledger.later)
+        #expect(WipeLedger(file: folder.file).entry?.wipe.storeOnly == true)
     }
 
     @Test func aMergeKeepsTheFlags() {
@@ -293,10 +338,6 @@ struct WipeLedgerTests {
         #expect(ledger.entry?.wipe.account == Ledger.a)
         ledger.clear()
         #expect(ledger.entry == nil)
-    }
-
-    @Test func theLiveFileIsInApplicationSupport() {
-        #expect(WipeLedger.liveFile == URL.applicationSupportDirectory.appendingPathComponent("account-wipe.json"))
     }
 }
 
@@ -571,10 +612,10 @@ struct WipeLedgerAuthTests {
         await task.value
     }
 
-    /// The session survived, so the account is still signed in, as it was before there was a ledger. The entry goes:
-    /// it would otherwise tell a later launch that this account's live work is a debt.
+    /// The session survived, so the account is still signed in, as it was before there was a ledger. The entry stays:
+    /// after a deletion it's all that says this account's rows are owed, and nothing else would resume the wipe.
     @Test(arguments: WipeValues.endings)
-    func aKillBeforeTheSDKDroppedTheSessionChangesNothing(_ ending: AuthService.SignOutReason) async throws {
+    func aKillBeforeTheSDKDroppedTheSessionKeepsTheDebt(_ ending: AuthService.SignOutReason) async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         rig.disk.session(checked: true)
         let (hold, task) = await signOutStopped(rig, reason: ending)
@@ -586,10 +627,54 @@ struct WipeLedgerAuthTests {
 
         #expect(rig.auth.accountID == a)
         #expect(seen.wipes.isEmpty)
-        #expect(rig.ledgerOnDisk == nil)
+        let entry = try #require(rig.ledgerOnDisk)
+        #expect(entry.wipe.reason == ending && entry.wipe.account == a)
         #expect(try rig.disk.inFreshContext == .init(sessions: 1, exercises: 2, sets: 6))
 
+        rig.relaunch(signedInAs: WipeValues.accountA)
+        await rig.settle()
+        #expect(rig.ledgerOnDisk == entry, "and over every launch after it")
+
         rig.atTheWipe = nil
+        hold.open()
+        await task.value
+    }
+
+    /// The price of keeping that entry, accepted: it can date this account's next parking from the kill, so the row
+    /// expires sooner than 30 days from now. Bounded, and shorter retention is the safe direction. W2 resolves the entry
+    /// at launch, which ends this.
+    @Test func aDebtThatSurvivedALaunchDatesTheNextParking() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        let (hold, task) = await signOutStopped(rig, reason: .sessionExpired)
+        rig.relaunch(signedInAs: WipeValues.accountA)
+
+        rig.clock.advance(by: .seconds(10 * 86_400))
+        let unsent = unsentActivity(of: a)
+        let id = unsent.id
+        insert(unsent, into: rig)
+        await rig.end(.sessionExpired)
+
+        #expect(try parkedDates(rig)[id] == WipeValues.now)
+        #expect(rig.ledgerOnDisk == nil, "the wipe that returned true ends it")
+
+        hold.open()
+        await task.value
+    }
+
+    /// Only an entry that parks the same account has a date to pass on.
+    @Test func aDebtWithoutParkingDoesntDateTheNextParking() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        let (hold, task) = await signOutStopped(rig, reason: .user)
+        rig.relaunch(signedInAs: WipeValues.accountA)
+
+        rig.clock.advance(by: .seconds(10 * 86_400))
+        let unsent = unsentActivity(of: a)
+        let id = unsent.id
+        insert(unsent, into: rig)
+        await rig.end(.sessionExpired)
+
+        #expect(try parkedDates(rig)[id] == rig.clock.now())
+
         hold.open()
         await task.value
     }
@@ -607,6 +692,7 @@ struct WipeLedgerAuthTests {
         rig.relaunch(signedInAs: nil)
         try rig.disk.allowDeletes()
         let seen = watchWipes(rig)
+        await rig.settle() // past the splash: Welcome is where a sign-in starts
         await rig.signIn(WipeValues.accountA)
 
         #expect(rig.auth.accountID == a)
@@ -766,26 +852,37 @@ struct WipeLedgerAuthTests {
 
     // MARK: nothing a user can notice
 
-    /// One launch, one sign-in, one sign-out: the same wipes as without a ledger's entry to consider.
+    /// A launch, a sign-out, a sign-in and another launch: one wipe, the sign-out's, and no file afterwards.
     @Test func aCleanLedgerCostsNoWipe() async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         let seen = watchWipes(rig)
         rig.relaunch(signedInAs: WipeValues.accountA)
         await rig.settle()
         #expect(seen.wipes.isEmpty)
+
+        await rig.end(.user)
+        #expect(seen.wipes.count == 1)
+
+        await rig.signIn(WipeValues.accountA)
+        rig.relaunch(signedInAs: WipeValues.accountA)
+        await rig.settle()
+        #expect(seen.wipes.count == 1)
         #expect(!FileManager.default.fileExists(atPath: rig.ledgerFile.path))
     }
 
-    /// Without a file of its own a service writes nowhere the live app would read: previews and other tests stay out.
-    @Test func aServiceWithoutALedgerStillWipes() async {
+    /// Without a file of its own a service keeps its entry in memory, even one a refused wipe leaves: previews and other
+    /// tests never reach the file the live app reads.
+    @Test func aServiceWithoutALedgerLeavesTheLiveFileAlone() async {
+        let before = try? Data(contentsOf: WipeLedger.liveFile)
         let client = MockAuthClient(session: .preview(id: WipeValues.accountA))
         var wipes = 0
         let defaults = UserDefaults(suiteName: "ryft.tests.wipe.\(UUID().uuidString)") ?? .standard
         let auth = AuthService(client: client, settings: Settings(defaults: defaults), defaults: defaults,
-                               wipeLocalData: { _ in wipes += 1; return true },
+                               wipeLocalData: { _ in wipes += 1; return false },
                                deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
                                postAppleAuthorization: { _ in })
         await auth.signOut()
         #expect(wipes == 1)
+        #expect((try? Data(contentsOf: WipeLedger.liveFile)) == before)
     }
 }

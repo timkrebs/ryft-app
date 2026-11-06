@@ -39,7 +39,7 @@ private final class AccountHarness {
         var recorded: (AuthService.Wipe) -> Void = { _ in }
         auth = AuthService(client: client, settings: settings, defaults: defaults,
                            wipeLocalData: { wipe in
-                               let wiped = persistence.wipe(parkingActivitiesOf: wipe.parking, at: clock.now())
+                               let wiped = persistence.wipe(wipe)
                                recorded(wipe)
                                return wiped
                            },
@@ -48,7 +48,7 @@ private final class AccountHarness {
                                if let error = duringDeletion.error { throw error }
                                return AccountDeleted(status: "deleted", authUserDeleted: duringDeletion.authUserDeleted)
                            },
-                           postAppleAuthorization: { _ in })
+                           postAppleAuthorization: { _ in }, now: { clock.now() })
         api.now = { clock.now() }
         env = AppEnvironment(settings: settings, health: MockHealthStore(), liveAPI: api, demoAPI: api, auth: auth,
                              persistence: persistence, clock: clock, notifier: MockNotifier(), flags: StaticFlags([:]),

@@ -177,13 +177,15 @@ final class AuthService {
     }
 
     /// One wipe of this phone's per-account data, and what it keeps (design.md §8.4).
-    struct Wipe: Equatable, Codable {
+    struct Wipe: Equatable {
         /// Why the session ended; nil when another account's session replaced it.
-        let reason: SignOutReason?
+        var reason: SignOutReason?
         /// The account that's leaving, when known.
         let account: String?
         /// When this wipe was first owed: parked rows carry it as `parkedAt`, so a retry doesn't restart their 30 days.
         var since = Date()
+        /// The device steps are done: a retry runs only the store step.
+        var storeOnly = false
 
         /// Whose activities, manual sleep and privacy zones stay, parked and bound to their account for 30 days:
         /// the leaving account's after a session expiry (it may sign in again), nobody's otherwise.
@@ -709,10 +711,12 @@ final class AuthService {
             var wiped = true
             if let previousID, previousID != newSession.user.id {
                 wiped = wipe(Wipe(reason: nil, account: previousID.uuidString))
-            } else if newSession.user.id != session?.user.id, ledger.entry?.wipe.account == newSession.user.id.uuidString {
-                // Its own account is back and this sign-in doesn't wipe, so the rows are its work again. An entry left
+            } else if !isRestoring, newSession.user.id != session?.user.id,
+                      ledger.entry?.wipe.account == newSession.user.id.uuidString {
+                // Its own account signed in and this sign-in doesn't wipe, so the rows are its work again. An entry left
                 // standing would date this account's next expiry from the old one, and its parked rows would run out
-                // early. A token refresh during a sign-out isn't a return: the session is still published.
+                // early. Not a stored session at launch: that's a kill inside the sign-out, of a deletion too, and only
+                // the entry can resume it. Not a token refresh during a sign-out: the session is still published.
                 ledger.clear()
             }
             // Not on a token refresh, and not after a failed wipe: the id that stays makes the next launch wipe again.
@@ -755,8 +759,9 @@ final class AuthService {
         let at = now()
         ledger.begin(wipe, at: at)
         // An entry this wipe doesn't park with is another debt, and its date isn't this wipe's.
-        let since = ledger.entry.flatMap { $0.wipe.parking == wipe.parking ? $0.since : nil } ?? at
-        let wiped = perform(Wipe(reason: wipe.reason, account: wipe.account, since: since))
+        var stamped = wipe
+        stamped.since = ledger.entry.flatMap { $0.wipe.parking == wipe.parking ? $0.since : nil } ?? at
+        let wiped = perform(stamped)
         if wiped { ledger.clear() }
         return wiped
     }
@@ -786,7 +791,7 @@ final class AuthService {
         Settings.shared.clearPerUserState()
         // Cached read models, logged sessions, the offline library and queued uploads are per account; after an
         // expiry the account's unconfirmed activities stay, parked (design.md §8.4).
-        let wiped = TrainStore.shared.wipe(parkingActivitiesOf: wipe.parking, at: wipe.since)
+        let wiped = TrainStore.shared.wipe(wipe)
         // Its replay stops now, not when the app's account-change handler runs a runloop later.
         TrainSyncService.shared.accountChanged()
         TrainLibrary.shared.wipe()
@@ -807,12 +812,27 @@ final class AuthService {
     }
 }
 
-extension AuthService.SignOutReason {
-    /// The reason as a deletion: a deletion's own as it is, any other end of a session being deleted as one.
-    var asDeletion: Self {
-        if case .accountDeleted = self { return self }
-        return .accountDeleted(background: false)
+/// The ledger's file format. `since` has no safe default, and an entry without one is no entry.
+extension AuthService.Wipe: Codable {
+    private enum CodingKeys: String, CodingKey { case reason, account, since, storeOnly }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        reason = try values.decodeIfPresent(AuthService.SignOutReason.self, forKey: .reason)
+        account = try values.decodeIfPresent(String.self, forKey: .account)
+        since = try values.decode(Date.self, forKey: .since)
+        storeOnly = try values.decodeIfPresent(Bool.self, forKey: .storeOnly) ?? false
     }
+}
+
+extension AuthService.SignOutReason {
+    var isDeletion: Bool {
+        if case .accountDeleted = self { return true }
+        return false
+    }
+
+    /// The reason as a deletion: a deletion's own as it is, any other end of a session being deleted as one.
+    var asDeletion: Self { isDeletion ? self : .accountDeleted(background: false) }
 
     /// The one line Welcome shows, or nil for an ordinary log out.
     var notice: String? {
