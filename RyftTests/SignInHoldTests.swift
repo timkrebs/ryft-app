@@ -23,6 +23,18 @@ struct SignInHoldTests {
         return rig
     }
 
+    /// A debt no pass of this process has refused: signed out, a new launch, and an entry that reads late. A session's
+    /// rows are in the store.
+    private func lateDebt(_ reason: AuthService.SignOutReason = .user) async throws -> WipingAuth {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        await rig.end(.user)
+        rig.relaunch(signedInAs: nil)
+        await rig.settle()
+        rig.disk.session(checked: true)
+        WipeLedger(file: rig.ledgerFile).begin(Wipe(reason: reason, account: a), at: rig.clock.now())
+        return rig
+    }
+
     private func expectHeld(_ rig: WipingAuth, for stored: UUID) {
         #expect(rig.auth.accountID == nil)
         #expect(rig.auth.session == nil && rig.auth.user == nil)
@@ -108,6 +120,64 @@ struct SignInHoldTests {
         #expect(rig.auth.needsNewPassword == false)
     }
 
+    /// The link is spent, so the launch that lets its account in asks for the new password, once.
+    @Test(arguments: ["ryft://auth/callback?code=synthetic&type=recovery", "ryft://auth/callback?code=synthetic"])
+    func aHeldRecoveryLinkAsksAtTheLaunchThatPublishes(_ link: String) async throws {
+        let rig = try await refused()
+        await rig.auth.sendPasswordReset(email: "synthetic@example.com")
+        rig.client.signInSession = .preview(id: accountB)
+        #expect(await rig.auth.handle(try #require(URL(string: link))))
+        #expect(rig.auth.needsNewPassword == false)
+
+        rig.relaunch(signedInAs: accountB)
+        #expect(rig.auth.accountID == b)
+        #expect(rig.auth.needsNewPassword)
+
+        rig.relaunch(signedInAs: accountB)
+        #expect(rig.auth.needsNewPassword == false)
+    }
+
+    /// The request alone isn't a link: this account just remembered its password.
+    @Test func aResetRequestWithNoLinkAsksNothingAtALaterLaunch() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        await rig.end(.user)
+        await rig.auth.sendPasswordReset(email: "synthetic@example.com")
+        #expect(await logIn(rig, as: accountB))
+
+        rig.relaunch(signedInAs: accountB)
+
+        #expect(rig.auth.accountID == b)
+        #expect(rig.auth.needsNewPassword == false)
+    }
+
+    /// The link was for the account that's held: another one coming in isn't asked, and the link's turn is over.
+    @Test func aHeldRecoveryLinkIsntAnotherAccounts() async throws {
+        let rig = try await refused()
+        rig.client.signInSession = .preview(id: accountB)
+        #expect(await rig.auth.handle(try #require(URL(string: "ryft://auth/callback?code=synthetic&type=recovery"))))
+
+        #expect(await logIn(rig, as: WipeValues.accountA))
+        #expect(rig.auth.needsNewPassword == false)
+
+        rig.relaunch(signedInAs: accountB)
+        #expect(rig.auth.needsNewPassword == false)
+    }
+
+    /// A link that isn't held asks at once, and leaves no request behind to misread the next one.
+    @Test func aRecoveryLinkThatIsntHeldAsksAtOnce() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        await rig.end(.user)
+        await rig.auth.sendPasswordReset(email: "synthetic@example.com")
+        rig.client.signInSession = .preview(id: accountB)
+        #expect(await rig.auth.handle(try #require(URL(string: "ryft://auth/callback?code=synthetic"))))
+        #expect(rig.auth.accountID == b)
+        #expect(rig.auth.needsNewPassword)
+        rig.auth.needsNewPassword = false
+
+        #expect(await rig.auth.handle(try #require(URL(string: "ryft://auth/callback?code=synthetic"))))
+        #expect(rig.auth.needsNewPassword == false)
+    }
+
     /// Nothing runs under a held account, this call included.
     @Test func aHeldAppleSignInSendsNothing() async throws {
         let rig = try await refused()
@@ -190,26 +260,113 @@ struct SignInHoldTests {
         try rig.disk.expectNothingLeft()
     }
 
-    @Test func aRefreshWhileHeldPublishesNothingUntilTheWipeReturnsTrue() async throws {
+    /// Once a pass was refused, nothing in this process tries again, however healthy the store looks by now: only the
+    /// next launch can prove the wipe.
+    @Test func aRefreshWhileHeldPublishesNothingUntilTheNextLaunch() async throws {
         let rig = try await refused()
         #expect(await logIn(rig, as: accountB) == false)
-        let changes = rig.auth.accountChanges
+        let changes = rig.auth.accountChanges, wipes = rig.wipes.count
 
         rig.client.emit(.tokenRefreshed, .preview(id: accountB))
         await rig.settle()
         expectHeld(rig, for: accountB)
-        #expect(rig.auth.accountChanges == changes)
 
         try rig.disk.allowDeletes()
         rig.client.emit(.tokenRefreshed, .preview(id: accountB))
         await rig.settle()
 
+        expectHeld(rig, for: accountB)
+        #expect(rig.auth.accountChanges == changes)
+        #expect(rig.wipes.count == wipes)
+        #expect(rig.ledgerOnDisk != nil)
+
+        rig.relaunch(signedInAs: accountB)
         #expect(rig.auth.accountID == b)
-        #expect(rig.auth.accountChanges == changes + 1)
-        #expect(rig.auth.errorMessage == nil)
         #expect(rig.lastUser == b)
         #expect(rig.ledgerOnDisk == nil)
         try rig.disk.expectNothingLeft()
+    }
+
+    /// Why: the refused save leaves an inserted row in the context, the next pass's batch delete doesn't see it, and that
+    /// pass's save answers true and writes it. The debt has to outlive that answer.
+    @Test func aTruePassAfterARefusalDoesntEndTheDebt() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        rig.disk.session(checked: true)
+        try rig.disk.refuseDeletes()
+        WipedTable.cachedDay.insertRow(into: rig.disk.store.context)
+        await rig.end(.user)
+        #expect(rig.answers == [false])
+        #expect(try rig.disk.inFile[.cachedDay] == 0)
+        try rig.disk.allowDeletes()
+
+        #expect(await logIn(rig, as: WipeValues.accountA))
+
+        #expect(rig.answers == [false, true])
+        #expect(try rig.disk.inFile[.cachedDay] == 1, "the row a true wipe left")
+        #expect(rig.ledgerOnDisk != nil)
+
+        await rig.end(.user)
+        #expect(rig.answers == [false, true, true])
+        #expect(rig.ledgerOnDisk != nil)
+        #expect(await rig.firstFrame() == false)
+        #expect(await logIn(rig, as: accountB) == false)
+        #expect(rig.answers.count == 3)
+        #expect(rig.auth.accountID == nil)
+
+        rig.relaunch(signedInAs: accountB)
+        #expect(rig.auth.accountID == b)
+        #expect(try rig.disk.inFile[.cachedDay] == 0)
+    }
+
+    /// A later sign-in is held the same way, with no attempt.
+    @Test(arguments: [WipeValues.accountB, WipeValues.accountB2])
+    func aSignInAfterARefusalMakesNoAttempt(_ id: UUID) async throws {
+        let rig = try await refused()
+        #expect(await logIn(rig, as: accountB) == false)
+        let wipes = rig.wipes.count
+        try rig.disk.allowDeletes()
+
+        #expect(await logIn(rig, as: id) == false)
+
+        expectHeld(rig, for: id)
+        #expect(rig.wipes.count == wipes)
+    }
+
+    /// No refusal in this process, and nobody stored at the end: the hold's over when the debt is.
+    @Test func theHoldEndsWithTheDebtWhenNobodyIsStored() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        rig.relaunch(signedInAs: nil)
+        WipeLedger(file: rig.ledgerFile).begin(Wipe(reason: .user, account: a), at: rig.clock.now())
+        rig.client.unlock(.preview(id: WipeValues.accountA))
+        await rig.settle()
+        #expect(rig.auth.errorMessage == AuthMessage.signInHeld)
+
+        rig.client.emit(.signedOut, nil)
+        await rig.settle()
+        #expect(rig.auth.errorMessage == AuthMessage.signInHeld, "the debt's still there")
+
+        #expect(await rig.firstFrame())
+        #expect(rig.ledgerOnDisk == nil)
+        #expect(rig.auth.errorMessage == nil)
+    }
+
+    /// A stored session is what the hold is for: that one still comes in at the next launch, so the message stands.
+    @Test func theHoldOutlivesTheDebtWhileAccountIsStored() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        WipeLedger(file: rig.ledgerFile).begin(Wipe(reason: .user, account: a), at: rig.clock.now())
+        let hold = Hold()
+        rig.relaunch(signedInAs: WipeValues.accountA) { await hold.wait(); }
+        let client = rig.client
+        #expect(await eventually { client.signOutCount == 1 })
+        #expect(await logIn(rig, as: accountB) == false)
+        client.onSignOutLeavesTheSession = true
+
+        hold.open()
+
+        #expect(await eventually { rig.ledgerOnDisk == nil })
+        #expect(rig.auth.errorMessage == AuthMessage.signInHeld)
+        rig.relaunch(signedInAs: accountB)
+        #expect(rig.auth.accountID == b)
     }
 
     /// The hold outlives Welcome's `onAppear`, and a failure of its own shows until the next screen does.
@@ -328,12 +485,16 @@ struct SignInHoldTests {
         hold.open()
         #expect(await eventually { rig.ledgerOnDisk == nil })
         #expect(rig.auth.accountID == nil)
+        #expect(rig.auth.errorMessage == nil, "the call took the session, and the debt went with it")
+
+        #expect(await logIn(rig, as: id))
+        #expect(rig.auth.accountID == id.uuidString)
     }
 
     // MARK: the same account
 
-    /// One attempt, published either way, and the debt is over: an entry left standing would read as an interrupted
-    /// sign-out at the next launch and take this account's live work.
+    /// Published either way. After a refused pass the debt stands, marked as published over: as it was, the next launch
+    /// would read an interrupted sign-out and take this account's live work. That launch ends it, and wipes nothing.
     @Test(arguments: [true, false])
     func theEntrysOwnAccountIsPublishedEitherWay(_ healthy: Bool) async throws {
         let rig = try await refused()
@@ -344,15 +505,56 @@ struct SignInHoldTests {
 
         #expect(rig.auth.accountID == a)
         #expect(rig.auth.errorMessage == nil)
-        #expect(rig.wipes.count == before + 1, "the call and the mock's event: the second finds no debt")
+        #expect(rig.wipes.count == before + 1, "the call and the mock's event: the second is a refresh")
         #expect(rig.wipes.last?.storeOnly == true)
-        #expect(rig.ledgerOnDisk == nil)
+        #expect(rig.ledgerOnDisk?.endsOwnSession == false)
         #expect(rig.lastUser == a)
 
         rig.relaunch(signedInAs: WipeValues.accountA)
         #expect(rig.auth.accountID == a)
         #expect(rig.wipes.count == before + 1)
         #expect(rig.client.signOutCount == 0)
+        #expect(rig.ledgerOnDisk == nil)
+    }
+
+    /// With no refusal in this process a true attempt ends it. A first refusal here stands like one before it.
+    @Test(arguments: [true, false])
+    func aReturnEndsTheDebtOnlyOnATruePass(_ healthy: Bool) async throws {
+        let rig = try await lateDebt()
+        if !healthy { try rig.disk.refuseDeletes() }
+
+        #expect(await logIn(rig, as: WipeValues.accountA))
+
+        #expect(rig.auth.accountID == a)
+        #expect(rig.answers.last == healthy)
+        #expect(rig.ledgerOnDisk?.endsOwnSession == (healthy ? nil : false))
+    }
+
+    /// Published over the entry, and then it signs out: from here it's that sign-out again, so a kill before the SDK
+    /// call ends it at the next launch instead of publishing it.
+    @Test func aReturnedAccountSigningOutOwesItsOwnEnd() async throws {
+        let rig = try await refused()
+        #expect(await logIn(rig, as: WipeValues.accountA))
+        #expect(rig.ledgerOnDisk?.endsOwnSession == false)
+
+        await rig.end(.user)
+        #expect(rig.ledgerOnDisk?.endsOwnSession == true)
+
+        rig.relaunch(signedInAs: WipeValues.accountA)
+        #expect(rig.auth.accountID == nil)
+        #expect(await eventually { rig.client.signOutCount == 1 })
+    }
+
+    /// A debt with no id left names who's leaving through its entry.
+    @Test func aDebtWithNoOwnerNamesItsAccount() async throws {
+        let rig = try await lateDebt()
+        rig.defaults.removeObject(forKey: AccountScope.defaultsKey)
+        rig.wipesAnswer = false
+
+        #expect(await logIn(rig, as: accountB) == false)
+
+        #expect(rig.wipes.last?.account == a)
+        expectHeld(rig, for: accountB)
     }
 
     /// The store keeps refusing: A's wipe fails, B is held and leaves, and A comes back and works. Nothing was published
@@ -388,7 +590,7 @@ struct SignInHoldTests {
         #expect(await logIn(rig, as: WipeValues.accountA))
 
         #expect(try activities(rig).contains(work))
-        #expect(rig.ledgerOnDisk == nil)
+        #expect(rig.ledgerOnDisk?.wipe.parking == a)
     }
 
     /// No id says otherwise, so the entry's name stands: a true wipe that ran during the SDK call, or a repeat of one,
@@ -411,9 +613,9 @@ struct SignInHoldTests {
     /// The name on the entry isn't enough: `lastUserKey` says the store holds someone else's rows.
     @Test(arguments: [true, false])
     func aReturnOverAnotherOwnersRowsWipesThem(_ healthy: Bool) async throws {
-        let rig = try await refused()
+        let rig = try await lateDebt()
         rig.defaults.set(b, forKey: AccountScope.defaultsKey)
-        if healthy { try rig.disk.allowDeletes() }
+        if !healthy { try rig.disk.refuseDeletes() }
 
         #expect(await logIn(rig, as: WipeValues.accountA) == healthy)
 
@@ -451,14 +653,29 @@ struct SignInHoldTests {
             #expect(try !activities(rig).contains(other))
         } else {
             expectHeld(rig, for: WipeValues.accountA)
+            #expect(rig.ledgerOnDisk?.endsOwnSession == false, "a sign-in's wipe doesn't change what the entry says")
         }
+    }
+
+    /// Only that account's own end makes the entry an interrupted sign-out again.
+    @Test func anAccountsOwnEndIsWhatSetsTheKeyBack() throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        try WipeEntries.fromAW1Build(reason: .user, account: a, since: WipeValues.now).write(to: rig.ledgerFile)
+        let ledger = WipeLedger(file: rig.ledgerFile)
+
+        ledger.begin(Wipe(reason: .user, account: b), at: WipeValues.now)
+        #expect(ledger.entry?.endsOwnSession == false)
+        ledger.begin(Wipe(reason: nil, account: a), at: WipeValues.now)
+        #expect(ledger.entry?.endsOwnSession == false)
+        ledger.begin(Wipe(reason: .user, account: a), at: WipeValues.now)
+        #expect(ledger.entry?.endsOwnSession == true)
     }
 
     /// `accountDeleted(background: true)`: the account signs in while its removal runs. That isn't a return.
     @Test(arguments: [true, false])
     func aDeletedAccountSigningInIsntAReturn(_ healthy: Bool) async throws {
-        let rig = try await refused(.accountDeleted(background: true))
-        if healthy { try rig.disk.allowDeletes() }
+        let rig = try await lateDebt(.accountDeleted(background: true))
+        if !healthy { try rig.disk.refuseDeletes() }
 
         #expect(await logIn(rig, as: WipeValues.accountA) == healthy)
 
@@ -497,9 +714,12 @@ struct SignInHoldTests {
     @Test func accountScopeIsAlwaysThePublishedAccount() async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         let seen = ScopeSeen()
-        rig.auth.onAccountWillChange = { [weak rig] _, to, _ in
-            if let to { seen.atHooks.append(to == rig?.lastUser) }
+        func watch() {
+            rig.auth.onAccountWillChange = { [weak rig] _, to, _ in
+                if let to { seen.atHooks.append(to == rig?.lastUser) }
+            }
         }
+        watch()
         func check() {
             #expect(rig.auth.accountID != nil)
             #expect(rig.lastUser == rig.auth.accountID)
@@ -519,14 +739,13 @@ struct SignInHoldTests {
         try rig.disk.refuseDeletes()
         await rig.end(.user)
         #expect(await logIn(rig, as: WipeValues.accountB2) == false)
-        try rig.disk.allowDeletes()
-        rig.client.emit(.tokenRefreshed, .preview(id: WipeValues.accountB2))
-        await rig.settle()
+        rig.relaunch(signedInAs: WipeValues.accountB2)
+        watch()
         check()
 
         #expect(await logIn(rig, as: WipeValues.accountA))
         check()
-        #expect(seen.atHooks == [true, true, true])
+        #expect(seen.atHooks == [true, true])
 
         rig.relaunch(signedInAs: WipeValues.accountA)
         check()

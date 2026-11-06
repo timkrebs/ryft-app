@@ -741,8 +741,6 @@ struct TrainStoreWipeTests {
 
         await rig.signIn(WipeValues.accountB)
         #expect(rig.auth.accountID == nil)
-        #expect(rig.wipes.last?.account == WipeValues.accountA.uuidString, "the entry names who's leaving")
-        #expect(rig.wipes.last?.storeOnly == true)
     }
 }
 
@@ -761,6 +759,8 @@ final class WipingAuth {
     var atTheWipe: (@MainActor (AuthService.Wipe) -> Void)?
     /// Every wipe asked for, over relaunches.
     private(set) var wipes: [AuthService.Wipe] = []
+    /// What each one answered.
+    private(set) var answers: [Bool] = []
     /// What every wipe answers instead of the store, which isn't touched.
     var wipesAnswer: Bool?
     /// The Apple authorization codes sent to the platform.
@@ -795,13 +795,18 @@ final class WipingAuth {
                            wipeLocalData: { [weak self] wipe in
                                self?.atTheWipe?(wipe)
                                self?.wipes.append(wipe)
-                               if let answer = self?.wipesAnswer { return answer }
+                               if let answer = self?.wipesAnswer {
+                                   self?.answers.append(answer)
+                                   return answer
+                               }
                                // As in the app: at launch it's this wipe that first opens the store.
                                disk.open(ledger: ledger, now: clock.now())
-                               guard let widget = self?.widget else { return disk.store.wipe(wipe) }
-                               return AuthService.steps(of: wipe, before: {}, store: {
+                               let widget = self?.widget
+                               let answer = widget == nil ? disk.store.wipe(wipe) : AuthService.steps(of: wipe, before: {}, store: {
                                    AuthService.storeStep($0, widget: widget, store: { disk.store.wipe($0) }, memory: {})
                                }, after: {})
+                               self?.answers.append(answer)
+                               return answer
                            },
                            deleteRemoteAccount: { [weak self] in
                                await self?.duringDeletion?()

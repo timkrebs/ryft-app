@@ -645,7 +645,8 @@ struct WipeLedgerAuthTests {
 
     // MARK: the same account comes back
 
-    /// One attempt with the entry's own parking, and the debt is over. The refused case is `SignInHoldTests`.
+    /// One attempt with the entry's own parking, in a process with no refused pass, and the debt is over. The refused
+    /// case is `SignInHoldTests`.
     @Test func theEntrysOwnAccountSigningInGetsOneAttempt() async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         rig.disk.fill([.cachedDay])
@@ -686,7 +687,10 @@ struct WipeLedgerAuthTests {
         try rig.disk.refuseDeletes(of: .cachedDay)
         await rig.end(.sessionExpired)
         try rig.disk.allowDeletes()
+        rig.relaunch(signedInAs: nil)
+        await rig.settle() // past the splash
         await rig.signIn(WipeValues.accountA)
+        #expect(rig.ledgerOnDisk == nil)
 
         rig.clock.advance(by: .seconds(40 * 86_400))
         let unsent = unsentActivity(of: a)

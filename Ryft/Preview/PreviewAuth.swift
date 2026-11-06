@@ -25,6 +25,8 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
     var linkError: Error?
     /// Runs inside `signOut()`, before the session is dropped; a test can hold the call here.
     var onSignOut: (@Sendable () async -> Void)?
+    /// `signOut()` returns with a session still stored: a sign-in that came after the SDK dropped the last one.
+    var onSignOutLeavesTheSession = false
 
     // What happened.
     private(set) var refreshCount = 0
@@ -143,7 +145,7 @@ final class MockAuthClient: AuthClientProtocol, @unchecked Sendable {
             return onSignOut
         }
         await hook?()
-        emit(.signedOut, nil)
+        if !locked({ onSignOutLeavesTheSession }) { emit(.signedOut, nil) }
     }
 
     func identities() async throws -> [SignInMethod] { locked { methods } }

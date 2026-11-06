@@ -561,16 +561,22 @@ struct OwedWipeLaunchTests {
     }
 
     /// Done for one account says nothing about the next one's anchors and defaults.
-    @Test func anotherAccountsDeviceStepsStillRun() async throws {
+    @Test(arguments: [true, false])
+    func anotherAccountsDeviceStepsStillRun(_ sameAccount: Bool) async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
-        rig.wipesAnswer = false
         await rig.end(.user)
-        await rig.signIn(WipeValues.accountB)
-        #expect(rig.wipes.last?.account == a && rig.wipes.last?.storeOnly == true, "A's again, and held")
+        rig.relaunch(signedInAs: nil)
+        await rig.settle()
+        let ledger = WipeLedger(file: rig.ledgerFile)
+        ledger.begin(Wipe(reason: .user, account: a), at: rig.clock.now())
+        ledger.update { $0.deviceStepsDone = true }
+        rig.defaults.set(sameAccount ? a : b, forKey: AccountScope.defaultsKey)
+        rig.wipesAnswer = false
 
-        rig.defaults.set(b, forKey: AccountScope.defaultsKey)
         await rig.signIn(WipeValues.accountB2)
-        #expect(rig.wipes.last?.account == b && rig.wipes.last?.storeOnly == false)
+
+        #expect(rig.wipes.last?.account == (sameAccount ? a : b))
+        #expect(rig.wipes.last?.storeOnly == sameAccount)
     }
 
     @Test func aRetryRunsOnlyTheStoreStep() {
@@ -885,16 +891,21 @@ struct OwedWipeLaunchTests {
         #expect(rig.wipes.count == 1)
     }
 
-    /// The nightly compaction: a wipe refused while the app ran, with no launch in between.
-    @Test func theNightlyRetryFinishesARefusedSignOut() async throws {
+    /// The nightly compaction, with no launch since a wipe was refused: a true answer here would let the next sign-in be
+    /// published over whatever this process's context left. The launch's fresh one ends it.
+    @Test func theNightlyRetryWaitsForTheNextLaunchAfterARefusal() async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         rig.wipesAnswer = false
         await rig.end(.user)
         #expect(rig.ledgerOnDisk != nil)
 
         rig.wipesAnswer = true
-        #expect(await rig.firstFrame())
+        #expect(await rig.firstFrame() == false)
+        #expect(rig.wipes.count == 1)
+        #expect(rig.ledgerOnDisk != nil)
+        #expect(rig.lastUser == a)
 
+        rig.relaunch(signedInAs: nil)
         #expect(rig.wipes.map(\.storeOnly) == [false, true])
         #expect(rig.ledgerOnDisk == nil)
         #expect(rig.lastUser == nil)

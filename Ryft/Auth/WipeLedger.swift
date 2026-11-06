@@ -11,9 +11,10 @@ struct OwedWipe: Equatable {
     var deviceStepsDone = false
     /// The wipe succeeded and only file residue is left.
     var scrubOnly = false
-    /// Written by a build that publishes no account over an entry: with this account's session stored, the entry is a
-    /// sign-out a kill interrupted, and when the account signs in, the rows are its own. Missing means a W1 build, which
-    /// published over the entry and went on, so its rows may be live work or someone else's (design.md, W2 and W3).
+    /// No account is published over this entry: with this account's session stored, it's a sign-out a kill interrupted,
+    /// and when the account signs in, the rows are its own. False means one was, so its rows may be live work. That's a
+    /// return in a process with a refused pass, or, with the key missing, a W1 build, whose rows may also be someone
+    /// else's (design.md, W2 and W3).
     var endsOwnSession = true
 
     /// The first `begin`: stamped as `parkedAt`, and it starts the 30-day bound.
@@ -73,6 +74,8 @@ final class WipeLedger {
     func begin(_ wipe: AuthService.Wipe, at now: Date) {
         if var owed = entry {
             owed.wipe = Self.merged(owed.wipe, wipe, since: min(owed.since, now))
+            // The account published over it is leaving: from here it's that sign-out.
+            if wipe.reason != nil, wipe.account == owed.wipe.account { owed.endsOwnSession = true }
             held = owed
         } else {
             var first = wipe

@@ -260,8 +260,12 @@ final class AuthService {
     private let now: () -> Date
     /// This launch took an owed wipe up: what a wipe at launch can't reach still has to follow (`finishOwedWipe`).
     @ObservationIgnored private var resumedOwedWipe = false
-    /// The ledger's retry had its one try in this process: another would only find the same refusal.
+    /// The ledger's retry had its one try in this process.
     @ObservationIgnored private var triedOwedWipe = false
+    /// A pass was refused in this process, so none here can prove a wipe: a batch delete doesn't see a row its context
+    /// only inserted, and a later pass can answer true and write it. The debt stands until a later launch's fresh
+    /// context or replace.
+    @ObservationIgnored private var passRefused = false
     /// An interrupted sign-out's `client.signOut()` hasn't returned. The entry outlives a wipe meanwhile: without it a
     /// kill here would publish the session at the next launch.
     @ObservationIgnored private var endingStoredSession = false
@@ -590,15 +594,18 @@ final class AuthService {
         guard SupabaseConfig.isAuthCallback(url) else { return false }
         await run(.link) { client in
             let session = try await client.session(from: url)
-            let recovering = Self.isRecoveryLink(url) || self.recoveryRequestedRecently
-            self.defaults.removeObject(forKey: Self.recoveryKey)
+            // Written first: a held link's session is published at a later launch, which `publish` tells by this.
+            if Self.isRecoveryLink(url) || self.recoveryRequestedRecently {
+                self.defaults.set(session.user.id.uuidString, forKey: Self.recoveringKey)
+            }
             try self.publish(session)
-            if recovering { self.needsNewPassword = true }
         }
         return true
     }
 
     private static let recoveryKey = "auth.recoveryRequestedAt"
+    /// The account a recovery link signed in, until its session is published: `recoveryKey` can't say a link was opened.
+    private static let recoveringKey = "auth.recoveringAccount"
 
     /// Supabase reset links are valid for an hour by default.
     private var recoveryRequestedRecently: Bool {
@@ -749,6 +756,11 @@ final class AuthService {
         if session == nil { signOutNotice = nil }
         signInHeld = false
         defaults.set(newSession.user.id.uuidString, forKey: Self.lastUserKey)
+        if defaults.string(forKey: Self.recoveringKey) == newSession.user.id.uuidString {
+            needsNewPassword = true
+            defaults.removeObject(forKey: Self.recoveryKey)
+        }
+        defaults.removeObject(forKey: Self.recoveringKey)
         replaceSession(with: newSession, ending: nil)
     }
 
@@ -766,15 +778,17 @@ final class AuthService {
             // interrupted, not a sign-in. The next launch's table ends it.
             if isRestoring { throw hold() }
             if isReturn(owed, of: incoming, owner: owner) {
-                // One attempt, then the rows are its work again. An entry left standing would take them at a later
-                // launch, or date this account's next expiry from the old one.
+                // One attempt, then the rows are its work again, and a true pass has ended the debt. After a refusal
+                // it stands, marked as published over: as it was, the next launch would read an interrupted sign-out
+                // and take this account's live work.
                 retry(owed)
-                ledger.clear()
+                ledger.update { $0.endsOwnSession = false }
                 return
             }
         }
         // A different account on this phone starts from scratch.
         guard owed != nil || (owner != nil && owner != incoming) else { return }
+        guard !passRefused else { throw hold() }
         let leaving = owner?.uuidString ?? owed?.wipe.account
         guard wipe(Wipe(reason: nil, account: leaving)) else { throw hold() }
     }
@@ -788,7 +802,7 @@ final class AuthService {
 
     /// Nothing runs under a held account: `accountID` stays nil, and the SDK keeps its session for the next launch to
     /// publish. A published account's session ends here, hooks included, because a wiped account can't stay on screen.
-    /// Its wipe has just run. Later SDK events come back through `publish`, so a wipe that then succeeds lets it in.
+    /// After a refused pass the next launch lets it in. Otherwise its next SDK event comes back through `publish`.
     @discardableResult
     private func hold() -> SignInHeld {
         signInHeld = true
@@ -846,11 +860,12 @@ final class AuthService {
     }
 
     /// One pass. True ends the entry, and false leaves it with the device steps marked done, so a retry skips them.
-    /// Files the replace left mean false, whatever the store answers.
+    /// Files the replace left mean false, whatever the store answers, and so does any pass after a refused one.
     private func settled(_ wipe: Wipe) -> Bool {
-        let wiped = perform(wipe) && !ledger.storeStepLeftFiles
+        if !perform(wipe) || ledger.storeStepLeftFiles { passRefused = true }
+        let wiped = !passRefused
         if wiped, !endingStoredSession {
-            ledger.clear()
+            endDebt()
         } else {
             ledger.update { $0.deviceStepsDone = true }
         }
@@ -860,7 +875,13 @@ final class AuthService {
 
     private func storedSessionEnded() {
         endingStoredSession = false
-        if wipedWhileEnding { ledger.clear() }
+        if wipedWhileEnding { endDebt() }
+    }
+
+    /// A hold ends with the debt only if nobody is left to publish: a stored session still comes in at the next launch.
+    private func endDebt() {
+        ledger.clear()
+        if client?.currentSession == nil { signInHeld = false }
     }
 
     @discardableResult
@@ -881,7 +902,8 @@ final class AuthService {
 
     /// The launch table (design.md §4), before anything is published. Runs ahead of the store, which reads what it
     /// leaves in `forStoreStep`; a wipe here is what first opens it. Returns the session to publish, and whether the
-    /// stored one is ended instead: an interrupted sign-out. A session whose wipe failed here is held, with no second try.
+    /// stored one is ended instead: an interrupted sign-out. A session whose wipe failed here is held, and `passRefused`
+    /// keeps every later route in this process from trying again: the SDK's events, a sign-in and `finishOwedWipe`.
     private func resumeOwedWipe(stored: Session?) -> (publish: Session?, endsStored: Bool) {
         guard let owed = ledger.entry else { return (stored, false) }
         switch WipeResume.decide(owed, stored: stored?.user.id.uuidString, now: now()) {
@@ -923,11 +945,11 @@ final class AuthService {
     /// The parked wipe the launch left, or a retry of one that failed. True when a wipe was taken up, at this launch or
     /// now. Never over a session: a published one's rows are its own, and a stored one the launch couldn't read (the
     /// entry too, before the first unlock) goes through the launch table at the next launch. One this launch is ending
-    /// isn't in the way.
+    /// isn't in the way. Never after a refused pass: the next sign-in would be published over what it left.
     @discardableResult
     func finishOwedWipe() -> Bool {
         defer { resumedOwedWipe = false }
-        guard session == nil, endingStoredSession || client?.currentSession == nil, !triedOwedWipe,
+        guard session == nil, endingStoredSession || client?.currentSession == nil, !triedOwedWipe, !passRefused,
               let owed = ledger.entry else { return resumedOwedWipe }
         guard !owed.scrubOnly else {
             if !ledger.storeStepLeftFiles { ledger.clear() }
