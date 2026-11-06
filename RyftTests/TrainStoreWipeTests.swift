@@ -11,7 +11,7 @@ import Testing
 /// A store in its own folder, so a test can read the file three ways. The reopened store is bound to a variable: an
 /// inline `TrainStore(url:).context` lets the container go while the context is in use, which crashes the test process.
 @MainActor
-private final class StoreOnDisk {
+final class StoreOnDisk {
     struct Rows: Equatable {
         var sessions: Int, exercises: Int, sets: Int
         static let none = Rows(sessions: 0, exercises: 0, sets: 0)
@@ -206,7 +206,7 @@ enum WipedTable: String, CaseIterable {
     }
 }
 
-private enum WipeValues {
+enum WipeValues {
     /// `nil`: sign-out, deletion, another account. An account: a session expiry parking its activities.
     static let parkings: [String?] = [nil, "account-a"]
     static let account = "account-a"
@@ -227,7 +227,7 @@ struct TrainStoreWipeTests {
         let disk = try StoreOnDisk()
         disk.session()
         #expect(try disk.inFreshContext == .init(sessions: 1, exercises: 2, sets: 6))
-        disk.store.wipe(parkingActivitiesOf: parking)
+        disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
         try disk.expectNothingLeft()
     }
 
@@ -236,7 +236,7 @@ struct TrainStoreWipeTests {
         let disk = try StoreOnDisk()
         disk.session(checked: true)
         #expect(try disk.inFreshContext == .init(sessions: 1, exercises: 2, sets: 6))
-        disk.store.wipe(parkingActivitiesOf: parking)
+        disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
         try disk.expectNothingLeft()
     }
 
@@ -247,7 +247,7 @@ struct TrainStoreWipeTests {
         set.reps = 9
         set.completedAt = Date(timeIntervalSince1970: 1_700_000_000)
         #expect(disk.store.context.hasChanges)
-        disk.store.wipe(parkingActivitiesOf: parking)
+        disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
         try disk.expectNothingLeft()
     }
 
@@ -257,7 +257,7 @@ struct TrainStoreWipeTests {
         SessionFactory.appendSet(index: 9, to: disk.session().orderedExercises[0], in: disk.store)
         #expect(try disk.inContext.sets == 7)
         #expect(try disk.inFreshContext.sets == 6)
-        disk.store.wipe(parkingActivitiesOf: parking)
+        disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
         try disk.expectNothingLeft()
     }
 
@@ -268,7 +268,7 @@ struct TrainStoreWipeTests {
         disk.session(checked: true, saved: false)
         #expect(try disk.inContext == .init(sessions: 1, exercises: 2, sets: 6))
         #expect(try disk.inFreshContext == .none)
-        disk.store.wipe(parkingActivitiesOf: parking)
+        disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
         try disk.expectNothingLeft()
     }
 
@@ -290,7 +290,7 @@ struct TrainStoreWipeTests {
         }
         #expect(try disk.inContext == .init(sessions: 0, exercises: 2, sets: 4))
         #expect(try disk.inFreshContext == .init(sessions: 0, exercises: 1, sets: 2))
-        disk.store.wipe(parkingActivitiesOf: parking)
+        disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
         try disk.expectNothingLeft()
     }
 
@@ -393,7 +393,7 @@ struct TrainStoreWipeTests {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        disk.store.wipe(parkingActivitiesOf: parking)
+        disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
 
         #expect(deleted.isSuperset(of: rows))
     }
@@ -466,7 +466,7 @@ struct TrainStoreWipeTests {
         let exercise = try #require(try context.fetch(FetchDescriptor<LocalSessionExercise>()).first)
         let set = try #require(try context.fetch(FetchDescriptor<LocalSet>()).first)
 
-        disk.store.wipe(parkingActivitiesOf: parking)
+        disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
 
         // Its relationships may answer empty or with the deleted rows, so only the reads themselves are pinned.
         #expect(session.title == "Upper")
@@ -497,7 +497,7 @@ struct TrainStoreWipeTests {
         let generation = rig.sync.generation
         let epoch = rig.store.epoch
 
-        rig.store.wipe(parkingActivitiesOf: parking)
+        rig.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now)
 
         #expect(rig.store.epoch == epoch + 1)
         #expect(rig.sync.generation != generation)
@@ -514,10 +514,10 @@ struct TrainStoreWipeTests {
         let disk = try StoreOnDisk()
         disk.session(checked: true)
         try disk.refuseDeletes()
-        #expect(!disk.store.wipe(parkingActivitiesOf: parking))
+        #expect(!disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now))
         #expect(try disk.inFreshContext == .init(sessions: 1, exercises: 2, sets: 6), "the refusal held")
         try disk.allowDeletes()
-        #expect(disk.store.wipe(parkingActivitiesOf: parking), "what's pending goes with the next one")
+        #expect(disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now), "what's pending goes with the next one")
         try disk.expectNothingLeft()
     }
 
@@ -532,9 +532,9 @@ struct TrainStoreWipeTests {
         disk.fill()
         #expect(try disk.inFile.allSatisfy { $0.value == 1 }, "a row of each")
 
-        #expect(disk.store.wipe(parkingActivitiesOf: parking))
+        #expect(disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now))
         #expect(try disk.inFile.allSatisfy { $0.value == 0 })
-        #expect(disk.store.wipe(parkingActivitiesOf: parking), "and a store with nothing in it")
+        #expect(disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now), "and a store with nothing in it")
     }
 
     /// The case the final save can't speak for: it has nothing to do and succeeds, while the file holds the rows. A
@@ -545,12 +545,12 @@ struct TrainStoreWipeTests {
         disk.fill([table])
         try disk.refuseDeletes(of: table)
 
-        #expect(!disk.store.wipe(parkingActivitiesOf: parking))
+        #expect(!disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now))
         #expect(!disk.store.context.hasChanges, "the save had nothing to do")
         #expect(try disk.inFile[table] == 1, "the refusal held")
 
         try disk.allowDeletes()
-        #expect(disk.store.wipe(parkingActivitiesOf: parking))
+        #expect(disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now))
         #expect(try disk.inFile[table] == 0)
     }
 
@@ -561,7 +561,7 @@ struct TrainStoreWipeTests {
         disk.fill()
         try disk.refuseDeletes(of: table)
 
-        #expect(!disk.store.wipe(parkingActivitiesOf: parking))
+        #expect(!disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now))
 
         let left = try disk.inFile
         if table.goesInTheSave(parking: parking) {
@@ -575,9 +575,9 @@ struct TrainStoreWipeTests {
     func aFetchThatFailsIsReported(_ table: WipedTable, _ parking: String?) throws {
         let disk = try StoreOnDisk()
         try disk.hide(table)
-        #expect(!disk.store.wipe(parkingActivitiesOf: parking))
+        #expect(!disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now))
         try disk.bringBack(table)
-        #expect(disk.store.wipe(parkingActivitiesOf: parking))
+        #expect(disk.store.wipe(parkingActivitiesOf: parking, at: WipeValues.now))
     }
 
     /// Which chunks are parked work is read from the activities, so with no answer every chunk stays, the other
@@ -626,7 +626,7 @@ struct TrainStoreWipeTests {
         let lost = TrainStore(url: inTheWay.appendingPathComponent("Train.store"))
         #expect(!lost.isDurable)
         #expect(!lost.wipe())
-        #expect(!lost.wipe(parkingActivitiesOf: "account-a"))
+        #expect(!lost.wipe(parkingActivitiesOf: "account-a", at: WipeValues.now))
         #expect(TrainStore(inMemory: true).wipe())
         #expect(disk.store.wipe())
     }
@@ -722,37 +722,49 @@ struct TrainStoreWipeTests {
 /// A real `AuthService` on a store on disk, and a relaunch: a new service and store on the same file and defaults, as
 /// after a kill. Nothing of the old process's pending changes carries over.
 @MainActor
-private final class WipingAuth {
+final class WipingAuth {
     let disk: StoreOnDisk
     let defaults = UserDefaults(suiteName: "ryft.tests.wipe.\(UUID().uuidString)") ?? .standard
+    let clock = TestClock(now: WipeValues.now)
     private(set) var client: MockAuthClient
     private(set) var auth: AuthService
     var duringDeletion: (@MainActor () async -> Void)?
+    /// Runs as the store's wipe starts, with what it was asked for.
+    var atTheWipe: (@MainActor (AuthService.Wipe) -> Void)?
 
     init(signedInAs account: UUID) throws {
         let disk = try StoreOnDisk()
         self.disk = disk
         client = MockAuthClient(session: .preview(id: account))
-        auth = Self.service(client, disk, defaults, nil)
+        auth = AuthService(client: client, settings: Settings(defaults: defaults), defaults: defaults,
+                           wipeLocalData: { _ in true },
+                           deleteRemoteAccount: { AccountDeleted(status: "deleted", authUserDeleted: true) },
+                           postAppleAuthorization: { _ in })
         rewire()
     }
 
     var lastUser: String? { defaults.string(forKey: AccountScope.defaultsKey) }
 
-    private static func service(_ client: MockAuthClient, _ disk: StoreOnDisk, _ defaults: UserDefaults,
-                                _ deletion: (@Sendable @MainActor () async -> Void)?) -> AuthService {
-        AuthService(client: client, settings: Settings(defaults: defaults), defaults: defaults,
-                    wipeLocalData: { wipe in disk.store.wipe(parkingActivitiesOf: wipe.parking) },
-                    deleteRemoteAccount: {
-                        await deletion?()
-                        return AccountDeleted(status: "deleted", authUserDeleted: true)
-                    },
-                    postAppleAuthorization: { _ in })
-    }
+    /// In the store's folder, so it goes with it.
+    var ledgerFile: URL { disk.folder.appendingPathComponent("account-wipe.json") }
+    /// What the next launch would read.
+    var ledgerOnDisk: OwedWipe? { WipeLedger(file: ledgerFile).entry }
 
-    /// The deletion's hook reads `duringDeletion` when it runs.
+    /// The hooks read `duringDeletion` and `atTheWipe` when they run. A new ledger, as in a new process: nothing of the
+    /// old one's memory carries over.
     private func rewire() {
-        auth = Self.service(client, disk, defaults) { [weak self] in await self?.duringDeletion?() }
+        let disk = disk, clock = clock
+        auth = AuthService(client: client, settings: Settings(defaults: defaults), defaults: defaults,
+                           wipeLocalData: { [weak self] wipe in
+                               self?.atTheWipe?(wipe)
+                               return disk.store.wipe(wipe)
+                           },
+                           deleteRemoteAccount: { [weak self] in
+                               await self?.duringDeletion?()
+                               return AccountDeleted(status: "deleted", authUserDeleted: true)
+                           },
+                           postAppleAuthorization: { _ in },
+                           ledger: WipeLedger(file: ledgerFile), now: { clock.now() })
     }
 
     func relaunch(signedInAs account: UUID?) {
