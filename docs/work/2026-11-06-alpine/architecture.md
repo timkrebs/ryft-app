@@ -1,7 +1,7 @@
 # Alpine: architecture for the six PRs
 
 Reads with [`plan.md`](plan.md), which wins any conflict, then [`brief.md`](brief.md) and [`design.md`](design.md). This note changes no Swift and
-nothing in `../plattform`. It replaces the light-only version: `RyftLook`, `RyftCorner`, `dark-diff` and `ClassicLookTests` are gone.
+nothing in `../plattform`.
 
 Verified means run on 2026-11-06 against #100's tree, on scratch copies, with `tokens.mjs` from `web/alpine` (#143) at `c67b515`. Nothing here ran on a
 simulator.
@@ -12,8 +12,8 @@ simulator.
   level and the hatch past the band. No test is disabled (section 5.1).
 - **`RYFT_APP_DIR=.. npm run tokens:check` checks nothing and exits 0.** Section 3.1 has the command that works.
 - **Merging #100 breaks platform CI twice**, and the brief removes `ref:` too late. Platform has four steps, the first before PR 1 merges (section 3.4).
-- **Only one form makes `tokens.mjs` throw for a good reason:** the wordmark's minus. `cardRadius = 0`, the label and `-0.07` are fine. `1 / displayScale` doesn't
-  compile; `1 / UIScreen.main.scale` compiles and parses (section 3.3).
+- **Only one form makes `tokens.mjs` throw for a good reason:** the wordmark's minus. `cardRadius = 0`, the label and `-0.07` are fine. `hairline` stays `1`: 1 pt is decided
+  (section 3.3).
 - **Inter, committed:** nothing needs Xcode. Three things go with the download step, and `.gitignore` has to keep ignoring Satoshi (section 4).
 - **Dark is mixed from PR 2 to PR 6 and `weekly.yml` would ship that to External.** The user has to hold those approvals (section 5.3).
 - **The launch screen is the flash:** `UIColorName` is `Graphite` on every launch (section 6).
@@ -75,19 +75,13 @@ expected. A thrown "not found" is the failure.
 | Form | Result | Do |
 | --- | --- | --- |
 | `cardRadius = 0`, `tileRadius = 0` | Reads 0, `--card-radius: 0px`. The site's CSS uses neither | As is |
-| `hairline: CGFloat = 1 / displayScale` (brief) | Doesn't throw: the regex reads `1`. **Doesn't compile:** `displayScale` is an environment value, and a `static let` can't see it | No |
-| `static var hairline: CGFloat { 1 / UIScreen.main.scale }` | **Throws**: `static var` isn't matched and its `}` ends the block | No |
-| `static let hairline: CGFloat = 1 / UIScreen.main.scale` | Reads `1`, `--hairline: 1px`, no drift. Type-checks clean, Swift 5, iOS 17 target | The form to use if the value changes |
+| `hairline: CGFloat = 1` | Unchanged, `--hairline: 1px`. 1 pt is decided (`design.md` 0.2). The brief's `1 / displayScale` doesn't compile, and a `static var` would throw | As is |
 | Label `.tracking(size * 0.08)` | **Throws** | No |
 | Label `.tracking(0.88)` | Reads `0.08em` (0.88 / 11) | Use it, with a comment |
 | Wordmark `.tracking(size * -0.04)` | **Throws** | Needs platform |
 | `.font(.ryftNumber(size: size, weight: .bold).tracking(size * -0.04))` | Parses once the regex takes a minus. Output `-0.04em` | Use it: the tracking has to be inside the token, because a `ryftNumber` of 32 pt carries its own -0.07 |
 | Display `-0.07` | Not read at all | Free |
 | Weights `.bold` and `.regular` in the `weight` switch | Seven lines change. `--type-*-weight` is used only by the styleguide | As is |
-
-**Should `hairline` change at all?** `1 / displayScale` is one device pixel, 0.33 pt on a 3x phone. The brief's own decision is "1 pt ink rules", ADR 0015 says 1 pt, and the site
-draws 1 CSS px, which is three device pixels on the same phone. So the brief's value makes the app's rule a third of the site's. **I recommend leaving `hairline = 1`.** That is
-ui-designer's call; either way the site stays at `1px`.
 
 No comment or positive-number trick avoids the wordmark change: it would generate a wrong value. The site doesn't read `--tracking-wordmark` (`Brand.module.css:5` hardcodes `-0.04em`).
 
@@ -146,33 +140,91 @@ Tests alone can't turn #100 green. `Alert` and `Accent` are both `#000000` in li
 this should ship with the band logic.
 
 `design.md` 3.1 proposes disabling `midGlide` and shipping a one-level ring with an invisible past-the-band. **I don't take that.** It disables a test and ships a gauge that can't show its own
-states, in a build `main` calls releasable. **PR 1 takes the gauge's two cues from PR 3 instead.** The drawing has one place for each:
-`OrbitGaugeDrawing:161` for the ring and `OrbitStrainArc`'s `past` for the arc. `Shared/` carries both to the widget.
+states, in a build `main` calls releasable. **PR 1 takes the gauge's two cues from PR 3 instead:** the centre ring by level (`design.md` 4.1) and past the band (4.2). Everything else in 4.1 and 4.2
+stays in PR 3: band mark, `MetricGauge`, rail dash and width, dashed pending.
+
+**What is true of colour in PR 1.** No colour set's dark entry changes. `OrbitGaugePalette` has one name per colour and no appearance, so an ink that suits light would change dark's hue.
+
+| | High | Moderate | Low | Past the band |
+| --- | --- | --- | --- | --- |
+| Light | `#000000` solid | `#8A8A8A` dashed | `#000000` outlined | `#000000` hatched |
+| Dark | Teal solid | Amber dashed | Red outlined | Red hatched |
+
+Light is monochrome; dark keeps its hues. Dark's **drawing** does change: the ring shapes, the hatch, the rail at full opacity (2.33 to 5.97 on the background), and the text sites below.
+
+**Consequences for the code:**
+
+- `strainPastBand`, `past:` and `band(forReadiness:)` stay colours. `OrbitGaugeTodayTests:342-345` stays green.
+- **No Sleep in ink while pending.** It can't be done without changing dark, and nothing needs it now. Pending's drawing doesn't change in PR 1.
+- **There are two drawings, not one.** The ring is at `OrbitGaugeDrawing:161` and `OrbitGaugeEntrance:147-150`; the past dot at `OrbitStrainDot` and `OrbitGaugeEntrance:237`. Put both in `Shared/`: a ring view taking a
+  `BandStyle` and a trim, and one dot fill. `OrbitStrainArc` is already shared; it gains a texture, `.hatch` from dial 131 up and `.dashes` under it, in place of a second colour alone.
+- `OrbitStrainArc` below the split stays one arc: `smallWithStrainInOrBelowTheBandIsByteIdenticalToNoBand` depends on it.
+
+**Moderate is carried by shape.** The 2.90:1 is on the track, and a scored ring isn't on the track: `OrbitGaugeDrawing:115` draws the centre track only without values or while pending. So moderate sits on the background at 3.45:1,
+above 3:1, and the dash pattern tells the level, with the number and word beside it. Keep it that way: `design.md` 4.1 says low "shows the track", but it shows the background, and a track there would put moderate at 2.90. While pending,
+yesterday's ring is on the track at 0.6: 1.80 in light, below any floor. That is unpinned on purpose until PR 3 redraws it, and the number carries the state.
+
+**The six pins:**
 
 | Pin | Change in PR 1 | New assertion |
 | --- | --- | --- |
-| `theWarmUpMark` | The W is `textSecondary` | `>= 4.5` in both appearances |
-| `theRailsOpacityIsPinned...` | `bandRailOpacity = 1` | Ink `>= 3`; the "sub-3:1 on purpose" claim goes |
-| `pendingOpacityIsPinned...` | Stays 0.6, Sleep in ink while pending (`design.md` 3) | Test renamed. Its claim was false: 5.74, not `< 3` |
-| `arcsAndDotsReachThreeToOne...` | Ring by `BandStyle`: solid, dashed, outlined, all ink | `moderate` leaves the list as a colour: every level is ink `>= 3` |
-| `theColourPastTheBand...` | Past the band is the hatch; `strainPastBand` leaves the palette | Tone tests, plus the ink `>= 3` on track and background |
-| `midGlide...NeverAlert` | The same hatch | Ink coverage per `design.md` 3, still rendered |
+| `theWarmUpMark` | The W is `textSecondary` | `>= 4.5` on `background` and on the pill over the tint, both appearances (6.20, 5.74 light; dark from today's tokens) |
+| `theRailsOpacityIsPinned...` | `bandRailOpacity = 1` | Rail `>= 3` on the background in both (21.00, 5.97). The `< 3` claim goes. `theRailShows...:158` reads the constant and stays green |
+| `pendingOpacityIsPinned...` | None to the drawing | See below |
+| `arcsAndDotsReachThreeToOne...` | Ring by `BandStyle` | Unchanged, except moderate: `>= 3` on the background only (3.45, 11.14), its on-track check removed with a comment. The ring test below pins why |
+| `theColourPastTheBand...` | Hatch | Keep `past == alert` and `>= 3` on track and background (17.62, 21.00; 4.13, 5.99). Remove the `apart > 0.5` check: light has no colour difference. Rename it; the coverage tests carry the shift |
+| `midGlide...NeverAlert` | Same hatch | Inside: coverage `>= 0.95`. Past: `0.35...0.65`. Remove `distance(p, alert) > 0.15`: strain is alert in light. Rename it |
 
-Plus:
+**The pending pin, with real assertions.** Rename it `pendingOpacityIsPinnedAndTheNumberCarriesTheState`. Don't use `design.md:159`'s interim: dark's Strain is 2.41 at 0.6, so `>= 3` fails. In both appearances:
 
-- `git merge origin/main`: #100 is four commits behind and not rebased, and force-push is forbidden.
+1. `pendingOpacity == 0.6`, as today.
+2. The number: `textTertiary >= 4.5` on the background, as today.
+3. Each of Recovery, Sleep, Strain at 0.6 over the track is **`>= 2.0`**. A floor makes thinning it a decision. Lowest: light Sleep 2.24, dark Strain 2.41.
+4. Each is **`< 0.7 x` its full-colour ratio on the track**, so pending stays visibly dimmer. Highest: dark Strain, 0.58.
+
+The old `< 3` goes: light's Strain is ink at 5.44. The floor holds at rest only: the breath's trough is 1.79 for light Sleep. PR 3 deletes `pendingOpacity`.
+
+**Five more tests.** Coordinates are on the strain orbit, radius 77.
+
+| Test | Replacement |
+| --- | --- |
+| `OrbitGaugeBandRenderTests:173` `theArcIsAlertPastTheBand...` | Rename. Inside samples and the no-band sample stay. Past: coverage over 235 to 270 deg `0.35...0.65` |
+| `:202` `theShiftShowsAtSmall...` | `.small` is `.dashes`, so a point can land in a gap. Coverage over 235 to 270 deg `0.45...0.75`. The no-rail check stays |
+| `:308` `theStrainArcAnimates...` | Pass `.hatch`. The `215` and "no past layer below the split" samples stay. `250` becomes coverage over 245 to 255 deg `0.35...0.65` |
+| `:326` `theStrainDotTurnsAlert...` | Rename. Colour can't tell in light, so use coverage on the dot's disc inside its 1 pt rim: just before and at the line `>= 0.95`, just after `0.35...0.65` |
+| `OrbitGaugeRenderTests:175` `pendingDims...` | **No change.** It breaks only if Sleep goes to ink, which section 5.1 drops |
+
+**Coverage**, one helper: the share of 3x pixels nearer the mark's colour than the ground. **Sample a band of 1 pt either side of the centreline, not the whole stroke.** The whole stroke has the two 1 pt edges, which gives 0.68, outside
+`design.md`'s window. Those 2 pt are one hatch pitch, so the figure also holds where the arc runs along the hatch, near 135 and 315 deg, where a single line of samples would read 0 or 1. Dashes need several periods in the window.
+
+**New tests:**
+
+- `BandStyle` at `(66, 67)`, `(33, 34)`, `nil`.
+- **The ring, rendered**, readiness 82, 50 and 20 at `.large`, both appearances: solid is the colour all round; moderate is the colour at a dash's centre and **the background at a gap's centre**, which is the pin for the paragraph above; low is the background on the
+  centreline with ink at its edges. Low at `.medium` is one circle.
+- **Entrance parity at readiness 50 and 20, and at strain 16.5.** The parity tests use `previewScored`, readiness 71, so a solid entrance ring would pass today.
+
+**From `design.md` 4.7, PR 1 takes the first two bullets.** Both change dark as well, because a site moves token:
+
+- **Warning as text**, 16 sites: `textPrimary` with `exclamationmark.triangle` for a warning, `textSecondary` for a quiet note. A glyph alone may stay `warning`, on `background` only. `TrainComponents:261-263`'s glyph goes to `textPrimary`.
+- **Error text**, 9 sites: `textPrimary`, with `exclamationmark.circle` where the line has no glyph, since hue was the only cue. The Plan builder's panel gets its edge and glyph.
+- **Polarity stays in PR 3.**
+
+**From `design.md` 10, PR 1 takes its one string:** `CoachMarks.swift:21`, new key, en and de, as written there ("so no colour or mark is ever the only cue"). Hero and eyebrow strings are later PRs.
+
+**Plus:**
+
+- `git merge origin/main`: #100 is five commits behind and not rebased, and force-push is forbidden.
 - `make mark-svg`: SVG only, so the shipped icon PNGs wait for PR 5. The 7 widget colour sets from `check-shared-types.py`.
-- `BandStyle` tests at `(66, 67)`, `(33, 34)`, `nil`.
 - ADR 0015 and ADR 0017 (section 9), CHANGELOG.
 
-**About 250 lines plus tests, an estimate.** Dark also gets the ring shapes and hatch, in its existing colours. **The six is from `abbcb82`:** main's Focused tests have never run against this palette, so
-the first push after the merge may show more.
+**About 350 lines plus tests, an estimate.** **The six is from `abbcb82`:** main's Focused tests have never run against this palette, so the first push after the merge may show more.
 
 ### 5.2 The six
 
 | PR | Scope | Light | Dark | Website |
 | --- | --- | --- | --- | --- |
-| 1 | Section 5.1. **P1 first** | Monochrome; gauge by shape. Tiles, zones, stages and severity by tint, each with a number or word | Ring shapes and hatch, in hue | No value changes |
+| 1 | Section 5.1. **P1 first** | Monochrome; gauge by shape. Tiles, zones, stages and severity by tint, each with a number or word | Same colours. Ring shapes, hatch, full rail, warning and error text | No value changes |
 | 2 | `RyftFont`, section 4, radii, wordmark, label, `Theme.rule`, surfaces, buttons, catalog. **P2 first** | Inter, square | **Mixed starts:** Inter, square, old colours | Drift expected, then P3 |
 | 3 | `ScoreRing`, `MetricGauge`, tiles, `Theme.band`, zones, stages, charts, severity, destructive, polarity arrows, hairline rail and pending | Every scale reads in greyscale | Shapes, in hue | None |
 | 4 | Today, Sleep, Strain, widgets, Live Activities, `Brand.*`, `NotificationRing` (section 6) | Done for these | Mixed | None |
@@ -194,13 +246,15 @@ Plan puts Welcome and auth in **PR 5**, so PR 6's list is shorter than the brief
 **PR 5:** drop `WelcomeView:27`, `AuthComponents:62` **and `:63`** (`toolbarColorScheme`), `PlatformConfig:77-78` (Graphite and forced dark, Release only). The Apple button (`AuthComponents:269`, `AppleSignInButton:16`)
 reads the scheme and follows.
 
+Also in PR 5, with the Focused session (`design.md` 7): `FocusedRowInk`'s two `scheme` branches and `ExerciseCard:241`.
+
 **PR 6:**
 
 1. `Settings.swift:99`: `?? .dark` becomes `?? .light`. **No migration, as plan says.** `didSet` doesn't run in `init`, so nothing writes a default; the key is written only by the picker
    (`ProfileView:604`) and survives log-out (`Settings:138`). Nil follows the default; a stored `dark` stays. Test with `Settings(defaults:)` on an empty suite: nil to `.light`, `"dark"` to `.dark`, `"system"` to `.system`.
 2. `Ryft/Info.plist:103`: `UIColorName` `Graphite` becomes `Background`.
 3. Colour sets in **both** catalogs; `check-shared-types.py` compares them. `make mark-svg`, because the dark icon SVG reads those sets, then `make icon`.
-4. Delete the branches: `FocusedRowInk:10,16` (light's branch wins, drop the `scheme` parameter), `ExerciseCard:241` (both arms are equal today), `SourceBadge:33`.
+4. Delete the branch at `SourceBadge:33`: the outline is on in both appearances once `separator` is full ink.
 5. `CLAUDE.md:19`, `.claude/skills/ryft-app-conventions/SKILL.md:47`, `docs/APP_STORE.md:113`, stale comments at `RyftApp:878` and `:400,:409`.
 
 **What could flash dark:**
@@ -217,7 +271,7 @@ reads the scheme and follows.
 
 - Both follow the system, not the app's setting, so an app in light on a dark phone has dark widgets. That is true in reverse today. Not a flash.
 - `Brand.background` and `Brand.ink` are Mist and Graphite, not paper and ink.
-- **Live Activities are always dark:** `activityBackgroundTint(Brand.graphite)` at `RyftWidgets:25-26` and `WakeAlarmLiveActivity:14-15`, plus `.background(Brand.graphite)` at `:62`.
+- **Live Activities stay white on black in both appearances** (`design.md` 9). Replace `Brand.graphite`, `mist` and `teal` with fixed values: `activityBackgroundTint` at `RyftWidgets:25-26` and `WakeAlarmLiveActivity:14-15`, `.background` at `:62`.
 - **Dynamic Island must stay fixed white.** It is always black, so an adaptive ink is black on black in light.
 - `Brand.teal` is in both activities and `ReadinessWidget:219`.
 - `NotificationRing` hardcodes dark's hues because its extension can't read the catalog; it also doesn't compile `Shared/`, so it holds the thresholds a second time.
@@ -230,8 +284,8 @@ Computed from the colour sets, WCAG luminance, gamma sRGB compositing; dark is t
 
 | Where | Claim today | Light | Dark after PR 6 | Do |
 | --- | --- | --- | --- | --- |
-| `FocusedRowInk:7-8` | Grey on the tint 4.51 | `textSecondary` 5.74, `textTertiary` **4.49** | 9.03, 6.04 | Keep the dash out of tertiary on the tint. Rewrite the comment |
-| `FocusedRowInk:14-16` | Outline 4.7 | 4.76 | Today's `surfaceRaised` would be 1.27; light's branch gives 6.27 | Delete the branch |
+| `FocusedRowInk:7-11` | Grey on the tint 4.51, so the active row is `textPrimary` | `textSecondary` 5.74, `textTertiary` **4.49** | 9.03, 6.04 | **PR 5:** the reason is gone, so `textSecondary` on every row (`design.md` 7). An active dash is `textSecondary` too: tertiary fails on the tint. Drop `scheme`. Re-pin `FocusedPolishTests:247,287-288` |
+| `FocusedRowInk:14-16` | Outline 4.7 | 4.76 | Today's `surfaceRaised` would be 1.27; `textTertiary` gives 6.27 | **PR 5:** `textTertiary` in both. Re-pin `FocusedPolishTests:286` |
 | `FocusedRowInk:19` | Tertiary 4.40 on the raised field | 4.55 | 5.87 | Number |
 | `FocusedRowInk:3-5` | Names `FocusedRowInkTests` | Those are in `FocusedPolishTests` | | Fix |
 | `ExerciseCard:233` | `warning` as text | 3.45, 2.75 on the tint | 4.89, 4.08 | PR 1 |

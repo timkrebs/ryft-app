@@ -26,8 +26,8 @@ The dark appearance only changes colour. Between PR 2 and PR 6 dark carries the 
 | 1 | `design: light pass` (#100) | 1.1, 3 (the pins, minimal), 4.7 (warning and alert as text), 7 (W mark), 8.1 first row, 10 (strings that name a colour only) |
 | 2 | `design: inter, square shapes, hairline surfaces` | 5 (type, shape, rules, buttons, tab bar, shared borders, header component), 2 (the ladder as a drawing primitive, if the catalog needs it) |
 | 3 | `design: ink gauges and charts` | 2, 4 (all scales), 6 (charts), 3 (the pins, final), 1.3 |
-| 4 | `today, sleep, strain in the alpine system` | 8.1 to 8.3 (screens), 9 (widgets) |
-| 5 | `train, insights, profile, onboarding, icon` | 7 (Focused), 8.4 to 8.7, 9 (Live Activities), 9.1 (icon), 11 (hero), empty states 8.8, Welcome and auth stop forcing dark |
+| 4 | `today, sleep, strain in the alpine system` | 8.1 to 8.3 (screens), 9 (widgets, Live Activities) |
+| 5 | `train, insights, profile, onboarding, icon` | 7 (Focused), 8.4 to 8.7, 9.1 (icon), 11 (hero), empty states 8.8, Welcome and auth stop forcing dark |
 | 6 | `design: dark as the inversion` | 1.2 (dark colour sets and their decisions), 9.1 (icon dark and tinted), the default flips to light |
 
 ### 0.2 Where the brief, the ADR and the old notes are wrong or incomplete
@@ -41,7 +41,7 @@ The dark appearance only changes colour. Between PR 2 and PR 6 dark carries the 
 | 5 | "pending uses `textTertiary` at 0.6" | Pending marks use the arcs' own colours at 0.6; only the number is `textTertiary`. The test fails on the **Strain** arc (black at 0.6 is 5.74:1; the test asserts `< 3`). |
 | 6 | "Dots hollow when pending (as today)" | Today a pending gauge draws the previous day exactly as scored (filled dots) at 0.6; dots are hollow only for a missing score or with no previous day. Section 4.2 follows the brief's §2 and makes pending hollow and dashed. |
 | 7 | "VoiceOver text that named a colour" | None exists. Band words are High / Moderate / Low and "above today's recommended range" already speaks the past-band state. One string names a colour (section 10). |
-| 8 | The failing list | Incomplete. `scripts/check-shared-types.py` reports **7 problems**: the widget's `Accent`, `Alert`, `MetricSleep`, `MetricStrain`, `SurfaceRaised`, `TextTertiary`, `Warning` colour sets still hold the old light values. PR 1 copies the app's values (`plan.md` T0). |
+| 8 | The failing list | Incomplete. `scripts/check-shared-types.py` reports **7 problems**: the widget's `Accent`, `Alert`, `MetricSleep`, `MetricStrain`, `SurfaceRaised`, `TextTertiary`, `Warning` colour sets still hold the old light values. PR 1 copies the app's values (`plan.md`). |
 | 9 | `separator` is "full ink, 1 pt" | True, and it breaks 8 call sites that use `separator` as a **fill or gridline** and thickens 39 row dividers (section 5.5). |
 | 10 | Radii to 0 turns cards into hairline boxes | Only the 56 shapes that read `Theme.Metrics.cardRadius` / `tileRadius` change. 148 other `Capsule()`, `Circle()` and literal `RoundedRectangle(cornerRadius: n)` calls outside previews ignore it (section 5.3). |
 | 11 | "`hairline = 1 / displayScale`" and "1 pt ink rules" | Two different widths in one brief. 1 device pixel is 0.33 pt at 3x: a card edge that thin is not "1 pt", and the row rule (20 % ink) would vanish. This note keeps **1 pt** for edges and rules and uses `1 / displayScale` for nothing (**decision D3**). |
@@ -153,10 +153,10 @@ which PR can carry it.
 | Test | Why it fails | Decision that replaces it | New pin | Needs |
 | --- | --- | --- | --- | --- |
 | `OrbitGaugeBandTests.theColourPastTheBandIsAlertAndReachesThreeToOneOnTheTrack` | asserts `strainPastBand == alert`, apart from `strain`, 3:1 | Past the band is **a texture, never a colour** (4.2) | `strainTone == .pastBand` iff strain > clamped upper end (existing tone tests); the textured stretch's ink `>= 3` on the track and the background in both appearances; no colour comparison | the "texture, not colour" decision |
-| `OrbitGaugeBandRenderTests.midGlideTheArcInsideTheBandIsNeverAlert` | samples colour at 77 pt radius | same geometry, new signal: **ink coverage** | behind the split (`degrees < split - 4`) a 6 deg window has stroke coverage `>= 0.95`; past it (`> split + 4`), `.large` dial only, coverage in `0.35...0.65` | the hatch spec (2, 4.2), so it needs the drawing |
+| `OrbitGaugeBandRenderTests.midGlideTheArcInsideTheBandIsNeverAlert` | samples colour at 77 pt radius | same geometry, new signal: **ink coverage** | behind the split (`degrees < split - 4`) a 6 deg window has stroke coverage `>= 0.95`; past it (`> split + 4`), `.large` dial only, coverage in `0.35...0.65` | PR 1: the first half only (nothing is hatched yet); PR 3: the second half, which needs the hatch drawing (2, 4.2) |
 | `OrbitGaugeContrastTests.arcsAndDotsReachThreeToOneOnTheirTrack` | the "band moderate (warning)" entry: `#8A8A8A` 2.90 on the track | The centre ring's levels are **ink in different shapes** (4.1): the list becomes Recovery, Sleep (`#6B` 4.47 / dark `#9A` 5.86), Strain, band high, moderate, low, past-band ink; the `textTertiary` no-readiness entry goes (no ring is drawn) | each `>= 3` on the track and the background, both appearances | colour only (ink); the shapes can follow in PR 3 |
 | `OrbitGaugeBandTests.theRailsOpacityIsPinnedAndItsRatioStaysAboveTwo` (the brief files it under `OrbitGaugeContrastTests`) | rail 0.5 gives 3.95:1; the test asserts `< 3` | the rail is a **full-ink dashed hairline** (4.2); opacity 1 | `bandRailOpacity == 1`; rail ink `>= 3` on both grounds (21.00 / 17.62 light, 21.00 / 16.48 dark); stroke `>= 1`; the "sub-3:1 on purpose" claim is deleted | one constant, trivial |
-| `OrbitGaugeContrastTests.pendingOpacityIsPinnedAndIntentionallyBelowThreeToOne` | asserts the Strain arc at 0.6 is `< 3` (it is 5.74) | final: **pending is a dashed hairline outline, no opacity** (4.2); interim for PR 1: `pendingOpacity` stays 0.6 and Sleep is drawn in ink while pending | final: `pendingOpacity` no longer exists; every pending mark is ink `>= 3` on the track; the breath's floor (0.6) keeps it `>= 3` (light 5.44, dark 6.72 over the track); the number `>= 4.5`. Interim: all pending graphics `>= 3` at 0.6 and at the 0.45 trough | interim: a rename and a one-line colour rule; final: the dashed drawing |
+| `OrbitGaugeContrastTests.pendingOpacityIsPinnedAndIntentionallyBelowThreeToOne` | asserts the Strain arc at 0.6 is `< 3` (it is 5.74) | final: **pending is a dashed hairline outline, no opacity** (4.2); interim for PR 1, light only: `pendingOpacity` stays 0.6 and Sleep is drawn in ink while pending | final: `pendingOpacity` no longer exists; every pending mark is ink `>= 3` on the track; the breath's floor (0.6) keeps it `>= 3` (light 5.44, dark 6.72 over the track); the number `>= 4.5`. Interim: in light, all pending graphics `>= 3` at 0.6 and at the 0.45 trough; the dark loop is unchanged until PR 6 (dark still holds the old hue colours: Strain at 0.6 is 2.41:1, which is why the old "below 3:1" claim stays for dark until then) | interim: a rename and a one-line colour rule; final: the dashed drawing |
 | `FocusedPolishTests.theWarmUpMark(scheme:)` | `Theme.warning` on `background` is 3.45:1 in light | the W is **`textSecondary` in both appearances** (7) | `W` ink `>= 4.5` on `background`, on the active-row pill over the tint and on the track, both schemes (light 6.20 / 5.74 / 5.85, dark 9.96 / 9.03 / 8.66); the same token for `TrainHistoryView` 154 | a token choice, no drawing |
 
 Also needed (not in the brief's list): `check-shared-types` (the 7 widget colour sets), `make mark-svg`, the `FocusedRowInk` comments
@@ -173,12 +173,12 @@ decision, and the smallest honest PR 1:
 | `theWarmUpMark` | yes: a token | W is `textSecondary` |
 | `theRailsOpacity...` | yes: a constant | `bandRailOpacity = 1`; width and dash can wait |
 | `arcsAndDots...` | yes, as colour only | palette `moderate` and `low` become ink; high, moderate and low are then the same colour in the ring until PR 3 draws the shapes. The band word stays under the gauge, so nothing is unlabelled, but the ring is temporarily a single level |
-| `pendingOpacity...` | yes, interim | keep 0.6; Sleep in ink while pending; rewrite the assertions and the test's name |
+| `pendingOpacity...` | yes, interim, light only | keep 0.6; Sleep in ink while pending; rewrite the light assertions and the test's name; dark's loop and its claim stay until PR 6 |
 | `theColourPastTheBand...` | partly | the palette stops exposing a colour for "past"; the tone tests stay; **no hatch is drawn yet, so "past the band" is invisible in PR 1**: the strain arc keeps its ink and only VoiceOver and the rail's end say it |
-| `midGlide...NeverAlert` | **no** | needs the hatch drawing. Either skip it in PR 1 with a dated `.disabled` pointing at PR 3, or pull the minimal hatch into PR 1 |
+| `midGlide...NeverAlert` | half | nothing is disabled. PR 1 keeps the half that holds without a hatch: behind the split the stroke coverage is `>= 0.95` in light (dark keeps its colour check until PR 6). PR 3 adds the half past the split, which needs the drawing |
 
-My recommendation for ios-architect: PR 1 takes the five cheap pins above and **disables** `midGlide` with a reason; PR 3 rewrites it
-to the coverage metric and replaces the interim pending pin. The alternative (draw the hatch in PR 1) moves the gauge work the
+My recommendation for ios-architect: PR 1 takes the five cheap pins above and the first half of `midGlide`, and disables nothing; PR 3 adds the second half
+of `midGlide` and replaces the interim pending pin. The alternative (draw the hatch in PR 1) moves the gauge work the
 brief assigned to PR 3 and leaves PR 1 with no clean boundary. The interim states in PR 1 (one-level ring, invisible past-band) are
 visible regressions in a gauge that is already unusual in grey; they last until PR 3 and the PR description should say so.
 
@@ -590,7 +590,7 @@ New strings the design needs: the hero (11), the eyebrow words (they are the tab
 
 | Key | en | de (draft) |
 | --- | --- | --- |
-| Hero | Engineered for peak. | Für den Gipfel gebaut. |
+| Hero | Engineered for peak. | Engineered for peak. (the hero stays in English in the German UI, `plan.md`) |
 
 Style: `display` class, Inter Bold caps, -0.07 em, 40 pt (`numberLarge` size), left-aligned, `textPrimary`, a 1 pt ink rule above it; Dynamic Type caps at
 AX2; it wraps to three lines at 390 pt, which is why 40 and not 56.
@@ -603,7 +603,6 @@ Where it goes (brief §3, `plan.md`):
 4. Store screenshots (`docs/APP_STORE.md`), first frame.
 Nowhere else: not Today, widgets, notifications, or empty states.
 
-German: **D6** below.
 
 ## 12. What the catalog and swatch sheet must show (PR 0, updating `DebugComponentCatalog`)
 
@@ -619,7 +618,6 @@ In **both appearances side by side** (a `#Preview` pair, plus a PNG for the PR),
 - Everything also in **greyscale** (so it can be checked without brightness) and at AX3.
 
 Previews for screens (later PRs): each state of 8.1 to 8.7 at 390 and 320, default and AX3, English and German, light and dark, Reduce Motion for the pending gauge.
-`make dark-diff` or its successor records what moved in dark and why, after PR 2.
 
 ## 13. The website
 
@@ -640,7 +638,6 @@ Only things I can't settle:
 - **D3. Rule width.** The brief has both `hairline = 1 / displayScale` (0.33 pt at 3x) and "1 pt ink rules". I keep 1 pt for edges and the row rule. Say if you want 1 px.
 - **D4. Eyebrow numbering.** Index on the five tab screens only (my recommendation), or on every section of every screen. Numbering Profile's ten sections or Add exercise's lists is noise and costs VoiceOver reading time (5.4).
 - **D5. Website dark.** The site ships light only (D19 on `web/alpine`). Does the site follow the app to the dark inversion, or does its generator keep reading only the light colour sets? It decides what `tokens:check` has to accept in PR 6.
-- **D6. German hero.** Translate ("Für den Gipfel gebaut." is my draft) or keep "Engineered for peak." in English as a brand line in the German UI.
 - **D7. Caption case.** Captions stay sentence case (my recommendation), or uppercase as the brief says (0.2 row 12). Affects every hint, error and date line.
 
 Already decided (`plan.md`): light default and dark as the inversion; existing users who chose dark keep it; the soft row rule; polarity arrows;
