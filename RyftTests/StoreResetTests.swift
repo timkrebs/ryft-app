@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import SwiftData
 import Testing
 @testable import Ryft
@@ -242,10 +243,51 @@ struct StoreResetTests {
         #expect(!outcome.replaced)
     }
 
+    /// The guard's name is the app's real one: anything else and no replace would ever run.
+    @MainActor
+    @Test func theLiveStoreIsTheFileTheGuardKnows() {
+        #expect(TrainStore.liveConfiguration().url.lastPathComponent == "Train.store")
+    }
+
     @Test func onlyAFile() throws {
         let folder = try StoreFolder()
         let remote = try #require(URL(string: "https://example.com/Train.store"))
         #expect(!StoreReset.run(entry: owed(.user), store: remote, orphans: folder.locations, now: since).replaced)
+    }
+
+    @Test func leftFilesCountsEitherStore() {
+        var outcome = StoreReset.Outcome()
+        #expect(!outcome.leftFiles)
+        outcome.failures = 1
+        #expect(outcome.leftFiles)
+        outcome.failures = 0
+        outcome.orphan = .init(decision: .delete, failures: 1)
+        #expect(outcome.leftFiles)
+        outcome.orphan = .init(decision: .keep(.noGroupContainer))
+        #expect(!outcome.leftFiles, "a doubt isn't a failure: the file was left on purpose")
+    }
+
+    /// An entry that may take the files, and a URL that isn't the store: something's wrong, and only the log can say so.
+    @Test func aRefusedGuardLogsAnError() async throws {
+        let folder = try StoreFolder()
+        let since = Date().addingTimeInterval(-1)
+        StoreReset.run(entry: owed(.user), store: URL(fileURLWithPath: "/dev/null"), orphans: folder.locations, now: self.since)
+        #expect(await Self.refusalLogged(since: since))
+    }
+
+    /// Off the main actor: reading the log takes seconds.
+    @concurrent
+    private nonisolated static func refusalLogged(since: Date) async -> Bool {
+        let matching = NSPredicate(format: "composedMessage CONTAINS %@", "Store reset refused")
+        for _ in 0..<10 {
+            if let store = try? OSLogStore(scope: .currentProcessIdentifier),
+               let entries = try? store.getEntries(at: store.position(date: since), matching: matching),
+               entries.contains(where: { ($0 as? OSLogEntryLog)?.level == .error }) {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        return false
     }
 
     /// A file that can't go is counted, and the launch goes on: the wipe still runs.
@@ -621,6 +663,60 @@ struct OwedWipeLaunchTests {
         #expect(try rig.disk.inFreshContext == .none)
     }
 
+    /// The wipe is done and the SDK hasn't been asked: the entry is all that says this session isn't to be published.
+    @Test(arguments: [AuthService.SignOutReason.user, .accountDeleted(background: false)])
+    func aKillBeforeTheSDKCallStillEndsTheSession(_ ending: AuthService.SignOutReason) async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        rig.disk.session(checked: true)
+        owe(rig, ending)
+
+        let hold = Hold()
+        rig.relaunch(signedInAs: WipeValues.accountA) { await hold.wait() }
+        let first = rig.client
+        #expect(await eventually { first.signOutCount == 1 })
+        #expect(rig.wipes.count == 1)
+        #expect(rig.ledgerOnDisk != nil, "not over until the SDK call has run")
+        #expect(rig.ledgerOnDisk?.deviceStepsDone == true)
+
+        rig.relaunch(signedInAs: WipeValues.accountA)
+        let second = rig.client
+        #expect(rig.auth.accountID == nil)
+        #expect(await eventually { second.signOutCount == 1 })
+        #expect(rig.wipes.map(\.storeOnly) == [false, true], "a repeat costs nothing")
+        #expect(await eventually { rig.ledgerOnDisk == nil })
+
+        hold.open()
+    }
+
+    /// The first frame can come before the SDK's answer: the parked wipe runs, and the entry still waits for the call.
+    @Test func aParkedWipeDuringTheSDKCallLeavesTheEntry() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        owe(rig, .sessionExpired)
+
+        let hold = Hold()
+        rig.relaunch(signedInAs: WipeValues.accountA) { await hold.wait() }
+        let client = rig.client
+        #expect(await eventually { client.signOutCount == 1 })
+        #expect(await rig.firstFrame())
+        #expect(rig.wipes.count == 1)
+        #expect(rig.ledgerOnDisk != nil)
+
+        hold.open()
+        #expect(await eventually { rig.ledgerOnDisk == nil })
+    }
+
+    /// Nothing to end once it failed: the debt stays, as it would without a session.
+    @Test func aRefusedWipeOutlivesTheSDKCall() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        rig.wipesAnswer = false
+        owe(rig, .user)
+        rig.relaunch(signedInAs: WipeValues.accountA)
+        let client = rig.client
+        #expect(await eventually { client.currentSession == nil })
+        await rig.settle()
+        #expect(rig.ledgerOnDisk != nil)
+    }
+
     /// What a session of the same account does while its sign-out runs doesn't bring it back.
     @Test func noEventOfTheEndingSessionPublishesIt() async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
@@ -818,6 +914,114 @@ struct OwedWipeLaunchTests {
         #expect(rig.ledgerOnDisk != nil)
     }
 
+    /// Before the first unlock the launch read neither the entry nor the session. Both appear in the same process, and
+    /// the session may be this account's work, so it waits for a launch that can run the table.
+    @Test(arguments: [WipeValues.accountA, WipeValues.accountB])
+    func noRetryOverASessionTheLaunchCouldntRead(_ stored: UUID) async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        rig.relaunch(signedInAs: nil)
+        await rig.settle()
+        owe(rig, .user)
+        rig.client.unlock(.preview(id: stored))
+
+        #expect(await rig.firstFrame() == false)
+
+        #expect(rig.wipes.isEmpty)
+        #expect(rig.ledgerOnDisk != nil)
+    }
+
+    /// The control: the same late entry with nothing stored is a retry like any other.
+    @Test func aRetryOfAnEntryThatAppearedLate() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        rig.relaunch(signedInAs: nil)
+        await rig.settle()
+        owe(rig, .user)
+
+        #expect(await rig.firstFrame())
+
+        #expect(rig.wipes.count == 1)
+        #expect(rig.ledgerOnDisk == nil)
+    }
+
+    /// A folder in the store's support folder that won't go, while every other file does: a store still opens, and
+    /// its wipe has nothing to refuse.
+    private func stuckSupportFile(_ rig: WipingAuth) throws -> URL {
+        let stuck = rig.disk.folder.appendingPathComponent(".Train_SUPPORT/stuck", isDirectory: true)
+        try FileManager.default.createDirectory(at: stuck, withIntermediateDirectories: true)
+        try Data([1]).write(to: stuck.appendingPathComponent("file"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: stuck.path)
+        return stuck
+    }
+
+    private func release(_ stuck: URL) throws {
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stuck.path)
+    }
+
+    /// The store is fine and the wipe says true, and a file the replace couldn't take is still on disk.
+    @Test func filesTheReplaceLeftKeepTheEntry() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        let stuck = try stuckSupportFile(rig)
+        defer { try? release(stuck) }
+        owe(rig, .user)
+
+        rig.relaunch(signedInAs: nil)
+
+        #expect(rig.wipes.count == 1)
+        #expect(rig.ledgerOnDisk != nil)
+        #expect(rig.lastUser == a)
+
+        try release(stuck)
+        rig.relaunch(signedInAs: nil)
+        #expect(rig.ledgerOnDisk == nil)
+        #expect(rig.lastUser == nil)
+    }
+
+    @Test func filesTheReplaceLeftKeepAScrub() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        let stuck = try stuckSupportFile(rig)
+        defer { try? release(stuck) }
+        owesAScrub(rig)
+
+        rig.relaunch(signedInAs: nil)
+        await rig.firstFrame()
+
+        #expect(rig.ledgerOnDisk != nil)
+    }
+
+    // MARK: the widget
+
+    private func publishScore(to file: URL) {
+        let score = ReadinessSnapshot(day: "2026-10-01", kind: .score, readiness: 71, previousReadiness: nil,
+                                      baselineNights: nil, updatedAt: WipeValues.earlier, bedtime: nil, orbit: nil)
+        ReadinessSnapshot.publish(score, to: file)
+    }
+
+    /// The scenario: the first pass clears the file and its store refuses, `onWipe` writes the score again from the
+    /// row that survived, and the retry, with the device steps done, is all that's left to take it.
+    @Test(arguments: [AuthService.SignOutReason.user, .sessionExpired])
+    func aRetryTakesTheWidgetTheFirstPassLeft(_ ending: AuthService.SignOutReason) async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        let widget = rig.disk.folder.appendingPathComponent("readiness.json")
+        rig.widget = widget
+        rig.disk.fill([.cachedDay])
+        try rig.disk.refuseDeletes(of: .cachedDay)
+        publishScore(to: widget)
+        rig.auth.onWipe = { _ in
+            #expect(!FileManager.default.fileExists(atPath: widget.path), "the first pass cleared it")
+            publishScore(to: widget)
+        }
+        await rig.end(ending)
+        #expect(FileManager.default.fileExists(atPath: widget.path), "written again over the refusal")
+
+        try rig.disk.allowDeletes()
+        rig.relaunch(signedInAs: nil)
+        await rig.firstFrame()
+
+        #expect(rig.wipes.last?.storeOnly == true)
+        #expect(!FileManager.default.fileExists(atPath: widget.path))
+        #expect(rig.ledgerOnDisk == nil)
+    }
+
     @Test func aFailedRetryKeepsTheAccountsID() async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
         rig.wipesAnswer = false
@@ -843,7 +1047,15 @@ struct OwedWipeLaunchTests {
         #expect(!reminders(notifier).isEmpty)
     }
 
-    /// nil → nil fires no `onChange`, so nothing else would take them. As `RyftApp`'s first-frame task does it.
+    private func coordinator(_ rig: WipingAuth) -> TrainCoordinator {
+        let store: TrainStore = rig.disk.store
+        return TrainCoordinator(sync: TrainSyncService(store: store, remote: { MockPlatformAPI() }, owner: { nil },
+                                                       monitorsNetwork: false),
+                                library: TrainLibrary(store: store, remote: { MockPlatformAPI() }, restore: false),
+                                liveActivities: false)
+    }
+
+    /// nil → nil fires no `onChange`, so nothing else would take them. `RyftApp`'s first-frame task is this call.
     @Test(arguments: WipeValues.endings)
     func aResumeTakesTheAccountsReminders(_ ending: AuthService.SignOutReason) async throws {
         let rig = try WipingAuth(signedInAs: WipeValues.accountA)
@@ -854,9 +1066,24 @@ struct OwedWipeLaunchTests {
         rig.relaunch(signedInAs: nil)
         let planner = BedtimePlanner(state: AppState(env: .test(clock: clock, notifier: notifier, auth: rig.auth)),
                                      alarms: alarms)
-        if await rig.firstFrame() { await planner.accountChanged() }
+        await rig.auth.finishOwedWipe(train: coordinator(rig), bedtime: planner)
 
         #expect(reminders(notifier).isEmpty)
+    }
+
+    /// An expiry's wipe takes the logged session the coordinator opened it on, and a deleted row is fatal to read.
+    @Test func aResumeLetsGoOfTheOpenWorkout() async throws {
+        let rig = try WipingAuth(signedInAs: WipeValues.accountA)
+        rig.disk.session()
+        owe(rig, .sessionExpired)
+
+        rig.relaunch(signedInAs: nil)
+        let train = coordinator(rig)
+        #expect(train.active != nil)
+        let planner = BedtimePlanner(state: AppState(env: .test(auth: rig.auth)), alarms: MockWakeAlarms())
+        await rig.auth.finishOwedWipe(train: train, bedtime: planner)
+
+        #expect(train.active == nil)
     }
 
     /// The control: without a resume the same launch leaves them alone.
@@ -866,7 +1093,9 @@ struct OwedWipeLaunchTests {
         try await scheduleReminders(rig, notifier: notifier, clock: clock)
 
         rig.relaunch(signedInAs: WipeValues.accountA)
-        #expect(await rig.firstFrame() == false)
+        let train = coordinator(rig), planner = BedtimePlanner(state: AppState(env: .test(clock: clock, notifier: notifier, auth: rig.auth)),
+                                                               alarms: MockWakeAlarms())
+        await rig.auth.finishOwedWipe(train: train, bedtime: planner)
         #expect(!reminders(notifier).isEmpty)
     }
 

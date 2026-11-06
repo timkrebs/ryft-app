@@ -29,7 +29,7 @@ final class TrainStore {
         self.init(configuration: Self.liveConfiguration(inMemory: inMemory))
     }
 
-    private static func liveConfiguration(inMemory: Bool = false) -> ModelConfiguration {
+    static func liveConfiguration(inMemory: Bool = false) -> ModelConfiguration {
         // In memory, each instance gets its own name, so tests and previews never share a store.
         //
         // On disk the store lives in the App Group container: the app has the `group.dev.timkrebs.ryft` entitlement,
@@ -59,7 +59,8 @@ final class TrainStore {
 
     private convenience init(opening config: ModelConfiguration, ledger: WipeLedger,
                              orphans: OrphanedStoreCleanup.Locations, now: Date) {
-        StoreReset.run(entry: ledger.forStoreStep, store: config.url, orphans: orphans, now: now)
+        ledger.storeStepLeftFiles = StoreReset.run(entry: ledger.forStoreStep, store: config.url, orphans: orphans,
+                                                   now: now).leftFiles
         self.init(configuration: config)
     }
 

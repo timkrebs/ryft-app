@@ -54,6 +54,8 @@ final class WipeLedger {
     /// What this launch's `AuthService` resolved for the store step, in memory only. Nil until it ran, so a store opened
     /// first deletes nothing: the launch falls back to the object wipe.
     var forStoreStep: OwedWipe?
+    /// The store step left files behind, so this launch can't call the debt paid, whatever the wipe answers.
+    var storeStepLeftFiles = false
 
     init(file: URL?) {
         self.file = file

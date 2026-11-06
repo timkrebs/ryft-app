@@ -98,10 +98,7 @@ struct RyftApp: App {
                                     let activities = state.env.activities
                                     state.repository.compact()
                                     // A background-only run reaches an owed wipe here.
-                                    if AuthService.shared.finishOwedWipe() {
-                                        TrainCoordinator.shared.accountChanged()
-                                        Task { await bedtime.accountChanged() }
-                                    }
+                                    await AuthService.shared.finishOwedWipe(train: .shared, bedtime: bedtime)
                                     // Rows a session expiry parked more than 30 days ago.
                                     activities.deleteExpiredParked()
                                 })
@@ -240,12 +237,7 @@ struct RyftApp: App {
                 // passed; below the work the user waits for.
                 .task(priority: .utility) {
                     await LaunchSignpost.afterFirstFrame()
-                    // An owed wipe taken up at launch changes no account, so `onChange` doesn't run: a kill left the
-                    // account's reminders and alarms scheduled, and its open workout on a row that's gone.
-                    if auth.finishOwedWipe() {
-                        trainCoordinator.accountChanged()
-                        await screens.bedtime.accountChanged()
-                    }
+                    await auth.finishOwedWipe(train: trainCoordinator, bedtime: screens.bedtime)
                     // Activities a session expiry parked more than 30 days ago go (design.md §8.4).
                     env.activities.deleteExpiredParked()
                     // The tracker catalog: decoded off the main actor, its cached download re-validated.

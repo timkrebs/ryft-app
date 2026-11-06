@@ -254,6 +254,11 @@ final class AuthService {
     @ObservationIgnored private var resumedOwedWipe = false
     /// The ledger's retry had its one try in this process: another would only find the same refusal.
     @ObservationIgnored private var triedOwedWipe = false
+    /// An interrupted sign-out's `client.signOut()` hasn't returned. The entry outlives a wipe meanwhile: without it a
+    /// kill here would publish the session at the next launch.
+    @ObservationIgnored private var endingStoredSession = false
+    /// A wipe returned true while that ran, so the entry ends with it.
+    @ObservationIgnored private var wipedWhileEnding = false
     /// `DELETE /v1/me`; injected so tests don't need the platform.
     private let deleteRemoteAccount: () async throws -> AccountDeleted
     /// `POST /v1/me/apple-authorization`; injected for tests.
@@ -288,7 +293,10 @@ final class AuthService {
         if endsStoredSession { machine.enter(.signedOut) }
         observation = Task { [weak self] in
             // Before the first event, so that none of them can carry the session this ends.
-            if endsStoredSession { try? await client.signOut() }
+            if endsStoredSession {
+                try? await client.signOut()
+                self?.storedSessionEnded()
+            }
             for await change in client.authStateChanges {
                 guard let self else { return }
                 if change.event == .initialSession {
@@ -782,10 +790,21 @@ final class AuthService {
     }
 
     /// One pass. True ends the entry, and false leaves it with the device steps marked done, so a retry skips them.
+    /// Files the replace left mean false, whatever the store answers.
     private func settled(_ wipe: Wipe) -> Bool {
-        let wiped = perform(wipe)
-        if wiped { ledger.clear() } else { ledger.update { $0.deviceStepsDone = true } }
+        let wiped = perform(wipe) && !ledger.storeStepLeftFiles
+        if wiped, !endingStoredSession {
+            ledger.clear()
+        } else {
+            ledger.update { $0.deviceStepsDone = true }
+        }
+        wipedWhileEnding = wiped && endingStoredSession
         return wiped
+    }
+
+    private func storedSessionEnded() {
+        endingStoredSession = false
+        if wipedWhileEnding { ledger.clear() }
     }
 
     @discardableResult
@@ -824,26 +843,38 @@ final class AuthService {
         case .wipeAfterFirstFrame(let endSession):
             ledger.forStoreStep = owed
             resumedOwedWipe = true
+            endingStoredSession = endSession
             return (endSession ? nil : stored, endSession)
         case .wipeNow(let narrow, let endSession):
             if narrow { ledger.update { $0.wipe.reason = nil } }
             ledger.forStoreStep = ledger.entry
             resumedOwedWipe = true
             triedOwedWipe = true
+            endingStoredSession = endSession
             if let entry = ledger.entry { retry(entry) }
             return (endSession ? nil : stored, endSession)
         }
     }
 
-    /// After the first frame, and in the nightly compaction: the parked wipe the launch left, or a retry of one that
-    /// failed. Never over a published session, whose rows are its own. True when a wipe was taken up, at this launch or
-    /// now: nil → nil fires no `onChange`, so the caller does what an account change would (reminders, the workout).
+    /// After the first frame, and in the nightly compaction. An owed wipe taken up changes no account, so `onChange`
+    /// doesn't run: a kill left the account's reminders and alarms scheduled, and its open workout on a row that's gone.
+    func finishOwedWipe(train: TrainCoordinator, bedtime: BedtimePlanner) async {
+        guard finishOwedWipe() else { return }
+        train.accountChanged()
+        await bedtime.accountChanged()
+    }
+
+    /// The parked wipe the launch left, or a retry of one that failed. True when a wipe was taken up, at this launch or
+    /// now. Never over a session: a published one's rows are its own, and a stored one the launch couldn't read (the
+    /// entry too, before the first unlock) goes through the launch table at the next launch. One this launch is ending
+    /// isn't in the way.
     @discardableResult
     func finishOwedWipe() -> Bool {
         defer { resumedOwedWipe = false }
-        guard session == nil, !triedOwedWipe, let owed = ledger.entry else { return resumedOwedWipe }
+        guard session == nil, endingStoredSession || client?.currentSession == nil, !triedOwedWipe,
+              let owed = ledger.entry else { return resumedOwedWipe }
         guard !owed.scrubOnly else {
-            ledger.clear()
+            if !ledger.storeStepLeftFiles { ledger.clear() }
             return resumedOwedWipe
         }
         triedOwedWipe = true
@@ -860,8 +891,6 @@ final class AuthService {
             Settings.shared.clearPerUserState()
         }, store: wipeStoreStep, after: {
             RestActivityController.shared.end()
-            // The lock screen must not keep showing this account's readiness.
-            ReadinessSnapshot.clear()
             // Bedtime & wake's schedules and planned nights (its reminders and alarms go with the
             // account change: `BedtimePlanner.accountChanged`).
             BedtimePlanner.wipe(defaults: .standard)
@@ -884,14 +913,24 @@ final class AuthService {
         return wiped
     }
 
-    /// The store, and what holds its rows in memory.
     private static func wipeStoreStep(_ wipe: Wipe) -> Bool {
+        storeStep(wipe, store: { TrainStore.shared.wipe($0) }, memory: {
+            // Its replay stops now, not when the app's account-change handler runs a runloop later.
+            TrainSyncService.shared.accountChanged()
+            TrainLibrary.shared.wipe()
+        })
+    }
+
+    /// The store, and what shows or holds its rows: every pass runs this, a retry too. The first pass's clear doesn't
+    /// last when its store refused: `onWipe` can write the widget again from the row that survived.
+    static func storeStep(_ wipe: Wipe, widget: URL? = ReadinessSnapshot.sharedFile, store: (Wipe) -> Bool,
+                          memory: () -> Void) -> Bool {
+        // The lock screen must not keep showing this account's readiness.
+        ReadinessSnapshot.clear(widget)
         // Cached read models, logged sessions, the offline library and queued uploads are per account; after an
         // expiry the account's unconfirmed activities stay, parked (design.md §8.4).
-        let wiped = TrainStore.shared.wipe(wipe)
-        // Its replay stops now, not when the app's account-change handler runs a runloop later.
-        TrainSyncService.shared.accountChanged()
-        TrainLibrary.shared.wipe()
+        let wiped = store(wipe)
+        memory()
         return wiped
     }
 }

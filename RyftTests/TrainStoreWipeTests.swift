@@ -754,6 +754,8 @@ final class WipingAuth {
     private(set) var wipes: [AuthService.Wipe] = []
     /// What every wipe answers instead of the store, which isn't touched.
     var wipesAnswer: Bool?
+    /// The widget's file, for a wipe that goes through the app's own steps.
+    var widget: URL?
 
     init(signedInAs account: UUID) throws {
         let disk = try StoreOnDisk()
@@ -785,7 +787,10 @@ final class WipingAuth {
                                if let answer = self?.wipesAnswer { return answer }
                                // As in the app: at launch it's this wipe that first opens the store.
                                disk.open(ledger: ledger, now: clock.now())
-                               return disk.store.wipe(wipe)
+                               guard let widget = self?.widget else { return disk.store.wipe(wipe) }
+                               return AuthService.steps(of: wipe, before: {}, store: {
+                                   AuthService.storeStep($0, widget: widget, store: { disk.store.wipe($0) }, memory: {})
+                               }, after: {})
                            },
                            deleteRemoteAccount: { [weak self] in
                                await self?.duringDeletion?()

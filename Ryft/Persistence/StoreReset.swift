@@ -41,6 +41,9 @@ enum StoreReset {
         var failures = 0
         /// The app container's copy; nil when nothing was replaced.
         var orphan: OrphanedStoreCleanup.Outcome?
+
+        /// Something of the store is still on disk.
+        var leftFiles: Bool { failures > 0 || (orphan?.failures ?? 0) > 0 }
     }
 
     /// Whether `entry` may take the files.
@@ -54,8 +57,12 @@ enum StoreReset {
     @discardableResult
     static func run(entry: OwedWipe?, store: URL, orphans: OrphanedStoreCleanup.Locations, now: Date) -> Outcome {
         var outcome = Outcome()
+        guard replaces(entry, now: now) else { return outcome }
         // The name too: only the app's store file, never the `/dev/null` of a store in memory.
-        guard replaces(entry, now: now), store.isFileURL, store.lastPathComponent == "Train.store" else { return outcome }
+        guard store.isFileURL, store.lastPathComponent == "Train.store" else {
+            OrphanedStoreCleanup.log.error("Store reset refused: that isn't the store's file")
+            return outcome
+        }
         let signpost = Signposts.launch.beginInterval("store-reset", id: Signposts.launch.makeSignpostID())
         defer { Signposts.launch.endInterval("store-reset", signpost, "\(outcome.files) files") }
         outcome.replaced = true
