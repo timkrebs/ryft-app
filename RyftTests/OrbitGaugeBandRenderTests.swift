@@ -360,13 +360,18 @@ struct OrbitGaugeBandRenderTests {
         }
     }
 
+    /// Pending keeps its solid ring in the entrance too, in the same colour as the static drawing: never yesterday's level.
     @Test(arguments: [50, 20])
-    func theEntrancesLastFrameEqualsTheStaticRenderAtEveryLevel(_ readiness: Int) throws {
+    func whilePendingTheEntranceRingStaysSolid(_ readiness: Int) throws {
         let values = OrbitGaugeValues(readiness: readiness, recovery: 0.71, sleep: 0.88, strain: 16.5, strainBand: Self.band)
         for (schemeName, scheme, _) in Self.schemes {
-            let still = try #require(render(.scored(values), .large, scheme))
-            let end = try #require(render(.scored(values), .large, scheme, entrance: .assemble, frozenAt: OrbitEntranceFrame.end))
-            #expect(Self.nearlyEqual(end.bytes, still.bytes), "readiness \(readiness), \(schemeName)")
+            let still = try #require(render(.pending(previous: values), .large, scheme))
+            let entrance = try #require(render(.pending(previous: values), .large, scheme, entrance: .assemble,
+                                               frozenAt: OrbitEntranceFrame.end - 0.0005))
+            for degrees in stride(from: 0.0, to: 360, by: 2.8125) {
+                #expect(distance(entrance.pixel(entrance.onOrbit(32, degrees: degrees)), still.pixel(still.onOrbit(32, degrees: degrees))) < 0.1,
+                        "ring at \(degrees), readiness \(readiness), \(schemeName)")
+            }
         }
     }
 

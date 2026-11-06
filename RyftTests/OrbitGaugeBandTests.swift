@@ -267,9 +267,9 @@ struct OrbitGaugeBandTests {
     private func upToOne(_ v: Double) -> String { v.formatted(.number.precision(.fractionLength(0...1))) }
 
     @Test func withABandTheStrainSentenceNamesTheRange() {
-        let expected = "Strain \(one(9.6)) of 21, today's recommended range \(upToOne(8)) to \(upToOne(13))"
+        let expected = "Strain \(one(9.6)) of 21, today's band \(upToOne(8)) to \(upToOne(13))"
         #expect(OrbitGauge.spokenStrain(9.6, band: Self.band) == expected)
-        #expect(expected.hasPrefix("Strain 9") && expected.hasSuffix("range 8 to 13"), "whole ends without a decimal: \(expected)")
+        #expect(expected.hasPrefix("Strain 9") && expected.hasSuffix("band 8 to 13"), "whole ends without a decimal: \(expected)")
         #expect(OrbitGauge.spokenValue(.previewBanded(strain: 9.6)).hasSuffix(expected))
         #expect(OrbitGauge.spokenValue(.previewBanded(strain: 9.6)).hasPrefix("71, High. Recovery 71 percent, Sleep 88 percent, "))
     }
@@ -283,7 +283,7 @@ struct OrbitGaugeBandTests {
         // Exactly at the upper end, and below or inside it: the plain range sentence.
         for strain in [4.0, 9.6, 13.0] as [Double] {
             let spoken = OrbitGauge.spokenStrain(strain, band: Self.band)
-            #expect(spoken == "Strain \(one(strain)) of 21, today's recommended range 8 to 13", "strain \(strain)")
+            #expect(spoken == "Strain \(one(strain)) of 21, today's band 8 to 13", "strain \(strain)")
             #expect(!spoken.contains("past"))
         }
         // The clamped band decides: nothing is past 15...21.
@@ -291,10 +291,10 @@ struct OrbitGaugeBandTests {
     }
 
     @Test func theEndsShowAtMostOneDecimalAndFollowTheClamp() {
-        #expect(OrbitGauge.spokenStrain(9.6, band: 8.5...12.25).hasSuffix("range \(upToOne(8.5)) to \(upToOne(12.25))"))
+        #expect(OrbitGauge.spokenStrain(9.6, band: 8.5...12.25).hasSuffix("band \(upToOne(8.5)) to \(upToOne(12.25))"))
         #expect(OrbitGauge.spokenStrain(9.6, band: 8.5...12.25).contains("12") && !OrbitGauge.spokenStrain(9.6, band: 8.5...12.25).contains("12.25"))
         // As drawn: clamped to the scale.
-        #expect(OrbitGauge.spokenStrain(9.6, band: -3...30).hasSuffix("range 0 to 21"))
+        #expect(OrbitGauge.spokenStrain(9.6, band: -3...30).hasSuffix("band 0 to 21"))
     }
 
     @Test func withoutAUsableBandTheSentenceIsTheOldOne() {
@@ -308,7 +308,7 @@ struct OrbitGaugeBandTests {
         #expect(OrbitGauge.spokenValue(.previewScored) == OrbitGauge.spokenValue(
             OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6, strainBand: nil)))
         #expect(OrbitGauge.spokenValue(.previewScored).hasSuffix(old))
-        #expect(!OrbitGauge.spokenValue(.previewScored).contains("range"))
+        #expect(!OrbitGauge.spokenValue(.previewScored).contains("band"))
     }
 
     @Test func aMissingStrainStillSaysNotScoredWhateverTheBand() {
@@ -322,7 +322,7 @@ struct OrbitGaugeBandTests {
     @Test func germanResolvesToBelastungMitHeutigemBereich() throws {
         let path = try #require(Bundle.main.path(forResource: "de", ofType: "lproj"), "the app has a German localization")
         let german = try #require(Bundle(path: path))
-        let key = "Strain %@ of 21, today's recommended range %@ to %@"
+        let key = "Strain %@ of 21, today's band %@ to %@"
         let template = german.localizedString(forKey: key, value: "MISSING", table: nil)
         #expect(template == "Belastung %1$@ von 21, heutiger empfohlener Bereich %2$@ bis %3$@")
         let de = Locale(identifier: "de_DE")

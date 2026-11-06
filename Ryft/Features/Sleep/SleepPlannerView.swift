@@ -292,10 +292,11 @@ struct SleepScheduleView: View {
             }
         } label: {
             Text("Turn off Bedtime & wake")
+                .warningLine()
                 .font(.ryft(.body))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
-        .foregroundStyle(Theme.textSecondary)
+        .foregroundStyle(Theme.textPrimary)
         .accessibilityIdentifier("schedule.turnOff")
     }
 

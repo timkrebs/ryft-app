@@ -156,7 +156,7 @@ struct OrbitGaugeMarks: View {
                       m)
             }
             if let values {
-                OrbitCentreRing(style: BandStyle(score: values.readiness), dial: dial,
+                OrbitCentreRing(style: mode.isPending ? .solid : BandStyle(score: values.readiness), dial: dial,
                                 colour: palette.band(forReadiness: values.readiness))
             }
         }

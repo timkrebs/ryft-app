@@ -66,9 +66,16 @@ struct BandStyleTests {
     private static let schemes: [(String, ColorScheme, UIUserInterfaceStyle)] = [("dark", .dark, .dark), ("light", .light, .light)]
     private static let sizes: [(String, OrbitGauge.Size)] = [("small", .small), ("medium", .medium), ("large", .large)]
 
+    private func values(_ readiness: Int?) -> OrbitGaugeValues {
+        OrbitGaugeValues(readiness: readiness, recovery: 0.71, sleep: 0.88, strain: 9.6)
+    }
+
     private func render(_ readiness: Int?, _ size: OrbitGauge.Size, _ scheme: ColorScheme) -> Shot? {
-        let values = OrbitGaugeValues(readiness: readiness, recovery: 0.71, sleep: 0.88, strain: 9.6)
-        let renderer = ImageRenderer(content: OrbitGauge(mode: .scored(values), size: size, animatesFill: false, breathes: false)
+        render(.scored(values(readiness)), size, scheme)
+    }
+
+    private func render(_ mode: OrbitGaugeMode, _ size: OrbitGauge.Size, _ scheme: ColorScheme) -> Shot? {
+        let renderer = ImageRenderer(content: OrbitGauge(mode: mode, size: size, animatesFill: false, breathes: false)
             .background(Theme.background)
             .environment(\.colorScheme, scheme))
         renderer.scale = 3
@@ -134,6 +141,26 @@ struct BandStyleTests {
                     }
                 case .none:
                     Issue.record("these readiness values have a level: \(label)")
+                }
+            }
+        }
+    }
+
+    /// Pending is yesterday, dimmed over its track, and that drawing doesn't change: a 50 keeps its ink all round, a 20 isn't
+    /// two thin lines. Readiness 71 is here as the control: it was solid before and stays so.
+    @Test(arguments: [71, 50, 20])
+    func whilePendingTheRingStaysSolidAtEveryLevel(_ readiness: Int) throws {
+        let palette = OrbitGaugePalette.assets
+        for (schemeName, scheme, uiStyle) in Self.schemes {
+            let ink = rgb(palette.band(forReadiness: readiness), uiStyle), track = rgb(palette.track, uiStyle)
+            let a = Double(OrbitGaugeMarks.pendingOpacity)
+            let expected = RGB(r: ink.r * a + track.r * (1 - a), g: ink.g * a + track.g * (1 - a), b: ink.b * a + track.b * (1 - a))
+            for (sizeName, size) in Self.sizes {
+                let shot = try #require(render(.pending(previous: values(readiness)), size, scheme))
+                let radius = G.metrics(forDial: size.dial).centreRadius
+                for degrees in Self.dashDegrees + Self.gapDegrees {
+                    let at = shot.pixel(radius: radius, degrees: degrees)
+                    #expect(distance(at, expected) < 0.06, "\(degrees), \(readiness), \(sizeName), \(schemeName): \(at) vs \(expected)")
                 }
             }
         }

@@ -122,6 +122,7 @@ struct AddSleepSheet: View {
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textPrimary)
                     .frame(maxWidth: .infinity, minHeight: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("addSleep.delete")

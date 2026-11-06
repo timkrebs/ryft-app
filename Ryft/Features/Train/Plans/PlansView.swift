@@ -291,7 +291,7 @@ private struct PlanDetailScreen: View {
                 } else {
                     Button("Edit") { editing = p }
                     Button(role: .destructive) { confirmDelete = true } label: {
-                        Text("Delete").errorLine()
+                        Text("Delete").errorLine().frame(minHeight: 44).contentShape(Rectangle())
                     }
                     .foregroundStyle(Theme.textPrimary)
                 }

@@ -142,7 +142,7 @@ struct OrbitEntranceStage<Settled: View, Centre: View>: View {
             tracks(frame, m, calibration, positions)
             // The readiness ring arrives with the glide, as the static drawing has it: never a ring that is not there.
             if let values {
-                OrbitCentreRing(style: BandStyle(score: values.readiness), dial: size.dial,
+                OrbitCentreRing(style: mode.isPending ? .solid : BandStyle(score: values.readiness), dial: size.dial,
                                 colour: palette.band(forReadiness: values.readiness))
                     .opacity(glide * (mode.isPending ? OrbitGaugeMarks.pendingOpacity : 1))
             }

@@ -289,7 +289,7 @@ struct FocusedPolishTests {
     }
 
     /// The W is text, so it's `FocusedRowInk.warmUpMark`, not `warning` (3.45:1 on white in light). On the active row it sits
-    /// on its raised pill, never on the tint.
+    /// on its raised pill, never on the tint. `NoticeSitesHostedTests` reads it at its two sites, History and the Focused rows.
     @Test("The warm-up W holds 4.5:1 on a plain row and on the active row's pill, in both schemes",
           arguments: [ColorScheme.light, .dark])
     func theWarmUpMark(scheme: ColorScheme) {

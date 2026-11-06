@@ -399,7 +399,7 @@ struct OrbitGauge: View {
         return "\(readiness). \(scores.joined(separator: ", "))"
     }
 
-    /// "Strain 9.6 of 21", and with a usable band "Strain 9.6 of 21, today's recommended range 8 to 13" (the band as drawn: clamped to
+    /// "Strain 9.6 of 21", and with a usable band "Strain 9.6 of 21, today's band 8 to 13" (the band as drawn: clamped to
     /// 0 to 21; an empty one is not mentioned). Unreachable until the platform serves the band.
     static func spokenStrain(_ strain: Double, band: ClosedRange<Double>?) -> String {
         guard let band = OrbitGaugeGeometry.clampedBand(band) else {
@@ -409,7 +409,7 @@ struct OrbitGauge: View {
         if OrbitGaugeGeometry.strainPastBandDegrees(strain: strain, band: band) != nil {
             return String(localized: "Strain \(strainText(strain)) of 21, past today's band \(bandText(band.lowerBound)) to \(bandText(band.upperBound))")
         }
-        return String(localized: "Strain \(strainText(strain)) of 21, today's recommended range \(bandText(band.lowerBound)) to \(bandText(band.upperBound))")
+        return String(localized: "Strain \(strainText(strain)) of 21, today's band \(bandText(band.lowerBound)) to \(bandText(band.upperBound))")
     }
 
     private static func bandText(_ v: Double) -> String {
