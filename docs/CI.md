@@ -75,7 +75,7 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
     it starts every test (about 1,800) at once, and the ones marked `@MainActor` (most) queue
     on the one main actor: a test polling with `eventually` waits behind the whole backlog on
     every hop, so on a runner where that backlog took 30+ s the waits timed out and some tests
-    hit the 60 s cap (2026-10-23 to 26). The cap was "experimental" in Xcode 27.1; CAP_27_2_PLACEHOLDER. If a newer Xcode
+    hit the 60 s cap (2026-10-23 to 26). The cap was "experimental" in Xcode 27.1; on Xcode 27.2 whether it still applies is not yet verified (the first 27.2 run, 2026-11-14, stopped at the Simulator step before any test ran). If a newer Xcode
     ignores it, the flake returns as `await eventually { clock.pendingSleeps == 1 }` failures.
   - the simulator comes from `scripts/ci-simulator.sh`: a device of its own, "RYFT CI <run id>-<attempt>",
     created fresh on the newest iOS runtime (`$SIMULATOR`'s type, default iPhone 17 Pro, else
