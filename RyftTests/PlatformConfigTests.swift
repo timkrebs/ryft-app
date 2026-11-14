@@ -5,7 +5,7 @@ import Testing
 @Suite("Platform configuration")
 struct PlatformConfigTests {
     private let complete: [String: Any] = [
-        "RyftAPIURL": "https://api.ryftapp.de",
+        "RyftAPIURL": "https://api.ryftlab.de",
         "RyftSupabaseURL": "https://ydgbemufggwnegbnjhkm.supabase.co",
         "RyftSupabasePublishableKey": "sb_publishable_x",
     ]

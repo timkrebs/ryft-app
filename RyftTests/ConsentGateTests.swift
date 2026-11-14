@@ -88,7 +88,7 @@ private final class ConsentHarness {
 
     func config(_ version: String = MockData.policyVersion, ttl: Int = 21_600) -> RemoteConfig {
         RemoteConfig(flags: [:], evaluatedAt: clock.now(), ttlSec: ttl, privacyPolicyVersion: version,
-                     privacyPolicyUrl: "https://ryftapp.de/privacy/\(version)")
+                     privacyPolicyUrl: "https://ryftlab.de/privacy/\(version)")
     }
 
     /// A policy answer recorded now.

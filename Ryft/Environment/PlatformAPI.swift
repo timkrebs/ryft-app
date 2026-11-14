@@ -147,7 +147,7 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
     /// activities.
     var remoteConfig = RemoteConfig(flags: MockPlatformAPI.demoFlags, evaluatedAt: .now, ttlSec: 21_600,
                                     privacyPolicyVersion: MockData.policyVersion,
-                                    privacyPolicyUrl: "https://ryftapp.de/privacy")
+                                    privacyPolicyUrl: "https://ryftlab.de/privacy")
     static let demoFlags: [String: Bool] = {
         var on: [FeatureFlag] = [.devicesSetup, .todayMyDay, .activitiesManual]
         #if DEBUG

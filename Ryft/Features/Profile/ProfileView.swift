@@ -226,7 +226,7 @@ struct ProfileView: View {
                 Text(verbatim: screens.push.lastResult ?? "—").font(.ryft(.caption)).foregroundStyle(Theme.textPrimary)
             }
             FieldLabel("API URL override")
-            TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftapp.de", text: Bindable(settings).devAPIURLOverride)
+            TextField(Bundle.configValue("RyftAPIURL") ?? "https://api.ryftlab.de", text: Bindable(settings).devAPIURLOverride)
                 .ryftField()
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()

@@ -2446,7 +2446,7 @@ private func catalogStore(flag: Bool = true, online: Bool = true)
     return (env.catalogStore, content, clock, env)
 }
 
-@Suite("Tracker catalog: the copy from ryftapp.de")
+@Suite("Tracker catalog: the copy from ryftlab.de")
 @MainActor
 struct TrackerCatalogStoreTests {
     private let bundled = TrackerCatalog.bundled.version
@@ -2679,9 +2679,9 @@ final class WebContentStub: URLProtocol {
     override func stopLoading() {}
 }
 
-@Suite("Tracker catalog: fetching from ryftapp.de", .serialized)
+@Suite("Tracker catalog: fetching from ryftlab.de", .serialized)
 struct WebContentSourceTests {
-    private let file = "https://ryftapp.de/trackers.json"
+    private let file = "https://ryftlab.de/trackers.json"
 
     private func source() -> WebContentSource {
         let config = URLSessionConfiguration.ephemeral
@@ -2705,8 +2705,8 @@ struct WebContentSourceTests {
         #expect(WebContentStub.requests.first?.value(forHTTPHeaderField: "If-None-Match") == "e1")
     }
 
-    @Test func aRedirectWithinRyftappIsFollowed() async throws {
-        let moved = "https://ryftapp.de/content/trackers.json"
+    @Test func aRedirectWithinRyftlabIsFollowed() async throws {
+        let moved = "https://ryftlab.de/content/trackers.json"
         WebContentStub.serve([file: .init(status: 302, headers: ["Location": moved]),
                               moved: .init(status: 200, body: Data("{}".utf8))])
         let answer = try await source().fetch("trackers.json", ifNoneMatch: nil, maxBytes: 1_000)
@@ -2719,10 +2719,10 @@ struct WebContentSourceTests {
         await #expect(throws: ContentError.http(302)) {
             try await source().fetch("trackers.json", ifNoneMatch: nil, maxBytes: 1_000)
         }
-        #expect(WebContentStub.requests.map { $0.url?.host } == ["ryftapp.de"])
-        #expect(!WebContentSource.allows(URL(string: "http://ryftapp.de/trackers.json")))
-        #expect(!WebContentSource.allows(URL(string: "https://ryftapp.de:8443/trackers.json")))
-        #expect(!WebContentSource.allows(URL(string: "https://ryftapp.de.example.com/trackers.json")))
+        #expect(WebContentStub.requests.map { $0.url?.host } == ["ryftlab.de"])
+        #expect(!WebContentSource.allows(URL(string: "http://ryftlab.de/trackers.json")))
+        #expect(!WebContentSource.allows(URL(string: "https://ryftlab.de:8443/trackers.json")))
+        #expect(!WebContentSource.allows(URL(string: "https://ryftlab.de.example.com/trackers.json")))
     }
 
     @Test func readingStopsPastTheLimit() async {

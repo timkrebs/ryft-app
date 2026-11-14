@@ -175,7 +175,7 @@ final class StaticFlags: FeatureFlagProvider {
     func source(of flag: FeatureFlag) -> FlagSource { overrides[flag] == nil ? .compiled : .override }
 }
 
-// MARK: - web content (ryftapp.de)
+// MARK: - web content (ryftlab.de)
 
 /// Static website content, not the API: no auth, no cookies, no `APIClient`, no `ReadScheduler` (ADR 0002).
 protocol ContentSource: Sendable {
@@ -196,11 +196,11 @@ enum ContentError: Error, Equatable {
     case notHTTP
 }
 
-/// `https://ryftapp.de/<path>`: an ephemeral session (no URL cache, no cookies), 15 s, no waiting for
-/// connectivity, redirects only within ryftapp.de over HTTPS, reading stops past `maxBytes`. 200 → `fetched`,
+/// `https://ryftlab.de/<path>`: an ephemeral session (no URL cache, no cookies), 15 s, no waiting for
+/// connectivity, redirects only within ryftlab.de over HTTPS, reading stops past `maxBytes`. 200 → `fetched`,
 /// 304 → `notModified`, anything else throws.
 final class WebContentSource: ContentSource {
-    static let host = "ryftapp.de"
+    static let host = "ryftlab.de"
     static let timeout: TimeInterval = 15
 
     private let session: URLSession
@@ -253,7 +253,7 @@ final class WebContentSource: ContentSource {
         }
     }
 
-    /// Follows a redirect only to `https://ryftapp.de`; anything else ends the request with its 3xx.
+    /// Follows a redirect only to `https://ryftlab.de`; anything else ends the request with its 3xx.
     private final class SameHostRedirects: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
         static let shared = SameHostRedirects()
 
@@ -263,7 +263,7 @@ final class WebContentSource: ContentSource {
         }
     }
 
-    /// HTTPS on ryftapp.de itself, with no user info and no port.
+    /// HTTPS on ryftlab.de itself, with no user info and no port.
     static func allows(_ url: URL?) -> Bool {
         guard let url, let c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return false }
         return c.scheme?.lowercased() == "https" && c.host?.lowercased() == host && c.user == nil && c.password == nil
@@ -301,7 +301,7 @@ final class MockContentSource: ContentSource, @unchecked Sendable {
 }
 
 /// The tracker catalog every screen reads (`env.trackerCatalog`): the bundled copy, or the newest valid copy
-/// of `https://ryftapp.de/trackers.json` (design.md §2.6, ADR 0002).
+/// of `https://ryftlab.de/trackers.json` (design.md §2.6, ADR 0002).
 ///
 /// - **Behind `devices.setup`:** with the flag off the bundled copy serves and nothing else is read or asked.
 /// - **One attempt when due:** 24 h after the last 200 or 304, 1 h after a failure; on app active after the
@@ -385,7 +385,7 @@ final class TrackerCatalogStore {
         await loading?.value
     }
 
-    /// Asks ryftapp.de when due (`force`: whenever; Debug → Feature flags → Reload tracker catalog). One request
+    /// Asks ryftlab.de when due (`force`: whenever; Debug → Feature flags → Reload tracker catalog). One request
     /// at a time: a call waits for the one running, and a forced one then makes its own attempt.
     func refreshIfDue(force: Bool = false) async {
         if let running = inFlight {
