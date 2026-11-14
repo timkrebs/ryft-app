@@ -7,7 +7,7 @@ nightly and weekly uploads are described in `docs/CI.md`.
 Before the first external build, the platform must be live:
 - the Beta deploy: consent, invite gate, the demo account and the legal pages
   (`../plattform/CLAUDE_FOLLOWUP_BETA.md`)
-- `https://ryftapp.de/privacy` published, not just a draft
+- `https://ryftlab.de/privacy` published, not just a draft
 
 ## 1. Archive and upload
 
@@ -88,10 +88,10 @@ so no question appears.
 | Field | Value |
 | --- | --- |
 | Beta App Description | see below |
-| Feedback Email | the address you read (e.g. `beta@ryftapp.de`) |
-| Marketing URL | `https://ryftapp.de` |
-| Privacy Policy URL | `https://ryftapp.de/privacy` |
-| Sign-in required | **yes**: user name `review@ryftapp.de`, password from Vault (`seed_demo.sh`). Enter it **only here**, never in the repo. Run `seed_demo.sh` before every submission, so the 60 days of data are fresh and the consent matches the privacy policy in force (it consents to the current version and sets birth year 1990). Run it again after a new policy version goes live. |
+| Feedback Email | the address you read (e.g. `support@ryftlab.de`) |
+| Marketing URL | `https://ryftlab.de` |
+| Privacy Policy URL | `https://ryftlab.de/privacy` |
+| Sign-in required | **yes**: user name `review@ryftlab.de`, password from Vault (`seed_demo.sh`). Enter it **only here**, never in the repo. Run `seed_demo.sh` before every submission, so the 60 days of data are fresh and the consent matches the privacy policy in force (it consents to the current version and sets birth year 1990). Run it again after a new policy version goes live. |
 | Review Notes | see below |
 | What to Test | from `docs/TESTFLIGHT_NOTES.md`, for the build |
 

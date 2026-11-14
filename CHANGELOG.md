@@ -62,6 +62,7 @@ Store "What's New".
   plan too), and edit its sets, reps, weight, rest and notes for this workout; swipe a set row to delete it.
 
 ### Changed
+- RYFT's website, privacy policy, terms and support moved to ryftlab.de.
 - RYFT is English only: on a device set to German, the app shows English. Numbers and dates keep your region's format.
 - Profile → Training: "Jump to next exercise" is now "Advance to the next exercise". It works as before, and your
   choice stays.

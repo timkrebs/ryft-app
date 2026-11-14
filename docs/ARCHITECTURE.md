@@ -395,7 +395,7 @@ nothing springs.
 
 **Routes.** `AppRoute(url:)` is the one parser for `.onOpenURL`, notification taps
 (`ryft.url`) and insight cards (`AppRoute.forInsight`). It accepts
-`https://ryftapp.de/<path>` (and `www.`) and `ryft://<path>`:
+`https://ryftlab.de/<path>` (and `www.`) and `ryft://<path>`:
 - `/day/YYYY-MM-DD`
 - `/sleep/YYYY-MM-DD`, `/sleep/plan`
 - `/insights/<metric>`, `/insights/behaviors`

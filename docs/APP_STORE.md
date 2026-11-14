@@ -41,7 +41,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | `NSHealthShareUsageDescription` names the data and the purpose, and says no advertising (5.1.1(ii), 5.1.3(i)) | ok (fixed) | `Info.plist`, `InfoPlist.xcstrings` (en, de) |
 | `NSHealthUpdateUsageDescription` only if the app writes: it doesn't, so removed | ok (fixed) | `Info.plist`; `requestAuthorization(toShare: [])` |
 | No health data in iCloud, no `NSUbiquitous*`, no iCloud entitlement (5.1.3(ii)) | ok | `Ryft.entitlements`. The SwiftData store is local; ResponseCache is in Caches/ |
-| HealthKit data never used for ads or marketing, never sold, only sent to the user's own RYFT account (5.1.2(vi), 5.1.3(i)) | ok | No ad or analytics SDK; `APIClient` talks only to `api.ryftapp.de` |
+| HealthKit data never used for ads or marketing, never sold, only sent to the user's own RYFT account (5.1.2(vi), 5.1.3(i)) | ok | No ad or analytics SDK; `APIClient` talks only to `api.ryftlab.de` |
 | Health permission requested in context. An explanation screen comes first, after sign-in, never on cold launch (5.1.1(iv), HIG HealthKit) | ok (fixed) | `Features/Onboarding/HealthPermissionView.swift`; `RyftApp.bootstrap` |
 | App fully usable when Health access is denied. Calm empty state with a way to the Health permissions (5.1.1(iv)) | ok (fixed) | `HealthAccessHint` on Today, Sleep and Strain |
 | Processors for the privacy policy: health data is processed by RYFT's own servers on AWS (eu-central-1) and by Supabase (EU) for authentication | user | privacy policy text (below) |
@@ -81,7 +81,7 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
 | Not offered on Mac (Designed for iPhone) or Vision Pro. HealthKit is missing there, and the app would be useless | ok (fixed) | `SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO`, `SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO` |
 | Background modes only for what's used: `fetch` (BGAppRefreshTask, background sync) and `processing` (BGProcessingTask, nightly cache compaction on power). HealthKit background delivery is an entitlement (2.5.4) | ok (fixed) | `Info.plist` → `UIBackgroundModes`, `BGTaskSchedulerPermittedIdentifiers`; `Sync/ScheduledWork.swift` |
 | Live Activities: Train ships in 1.0 (`API.md` → Train), so `NSSupportsLiveActivities` stays | ok | `Info.plist`, `RyftWidgetsExtension` |
-| Capabilities: HealthKit (+ background delivery), Sign in with Apple, Associated Domains `applinks:ryftapp.de`. No Push until M7, no iCloud | ok (fixed) | `Ryft.entitlements`. The app accepts `https://ryftapp.de/auth/callback`; `ryft://auth/callback` stays the redirect until the AASA file is live |
+| Capabilities: HealthKit (+ background delivery), Sign in with Apple, Associated Domains `applinks:ryftlab.de`. No Push until M7, no iCloud | ok (fixed) | `Ryft.entitlements`. The app accepts `https://ryftlab.de/auth/callback`; `ryft://auth/callback` stays the redirect until the AASA file is live |
 | App ID capabilities match the entitlements (app + `dev.timkrebs.ryft.RyftWidgets`) | user | Apple Developer → Identifiers (paid team) |
 | Version `1.0.0`; the build number increases on every archive | ok (fixed) | `MARKETING_VERSION = 1.0.0` (app + widget); `make archive` and CI set `CURRENT_PROJECT_VERSION` from `scripts/build-number.sh` (UTC `yyyyMMdd.HHmmss`) |
 | `make archive` → `xcodebuild archive` + `-exportArchive` (app-store-connect, upload symbols) | ok (fixed) | `Makefile`, `scripts/ExportOptions.plist` |
@@ -148,9 +148,9 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
    - all *linked to the user*, *not used for tracking*, purpose *App Functionality*
    - no third-party advertising, no analytics
 5. **URLs.**
-   - Privacy Policy `https://ryftapp.de/privacy`
-   - Support `https://ryftapp.de/support`, with a contact email
-   - Marketing `https://ryftapp.de`
+   - Privacy Policy `https://ryftlab.de/privacy`
+   - Support `https://ryftlab.de/support`, with a contact email
+   - Marketing `https://ryftlab.de`
 6. **Privacy policy contents.** It must cover:
    - what is collected (the types above, and what comes from Apple Health) and why
    - processors: AWS eu-central-1 hosts the RYFT platform; Supabase (EU) handles sign-in
@@ -161,11 +161,11 @@ Commits: §1 `7cd708e` (privacy manifest, purpose strings, policy links), §3 `9
    - contact
    - that RYFT is not a medical device
    - that Health data is never used for advertising or sold
-7. **Terms of Use** at `https://ryftapp.de/terms`, with the same not-a-medical-device
+7. **Terms of Use** at `https://ryftlab.de/terms`, with the same not-a-medical-device
    sentence.
 8. **Universal links.** Serve
-   `https://ryftapp.de/.well-known/apple-app-site-association` with `applinks` for
-   `<TEAMID>.dev.timkrebs.ryft` on `/auth/*`. Then add `https://ryftapp.de/auth/callback`
+   `https://ryftlab.de/.well-known/apple-app-site-association` with `applinks` for
+   `<TEAMID>.dev.timkrebs.ryft` on `/auth/*`. Then add `https://ryftlab.de/auth/callback`
    to Supabase's redirect URLs and switch `SupabaseConfig.redirectURL`. `ryft://` stays as
    the fallback.
 9. **Screenshots.** 6.9" and 6.5", dark theme, English and German, generated from the demo

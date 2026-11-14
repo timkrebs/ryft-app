@@ -1,7 +1,7 @@
 # RYFT — iOS app
 
 *Your whole health.* RYFT reads your watch's data out of Apple Health, syncs it to the
-RYFT platform (`https://api.ryftapp.de`, source in `../plattform`) and shows daily
+RYFT platform (`https://api.ryftlab.de`, source in `../plattform`) and shows daily
 **Readiness, Sleep, Recovery and Strain**. You create an account (email + password, or
 **Continue with Apple**), allow Health access, and see your data: no server address, no
 API key, no settings.
@@ -53,7 +53,7 @@ Three build-time values, all publishable, committed in **`Config/Production.xcco
 
 | Setting | Value / where from |
 |---|---|
-| `RYFT_API_URL` | `https://api.ryftapp.de`: serves `/v1/sync` and every other `/v1/*` route |
+| `RYFT_API_URL` | `https://api.ryftlab.de`: serves `/v1/sync` and every other `/v1/*` route |
 | `RYFT_SUPABASE_URL` | `https://ydgbemufggwnegbnjhkm.supabase.co` (Supabase → Project Settings → API) |
 | `RYFT_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_…` (Supabase → Project Settings → API Keys) |
 
@@ -131,9 +131,9 @@ Already in the project:
 
 **Associated Domains** is not in the project, and `Ryft.entitlements` has no
 `associated-domains` key: an empty array there made iOS refuse to launch the app
-("inadequate entitlements"). Once `curl -sI https://ryftapp.de/.well-known/apple-app-site-association`
+("inadequate entitlements"). Once `curl -sI https://ryftlab.de/.well-known/apple-app-site-association`
 serves the app's paths, add it through Signing & Capabilities → + Capability →
-Associated Domains, `applinks:ryftapp.de`. The `AppRoute` parser needs no change.
+Associated Domains, `applinks:ryftlab.de`. The `AppRoute` parser needs no change.
 Until then, `ryft://…` links and notification taps work. `make check-entitlements`
 guards the file.
 
