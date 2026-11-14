@@ -55,7 +55,7 @@ OrbitGauge PR 4 (strain band, 2026-10-30):
 **Why:** these were the non-obvious parts; mapping/round-trip logic itself was right. **How to apply:** any PR that
 touches `Shared/`, `ReadinessSnapshot` or widget families. See [[review-checks-today-state]], [[review-checks-dark-launch]].
 
-Alpine PR 1 (level by shape, 2026-11-06):
+Gauge drawing keyed on the score, reviewed 2026-11-06:
 - **A new drawing keyed on the score also reaches `.pending`,** because `drawnValues` includes the previous day. Parity and
   level tests use `.scored`, and pending tests use `previewScored` (71, solid), so nothing sees it. Render pending at 50 and 20.
 - **Contrast pinned on the app's ground isn't the widget's:** `Brand.background` is hard-coded in `RyftWidgets.swift`, not a
