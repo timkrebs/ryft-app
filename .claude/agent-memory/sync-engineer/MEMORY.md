@@ -4,9 +4,9 @@
 - [Dev machine disk](project_dev_machine_disk.md) — shared disk near full; reuse DerivedData, no diagnostics, delete xcresults
 - [Unsigned host, simulators](project_unsigned_host_and_simulators.md) — HKSource.default() crashes unsigned builds; erase vanished sims
 - [UI smoke crash-log wait](project_ui_smoke_crashlog_wait.md) — Tear Down hang / "Failed to terminate" = XCTest crash-log wait; read the spindump
-- [Simulator and tools](project_simulator_and_tools.md) — vanished sim → erase; stuck run after Mac sleep → kill own PID; pinned lint tools; brand hook
+- [Simulator and tools](project_simulator_and_tools.md) — own sim via CI_SIM_NAME; idle xcodebuild tail → kill own PID; pinned lint tools; brand hook
 - [SF Symbol availability](reference_sf_symbol_availability.md) — CoreGlyphs name_availability.plist: symbol → iOS release (target is 17)
-- [Swift Testing macro pitfalls](project_swift_testing_macro_pitfalls.md) — nested #require, rethrows/try inside #expect, slow literals break strict builds
+- [Swift Testing macro pitfalls](project_swift_testing_macro_pitfalls.md) — nested #require, try in #expect, case `none` vs Optional, `?.x == nil` passes on nil
 - [Track fixture evaluation](project_track_fixture_evaluation.md) — SwiftPM harness runs track tests in seconds; 20 seeds; one probe seed misleads
 - [Strings catalog insertion](project_strings_catalog_insertion.md) — xcstrings round-trips byte-identical via json; add keys with only + lines
 - [Import mapping harness](project_import_mapping_harness.md) — swiftc harness for matcher/aliases in seconds; built-in fixture ids; real sample counts only
@@ -17,6 +17,8 @@
 - [simctl spawn harness](project_simctl_spawn_harness.md) — Release numbers via swiftc + simctl spawn; macOS mutant harness; xcodebuild test leaves sim shut down
 - [Required-reason APIs](project_required_reason_apis.md) — manifest declares only UserDefaults; no file timestamps; prove with nm -u
 - [SwiftData upgrade test](project_swiftdata_upgrade_test.md) — old @Model nested in a test enum, temp-URL store, reopen with TrainStore.schema
-- [SyncMachine silent edges](project_sync_machine_silent_edges.md) — advance(to:) ignores unlisted edges (idle → failed); enter .reading first, assert phase
+- [SyncMachine silent edges](project_sync_machine_silent_edges.md) — advance(to:) ignores unlisted edges (idle → failed, → awaitingScores); assert phase
 - [Isolation and optional pitfalls](project_isolation_and_optional_pitfalls.md) — MainActor defaults in parameters fail; `self?.f() ?? x` swallows f's nil
 - [Import upload harness](project_import_upload_harness.md) — I5 uploader tests: two fakes, private demo switch; wipe-then-release for dropped answers
+- [Today scenario shots](project_today_scenario_shots.md) — screenshots.sh inherits sim text size + coach marks; set content_size, -coachMarks.today.done YES
+- [Repetitions and mock calls](project_repetitions_and_mock_calls.md) — api.calls unlocked → use api.count; -test-iterations says passed with issues; joiners(for:)

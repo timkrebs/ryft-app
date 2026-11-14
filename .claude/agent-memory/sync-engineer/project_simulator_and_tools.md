@@ -44,5 +44,11 @@ Seen 2026-10-22 (tracker setup T1, several agents on one Mac):
 - **zsh doesn't word-split** (2026-10-26, I5): building `O="-only-testing:A -only-testing:B"` and passing `$O` gives
   xcodebuild one argument ("Unknown build action"). Pass `${=O}`. A mutant script in Python (`subprocess` with a list)
   avoids it entirely; restore each mutant with `git checkout -- <file>` only after committing.
+- **Own simulator, and the idle tail** (2026-10-31, T2 round 2): `CI_SIM_NAME="<mine>" sh scripts/ci-simulator.sh`
+  creates a device of your own (without it the script reuses the shared "RYFT CI local"); its first launch failed
+  ("Simulator device failed to launch … No such process") until `simctl boot` + `bootstatus -b`. With
+  `-only-testing` and failing tests, xcodebuild printed every result, then idled 10+ min (a retry pass, then nothing):
+  the console's `✘`/`Test run with` lines are the answer; kill only your own PID. Never point two runs at one log file.
+  Combining several mutants in one build and running each one's test (each must fail) saves the per-mutant build.
 
 **How to apply:** any session that builds/tests in a worktree; related [[project-dev-machine-disk]].
