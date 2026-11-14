@@ -4,7 +4,7 @@
 - [Dev machine disk](project_dev_machine_disk.md) — shared disk near full; reuse DerivedData, no diagnostics, delete xcresults
 - [Unsigned host, simulators](project_unsigned_host_and_simulators.md) — HKSource.default() crashes unsigned builds; erase vanished sims
 - [UI smoke crash-log wait](project_ui_smoke_crashlog_wait.md) — Tear Down hang / "Failed to terminate" = XCTest crash-log wait; read the spindump
-- [Simulator and tools](project_simulator_and_tools.md) — own sim via CI_SIM_NAME; idle xcodebuild tail → kill own PID; pinned lint tools; brand hook
+- [Simulator and tools](project_simulator_and_tools.md) — own sim via CI_SIM_NAME; vanished sim → erase; failed run → `2>&1 | cat`; iPhone Duo pre-existing failures
 - [SF Symbol availability](reference_sf_symbol_availability.md) — CoreGlyphs name_availability.plist: symbol → iOS release (target is 17)
 - [Swift Testing macro pitfalls](project_swift_testing_macro_pitfalls.md) — nested #require, try in #expect, case `none` vs Optional, `?.x == nil` passes on nil
 - [Track fixture evaluation](project_track_fixture_evaluation.md) — SwiftPM harness runs track tests in seconds; 20 seeds; one probe seed misleads

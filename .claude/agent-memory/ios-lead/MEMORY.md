@@ -7,5 +7,6 @@
 - [No attribution lines](no-attribution-lines.md) — never a "Generated with Claude Code" footer or Co-Authored-By trailer; tell agents too
 - [swiftc via make](swiftc-via-make.md) — direct swiftc/sips/python refused for agents; wire scripts into Makefile targets
 - [Headless permission preflight](headless-permission-preflight.md) — probe git write + xcodebuild first; if refused, plan read-only, never edit on main
+- [Nightly signing blocked](nightly-signing-blocked.md) — since 11-05 the archive fails (cert limit, then unsigned PLA); a merge ships nothing until fixed
 - [Stacked branch after squash](stacked-branch-after-squash.md) — merging main can resurrect replaced code; diff merged tree vs branch head
 - [Simulator language](simulator-language.md) — German runs: change only the sim (simctl spawn / full .plist path); a defaults path write once hit the Mac
