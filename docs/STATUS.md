@@ -4,16 +4,23 @@
 
 Plan: `docs/work/2026-11-14-domain-ryftlab/plan.md`.
 
-The domain moved from `ryftapp.de` to `ryftlab.de` as a hard cut: there's no fallback, and `ryftapp.de` isn't served anymore. That covers the API (`api.ryftlab.de`), the legal pages and support, `trackers.json` and universal links. Older entries below and `docs/work/2026-10-*` name the old domain. Only the host changed; `redirectURL` stays `ryft://auth/callback`, and Associated Domains stays off.
+The domain moved from `ryftapp.de` to `ryftlab.de` as a hard cut: there's no fallback, and `ryftapp.de` isn't served anymore. That covers the API (`api.ryftlab.de`), the legal pages and support, `trackers.json` and universal links. The old name stays in the dated entry "Session 2026-10-23 → 26", in `docs/work/2026-10-*` and in `docs/work/2026-11-06-alpine/`. Only the host changed; `redirectURL` stays `ryft://auth/callback`, and Associated Domains stays off.
 
 - **Verified on the simulator:** build with 0 warnings; unit tests: every host, deep-link and fixture test passes.
 - **Pre-existing failures, also on `main`:** `FocusedRowInViewTests`, `FocusedPolishHostedTests`, `RestPillHostedTests` and one `ImportTimeResolverTests` case fail on this Mac's only simulator, "iPhone Duo".
 - **Not verified on a device:** no build has talked to `api.ryftlab.de` yet.
 - **Release:** a merge ships with that night's nightly to Internal. No version bump: the marketing version stays 1.0.0, and the build number is the archive time.
 - **Your steps:**
-  - Supabase → Authentication → URL Configuration: the Site URL and Redirect URLs on ryftlab.de; keep `ryft://auth/callback`.
+  - Supabase → Authentication → URL Configuration:
+    - move the Site URL to ryftlab.de;
+    - **delete every Redirect URL on the old domain**;
+    - keep `ryft://auth/callback`.
+    A leftover old-domain redirect would let whoever holds that domain later capture a reset session.
+  - Keep the old domain registered at least until the builds already out expire (about 2027-01-30): they still call its `api.` host with tokens and health data.
+    - Give it no `api.` record, a null MX and DMARC `p=reject`.
+    - Expire those builds in App Store Connect once the new one ships.
   - App Store Connect: the TestFlight Test Information and App Information URLs.
-  - `seed_demo.sh`: the demo account `review@ryftlab.de`.
+  - The demo account: the docs name `review@ryftlab.de`, which `seed_demo.sh` doesn't seed yet. Fill App Store Connect only after it does. Delete or move every Supabase account on an old-domain address.
 - **Platform:**
   - Push `ryft.url`, `/v1/config` `privacy_policy_url` and the `trackers.json` help links on ryftlab.de: the app now ignores other hosts.
   - The move to GCP changes the processors named in the privacy policy (`docs/APP_STORE.md` still says AWS eu-central-1).
