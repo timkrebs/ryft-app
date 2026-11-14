@@ -5,7 +5,7 @@ self-hosted Mac (`[self-hosted, macOS, ARM64]`, see below), and its `Changes` jo
 `ubuntu-latest`, which is free for a public repository. The TestFlight and CodeQL workflows
 still use GitHub's `xcode-27` runner.
 
-The Xcode version is pinned in `.xcode-version` (27.1). `scripts/select-xcode.sh` finds an
+The Xcode version is pinned in `.xcode-version` (27.2, build 27B52, also on GitHub's `xcode-27` image as `Xcode_27.2.app`). `scripts/select-xcode.sh` finds an
 `/Applications/Xcode*.app` with that version: `Xcode_<version>.app` on GitHub's images,
 `Xcode.app` on the Mac. Jobs export it as `DEVELOPER_DIR` rather than running
 `sudo xcode-select`. If no installed Xcode matches, the job stops with a list of the
@@ -75,11 +75,11 @@ installed ones. Then install it, change `runs-on`, or update `.xcode-version`.
     it starts every test (about 1,800) at once, and the ones marked `@MainActor` (most) queue
     on the one main actor: a test polling with `eventually` waits behind the whole backlog on
     every hop, so on a runner where that backlog took 30+ s the waits timed out and some tests
-    hit the 60 s cap (2026-10-23 to 26). The cap is "experimental" in Xcode 27.1; if a newer Xcode
+    hit the 60 s cap (2026-10-23 to 26). The cap was "experimental" in Xcode 27.1; CAP_27_2_PLACEHOLDER. If a newer Xcode
     ignores it, the flake returns as `await eventually { clock.pendingSleeps == 1 }` failures.
   - the simulator comes from `scripts/ci-simulator.sh`: a device of its own, "RYFT CI <run id>-<attempt>",
     created fresh on the newest iOS runtime (`$SIMULATOR`'s type, default iPhone 17 Pro, else
-    the newest iPhone) and deleted at the end of the job with its clones. A fresh device has no paired Apple
+    the newest runtime's first regular iPhone, never "iPhone Duo") and deleted at the end of the job with its clones. A fresh device has no paired Apple
     Watch: parallel testing clones the device, and cloning a paired one fails on runner
     images without the watchOS runtime. It is booted before the tests start.
   - on failure (and always for `Full`) the `.xcresult` bundles are uploaded as
