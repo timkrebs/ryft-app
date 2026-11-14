@@ -81,7 +81,7 @@ struct WelcomeView: View {
             }
             .disabled(!auth.isConfigured)
             AuthErrorMessage()
-            Text("Your data is stored on the RYFT platform. [Privacy Policy](https://ryftapp.de/privacy)")
+            Text("Your data is stored on the RYFT platform. [Privacy Policy](https://ryftlab.de/privacy)")
                 .font(.ryft(.caption))
                 .foregroundStyle(Theme.textTertiary)
                 .tint(Theme.textSecondary)
