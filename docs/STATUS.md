@@ -2,6 +2,8 @@
 
 English only (`chore/english-only`): the app has no German, the catalogs carry no `de`, and tracker copy and the German UI test follow suit; open for the platform: `de` tracker text and the `Accept-Language` header.
 
+2026-11-14: Alpine redesign dropped (user, 2026-11-14); the current look stays.
+
 ## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, merged, flag off)
 
 Plan, design, architecture and review log: `docs/work/2026-11-04-focused-session/`. Five stacked PRs. All of it ships dark behind the remote flag `train.focused_session`: flag off or absent stays the List layout.
