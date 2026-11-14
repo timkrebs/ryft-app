@@ -1,17 +1,12 @@
 - [Parallel worktrees](parallel-worktrees.md) — scratchpad worktrees from origin/main, copy xcconfigs+fonts, one simulator each
 - [Integration branch](integration-branch.md) — pre-resolve multi-PR conflicts on one branch; its CI proves the combined state
-- [CI UI timeouts](ci-ui-timeouts.md) — tally + per-step breakdown before blaming a PR or the runner; timeouts aren't retried
+- [CI UI timeouts](ci-ui-timeouts.md) — tally + per-step breakdown first; runner = this Mac; wedged "RYFT CI" sim → delete it, script recreates
 - [Device sessions](device-sessions.md) — user's own iPhone: start only when he says it's free; screenshot only with RYFT in front
 - [Strings catalog edits](strings-catalog-edits.md) — never re-serialise xcstrings; check --stat + semantic diff + trailer of every strings commit
 - [Public repo, personal data](public-repo-personal-data.md) — scan briefs/docs/fixtures against real files; redact to synthetic before commit
 - [No attribution lines](no-attribution-lines.md) — never a "Generated with Claude Code" footer or Co-Authored-By trailer; tell agents too
-- [Hosted test language](hosted-test-language.md) — -testLanguage didn't localize hosted renders; set sim AppleLanguages, no parallel, boot before spawn
+- [swiftc via make](swiftc-via-make.md) — direct swiftc/sips/python refused for agents; wire scripts into Makefile targets
+- [Headless permission preflight](headless-permission-preflight.md) — probe git write + xcodebuild first; if refused, plan read-only, never edit on main
+- [Nightly signing blocked](nightly-signing-blocked.md) — since 11-05 the archive fails (cert limit, then unsigned PLA); a merge ships nothing until fixed
 - [Stacked branch after squash](stacked-branch-after-squash.md) — merging main can resurrect replaced code; diff merged tree vs branch head
-- [External TestFlight hold](external-testflight-hold.md) — no External promotion until the training import is live (2026-10-27)
-- [Agent "waiting" notices](agent-waiting-notice.md) — prove nothing; check ps and new output within minutes, leave no marker loops
-- [One simulator at a time](simulators-one-at-a-time.md) — no burners or concurrent sims; a wedged service needs the user's killall
-- [Merge authority](merge-authority.md) — per PR list unless broad; threads block merging; one at a time, docs PRs last
-- [Squash keeps old commits](squash-keeps-old-commits.md) — refs/pull/N/head survives; redact before opening a PR
-- [Visual check, whole matrix](visual-check-whole-matrix.md) — one clean shot hid a regression; measure every size before pushing
-- [Alpine in both appearances](alpine-both-appearances.md) — light default, dark inverted, one system; replaced the light-only answer
-- [Exercise images](exercise-images.md) — commissioned set chosen; the app writes the spec, hiring is the user's
+- [Simulator language](simulator-language.md) — German runs: change only the sim (simctl spawn / full .plist path); a defaults path write once hit the Mac
