@@ -230,8 +230,9 @@ struct ProfileView: View {
                 .ryftField()
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
-            FieldLabel("Ingest URL override (compose: :8081)")
-            TextField("Same host as the API", text: Bindable(settings).devIngestURLOverride)
+            FieldLabel("Ingest URL override (compose: :8081, needed with an API override)")
+            TextField(Bundle.configValue("RyftIngestURL") ?? "https://ingest.ryftlab.de",
+                      text: Bindable(settings).devIngestURLOverride)
                 .ryftField()
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
