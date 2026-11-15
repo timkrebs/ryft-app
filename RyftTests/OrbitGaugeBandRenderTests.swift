@@ -118,13 +118,34 @@ struct OrbitGaugeBandRenderTests {
         }
     }
 
-    /// At `.small` the rail is not drawn, and a strain inside or below the band does not shift: nothing differs from nil.
+    /// How many bytes differ and the largest difference of any one byte (same length assumed; a longer one counts as all).
+    private static func difference(_ a: [UInt8], _ b: [UInt8]) -> (count: Int, maxDelta: Int) {
+        guard a.count == b.count else { return (Int.max, 255) }
+        var count = 0, maxDelta = 0
+        for i in a.indices where a[i] != b[i] {
+            count += 1
+            maxDelta = max(maxDelta, abs(Int(a[i]) - Int(b[i])))
+        }
+        return (count, maxDelta)
+    }
+
+    /// iOS 27.2 (24B8117) composites the band's wedge-clipped strain arc with one level of rounding noise at its start cap
+    /// (strain 4.0: 20 and 33 of 254,016 bytes, each by 1, dark and light; the earlier runtimes were byte-identical, and
+    /// run alone the test still passes). The band showing at small size would move pixels by tens of levels, which
+    /// `aDrawableBandDoesChangeThePicture` and the pixel tests below catch; so this bound is 1 level in at most 64 bytes.
+    private static let smallParityMaxBytes = 64
+
+    /// At `.small` the rail is not drawn, and a strain inside or below the band does not shift: nothing differs from nil
+    /// (bar the one-level noise above).
     @Test func smallWithStrainInOrBelowTheBandIsByteIdenticalToNoBand() throws {
         for strain in [4.0, 9.6, 13.0] as [Double] {
             for (schemeName, scheme, _) in Self.schemes {
                 let nilShot = try #require(render(.scored(values(strain: strain, band: nil)), .small, scheme))
                 let shot = try #require(render(.scored(values(strain: strain, band: Self.band)), .small, scheme))
-                #expect(shot.bytes == nilShot.bytes, "strain \(strain), \(schemeName)")
+                let (count, maxDelta) = Self.difference(shot.bytes, nilShot.bytes)
+                #expect(shot.width == nilShot.width && shot.height == nilShot.height, "strain \(strain), \(schemeName)")
+                #expect(count <= Self.smallParityMaxBytes && maxDelta <= 1,
+                        "strain \(strain), \(schemeName): \(count) bytes differ, by up to \(maxDelta)")
             }
         }
     }

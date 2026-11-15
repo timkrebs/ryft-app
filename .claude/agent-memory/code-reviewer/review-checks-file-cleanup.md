@@ -35,3 +35,12 @@ Re-review (e7246de, 2026-10-23):
 **Why:** none of these showed up in the implementer's 18 green tests; mutations and a UI probe found them.
 **How to apply:** for any delete-at-launch or temp-file change, run the layer-removal and marker mutations first. See
 [[review-checks-merges-and-wiring]] and the sync-engineer note [[project-swiftdata-group-container]].
+
+Write-ahead ledgers (wipe recovery W1, 2026-11-06), all by reading:
+- **A persisted file format starts with its first shipped build.** Synthesized `Decodable` requires every non-optional key even
+  with `var x = false`, so a field a later ticket adds makes older entries undecodable, and "undecodable = no entry" then
+  drops the debt silently. Compare the design's full field list against what the first ticket encodes.
+- **Struct rebuilt field by field** (`Wipe(reason:account:since:)`) drops the next field. Ask for copy-and-set.
+- **A test rig that re-implements the live closure** (`wipeLocalData`) leaves the forwarded argument unproved, and a defaulted
+  `at: Date = Date()` means removing it still compiles. Ask for one shared entry point.
+- **Launch order:** anything `AuthService.init` -> `apply(stored)` clears is gone before `TrainStore.shared` reads it.

@@ -39,8 +39,10 @@ struct ImportTimeResolverTests {
         Case(zone: "Australia/Lord_Howe", local: "2026-04-05 01:29", utc: "2026-04-04T14:29:00Z", note: nil),
         Case(zone: "Australia/Lord_Howe", local: "2026-04-05 02:00", utc: "2026-04-04T15:30:00Z", note: nil),
         // A day whose midnight didn't exist (DST began at 00:00), and a fold across midnight (DST ended at 01:00).
+        // Both are past years: a future year's rule can change in the system's time zone data (Cuba's 2026-11-01 fold
+        // vanished with iOS 27.2's data, which broke this case), a settled one doesn't.
         Case(zone: "America/Sao_Paulo", local: "2018-11-04 00:30", utc: "2018-11-04T03:30:00Z", note: .nonexistentLocalTime),
-        Case(zone: "America/Havana", local: "2026-11-01 00:30", utc: "2026-11-01T04:30:00Z", note: .repeatedLocalTime),
+        Case(zone: "America/Havana", local: "2022-11-06 00:30", utc: "2022-11-06T04:30:00Z", note: .repeatedLocalTime),
         // A whole day skipped (Samoa crossed the date line): the time moves forward by the 24-hour gap.
         Case(zone: "Pacific/Apia", local: "2011-12-30 10:00", utc: "2011-12-30T20:00:00Z", note: .nonexistentLocalTime),
         Case(zone: "UTC", local: "2026-03-29 02:30", utc: "2026-03-29T02:30:00Z", note: nil),

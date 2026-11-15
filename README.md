@@ -15,7 +15,7 @@ Screenshots come from the simulator with the built-in mock data (`scripts/screen
 
 ## Requirements
 
-- Xcode 16.3 or newer (supabase-swift needs Swift tools 6.1; built with Xcode 27.1), iOS 17+
+- Xcode 16.3 or newer (supabase-swift needs Swift tools 6.1; built with Xcode 27.2), iOS 17+
 - A **paid Apple Developer Program** membership for device builds: the app uses Sign in
   with Apple, which free Personal Teams can't provision (see *Apple developer setup*)
 - An iPhone for real data. HealthKit has no data in the simulator, which runs in demo mode.

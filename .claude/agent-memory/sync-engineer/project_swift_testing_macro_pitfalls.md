@@ -19,6 +19,11 @@ Seen 2026-10-23 (A3a track pipeline), Xcode 27.1, `RYFT_STRICT_WARNINGS=YES`:
   Inside an `==` operand (`#expect(xs.map(\.a) == […])`) it compiles. Also keep `try` calls out of `#expect`
   operands (`#expect(try f() == g())`): bind them first.
 
+- (2026-10-31, T3 detection) An enum case named `none` compared through an optional (`row?.received == .none`)
+  warns "assuming you mean Optional.none" (fails strict builds) and is a real ambiguity for callers: name it
+  something else (`notListed`). And `#expect(row(x)?.count == nil)` passes when the row is missing: `#require` the
+  row into a `let` first whenever the expected value is nil.
+
 **Why:** each cost a full build-for-testing round trip (~3 min); the emit-module step stops at the first one, so
 later errors only show on the next build.
 
