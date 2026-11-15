@@ -1,8 +1,10 @@
 # Status — 2026-11-14
 
-## Domain: ryftlab.de (2026-11-14, `chore/domain-ryftlab`, held until `api.ryftlab.de` answers)
+## Domain: ryftlab.de (2026-11-14, `chore/domain-ryftlab`, held until `api.ryftlab.de` and `ingest.ryftlab.de` answer)
 
 Plan: `docs/work/2026-11-14-domain-ryftlab/plan.md`.
+
+2026-11-15: The sync (`POST /v1/sync`) now goes to `RYFT_INGEST_URL` = `https://ingest.ryftlab.de` (platform D217), and every other route to `api.ryftlab.de`, with no fallback between them. A build without an ingest URL fails `PlatformConfigTests`. In Debug, an API override needs its ingest override (compose: `:8081` ingest, `:8082` api). Simulator-verified only.
 
 The domain moved from `ryftapp.de` to `ryftlab.de` as a hard cut: there's no fallback, and `ryftapp.de` isn't served anymore. That covers the API (`api.ryftlab.de`), the legal pages and support, `trackers.json` and universal links. The old name stays in the dated entry "Session 2026-10-23 → 26", in `docs/work/2026-10-*` and in `docs/work/2026-11-06-alpine/`. Only the host changed; `redirectURL` stays `ryft://auth/callback`, and Associated Domains stays off.
 

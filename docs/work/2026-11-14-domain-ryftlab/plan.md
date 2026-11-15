@@ -74,6 +74,32 @@ Don't touch: entitlements (Associated Domains stays off), signing, bundle IDs, `
 - The domain check is `git grep -n -i 'ryftapp\.de'`.
 - Not touched: open PR #100 adds one line naming ryftapp.de (`CLAUDE_FOLLOWUP_ALPINE_LIGHT.md`). #106 and #107 add none.
 
+## T4 (2026-11-15): the ingest host (sync-engineer)
+Brief: head-architect, 2026-11-15. Platform `API.md` (#169, D217) now has two production hosts. `POST /v1/sync` goes to
+`https://ingest.ryftlab.de`, and every other route stays on `https://api.ryftlab.de`. Each host answers `404` to the
+other's routes. Compose serves ingest on `:8081` and api on `:8082`. Paths, bodies and types stay the same.
+
+**What was wrong before T4:** `APIClient.exchange` resolved `base ?? baseURL ?? settings.apiURL`, and `Settings.ingestURL`
+returned `apiURL`. So a missing ingest URL sent the sync to the api host, which now answers `404` to every sync.
+
+**Change:**
+- `RYFT_INGEST_URL` sits next to `RYFT_API_URL` in `Production.xcconfig`, reaches `Info.plist` as `RyftIngestURL`, and is
+  read by `PlatformConfig.ingestURL`.
+- `PlatformConfig.problems` reports a missing ingest URL, or a non-HTTPS one in Release. A Production build without it
+  fails `thisBuildIsComplete`, Debug stops at launch, and Release shows `MisconfiguredBuildView`.
+- Routing is decided per route inside `exchange`. `POST /v1/sync` goes to the ingest URL and nothing else, and every
+  other route goes to the api URL. An explicit `base:` still wins (the test seam).
+
+**Decision: the Debug overrides come as a pair.** An API override without an ingest override leaves no ingest URL, so
+the sync fails with `notConfigured`. It doesn't go to production ingest. A compose stack's dev bearer must never reach
+production. Against the old single-host stack, the same URL goes in both fields.
+
+**Done when:**
+- routing tests cover the sync on the ingest host, other routes on the api host, and a missing ingest URL throwing with
+  no request sent;
+- the config tests and the Production-xcconfig test pass;
+- the Unit plan passes on iPhone 17 Pro / iOS 27.2, the build has 0 warnings, and `make lint` is clean.
+
 ## TestFlight: how this build reaches testers (nothing is triggered by this PR)
 - **Internal:** `nightly.yml` runs at 01:00 UTC whenever `main` moved since the last `build/*` tag. It calls `_testflight.yml` (environment `internal-testflight`, **no approval**), which archives Release with `Production.xcconfig`, uploads, and hands the build to group Internal. **So merging this PR ships it that night.** The merge is the gate.
 - **External:** `weekly.yml` runs Mondays 07:00 Berlin (next: 2026-11-16), or by hand. It sends the newest processed build to group External with beta review. Environment `external-testflight` waits for approval per run.
