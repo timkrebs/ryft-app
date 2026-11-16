@@ -25,6 +25,10 @@ final class HostedWindow {
         func activate() -> Bool { object.accessibilityActivate() }
 
         var isAdjustable: Bool { traits.contains(.adjustable) }
+        /// SwiftUI's `.accessibilityAddTraits(.isModal)`: the rest of the screen is hidden from VoiceOver while it is there.
+        var isModal: Bool { object.accessibilityViewIsModal }
+        /// The UI tests' handle (`.accessibilityIdentifier`).
+        var identifier: String? { object.value(forKey: "accessibilityIdentifier") as? String }
         /// What Voice Control takes for this element.
         var inputLabels: [String] { object.accessibilityUserInputLabels ?? [] }
         func increment() { object.accessibilityIncrement() }
