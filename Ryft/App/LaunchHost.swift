@@ -49,22 +49,23 @@ struct LaunchOverlay: View {
     static let identifier = "launch.sequence"
 
     var body: some View {
-        content
-            .contentShape(Rectangle())
-            .onTapGesture { model.send(.tap) }
-            .allowsHitTesting(model.coversRoot)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text("Loading RYFT", comment: "VoiceOver status while the launch animation plays."))
-            .accessibilityAddTraits(.isModal)
-            .accessibilityIdentifier(Self.identifier)
-            .accessibilityAction { model.send(.tap) }
-            .accessibilityAction(named: Text("Skip")) { model.send(.tap) }
-            .accessibilityHidden(!model.coversRoot)
-            .ignoresSafeArea()
+        LaunchFullScreen { safeAreaBottom in
+            content(safeAreaBottom: safeAreaBottom)
+                .contentShape(Rectangle())
+                .onTapGesture { model.send(.tap) }
+                .allowsHitTesting(model.coversRoot)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("Loading RYFT", comment: "VoiceOver status while the launch animation plays."))
+                .accessibilityAddTraits(.isModal)
+                .accessibilityIdentifier(Self.identifier)
+                .accessibilityAction { model.send(.tap) }
+                .accessibilityAction(named: Text("Skip")) { model.send(.tap) }
+                .accessibilityHidden(!model.coversRoot)
+        }
     }
 
     @ViewBuilder
-    private var content: some View {
+    private func content(safeAreaBottom: CGFloat) -> some View {
         if model.phase == .armed {
             // Pixel for pixel the system launch screen (`UILaunchScreen`'s Graphite is this colour, ADR 0016).
             Theme.background
@@ -74,7 +75,8 @@ struct LaunchOverlay: View {
                 let sequence = model.sequence
                 ZStack {
                     Theme.background
-                    LaunchStage(frame: LaunchFrame(t: sequence.frameProgress(at: context.date), palette: palette))
+                    LaunchStage(frame: LaunchFrame(t: sequence.frameProgress(at: context.date), palette: palette),
+                                safeAreaBottom: safeAreaBottom)
                         .opacity(sequence.contentOpacity(at: context.date))
                 }
                 .opacity(1 - sequence.handOff(at: context.date))
@@ -83,6 +85,19 @@ struct LaunchOverlay: View {
             // Debug, when the first frame was t 0.03 at 77 % opacity): the mark fades in from nothing. Until the
             // sequence takes this, every frame is t = 0.
             .onAppear { model.send(.firstFrame) }
+        }
+    }
+}
+
+/// The whole screen for the launch overlay: `content` is laid out ignoring the safe areas and gets the bottom inset it
+/// ignores, read here, outside `.ignoresSafeArea()`, where it is still the screen's (inside, a geometry reads 0).
+struct LaunchFullScreen<Content: View>: View {
+    @ViewBuilder var content: (_ safeAreaBottom: CGFloat) -> Content
+
+    var body: some View {
+        GeometryReader { proxy in
+            content(proxy.safeAreaInsets.bottom)
+                .ignoresSafeArea()
         }
     }
 }

@@ -9,6 +9,9 @@ struct LaunchStage: View {
     /// The mark's 100 box in the stage's own space; nil is the launch layout's (`markRect(in:)`). PR 4 passes Today's
     /// header mark here to move the mark into it.
     var markRect: CGRect?
+    /// The screen's bottom safe-area inset (the home indicator's), which the tagline clears. The overlay passes it from
+    /// `LaunchFullScreen`: the stage's own geometry is laid out ignoring the safe areas, where it reads 0.
+    var safeAreaBottom: CGFloat = 0
 
     /// The 100 box's side: stroke 5.81, dot r 11.04, radii 80.96 / 47.10 / 13.98 pt.
     static let markSide: CGFloat = 184
@@ -55,7 +58,7 @@ struct LaunchStage: View {
                         .padding(.horizontal, Theme.Metrics.screenPadding)
                         .opacity(frame.taglineOpacity)
                         .dynamicTypeSize(...DynamicTypeSize.accessibility3)
-                    Color.clear.frame(height: Self.taglineBottomInset(safeAreaBottom: proxy.safeAreaInsets.bottom))
+                    Color.clear.frame(height: Self.taglineBottomInset(safeAreaBottom: safeAreaBottom))
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)
             }

@@ -213,16 +213,24 @@ struct LaunchStageTests {
     // MARK: the safe area
 
     /// The tagline's ink bottom with a home indicator of `inset` pt, drawn as `LaunchOverlay` draws its stage: on the
-    /// background, ignoring the safe areas, in a window whose bottom safe area is `inset`.
+    /// background, in `LaunchFullScreen`, in a window whose bottom safe area is `inset`.
     private func taglineBottom(inset: Double) async throws -> CGFloat {
         let size = CGSize(width: 402, height: 874)
         var environment = EnvironmentValues()
         environment.colorScheme = .dark
-        let launch = LaunchStage(frame: Frame(t: 1, palette: .resolved(in: environment)))
-        let content = ZStack { Theme.background; launch }.ignoresSafeArea()
+        let palette = Frame.Palette.resolved(in: environment)
+        let content = LaunchFullScreen { safeAreaBottom in
+            ZStack { Theme.background; LaunchStage(frame: Frame(t: 1, palette: palette), safeAreaBottom: safeAreaBottom) }
+        }
         var found: Raster?
         try await HostedWindow.run(width: size.width, height: size.height, bottomInset: inset, content) { w in
+            // A window the size of the screen brings the device's own inset (34 on a notched iPhone): make the total `inset`.
+            w.window.layoutIfNeeded()
+            let device = w.host.view.safeAreaInsets.bottom - w.host.additionalSafeAreaInsets.bottom
+            w.host.additionalSafeAreaInsets.bottom = max(inset - device, 0)
             try await w.settle()
+            let total = Double(w.host.view.safeAreaInsets.bottom)
+            #expect(total == inset, "the window's bottom safe area: \(total), the device's \(device)")
             let format = UIGraphicsImageRendererFormat()
             format.scale = Self.scale
             format.opaque = true
@@ -241,15 +249,11 @@ struct LaunchStageTests {
         #expect(bottom <= 874 - 64 + 0.5 && bottom >= 874 - 64 - 8, "ink ends at \(bottom), box ends at 810")
     }
 
-    /// FINDING (T3.4), not fixed here: `LaunchStage` reads `proxy.safeAreaInsets.bottom` inside the overlay's
-    /// `.ignoresSafeArea()`, where the geometry's insets are 0, so `max(64, inset + 24)` never sees a home indicator and a
-    /// 60 pt inset still gets 64 pt. Harmless at 34 pt (64 wins); it matters only above 40 pt. The rule itself is right
-    /// (`theTaglineInset`). When the stage gets the real inset, this reports "known issue didn't fail": delete the wrapper.
+    /// Above 40 pt the inset wins: 60 + 24 = 84 up. The stage once read its own geometry's inset under the overlay's
+    /// `.ignoresSafeArea()`, which is 0, and stayed at 64 (T3.4); `LaunchFullScreen` reads it outside and passes it in.
     @Test func theTaglineClearsALargeInset() async throws {
         let bottom = try await taglineBottom(inset: 60)
-        withKnownIssue("The stage's safe-area input is 0 under the overlay's .ignoresSafeArea()") {
-            #expect(bottom <= 874 - 84 + 0.5 && bottom >= 874 - 84 - 8, "inset 60: ink ends at \(bottom), box ends at 790")
-        }
+        #expect(bottom <= 874 - 84 + 0.5 && bottom >= 874 - 84 - 8, "inset 60: ink ends at \(bottom), box ends at 790")
     }
 
     // MARK: t = 1 is the static mark in pixels (case 31)
