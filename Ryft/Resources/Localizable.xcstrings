@@ -1603,6 +1603,9 @@
       "comment" : "Add activity: end before start."
     },
     "Engine" : {},
+    "Engineered for peak." : {
+      "comment" : "The tagline under the wordmark on the launch screen."
+    },
     "Enter a distance above 0." : {
       "comment" : "Add activity: the distance can't be read or is out of range."
     },

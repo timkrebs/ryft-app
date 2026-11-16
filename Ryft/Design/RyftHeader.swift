@@ -22,6 +22,8 @@ struct RyftHeader: View {
 struct Wordmark: View {
     /// The wordmark style's size: `RyftTextStyle.wordmark` is the source of truth.
     var size: CGFloat = RyftTextStyle.wordmark.size
+    /// In em. Only the launch sets another one: it animates from 0.9 to `Wordmark.tracking` (design.md §P3-4).
+    var tracking: CGFloat = Wordmark.tracking
 
     /// Tracking in em.
     static let tracking: CGFloat = 0.32
@@ -29,8 +31,8 @@ struct Wordmark: View {
     var body: some View {
         Text(verbatim: "RYFT")
             .font(.ryftNumber(size: size, weight: .light))
-            .tracking(size * Self.tracking)
-            .padding(.trailing, -size * Self.tracking)
+            .tracking(size * tracking)
+            .padding(.trailing, -size * tracking)
     }
 }
 

@@ -195,10 +195,29 @@ extension RyftMarkGeometry {
     /// The closed inner ring, stroked; empty where the metrics drop it (below `innerRingMinSide`).
     static func innerRingPath(in placement: Placement) -> Path {
         guard placement.metrics.showsInnerRing else { return Path() }
-        let c = placement.centre, ir = innerRadius * placement.unit
-        var inner = Path()
-        inner.addEllipse(in: CGRect(x: c.x - ir, y: c.y - ir, width: ir * 2, height: ir * 2))
-        return inner.strokedPath(StrokeStyle(lineWidth: placement.metrics.stroke * placement.unit))
+        return ringPath(radius: innerRadius, in: placement)
+    }
+
+    /// A closed ring of `radius` (box units) at the metrics' stroke: the inner ring, and the launch's tracks under the
+    /// three rings.
+    static func ringPath(radius: Double, in placement: Placement) -> Path {
+        let c = placement.centre, r = radius * placement.unit
+        var ring = Path()
+        ring.addEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
+        return ring.strokedPath(StrokeStyle(lineWidth: placement.metrics.stroke * placement.unit))
+    }
+
+    /// Part of the inner ring, stroked with butt caps (the ring closes without a cap showing where it ends): from
+    /// `start` degrees clockwise over `sweep`. A sweep of 360 or more is the closed ring, `innerRingPath(in:)`, so the
+    /// launch's last frame is the mark's pixels; nothing for a sweep of 0 or where the metrics drop the ring.
+    static func innerRingArcPath(start: Double, sweep: Double, in placement: Placement) -> Path {
+        guard placement.metrics.showsInnerRing, sweep > 0 else { return Path() }
+        guard sweep < 360 else { return innerRingPath(in: placement) }
+        var arc = Path()
+        // SwiftUI's `clockwise` is mirrored in y-down space: false = visually clockwise.
+        arc.addArc(center: placement.centre, radius: innerRadius * placement.unit,
+                   startAngle: .degrees(start), endAngle: .degrees(start + sweep), clockwise: false)
+        return arc.strokedPath(StrokeStyle(lineWidth: placement.metrics.stroke * placement.unit, lineCap: .butt))
     }
 }
 
