@@ -225,8 +225,6 @@ enum OrbitGaugeGeometry {
             orbit == .strain ? outerRadius : innerRadius
         }
 
-        func stroke(of orbit: Orbit) -> CGFloat { arcStroke }
-
         var outerTickCount: Int { tier.outerCount }
         var innerTickCount: Int { tier.innerCount }
 

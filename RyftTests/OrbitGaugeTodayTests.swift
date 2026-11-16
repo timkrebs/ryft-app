@@ -336,13 +336,14 @@ struct OrbitGaugeDrawingRenderTests {
     }
 
     @Test func theBandRuleIsTheAppsRule() {
-        // 67 and 34 are the lower bounds (`Theme.band(forScore:)`, `MetricSpec.scoreBand`).
-        let p = OrbitGaugePalette.assets
-        for (score, expected) in [(100, p.high), (67, p.high), (66, p.moderate), (34, p.moderate), (33, p.low), (0, p.low)] {
-            #expect(p.band(forReadiness: score) == expected, "readiness \(score)")
-            #expect(Theme.band(forScore: score) == expected, "readiness \(score)")
-        }
-        #expect(p.band(forReadiness: nil) == p.noReadiness && Theme.band(forScore: nil) == p.noReadiness)
+        // The widget's band word switches at these lower bounds, where `Theme.band(forScore:)` does.
+        let high = OrbitGaugePalette.highFrom, moderate = OrbitGaugePalette.moderateFrom
+        #expect(high == 67 && moderate == 34)
+        #expect(Theme.band(forScore: high) == Theme.band(forScore: 100))
+        #expect(Theme.band(forScore: high - 1) != Theme.band(forScore: high))
+        #expect(Theme.band(forScore: moderate) == Theme.band(forScore: high - 1))
+        #expect(Theme.band(forScore: moderate - 1) != Theme.band(forScore: moderate))
+        #expect(OrbitGaugePalette.assets.strainPastBand == Theme.band(forScore: 0))
     }
 }
 

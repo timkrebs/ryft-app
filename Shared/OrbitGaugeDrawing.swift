@@ -199,10 +199,6 @@ struct OrbitGaugeTracks: View {
         self.palette = palette
     }
 
-    init(mode: OrbitGaugeMode?, size: OrbitGaugeSize, palette: OrbitGaugePalette) {
-        self.init(scene: OrbitGaugeScene(mode: mode, size: size), palette: palette)
-    }
-
     var body: some View {
         let m = scene.metrics
         ZStack {
@@ -288,10 +284,6 @@ struct OrbitGaugeMarks: View {
         self.palette = palette
     }
 
-    init(mode: OrbitGaugeMode, size: OrbitGaugeSize, palette: OrbitGaugePalette) {
-        self.init(scene: OrbitGaugeScene(mode: mode, size: size), palette: palette)
-    }
-
     var body: some View {
         let m = scene.metrics
         let split = scene.strainSplit
@@ -369,7 +361,7 @@ struct OrbitGaugeMarks: View {
                            plain: palette.strain, past: palette.strainPastBand)
         } else {
             OrbitArc(radius: m.radius(of: orbit), start: orbit.startDegrees, sweep: sweep)
-                .stroke(palette.colour(of: orbit), style: StrokeStyle(lineWidth: m.stroke(of: orbit), lineCap: .round))
+                .stroke(palette.colour(of: orbit), style: StrokeStyle(lineWidth: m.arcStroke, lineCap: .round))
         }
     }
 
