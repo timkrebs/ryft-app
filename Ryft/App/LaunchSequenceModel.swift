@@ -25,21 +25,40 @@ final class LaunchSequenceModel {
     /// The overlay's timeline runs.
     var isAnimating: Bool { phase == .playing || phase == .handingOff }
 
+    /// What the model marks for performance-profiler (launch-design §9.2), as values: each goes to `Signposts.launch`
+    /// when `signposts` is on, and to `marks` either way.
+    enum Mark: Equatable, Sendable {
+        /// `launch-decision`, with `LaunchDecision.signpostName`.
+        case decision(String)
+        /// The `launch-sequence` interval begins: the first `.active`, `armed -> playing`.
+        case began
+        /// `launch-handoff`: the root is interactive again, M2's end. Once per run, when `playing` ends: into the fade,
+        /// or straight to done when the natural end's wake-up came after the fade too; never when the background ended it.
+        case handOff
+        /// The `launch-sequence` interval ends, with `Ending.signpostName`.
+        case ended(String)
+    }
+
     @ObservationIgnored private let clock: AppClock
     @ObservationIgnored private let signposts: Bool
+    /// Every mark, whether or not `signposts` sends it to the system: the tests' window on the signposts.
+    @ObservationIgnored private let marks: ((Mark) -> Void)?
     /// The one wait for the next deadline; a new event replaces it, a terminal phase leaves none.
     @ObservationIgnored private var deadline: Task<Void, Never>?
+    /// `began` was marked and `ended` not yet.
+    @ObservationIgnored private var intervalOpen = false
     @ObservationIgnored private var interval: OSSignpostIntervalState?
 
-    init(decision: LaunchDecision, clock: AppClock, signposts: Bool = true) {
+    init(decision: LaunchDecision, clock: AppClock, signposts: Bool = true, marks: ((Mark) -> Void)? = nil) {
         self.clock = clock
         self.signposts = signposts
+        self.marks = marks
         let now = clock.now()
         let sequence = LaunchSequence(decision: decision, createdAt: now)
         self.sequence = sequence
         phase = sequence.phase(at: now)
         ending = sequence.ending(at: now)
-        if signposts { Signposts.launch.emitEvent("launch-decision", "\(decision.signpostName, privacy: .public)") }
+        mark(.decision(decision.signpostName))
         Self.log.debug("launch: \(decision.signpostName, privacy: .public)")
     }
 
@@ -80,15 +99,34 @@ final class LaunchSequenceModel {
     private func transition(from old: LaunchSequence.Phase, to new: LaunchSequence.Phase) {
         let what = "\(old.rawValue) -> \(new.rawValue)"
         Self.log.debug("launch: \(what, privacy: .public)")
-        if new == .playing, signposts {
-            interval = Signposts.launch.beginInterval("launch-sequence", id: Signposts.launch.makeSignpostID())
+        if new == .playing {
+            intervalOpen = true
+            mark(.began)
         }
-        if new == .handingOff, signposts { Signposts.launch.emitEvent("launch-handoff") }
-        if new == .done || new == .skipped, let interval {
-            let name = ending?.signpostName ?? "none"
-            Signposts.launch.endInterval("launch-sequence", interval, "\(name, privacy: .public)")
-            self.interval = nil
+        // A natural end whose wake-up runs 0.4 s late jumps `playing -> done`: the root was still handed over (review PR 3
+        // row 15). Leaving `playing` happens once per run, so this marks once.
+        if old == .playing, new == .handingOff || (new == .done && ending != .backgrounded) { mark(.handOff) }
+        if new == .done || new == .skipped, intervalOpen {
+            intervalOpen = false
+            mark(.ended(ending?.signpostName ?? "none"))
         }
+    }
+
+    private func mark(_ mark: Mark) {
+        if signposts {
+            switch mark {
+            case .decision(let name):
+                Signposts.launch.emitEvent("launch-decision", "\(name, privacy: .public)")
+            case .began:
+                interval = Signposts.launch.beginInterval("launch-sequence", id: Signposts.launch.makeSignpostID())
+            case .handOff:
+                Signposts.launch.emitEvent("launch-handoff")
+            case .ended(let name):
+                if let interval { Signposts.launch.endInterval("launch-sequence", interval, "\(name, privacy: .public)") }
+                interval = nil
+            }
+        }
+        marks?(mark)
     }
 
     private static let log = Logger(subsystem: "dev.timkrebs.ryft", category: "launch")

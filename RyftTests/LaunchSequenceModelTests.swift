@@ -14,8 +14,15 @@ struct LaunchSequenceModelTests {
     /// Either side of a boundary: far above a `Date`'s rounding at this epoch (about 2e-7), far below any fade.
     private let margin = 0.001
 
-    private func model(_ decision: LaunchDecision, signposts: Bool = false) -> LaunchSequenceModel {
-        LaunchSequenceModel(decision: decision, clock: clock, signposts: signposts)
+    /// The model's marks (its signposts as values), in order.
+    private final class Marks {
+        var all: [LaunchSequenceModel.Mark] = []
+        func count(_ mark: LaunchSequenceModel.Mark) -> Int { all.filter { $0 == mark }.count }
+    }
+
+    private func model(_ decision: LaunchDecision, signposts: Bool = false, marks: Marks? = nil) -> LaunchSequenceModel {
+        LaunchSequenceModel(decision: decision, clock: clock, signposts: signposts,
+                            marks: marks.map { box in { box.all.append($0) } })
     }
 
     /// Lets the model's deadline task run: it registers its wait, or finishes after a wake-up.
@@ -284,6 +291,78 @@ struct LaunchSequenceModelTests {
     }
 
     // MARK: signposts
+
+    /// performance-profiler's M2 ends at `launch-handoff`. If the natural end's wake-up runs late by the whole fade, the
+    /// model goes `playing -> done` and never sees `handingOff`; the root was still handed over (review PR 3 row 15).
+    @Test("A wake-up after the fade still marks the hand-off, once")
+    func aLateWakeUpStillMarksTheHandOffOnce() async {
+        let marks = Marks()
+        let model = model(.play(.full), marks: marks)
+        model.send(.scene(.active))
+        await settle()
+        await advance(5.0)
+        #expect(model.phase == .playing)
+        #expect(marks.all == [.decision("play-full"), .began])
+        // The deadline is 5.2 s and the fade ends at 5.6 s: the clock jumps from 5.0 to 6.0 s.
+        await advance(1.0)
+        #expect(model.phase == .done && model.ending == .finished)
+        #expect(marks.count(.handOff) == 1)
+        #expect(marks.all == [.decision("play-full"), .began, .handOff, .ended("finished")])
+        #expect(clock.pendingSleeps == 0)
+    }
+
+    @Test("Every run marks the hand-off once, except when the background ended it")
+    func everyRunMarksTheHandOffOnceUnlessBackgrounded() async {
+        func marks(_ decision: LaunchDecision = .play(.full),
+                   _ script: (LaunchSequenceModel) async -> Void) async -> [LaunchSequenceModel.Mark] {
+            let marks = Marks()
+            let model = model(decision, marks: marks)
+            await script(model)
+            await advance(10)
+            #expect(model.phase == .done || model.phase == .skipped)
+            return marks.all
+        }
+        // On time: through the fade.
+        let natural = await marks { model in
+            model.send(.scene(.active))
+            await settle()
+            await advance(5.2 + margin)
+            #expect(model.phase == .handingOff)
+        }
+        #expect(natural == [.decision("play-full"), .began, .handOff, .ended("finished")])
+        let reduced = await marks(.play(.reduced)) { model in
+            model.send(.scene(.active))
+            await settle()
+            await advance(1.0 + margin)
+            #expect(model.phase == .handingOff)
+        }
+        #expect(reduced == [.decision("play-reduced"), .began, .handOff, .ended("finished")])
+        let tapped = await marks { model in
+            model.send(.scene(.active))
+            await advance(1)
+            model.send(.tap)
+            model.send(.tap)
+        }
+        #expect(tapped == [.decision("play-full"), .began, .handOff, .ended("tapped")])
+        let backgrounded = await marks { model in
+            model.send(.scene(.active))
+            await advance(1)
+            model.send(.scene(.background))
+        }
+        #expect(backgrounded == [.decision("play-full"), .began, .ended("backgrounded")], "no hand-off: nobody is looking")
+        let backgroundedInTheFade = await marks { model in
+            model.send(.scene(.active))
+            await advance(1)
+            model.send(.tap)
+            await advance(0.1)
+            model.send(.scene(.background))
+        }
+        #expect(backgroundedInTheFade == [.decision("play-full"), .began, .handOff, .ended("tapped")])
+        let armedThenBackgrounded = await marks { $0.send(.scene(.background)) }
+        #expect(armedThenBackgrounded == [.decision("play-full")], "never played: no interval, no hand-off")
+        let skipped = await marks(.skip(.harness)) { $0.send(.scene(.active)) }
+        #expect(skipped == [.decision("skip-harness")])
+    }
 
     @Test func withSignpostsOnTheRunIsTheSame() async {
         let model = model(.play(.full), signposts: true)
