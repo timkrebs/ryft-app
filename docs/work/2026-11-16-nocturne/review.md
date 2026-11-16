@@ -112,3 +112,19 @@ strain head (row 14).
 Not verifiable by reading: whether `.accessibilityHidden` on the covered root reaches the UIKit-hosted tabs (Accessibility
 Inspector or VoiceOver on a device), taps on the tab bar while covered, hitches (performance-profiler), device-only
 launch paths (SpringBoard, HealthKit/BG, real purpose launches).
+
+**ui-validator (9f8d8b6, iPhone 17 Pro simulator, dark, English).** No blocker, no should-fix. The gauge at 260 measures
+118.0 / 88.0 / 58.0, ticks 1.20 × 6.0 and 1.30 × 7.0, dots within 0.1° of the spec, the "84" grid 74.0 × 47.0 centred, the
+tracks' colours exact; Today's `.large` gauge is v3 with a Light centre and its entrance after the hand-off. The launch
+fits the sample table at RMS 0.84°, layout within 0.7 pt, reduced 1.25 s, a tap ends it 0.252 s later (log), the AX3
+tagline scales on one line. Contrast from pixels equals P3-3.
+
+| # | Finding | Decision | Owner |
+|---|---|---|---|
+| 18 | Nit: the sequence clock starts at `.active`, about 0.15 s before the first `TimelineView` draw, so in Debug the first frame is t ≈ 0.03 at 77 % group opacity: a pop instead of a fade (P3-10 row 5). | Anchor the start to the first drawn frame. | ios-developer |
+| 19 | Nit: Release simulator, a ~3-frame freeze at the start (group opacity 0.2 → 0.85), plus 1–2 frame repeats in the draw-in. | performance-profiler measures hitches on a quiet machine (M4); fix if it is ours. | performance-profiler |
+| 20 | Nit: pending dims the marks to 0.6 over full-strength 16 % ticks, so the ticks show through the strain arc as a ladder; Today shows pending every morning. | Cut the outer ticks under the strain arc while pending (as scored hides them). | ios-developer |
+| 21 | Nit: the overlay is a Button "Loading RYFT" (`launch.sequence`). | Accepted (P3-10 row 32). | — |
+
+The system launch screen reads `#090C0B` in screenshots against the overlay's `#0A0C0B`: one level of red, no visible
+flash. Not checked: VoiceOver itself, frame pacing on a device, Low Power Mode, the widget on the Lock Screen.
