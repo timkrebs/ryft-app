@@ -605,10 +605,10 @@ struct OrbitTicks: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
         let c = CGPoint(x: rect.midX, y: rect.midY)
-        let dot = cut > 0 ? (degrees: dotStart + dotSweep, radius: dotRadius) : nil
+        let dot = cut > 0 ? (degrees: dotStart + dotSweep, radius: dotRadius, cut: cut) : nil
         let box = CGRect(x: -tick.width / 2, y: -radius - tick.height / 2, width: tick.width, height: tick.height)
-        for i in OrbitGaugeGeometry.drawnTicks(count: count, ringRadius: radius, fraction: fraction, lit: lit, dot: dot,
-                                               cut: cut) {
+        for i in OrbitGaugeGeometry.drawnTicks(count: count, ringRadius: radius, tick: tick, fraction: fraction, lit: lit,
+                                               dot: dot) {
             // Rotating the top tick clockwise in y-down space: positive radians.
             let angle = OrbitGaugeGeometry.tickDegrees(i, count: count) * .pi / 180
             p.addRect(box, transform: CGAffineTransform(translationX: c.x, y: c.y).rotated(by: CGFloat(angle)))

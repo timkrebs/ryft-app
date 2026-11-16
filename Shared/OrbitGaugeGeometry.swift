@@ -18,8 +18,8 @@
 //   rail      109.5, 3 wide (the strain band, PR 4)
 //
 // Below S 150 the tick rings halve (64 / 30); below S 100 they are solid rings, as a hairline tick ring turns into a
-// grey band. A tick is whole or absent: one whose centre is closer to a dot of its own ring than that dot's cut (its
-// radius plus its ring) is not drawn, so no sliver of a tick shows beside a dot.
+// grey band. A tick is whole or absent: one whose rectangle comes closer to a dot of its own ring than that dot's cut
+// (its radius plus its ring) is not drawn, so no tick, whole or in part, shows inside a dot's cleared ring.
 //
 // THE MIDDLE ORBIT is the mark's middle ring: two dots, two arcs, split at the vertical. Each half starts `innerInset`
 // from it and runs at most `innerSpan`:  angle(f) = +-(6 + 160 f). The start dots are 18.4 pt apart at 260 (a dot's
@@ -124,8 +124,9 @@ enum OrbitGaugeGeometry {
         count > 0 ? Double(i) * 360 / Double(count) : 0
     }
 
-    /// The angle a dot clears of ticks on a ring of `radius`: a tick whose centre is closer than `cut` to the dot's
-    /// centre is not drawn. 2 asin(cut / 2r): the strain dot (cut 10 at r 118) 4.857 deg, Volt (7.5 at r 58) 7.41.
+    /// The angle a dot clears of tick centres on a ring of `radius`, 2 asin(cut / 2r): the strain dot (cut 10 at r 118)
+    /// 4.857 deg, Volt (7.5 at r 58) 7.41. `drawnTicks` measures from the tick's rectangle, so a tick a little outside
+    /// this angle can still be left out.
     static func clearDegrees(cut: CGFloat, radius: CGFloat) -> Double {
         guard radius > 0 else { return 0 }
         return 2 * asin(min(1, Double(cut / (2 * radius)))) * 180 / .pi
@@ -155,9 +156,11 @@ enum OrbitGaugeGeometry {
 
     /// Which ticks of a ring of `count` are drawn: the first round(f x n) when `lit` (the readiness), else those whose
     /// centre is before `fraction` of the turn (1 = all; the entrance draws the ring in clockwise), less every tick whose
-    /// centre is closer than `cut` to the dot at `dot` (degrees and radius; the dot of that ring, nil for none).
-    static func drawnTicks(count: Int, ringRadius: CGFloat, fraction: Double, lit: Bool,
-                           dot: (degrees: Double, radius: CGFloat)?, cut: CGFloat) -> [Int] {
+    /// rectangle (`tick`, as `distance(fromTick:)` measures) comes closer than `dot.cut` to the dot (degrees and radius;
+    /// the dot of that ring, nil for none). At the board's values the same ticks as by centre distance (74...77 and 50,
+    /// 51); elsewhere up to one more, e.g. tick 122 at strain 20.3 (0.59 pt into the cut by its centre).
+    static func drawnTicks(count: Int, ringRadius: CGFloat, tick: CGSize, fraction: Double, lit: Bool,
+                           dot: (degrees: Double, radius: CGFloat, cut: CGFloat)?) -> [Int] {
         guard count > 0, fraction.isFinite else { return [] }
         let limit: Int
         if lit {
@@ -166,12 +169,22 @@ enum OrbitGaugeGeometry {
             limit = fraction >= 1 ? count : min(max(Int((fraction * Double(count)).rounded(.up)), 0), count)
         }
         guard limit > 0 else { return [] }
-        guard let dot, cut > 0 else { return Array(0..<limit) }
+        guard let dot, dot.cut > 0 else { return Array(0..<limit) }
         let d = point(centre: .zero, radius: dot.radius, degrees: dot.degrees)
-        return (0..<limit).filter { i in
-            let t = point(centre: .zero, radius: ringRadius, degrees: tickDegrees(i, count: count))
-            return hypot(t.x - d.x, t.y - d.y) >= cut
-        }
+        return (0..<limit).filter { distance(fromTick: $0, count: count, ringRadius: ringRadius, tick: tick, to: d) >= dot.cut }
+    }
+
+    /// How far `p` (around a centre at the origin) is from tick `i`'s rectangle: `tick.width` across the ring,
+    /// `tick.height` along the radius, centred on the ring at `tickDegrees`. 0 on or inside it.
+    static func distance(fromTick i: Int, count: Int, ringRadius: CGFloat, tick: CGSize, to p: CGPoint) -> CGFloat {
+        let degrees = tickDegrees(i, count: count)
+        let a = degrees * .pi / 180
+        let t = point(centre: .zero, radius: ringRadius, degrees: degrees)
+        let (dx, dy) = (Double(p.x - t.x), Double(p.y - t.y))
+        // `p` in the tick's own frame: its width along x, its length along y.
+        let across = abs(dx * cos(a) + dy * sin(a)) - Double(tick.width) / 2
+        let along = abs(-dx * sin(a) + dy * cos(a)) - Double(tick.height) / 2
+        return CGFloat(hypot(max(across, 0), max(along, 0)))
     }
 
     // MARK: metrics

@@ -150,51 +150,75 @@ struct OrbitGaugeV3GeometryTests {
         #expect(near(G.clearDegrees(cut: m.dotCut, radius: m.outerRadius), 4.857, 0.01))
         #expect(near(G.clearDegrees(cut: m.voltCut, radius: m.centreRadius), 7.41, 0.01))
         let strain = G.Orbit.strain.headDegrees(for: 12.4 / 21)
-        let outer = G.drawnTicks(count: 128, ringRadius: m.outerRadius, fraction: 1, lit: false,
-                                 dot: (strain, m.outerRadius), cut: m.dotCut)
+        let outer = G.drawnTicks(count: 128, ringRadius: m.outerRadius, tick: m.outerTick, fraction: 1, lit: false,
+                                 dot: (strain, m.outerRadius, m.dotCut))
         #expect(Set(0..<128).subtracting(outer) == [74, 75, 76, 77])
         let volt = 302.4
-        let unlit = G.drawnTicks(count: 60, ringRadius: m.centreRadius, fraction: 1, lit: false,
-                                 dot: (volt, m.centreRadius), cut: m.voltCut)
+        let unlit = G.drawnTicks(count: 60, ringRadius: m.centreRadius, tick: m.innerTick, fraction: 1, lit: false,
+                                 dot: (volt, m.centreRadius, m.voltCut))
         #expect(Set(0..<60).subtracting(unlit) == [50, 51])
-        let lit = G.drawnTicks(count: 60, ringRadius: m.centreRadius, fraction: 0.84, lit: true,
-                               dot: (volt, m.centreRadius), cut: m.voltCut)
+        let lit = G.drawnTicks(count: 60, ringRadius: m.centreRadius, tick: m.innerTick, fraction: 0.84, lit: true,
+                               dot: (volt, m.centreRadius, m.voltCut))
         #expect(lit == Array(0..<50), "the first 50 are lit and none is left out")
         #expect(lit.contains(49))
     }
 
-    /// No tick is partly cut: every drawn tick is a whole rectangle (the tick rings are never under a cut), and at the
-    /// board's values none of them reaches into a dot's cleared ring.
+    /// No tick is partly cut: every drawn tick is a whole rectangle (the tick rings are never under a cut), none of them
+    /// reaches into a dot's cleared ring, and only those that would are left out. Strain 0...21 in 0.1 steps and every
+    /// readiness, at the board's size and `.large`.
     @Test func noTickIsPartlyCut() {
-        let m = Self.board
-        let rect = CGRect(x: 0, y: 0, width: 260, height: 260)
-        let centre = CGPoint(x: 130, y: 130)
-        func check(_ shape: OrbitTicks, _ label: String) {
+        func check(_ shape: OrbitTicks, side: CGFloat, _ label: String) -> [String] {
+            let rect = CGRect(x: 0, y: 0, width: side, height: side)
+            let centre = CGPoint(x: side / 2, y: side / 2)
             let dot = (degrees: shape.dotStart + shape.dotSweep, radius: shape.dotRadius)
-            let drawn = G.drawnTicks(count: shape.count, ringRadius: shape.radius, fraction: shape.fraction, lit: shape.lit,
-                                     dot: dot, cut: shape.cut)
+            let drawn = G.drawnTicks(count: shape.count, ringRadius: shape.radius, tick: shape.tick, fraction: shape.fraction,
+                                     lit: shape.lit, dot: (dot.degrees, dot.radius, shape.cut))
+            let shown = G.drawnTicks(count: shape.count, ringRadius: shape.radius, tick: shape.tick, fraction: shape.fraction,
+                                     lit: shape.lit, dot: nil)
+            var problems: [String] = []
             var moves = 0
             shape.path(in: rect).forEach { if case .move = $0 { moves += 1 } }
-            #expect(moves == drawn.count, "\(label): one whole rectangle per drawn tick")
+            if moves != drawn.count { problems.append("\(label): \(moves) rectangles for \(drawn.count) ticks") }
             let d = G.point(centre: centre, radius: dot.radius, degrees: dot.degrees)
-            for i in drawn {
+            let kept = Set(drawn)
+            for i in shown {
                 // The dot's centre in the tick's own frame (tick centred at the origin, its length along y).
                 let a = G.tickDegrees(i, count: shape.count) * .pi / 180
                 let t = G.point(centre: centre, radius: shape.radius, degrees: G.tickDegrees(i, count: shape.count))
                 let (dx, dy) = (d.x - t.x, d.y - t.y)
                 let local = CGPoint(x: dx * CGFloat(cos(a)) + dy * CGFloat(sin(a)), y: -dx * CGFloat(sin(a)) + dy * CGFloat(cos(a)))
                 let ox = max(abs(local.x) - shape.tick.width / 2, 0), oy = max(abs(local.y) - shape.tick.height / 2, 0)
-                #expect(hypot(ox, oy) >= shape.cut, "\(label): tick \(i) reaches into the cut")
+                let reaches = hypot(ox, oy) < shape.cut
+                if reaches == kept.contains(i) {
+                    problems.append("\(label): tick \(i) " + (reaches ? "reaches into the cut" : "left out but clear of it"))
+                }
+            }
+            return problems
+        }
+        var problems: [String] = []
+        for side: CGFloat in [260, OrbitGauge.Size.large.frame] {
+            let m = G.metrics(forSide: side)
+            for tenths in 0...210 {
+                let strain = Double(tenths) / 10
+                let dot = OrbitGaugeScene.Dot(radius: m.outerRadius, start: 0,
+                                              sweep: G.Orbit.strain.sweep(for: strain / OrbitGaugeValues.strainScale))
+                problems += check(OrbitTicks(count: m.outerTickCount, radius: m.outerRadius, tick: m.outerTick, fraction: 1,
+                                             lit: false, dot: dot, cut: m.dotCut), side: side, "S \(side) outer, strain \(strain)")
+            }
+            for readiness in 0...100 {
+                guard let volt = G.voltDegrees(readiness: readiness), let fraction = G.readinessFraction(readiness) else {
+                    problems.append("readiness \(readiness): no Volt")
+                    continue
+                }
+                let dot = OrbitGaugeScene.Dot(radius: m.centreRadius, start: 0, sweep: volt)
+                problems += check(OrbitTicks(count: m.innerTickCount, radius: m.centreRadius, tick: m.innerTick, fraction: 1,
+                                             lit: false, dot: dot, cut: m.voltCut), side: side, "S \(side) unlit, \(readiness)")
+                problems += check(OrbitTicks(count: m.innerTickCount, radius: m.centreRadius, tick: m.innerTick,
+                                             fraction: fraction, lit: true, dot: dot, cut: m.voltCut),
+                                  side: side, "S \(side) lit, \(readiness)")
             }
         }
-        let strain = OrbitGaugeScene.Dot(radius: m.outerRadius, start: 0, sweep: G.Orbit.strain.sweep(for: 12.4 / 21))
-        check(OrbitTicks(count: 128, radius: m.outerRadius, tick: m.outerTick, fraction: 1, lit: false, dot: strain,
-                         cut: m.dotCut), "outer")
-        let volt = OrbitGaugeScene.Dot(radius: m.centreRadius, start: 0, sweep: 302.4)
-        check(OrbitTicks(count: 60, radius: m.centreRadius, tick: m.innerTick, fraction: 1, lit: false, dot: volt,
-                         cut: m.voltCut), "inner unlit")
-        check(OrbitTicks(count: 60, radius: m.centreRadius, tick: m.innerTick, fraction: 0.84, lit: true, dot: volt,
-                         cut: m.voltCut), "inner lit")
+        #expect(problems.isEmpty, "\(problems.prefix(10))")
     }
 
     // MARK: 8. the strain rail
