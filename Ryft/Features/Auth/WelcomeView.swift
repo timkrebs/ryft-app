@@ -120,7 +120,6 @@ private struct ValueLine: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .ryftLabelStyle(Theme.textPrimary)
-                    .tracking(3)
                 Text(text)
                     .font(.ryft(.callout))
                     .foregroundStyle(Theme.textSecondary)
