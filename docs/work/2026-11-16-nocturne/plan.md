@@ -144,6 +144,17 @@ are Today's layout (PR 4), not part of the gauge.
 - **L2:** It plays only on a cold start into the foreground. It does not play on a background launch (HealthKit
   delivery, BG task), a return from the background, UI tests, screenshot runs, or `-RyftScreen` launch arguments.
   Demo mode plays it, so the user can see it.
+- **L3 (designer Q1):** `OrbitGaugeSize` stays as it is in PR 3 (`.large` = 172). Previews and the catalog show 260 through
+  `.custom`. The hero size comes with Today's layout in PR 4, because PR 3 changes rendering, not layout.
+- **L4 (Q2):** The widget draws v3 through `Shared/`. Its catalog gets a `TextPrimary` colorset (D6: same tokens), and
+  `check-shared-types.py` covers it. This also closes PR 1 review row 13 (the widget `Brand` hexes).
+- **L5 (Q3):** The dots ride the arc end plus the mark's clear air (14.02° outer, 24.22° middle), as on the board, so
+  the hold frame matches the board and the dots land in the mark's gaps.
+- **L6 (Q4):** PR 3 hands off with a cross-fade; the logo's flight into the header comes with PR 4's header.
+- **L7 (Q5):** The gauge gets an additive `numeral: .dots | .light` parameter (default `.dots`) in PR 3. PR 4 wires
+  Today's switch to it.
+- **L8 (Q7–Q9):** `Wordmark` gets an additive `tracking` parameter. `RyftMarkShape`'s arc and dot path builders become
+  shared statics on `RyftMarkGeometry`, so the launch uses the same geometry. The wordmark is 28 pt below the 184 pt box.
 
 **Acceptance criteria**
 1. **Gauge v3 renders the table above** for any `OrbitGauge` input, with the model unchanged. The tick rings scale with the
