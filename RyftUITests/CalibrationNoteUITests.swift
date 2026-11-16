@@ -11,7 +11,7 @@ final class CalibrationNoteUITests: XCTestCase {
 
     private func launch(_ scenario: String, _ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
-        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "today", "-appearance", "dark",
+        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "today",
                                "-coachMarks.today.done", "YES", "-RyftScenario", scenario,
                                "-AppleLanguages", "(en)", "-AppleLocale", "en_US"] + extra
         app.launch()

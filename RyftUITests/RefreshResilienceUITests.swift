@@ -10,7 +10,7 @@ final class RefreshResilienceUITests: XCTestCase {
 
     private func launch(fault: String) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
-        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "today", "-appearance", "dark",
+        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "today",
                                "-coachMarks.today.done", "YES", "-RyftFault", fault,
                                "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
