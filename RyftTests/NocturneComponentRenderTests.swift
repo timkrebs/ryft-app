@@ -710,8 +710,9 @@ import UIKit
     func midLengthLabelPushesTheTicks() throws {
         let label = "Zone 2 · Endurance"
         let ideal = try #require(render(Text(verbatim: label).font(.ryft(.caption)).fixedSize())).size.width
-        // The case only means something while the label is wider than the column and the row (label + 241) fits 361.
-        #expect(ideal > 80 && ideal < 118, "the label is \(ideal) pt wide: pick another one")
+        // The case only means something while the label is wider than the 80 pt column the unfixed layout would give it
+        // (+ the 1 pt tolerance) and the row (label + 241) still fits 361.
+        #expect(ideal > 82 && ideal < 118, "the label is \(ideal) pt wide: pick another one")
         let shot = try #require(render(tickRow(label: label).frame(width: 361).background(Theme.background)))
         #expect(shot.size == CGSize(width: 361, height: 12), "one line: \(shot.size)")
         let ticks = try #require(shot.bounds(xs: 0...300, ys: 0...12) { self.near($0, self.ink, 2) }, "the lit ticks")
