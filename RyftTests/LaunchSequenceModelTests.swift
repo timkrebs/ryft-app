@@ -304,6 +304,16 @@ struct LaunchSequenceModelTests {
         values.launchInterrupt(.presentation)
     }
 
+    /// `InviteCodeView`, the app's only root auto-focus (review PR 3 row 11): under a playing launch the keyboard would slide
+    /// over the arcs and keystrokes would go into a field nobody sees. It focuses on appear when uncovered, else when
+    /// `launchCoversRoot` turns false at the hand-off; never over a code already typed.
+    @Test("The invite field takes the keyboard only when uncovered and empty", arguments: [
+        (true, false, true), (true, true, false), (false, false, false), (false, true, false),
+    ])
+    func theInviteFieldFocusesOnlyWhenUncovered(_ empty: Bool, _ covered: Bool, _ focuses: Bool) {
+        #expect(InviteCodeView.shouldFocus(inviteCodeEmpty: empty, covered: covered) == focuses)
+    }
+
     @Test func anInterruptionActionReachesItsClosure() {
         final class Box: @unchecked Sendable { var seen: [LaunchInterruption] = [] }
         let box = Box()
