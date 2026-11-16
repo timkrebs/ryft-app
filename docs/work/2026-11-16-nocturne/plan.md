@@ -164,7 +164,8 @@ are Today's layout (PR 4), not part of the gauge.
 - **L12:** Plain Xcode runs play the sequence (a tap skips); the shared scheme stays unchanged.
 - To PR 4: the splash as the launch's last frame; whether only the mark or the whole lock-up moves into the header; and
   whether the gauge entrance starts with the move or after it lands (`launch-design.md` §14, questions 5–7).
-  To the user: the launch tagline "Engineered for peak." next to Welcome's "Your whole health.".
+- **L13 (user, 2026-11-16):** RYFT has one tagline, "Engineered for peak.". `BrandLockup` (Welcome, About) says it
+  instead of "Your whole health.", which leaves the catalog and the README.
 
 **Acceptance criteria**
 1. **Gauge v3 renders the table above** for any `OrbitGauge` input, with the model unchanged. The tick rings scale with the
@@ -203,7 +204,9 @@ Carried over from the PR 2 review (`review.md` rows 4, 9–13 and 17):
 - The heart-rate zone block (five `TickRow`s) keeps one tick column: measure the longest label and stack all rows
   together if it is wider than 74 pt. `TickRow` has no hook for that yet: PR 5 adds one (e.g. `stacked: Bool` or an
   environment value), because each row's own `ViewThatFits` picks one line whenever that row fits. At AX3 the stacked ticks stay 177 pt wide, left-aligned: decide whether they span the width.
-- The glow edge brightness (P2-D1) is open for the user: the PR 2 body shows the alternative.
+- **The glow edge is as bright as the board (user, 2026-11-16).** PR 4 switches `GlowTileSpec` to the board's ellipse
+  (about 70 % metric colour in the 2-up corners) and sets labels in recovery glow tiles in full `textPrimary` instead of
+  78 %, so §6's 4.5:1 still holds; the contrast tests are re-pinned. P2-D1 is superseded.
 
 ## Risks
 - **The string catalog.** A local Xcode build re-serialised it in the user's checkout (8.7k lines, uncommitted on
