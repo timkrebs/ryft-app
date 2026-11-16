@@ -24,6 +24,10 @@ struct OrbitGaugePalette {
     var calibration: Color
     /// `band(forReadiness: nil)` (`Theme.textTertiary`).
     var noReadiness: Color
+    /// One colour for every track in place of `ink` at its three strengths; nil (the app, the widget in full colour)
+    /// keeps the strengths. The widget's tinted, clear and lock-screen renderings set it (`WidgetOrbitGauge`): the
+    /// system turns every colour into one ink there, and the 7 % middle ring would vanish.
+    var flatTrack: Color?
 
     /// The asset catalog's colours: the app's and, copied under the same names, the widget's.
     static let assets = OrbitGaugePalette(
@@ -36,9 +40,9 @@ struct OrbitGaugePalette {
     /// A dot's halo: its colour at this opacity.
     static let haloOpacity = 0.16
 
-    var outerTrack: Color { ink.opacity(Self.outerTrackOpacity) }
-    var middleTrack: Color { ink.opacity(Self.middleTrackOpacity) }
-    var innerTrack: Color { ink.opacity(Self.innerTrackOpacity) }
+    var outerTrack: Color { flatTrack ?? ink.opacity(Self.outerTrackOpacity) }
+    var middleTrack: Color { flatTrack ?? ink.opacity(Self.middleTrackOpacity) }
+    var innerTrack: Color { flatTrack ?? ink.opacity(Self.innerTrackOpacity) }
 
     /// The readiness bands' lower bounds, as `Theme.band(forScore:)` and `MetricSpec.scoreBand` draw them.
     static let highFrom = 67

@@ -19,6 +19,7 @@ struct WidgetOrbitGauge: View {
     /// The lock screen's circle: the number in the system's primary ink and a heavier weight.
     var prominentNumber = false
 
+    @Environment(\.widgetRenderingMode) private var renderingMode
     @Environment(\.redactionReasons) private var redaction
 
     /// On a locked device: the tracks only, no arcs or dots, and a constant number under the redaction (the real
@@ -74,10 +75,14 @@ struct WidgetOrbitGauge: View {
         return AnyShapeStyle(dimmed ? Brand.ink.opacity(0.4) : Brand.ink)
     }
 
-    /// The app's colours. Tinted, clear and lock-screen renderings turn every colour into one ink whose opacity is all
-    /// that's left; the v3 tracks are already `ink` at 7 to 16 % (never opaque), so they stay quieter than the marks
-    /// in every rendering mode without a palette of their own.
-    private var palette: OrbitGaugePalette { .assets }
+    /// The app's colours in full colour, the v3 tracks included. Tinted, clear and lock-screen renderings turn every
+    /// colour into one ink whose opacity is all that's left: there the tracks are one faint white (as before v3), so the
+    /// 7 % middle ring doesn't vanish and no track outshines the arcs.
+    private var palette: OrbitGaugePalette {
+        var p = OrbitGaugePalette.assets
+        if renderingMode != .fullColor { p.flatTrack = Color.white.opacity(0.25) }
+        return p
+    }
 }
 
 #Preview("WidgetOrbitGauge", traits: .sizeThatFitsLayout) {

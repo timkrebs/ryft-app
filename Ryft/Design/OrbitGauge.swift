@@ -268,13 +268,17 @@ struct OrbitGauge: View {
     /// How the centre draws a numeral (design.md §P3-1, "Centre").
     enum CentreLook: Equatable { case dots, light }
 
-    /// The dot grid only for `.dots`, below AX1 (the numeral's own fallback), for characters the grid has, and where it
-    /// fits: `DotNumeral.size(of:)` no wider than the slot ("84", 74 pt, from S 205: the 260 board, not `.large`; "100",
-    /// 115 pt, never). Light otherwise. `text` nil is the unlit grid of "00", by the same rule.
+    /// The gauge's size decides, not the value: the dot grid only on a gauge whose slot holds two digits
+    /// (`DotNumeral.size(of: "00")`, 74 pt, from S 205.2: the 260 board, not `.large`), so "7" and "84" on one gauge
+    /// look alike. Below that every value is Light, single digits included. On such a gauge, `.dots` below AX1 (the
+    /// numeral's own fallback), for characters the grid has and a value that fits ("100", 115 pt, never does: Light).
+    /// `text` nil is the unlit grid of "00", by the same rule.
     static func centreLook(_ text: String?, side: CGFloat, style: DotNumeral.Style, typeSize: DynamicTypeSize) -> CentreLook {
-        guard DotNumeral.rendersDots(text, style: style, typeSize: typeSize),
+        let slot = OrbitGaugeGeometry.metrics(forSide: side).centreSlotWidth
+        guard let twoDigits = DotNumeral.size(of: "00", glyphGap: DotNumeral.glyphGapToday), twoDigits.width <= slot,
+              DotNumeral.rendersDots(text, style: style, typeSize: typeSize),
               let grid = DotNumeral.size(of: text, glyphGap: DotNumeral.glyphGapToday) else { return .light }
-        return grid.width <= OrbitGaugeGeometry.metrics(forSide: side).centreSlotWidth ? .dots : .light
+        return grid.width <= slot ? .dots : .light
     }
 
     /// The Light numeral's size: 0.2 x S, 52 pt at 260 (the board's "Light 52"), times `scale` (Dynamic Type, never
