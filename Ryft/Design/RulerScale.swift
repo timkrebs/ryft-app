@@ -31,21 +31,26 @@ struct RulerScale: View {
     /// Tick counts per board, chosen so the zone edges land on ticks.
     enum Ticks { static let today = 61, sleep = 61, strain = 64, strainCompact = 43 }
 
-    /// The zone ticks' ink: a tint at an opacity. Callers pick a preset, never a literal.
+    /// The zone ticks' ink: a tint at an opacity. Callers pick a preset; the init is private, so there are no literals.
     struct ZoneStyle: Equatable {
         let tint: Color
-        /// `nil` is the size's default: 0.55 regular, 0.60 compact.
-        let opacity: Double?
+        /// The preset's own opacity; `nil` is the size's default (0.55 regular, 0.60 compact). Read `opacity(for:)`.
+        let fixedOpacity: Double?
+
+        private init(tint: Color, fixedOpacity: Double?) {
+            self.tint = tint
+            self.fixedOpacity = fixedOpacity
+        }
 
         /// Today's readiness band and the compact strain tile: `textPrimary` at the size's default.
-        static let standard = ZoneStyle(tint: Theme.textPrimary, opacity: nil)
+        static let standard = ZoneStyle(tint: Theme.textPrimary, fixedOpacity: nil)
         /// Sleep's need zone: `metricSleep` at 85 %.
-        static let sleep = ZoneStyle(tint: Theme.metricSleep, opacity: 0.85)
+        static let sleep = ZoneStyle(tint: Theme.metricSleep, fixedOpacity: 0.85)
         /// Strain's target zone: `metricStrain` at 95 %.
-        static let strain = ZoneStyle(tint: Theme.metricStrain, opacity: 0.95)
+        static let strain = ZoneStyle(tint: Theme.metricStrain, fixedOpacity: 0.95)
 
         /// The opacity the zone ticks are drawn at in `size`.
-        func opacity(for size: Size) -> Double { opacity ?? size.defaultZoneOpacity }
+        func opacity(for size: Size) -> Double { fixedOpacity ?? size.defaultZoneOpacity }
     }
 
     /// Volt: the needle is one of the signal's five marks (brief §1).
@@ -188,7 +193,8 @@ struct RulerScale: View {
         let middle = min(max((zone.lowerBound + zone.upperBound) / 2, lo), hi)
         let position = (middle - lo) / (hi - lo) * Double(n - 1)
         guard position.isFinite else { return [] }
-        return [min(max(Int(position.rounded()), 0), n - 1)]
+        // + tolerance: a tie computed as 25.499999999999996 still goes to the higher tick.
+        return [min(max(Int((position + tolerance).rounded()), 0), n - 1)]
     }
 
     /// The needle's centre: `clamp((value − lo) / (hi − lo), 0, 1) · width`. `nil` without a value, for NaN, or when

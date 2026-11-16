@@ -629,7 +629,7 @@ import Testing
     func standardZoneStyle() {
         let style = RulerScale.ZoneStyle.standard
         #expect(Tokens.matches(Tokens.resolve(style.tint), Tokens.resolve(Theme.textPrimary)))
-        #expect(style.opacity == nil)
+        #expect(style.fixedOpacity == nil)
         #expect(style.opacity(for: .regular) == 0.55)
         #expect(style.opacity(for: .compact) == 0.60)
     }
@@ -639,20 +639,27 @@ import Testing
         let sleep = RulerScale.ZoneStyle.sleep, strain = RulerScale.ZoneStyle.strain
         #expect(Tokens.matches(Tokens.resolve(sleep.tint), Tokens.resolve(Theme.metricSleep)))
         #expect(Tokens.matches(Tokens.resolve(strain.tint), Tokens.resolve(Theme.metricStrain)))
-        #expect(sleep.opacity == 0.85 && strain.opacity == 0.95)
+        #expect(sleep.fixedOpacity == 0.85 && strain.fixedOpacity == 0.95)
         for size in [RulerScale.Size.regular, .compact] {
             #expect(sleep.opacity(for: size) == 0.85, "sleep, \(size)")
             #expect(strain.opacity(for: size) == 0.95, "strain, \(size)")
         }
     }
 
-    @Test("The three presets are distinct, and a custom style with an explicit opacity ignores the size")
+    @Test("The three presets are distinct, and a preset with its own opacity ignores the size")
     func zoneStylesAreDistinct() {
         let tints = [RulerScale.ZoneStyle.standard, .sleep, .strain].map { Tokens.resolve($0.tint) }
         #expect(!Tokens.matches(tints[0], tints[1]) && !Tokens.matches(tints[1], tints[2]) && !Tokens.matches(tints[0], tints[2]))
-        let custom = RulerScale.ZoneStyle(tint: Theme.metricSleep, opacity: 0.4)
-        #expect(custom.opacity(for: .regular) == 0.4 && custom.opacity(for: .compact) == 0.4)
-        #expect(custom != .sleep && RulerScale.ZoneStyle.sleep == RulerScale.ZoneStyle(tint: Theme.metricSleep, opacity: 0.85))
+        #expect(RulerScale.ZoneStyle.sleep != .strain && RulerScale.ZoneStyle.sleep != .standard)
+        #expect(RulerScale.ZoneStyle.sleep.opacity(for: .regular) == RulerScale.ZoneStyle.sleep.opacity(for: .compact))
+    }
+
+    /// Re-review row 19. The compact strain ruler (43 ticks over 0…21) puts ticks 25 and 26 at 12.5 and 13.0; a 12.7…12.8
+    /// target contains neither and its midpoint 12.75 is exactly between them, but the position computes as
+    /// 25.499999999999996. The tie goes to the higher tick.
+    @Test("A narrow zone whose midpoint falls exactly between two ticks marks the higher one, despite floating point")
+    func narrowZoneTieGoesUp() {
+        #expect(RulerScale.zoneTickIndices(count: 43, range: 0...21, zone: 12.7...12.8) == [26])
     }
 
     // MARK: zone(lo:hi:) (review row 4)
