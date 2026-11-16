@@ -9,7 +9,7 @@ final class TodayStatesUITests: XCTestCase {
 
     private func launch(_ scenario: String) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
-        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "today", "-appearance", "dark",
+        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "today",
                                "-coachMarks.today.done", "YES", "-RyftScenario", scenario,
                                "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()

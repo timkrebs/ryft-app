@@ -11,7 +11,6 @@ struct SetTableColumns: Equatable {
     var numeral: CGFloat
     /// Page padding, into which the number's 44 pt hit area reaches.
     let padding: CGFloat
-    let headerTracking: CGFloat
     /// The 320 pt table, whatever the text size.
     var isCompact = false
     /// Off at the sizes where the fields need its room. RPE then moves to a line of the row.
@@ -23,10 +22,9 @@ struct SetTableColumns: Equatable {
     var quietLineLift: CGFloat { rowHeight - 48 }
 
     /// 390 pt class.
-    static let regular = SetTableColumns(number: 36, fourth: 56, check: 56, gap: 6, numeral: 22, padding: 16, headerTracking: 2)
+    static let regular = SetTableColumns(number: 36, fourth: 56, check: 56, gap: 6, numeral: 22, padding: 16)
     /// 320 pt (Display Zoom).
-    static let compact = SetTableColumns(number: 28, fourth: 48, check: 56, gap: 4, numeral: 20, padding: 12, headerTracking: 1,
-                                         isCompact: true)
+    static let compact = SetTableColumns(number: 28, fourth: 48, check: 56, gap: 4, numeral: 20, padding: 12, isCompact: true)
 
     /// The table at a width and a text size (design.md §5.1). From AX1 the numerals grow, and at 320 the fourth column goes,
     /// because a field would be under the 66 pt that holds "102.5". From AX3 it goes everywhere.
@@ -720,14 +718,16 @@ private struct BracketShape: Shape {
 
 #Preview("Exercise card", traits: .sizeThatFitsLayout) {
     let c = TrainPreview.liveController()
-    return SchemePair {
-        VStack(spacing: 12) {
-            ExerciseCard(controller: c, exercise: c.exercises[0], onPlates: {}, onHistory: {})
-            SupersetBracket {
-                ForEach(c.exercises.filter { $0.supersetGroup == 1 }) {
-                    ExerciseCard(controller: c, exercise: $0, onPlates: {}, onHistory: {})
-                }
+    return VStack(spacing: 12) {
+        ExerciseCard(controller: c, exercise: c.exercises[0], onPlates: {}, onHistory: {})
+        SupersetBracket {
+            ForEach(c.exercises.filter { $0.supersetGroup == 1 }) {
+                ExerciseCard(controller: c, exercise: $0, onPlates: {}, onHistory: {})
             }
         }
     }
+    .padding(20)
+    .frame(width: 390)
+    .background(Theme.background)
+    .preferredColorScheme(.dark)
 }

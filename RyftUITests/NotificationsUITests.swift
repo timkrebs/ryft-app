@@ -10,7 +10,7 @@ final class NotificationsUITests: XCTestCase {
     @MainActor
     func testRollingOutShowsNoSwitches() throws {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
-        app.launchArguments = ["-demoMode", "YES", "-RyftScreen", "notifications", "-appearance", "dark",
+        app.launchArguments = ["-demoMode", "YES", "-RyftScreen", "notifications",
                                "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
         let notice = app.descendants(matching: .any)["notifications.rollingOut"]

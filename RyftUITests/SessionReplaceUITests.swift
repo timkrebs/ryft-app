@@ -9,7 +9,7 @@ final class SessionReplaceUITests: XCTestCase {
 
     private func launch() -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
-        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "strain", "-appearance", "dark",
+        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "strain",
                                "-coachMarks.today.done", "YES", "-RyftResetTrain", "YES",
                                "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()

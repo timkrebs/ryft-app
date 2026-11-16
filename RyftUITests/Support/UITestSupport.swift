@@ -7,7 +7,7 @@ extension XCTestCase {
     /// `extra`: more launch arguments, e.g. a flag override.
     func launchDemo(openMyDayDaysBack: Int? = nil, extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
-        var arguments = ["-demoMode", "YES", "-RyftTab", "today", "-appearance", "dark", "-coachMarks.today.done", "YES",
+        var arguments = ["-demoMode", "YES", "-RyftTab", "today", "-coachMarks.today.done", "YES",
                          "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         if let openMyDayDaysBack { arguments += ["-RyftOpenMyDay", "\(openMyDayDaysBack)"] }
         app.launchArguments = arguments + extra

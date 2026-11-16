@@ -13,7 +13,7 @@ final class FocusedSessionUITests: XCTestCase {
 
     private func launch(extra: [String] = [], reset: Bool = true) -> XCUIApplication {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
-        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "strain", "-appearance", "dark",
+        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "strain",
                                "-coachMarks.today.done", "YES", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
             + (reset ? ["-RyftResetTrain", "YES"] : []) + extra
         app.launch()

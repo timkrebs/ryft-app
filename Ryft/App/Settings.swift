@@ -22,9 +22,6 @@ final class Settings {
     var demoMode: Bool {
         didSet { defaults.set(demoMode, forKey: "demoMode") }
     }
-    var appearance: Appearance {
-        didSet { defaults.set(appearance.rawValue, forKey: "appearance") }
-    }
     /// The "Connect Apple Health" explanation was shown (and answered) for this
     /// account. Health access is only requested after it, never on a cold launch.
     var healthIntroDone: Bool {
@@ -44,11 +41,6 @@ final class Settings {
     /// (`SetColumn.shown`). Per user, unlike the two above: it goes on log-out.
     var setColumn: SetColumn? {
         didSet { defaults.set(setColumn?.rawValue, forKey: "train.setColumn") }
-    }
-
-    enum Appearance: String, CaseIterable, Identifiable {
-        case dark, light, system
-        var id: String { rawValue }
     }
 
     #if DEBUG
@@ -96,7 +88,6 @@ final class Settings {
         #endif
         // `bool(forKey:)` also understands "YES"/"NO" strings from launch arguments.
         demoMode = defaults.object(forKey: "demoMode") != nil ? defaults.bool(forKey: "demoMode") : demoDefault
-        appearance = defaults.string(forKey: "appearance").flatMap(Appearance.init(rawValue:)) ?? .dark
         healthIntroDone = defaults.bool(forKey: "health.introDone")
         jumpToNextExercise = defaults.object(forKey: "train.jumpToNext") == nil || defaults.bool(forKey: "train.jumpToNext")
         sessionLayout = defaults.string(forKey: "train.sessionLayout").flatMap(SessionLayout.init(rawValue:)) ?? .focused
@@ -135,9 +126,9 @@ final class Settings {
     /// A platform URL is set. Whether there is a caller is `AuthService.isSignedIn`.
     var isConfigured: Bool { apiURL != nil }
 
-    /// Per-user state on log-out and account deletion. Appearance, demo mode and
-    /// the device ID stay; HealthKit anchors and cached responses are dropped
-    /// by AuthService.
+    /// Per-user state on log-out and account deletion. Demo mode, the training
+    /// preferences (jump to next, session layout) and the device ID stay;
+    /// HealthKit anchors and cached responses are dropped by AuthService.
     func clearPerUserState() {
         lastSync = nil
         healthIntroDone = false
