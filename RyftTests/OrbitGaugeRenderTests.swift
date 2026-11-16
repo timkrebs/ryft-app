@@ -52,18 +52,11 @@ import UIKit
         return Shot(width: w, height: h, scale: 3, frame: size.frame, dial: size.dial, bytes: bytes)
     }
 
-    /// The colour as it reaches the pixel: a translucent token (the track is `#F2F1EC` at 16 %) flattened over the
-    /// screen colour it is drawn on (`render` puts every gauge on `Theme.background`).
     private func rgb(_ colour: Color, _ style: UIUserInterfaceStyle) -> RGB {
+        let ui = UIColor(colour).resolvedColor(with: UITraitCollection(userInterfaceStyle: style))
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
-        func components(_ colour: Color) -> [CGFloat] {
-            let ui = UIColor(colour).resolvedColor(with: UITraitCollection(userInterfaceStyle: style))
-            return ui.cgColor.converted(to: space, intent: .defaultIntent, options: nil)?.components ?? [0, 0, 0, 1]
-        }
-        let c = components(colour), ground = components(Theme.background)
-        let a = Double(c[3])
-        return RGB(r: Double(c[0]) * a + Double(ground[0]) * (1 - a), g: Double(c[1]) * a + Double(ground[1]) * (1 - a),
-                   b: Double(c[2]) * a + Double(ground[2]) * (1 - a))
+        let c = ui.cgColor.converted(to: space, intent: .defaultIntent, options: nil)?.components ?? [0, 0, 0, 1]
+        return RGB(r: Double(c[0]), g: Double(c[1]), b: Double(c[2]))
     }
 
     private func distance(_ a: RGB, _ b: RGB) -> Double {

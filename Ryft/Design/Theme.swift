@@ -24,8 +24,10 @@ enum Theme {
     static let background = Color("Background")
     /// Neutral tiles, lists, the segment control: `#121514`.
     static let surface = Color("Surface")
-    /// Ring tracks, unselected segments, empty bar backgrounds: `#F2F1EC` at 16 %, the outer ring's track and the
-    /// strongest of the three (the middle ring uses 7 %, the inner 13 %; the gauge draws those from `textPrimary`).
+    /// Ring tracks, unselected segments, empty bar backgrounds, raised chips and fields: the opaque `#2F312F`, the 16 %
+    /// track (`#F2F1EC`) composited over `background`, so it is the same pixel on every ground. It carries `textPrimary`
+    /// (11.6:1) and `textSecondary` (5.5:1) text, never `textTertiary` (3.9:1). The middle and inner rings' 7 % and 13 %
+    /// tracks are drawn from `textPrimary` by the gauge.
     static let surfaceRaised = Color("SurfaceRaised")
     /// Numbers and titles: `#F2F1EC`.
     static let textPrimary = Color("TextPrimary")

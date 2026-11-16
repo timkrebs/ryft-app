@@ -2035,7 +2035,7 @@ struct ReportProblemView: View {
     private var message: some View {
         VStack(alignment: .leading, spacing: 8) {
             TextField("", text: Bindable(model).message,
-                      prompt: Text("What happened? What did you expect?").foregroundStyle(Theme.textTertiary),
+                      prompt: Text("What happened? What did you expect?").foregroundStyle(Theme.textSecondary),
                       axis: .vertical)
                 .lineLimit(6...)
                 .font(.ryft(.body))

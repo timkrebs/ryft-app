@@ -65,7 +65,7 @@ import UIKit
             ("textSecondary", Theme.textSecondary, rgba(ink, 0.62)),
             ("textTertiary (ADR: 48 %, the style's 45 % is 4.1:1)", Theme.textTertiary, rgba(ink, 0.48)),
             ("separator", Theme.separator, rgba(ink, 0.08)),
-            ("track (surfaceRaised, the outer ring's 16 %)", Theme.surfaceRaised, rgba(ink, 0.16)),
+            ("surfaceRaised (the 16 % track flattened over background)", Theme.surfaceRaised, over(rgba(ink, 0.16), rgba(0x0A0C0B))),
             ("recovery", Theme.recovery, rgba(0x63D2B4)),
             ("accent", Theme.accent, rgba(0x63D2B4)),
             ("sleep", Theme.metricSleep, rgba(0x9B8AF0)),
@@ -134,6 +134,18 @@ import UIKit
         }
         #expect(Self.ratio(Self.resolve(Theme.onAccent), on: Self.resolve(Theme.accent)) >= 4.5)
         #expect(Self.ratio(Self.resolve(Theme.onSignal), on: Self.resolve(Theme.signal)) >= 4.5)
+    }
+
+    /// A raised fill (`surfaceRaised`, opaque `#2F312F`) carries `textPrimary` and `textSecondary`, never `textTertiary`
+    /// (ADR 0016 §2.5): the tertiary ratio is below 4.5 on it, so no text may sit there in that colour.
+    @Test func raisedFillsCarryPrimaryAndSecondaryText() {
+        let raised = Self.resolve(Theme.surfaceRaised)
+        #expect(raised.a == 1, "surfaceRaised is opaque")
+        #expect(Self.ratio(Self.resolve(Theme.textPrimary), on: raised) >= 4.5)
+        #expect(Self.ratio(Self.resolve(Theme.textSecondary), on: raised) >= 4.5)
+        #expect(Self.ratio(Self.resolve(Theme.textTertiary), on: raised) < 4.5, "the rule's reason: tertiary is under 4.5")
+        // Graphics (glyphs, outlines) need 3:1.
+        #expect(Self.ratio(Self.resolve(Theme.textTertiary), on: raised) >= 3)
     }
 
     /// The metric and signal colours are graphics (WCAG 1.4.11, 3:1) on both grounds; so are the band colours.

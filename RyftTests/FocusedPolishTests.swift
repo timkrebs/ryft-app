@@ -263,8 +263,7 @@ struct FocusedPolishTests {
 
     @Test("Grey on the active row's field holds 4.5:1, with a ghost or empty", arguments: [ColorScheme.light, .dark])
     func theActiveField(scheme: ColorScheme) {
-        // `surfaceRaised` is translucent (`#F2F1EC` at 16 %): the field is it over the row's tint, as drawn.
-        let field = over(parts(scheme == .light ? Theme.surface : Theme.surfaceRaised, scheme), tint(scheme))
+        let field = parts(scheme == .light ? Theme.surface : Theme.surfaceRaised, scheme)
         for hasGhost in [false, true] {
             let ink = FocusedRowInk.value(.active, hasValue: false, hasGhost: hasGhost)
             #expect(ink == Theme.textSecondary)

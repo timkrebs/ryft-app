@@ -203,7 +203,7 @@ struct OrbitGaugeBandTests {
         for (name, style) in Self.styles {
             let past = resolve(palette.strainPastBand, style)
             #expect(ratio(past, resolve(Theme.alert, style)) < 1.001, "\(name): it is alert itself")
-            #expect(ratio(past, over(resolve(Theme.surfaceRaised, style), resolve(Theme.background, style))) >= 3, "\(name) on the track")
+            #expect(ratio(past, resolve(Theme.surfaceRaised, style)) >= 3, "\(name) on the track")
             #expect(ratio(past, resolve(Theme.background, style)) >= 3, "\(name) on the background")
             // And it differs from the in-band strain colour, or the shift would say nothing.
             let plain = resolve(palette.strain, style)

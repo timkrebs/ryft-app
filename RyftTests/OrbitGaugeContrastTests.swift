@@ -3,8 +3,7 @@ import Testing
 import UIKit
 @testable import Ryft
 
-/// WCAG 2.x contrast of the gauge's graphics (1.4.11 asks 3:1), resolved from the asset catalog (dark, the only
-/// appearance). The track is translucent (`#F2F1EC` at 16 %), so it is composited over the screen it is drawn on.
+/// WCAG 2.x contrast of the gauge's graphics (1.4.11 asks 3:1), resolved from the asset catalog (dark, the only appearance).
 @MainActor
 @Suite struct OrbitGaugeContrastTests {
     private struct RGBA { var r, g, b, a: CGFloat }
@@ -38,7 +37,7 @@ import UIKit
         var lines: [String] = []
         for (name, style) in [("dark", UIUserInterfaceStyle.dark)] {
             let background = resolve(Theme.background, style)
-            let track = over(resolve(Theme.surfaceRaised, style), background)
+            let track = resolve(Theme.surfaceRaised, style)
             let graphics: [(String, Color)] = [
                 ("Recovery (accent)", Theme.accent), ("Sleep", Theme.metricSleep), ("Strain", Theme.metricStrain),
                 ("band high (accent)", Theme.accent), ("band moderate (warning)", Theme.warning), ("band low (alert)", Theme.alert),
@@ -65,8 +64,7 @@ import UIKit
     @Test func filledCalibrationSegmentsReachThreeToOneOnTrackAndBackground() {
         for (name, style) in [("dark", UIUserInterfaceStyle.dark)] {
             let accent = resolve(OrbitGaugePalette.assets.calibration, style)
-            #expect(ratio(accent, over(resolve(Theme.surfaceRaised, style), resolve(Theme.background, style))) >= 3,
-                    "\(name) filled segment on its track")
+            #expect(ratio(accent, resolve(Theme.surfaceRaised, style)) >= 3, "\(name) filled segment on its track")
             #expect(ratio(accent, resolve(Theme.background, style)) >= 3, "\(name) filled segment on the background")
             // The palette's calibration colour is the accent the other tests measure.
             #expect(ratio(accent, resolve(Theme.accent, style)) < 1.001)
@@ -82,7 +80,7 @@ import UIKit
         var lines: [String] = []
         for (name, style) in [("dark", UIUserInterfaceStyle.dark)] {
             let background = resolve(Theme.background, style)
-            let track = over(resolve(Theme.surfaceRaised, style), background)
+            let track = resolve(Theme.surfaceRaised, style)
             for (title, colour) in [("accent", Theme.accent), ("sleep", Theme.metricSleep), ("strain", Theme.metricStrain)] {
                 var c = resolve(colour, style)
                 c.a = OrbitGaugeMarks.pendingOpacity
