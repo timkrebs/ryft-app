@@ -263,12 +263,17 @@ struct DebugComponentCatalog: View {
 
     // MARK: Nocturne (design.md §P2-6). From AX1 the numeral falls back to Light digits and the tick rows stack.
 
-    /// Both glyph gaps, every glyph, the Light style, pending in both.
+    /// Both glyph gaps, every glyph, the Light style; pending under each value (its template keeps the width), and in Light.
     private var nocturneNumerals: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 24) {
                 DotNumeral("84", accessibilityLabel: Text("Readiness 84 of 100"))
                 DotNumeral("7:48", glyphGap: DotNumeral.glyphGapDetail, accessibilityLabel: Text("7 hours 48 minutes asleep"))
+            }
+            HStack(alignment: .top, spacing: 24) {
+                DotNumeral(nil, accessibilityLabel: Text("Readiness, no value yet"))
+                DotNumeral(nil, glyphGap: DotNumeral.glyphGapDetail, placeholder: "0:00",
+                           accessibilityLabel: Text("Time asleep, no value yet"))
             }
             DotNumeral("01234", glyphGap: DotNumeral.glyphGapDetail, accessibilityLabel: Text("0 1 2 3 4"))
             DotNumeral("56789", glyphGap: DotNumeral.glyphGapDetail, accessibilityLabel: Text("5 6 7 8 9"))
@@ -278,8 +283,8 @@ struct DebugComponentCatalog: View {
             }
             HStack(alignment: .top, spacing: 24) {
                 DotNumeral("84", style: .light, accessibilityLabel: Text("Readiness 84 of 100"))
-                DotNumeral(nil, accessibilityLabel: Text("Readiness, no value yet"))
                 DotNumeral(nil, style: .light, accessibilityLabel: Text("Readiness, no value yet"))
+                DotNumeral(nil, style: .light, placeholder: "0:00", accessibilityLabel: Text("Time asleep, no value yet"))
             }
         }
     }

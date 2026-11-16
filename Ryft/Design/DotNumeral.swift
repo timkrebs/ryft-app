@@ -50,11 +50,21 @@ enum DotGlyphs {
         }
         return glyphs
     }
+
+    /// A pending numeral's cells: the glyphs of the `template` ("00", "0:00") with no dot lit, so pending is exactly as
+    /// wide as the value that replaces it. Characters outside the table are dropped; when nothing is left, one blank
+    /// digit cell (`placeholder`), so a pending numeral never draws nothing.
+    static func pendingGlyphs(for template: String) -> [DotGlyph] {
+        let blanks = template.compactMap { table[$0] }.map {
+            DotGlyph(width: $0.width, rows: Array(repeating: 0, count: rowCount))
+        }
+        return blanks.isEmpty ? [placeholder] : blanks
+    }
 }
 
 /// A formatted numeral ("84", "7:48", "12.4", "12,4": the caller formats, with the region's separator) as a dot grid,
-/// or as Light digits where the grid does not apply. `nil` is pending: blank cells, and the caller's label says "no
-/// value yet". One accessibility element with the caller's label in every state.
+/// or as Light digits where the grid does not apply. `nil` is pending: the `placeholder` template's cells with no dot
+/// lit, and the caller's label says "no value yet". One accessibility element with the caller's label in every state.
 struct DotNumeral: View {
     enum Style { case dots, light }
 
@@ -75,19 +85,23 @@ struct DotNumeral: View {
     private let text: String?
     private let style: Style
     private let glyphGap: CGFloat
-    private let placeholderGlyphs: Int
+    private let placeholder: String
     private let accessibilityLabel: Text
 
     @Environment(\.dynamicTypeSize) private var typeSize
     /// The Light fallback: exactly 52 at the default size, larger from AX1 (about 1.5× at AX3).
     @ScaledMetric(relativeTo: .largeTitle) private var scaledLightSize: CGFloat = DotNumeral.lightSize
 
+    /// - Parameters:
+    ///   - placeholder: the shape of the value while pending, as a template in the table's characters: `"00"` for a
+    ///     score, `"0:00"` for Sleep's time asleep. Its glyphs are drawn with no dot lit (the Light fallback shows "–"
+    ///     per digit and keeps the separators), so the numeral keeps its width when the value arrives.
     init(_ text: String?, style: Style = .dots, glyphGap: CGFloat = DotNumeral.glyphGapToday,
-         placeholderGlyphs: Int = 2, accessibilityLabel: Text) {
+         placeholder: String = "00", accessibilityLabel: Text) {
         self.text = text
         self.style = style
         self.glyphGap = glyphGap
-        self.placeholderGlyphs = placeholderGlyphs
+        self.placeholder = placeholder
         self.accessibilityLabel = accessibilityLabel
     }
 
@@ -99,7 +113,7 @@ struct DotNumeral: View {
 
     @ViewBuilder private var content: some View {
         if Self.rendersDots(text, style: style, typeSize: typeSize),
-           let cells = Self.cells(text, placeholderGlyphs: placeholderGlyphs, glyphGap: glyphGap) {
+           let cells = Self.cells(text, placeholder: placeholder, glyphGap: glyphGap) {
             ZStack {
                 DotCells(centres: cells.unlit, diameter: Self.dot).fill(Theme.textPrimary.opacity(Self.offOpacity))
                 DotCells(centres: cells.lit, diameter: Self.dot).fill(Theme.textPrimary)
@@ -117,7 +131,7 @@ struct DotNumeral: View {
         if let text {
             Text(verbatim: text).foregroundStyle(Theme.textPrimary)
         } else {
-            Text(verbatim: String(repeating: "–", count: Self.cellCount(placeholderGlyphs)))
+            Text(verbatim: Self.pendingText(for: placeholder))
                 .foregroundStyle(Theme.textTertiary)
         }
     }
@@ -130,9 +144,17 @@ struct DotNumeral: View {
     }
 
     /// The grid's size: glyph widths plus `glyphGap` between glyphs, × 47. `nil` when `text` is outside the table.
-    /// A pending numeral (`nil`) has `placeholderGlyphs` blank digit cells (at least one).
-    nonisolated static func size(of text: String?, placeholderGlyphs: Int = 2, glyphGap: CGFloat) -> CGSize? {
-        cells(text, placeholderGlyphs: placeholderGlyphs, glyphGap: glyphGap)?.size
+    /// A pending numeral (`nil`) is the size of its `placeholder` template (`DotGlyphs.pendingGlyphs(for:)`).
+    nonisolated static func size(of text: String?, placeholder: String = "00", glyphGap: CGFloat) -> CGSize? {
+        cells(text, placeholder: placeholder, glyphGap: glyphGap)?.size
+    }
+
+    /// The Light fallback's pending text: each digit of the template becomes "–", the separators stay ("0:00" is
+    /// "–:––"). Characters outside the table are dropped, as in the grid; when nothing is left, one "–".
+    nonisolated static func pendingText(for template: String) -> String {
+        let kept = template.filter { DotGlyphs.table[$0] != nil }
+        guard !kept.isEmpty else { return "–" }
+        return String(kept.map { $0.isNumber ? "–" : $0 })
     }
 
     /// Dots below AX1 for `style: .dots` and text in the table (or pending); Light digits otherwise.
@@ -144,13 +166,13 @@ struct DotNumeral: View {
 
     /// Every dot centre: glyph `k` starts at the previous glyph's right edge + `glyphGap`; the dot in column `c`, row
     /// `r` is centred at `(x₀ + c·7 + 2.5, r·7 + 2.5)`.
-    nonisolated static func cells(_ text: String?, placeholderGlyphs: Int = 2, glyphGap: CGFloat) -> Cells? {
+    nonisolated static func cells(_ text: String?, placeholder: String = "00", glyphGap: CGFloat) -> Cells? {
         let glyphs: [DotGlyph]
         if let text {
             guard let found = DotGlyphs.glyphs(for: text) else { return nil }
             glyphs = found
         } else {
-            glyphs = Array(repeating: DotGlyphs.placeholder, count: cellCount(placeholderGlyphs))
+            glyphs = DotGlyphs.pendingGlyphs(for: placeholder)
         }
         let pitch = dot + dotGap
         var lit: [CGPoint] = [], unlit: [CGPoint] = []
@@ -167,9 +189,6 @@ struct DotNumeral: View {
         }
         return Cells(size: CGSize(width: x0, height: height), lit: lit, unlit: unlit)
     }
-
-    /// A pending numeral never draws nothing: at least one cell.
-    private nonisolated static func cellCount(_ placeholderGlyphs: Int) -> Int { max(placeholderGlyphs, 1) }
 }
 
 /// Circles of the dot diameter at the given centres.
@@ -192,6 +211,8 @@ private struct DotCells: Shape {
         VStack(alignment: .leading, spacing: 20) {
             DotNumeral("84", accessibilityLabel: Text("Readiness 84 of 100"))
             DotNumeral("7:48", glyphGap: DotNumeral.glyphGapDetail, accessibilityLabel: Text("7 hours 48 minutes asleep"))
+            DotNumeral(nil, glyphGap: DotNumeral.glyphGapDetail, placeholder: "0:00",
+                       accessibilityLabel: Text("Time asleep, no value yet"))
             DotNumeral("12.4", glyphGap: DotNumeral.glyphGapDetail, accessibilityLabel: Text("Strain 12.4 of 21"))
             DotNumeral("12,4", glyphGap: DotNumeral.glyphGapDetail, accessibilityLabel: Text("Strain 12.4 of 21"))
             DotNumeral(nil, accessibilityLabel: Text("Readiness, no value yet"))
@@ -218,6 +239,8 @@ private struct DotCells: Shape {
             DotNumeral("84", accessibilityLabel: Text("Readiness 84 of 100"))
             DotNumeral("7:48", glyphGap: DotNumeral.glyphGapDetail, accessibilityLabel: Text("7 hours 48 minutes asleep"))
             DotNumeral(nil, accessibilityLabel: Text("Readiness, no value yet"))
+            DotNumeral(nil, glyphGap: DotNumeral.glyphGapDetail, placeholder: "0:00",
+                       accessibilityLabel: Text("Time asleep, no value yet"))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

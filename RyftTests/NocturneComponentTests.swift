@@ -148,19 +148,19 @@ import Testing
         #expect(DotNumeral.width(of: DotGlyphs.placeholder) == 33)
     }
 
-    @Test("Spec 4: pending with two placeholders is 74×47; the placeholder count scales the width")
+    @Test("Spec 4: pending with the default \"00\" template is 74×47; the placeholder template sets the width")
     func pendingSize() {
         #expect(DotNumeral.size(of: nil, glyphGap: 8) == CGSize(width: 74, height: 47))
-        #expect(DotNumeral.size(of: nil, placeholderGlyphs: 2, glyphGap: 7) == CGSize(width: 73, height: 47))
-        #expect(DotNumeral.size(of: nil, placeholderGlyphs: 3, glyphGap: 8) == CGSize(width: 115, height: 47))
-        #expect(DotNumeral.size(of: nil, placeholderGlyphs: 1, glyphGap: 8) == CGSize(width: 33, height: 47))
+        #expect(DotNumeral.size(of: nil, placeholder: "00", glyphGap: 7) == CGSize(width: 73, height: 47))
+        #expect(DotNumeral.size(of: nil, placeholder: "000", glyphGap: 8) == CGSize(width: 115, height: 47))
+        #expect(DotNumeral.size(of: nil, placeholder: "0", glyphGap: 8) == CGSize(width: 33, height: 47))
     }
 
     /// Decided by the implementation: a pending numeral never draws nothing.
-    @Test("placeholderGlyphs of zero or less still draws one cell", arguments: [0, -1, -50])
-    func placeholderCountIsAtLeastOne(_ count: Int) {
-        #expect(DotNumeral.size(of: nil, placeholderGlyphs: count, glyphGap: 8) == CGSize(width: 33, height: 47))
-        let cells = DotNumeral.cells(nil, placeholderGlyphs: count, glyphGap: 8)
+    @Test("A placeholder template with nothing in the table still draws one cell", arguments: ["", "h", "  "])
+    func placeholderCountIsAtLeastOne(_ template: String) {
+        #expect(DotNumeral.size(of: nil, placeholder: template, glyphGap: 8) == CGSize(width: 33, height: 47))
+        let cells = DotNumeral.cells(nil, placeholder: template, glyphGap: 8)
         #expect(cells?.unlit.count == 35 && cells?.lit.isEmpty == true)
     }
 
