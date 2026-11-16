@@ -1,16 +1,26 @@
-// The orbit gauge's static drawing, shared by the app and the widget (ADR 0010): tracks, arcs, dots and the centre
-// ring, deterministic, from a mode, a size and a palette. No strings, no fonts, no accessibility, no timers: the
-// wrappers add those (`Ryft/Design/OrbitGauge.swift` in the app, `RyftWidgets/WidgetOrbitGauge.swift` in the widget).
+// The orbit gauge's drawing, shared by the app and the widget (ADR 0010): tracks, ticks, arcs, dots, halos and the
+// readiness marker, deterministic, from a mode, a size and a palette. No strings, no fonts, no accessibility, no timers:
+// the wrappers add those (`Ryft/Design/OrbitGauge.swift` in the app, `RyftWidgets/WidgetOrbitGauge.swift` in the widget).
 //
-// Geometry and mapping: `OrbitGaugeGeometry`, docs/work/2026-10-29-orbit-gauge/design.md. `.calibrating` draws the
-// outer orbit as segments, `.pending` the previous day's marks dimmed. The launch entrance is not a mode: the
-// app's wrapper plays it (`Ryft/Design/OrbitGaugeEntrance.swift`).
+// Gauge v3 (Nocturne PR 3): docs/work/2026-11-16-nocturne/design.md §P3-1 and §P3-2; geometry and mapping in
+// `OrbitGaugeGeometry`. `.calibrating` draws the outer orbit as segments, `.pending` the previous day's marks dimmed.
+// One drawing serves every moment: `OrbitGaugeScene` says where everything is and how much of it is drawn. The static
+// gauge is the scene of a mode; the app's launch entrance (`Ryft/Design/OrbitGaugeEntrance.swift`) is the same drawing
+// at the entrance's values, so its last frame is the static gauge by construction.
+//
+// LAYERS, back to front. Tracks (one group): the outer solid ring or the calibrating segments, the middle ring, the inner
+// solid ring, each cut around the dots of its own ring; then the tick rings, which are never cut (a tick is whole or
+// absent: `OrbitGaugeGeometry.drawnTicks` leaves out the ones too close to a dot). Marks (one group, dimmed while
+// pending): the band rail, the arcs, the solid tier's lit readiness arc, the halos, the cuts (each dot clears its ring
+// through everything under it, so the gauge reads the same on any ground and in the widget's tinted modes), the lit
+// readiness ticks, the dots, the Volt dot last. Dots come after every cut, so two close dots never cut each other.
 import SwiftUI
 
 /// The gauge's sizes: `MetricGauge`'s dials, so nothing around the gauge moves.
 enum OrbitGaugeSize: Hashable, Sendable {
     case small, medium, large
-    /// An exact dial, for the widget's other families and for checks. Screens use the three above.
+    /// An exact dial, for the widget's other families, the Today board's 260 (`.custom(dial: 248)`) and checks.
+    /// Screens use the three above.
     case custom(dial: CGFloat)
 
     /// The drawing's diameter.
@@ -23,14 +33,15 @@ enum OrbitGaugeSize: Hashable, Sendable {
         }
     }
 
-    /// The frame: the dial plus the 6 pt `MetricGauge` keeps free on every side for its ticks. Here the outer dot's
-    /// overshoot and the Today padding use it.
+    /// The frame, S in the geometry: the dial plus the 6 pt `MetricGauge` keeps free on every side for its ticks. The
+    /// outer ticks and the strain dot's ring stay inside it; only a halo can reach 3 pt past it (at 260), so nothing
+    /// around the gauge may clip it.
     var frame: CGFloat { dial + 12 }
 }
 
-/// The whole drawing: tracks, then the marks (arcs, dots, the centre ring), then the caller's centre content
-/// (the number) framed inside the centre ring. `mode == nil` is "unknown" (a widget snapshot written before the
-/// orbit): tracks only, never hollow dots that would say "missing".
+/// The whole drawing: tracks, then the marks, then the caller's centre content framed inside the readiness ring.
+/// `mode == nil` is "unknown" (a widget snapshot written before the orbit): tracks only, never hollow dots that would
+/// say "missing".
 ///
 /// `marks` lets a caller style the marks layer alone: the widget makes it `widgetAccentable()` for tinted and clear
 /// home screens while the tracks stay in the default group.
@@ -51,14 +62,14 @@ struct OrbitGaugeDrawing<Marks: View, Centre: View>: View {
     }
 
     var body: some View {
-        let m = OrbitGaugeGeometry.metrics(forDial: size.dial)
+        let scene = OrbitGaugeScene(mode: mode, size: size)
         ZStack {
-            OrbitGaugeTracks(mode: mode, dial: size.dial, palette: palette)
-            if let mode {
-                styleMarks(OrbitGaugeMarks(mode: mode, dial: size.dial, palette: palette))
+            OrbitGaugeTracks(scene: scene, palette: palette)
+            if mode != nil {
+                styleMarks(OrbitGaugeMarks(scene: scene, palette: palette))
             }
             centre
-                .frame(width: max(m.centreSlotWidth, 0))
+                .frame(width: max(scene.metrics.centreSlotWidth, 0))
         }
         .frame(width: size.frame, height: size.frame)
     }
@@ -77,130 +88,332 @@ extension OrbitGaugeDrawing where Marks == OrbitGaugeMarks, Centre == EmptyView 
     }
 }
 
-/// Tracks in the palette's track colour, with the air around every dot cut out of them, as the mark cuts its rings.
-/// The centre ring's track only where no readiness ring is drawn over it (the stubs, an unknown mode).
-struct OrbitGaugeTracks: View {
+// MARK: the scene
+
+/// One moment of the drawing, as numbers: where each dot is, how much of each track is drawn, how far the values have
+/// come. `init(mode:size:)` is the static gauge; the app's entrance changes the rest.
+struct OrbitGaugeScene {
+    /// A dot at `start + sweep` degrees (clockwise from the top) at `radius`. The static gauge keeps `start` at the
+    /// orbit's start and `sweep` at the arc's, so the dot rides the arc's animation; the entrance flies it in.
+    struct Dot: Equatable {
+        var radius: CGFloat
+        var start: Double
+        var sweep: Double
+        /// The dot's own opacity (the entrance fades it in as it flies).
+        var opacity = 1.0
+        /// The share of the halo's 16 % shown (the entrance grows it with the flight).
+        var halo = 1.0
+
+        var degrees: Double { start + sweep }
+    }
+
     let mode: OrbitGaugeMode?
     let dial: CGFloat
+    let metrics: OrbitGaugeGeometry.Metrics
+    /// How much of each track is drawn, 0...1: the outer ring (ticks, solid ring or segments) and the inner ring
+    /// clockwise from the top, the middle ring both ways from the top.
+    var outerTrack = 1.0
+    var middleTrack = 1.0
+    var innerTrack = 1.0
+    /// How much of its value the arcs, the counted segments, the lit ticks and the Volt dot show (0...1).
+    var progress = 1.0
+    var strainDot: Dot
+    var recoveryDot: Dot
+    var sleepDot: Dot
+    var voltOpacity = 1.0
+    var railOpacity = 1.0
+
+    init(mode: OrbitGaugeMode?, size: OrbitGaugeSize) {
+        self.mode = mode
+        dial = size.dial
+        let m = OrbitGaugeGeometry.metrics(forSide: size.frame)
+        metrics = m
+        let values = mode?.drawnValues
+        func settled(_ orbit: OrbitGaugeGeometry.Orbit) -> Dot {
+            Dot(radius: m.radius(of: orbit), start: orbit.startDegrees,
+                sweep: orbit.sweep(for: values.flatMap { orbit.fraction(of: $0) } ?? 0))
+        }
+        strainDot = settled(.strain)
+        recoveryDot = settled(.recovery)
+        sleepDot = settled(.sleep)
+    }
+
+    func dot(_ orbit: OrbitGaugeGeometry.Orbit) -> Dot {
+        switch orbit {
+        case .strain: return strainDot
+        case .recovery: return recoveryDot
+        case .sleep: return sleepDot
+        }
+    }
+
+    mutating func setDot(_ orbit: OrbitGaugeGeometry.Orbit, _ dot: Dot) {
+        switch orbit {
+        case .strain: strainDot = dot
+        case .recovery: recoveryDot = dot
+        case .sleep: sleepDot = dot
+        }
+    }
+
+    var values: OrbitGaugeValues? { mode?.drawnValues }
+    var calibration: OrbitGaugeCalibration? { mode?.calibratingValue }
+    /// Any mode draws three dots (filled or hollow); unknown draws none.
+    var drawsDots: Bool { mode != nil }
+
+    /// The outer tick ring: not while calibrating (the segments take the orbit) and not in the solid tier (a ring).
+    var drawsOuterTicks: Bool { calibration == nil && metrics.tier != .solid }
+
+    /// An orbit's fraction, nil when its score is missing (a hollow dot).
+    func fraction(_ orbit: OrbitGaugeGeometry.Orbit) -> Double? {
+        values.flatMap { orbit.fraction(of: $0) }
+    }
+
+    /// The radial line where the strain arc may turn toward alert, for a usable band.
+    var strainSplit: Double? {
+        values.flatMap { OrbitGaugeGeometry.strainSplitDegrees(band: $0.strainBand) }
+    }
+
+    /// The readiness as drawn, 0...1 of the inner ring; nil without one (no lit tick, no Volt dot).
+    var readiness: Double? {
+        guard drawsDots else { return nil }
+        return OrbitGaugeGeometry.readinessFraction(values?.readiness).map { $0 * progress }
+    }
+
+    /// The Volt dot is on the gauge (it marks a value) and visible.
+    var showsVolt: Bool { readiness != nil && voltOpacity > 0 }
+
+    /// Volt on the inner ring at the drawn readiness: at the value, not at a tick.
+    var voltDot: Dot { Dot(radius: metrics.centreRadius, start: 0, sweep: (readiness ?? 0) * 360) }
+}
+
+// MARK: tracks
+
+/// The tracks: `ink` at 16 % (the outer ticks, ring or segments), 7 % (the middle ring) and 13 % (the inner ticks or
+/// ring). Each ring is cut around the dots of its own ring only, so a dot on its way in leaves no gap in the rings it
+/// crosses; the tick rings leave out their ticks instead.
+struct OrbitGaugeTracks: View {
+    let scene: OrbitGaugeScene
     let palette: OrbitGaugePalette
 
+    init(scene: OrbitGaugeScene, palette: OrbitGaugePalette) {
+        self.scene = scene
+        self.palette = palette
+    }
+
+    init(mode: OrbitGaugeMode?, size: OrbitGaugeSize, palette: OrbitGaugePalette) {
+        self.init(scene: OrbitGaugeScene(mode: mode, size: size), palette: palette)
+    }
+
     var body: some View {
-        let m = OrbitGaugeGeometry.metrics(forDial: dial)
-        let values = mode?.drawnValues
-        let calibration = mode?.calibratingValue
+        let m = scene.metrics
         ZStack {
-            ForEach(OrbitGaugeGeometry.Orbit.allCases, id: \.self) { orbit in
-                if orbit == .strain, let calibration {
-                    // Seven segments instead of the one ring.
-                    ForEach(Array(OrbitGaugeGeometry.segments(required: calibration.required, dial: dial).enumerated()),
-                            id: \.offset) { _, segment in
-                        OrbitArc(radius: m.radius(of: orbit), start: segment.start, sweep: segment.sweep)
-                            .stroke(palette.track, style: StrokeStyle(lineWidth: m.stroke(of: orbit), lineCap: .round))
-                    }
-                } else {
-                    OrbitArc(radius: m.radius(of: orbit), start: orbit.startDegrees, sweep: orbit.trackSweep)
-                        .stroke(palette.track, style: StrokeStyle(lineWidth: m.stroke(of: orbit), lineCap: .round))
-                }
+            outerRing(m)
+            ZStack {
+                OrbitRing(radius: m.innerRadius, fraction: scene.middleTrack)
+                    .stroke(palette.middleTrack, style: StrokeStyle(lineWidth: m.innerStroke, lineCap: .round))
+                cut(scene.recoveryDot, m.dotCut)
+                cut(scene.sleepDot, m.dotCut)
             }
-            if mode != nil {
-                ForEach(OrbitGaugeGeometry.Orbit.allCases, id: \.self) { orbit in
-                    OrbitDot(radius: m.radius(of: orbit), start: orbit.startDegrees,
-                             sweep: orbit.sweep(for: values.flatMap { orbit.fraction(of: $0) } ?? 0),
-                             dotRadius: m.dotRadius + m.dotAir)
-                        .fill(.black)
-                        .blendMode(.destinationOut)
+            .compositingGroup()
+            if m.tier == .solid {
+                ZStack {
+                    OrbitArc(radius: m.centreRadius, start: 0, sweep: OrbitGaugeGeometry.strainTrackSweep * scene.innerTrack)
+                        .stroke(palette.innerTrack, style: StrokeStyle(lineWidth: m.centreStroke, lineCap: .round))
+                    if scene.showsVolt { cutting(scene.voltDot, m.voltCut) }
                 }
-            }
-            // Under the readiness ring only while it is dimmed (pending), so the dimmed ring sits on its track.
-            if values == nil || mode?.isPending == true {
-                let d = m.centreRadius * 2 + m.centreStroke
-                Circle()
-                    .inset(by: m.centreStroke / 2)
-                    .stroke(palette.track, lineWidth: m.centreStroke)
-                    .frame(width: d, height: d)
+                .compositingGroup()
+            } else {
+                if scene.drawsOuterTicks {
+                    OrbitTicks(count: m.outerTickCount, radius: m.outerRadius, tick: m.outerTick, fraction: scene.outerTrack,
+                               lit: false, dot: scene.drawsDots ? scene.strainDot : nil, cut: m.dotCut)
+                        .fill(palette.outerTrack)
+                }
+                OrbitTicks(count: m.innerTickCount, radius: m.centreRadius, tick: m.innerTick, fraction: scene.innerTrack,
+                           lit: false, dot: scene.showsVolt ? scene.voltDot : nil, cut: m.voltCut)
+                    .fill(palette.innerTrack)
             }
         }
         .compositingGroup()
+    }
+
+    /// Calibrating: the segments (no tick ring); the solid tier: one ring; else nothing (the ticks are drawn above).
+    @ViewBuilder
+    private func outerRing(_ m: OrbitGaugeGeometry.Metrics) -> some View {
+        if let calibration = scene.calibration {
+            ZStack {
+                ForEach(Array(OrbitGaugeGeometry.segments(required: calibration.required, dial: scene.dial).enumerated()),
+                        id: \.offset) { _, segment in
+                    OrbitArc(radius: m.outerRadius, start: segment.start, sweep: segment.sweep * scene.outerTrack)
+                        .stroke(palette.outerTrack, style: StrokeStyle(lineWidth: m.outerStroke, lineCap: .round))
+                }
+                cut(scene.strainDot, m.dotCut)
+            }
+            .compositingGroup()
+        } else if m.tier == .solid {
+            ZStack {
+                OrbitArc(radius: m.outerRadius, start: 0, sweep: OrbitGaugeGeometry.strainTrackSweep * scene.outerTrack)
+                    .stroke(palette.outerTrack, style: StrokeStyle(lineWidth: m.outerStroke, lineCap: .round))
+                cut(scene.strainDot, m.dotCut)
+            }
+            .compositingGroup()
+        }
+    }
+
+    @ViewBuilder
+    private func cut(_ dot: OrbitGaugeScene.Dot, _ radius: CGFloat) -> some View {
+        if scene.drawsDots { cutting(dot, radius) }
+    }
+
+    private func cutting(_ dot: OrbitGaugeScene.Dot, _ radius: CGFloat) -> some View {
+        OrbitDot(radius: dot.radius, start: dot.start, sweep: dot.sweep, dotRadius: radius)
+            .fill(.black)
+            .blendMode(.destinationOut)
     }
 }
 
-/// The marks of a mode: per orbit the arc and the filled dot of a present score, or the hollow dot of a missing
-/// one; the centre ring in the readiness band's colour when scored. Calibrating adds the filled segments; pending
-/// draws the previous day's marks at `pendingOpacity`. The other modes draw three hollow dots.
+// MARK: marks
+
+/// The marks of a mode: per orbit the arc, halo and filled dot of a present score or the hollow dot of a missing one;
+/// the lit readiness ticks (a solid arc below S 100) and the Volt dot at the value; the strain band's rail. Calibrating
+/// adds the counted segments; pending draws the previous day's marks at `pendingOpacity`, lit ticks and Volt included.
 struct OrbitGaugeMarks: View {
-    let mode: OrbitGaugeMode
-    let dial: CGFloat
+    let scene: OrbitGaugeScene
     let palette: OrbitGaugePalette
 
-    /// How much of its colour a pending gauge keeps. Intentionally secondary (design.md, PR 2): the numbers say what
-    /// it is, this says "not today's".
+    /// How much of its colour a pending gauge keeps. Intentionally secondary (design.md, PR 2 of the orbit gauge): the
+    /// numbers say what it is, this says "not today's".
     static let pendingOpacity = 0.6
 
-    var body: some View {
-        let m = OrbitGaugeGeometry.metrics(forDial: dial)
-        let values = mode.drawnValues
-        ZStack {
-            // The strain band's rail under the outer orbit's marks; nothing without a band, a dial with room, or values.
-            if let values, OrbitGaugeGeometry.drawsBandRail(values.strainBand, dial: dial) {
-                OrbitGaugeBandRail(band: values.strainBand, dial: dial, colour: palette.strain,
-                                   cut: (start: 0, sweep: OrbitGaugeGeometry.Orbit.strain.sweep(for: values.strainFraction ?? 0),
-                                         radius: m.outerRadius))
-            }
-            ForEach(OrbitGaugeGeometry.Orbit.allCases, id: \.self) { orbit in
-                if orbit == .strain, let calibration = mode.calibratingValue {
-                    segments(calibration, m)
-                }
-                marks(orbit, fraction: values.flatMap { orbit.fraction(of: $0) },
-                      split: orbit == .strain ? values.flatMap { OrbitGaugeGeometry.strainSplitDegrees(band: $0.strainBand) } : nil,
-                      m)
-            }
-            if let values {
-                let d = m.centreRadius * 2 + m.centreStroke
-                Circle()
-                    .inset(by: m.centreStroke / 2)
-                    .stroke(palette.band(forReadiness: values.readiness), lineWidth: m.centreStroke)
-                    .frame(width: d, height: d)
-            }
-        }
-        // One group, so a dot over its arc does not darken twice.
-        .compositingGroup()
-        .opacity(mode.isPending ? Self.pendingOpacity : 1)
+    init(scene: OrbitGaugeScene, palette: OrbitGaugePalette) {
+        self.scene = scene
+        self.palette = palette
     }
 
-    /// The nights counted, clockwise from the seam, in the accent. An unfilled segment has no sweep, so a segment
-    /// that fills grows from its start (the app steps `nights` one at a time).
+    init(mode: OrbitGaugeMode, size: OrbitGaugeSize, palette: OrbitGaugePalette) {
+        self.init(scene: OrbitGaugeScene(mode: mode, size: size), palette: palette)
+    }
+
+    var body: some View {
+        let m = scene.metrics
+        let split = scene.strainSplit
+        ZStack {
+            rail(m)
+            if let calibration = scene.calibration { segments(calibration, m) }
+            ForEach(OrbitGaugeGeometry.Orbit.allCases, id: \.self) { orbit in
+                if let fraction = scene.fraction(orbit) { arc(orbit, fraction: fraction, split: split, m) }
+            }
+            if m.tier == .solid, let readiness = scene.readiness {
+                OrbitArc(radius: m.centreRadius, start: 0, sweep: min(readiness * 360, OrbitGaugeGeometry.strainTrackSweep))
+                    .stroke(palette.ink, style: StrokeStyle(lineWidth: m.centreStroke, lineCap: .round))
+            }
+            if m.showsHalo {
+                ForEach(OrbitGaugeGeometry.Orbit.allCases, id: \.self) { orbit in
+                    if scene.fraction(orbit) != nil { halo(orbit, split: split, m) }
+                }
+            }
+            if scene.drawsDots {
+                ForEach(OrbitGaugeGeometry.Orbit.allCases, id: \.self) { orbit in cutting(scene.dot(orbit), m.dotCut) }
+            }
+            if scene.showsVolt { cutting(scene.voltDot, m.voltCut) }
+            if m.tier != .solid, let readiness = scene.readiness {
+                OrbitTicks(count: m.innerTickCount, radius: m.centreRadius, tick: m.innerTick, fraction: readiness, lit: true,
+                           dot: scene.showsVolt ? scene.voltDot : nil, cut: m.voltCut)
+                    .fill(palette.ink)
+            }
+            if scene.drawsDots {
+                ForEach(OrbitGaugeGeometry.Orbit.allCases, id: \.self) { orbit in dot(orbit, split: split, m) }
+            }
+            if scene.showsVolt {
+                let volt = scene.voltDot
+                OrbitDot(radius: volt.radius, start: volt.start, sweep: volt.sweep, dotRadius: m.voltRadius)
+                    .fill(palette.signal)
+                    .opacity(scene.voltOpacity)
+            }
+        }
+        // One group, so a dot over its arc does not darken twice and the cuts reach only the marks.
+        .compositingGroup()
+        .opacity(scene.mode?.isPending == true ? Self.pendingOpacity : 1)
+    }
+
+    /// The band's rail: a thin butt-capped arc inside the outer ticks, `metricStrain` at `bandRailOpacity`; the strain
+    /// dot's cut clears it around the dot. Nothing without a usable band, a dial with room, or values.
+    @ViewBuilder
+    private func rail(_ m: OrbitGaugeGeometry.Metrics) -> some View {
+        if let band = scene.values?.strainBand, OrbitGaugeGeometry.drawsBandRail(band, dial: scene.dial),
+           let rail = OrbitGaugeGeometry.bandRail(for: band) {
+            OrbitArc(radius: m.bandRadius, start: rail.start, sweep: rail.sweep)
+                .stroke(palette.strain.opacity(OrbitGaugeGeometry.bandRailOpacity),
+                        style: StrokeStyle(lineWidth: m.bandStroke, lineCap: .butt))
+                .opacity(scene.railOpacity)
+        }
+    }
+
+    /// The nights counted, clockwise from the seam, in the calibration teal. An unfilled segment has no sweep, so a
+    /// segment that fills grows from its start (the app steps `nights` one at a time).
     private func segments(_ calibration: OrbitGaugeCalibration, _ m: OrbitGaugeGeometry.Metrics) -> some View {
         let counted = calibration.counted
-        return ForEach(Array(OrbitGaugeGeometry.segments(required: calibration.required, dial: dial).enumerated()),
+        return ForEach(Array(OrbitGaugeGeometry.segments(required: calibration.required, dial: scene.dial).enumerated()),
                        id: \.offset) { i, segment in
-            OrbitArc(radius: m.outerRadius, start: segment.start, sweep: i < counted ? segment.sweep : 0)
+            OrbitArc(radius: m.outerRadius, start: segment.start, sweep: i < counted ? segment.sweep * scene.progress : 0)
                 .stroke(palette.calibration, style: StrokeStyle(lineWidth: m.outerStroke, lineCap: .round))
         }
     }
 
     @ViewBuilder
-    private func marks(_ orbit: OrbitGaugeGeometry.Orbit, fraction: Double?, split: Double?,
-                       _ m: OrbitGaugeGeometry.Metrics) -> some View {
+    private func arc(_ orbit: OrbitGaugeGeometry.Orbit, fraction: Double, split: Double?,
+                     _ m: OrbitGaugeGeometry.Metrics) -> some View {
+        let sweep = orbit.sweep(for: fraction) * scene.progress
+        if orbit == .strain, let split {
+            // A usable band: one structure whatever the strain is, so a change that crosses the band's end moves the
+            // arc's colour with it (`OrbitStrainArc`).
+            OrbitStrainArc(radius: m.outerRadius, stroke: m.outerStroke, sweep: sweep, split: split,
+                           plain: palette.strain, past: palette.strainPastBand)
+        } else {
+            OrbitArc(radius: m.radius(of: orbit), start: orbit.startDegrees, sweep: sweep)
+                .stroke(palette.colour(of: orbit), style: StrokeStyle(lineWidth: m.stroke(of: orbit), lineCap: .round))
+        }
+    }
+
+    /// The halo of a present score: its colour at 16 %, behind the ring (the cut leaves r 10...15 of it at 260).
+    @ViewBuilder
+    private func halo(_ orbit: OrbitGaugeGeometry.Orbit, split: Double?, _ m: OrbitGaugeGeometry.Metrics) -> some View {
+        let d = scene.dot(orbit)
+        let alpha = OrbitGaugePalette.haloOpacity * d.halo
+        if orbit == .strain, let split {
+            OrbitStrainDot(radius: d.radius, start: d.start, sweep: d.sweep, dotRadius: m.haloRadius, split: split,
+                           plain: palette.strain.opacity(alpha), past: palette.strainPastBand.opacity(alpha))
+        } else {
+            OrbitDot(radius: d.radius, start: d.start, sweep: d.sweep, dotRadius: m.haloRadius)
+                .fill(palette.colour(of: orbit).opacity(alpha))
+        }
+    }
+
+    /// Filled for a score (a zero is a filled dot at the start), hollow for a missing one: an outline with its inside
+    /// cleared, no halo.
+    @ViewBuilder
+    private func dot(_ orbit: OrbitGaugeGeometry.Orbit, split: Double?, _ m: OrbitGaugeGeometry.Metrics) -> some View {
+        let d = scene.dot(orbit)
         let colour = palette.colour(of: orbit)
-        if let fraction {
-            if let split {
-                // A usable band: one structure whatever the strain is, so a change that crosses the band's end moves
-                // the arc and the dot's colour with it (`OrbitStrainArc`, `OrbitStrainDot`).
-                OrbitStrainArc(radius: m.radius(of: orbit), stroke: m.stroke(of: orbit),
-                               sweep: orbit.sweep(for: fraction), split: split, plain: colour, past: palette.strainPastBand)
-                OrbitStrainDot(radius: m.radius(of: orbit), sweep: orbit.sweep(for: fraction), dotRadius: m.dotRadius,
-                               split: split, plain: colour, past: palette.strainPastBand)
+        if scene.fraction(orbit) != nil {
+            if orbit == .strain, let split {
+                OrbitStrainDot(radius: d.radius, start: d.start, sweep: d.sweep, dotRadius: m.dotRadius, split: split,
+                               plain: colour, past: palette.strainPastBand)
+                    .opacity(d.opacity)
             } else {
-                OrbitArc(radius: m.radius(of: orbit), start: orbit.startDegrees, sweep: orbit.sweep(for: fraction))
-                    .stroke(colour, style: StrokeStyle(lineWidth: m.stroke(of: orbit), lineCap: .round))
-                OrbitDot(radius: m.radius(of: orbit), start: orbit.startDegrees, sweep: orbit.sweep(for: fraction),
-                         dotRadius: m.dotRadius)
+                OrbitDot(radius: d.radius, start: d.start, sweep: d.sweep, dotRadius: m.dotRadius)
                     .fill(colour)
+                    .opacity(d.opacity)
             }
         } else {
-            OrbitDot(radius: m.radius(of: orbit), start: orbit.startDegrees, sweep: 0, dotRadius: m.dotRadius)
+            OrbitDot(radius: d.radius, start: d.start, sweep: d.sweep, dotRadius: m.dotRadius)
                 .stroke(colour, lineWidth: m.hollowStroke)
+                .opacity(d.opacity)
         }
+    }
+
+    private func cutting(_ dot: OrbitGaugeScene.Dot, _ radius: CGFloat) -> some View {
+        OrbitDot(radius: dot.radius, start: dot.start, sweep: dot.sweep, dotRadius: radius)
+            .fill(.black)
+            .blendMode(.destinationOut)
     }
 }
 
@@ -225,31 +438,6 @@ extension OrbitGaugeGeometry.Orbit {
 }
 
 // MARK: strain band (PR 4)
-
-/// The band's rail: a thin butt-capped arc inside the outer orbit, `metricStrain` at `bandRailOpacity`, with the air around
-/// the strain dot cut out of it the way the tracks are (`cut`: the dot's start and sweep on its orbit, like the tracks').
-/// Draws nothing for an empty band.
-struct OrbitGaugeBandRail: View {
-    let band: ClosedRange<Double>?
-    let dial: CGFloat
-    let colour: Color
-    var opacity = OrbitGaugeGeometry.bandRailOpacity
-    let cut: (start: Double, sweep: Double, radius: CGFloat)
-
-    var body: some View {
-        let m = OrbitGaugeGeometry.metrics(forDial: dial)
-        ZStack {
-            if let rail = OrbitGaugeGeometry.bandRail(for: band) {
-                OrbitArc(radius: m.bandRadius, start: rail.start, sweep: rail.sweep)
-                    .stroke(colour.opacity(opacity), style: StrokeStyle(lineWidth: m.bandStroke, lineCap: .butt))
-                OrbitDot(radius: cut.radius, start: cut.start, sweep: cut.sweep, dotRadius: m.dotRadius + m.dotAir)
-                    .fill(.black)
-                    .blendMode(.destinationOut)
-            }
-        }
-        .compositingGroup()
-    }
-}
 
 /// The strain arc with a band: one stroked arc drawn twice, `plain` up to `split` (the band's upper end, degrees from the
 /// top) and `past` beyond it, each clipped to its side of a radial line, so the join is straight, the caps stay round at
@@ -282,10 +470,13 @@ struct OrbitStrainArc: View, Animatable {
     }
 }
 
-/// The strain dot with a band: `past` once its head is beyond `split`, `plain` before, decided from the animated sweep
-/// (it switches at the moment the head crosses the line, not at the end of the animation).
+/// The strain dot (or its halo) with a band: `past` once the arc's head is beyond `split`, `plain` before, decided from
+/// the animated sweep (it switches at the moment the head crosses the line, not at the end of the animation). It sits at
+/// `start + sweep`: the static gauge passes the arc's sweep from the top; the entrance passes the arc's sweep so far and
+/// a `start` that puts the flying dot where it is.
 struct OrbitStrainDot: View, Animatable {
     var radius: CGFloat
+    var start: Double = 0
     var sweep: Double
     var dotRadius: CGFloat
     var split: Double
@@ -298,7 +489,7 @@ struct OrbitStrainDot: View, Animatable {
     }
 
     var body: some View {
-        OrbitDot(radius: radius, start: 0, sweep: sweep, dotRadius: dotRadius)
+        OrbitDot(radius: radius, start: start, sweep: sweep, dotRadius: dotRadius)
             .fill(sweep > split ? past : plain)
     }
 }
@@ -344,6 +535,84 @@ struct OrbitArc: Shape {
         p.addArc(center: CGPoint(x: rect.midX, y: rect.midY), radius: radius,
                  startAngle: .degrees(start - 90), endAngle: .degrees(start + sweep - 90),
                  clockwise: sweep < 0)
+        return p
+    }
+}
+
+/// The middle orbit's track: the whole ring, or (the entrance) the part of it within `fraction` x 180 deg of the top on
+/// either side, one path so its round ends never overlap themselves.
+struct OrbitRing: Shape {
+    var radius: CGFloat
+    var fraction: Double
+
+    var animatableData: Double {
+        get { fraction }
+        set { fraction = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let c = CGPoint(x: rect.midX, y: rect.midY)
+        if fraction >= 1 {
+            p.addEllipse(in: CGRect(x: c.x - radius, y: c.y - radius, width: 2 * radius, height: 2 * radius))
+            return p
+        }
+        let half = 180 * fraction
+        guard half > 0.025 else { return p }
+        p.addArc(center: c, radius: radius, startAngle: .degrees(-half - 90), endAngle: .degrees(half - 90),
+                 clockwise: false)
+        return p
+    }
+}
+
+/// A tick ring: rectangles `tick.width` across and `tick.height` along the radius, centred on the ring, tick 0 at the
+/// top. Which are drawn is `OrbitGaugeGeometry.drawnTicks`: the lit ones or the ones drawn in so far, less those too
+/// close to the ring's dot. Animatable in the fraction and the dot, so the lit count follows an animated readiness by
+/// threshold and the gap travels with the dot; a tick itself never moves or shrinks.
+struct OrbitTicks: Shape {
+    var count: Int
+    var radius: CGFloat
+    var tick: CGSize
+    var fraction: Double
+    var lit: Bool
+    var dotStart: Double
+    var dotSweep: Double
+    var dotRadius: CGFloat
+    /// 0: no dot.
+    var cut: CGFloat
+
+    init(count: Int, radius: CGFloat, tick: CGSize, fraction: Double, lit: Bool, dot: OrbitGaugeScene.Dot?, cut: CGFloat) {
+        self.count = count
+        self.radius = radius
+        self.tick = tick
+        self.fraction = fraction
+        self.lit = lit
+        dotStart = dot?.start ?? 0
+        dotSweep = dot?.sweep ?? 0
+        dotRadius = dot?.radius ?? 0
+        self.cut = dot == nil ? 0 : cut
+    }
+
+    var animatableData: AnimatablePair<Double, AnimatablePair<Double, CGFloat>> {
+        get { AnimatablePair(fraction, AnimatablePair(dotSweep, dotRadius)) }
+        set {
+            fraction = newValue.first
+            dotSweep = newValue.second.first
+            dotRadius = newValue.second.second
+        }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let c = CGPoint(x: rect.midX, y: rect.midY)
+        let dot = cut > 0 ? (degrees: dotStart + dotSweep, radius: dotRadius) : nil
+        let box = CGRect(x: -tick.width / 2, y: -radius - tick.height / 2, width: tick.width, height: tick.height)
+        for i in OrbitGaugeGeometry.drawnTicks(count: count, ringRadius: radius, fraction: fraction, lit: lit, dot: dot,
+                                               cut: cut) {
+            // Rotating the top tick clockwise in y-down space: positive radians.
+            let angle = OrbitGaugeGeometry.tickDegrees(i, count: count) * .pi / 180
+            p.addRect(box, transform: CGAffineTransform(translationX: c.x, y: c.y).rotated(by: CGFloat(angle)))
+        }
         return p
     }
 }
