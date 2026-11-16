@@ -20,7 +20,7 @@ import UIKit
 
     @Test func theLastFrameIsTheStaticRender() {
         for (name, mode) in Self.modes {
-            for scheme in [ColorScheme.dark, .light] {
+            for scheme in [ColorScheme.dark] {
                 let still = png(OrbitGauge(mode: mode, size: .large, animatesFill: false, breathes: false), scheme: scheme)
                 let end = png(OrbitGauge(mode: mode, size: .large, animatesFill: false, breathes: false,
                                          entrance: .assemble, frozenAt: OrbitEntranceFrame.end), scheme: scheme)
@@ -39,7 +39,7 @@ import UIKit
 
     @Test func overTracksEndsOnTheStaticRenderWithAndWithoutReduceMotion() {
         for (name, mode) in Self.modes {
-            for scheme in [ColorScheme.dark, .light] {
+            for scheme in [ColorScheme.dark] {
                 for reduced in [false, true] {
                     let still = png(OrbitGauge(mode: mode, size: .large, animatesFill: false, breathes: false)
                                         .environment(\.orbitForcesReducedMotion, reduced), scheme: scheme)
@@ -102,7 +102,7 @@ import UIKit
             try r.uiImage?.pngData()?.write(to: URL(fileURLWithPath: "\(dir)/ax3-\(label).png"))
         }
         for (name, mode) in Self.modes {
-            for scheme in [ColorScheme.dark, .light] {
+            for scheme in [ColorScheme.dark] {
                 let row = HStack(spacing: 8) {
                     ForEach([0.0, 0.25, 0.6, OrbitEntranceFrame.end], id: \.self) { t in
                         OrbitGauge(mode: mode, size: .medium, animatesFill: false, breathes: false, entrance: .assemble, frozenAt: t)

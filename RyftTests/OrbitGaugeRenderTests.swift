@@ -3,7 +3,7 @@ import Testing
 import UIKit
 @testable import Ryft
 
-/// PR 2 rendered: the app's `OrbitGauge` drawn by `ImageRenderer` in both appearances at the three sizes, and the
+/// PR 2 rendered: the app's `OrbitGauge` drawn by `ImageRenderer` (dark, the only appearance) at the three sizes, and the
 /// pixels read at the places the geometry says things are. There are no golden images in this repo (the shots in
 /// `OrbitGaugeShotsTests` are written, not compared), so each assertion names the colour that must be at a point.
 /// Static: `animatesFill: false`, `breathes: false`, nothing depends on time.
@@ -33,7 +33,7 @@ import UIKit
     }
 
     private static let sizes: [(String, OrbitGauge.Size)] = [("small", .small), ("medium", .medium), ("large", .large)]
-    private static let schemes: [(String, ColorScheme, UIUserInterfaceStyle)] = [("dark", .dark, .dark), ("light", .light, .light)]
+    private static let schemes: [(String, ColorScheme, UIUserInterfaceStyle)] = [("dark", .dark, .dark)]
 
     private func render(_ mode: OrbitGaugeMode, _ size: OrbitGauge.Size, _ scheme: ColorScheme,
                         animatesFill: Bool = false) -> Shot? {
@@ -52,11 +52,18 @@ import UIKit
         return Shot(width: w, height: h, scale: 3, frame: size.frame, dial: size.dial, bytes: bytes)
     }
 
+    /// The colour as it reaches the pixel: a translucent token (the track is `#F2F1EC` at 16 %) flattened over the
+    /// screen colour it is drawn on (`render` puts every gauge on `Theme.background`).
     private func rgb(_ colour: Color, _ style: UIUserInterfaceStyle) -> RGB {
-        let ui = UIColor(colour).resolvedColor(with: UITraitCollection(userInterfaceStyle: style))
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
-        let c = ui.cgColor.converted(to: space, intent: .defaultIntent, options: nil)?.components ?? [0, 0, 0, 1]
-        return RGB(r: Double(c[0]), g: Double(c[1]), b: Double(c[2]))
+        func components(_ colour: Color) -> [CGFloat] {
+            let ui = UIColor(colour).resolvedColor(with: UITraitCollection(userInterfaceStyle: style))
+            return ui.cgColor.converted(to: space, intent: .defaultIntent, options: nil)?.components ?? [0, 0, 0, 1]
+        }
+        let c = components(colour), ground = components(Theme.background)
+        let a = Double(c[3])
+        return RGB(r: Double(c[0]) * a + Double(ground[0]) * (1 - a), g: Double(c[1]) * a + Double(ground[1]) * (1 - a),
+                   b: Double(c[2]) * a + Double(ground[2]) * (1 - a))
     }
 
     private func distance(_ a: RGB, _ b: RGB) -> Double {

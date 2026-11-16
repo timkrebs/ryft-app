@@ -3,7 +3,8 @@ import Testing
 import UIKit
 @testable import Ryft
 
-/// WCAG 2.x contrast of the gauge's graphics (1.4.11 asks 3:1), resolved from the asset catalog in both appearances.
+/// WCAG 2.x contrast of the gauge's graphics (1.4.11 asks 3:1), resolved from the asset catalog (dark, the only
+/// appearance). The track is translucent (`#F2F1EC` at 16 %), so it is composited over the screen it is drawn on.
 @MainActor
 @Suite struct OrbitGaugeContrastTests {
     private struct RGBA { var r, g, b, a: CGFloat }
@@ -35,9 +36,9 @@ import UIKit
 
     @Test func arcsAndDotsReachThreeToOneOnTheirTrack() {
         var lines: [String] = []
-        for (name, style) in [("dark", UIUserInterfaceStyle.dark), ("light", .light)] {
+        for (name, style) in [("dark", UIUserInterfaceStyle.dark)] {
             let background = resolve(Theme.background, style)
-            let track = resolve(Theme.surfaceRaised, style)
+            let track = over(resolve(Theme.surfaceRaised, style), background)
             let graphics: [(String, Color)] = [
                 ("Recovery (accent)", Theme.accent), ("Sleep", Theme.metricSleep), ("Strain", Theme.metricStrain),
                 ("band high (accent)", Theme.accent), ("band moderate (warning)", Theme.warning), ("band low (alert)", Theme.alert),
@@ -62,9 +63,10 @@ import UIKit
 
     /// The calibration's filled segments are `Theme.accent` on the track and on the background (design.md, PR 2).
     @Test func filledCalibrationSegmentsReachThreeToOneOnTrackAndBackground() {
-        for (name, style) in [("dark", UIUserInterfaceStyle.dark), ("light", .light)] {
+        for (name, style) in [("dark", UIUserInterfaceStyle.dark)] {
             let accent = resolve(OrbitGaugePalette.assets.calibration, style)
-            #expect(ratio(accent, resolve(Theme.surfaceRaised, style)) >= 3, "\(name) filled segment on its track")
+            #expect(ratio(accent, over(resolve(Theme.surfaceRaised, style), resolve(Theme.background, style))) >= 3,
+                    "\(name) filled segment on its track")
             #expect(ratio(accent, resolve(Theme.background, style)) >= 3, "\(name) filled segment on the background")
             // The palette's calibration colour is the accent the other tests measure.
             #expect(ratio(accent, resolve(Theme.accent, style)) < 1.001)
@@ -73,27 +75,20 @@ import UIKit
 
     /// Pending draws the previous day at `pendingOpacity` on purpose below 3:1 in places (design.md, PR 2: "yesterday,
     /// not today"; the number carries the value at >= 4.5:1 and VoiceOver says it). Pinning the constant makes raising or
-    /// lowering it a decision, not an accident; this is not an assertion that 0.6 reaches 3:1.
+    /// lowering it a decision, not an accident; this is not an assertion that 0.6 reaches 3:1. (The sub-3:1 case was the
+    /// light scheme's Sleep and Strain; with dark only the contrast is printed, not asserted.)
     @Test func pendingOpacityIsPinnedAndIntentionallyBelowThreeToOne() {
         #expect(OrbitGaugeMarks.pendingOpacity == 0.6)
         var lines: [String] = []
-        for (name, style) in [("dark", UIUserInterfaceStyle.dark), ("light", .light)] {
+        for (name, style) in [("dark", UIUserInterfaceStyle.dark)] {
             let background = resolve(Theme.background, style)
-            let track = resolve(Theme.surfaceRaised, style)
+            let track = over(resolve(Theme.surfaceRaised, style), background)
             for (title, colour) in [("accent", Theme.accent), ("sleep", Theme.metricSleep), ("strain", Theme.metricStrain)] {
                 var c = resolve(colour, style)
                 c.a = OrbitGaugeMarks.pendingOpacity
                 let onBackground = String(format: "%.2f", ratio(over(c, background), background))
                 let onTrack = String(format: "%.2f", ratio(over(c, track), track))
                 lines.append("\(name) pending \(title): background \(onBackground), over track \(onTrack)")
-            }
-            // The light-scheme Sleep and Strain arcs at 0.6 are the documented sub-3:1 case.
-            if style == .light {
-                for colour in [Theme.metricSleep, Theme.metricStrain] {
-                    var c = resolve(colour, style)
-                    c.a = OrbitGaugeMarks.pendingOpacity
-                    #expect(ratio(over(c, background), background) < 3)
-                }
             }
             // The previous day's number is text in textTertiary: that one must read.
             #expect(ratio(over(resolve(Theme.textTertiary, style), background), background) >= 4.5, "\(name) pending number")
