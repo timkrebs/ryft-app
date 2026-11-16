@@ -4,6 +4,9 @@ import UIKit
 @testable import Ryft
 
 /// WCAG 2.x contrast of the gauge's graphics (1.4.11 asks 3:1), resolved from the asset catalog (dark, the only appearance).
+/// Gauge v3 (docs/work/2026-11-16-nocturne/design.md §P3-3): the tracks are `ink` at 7, 13 and 16 % over `background`, and
+/// every composite is taken as the 8-bit pixel it lands as (`#1A1C1B`, `#282A28`, `#2F312F`), which is how the design
+/// note's numbers were measured.
 @MainActor
 @Suite struct OrbitGaugeContrastTests {
     private struct RGBA { var r, g, b, a: CGFloat }
@@ -15,9 +18,10 @@ import UIKit
         return c
     }
 
-    private func over(_ top: RGBA, _ bottom: RGBA) -> RGBA {
-        RGBA(r: top.r * top.a + bottom.r * (1 - top.a), g: top.g * top.a + bottom.g * (1 - top.a),
-             b: top.b * top.a + bottom.b * (1 - top.a), a: 1)
+    /// `top` at `alpha` over an opaque `bottom`, as the 8-bit pixel it lands as.
+    private func over(_ top: RGBA, _ alpha: CGFloat, _ bottom: RGBA) -> RGBA {
+        func mix(_ t: CGFloat, _ b: CGFloat) -> CGFloat { ((t * alpha + b * (1 - alpha)) * 255).rounded() / 255 }
+        return RGBA(r: mix(top.r, bottom.r), g: mix(top.g, bottom.g), b: mix(top.b, bottom.b), a: 1)
     }
 
     private func luminance(_ c: RGBA) -> Double {
@@ -33,26 +37,72 @@ import UIKit
         return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
     }
 
+    private func two(_ v: Double) -> String { String(format: "%.2f", v) }
+
+    /// The design note prints two decimals.
+    private func printed(_ value: Double, _ expected: Double) -> Bool { abs(value - expected) < 0.006 }
+
+    private struct Tracks { var middle, inner, outer: RGBA }
+
+    private func tracks(_ style: UIUserInterfaceStyle) -> Tracks {
+        let ink = resolve(OrbitGaugePalette.assets.ink, style), background = resolve(Theme.background, style)
+        return Tracks(middle: over(ink, OrbitGaugePalette.middleTrackOpacity, background),
+                      inner: over(ink, OrbitGaugePalette.innerTrackOpacity, background),
+                      outer: over(ink, OrbitGaugePalette.outerTrackOpacity, background))
+    }
+
+    @Test func theTracksAreTheDesignNotesPixels() {
+        let t = tracks(.dark)
+        func hex(_ c: RGBA) -> String {
+            String(format: "%02X%02X%02X", Int((c.r * 255).rounded()), Int((c.g * 255).rounded()), Int((c.b * 255).rounded()))
+        }
+        #expect(hex(t.middle) == "1A1C1B")
+        #expect(hex(t.inner) == "282A28")
+        #expect(hex(t.outer) == "2F312F")
+        // 16 % of the ink is the pixel `SurfaceRaised` is.
+        #expect(hex(t.outer) == hex(resolve(Theme.surfaceRaised, .dark)))
+    }
+
     @Test func arcsAndDotsReachThreeToOneOnTheirTrack() {
         var lines: [String] = []
         for (name, style) in [("dark", UIUserInterfaceStyle.dark)] {
             let background = resolve(Theme.background, style)
-            let track = resolve(Theme.surfaceRaised, style)
-            let graphics: [(String, Color)] = [
-                ("Recovery (accent)", Theme.accent), ("Sleep", Theme.metricSleep), ("Strain", Theme.metricStrain),
-                ("band high (accent)", Theme.accent), ("band moderate (warning)", Theme.warning), ("band low (alert)", Theme.alert),
+            let t = tracks(style)
+            let palette = OrbitGaugePalette.assets
+            // Each graphic: on the background and over the track it is drawn on, with the design note's numbers.
+            let graphics: [(String, Color, RGBA, String, Double, Double)] = [
+                ("Recovery", palette.recovery, t.middle, "7 % ring", 10.66, 9.31),
+                ("Sleep", palette.sleep, t.middle, "7 % ring", 6.81, 5.94),
+                ("Strain", palette.strain, t.outer, "16 % ticks", 5.94, 3.97),
+                ("Strain past its band (alert)", palette.strainPastBand, t.outer, "16 % ticks", 6.09, 4.07),
+                ("Volt", palette.signal, t.inner, "13 % ticks", 17.13, 12.63),
             ]
-            for (title, colour) in graphics {
+            for (title, colour, track, trackName, onBackgroundExpected, onTrackExpected) in graphics {
                 let c = resolve(colour, style)
                 let onTrack = ratio(c, track), onBackground = ratio(c, background)
-                lines.append("\(name) \(title): on track \(String(format: "%.2f", onTrack)), on background \(String(format: "%.2f", onBackground))")
-                #expect(onTrack >= 3, "\(name) \(title) on track")
+                lines.append("\(name) \(title): on background \(two(onBackground)), over the \(trackName) \(two(onTrack))")
+                #expect(onTrack >= 3, "\(name) \(title) over its track")
                 #expect(onBackground >= 3, "\(name) \(title) on background")
+                #expect(printed(onBackground, onBackgroundExpected), "\(name) \(title) on background: \(two(onBackground))")
+                #expect(printed(onTrack, onTrackExpected), "\(name) \(title) over its track: \(two(onTrack))")
             }
-            let primary = over(resolve(Theme.textTertiary, style), background)
-            #expect(ratio(primary, background) >= 3, "\(name) centre ring without readiness")
-            lines.append("\(name) centre ring without readiness (textTertiary): on background \(String(format: "%.2f", ratio(primary, background)))")
-            lines.append("\(name) track on background \(String(format: "%.2f", ratio(track, background)))")
+            // The lit readiness ticks against the unlit ones: the readiness is told by them.
+            let ink = resolve(palette.ink, style)
+            let lit = ratio(ink, t.inner)
+            #expect(lit >= 3 && printed(lit, 12.79), "\(name) lit vs unlit tick: \(two(lit))")
+            #expect(printed(ratio(ink, background), 17.35), "\(name) ink on background")
+            lines.append("\(name) lit tick vs unlit tick \(two(lit)); ink on background \(two(ratio(ink, background)))")
+            // A dot over its own halo (the colour at 16 % over the background).
+            for (title, colour, expected) in [("Recovery", palette.recovery, 7.99), ("Sleep", palette.sleep, 5.55),
+                                              ("Strain", palette.strain, 4.95)] as [(String, Color, Double)] {
+                let c = resolve(colour, style)
+                let halo = over(c, OrbitGaugePalette.haloOpacity, background)
+                #expect(ratio(c, halo) >= 3 && printed(ratio(c, halo), expected), "\(name) \(title) dot over its halo")
+                lines.append("\(name) \(title) dot over its halo \(two(ratio(c, halo)))")
+            }
+            for (title, track) in [("7 %", t.middle), ("13 %", t.inner), ("16 %", t.outer)] {
+                lines.append("\(name) track \(title) on background \(two(ratio(track, background)))")
+            }
         }
         print("ORBIT-CONTRAST\n" + lines.joined(separator: "\n"))
         if let dir = ProcessInfo.processInfo.environment["ORBIT_SHOTS_DIR"] {
@@ -60,11 +110,11 @@ import UIKit
         }
     }
 
-    /// The calibration's filled segments are `Theme.accent` on the track and on the background (design.md, PR 2).
+    /// The calibration's filled segments are `Theme.accent` on their track (`ink` at 16 %) and on the background.
     @Test func filledCalibrationSegmentsReachThreeToOneOnTrackAndBackground() {
         for (name, style) in [("dark", UIUserInterfaceStyle.dark)] {
             let accent = resolve(OrbitGaugePalette.assets.calibration, style)
-            #expect(ratio(accent, resolve(Theme.surfaceRaised, style)) >= 3, "\(name) filled segment on its track")
+            #expect(ratio(accent, tracks(style).outer) >= 3, "\(name) filled segment on its track")
             #expect(ratio(accent, resolve(Theme.background, style)) >= 3, "\(name) filled segment on the background")
             // The palette's calibration colour is the accent the other tests measure.
             #expect(ratio(accent, resolve(Theme.accent, style)) < 1.001)
@@ -72,32 +122,41 @@ import UIKit
     }
 
     /// Pending draws the previous day at `pendingOpacity` on purpose below 3:1 in places (design.md, PR 2: "yesterday,
-    /// not today"; the number carries the value at >= 4.5:1 and VoiceOver says it). Pinning the constant makes raising or
-    /// lowering it a decision, not an accident; this is not an assertion that 0.6 reaches 3:1. In dark, Sleep and Strain
-    /// over the track are under 3:1 at 0.6 (2.58 and 2.34) and Strain on the background is too (2.81): that is the
-    /// documented dimming, asserted below.
+    /// not today"; the number carries the value and VoiceOver says it). Pinning the constant makes raising or lowering it
+    /// a decision, not an accident; this is not an assertion that 0.6 reaches 3:1. On gauge v3, in dark: Strain on the
+    /// background (2.80), Strain over the 7 % ring (2.71) and Sleep over it (2.98) are under 3:1 at 0.6; Sleep on the
+    /// background (3.11) and Recovery (4.38, 4.16) stay over it. That is the documented dimming, asserted below.
     @Test func pendingOpacityIsPinnedAndIntentionallyBelowThreeToOne() {
         #expect(OrbitGaugeMarks.pendingOpacity == 0.6)
         var lines: [String] = []
         for (name, style) in [("dark", UIUserInterfaceStyle.dark)] {
             let background = resolve(Theme.background, style)
-            let track = resolve(Theme.surfaceRaised, style)
-            for (title, colour) in [("accent", Theme.accent), ("sleep", Theme.metricSleep), ("strain", Theme.metricStrain)] {
-                var c = resolve(colour, style)
-                c.a = OrbitGaugeMarks.pendingOpacity
-                let onBackground = String(format: "%.2f", ratio(over(c, background), background))
-                let onTrack = String(format: "%.2f", ratio(over(c, track), track))
-                // Sleep and Strain at 0.6 are the documented sub-3:1 case; Recovery stays over 3:1.
-                if title != "accent" {
-                    #expect(ratio(over(c, track), track) < 3, "\(name) pending \(title) over the track")
+            let ring = tracks(style).middle
+            let cases: [(String, Color, Double, Double)] = [
+                ("recovery", Theme.accent, 4.38, 4.16), ("sleep", Theme.metricSleep, 3.11, 2.98),
+                ("strain", Theme.metricStrain, 2.80, 2.71),
+            ]
+            for (title, colour, onBackgroundExpected, onRingExpected) in cases {
+                let c = resolve(colour, style)
+                let onBackground = ratio(over(c, OrbitGaugeMarks.pendingOpacity, background), background)
+                let onRing = ratio(over(c, OrbitGaugeMarks.pendingOpacity, ring), ring)
+                #expect(printed(onBackground, onBackgroundExpected), "\(name) pending \(title) on background: \(two(onBackground))")
+                #expect(printed(onRing, onRingExpected), "\(name) pending \(title) over the 7 % ring: \(two(onRing))")
+                switch title {
+                case "strain":
+                    #expect(onBackground < 3, "\(name) pending strain on the background")
+                    #expect(onRing < 3, "\(name) pending strain over the 7 % ring")
+                case "sleep":
+                    #expect(onRing < 3, "\(name) pending sleep over the 7 % ring")
+                    #expect(onBackground >= 3, "\(name) pending sleep on the background")
+                default:
+                    #expect(onBackground >= 3 && onRing >= 3, "\(name) pending recovery")
                 }
-                if title == "strain" {
-                    #expect(ratio(over(c, background), background) < 3, "\(name) pending strain on the background")
-                }
-                lines.append("\(name) pending \(title): background \(onBackground), over track \(onTrack)")
+                lines.append("\(name) pending \(title): background \(two(onBackground)), over the 7 % ring \(two(onRing))")
             }
             // The previous day's number is text in textTertiary: that one must read.
-            #expect(ratio(over(resolve(Theme.textTertiary, style), background), background) >= 4.5, "\(name) pending number")
+            let tertiary = resolve(Theme.textTertiary, style)
+            #expect(ratio(over(tertiary, tertiary.a, background), background) >= 4.5, "\(name) pending number")
         }
         print("ORBIT-PENDING-CONTRAST\n" + lines.joined(separator: "\n"))
     }

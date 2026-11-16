@@ -17,18 +17,20 @@ import UIKit
         let width: Int, height: Int, scale: CGFloat, frame: CGFloat, dial: CGFloat
         let bytes: [UInt8]
 
-        /// The pixel at a point of the gauge's frame (points from its top-left).
+        /// The pixel at a point of the gauge's frame (points from its top-left): the one that contains it, so a tick 2 px
+        /// wide centred on the point covers it whole.
         func pixel(_ p: CGPoint) -> RGB {
-            let x = min(max(Int((p.x * scale).rounded()), 0), width - 1)
-            let y = min(max(Int((p.y * scale).rounded()), 0), height - 1)
+            let x = min(max(Int((p.x * scale).rounded(.down)), 0), width - 1)
+            let y = min(max(Int((p.y * scale).rounded(.down)), 0), height - 1)
             let i = (y * width + x) * 4
             return RGB(r: Double(bytes[i]) / 255, g: Double(bytes[i + 1]) / 255, b: Double(bytes[i + 2]) / 255)
         }
 
-        /// A point on an orbit of the reference drawing, scaled to this dial.
+        /// A point on an orbit of the reference drawing (the board, S = 260: 118 strain, 88 recovery and sleep, 58
+        /// readiness), scaled to this frame.
         func onOrbit(_ referenceRadius: CGFloat, degrees: Double) -> CGPoint {
             let c = CGPoint(x: frame / 2, y: frame / 2)
-            return G.point(centre: c, radius: referenceRadius * dial / G.referenceDial, degrees: degrees)
+            return G.point(centre: c, radius: referenceRadius * frame / G.referenceSide, degrees: degrees)
         }
     }
 
@@ -70,9 +72,20 @@ import UIKit
 
     private enum Ink { case filled, track, background }
 
-    /// Which of the three colours the pixel is nearest to.
-    private func ink(_ p: RGB, style: UIUserInterfaceStyle) -> Ink {
-        let options: [(Ink, RGB)] = [(.filled, rgb(Theme.accent, style)), (.track, rgb(Theme.surfaceRaised, style)),
+    /// The track of a ring as it lands on `background`: `ink` at 16 % (outer; the pixel `SurfaceRaised` is), 7 %
+    /// (middle), 13 % (inner).
+    private func track(_ opacity: Double, _ style: UIUserInterfaceStyle) -> RGB {
+        blend(rgb(Theme.textPrimary, style), rgb(Theme.background, style), opacity)
+    }
+
+    private func outerTrack(_ style: UIUserInterfaceStyle) -> RGB { track(OrbitGaugePalette.outerTrackOpacity, style) }
+    private func middleTrack(_ style: UIUserInterfaceStyle) -> RGB { track(OrbitGaugePalette.middleTrackOpacity, style) }
+    private func innerTrack(_ style: UIUserInterfaceStyle) -> RGB { track(OrbitGaugePalette.innerTrackOpacity, style) }
+
+    /// Which of the three colours the pixel is nearest to: the filled teal, the ring's track (the outer one unless
+    /// given), the background.
+    private func ink(_ p: RGB, style: UIUserInterfaceStyle, track: RGB? = nil) -> Ink {
+        let options: [(Ink, RGB)] = [(.filled, rgb(Theme.accent, style)), (.track, track ?? outerTrack(style)),
                                       (.background, rgb(Theme.background, style))]
         return options.min { distance($0.1, p) < distance($1.1, p) }!.0
     }
@@ -93,7 +106,7 @@ import UIKit
                                         "\(sizeName) \(schemeName) renders")
                 let label = "\(nights) nights, \(sizeName), \(schemeName)"
                 for i in 0..<7 {
-                    let p = shot.pixel(shot.onOrbit(77, degrees: segmentMiddle(i, dial: size.dial)))
+                    let p = shot.pixel(shot.onOrbit(118, degrees: segmentMiddle(i, dial: size.dial)))
                     #expect(ink(p, style: style) == (i < nights ? .filled : .track), "segment \(i): \(label)")
                 }
             }
@@ -109,11 +122,11 @@ import UIKit
                 let segments = G.segments(required: 7, dial: size.dial)
                 for i in 0..<6 {
                     let mid = ((segments[i].start + segments[i].sweep + cap) + (segments[i + 1].start - cap)) / 2
-                    #expect(ink(shot.pixel(shot.onOrbit(77, degrees: mid)), style: style) == .background,
+                    #expect(ink(shot.pixel(shot.onOrbit(118, degrees: mid)), style: style) == .background,
                             "gap \(i): \(nights) nights, \(sizeName), \(schemeName)")
                 }
                 // The hollow dot at the top is an outline: its middle is the background, never a segment.
-                #expect(ink(shot.pixel(shot.onOrbit(77, degrees: 0)), style: style) == .background,
+                #expect(ink(shot.pixel(shot.onOrbit(118, degrees: 0)), style: style) == .background,
                         "seam: \(nights) nights, \(sizeName), \(schemeName)")
             }
         }
@@ -122,11 +135,15 @@ import UIKit
     @Test func calibratingDrawsNoInnerArcsAndNoCentreRing() throws {
         for (schemeName, scheme, style) in Self.schemes {
             let shot = try #require(render(.calibrating(OrbitGaugeCalibration(nights: 3)), .large, scheme))
-            // 3 and 9 o'clock on the inner orbit: where a Recovery or Sleep arc of 50 % would end. Track only.
-            #expect(ink(shot.pixel(shot.onOrbit(54, degrees: 90)), style: style) == .track, "sleep side, \(schemeName)")
-            #expect(ink(shot.pixel(shot.onOrbit(54, degrees: -90)), style: style) == .track, "recovery side, \(schemeName)")
-            // The centre ring (r 32) at 3 o'clock is its track: no band colour without a readiness.
-            #expect(ink(shot.pixel(shot.onOrbit(32, degrees: 90)), style: style) == .track, "centre ring, \(schemeName)")
+            // 3 and 9 o'clock on the middle orbit: near where a Recovery or Sleep arc of 50 % would end. Track only.
+            let middle = middleTrack(style)
+            #expect(ink(shot.pixel(shot.onOrbit(88, degrees: 90)), style: style, track: middle) == .track,
+                    "sleep side, \(schemeName)")
+            #expect(ink(shot.pixel(shot.onOrbit(88, degrees: -90)), style: style, track: middle) == .track,
+                    "recovery side, \(schemeName)")
+            // The readiness ring (r 58) at 3 o'clock is an unlit tick: nothing lit without a readiness.
+            #expect(ink(shot.pixel(shot.onOrbit(58, degrees: 90)), style: style, track: innerTrack(style)) == .track,
+                    "readiness ring, \(schemeName)")
         }
     }
 
@@ -136,7 +153,7 @@ import UIKit
             for nights in 0...7 {
                 let shot = try #require(render(.calibrating(OrbitGaugeCalibration(nights: nights)), .medium, scheme))
                 let filled = (0..<7).filter {
-                    ink(shot.pixel(shot.onOrbit(77, degrees: segmentMiddle($0, dial: 112))), style: style) == .filled
+                    ink(shot.pixel(shot.onOrbit(118, degrees: segmentMiddle($0, dial: 112))), style: style) == .filled
                 }
                 #expect(filled == Array(0..<nights))
                 #expect(filled.count >= previous)
@@ -150,7 +167,7 @@ import UIKit
             let over = try #require(render(.calibrating(OrbitGaugeCalibration(nights: 12)), .large, scheme))
             let under = try #require(render(.calibrating(OrbitGaugeCalibration(nights: -4)), .large, scheme))
             for i in 0..<7 {
-                let at = over.onOrbit(77, degrees: segmentMiddle(i, dial: 160))
+                let at = over.onOrbit(118, degrees: segmentMiddle(i, dial: 160))
                 #expect(ink(over.pixel(at), style: style) == .filled)
                 #expect(ink(under.pixel(at), style: style) == .track)
             }
@@ -163,7 +180,7 @@ import UIKit
         for (_, scheme, style) in Self.schemes {
             let shot = try #require(render(.calibrating(OrbitGaugeCalibration(nights: 3)), .large, scheme, animatesFill: false))
             let filled = (0..<7).filter {
-                ink(shot.pixel(shot.onOrbit(77, degrees: segmentMiddle($0, dial: 160))), style: style) == .filled
+                ink(shot.pixel(shot.onOrbit(118, degrees: segmentMiddle($0, dial: 160))), style: style) == .filled
             }
             #expect(filled == [0, 1, 2])
         }
@@ -171,21 +188,22 @@ import UIKit
 
     // MARK: pending
 
-    /// Pending draws the previous day's Sleep arc (88 %, so 3 o'clock is on it) at 0.6 of its colour over the track.
+    /// Pending draws the previous day's Sleep arc (88 %, so 3 o'clock is on it) at 0.6 of its colour over the track
+    /// (the middle ring's, `ink` at 7 %).
     @Test func pendingDimsThePreviousDayAgainstTheScoredGauge() throws {
         for (schemeName, scheme, style) in Self.schemes {
             for (sizeName, size) in Self.sizes {
                 let scored = try #require(render(.scored(.previewScored), size, scheme))
                 let pending = try #require(render(.pending(previous: .previewScored), size, scheme))
-                let at = scored.onOrbit(54, degrees: 90)
-                let sleep = rgb(Theme.metricSleep, style), track = rgb(Theme.surfaceRaised, style)
+                let at = scored.onOrbit(88, degrees: 90)
+                let sleep = rgb(Theme.metricSleep, style), track = middleTrack(style)
                 let label = "\(sizeName), \(schemeName)"
                 #expect(distance(scored.pixel(at), sleep) < 0.06, "scored is the full colour: \(label)")
                 #expect(distance(pending.pixel(at), blend(sleep, track, OrbitGaugeMarks.pendingOpacity)) < 0.06,
                         "pending is 0.6 of it over the track: \(label)")
                 #expect(distance(pending.pixel(at), scored.pixel(at)) > 0.04, "and visibly dimmer: \(label)")
                 // The recovery arc (71 %) at 9 o'clock is drawn too.
-                let rAt = scored.onOrbit(54, degrees: -90)
+                let rAt = scored.onOrbit(88, degrees: -90)
                 let recovery = rgb(Theme.accent, style)
                 #expect(distance(pending.pixel(rAt), blend(recovery, track, OrbitGaugeMarks.pendingOpacity)) < 0.06,
                         "recovery: \(label)")
@@ -196,8 +214,9 @@ import UIKit
     @Test func pendingWithoutADayBeforeDrawsTracksOnly() throws {
         for (schemeName, scheme, style) in Self.schemes {
             let shot = try #require(render(.pending(previous: nil), .large, scheme))
-            for (name, radius, degrees) in [("sleep", 54.0, 90.0), ("recovery", 54.0, -90.0), ("strain", 77.0, 90.0)] {
-                #expect(ink(shot.pixel(shot.onOrbit(radius, degrees: degrees)), style: style) == .track,
+            for (name, radius, degrees) in [("sleep", 88.0, 90.0), ("recovery", 88.0, -90.0), ("strain", 118.0, 90.0)] {
+                let ring = radius == 88 ? middleTrack(style) : outerTrack(style)
+                #expect(ink(shot.pixel(shot.onOrbit(radius, degrees: degrees)), style: style, track: ring) == .track,
                         "\(name) side, \(schemeName)")
             }
         }
@@ -205,10 +224,10 @@ import UIKit
 
     @Test func pendingKeepsTheTracksAtFullStrength() throws {
         // The unscored remainder of the outer orbit (strain 9.6 of 21 ends at 165 deg) is the plain track colour even
-        // while the marks are dimmed.
+        // while the marks are dimmed: the tick at 9 o'clock, `ink` at 16 % (the pixel `SurfaceRaised` is).
         for (schemeName, scheme, style) in Self.schemes {
             let shot = try #require(render(.pending(previous: .previewScored), .large, scheme))
-            #expect(distance(shot.pixel(shot.onOrbit(77, degrees: 270)), rgb(Theme.surfaceRaised, style)) < 0.04,
+            #expect(distance(shot.pixel(shot.onOrbit(118, degrees: 270)), rgb(Theme.surfaceRaised, style)) < 0.04,
                     "track at 9 o'clock, \(schemeName)")
         }
     }
