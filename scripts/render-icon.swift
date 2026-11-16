@@ -1,38 +1,35 @@
-// Renders the RYFT app icons (1024 x 1024 PNG, no alpha) from the app's own RyftMarkShape
-// path, filled with Core Graphics into an opaque sRGB bitmap.
+// Renders the RYFT app icon "M1" (1024 x 1024 PNG, no alpha): "RYFT" in Satoshi Light on the near-black tile, no mark.
 //
-// Compiled together with scripts/icon-spec.swift and Ryft/Design/RyftMark.swift so the icon
-// and the in-app mark can never drift apart; `make icon` builds and runs it:
+// Compiled together with scripts/icon-spec.swift; `make icon` builds and runs it from the repo root:
 //
-//   .build/render-icon [--ring-span <x>] [--suffix <s>] [dir]
+//   .build/render-icon [--previews <dir>] [dir]
 //
-//   --ring-span  the outer ring's span (outer edge to outer edge) / tile width; default
-//                IconSpec.defaultRingSpan (0.915, 95 % of the reference's 0.963)
-//   --suffix     appended to each file name, e.g. "-0.80" -> AppIcon-Light-0.80.png
-//   --dots       (comparison) monochrome rings, gauge-coloured dots only
-//   --mono       the mark in one colour (Graphite on Mist, Mist on Graphite) instead of the gauge colours
-//   dir          default Ryft/Assets.xcassets/AppIcon.appiconset
+//   --previews  also write the icon scaled to IconSpec.previewSizes (180, 120, 60, 40 px) into <dir>, for review at
+//               the sizes where the word has to stay legible; `make icon` passes build/icon-preview
+//   dir         default Ryft/Assets.xcassets/AppIcon.appiconset
 //
-// Writes AppIcon-Light (the default appearance: the mark in the gauge's light colours on Mist),
-// AppIcon-Dark (its dark colours on Graphite) and AppIcon-Tinted (white on black, monochrome: the
-// grayscale source iOS tints). The part colours come from the asset catalog (IconSpec). Run from
-// the repo root. Exits 1 if a dot would leave the tile, a colour is under 3:1 on its tile, or a
-// written PNG has an alpha channel.
+// Writes AppIcon-Light, AppIcon-Dark and AppIcon-Tinted: the same image three times (the brief asks for one icon in
+// every appearance). The colours come from the asset catalog (IconSpec): the tile is Background, the word TextPrimary.
+// The word is drawn with CoreText from Ryft/Resources/Fonts/Satoshi-Light.otf, which is git-ignored (`make fonts`).
+// There is no fallback face: a missing or wrong font file exits 1. It also exits 1 if the word is under 4.5:1 on the
+// tile, if its ink is off-centre by more than half a pixel, or if a written PNG has an alpha channel.
+//
+// Placement: the ink (the letters' own outline, not their advance boxes) is centred horizontally, so the tracking after
+// the last letter does not pull the word to the left; the cap height is centred vertically (R, Y, F and T are flat
+// and have no overshoot, so the ink and the cap height are the same here).
 import CoreGraphics
+import CoreText
 import Foundation
 import ImageIO
-import SwiftUI
 import UniformTypeIdentifiers
 
 @main
 struct RenderIcon {
-    struct Variant {
-        let name: String
-        let background: CGColor
-        /// The colour of each part of the mark.
-        let mark: (RyftMarkGeometry.Part) -> CGColor
-        /// Background and mark hex, for the contrast report; nil = tinted (no check).
-        let hexes: (background: String, mark: (RyftMarkGeometry.Part) -> String)?
+    static let names = ["AppIcon-Light", "AppIcon-Dark", "AppIcon-Tinted"]
+
+    static func fail(_ message: String) -> Never {
+        FileHandle.standardError.write(Data("render-icon: \(message)\n".utf8))
+        exit(1)
     }
 
     static func color(_ hex: String) -> CGColor {
@@ -40,104 +37,117 @@ struct RenderIcon {
         return CGColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1)
     }
 
-    static func variants(mono: Bool, dotsOnly: Bool = false) -> [Variant] {
-        func variant(_ name: String, background: String, mark: String, dark: Bool) -> Variant {
-            let dots: Set<RyftMarkGeometry.Part> = [.strainDot, .sleepDot, .recoveryDot]
-            let hex: (RyftMarkGeometry.Part) -> String = {
-                (mono || (dotsOnly && !dots.contains($0))) ? mark : IconSpec.partHex($0, dark: dark)
-            }
-            return Variant(name: name, background: color(background), mark: { color(hex($0)) },
-                           hexes: (background, hex))
+    static func loadFont(size: Double) -> CTFont {
+        guard FileManager.default.fileExists(atPath: IconSpec.fontFile) else {
+            fail("\(IconSpec.fontFile) is missing: run make fonts (the icon is never drawn in another face)")
         }
-        return [
-            variant("AppIcon-Light", background: IconSpec.mistHex, mark: IconSpec.graphiteHex, dark: false),
-            variant("AppIcon-Dark", background: IconSpec.graphiteHex, mark: IconSpec.mistHex, dark: true),
-            Variant(name: "AppIcon-Tinted", background: color("000000"), mark: { _ in color("FFFFFF") }, hexes: nil),
-        ]
-    }
-
-    static func fail(_ message: String) -> Never {
-        FileHandle.standardError.write(Data("render-icon: \(message)\n".utf8))
-        exit(1)
+        let url = URL(fileURLWithPath: IconSpec.fontFile)
+        guard let descriptors = CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor],
+              let descriptor = descriptors.first
+        else { fail("cannot read a font from \(IconSpec.fontFile)") }
+        let font = CTFontCreateWithFontDescriptor(descriptor, CGFloat(size), nil)
+        let name = CTFontCopyPostScriptName(font) as String
+        guard name == IconSpec.fontPostScriptName else {
+            fail("\(IconSpec.fontFile) is \(name), expected \(IconSpec.fontPostScriptName)")
+        }
+        return font
     }
 
     static func main() {
-        var ringSpan = IconSpec.defaultRingSpan
-        var suffix = ""
-        var mono = false
-        var dotsOnly = false
         var dir = "Ryft/Assets.xcassets/AppIcon.appiconset"
+        var previews: String?
         var args = Array(CommandLine.arguments.dropFirst())
         while !args.isEmpty {
             let arg = args.removeFirst()
             switch arg {
-            case "--ring-span":
-                guard let value = args.first.flatMap(Double.init), value > 0, value <= 1 else {
-                    fail("--ring-span needs a number in (0, 1]")
-                }
+            case "--previews":
+                guard let value = args.first else { fail("--previews needs a folder") }
                 args.removeFirst()
-                ringSpan = value
-            case "--dots":
-                dotsOnly = true
-            case "--mono":
-                mono = true
-            case "--suffix":
-                guard let value = args.first else { fail("--suffix needs a value") }
-                args.removeFirst()
-                suffix = value
+                previews = value
             default:
                 if arg.hasPrefix("-") { fail("unknown option \(arg)") }
                 dir = arg
             }
         }
 
-        let tile = IconSpec.tile
-        let frame = IconSpec.markFrame(ringSpan: ringSpan)
-        // The span maths uses the nominal stroke; make sure the optical rule really is off.
-        guard RyftMarkGeometry.metrics(forSide: frame).stroke == RyftMarkGeometry.stroke else {
-            fail("mark frame \(frame) px is in the optical-size range")
-        }
-        let margin = IconSpec.dotMargin(ringSpan: ringSpan)
-        let ringMargin = (tile - tile * ringSpan) / 2
-        print(String(format: "ring span %.3f: mark frame %.2f px, ring margin %.2f px, dot margin %.2f px",
-                     ringSpan, frame, ringMargin, margin))
-        guard margin >= 0 else { fail("a dot leaves the tile by \(-margin) px") }
+        let tileHex = IconSpec.catalogHex(IconSpec.tileColorset)
+        let wordHex = IconSpec.catalogHex(IconSpec.wordColorset)
+        let ratio = IconSpec.contrast(wordHex, tileHex)
+        print(String(format: "word %@ on tile %@: %.2f:1", wordHex, tileHex, ratio))
+        guard ratio >= IconSpec.minContrast else { fail("the word is under \(IconSpec.minContrast):1 on the tile") }
 
-        let rect = CGRect(x: (tile - frame) / 2, y: (tile - frame) / 2, width: frame, height: frame)
-        let paths = RyftMarkGeometry.Part.allCases.map { ($0, RyftMarkShape(part: $0).path(in: rect).cgPath) }
-        for v in variants(mono: mono, dotsOnly: dotsOnly) {
-            if let h = v.hexes {
-                for part in RyftMarkGeometry.Part.allCases {
-                    let ratio = IconSpec.contrast(h.mark(part), h.background)
-                    print(String(format: "  %@ %@ %@ on %@: %.2f:1", v.name, "\(part)", h.mark(part), h.background, ratio))
-                    guard ratio >= IconSpec.minContrast else { fail("\(part) is under 3:1 on the \(v.name) tile") }
-                }
+        let image = render(tile: tileHex, word: wordHex)
+        for name in names {
+            let url = URL(fileURLWithPath: dir).appendingPathComponent("\(name).png")
+            write(image, to: url)
+            print("wrote \(url.path) (\(image.width)x\(image.height), no alpha)")
+        }
+        if let previews {
+            try? FileManager.default.createDirectory(atPath: previews, withIntermediateDirectories: true)
+            for size in IconSpec.previewSizes {
+                let url = URL(fileURLWithPath: previews).appendingPathComponent("AppIcon-\(size).png")
+                write(scaled(image, to: size), to: url)
+                print("wrote \(url.path) (\(size)x\(size))")
             }
-            let url = URL(fileURLWithPath: dir).appendingPathComponent("\(v.name)\(suffix).png")
-            write(render(paths, variant: v, side: Int(tile)), to: url)
-            print("wrote \(url.path) (\(Int(tile))x\(Int(tile)), no alpha)")
         }
     }
 
-    /// An opaque bitmap (App Store icons must not have an alpha channel), y pointing down like
-    /// SwiftUI so the mark keeps its handedness.
-    static func render(_ paths: [(RyftMarkGeometry.Part, CGPath)], variant v: Variant, side: Int) -> CGImage {
+    static func context(side: Int) -> CGContext {
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: space, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
         else { fail("cannot create a bitmap context") }
+        return ctx
+    }
+
+    /// An opaque bitmap (App Store icons must not have an alpha channel), y pointing up as CoreText draws.
+    static func render(tile tileHex: String, word wordHex: String) -> CGImage {
+        let side = Int(IconSpec.tile)
+        let size = IconSpec.fontSize
+        let font = loadFont(size: size)
+        let attributes: [NSAttributedString.Key: Any] = [
+            NSAttributedString.Key(kCTFontAttributeName as String): font,
+            NSAttributedString.Key(kCTKernAttributeName as String): size * IconSpec.trackingEm,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): color(wordHex),
+        ]
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: IconSpec.word, attributes: attributes))
+
+        let ctx = context(side: side)
+        ctx.setAllowsAntialiasing(true)
         ctx.setShouldAntialias(true)
-        ctx.setFillColor(v.background)
+        // Plain grey-scale edges: font smoothing would embolden the Light strokes.
+        ctx.setAllowsFontSmoothing(false)
+        ctx.setShouldSmoothFonts(false)
+        ctx.setFillColor(color(tileHex))
         ctx.fill(CGRect(x: 0, y: 0, width: side, height: side))
-        ctx.translateBy(x: 0, y: CGFloat(side))
-        ctx.scaleBy(x: 1, y: -1)
-        for (part, path) in paths {
-            ctx.addPath(path)
-            ctx.setFillColor(v.mark(part))
-            ctx.fillPath(using: .winding)
+
+        let ink = CTLineGetImageBounds(line, ctx)
+        let cap = Double(CTFontGetCapHeight(font))
+        let x = Double(side) / 2 - Double(ink.midX)
+        let baseline = Double(side) / 2 - cap / 2
+        ctx.textPosition = CGPoint(x: x, y: baseline)
+        CTLineDraw(line, ctx)
+
+        let left = x + Double(ink.minX), right = Double(side) - (x + Double(ink.maxX))
+        let bottom = baseline + Double(ink.minY), top = Double(side) - (baseline + Double(ink.maxY))
+        print(String(format: "font %@ %.1f px (%.2f%% of the tile), tracking %.2f em, cap height %.1f px",
+                     IconSpec.fontPostScriptName, size, 100 * size / IconSpec.tile, IconSpec.trackingEm, cap))
+        print(String(format: "ink margins: left %.1f, right %.1f, top %.1f, bottom %.1f px (ink %.1f x %.1f px)",
+                     left, right, top, bottom, ink.width, ink.height))
+        guard abs(left - right) <= 1, abs(top - bottom) <= 1 else {
+            fail("the word is off-centre: left \(left) / right \(right), top \(top) / bottom \(bottom) px")
         }
-        guard let image = ctx.makeImage() else { fail("render failed for \(v.name)") }
+        guard let image = ctx.makeImage() else { fail("render failed") }
         return image
+    }
+
+    /// The icon scaled to `side` px with high-quality interpolation (what the Home Screen shows at 60 pt and below).
+    static func scaled(_ image: CGImage, to side: Int) -> CGImage {
+        let ctx = context(side: side)
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+        guard let out = ctx.makeImage() else { fail("scaling to \(side) px failed") }
+        return out
     }
 
     static func write(_ image: CGImage, to url: URL) {

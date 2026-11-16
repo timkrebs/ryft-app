@@ -87,6 +87,7 @@
 	<string>$(RYFT_SUPABASE_URL)</string>
 	<key>UIAppFonts</key>
 	<array>
+		<string>Satoshi-Light.otf</string>
 		<string>Satoshi-Regular.otf</string>
 		<string>Satoshi-Medium.otf</string>
 		<string>Satoshi-Bold.otf</string>
