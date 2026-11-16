@@ -4,8 +4,9 @@
 import SwiftUI
 
 /// `label` (74 pt, `textSecondary`) · 30 ticks of 3 × 12 (177 pt) · `value` (40 pt, trailing), 12 pt apart. The first
-/// `litCount` ticks are `textPrimary`, the rest 12 %. When the row no longer fits, and always from AX1, the label and
-/// value go on a line above the ticks. One accessibility element with the caller's label ("Zone 3, 24 minutes").
+/// `litCount` ticks are `textPrimary`, the rest 12 %. When the row no longer fits (a label wider than its 74 pt column
+/// included), and always from AX1, the label and value go on a line above the ticks. One accessibility element with the
+/// caller's label ("Zone 3, 24 minutes").
 struct TickRow: View {
     nonisolated static let tickCount = 30, tick = CGSize(width: 3, height: 12), tickGap: CGFloat = 3, rowSpacing: CGFloat = 9
     static let labelWidth: CGFloat = 74, valueWidth: CGFloat = 40, unlitOpacity = 0.12
@@ -52,11 +53,15 @@ struct TickRow: View {
         .accessibilityLabel(accessibilityLabel)
     }
 
+    /// The one-line layout. The label column is at least the scaled 74 pt and grows to the label's ideal width, so a
+    /// long label makes this row too wide and `ViewThatFits` stacks instead of truncating. A short label keeps the
+    /// column at exactly 74: the ticks start at 74 + 12.
     private var row: some View {
         HStack(spacing: Theme.Metrics.itemSpacing) {
             styledLabel
                 .lineLimit(1)
-                .frame(width: scaledLabelWidth, height: rowHeight, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: scaledLabelWidth, minHeight: rowHeight, maxHeight: rowHeight, alignment: .leading)
             ticks
             styledValue
                 .lineLimit(1)
