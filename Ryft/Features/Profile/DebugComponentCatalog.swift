@@ -2,11 +2,10 @@
 import SwiftUI
 
 /// Profile → Developer → Component catalog (Debug builds only): every `Design/`
-/// component in its configurations and sizes, in dark or light, at Dynamic Type
-/// XS, L or AX3. The regression surface for "reusable, configurable" components:
-/// change one, scroll here, see every use.
+/// component in its configurations and sizes, at Dynamic Type XS, L or AX3 (the
+/// app is dark only). The regression surface for "reusable, configurable"
+/// components: change one, scroll here, see every use.
 struct DebugComponentCatalog: View {
-    @State private var scheme: ColorScheme = .dark
     @State private var typeSize: CatalogTypeSize = .large
 
     enum CatalogTypeSize: String, CaseIterable, Identifiable {
@@ -44,7 +43,6 @@ struct DebugComponentCatalog: View {
                 .padding(Theme.Metrics.screenPadding)
             }
             .background(Theme.background)
-            .environment(\.colorScheme, scheme)
             .dynamicTypeSize(typeSize.size)
         }
         .navigationTitle("Component catalog")
@@ -53,14 +51,8 @@ struct DebugComponentCatalog: View {
     }
 
     private var controls: some View {
-        VStack(spacing: 8) {
-            Picker("Appearance", selection: $scheme) {
-                Text("Dark").tag(ColorScheme.dark)
-                Text("Light").tag(ColorScheme.light)
-            }
-            Picker("Text size", selection: $typeSize) {
-                ForEach(CatalogTypeSize.allCases) { Text(verbatim: $0.rawValue).tag($0) }
-            }
+        Picker("Text size", selection: $typeSize) {
+            ForEach(CatalogTypeSize.allCases) { Text(verbatim: $0.rawValue).tag($0) }
         }
         .pickerStyle(.segmented)
         .padding(.horizontal, Theme.Metrics.screenPadding)
@@ -276,10 +268,5 @@ private struct CatalogPicker: View {
 #Preview("Component catalog") {
     NavigationStack { DebugComponentCatalog() }
         .previewEnvironment()
-}
-
-#Preview("Component catalog · light, AX3") {
-    NavigationStack { DebugComponentCatalog() }
-        .previewEnvironment(scheme: .light)
 }
 #endif

@@ -143,7 +143,9 @@ struct RyftApp: App {
                 .environment(trainSync)
                 .environment(trainCoordinator)
                 .environment(connectivity)
-                .preferredColorScheme(settings.appearance.colorScheme)
+                // Dark only (NOCTURNE_STYLE §1). `UIUserInterfaceStyle` in Info.plist does the same for the
+                // launch screen, alerts, share sheets and the rest of UIKit's chrome.
+                .preferredColorScheme(.dark)
                 .tint(Theme.accent)
                 // Signed out, or a different account: forget the previous user's screens.
                 .onChange(of: auth.accountID) { old, new in
@@ -397,7 +399,7 @@ struct RyftApp: App {
 
     // MARK: appearance
 
-    /// Inactive tab items in Mist (or Graphite in light mode) at 50 %.
+    /// Inactive tab items in TextPrimary at 50 %.
     private static func configureAppearance() {
         let inactive = UIColor { traits in
             let base = UIColor(named: "TextPrimary") ?? .label
@@ -417,16 +419,6 @@ struct RyftApp: App {
             }
             UITabBar.appearance().standardAppearance = bar
             UITabBar.appearance().scrollEdgeAppearance = bar
-        }
-    }
-}
-
-extension Settings.Appearance {
-    var colorScheme: ColorScheme? {
-        switch self {
-        case .dark: return .dark
-        case .light: return .light
-        case .system: return nil
         }
     }
 }
@@ -891,14 +883,6 @@ struct SplashView: View {
     SplashView().preferredColorScheme(.dark)
 }
 
-#Preview("Splash · light") {
-    SplashView().preferredColorScheme(.light)
-}
-
 #Preview("App · dark") {
     RootView().previewEnvironment()
-}
-
-#Preview("App · light") {
-    RootView().previewEnvironment(scheme: .light)
 }

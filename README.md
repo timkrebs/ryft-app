@@ -187,7 +187,6 @@ board. Toggle it in **Profile → Data → Demo data**, or with launch arguments
 | Argument | Effect |
 |---|---|
 | `-demoMode YES/NO` | Force demo data on or off (`NO` shows Welcome) |
-| `-appearance dark/light/system` | Colour scheme (dark is the default) |
 | `-RyftTab today/sleep/strain/insights/profile` | Initial tab |
 | `-RyftSleepMode day/week/month` | Initial Sleep segment |
 | `-RyftOpenWorkout YES` | Push the first workout on the Strain tab |
