@@ -35,10 +35,16 @@ struct LaunchSequenceModelTests {
         await settle()
     }
 
-    /// A model that has been sent its first `.active`, and its deadline is waiting.
+    /// The scene's first `.active` and, at the same instant, the overlay's first frame: the timeline runs from now.
+    private func start(_ model: LaunchSequenceModel) {
+        model.send(.scene(.active))
+        model.send(.firstFrame)
+    }
+
+    /// A model that has been started (`start`), and its deadline is waiting.
     private func playing(_ variant: LaunchSequence.Variant = .full) async -> LaunchSequenceModel {
         let model = model(.play(variant))
-        model.send(.scene(.active))
+        start(model)
         await settle()
         return model
     }
@@ -280,7 +286,7 @@ struct LaunchSequenceModelTests {
     /// The model measures the wait when its task runs, so a clock that moved on in between ends it at once.
     @Test func aClockThatMovedOnBeforeTheWaitBeganEndsItAtOnce() async {
         let model = model(.play(.full))
-        model.send(.scene(.active))
+        start(model)
         // Before the deadline task has run, the clock jumps past the end of the timeline (5.2 s), not of the fade (5.6 s).
         clock.advance(by: .seconds(5.4))
         await settle()
@@ -288,6 +294,57 @@ struct LaunchSequenceModelTests {
         await advance(0.3)
         #expect(model.phase == .done)
         #expect(clock.pendingSleeps == 0)
+    }
+
+    // MARK: the first frame (review PR 3 row 18)
+
+    /// In Debug the scene is active about 0.15 s before the overlay draws. Counted from `.active`, the first frame was t 0.03 at
+    /// 77 % group opacity, a pop; the timeline starts at the overlay's first frame instead, and everything after moves with it.
+    @Test("A first frame 0.15 s after active: t is 0 there, and the hand-off is 5.2 s after it")
+    func theTimelineStartsAtTheFirstFrame() async {
+        let marks = Marks()
+        let model = model(.play(.full), marks: marks)
+        model.send(.scene(.active))
+        await settle()
+        #expect(model.phase == .playing && model.coversRoot && model.isAnimating, "the overlay is up, drawing t = 0")
+        #expect(marks.all == [.decision("play-full"), .began], "the interval begins at the first active")
+        await advance(0.15)
+        #expect(model.sequence.frameProgress(at: clock.now()) == 0, "a frame before the overlay reports it is t = 0")
+        model.send(.firstFrame)
+        let first = clock.now()
+        #expect(model.sequence.frameProgress(at: first) == 0)
+        #expect(LaunchFrame(t: model.sequence.frameProgress(at: first), palette: LaunchFrameTests.palette).groupOpacity == 0,
+                "the mark fades in from nothing")
+        #expect(marks.all == [.decision("play-full"), .began, .firstFrame])
+        await settle()
+        #expect(clock.pendingSleeps == 1, "the first frame moved the wait; it did not add one")
+        await advance(0.04 * 5.2)
+        #expect(model.sequence.frameProgress(at: clock.now()) > 0.04 - 1e-6, "the group is in after 4 % of the timeline")
+        await advance(5.2 - 0.04 * 5.2 - margin)
+        #expect(model.phase == .playing && model.coversRoot)
+        await advance(2 * margin)
+        #expect(model.phase == .handingOff)
+        await advance(0.4 + margin)
+        #expect(model.phase == .done && clock.pendingSleeps == 0)
+        #expect(marks.all == [.decision("play-full"), .began, .firstFrame, .handOff, .ended("finished")])
+    }
+
+    @Test("No first frame within a second of active: the timeline starts anyway, the root is never held")
+    func withoutAFirstFrameTheTimelineStartsAfterASecond() async {
+        let marks = Marks()
+        let model = model(.play(.full), marks: marks)
+        model.send(.scene(.active))
+        await settle()
+        await advance(1 + 5.2 - margin)
+        #expect(model.phase == .playing)
+        await advance(2 * margin)
+        #expect(model.phase == .handingOff)
+        // A first frame this late starts nothing.
+        model.send(.firstFrame)
+        #expect(model.phase == .handingOff && model.sequence.firstFrameAt == nil)
+        await advance(0.4 + margin)
+        #expect(model.phase == .done && clock.pendingSleeps == 0)
+        #expect(marks.all == [.decision("play-full"), .began, .handOff, .ended("finished")])
     }
 
     // MARK: signposts
@@ -298,16 +355,16 @@ struct LaunchSequenceModelTests {
     func aLateWakeUpStillMarksTheHandOffOnce() async {
         let marks = Marks()
         let model = model(.play(.full), marks: marks)
-        model.send(.scene(.active))
+        start(model)
         await settle()
         await advance(5.0)
         #expect(model.phase == .playing)
-        #expect(marks.all == [.decision("play-full"), .began])
+        #expect(marks.all == [.decision("play-full"), .began, .firstFrame])
         // The deadline is 5.2 s and the fade ends at 5.6 s: the clock jumps from 5.0 to 6.0 s.
         await advance(1.0)
         #expect(model.phase == .done && model.ending == .finished)
         #expect(marks.count(.handOff) == 1)
-        #expect(marks.all == [.decision("play-full"), .began, .handOff, .ended("finished")])
+        #expect(marks.all == [.decision("play-full"), .began, .firstFrame, .handOff, .ended("finished")])
         #expect(clock.pendingSleeps == 0)
     }
 
@@ -324,40 +381,41 @@ struct LaunchSequenceModelTests {
         }
         // On time: through the fade.
         let natural = await marks { model in
-            model.send(.scene(.active))
+            start(model)
             await settle()
             await advance(5.2 + margin)
             #expect(model.phase == .handingOff)
         }
-        #expect(natural == [.decision("play-full"), .began, .handOff, .ended("finished")])
+        #expect(natural == [.decision("play-full"), .began, .firstFrame, .handOff, .ended("finished")])
         let reduced = await marks(.play(.reduced)) { model in
-            model.send(.scene(.active))
+            start(model)
             await settle()
             await advance(1.0 + margin)
             #expect(model.phase == .handingOff)
         }
-        #expect(reduced == [.decision("play-reduced"), .began, .handOff, .ended("finished")])
+        #expect(reduced == [.decision("play-reduced"), .began, .firstFrame, .handOff, .ended("finished")])
         let tapped = await marks { model in
-            model.send(.scene(.active))
+            start(model)
             await advance(1)
             model.send(.tap)
             model.send(.tap)
         }
-        #expect(tapped == [.decision("play-full"), .began, .handOff, .ended("tapped")])
+        #expect(tapped == [.decision("play-full"), .began, .firstFrame, .handOff, .ended("tapped")])
         let backgrounded = await marks { model in
-            model.send(.scene(.active))
+            start(model)
             await advance(1)
             model.send(.scene(.background))
         }
-        #expect(backgrounded == [.decision("play-full"), .began, .ended("backgrounded")], "no hand-off: nobody is looking")
+        #expect(backgrounded == [.decision("play-full"), .began, .firstFrame, .ended("backgrounded")],
+                "no hand-off: nobody is looking")
         let backgroundedInTheFade = await marks { model in
-            model.send(.scene(.active))
+            start(model)
             await advance(1)
             model.send(.tap)
             await advance(0.1)
             model.send(.scene(.background))
         }
-        #expect(backgroundedInTheFade == [.decision("play-full"), .began, .handOff, .ended("tapped")])
+        #expect(backgroundedInTheFade == [.decision("play-full"), .began, .firstFrame, .handOff, .ended("tapped")])
         let armedThenBackgrounded = await marks { $0.send(.scene(.background)) }
         #expect(armedThenBackgrounded == [.decision("play-full")], "never played: no interval, no hand-off")
         let skipped = await marks(.skip(.harness)) { $0.send(.scene(.active)) }
@@ -366,7 +424,7 @@ struct LaunchSequenceModelTests {
 
     @Test func withSignpostsOnTheRunIsTheSame() async {
         let model = model(.play(.full), signposts: true)
-        model.send(.scene(.active))
+        start(model)
         await settle()
         await advance(5.2 + margin)
         #expect(model.phase == .handingOff)

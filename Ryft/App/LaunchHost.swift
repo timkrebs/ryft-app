@@ -79,6 +79,10 @@ struct LaunchOverlay: View {
                 }
                 .opacity(1 - sequence.handOff(at: context.date))
             }
+            // The timeline starts at its first frame on screen, not at the scene's `.active` (up to 0.15 s earlier in
+            // Debug, when the first frame was t 0.03 at 77 % opacity): the mark fades in from nothing. Until the
+            // sequence takes this, every frame is t = 0.
+            .onAppear { model.send(.firstFrame) }
         }
     }
 }

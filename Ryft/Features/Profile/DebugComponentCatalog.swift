@@ -437,15 +437,17 @@ private struct LaunchCatalogEntry: View {
     @ViewBuilder
     private var stage: some View {
         let palette = LaunchFrame.Palette.resolved(in: environment)
-        if let run {
+        if let playing = run {
             TimelineView(.animation) { context in
                 ZStack {
                     Theme.background
-                    LaunchStage(frame: LaunchFrame(t: run.frameProgress(at: context.date), palette: palette))
-                        .opacity(run.contentOpacity(at: context.date))
+                    LaunchStage(frame: LaunchFrame(t: playing.frameProgress(at: context.date), palette: palette))
+                        .opacity(playing.contentOpacity(at: context.date))
                 }
-                .opacity(1 - run.handOff(at: context.date))
+                .opacity(1 - playing.handOff(at: context.date))
             }
+            // As `LaunchOverlay`: t = 0 is the first frame on screen.
+            .onAppear { run?.send(.firstFrame, at: env.clock.now()) }
         } else {
             ZStack {
                 Theme.background

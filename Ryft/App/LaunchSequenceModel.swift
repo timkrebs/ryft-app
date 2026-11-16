@@ -30,8 +30,11 @@ final class LaunchSequenceModel {
     enum Mark: Equatable, Sendable {
         /// `launch-decision`, with `LaunchDecision.signpostName`.
         case decision(String)
-        /// The `launch-sequence` interval begins: the first `.active`, `armed -> playing`.
+        /// The `launch-sequence` interval begins: the first `.active`, `armed -> playing`. It covers what the user waits
+        /// through, the wait for the overlay's first frame included.
         case began
+        /// `launch-first-frame`: the overlay's first frame, the timeline's t = 0 (a natural end hands off 5.2 s later).
+        case firstFrame
         /// `launch-handoff`: the root is interactive again, M2's end. Once per run, when `playing` ends: into the fade,
         /// or straight to done when the natural end's wake-up came after the fade too; never when the background ended it.
         case handOff
@@ -64,7 +67,9 @@ final class LaunchSequenceModel {
 
     func send(_ event: LaunchSequence.Event) {
         let now = clock.now()
+        let waitedForFirstFrame = sequence.firstFrameAt == nil
         sequence.send(event, at: now)
+        if waitedForFirstFrame, sequence.firstFrameAt != nil { mark(.firstFrame) }
         refresh(at: now)
     }
 
@@ -119,6 +124,8 @@ final class LaunchSequenceModel {
                 Signposts.launch.emitEvent("launch-decision", "\(name, privacy: .public)")
             case .began:
                 interval = Signposts.launch.beginInterval("launch-sequence", id: Signposts.launch.makeSignpostID())
+            case .firstFrame:
+                Signposts.launch.emitEvent("launch-first-frame")
             case .handOff:
                 Signposts.launch.emitEvent("launch-handoff")
             case .ended(let name):

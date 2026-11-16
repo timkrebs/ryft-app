@@ -147,7 +147,8 @@ struct LaunchSequence: Equatable, Sendable {
     enum Phase: String, CaseIterable, Sendable {
         /// Waiting for the scene's first `.active`; the overlay is only the launch screen's colour.
         case armed
-        /// The timeline runs; the overlay covers the root and takes every tap.
+        /// From the first `.active`: the overlay covers the root and takes every tap; the timeline runs from the first
+        /// frame it draws (`startedAt`).
         case playing
         /// The overlay fades out; the root is visible to VoiceOver and takes taps.
         case handingOff
@@ -162,6 +163,9 @@ struct LaunchSequence: Equatable, Sendable {
         /// A tap anywhere, or VoiceOver's activate or "Skip" action.
         case tap
         case interrupted(LaunchInterruption)
+        /// The overlay put the timeline on screen (`LaunchOverlay`'s `onAppear`): t = 0 is now, not at the scene's
+        /// `.active`, which can come 0.15 s earlier in Debug (review PR 3 row 18).
+        case firstFrame
     }
 
     enum Ending: Equatable, Sendable {
@@ -210,12 +214,17 @@ struct LaunchSequence: Equatable, Sendable {
 
         /// The first `.active` must come within this long after init, or it is a background launch opened later.
         static let coldStartWindow: TimeInterval = 5
+        /// The timeline waits this long after the first `.active` for the overlay's first frame, then starts anyway, so
+        /// the overlay can never hold the root; a first frame after it changes nothing.
+        static let firstFrameWindow: TimeInterval = 1
     }
 
     let decision: LaunchDecision
     let createdAt: Date
-    /// The first `.active` (the clock's start).
-    private(set) var startedAt: Date?
+    /// The first `.active`: `playing` starts here.
+    private(set) var activatedAt: Date?
+    /// The overlay's first frame, if it came within `firstFrameWindow` of `activatedAt`.
+    private(set) var firstFrameAt: Date?
     /// An event's hand-off (tap, system UI, interruption): when it started, and its fade.
     private(set) var handOffAt: Date?
     private(set) var handOffFade: TimeInterval?
@@ -238,6 +247,12 @@ struct LaunchSequence: Equatable, Sendable {
 
     var timing: Timing { variant == .reduced ? .reduced : .full }
 
+    /// The timeline's t = 0: the overlay's first frame, or the end of `firstFrameWindow` if none came by then; nil before
+    /// the first `.active`. Until then every frame is t = 0, so the first one drawn fades in from nothing.
+    var startedAt: Date? {
+        firstFrameAt ?? activatedAt.map { $0.addingTimeInterval(Timing.firstFrameWindow) }
+    }
+
     // MARK: events
 
     mutating func send(_ event: Event, at date: Date) {
@@ -246,7 +261,12 @@ struct LaunchSequence: Equatable, Sendable {
             if date.timeIntervalSince(createdAt) > Timing.coldStartWindow {
                 skippedBy = .lateActivation
             } else {
-                startedAt = date
+                activatedAt = date
+            }
+        case (.playing, .firstFrame):
+            // The first one only, and only while the timeline still waits for it.
+            if firstFrameAt == nil, let activatedAt, date.timeIntervalSince(activatedAt) <= Timing.firstFrameWindow {
+                firstFrameAt = max(date, activatedAt)
             }
         case (.armed, .scene(.background)):
             skippedBy = .backgrounded
@@ -266,8 +286,8 @@ struct LaunchSequence: Equatable, Sendable {
             if recordedEnding == nil { recordedEnding = .finished }
             endedAt = date
         default:
-            // Armed: a cold launch passes through `.inactive`; taps do nothing yet. Handing off: taps reach the root.
-            // Done and skipped ignore everything.
+            // Armed: a cold launch passes through `.inactive`; taps do nothing yet. Handing off: taps reach the root, and
+            // a first frame after a tap starts nothing. Done and skipped ignore everything.
             break
         }
     }
@@ -294,7 +314,7 @@ struct LaunchSequence: Equatable, Sendable {
 
     func phase(at date: Date) -> Phase {
         guard case .play = decision, skippedBy == nil else { return .skipped }
-        guard let startedAt, date >= startedAt, let handOffStart, let doneAt else { return .armed }
+        guard let activatedAt, date >= activatedAt, let handOffStart, let doneAt else { return .armed }
         if date >= doneAt { return .done }
         if date >= handOffStart { return .handingOff }
         return .playing

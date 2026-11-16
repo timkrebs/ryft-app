@@ -17,9 +17,11 @@ struct LaunchSequenceTests {
         date.map { abs($0.timeIntervalSince(at(seconds))) < e } ?? false
     }
 
+    /// Active at `start`, and the overlay's first frame at the same instant: the timeline runs from `start`.
     private func playing(_ variant: LaunchSequence.Variant = .full, at start: TimeInterval = 0.1) -> LaunchSequence {
         var sequence = LaunchSequence(decision: .play(variant), createdAt: created)
         sequence.send(.scene(.active), at: at(start))
+        sequence.send(.firstFrame, at: at(start))
         return sequence
     }
 
@@ -33,6 +35,7 @@ struct LaunchSequenceTests {
         #expect(sequence.covers(at: at(0.05)))
         #expect(sequence.nextChange(after: at(0.05)) == nil)
         sequence.send(.scene(.active), at: at(0.1))
+        sequence.send(.firstFrame, at: at(0.1))
         #expect(sequence.phase(at: at(0.1)) == .playing)
         #expect(sequence.phase(at: at(5.3 - e)) == .playing)
         #expect(near(sequence.nextChange(after: at(1)), 5.3))
@@ -215,6 +218,81 @@ struct LaunchSequenceTests {
         #expect(near(sequence.handOffStart, 5.3))
     }
 
+    // MARK: the first frame (review PR 3 row 18)
+
+    /// The scene is active about 0.15 s before the overlay draws (Debug). Counted from `.active`, the first frame was t 0.03
+    /// at 77 % group opacity: a pop, where the launch screen should fade into the mark. The timeline starts at the first frame.
+    @Test func theTimelineStartsAtTheFirstFrameNotAtActive() {
+        var sequence = LaunchSequence(decision: .play(.full), createdAt: created)
+        sequence.send(.scene(.active), at: at(0.1))
+        // Waiting for it: covered, playing (the overlay is up), and every frame is t = 0.
+        #expect(sequence.phase(at: at(0.2)) == .playing && sequence.covers(at: at(0.2)))
+        #expect(sequence.progress(at: at(0.2)) == 0 && sequence.frameProgress(at: at(0.25)) == 0)
+        sequence.send(.firstFrame, at: at(0.25))
+        #expect(sequence.activatedAt == at(0.1) && sequence.firstFrameAt == at(0.25) && sequence.startedAt == at(0.25))
+        #expect(sequence.progress(at: at(0.25)) == 0)
+        let first = LaunchFrame(t: sequence.frameProgress(at: at(0.25)), palette: LaunchFrameTests.palette)
+        #expect(first.groupOpacity == 0, "the mark fades in from nothing")
+        #expect(abs(sequence.progress(at: at(0.25 + 2.6)) - 0.5) < 1e-6)
+        // The natural end follows: 5.2 s after the first frame, then the 0.4 s fade.
+        #expect(near(sequence.handOffStart, 5.45) && near(sequence.doneAt, 5.85))
+        #expect(sequence.phase(at: at(5.45 - e)) == .playing && sequence.phase(at: at(5.45 + e)) == .handingOff)
+        #expect(sequence.phase(at: at(5.85 + e)) == .done)
+    }
+
+    @Test func onlyTheFirstFrameCounts() {
+        var sequence = playing(at: 0.1)
+        sequence.send(.firstFrame, at: at(0.5))
+        #expect(sequence.startedAt == at(0.1) && near(sequence.handOffStart, 5.3))
+    }
+
+    @Test("Without a first frame the timeline starts a second after active: the overlay never holds the root")
+    func withoutAFirstFrameTheTimelineStartsAfterTheWindow() {
+        #expect(LaunchSequence.Timing.firstFrameWindow == 1)
+        var sequence = LaunchSequence(decision: .play(.full), createdAt: created)
+        sequence.send(.scene(.active), at: at(0.1))
+        #expect(near(sequence.startedAt, 1.1))
+        #expect(near(sequence.handOffStart, 6.3) && near(sequence.doneAt, 6.7))
+        #expect(sequence.progress(at: at(1.1)) == 0 && abs(sequence.progress(at: at(1.1 + 2.6)) - 0.5) < 1e-6)
+        // A first frame after the window starts nothing.
+        sequence.send(.firstFrame, at: at(1.1 + e))
+        #expect(sequence.firstFrameAt == nil && near(sequence.handOffStart, 6.3))
+        // One just inside it still starts it.
+        var onTime = LaunchSequence(decision: .play(.full), createdAt: created)
+        onTime.send(.scene(.active), at: at(0.1))
+        onTime.send(.firstFrame, at: at(1.1 - e))
+        #expect(onTime.firstFrameAt == at(1.1 - e) && near(onTime.handOffStart, 6.3 - e))
+    }
+
+    @Test func aFirstFrameAfterATapStartsNothing() {
+        var sequence = LaunchSequence(decision: .play(.full), createdAt: created)
+        sequence.send(.scene(.active), at: at(0.1))
+        sequence.send(.tap, at: at(0.15))
+        sequence.send(.firstFrame, at: at(0.2))
+        #expect(sequence.firstFrameAt == nil)
+        #expect(sequence.ending(at: at(0.2)) == .tapped && near(sequence.doneAt, 0.4))
+        #expect(sequence.frameProgress(at: at(0.3)) == 0, "the fade shows the launch screen's t = 0, nothing moves")
+    }
+
+    @Test func theReducedFadeInStartsAtTheFirstFrame() {
+        var sequence = LaunchSequence(decision: .play(.reduced), createdAt: created)
+        sequence.send(.scene(.active), at: at(0.1))
+        #expect(sequence.contentOpacity(at: at(0.3)) == 0, "nothing before the first frame")
+        sequence.send(.firstFrame, at: at(0.3))
+        #expect(sequence.contentOpacity(at: at(0.3)) == 0)
+        #expect(sequence.contentOpacity(at: at(0.55 + e)) == 1)
+        #expect(near(sequence.handOffStart, 1.3) && near(sequence.doneAt, 1.55))
+    }
+
+    /// The 5 s window still runs from init to the first `.active`: a first frame that comes after it plays on.
+    @Test func theColdStartWindowEndsAtActiveNotAtTheFirstFrame() {
+        var sequence = LaunchSequence(decision: .play(.full), createdAt: created)
+        sequence.send(.scene(.active), at: at(4.9))
+        sequence.send(.firstFrame, at: at(5.5))
+        #expect(sequence.phase(at: at(5.5)) == .playing && sequence.startedAt == at(5.5))
+        #expect(near(sequence.handOffStart, 10.7))
+    }
+
     // MARK: the hand-off
 
     @Test("The natural end fades for 0.4 s, eased out", arguments: [0.0, 0.1, 0.2, 0.3, 0.4])
@@ -348,6 +426,7 @@ struct LaunchSequenceTests {
     @Test("Before it plays, the same events skip it or do nothing", arguments: [
         (LaunchSequence.Event.tap, LaunchSkip?.none),
         (.scene(.inactive), nil),
+        (.firstFrame, nil),
         (.scene(.background), .backgrounded),
         (.interrupted(.purposeLaunch), .purposeLaunch),
         (.interrupted(.presentation), .presentation),
@@ -397,6 +476,7 @@ struct LaunchSequenceTests {
 
     @Test("While it fades, taps reach the root and nothing else changes it", arguments: [
         LaunchSequence.Event.tap, .scene(.inactive), .scene(.active), .interrupted(.presentation), .interrupted(.purposeLaunch),
+        .firstFrame,
     ])
     private func eventsDuringTheFadeChangeNothing(_ event: LaunchSequence.Event) {
         var sequence = playing(at: 0)
@@ -409,7 +489,7 @@ struct LaunchSequenceTests {
 
     @Test("Done and skipped ignore every event", arguments: [
         LaunchSequence.Event.tap, .scene(.inactive), .scene(.active), .scene(.background), .interrupted(.presentation),
-        .interrupted(.purposeLaunch),
+        .interrupted(.purposeLaunch), .firstFrame,
     ])
     private func terminalPhasesIgnoreEverything(_ event: LaunchSequence.Event) {
         var done = playing(at: 0)
