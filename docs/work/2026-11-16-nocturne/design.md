@@ -874,14 +874,13 @@ nothing animates through SwiftUI's transaction system, so a layout change under 
 ### P3-5. Reduce Motion
 
 `accessibilityReduceMotion` (plus the `orbitForcesReducedMotion` preview seam the gauge already has). **No choreography:** the view shows `LaunchFrame(t: 1)` — the static mark in `ink`, "RYFT" at 0.32 em, the tagline — with
-the same layout. It appears with a **250 ms** opacity fade-in (`Theme.Motion.quick`), holds, then **cross-fades out into the app in 250 ms**; both fades are opacity only. Proposed hold: 1.0 s, so the whole is 1.5 s; a tap skips as in the full
-sequence. The hold and the hand-off are the architect's (Q6). Low Power Mode is not treated as Reduce Motion for the launch (TimelineView drops to 30 fps by itself); the gauge entrance that follows
-still is (plan decision 7) (Q6).
+the same layout. **As built (launch-design §5.3, ADR 0017):** it is on screen from the first frame, holds **1.0 s**, then **cross-fades out into the app in 250 ms** (opacity only), 1.25 s in all; a tap skips as in the full
+sequence. VoiceOver and **Low Power Mode** also get this variant (row 31); the gauge entrance that follows is reduced as before (plan decision 7).
 
 ### P3-6. Accessibility
 
-- **Launch.** One element: `accessibilityElement(children: .ignore)`, label "Loading RYFT" (a status; no value, no traits other than the default static text), identifier `launchSequence` for the UI test. Hidden: the mark, tracks, the
-  wordmark (it would be read as "RYFT"), the tagline (marketing). The default action (double tap) skips; it is not announced. Same element and label under Reduce Motion.
+- **Launch.** One element: `accessibilityElement(children: .ignore)`, label "Loading RYFT", identifier `launch.sequence`, trait `.isModal`, and a named "Skip" action (the existing string); with the tap gesture it reads as a button (row 32). Hidden: the mark, tracks, the
+  wordmark (it would be read as "RYFT"), the tagline (marketing). The default action (double tap) skips too. Same element and label under Reduce Motion.
 - **Gauge.** Unchanged: one element, label from the caption, value = the spoken sentence (`spokenValue`), the note after it. Ticks, halos, rings, the numeral and the Volt dot are all inside it and hidden. The state is never colour alone: arc length, dot
   position, the numeral and the sentence.
 - **Flagged to the architect (not decided here):** VoiceOver focus after the hand-off (Today's first element? the header?), whether to post an announcement when the launch ends, and whether the 5.2 s is announced differently for VoiceOver users (Q6).
@@ -897,7 +896,7 @@ Dark only (`DarkPreview`, D3); names `"<Type>"` and `"<Type> · AX3"`; AX3 = `.e
 | `RyftMark` | "Mark" kept |
 
 `DebugComponentCatalog`: `Nocturne · gauge` (the 260 board, `.large`, `.medium`, `.small`, every state; its XS / L / AX3 picker shows the numeral fallback) and `Nocturne · launch` (a `Slider` for t over the frame with buttons for 0, 0.26, 0.5, 0.76, 1, and a Reduce Motion toggle;
-no timer, no auto-play).
+plus a Play button that runs the real sequence once; row 33).
 
 ### P3-8. Tests
 
@@ -951,7 +950,7 @@ Both go through `Ryft/Resources/Localizable.xcstrings`, English only (CLAUDE.md,
 | `Loading RYFT` | VoiceOver status while the launch animation plays. | the launch element's label |
 | `Engineered for peak.` | The tagline under the wordmark on the launch screen. | tagline `Text` |
 
-"RYFT" (the wordmark) stays `Text(verbatim:)` as in `Wordmark`. No other string is added: the gauge's sentences are unchanged, and the skip action has no label (Q6).
+"RYFT" (the wordmark) stays `Text(verbatim:)` as in `Wordmark`. No other string is added: the gauge's sentences are unchanged, and the skip action reuses "Skip".
 
 ### P3-10. Deviations
 
@@ -981,7 +980,7 @@ Recorded from the implementation (T3.2) and the code review, 2026-11-16:
 
 | # | Spec said | Code does | Why |
 |---|---|---|---|
-| 20 | Dots whenever the numeral fits | dots only at S ≥ 205 *and* when it fits | one look per gauge size: a single digit at `.large` fitted and drew dots next to a Light "84" (lead) |
+| 20 | Dots whenever the numeral fits | dots only where a two-digit grid ("00", 74 pt) fits the slot, S ≥ 205.2, *and* the value fits | one look per gauge size: a single digit at `.large` fitted and drew dots next to a Light "84" (lead) |
 | 21 | Light `weight: .light` | `ryftNumber(size:)` under ADR 0016's floor | Regular below 20 pt, so `.small` (16.8) and the 56–60 dials (13.6–14.4) draw Regular, as everywhere else |
 | 22 | The unlit grid for pending or missing readiness | the grid at S ≥ 205; a Light "–" in `textTertiary` below | the grid isn't used below 205 (row 20) |
 | 23 | Lit inner ticks before the halos and cuts; ticks omitted by centre distance | lit ticks after the cuts; a tick is omitted when its rect comes within a dot's cleared ring | ticks are never cut, only whole or absent; by centre distance a whole tick reached 0.59 pt into the strain dot's ring (strain 20.3) |
@@ -991,6 +990,16 @@ Recorded from the implementation (T3.2) and the code review, 2026-11-16:
 | 27 | Band stroke < outer stroke | ≤ | both sit at the 1.5 pt floor up to S 111 |
 | 28 | — | `OrbitGaugeBandRail` and `palette.track` removed; static gauge and entrance draw one `OrbitGaugeScene` | the entrance's last frame is the static render by construction |
 | 29 | Tracks in `ink` in every rendering mode | the widget's non-full-colour modes keep white 25 % tracks | a 7 % ring vanishes on the Lock Screen (lead) |
+
+Recorded from the launch implementation (T3.3) and its code review, 2026-11-16:
+
+| # | Spec said | Code does | Why |
+|---|---|---|---|
+| 30 | Reduced: 250 ms fade-in, 1.0 s hold, 250 ms out (1.5 s) | on screen from the first frame, 1.0 s hold, 250 ms out (1.25 s) | the first frame continues the launch screen; launch-design §5.3 |
+| 31 | Low Power Mode is not reduced | Low Power Mode → reduced | ADR 0017 and launch-design §6.2: no 5.2 s animation when the user asked the phone to save power |
+| 32 | Identifier `launchSequence`, static text, unannounced skip | `launch.sequence`, `.isModal`, a named "Skip" action; exposed as a button | launch-design §8: VoiceOver users must be able to find the skip |
+| 33 | Catalog: scrubber only, no auto-play | scrubber plus a Play button | launch-design §10 asks for a replay to judge the motion |
+| 34 | Hold angles from the gauge's mapping | the launch's strain head uses `OrbitGaugeGeometry`'s own mapping (fix round), 122.565° | one formula for the gauge and the launch |
 
 ### P3-11. Open questions
 

@@ -1,6 +1,18 @@
 # Nocturne PR 3: the launch sequence (T3.0 design note)
 
-- Status: proposed 2026-11-16, ios-architect. For T3.3 (ios-developer) and T3.4 (test-engineer).
+- Status: implemented in T3.3 (2026-11-16), with the lead's decisions L9–L12 (§13). For T3.4 (test-engineer).
+- **As built, where the code differs from this note** (code review, `review.md` PR 3):
+  - §5.4/§10: the frame is `LaunchFrame(t:palette:side:)` (design.md P3-4), not `LaunchFrame(progress:variant:)` and
+    `.final`. `LaunchSequence.frameProgress(at:)` returns 1 for the reduced variant; `contentOpacity(at:)` drives the fades.
+  - §6.2: a row between "open workout" and "reduced": `.recentlyUsed` when the app went to the background less than
+    600 s ago (`LaunchContext.secondsSinceLastBackground`, key `launch.lastBackgroundAt`). `-RyftLaunchSequence play`
+    overrides it, so harnessed runs stay deterministic; a negative interval counts as not recent.
+  - §7.4: `.skipped(.lateActivation)` also moves VoiceOver focus to the root, because the armed overlay was the only
+    (modal) element.
+  - §7.5: the `.launch` coordinate space's origin is offset from the overlay's by the safe area; PR 4's rect
+    interpolation converts, and its test covers the conversion.
+  - §8: the overlay is `launch.sequence`, `.isModal`, with a named "Skip" action; XCUITest sees it as a button and lists
+    its hidden children, so "children hidden" is checked at unit level, not in a UI test.
 - Lasting decisions: [ADR 0017](../../adr/0017-launch-sequence-is-a-root-overlay-that-never-gates-startup.md).
 - Inputs: `brief.md` §5 and §3 (last line); `plan.md` PR 3 (Launch board, L1, L2, criteria 2–5).
 - The visuals belong to T3.1 (`design.md` "PR 3"): the keyframes, curves, colours and layout. This note gives them a

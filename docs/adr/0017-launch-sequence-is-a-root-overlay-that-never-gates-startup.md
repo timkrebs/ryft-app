@@ -44,7 +44,8 @@
 
    Its phases (`armed → playing → handingOff → done`, or `skipped`) end in terminal states. A return from the
    background, scene re-creation and a second scene never replay it.
-5. **Harnessed launches skip it.** Any launch argument skips it unless `-RyftLaunchSequence play` is passed;
+5. **Harnessed launches skip it.** Any launch argument skips it unless `-RyftLaunchSequence play` is passed (which
+   also overrides the recency skip L9, so harnessed runs are deterministic);
    `-RyftLaunchSequence skip` forces a skip. Real launches never carry arguments, and every UI test and screenshot run
    does.
 6. **It yields to anything that wants attention.** Each of these skips it, or hands off at once:

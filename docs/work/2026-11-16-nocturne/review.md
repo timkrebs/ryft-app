@@ -91,3 +91,24 @@ the app catalog (PR 1 row 13: no drift; `check-shared-types.py` now checks them 
 | 10 | Heads-up: the widget track override must not go through `ink`, which the lit ticks use. | A separate optional track colour. | ios-developer |
 
 For PR 4: `GlowTile` clips its content, so a gauge inside one needs ≥ 3 pt inset for the halo.
+
+**Code review of the launch and the gauge fixes (code-reviewer, 79bcfd8..9f8d8b6).** No blockers. Checked fine: nothing
+new gates startup (two `UserDefaults` reads, a pure decision and a background fill before the first frame; bootstrap,
+`afterFirstFrame`, sync and auth run unchanged beneath); no ticking after done; signposts balanced on every path but
+row 15; no double play (process-scoped model); the string catalog diff is two targeted keys; `RyftMark` unchanged
+(`mark-svg --check` passes); the gauge fixes (rows 5–10) as decided. Every stated deviation is accepted except the
+strain head (row 14).
+
+| # | Finding | Decision | Owner |
+|---|---|---|---|
+| 11 | Should fix: `InviteCodeView` focuses its field on appear, so under a playing launch the keyboard slides over the arcs and keystrokes go into a hidden field (invite-gated first run, cold reopen > 10 min). | Focus only when not covered; focus on `launchCoversRoot` → false. The only root auto-focus in the app. | ios-developer |
+| 12 | Should fix: no `CHANGELOG.md` line. | Two lines under Changed (gauge, launch). | lead |
+| 13 | Should fix: `design.md` and `launch-design.md` lag the accepted deviations (reduced timing, Low Power Mode, identifier and traits, catalog Play, the frame API, L9's row, `lateActivation` focus, the `.launch` offset). | P3-5/6/7/9, P3-10 rows 30–34; an "as built" list in `launch-design.md`; ADR 0017 §5 on `play` vs L9. | lead |
+| 14 | Nit: the launch re-derives the strain head (`360 × fraction`) beside the gauge's mapping. | Use `OrbitGaugeGeometry`'s `headDegrees(for:)` (122.565°, 0.006° off). | ios-developer |
+| 15 | Nit: if the natural-end deadline runs ≥ 0.4 s late, `playing → done` skips the `launch-handoff` signpost (M2's end). | Emit it on `playing → done` too, except when backgrounded. | ios-developer |
+| 16 | Nit: XCUITest traps: the overlay is a Button; tap-to-gone measured 1.56 s (idle wait); hidden children are still listed. | Passed to test-engineer for T3.4. | test-engineer |
+| 17 | Nit: the tick-sweep oracle uses the code's own formula (independently verified correct). | Optional: corners of the transformed tick path. | test-engineer |
+
+Not verifiable by reading: whether `.accessibilityHidden` on the covered root reaches the UIKit-hosted tabs (Accessibility
+Inspector or VoiceOver on a device), taps on the tab bar while covered, hitches (performance-profiler), device-only
+launch paths (SpringBoard, HealthKit/BG, real purpose launches).
