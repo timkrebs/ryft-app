@@ -84,9 +84,8 @@ private struct LockScreenView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(context.state.resting ? "REST" : "WORKOUT")
+                    Text(context.state.resting ? "Rest" : "Workout")
                         .font(.caption2.weight(.semibold))
-                        .tracking(2)
                         .foregroundStyle(Brand.teal)
                     Text(context.attributes.sessionTitle)
                         .font(.caption)

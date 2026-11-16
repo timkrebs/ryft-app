@@ -45,9 +45,8 @@ private struct SnoozeLockScreen: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("SNOOZING")
+                Text("Snoozing")
                     .font(.caption2.weight(.semibold))
-                    .tracking(2)
                     .foregroundStyle(Brand.teal)
                 Text("Your alarm rings again")
                     .font(.caption)
