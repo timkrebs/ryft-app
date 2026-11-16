@@ -703,6 +703,21 @@ import UIKit
         #expect(value.maxX >= 347, "value ends at \(value.maxX)")
     }
 
+    /// Re-review row 17. A mid-length label (wider than 74, but the row still fits) stays on one line and widens its own
+    /// column: the first tick starts 12 pt after the label's full width, so no label pixel sits over the ticks. Before the
+    /// fix the flexible value column was sized first and the label overflowed its 74–80 pt column into the ticks.
+    @Test("A mid-length label widens its column on one line: the ticks start 12 pt after the whole label")
+    func midLengthLabelPushesTheTicks() throws {
+        let label = "Zone 2 · Endurance"
+        let ideal = try #require(render(Text(verbatim: label).font(.ryft(.caption)).fixedSize())).size.width
+        // The case only means something while the label is wider than the column and the row (label + 241) fits 361.
+        #expect(ideal > 80 && ideal < 118, "the label is \(ideal) pt wide: pick another one")
+        let shot = try #require(render(tickRow(label: label).frame(width: 361).background(Theme.background)))
+        #expect(shot.size == CGSize(width: 361, height: 12), "one line: \(shot.size)")
+        let ticks = try #require(shot.bounds(xs: 0...300, ys: 0...12) { self.near($0, self.ink, 2) }, "the lit ticks")
+        #expect(abs(ticks.minX - (ideal + 12)) <= 1, "ticks start at \(ticks.minX), the label ends at \(ideal)")
+    }
+
     @Test("A short label (\"Zone 3\") stays on one line in 350 pt: 12 high, the first tick at x 86")
     func shortLabelStaysOnOneLine() throws {
         let shot = try #require(render(tickRow().frame(width: 350).background(Theme.background)))
