@@ -227,3 +227,368 @@ Rounded and its fallback branch (`Typography.swift`, the `.system(…)` returns)
 size for the Dynamic-Type-relative styles, so a screenshot from such a run does not show the §2 sizes. **Follow-up, not PR 1.**
 
 Not in PR 1: the widget `Brand` hexes are not checked against the catalog (PR 3); the Sleep segment control truncates at AX3 (PR 4).
+
+## PR 2 — components
+
+Scope: seven new files in `Ryft/Design/` (+ additive `Theme.Metrics` constants, §P2-8), previews, catalog sections, tests. No existing
+component and no screen is modified (§P2-9). Measurements are `plan.md` §PR 2 (390 pt boards, CSS px = pt); the brief wins where they
+disagree. Rules for every component:
+
+- **No strings inside.** Callers pass text, labels, values and accessibility text. The only glyph literals are `–` (the numeral's
+  placeholder) and SF Symbol names passed by callers.
+- **Tokens only:** `Theme.*` colours and `Theme.Metrics`, `Font.ryft(_:)` roles; opacity steps are named constants in the component.
+- **Pure layout first.** Every geometry rule is a non-isolated `static func` on a non-generic type, so tests assert numbers, not pixels.
+  Generic types cannot hold static stored properties, hence `GlowTileSpec`.
+- **Test/preview seams** (the repo cannot set `accessibilityReduceMotion` in an environment, see `OrbitGauge`):
+  `reduceMotion: Bool? = nil` and `reduceTransparency: Bool? = nil` init parameters; `nil` follows the system.
+
+| Component | File | Type |
+|---|---|---|
+| `DotNumeral` | `DotNumeral.swift` | `DotGlyph`, `DotGlyphs`, `DotNumeral` |
+| `RulerScale` | `RulerScale.swift` | `RulerScale` |
+| `GlowTile` | `GlowTile.swift` | `GlowTileSpec`, `GlowTile<Content>`, `View.ryftGlowLabelStyle()` |
+| `DotRow` | `DotRow.swift` | `DotRow` |
+| `TickRow` | `TickRow.swift` | `TickRow` |
+| `CircleButton` | `CircleButton.swift` | `CircleButton` (+ private style) |
+| `PillButton` | `PillButton.swift` | `PillButton` (+ private style) |
+
+### P2-1. DotNumeral
+
+```swift
+struct DotGlyph: Equatable { let width: Int; let rows: [UInt8] }   // 7 rows, bit (width-1-c) = column c, MSB left
+
+enum DotGlyphs {
+    static let rowCount = 7
+    static let table: [Character: DotGlyph]                          // the table in §P2-5
+    static func glyphs(for text: String) -> [DotGlyph]?              // nil if any character is outside the table
+}
+
+struct DotNumeral: View {
+    enum Style { case dots, light }
+    static let dot: CGFloat = 5, dotGap: CGFloat = 2, height: CGFloat = 47      // 7·5 + 6·2
+    static let glyphGapToday: CGFloat = 8, glyphGapDetail: CGFloat = 7          // Today / Sleep, Strain
+    static let offOpacity = 0.10, lightSize: CGFloat = 52
+    static func size(of text: String?, placeholderGlyphs: Int = 2, glyphGap: CGFloat) -> CGSize?   // nil = not in the table
+    static func rendersDots(_ text: String?, style: Style, typeSize: DynamicTypeSize) -> Bool
+    init(_ text: String?, style: Style = .dots, glyphGap: CGFloat = DotNumeral.glyphGapToday,
+         placeholderGlyphs: Int = 2, accessibilityLabel: Text)
+}
+```
+
+`text` is an already formatted numeral from the caller ("84", "7:48", "12.4", "12,4": the region's separator). `nil` is the pending state.
+
+**Geometry.**
+
+| Quantity | Rule |
+|---|---|
+| Glyph width | `w·5 + (w−1)·2`: 5 columns = 33 pt, 1 column = 5 pt. Height 47. |
+| Glyph pitch | next glyph's left edge = this glyph's right edge + `glyphGap` (8 Today, 7 Sleep/Strain), for narrow glyphs too. |
+| Total | `Σ glyph widths + (n−1)·glyphGap` × 47. `"84"` 74×47; `"7:48"` 128×47 (gap 8) / 125×47 (gap 7); `"12.4"` 128 / 125; `"0"` 33×47; `":"` 5×47. |
+| Dot centre | `(x₀ + c·7 + 2.5, r·7 + 2.5)`, `x₀` = glyph's left edge, `c` = column, `r` = row from the top. Diameter 5. |
+| Layers | Unlit cells in `textPrimary` at 10 % first, lit cells in `textPrimary` on top, as two `Shape`s (or one `Canvas`). Drawn, not a font. |
+| Scaling | The grid is **fixed size** (a graphic, like `display`): never scales with Dynamic Type below AX1. |
+
+**States.**
+
+| State | Trigger | Rendering |
+|---|---|---|
+| Value | every character in the table, `style == .dots`, size below AX1 | the dot grid |
+| Light | `style == .light`, **or** `typeSize.isAccessibilitySize` (AX1 and up), **or** any character outside the table (also a space, an empty string) | `Text(text)` in `Font.ryftNumber(size: s, weight: .light)`, `textPrimary`, `lineLimit(1)`, `minimumScaleFactor(0.5)`. `s` is `@ScaledMetric(relativeTo: .largeTitle) 52`: exactly 52 at the default size, larger from AX1 (about 1.5× at AX3) |
+| Pending | `text == nil` | `placeholderGlyphs` blank cells, every dot at 10 %, same size as digits; in the Light fallback `–` repeated `placeholderGlyphs` times at `textTertiary`. The caller's label says "no value yet" |
+
+**Accessibility.** `accessibilityElement(children: .ignore)` + `accessibilityLabel(accessibilityLabel)`, in every state and in the fallback
+("Readiness 84 of 100", "7 hours 48 minutes asleep", "Strain 12.4 of 21"). No traits, no value.
+Contrast: lit dots `textPrimary` 17.4:1; the 10 % grid is decoration (1.24:1) and carries nothing.
+
+### P2-2. RulerScale
+
+```swift
+struct RulerScale: View {
+    enum Size { case regular, compact }
+    enum Ticks { static let today = 61, sleep = 61, strain = 64, strainCompact = 43 }
+    static let needleColor = Theme.signal
+    init(range: ClosedRange<Double>, value: Double?, zone: ClosedRange<Double>? = nil,
+         zoneTint: Color = Theme.textPrimary, zoneOpacity: Double? = nil, tickCount: Int,
+         labels: [String] = [], size: Size = .regular,
+         accessibilityLabel: Text, accessibilityValue: Text, reduceMotion: Bool? = nil)
+
+    static func tickCentres(count: Int, width: CGFloat) -> [CGFloat]
+    static func zoneTickIndices(count: Int, range: ClosedRange<Double>, zone: ClosedRange<Double>?) -> [Int]
+    static func needleX(value: Double?, range: ClosedRange<Double>, width: CGFloat) -> CGFloat?
+}
+```
+
+`zoneOpacity: nil` means 0.55 regular, 0.60 compact; callers pass 0.85 (Sleep, `metricSleep`) and 0.95 (Strain, `metricStrain`).
+Width is whatever is proposed (the ruler fills it); height is fixed per size.
+
+**Geometry** (y from the top of the ruler; ticks and needle are fixed-size graphics, never scaled):
+
+| | Regular | Compact (strain tile) |
+|---|---|---|
+| Ruler height | 36 = 8 top + 22 tick row + 6 bottom | 32 = 8 + 18 + 6 (**derived**, not measured) |
+| Tick row | y 8…30, ticks centred vertically | y 8…26 |
+| Outside the zone | 1 × 8, `textPrimary` 22 % (compact: 1 × 7, 26 %) | |
+| Inside the zone | 1.5 × 14, `zoneTint` at `zoneOpacity` (compact: 1.5 × 12, 60 %) | |
+| Needle | triangle 12 × 8 pointing down, apex y 8; line 1.5 × 20, y 8…28; `Theme.signal` | line 16 (y 8…24); triangle as regular (**derived**) |
+| Labels | under the ruler, `Font.ryft(.axis)` (11), `textTertiary` | same |
+
+- **Ticks.** `n = max(tickCount, 2)`. Tick `i` is centred at `x_i = i / (n − 1) × width`; its rect is `x_i − w/2`. The outer ticks
+  overhang by ≤ 0.75 pt, so the view must not clip. Drawing snaps the rect's x to the device pixel; `tickCentres` returns the unsnapped values.
+- **Value of tick `i`:** `lo + Double(i) · (hi − lo) / Double(n − 1)` (multiply first: 30·21/63 = 10 exactly). Tick counts are chosen so zone
+  edges land on ticks.
+- **Zone ticks:** `v_i` in `zone` ± 1e-9. Today (0…100, 67…100) → indices 41…60 (20 ticks). Sleep (0…10, 7.5…8.3) → 45…49 (5). Strain
+  (0…21, 10…14) → 30…42 (13). Compact strain (43 ticks) → 20…28 (9). `zone == nil` → none.
+- **Needle x:** `clamp((value − lo) / (hi − lo), 0, 1) · width`; `nil` for `value == nil`, NaN or `hi ≤ lo`. The needle's centre is clamped, its
+  triangle may overhang 6 pt (padding of the parent contains it).
+- **Labels:** `[String]` in one line, distributed edge to edge (first leading, last trailing, the rest evenly spaced), the board's
+  "0 · low · moderate · high · 100". Placement under the zones is **not measured**; space-between is assumed. If they do not fit on one
+  line (AX), `ViewThatFits` falls back to the strings joined by " · ", wrapping, leading-aligned.
+
+**States.** Value (needle + zone); **no value** (`value == nil`): ticks, zone and labels stay, no needle, the caller's value text says "no value yet";
+**no zone**: all ticks outside; **clamped**: a value outside the range sits on the end, and the caller's value text keeps the real number.
+State is never colour alone: the needle's position, the zone's longer and thicker ticks, the band word in `labels` and the sentence.
+
+**Motion.** Only the needle moves: `.animation(Theme.Motion.respecting(reduceMotion ?? system, .quick), value: value)` on its x (250 ms
+ease-out); first appearance does not animate; Reduce Motion: it jumps.
+
+**Accessibility.** One element (`children: .ignore`): label = the subject ("Readiness scale"), value = the caller's sentence, which
+must carry value, band word and range ("84, high, on a scale from 0 to 100"). Labels and ticks are not separate elements.
+Labels scale with Dynamic Type, the graphic does not.
+
+### P2-3. GlowTile
+
+```swift
+enum GlowTileSpec {
+    enum Radius { case tile, hero                                // 24 (Today 2-up) / 28 (Sleep, Strain hero)
+        var points: CGFloat }                                    // Theme.Metrics.glowTileRadius / heroTileRadius
+    static let stops: [Gradient.Stop]                            // background @ 0.97 / 0.92 / 0.55 / 0.10 at 0 / 0.34 / 0.68 / 1
+    static let ellipse = (rx: 0.90, ry: 1.10, cy: 0.55)          // fractions of width, height, height
+    static let padding = EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16)
+    static let twoUpMinHeight: CGFloat = 124, heroMinHeight: CGFloat = 172
+    static let labelOpacity = 0.78, flatBorder: CGFloat = 2
+    static func overlayOpacity(atRadiusFraction t: Double) -> Double   // piecewise linear through `stops`, 0.10 beyond 1
+}
+
+struct GlowTile<Content: View>: View {
+    init(_ metric: Color, radius: GlowTileSpec.Radius = .tile, minHeight: CGFloat? = nil,
+         reduceTransparency: Bool? = nil, @ViewBuilder content: () -> Content)
+}
+extension View { func ryftGlowLabelStyle() -> some View }       // Font.ryft(.label), textPrimary at 78 %
+```
+
+**Drawing, back to front.** `RoundedRectangle(cornerRadius: radius.points, style: .continuous)` filled with `metric`; the overlay;
+content inside `padding`, `.topLeading`, default `foregroundStyle(Theme.textPrimary)`. No shadow, no border. Clipped to the same shape.
+
+**The CSS ellipse.** `radial-gradient(ellipse 90% 110% at 50% 55%, …)` has radii `rx = 0.90·W`, `ry = 1.10·H` (of the box, not the
+tile's diagonal), centre `(0.5·W, 0.55·H)`, `0 %` at the centre and `100 %` on the ellipse, the last colour beyond. In SwiftUI:
+
+```swift
+Canvas { ctx, size in
+    ctx.translateBy(x: size.width * 0.5, y: size.height * 0.55)
+    ctx.scaleBy(x: size.width * 0.90, y: size.height * 1.10)        // unit circle becomes the ellipse
+    ctx.fill(Path(CGRect(x: -4, y: -4, width: 8, height: 8)),       // covers the tile in unit space
+             with: .radialGradient(Gradient(stops: GlowTileSpec.stops), center: .zero, startRadius: 0, endRadius: 1))
+}
+```
+
+The stops use `Theme.background.opacity(…)`. `EllipticalGradient` is not used: the Canvas form fixes the radii exactly. The ellipse is **not a
+parameter**: it is the dark end of the measured ranges (85–90 % × 80–110 % at 50–55 %), see deviation P2-D1. The overlay opacity at `t`
+(0 centre, 1 ellipse): `0.97, 0.92 (0.34), 0.746 (0.5), 0.55 (0.68), 0.10 (1)`.
+
+**Contrast in the core** (WCAG; `textPrimary` and `textPrimary` at 78 % composited over the pixel; `background` over the metric colour):
+
+| Region | Recovery | Sleep | Strain | Needs |
+|---|---|---|---|---|
+| Core, `t ≤ 0.60`: worst pixel, primary / label | 7.55 / 5.33 | 9.42 / 6.46 | 10.02 / 6.80 | 4.5 |
+| Padded rect, worst corner, 169 × 124 (`t` 0.601) | 7.54 / 5.32 | 9.41 / 6.45 | 10.00 / 6.79 | 4.5 |
+| Padded rect, 350 × 120 (0.640) | 6.67 / 4.79 | 8.56 / 5.95 | 9.17 / 6.30 | 4.5 |
+| Padded rect, 350 × 168 (0.659) | 6.30 / 4.56 | 8.17 / 5.72 | 8.79 / 6.08 | 4.5 |
+| Padded rect, 350 × 176 (0.662) | 6.25 / 4.53 | 8.13 / 5.69 | 8.75 / 6.05 | 4.5 |
+| `t` where the 78 % label drops to 4.5 | 0.664 | 0.753 | 0.785 | |
+
+Recovery is the limit. **Known limit:** a recovery tile wider than 350 pt or taller than 176 pt (390 × 176: 4.48; 350 × 260: 4.35) puts the
+outer corner under 4.5:1 for a 78 % label there. A recovery tile that large (Insights "An idea", at AX3) sets such a label at
+`textPrimary` (≥ 6.2) or keeps text off the corners; PR 4/5 checks it.
+
+**Reduce Transparency** (`reduceTransparency ?? system`): no gradient, fill `Theme.surface`, `strokeBorder(metric, lineWidth: 2)` inside the shape,
+same radius and padding. Contents: `textPrimary` 16.2:1, 78 % label 10.1:1 on `surface`.
+
+**Dynamic Type.** The tile is content-sized with `minHeight` (never a fixed height): it grows at AX3, the gradient follows because it is
+fractional. Radius and padding are fixed. **Accessibility:** `children: .contain`; the tile adds no element and no label, the colour is decoration.
+
+### P2-4. DotRow, TickRow, CircleButton, PillButton
+
+```swift
+struct DotRow: View {
+    enum Mark { case full, missed, today }
+    static let dot: CGFloat = 6, gap: CGFloat = 4, outlineOpacity = 0.5
+    static func size(count: Int) -> CGSize                       // (n·6 + (n−1)·4) × 6; 0 dots: .zero
+    init(_ marks: [Mark], accessibilityLabel: Text)
+}
+
+struct TickRow: View {
+    static let tickCount = 30, tick = CGSize(width: 3, height: 12), tickGap: CGFloat = 3, rowSpacing: CGFloat = 9
+    static let labelWidth: CGFloat = 74, valueWidth: CGFloat = 40, unlitOpacity = 0.12
+    static func litCount(minutes: Double?, scaleMax: Double) -> Int      // 0…30
+    init(label: Text, minutes: Double?, scaleMax: Double, value: Text, accessibilityLabel: Text)
+}
+
+struct CircleButton: View {
+    static let diameter: CGFloat = 40, hitSize: CGFloat = 44, iconSize: CGFloat = 14
+    static let borderOpacity = 0.16, disabledIconOpacity = 0.35
+    init(systemImage: String, accessibilityLabel: Text, action: @escaping () -> Void)
+}
+
+struct PillButton: View {
+    enum Style { case primary, secondary }
+    static let minHeight: CGFloat = 52, iconCircle: CGFloat = 40, outlineOpacity = 0.20, disabledOpacity = 0.35
+    init(_ title: Text, style: Style = .primary, systemImage: String = "arrow.right", action: @escaping () -> Void)
+}
+```
+
+| | Geometry | States | Dynamic Type | Accessibility |
+|---|---|---|---|---|
+| **DotRow** | `n` circles 6 pt, gap 4, left to right, one row; 7 dots = 66 × 6 | `full`: `textPrimary` fill. `missed`: 1 pt `strokeBorder` in `textPrimary` 50 %, no fill. `today`: `Theme.signal` fill. Empty array draws nothing | fixed (graphic) | one element, `children: .ignore`, the caller's summary ("Slept enough on 5 of the last 7 nights; tonight is marked"). `today` is a position marker (put it last); full/missed differ by shape, not colour. Volt vs `textPrimary` is the same luminance (17.1 / 17.4), so the summary names today |
+| **TickRow** | One zone row: `label` (74 wide, leading, `Font.ryft(.caption)`, `textSecondary` = 62 %) · 30 ticks of 3 × 12, radius 1.5, gap 3 (177 wide) · `value` (40 wide, trailing, `.caption`, `textPrimary`); columns `Theme.Metrics.itemSpacing` (12) apart, so 315 pt; value pushed to the trailing edge. Row height 12 (ticks); text may overhang. Five rows are the caller's `VStack(spacing: TickRow.rowSpacing)` (9) | Lit = first `litCount` ticks in `textPrimary`, rest 12 %. `litCount = clamp(Int((minutes·30 / scaleMax).rounded()), 0…30)`; `nil`, negative, NaN or `scaleMax ≤ 0` → 0 (the caller's `value` says "–" or "no data"). All five rows share one `scaleMax` | Label/value widths and row height are `@ScaledMetric(relativeTo: .caption)`. If the row no longer fits, `ViewThatFits` stacks: label · spacer · value above, ticks (177 fixed) below (always at AX1+) | one element per row, `.ignore`, the caller's label ("Zone 3, 24 minutes"). The caller groups the five with `.contain` |
+| **CircleButton** | 40 circle, no fill, `strokeBorder` 1 pt `textPrimary` 16 %; `Image(systemName:)` 14 pt, `.regular` (≈ 1.3 pt stroke), `textPrimary`. **Layout box 44 × 44** (the circle centred, 2 pt transparent each side, `contentShape(Rectangle())`) | normal; pressed: circle filled `textPrimary` 8 %, no scale, no animation; disabled (`isEnabled` false): icon `textPrimary` 35 %, border unchanged | fixed (icon-only) | `Button` trait, the caller's label (required: there is no text); disabled is exposed by SwiftUI as not enabled |
+| **PillButton** | `Capsule`, height ≥ 52 (`minHeight`), full proposed width. **Primary:** fill `textPrimary`; leading 20, trailing 6; title `Font.ryft(.button)` in `Theme.background`, leading-aligned; trailing 40 pt `Theme.background` circle with the icon (14 pt, `textPrimary`). **Secondary:** fill none, `strokeBorder` 1 pt `textPrimary` 20 %; padding 22 horizontal; title `Font.ryft(.button)`, `textPrimary`, centred; no icon | normal; pressed: primary fill at 85 %, secondary filled `textPrimary` 8 %, no animation; disabled: whole pill at 35 % opacity. No busy state: the caller disables and changes the title | title scales (`.button` is relative to `.body`), no line limit, vertical padding 12 so it grows past 52 and wraps at AX3 without clipping; the 40 circle stays 40 and is vertically centred | the title is the label, the icon `accessibilityHidden`, `Button` trait; the whole pill is the target (≥ 52 high) |
+
+### P2-5. The glyph table
+
+Rows top to bottom; `0b…` bit 4 is the left column (5-wide glyphs), `0b1` the one column of a narrow glyph. `1 2 4 7 8` are the
+plan's matrices, unchanged. `0 3 5 6 9` follow their style (a one-dot corner cut, a 3-wide stem, the 1 with a flag and foot).
+`0` is plain (no slash): rows 4–5 tell it from `8` and `6`. Lit dots per glyph: `0` 16, `1` 10, `2` 14, `3` 14, `4` 14, `5` 17, `6` 15,
+`7` 11, `8` 17, `9` 15, `:` 2, `.` 1, `,` 2.
+
+```swift
+static let table: [Character: DotGlyph] = [
+    "0": DotGlyph(width: 5, rows: [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110]),
+    "1": DotGlyph(width: 5, rows: [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110]),
+    "2": DotGlyph(width: 5, rows: [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111]),
+    "3": DotGlyph(width: 5, rows: [0b01110, 0b10001, 0b00001, 0b00110, 0b00001, 0b10001, 0b01110]),
+    "4": DotGlyph(width: 5, rows: [0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010]),
+    "5": DotGlyph(width: 5, rows: [0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110]),
+    "6": DotGlyph(width: 5, rows: [0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110]),
+    "7": DotGlyph(width: 5, rows: [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000]),
+    "8": DotGlyph(width: 5, rows: [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110]),
+    "9": DotGlyph(width: 5, rows: [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100]),
+    ":": DotGlyph(width: 1, rows: [0b0, 0b0, 0b1, 0b0, 0b1, 0b0, 0b0]),     // rows 3 and 5
+    ".": DotGlyph(width: 1, rows: [0b0, 0b0, 0b0, 0b0, 0b0, 0b0, 0b1]),     // row 7
+    ",": DotGlyph(width: 1, rows: [0b0, 0b0, 0b0, 0b0, 0b0, 0b1, 0b1]),     // rows 6 and 7: the full stop with a tail
+]
+```
+
+### P2-6. Previews and catalog
+
+Dark only (`DarkPreview`, D3). Each file carries its previews; names are `"<Type>"`, `"<Type> · AX3"` (`.environment(\.dynamicTypeSize, .accessibility3)`).
+
+| File | Previews |
+|---|---|
+| `DotNumeral` | default (`84`, `7:48` gap 7, `12.4` gap 7, `12,4`, pending, `style: .light`), `0123456789:.,` strip, AX3 (falls back to Light) |
+| `RulerScale` | default (Today, Sleep, Strain, compact on a `GlowTile`, no value, value out of range), AX3 |
+| `GlowTile` | default (recovery 2-up pair, sleep hero, strain hero, each with a 13 pt label and a value), AX3, Reduce Transparency (`reduceTransparency: true`) |
+| `DotRow` | default (7 full, mixed, all missed, today only), AX3 |
+| `TickRow` | default (five zones, `scaleMax` 60), no data, AX3 (stacked) |
+| `CircleButton`, `PillButton` | default (normal and disabled; primary and secondary), AX3 (the long title wraps) |
+
+`DebugComponentCatalog` gets five sections after "Brand" (existing sections untouched), titled with the monospaced section header:
+`Nocturne · numeral` (DotNumeral: both gaps, all glyphs, Light, pending), `Nocturne · ruler` (the four boards' rulers, no value, clamped),
+`Nocturne · glow tile` (the three colours at both radii, one forced flat), `Nocturne · rows` (DotRow, five TickRows), `Nocturne · buttons`
+(circle and pill, enabled and disabled). The catalog's XS/L/AX3 picker shows the AX1 fallback.
+
+### P2-7. Tests
+
+Swift Testing, `@MainActor`. Files: `RyftTests/NocturneComponentTests.swift` (pure, 1–15), `NocturneComponentRenderTests.swift`
+(`ImageRenderer`, 16–22), `NocturneComponentAccessibilityTests.swift` (`HostedWindow`, 23–26). Pixel reads follow `OrbitGaugeRenderTests`.
+
+1. **Glyph table pinned:** the 13 keys and, for each, `width` and all 7 `rows` equal §P2-5; every `rows.count == 7`; no row has a bit at or above `width`.
+2. Lit-dot count per glyph equals the §P2-5 list (popcount of rows).
+3. `DotGlyphs.glyphs(for: "7:48")` has 4 glyphs of widths 5, 1, 5, 5; `glyphs(for: "7h")` and `glyphs(for: "7 ")` are `nil`.
+4. **Sizes:** `size(of: "84", glyphGap: 8)` = 74×47; `"7:48"` 128×47 (gap 8), 125×47 (gap 7); `"12.4"` 128 / 125; `"12,4"` same as `"12.4"`;
+   `"0"` 33×47; `":"` 5×47; `nil` with 2 placeholders 74×47; a string outside the table → `nil`.
+5. **AX1 fallback:** `rendersDots("84", .dots, .xxxLarge)` true; `.accessibility1`, `.accessibility3` false; `.light` false at `.large`;
+   `"7h"` false at `.large`; `nil` + `.dots` + `.large` true.
+6. `tickCentres(count: 61, width: 300)` = `i·5`, first 0, last 300; `count: 64, width: 630` = `i·10`; `count: 2` = `[0, w]`; `count: 1` and `0` behave as 2.
+7. **Needle x** (range 0…100, width 300): 84 → 252; 0 → 0; 100 → 300; 150 → 300 (clamped); −10 → 0; `nil` → `nil`; NaN → `nil`.
+   Range 0…21: 10.5 → 150; range 0…10: 7.5 → 225; `5...5` (hi ≤ lo) → `nil`.
+8. **Zone ticks:** Today `zoneTickIndices(61, 0...100, 67...100)` = 41…60 (count 20; index 40 is out); Sleep `(61, 0...10, 7.5...8.3)` = 45…49 (5);
+   Strain `(64, 0...21, 10...14)` = 30…42 (13); compact `(43, 0...21, 10...14)` = 20…28 (9); `zone: nil` → `[]`.
+9. Ruler size: `.regular` renders 36 high, `.compact` 32; needle colour is `Theme.signal`; the default `zoneOpacity` is 0.55 regular, 0.60 compact.
+10. **TickRow `litCount`:** (0, 60) 0; (1, 60) 1 (0.5 rounds up); (7, 60) 4 (3.5); (24, 60) 12; (60, 60) 30; (90, 60) 30; (−5, 60) 0; (10, 0) 0; (nil, 60) 0.
+11. `DotRow.size`: 7 → 66×6, 1 → 6×6, 0 → `.zero`.
+12. **Form tokens:** `Theme.Metrics` has `neutralTileRadius` 22, `glowTileRadius` 24, `heroTileRadius` 28, `circleButton` 40, `minHitTarget` 44, `pillHeight` 52,
+    `itemSpacing` 12; the old `cardRadius` 18, `tileRadius` 16, `screenPadding` 20 are unchanged; `GlowTileSpec.Radius.tile.points` 24, `.hero` 28.
+13. **Gradient pinned:** `GlowTileSpec.stops` are `Theme.background` at alpha 0.97/0.92/0.55/0.10 and locations 0/0.34/0.68/1; `overlayOpacity`: 0 → 0.97,
+    0.34 → 0.92, 0.5 → 0.7459 (±0.001), 0.68 → 0.55, 1 → 0.10, 2 → 0.10; `ellipse` = (0.90, 1.10, 0.55); padding 14/16/14/16.
+14. Button constants: `CircleButton.diameter` 40, `hitSize` 44, `borderOpacity` 0.16; `PillButton.minHeight` 52, `iconCircle` 40; `TickRow` ticks 3×12, gap 3, 30 ticks,
+    `rowSpacing` 9, widths 74/40; `DotRow` 6/4.
+15. `ryftGlowLabelStyle` uses `GlowTileSpec.labelOpacity` 0.78 (the constant is 0.78).
+16. **GlowTile core contrast.** Render `GlowTile(color) { Color.clear }` at 169×124, scale 2, for `Theme.recovery`, `metricSleep`, `metricStrain`. Sample every 4th px.
+    For pixels with `t ≤ 0.60` (`t` from the §P2-3 ellipse): contrast of `textPrimary` ≥ 7.0 and of `textPrimary` at 78 % ≥ 5.0.
+    Skip the 2 pt next to the edge and the corners (anti-aliasing).
+17. **Padded rect:** same render at 169×124, 350×120, 350×168, 350×176; over the rect inset 14/16/14/16, the worst pixel reaches 4.5:1 for `textPrimary`
+    and for the 78 % label (the table's minimum is 4.53 at 350×176 recovery: assert ≥ 4.5, not the table).
+18. **Gradient pixels:** centre pixel of a 169×124 recovery tile within ±2/255 of `background·0.97 + recovery·0.03`; the pixel 1 pt inside the left edge, at mid height,
+    is lighter than the centre and darker than the pure metric colour; no pixel is brighter than the metric colour.
+19. **Reduce Transparency** (`reduceTransparency: true`): centre and every sampled interior pixel equal `Theme.surface` (±1); pixels 1 pt inside the edge (mid-sides, away from corners) equal the
+    metric colour (±2), pixels 3 pt inside equal `surface`; with `false` the 1-pt pixel is not `surface`. No shadow: pixels outside the shape are transparent.
+20. **DotNumeral render:** `"8"` at gap 8, dots style: the pixel at each dot centre is `textPrimary` for lit cells of `8` and `textPrimary` at 10 % over `background` for unlit cells
+    (±2); pixels between dots (the 2 pt gap centre) are `background`. At `.accessibility1` no dot centre matches (the Light text is drawn).
+21. `"7:48"` at gap 7: the view's frame is 125×47, and the leftmost lit dot (the `7`'s top row) and the rightmost (the `8`'s column 4) touch its left and right edges (±0.5 pt).
+22. **Ruler render:** at width 300, regular, Today: pixel at needle x, y 20 is `Theme.signal`; with `value: nil` it is not; a zone tick at index 50 is 14 pt tall, an outside tick (index 10) 8 pt;
+    `reduceMotion: true` places the needle at its final x in the first frame after a value change.
+23. **Accessibility labels** (`HostedWindow`): `DotNumeral`, `RulerScale`, `DotRow`, `TickRow` each expose exactly one element in their frame, with the caller's label (and
+    the ruler's value text); none exposes its inner `Text`.
+24. **Buttons:** `CircleButton` node frame ≥ 44×44 and has the button trait, label as passed; disabled → not enabled; `activate()` calls the action once, and zero times when disabled.
+25. **PillButton:** frame height ≥ 52 in primary and secondary; button trait; label = the title; disabled → not enabled; at `.accessibility3` with a 40-character title the frame height
+    grows beyond 52 and the label's frame is inside the pill's (no clipping).
+26. `GlowTile` exposes no element of its own (`children: .contain`); `RulerScale`, `DotNumeral` at `.accessibility3` still expose one element.
+
+### P2-8. Form tokens
+
+Yes. Additive constants in `Theme.Metrics` (`Theme.swift`; the existing six keep their values, PRs 4–5 migrate their callers):
+
+```swift
+static let neutralTileRadius: CGFloat = 22   // neutral tiles, lists
+static let glowTileRadius: CGFloat = 24      // Today 2-up glow tiles
+static let heroTileRadius: CGFloat = 28      // Sleep, Strain hero tiles
+static let circleButton: CGFloat = 40
+static let minHitTarget: CGFloat = 44
+static let pillHeight: CGFloat = 52
+static let itemSpacing: CGFloat = 12         // §2 "Abstand 12"
+```
+
+`screenPadding` 20 already exists. The pill radius is `Capsule()` (26 at 52 pt). Per-component measurements (dot 5, gap 2, tick 3 × 12, …) stay
+`static let` on their component: they are not shared.
+
+### P2-9. Overlaps with existing components
+
+PR 2 touches none of them.
+
+| Existing | New | After PRs 4–5 |
+|---|---|---|
+| `OrbitGauge` / `MetricGauge` centre numbers | `DotNumeral` | PR 3 puts it in the gauge centre. `MetricGauge` (only `StrainView`) goes with PR 5's Strain screen; PR 5 deletes it if the grep is empty |
+| `RangeBar` (value in a 30-day range) | `RulerScale` | **Coexist.** Different job (personal range and status). No screen uses `RangeBar` today (catalog only) |
+| `SleepNeedBar` | `RulerScale` (Sleep's 0–10 h need zone) | PR 4 decides; the need breakdown is a different view and may stay |
+| `ZoneBar` (`StrainView`, `WorkoutDetailView`) | `TickRow` | `TickRow` replaces it in `StrainView` (PR 5); `WorkoutDetailView` keeps `ZoneBar`: **coexist** |
+| `MetricTile`, `Card` | `GlowTile` | **Coexist.** `GlowTile` only for the section's one glow tile; neutral tiles stay `MetricTile`/`Card` (restyled to 22 pt in PRs 4–5) |
+| `ScoreRing` (`DateStrip`) | none | untouched |
+| `DateStrip`, Sleep's prev/next, Today's calendar button, Strain's plus | `CircleButton` | PR 4/5 replace the ad-hoc buttons |
+| `PrimaryButton` (Profile, Auth) | `PillButton` | `PillButton` replaces `.primary`/`.secondary` in Profile (PR 5). `PrimaryButton` stays for Auth and for `.destructive` and `busy`, which `PillButton` lacks |
+| `TealButtonStyle` (Train, Today, Coach marks), `PressableButtonStyle` | `PillButton` | **Coexist.** Train is not a Nocturne screen; Today's use moves in PR 4 if its design asks |
+| `SegmentedPicker` | none | restyled in place by PR 5 |
+| `MiniHypnogram`, `StageBar`, `Hypnogram` | none | PR 4 |
+
+### P2-10. Deviations and derived values
+
+| # | From | To | Number and reason |
+|---|---|---|---|
+| P2-D1 | Board ellipse 85–90 % × 80–110 % at 50 / 50–55 %, per tile | One fixed ellipse at the dark end: 90 % × 110 % at 50 % / 55 % | Brief §2/§6: text always in the dark core. The middle of the ranges (87.5 %, 95 %, 52.5 %) gives a recovery 78 % label 4.04 at 350 × 176 and 4.39 at 350 × 120, the low end 3.44. The dark end gives ≥ 4.53 on all four sizes. Inside the measured ranges, so no brief conflict. |
+| P2-D2 | Pill text 15 pt Medium | `Font.ryft(.button)` = 16 pt Medium | There is no 15 Medium role; §2 allows body 15–17 and buttons Medium. |
+| P2-D3 | Circle button 40 pt | 40 pt circle in a 44 pt layout box | Hit target ≥ 44 (§6, HIG). The two transparent points count in the caller's spacing. |
+| P2-D4 | Ticks "edge to edge" (CSS space-between puts the edges at 0 and W) | centres at `i/(n−1)·W` (lead's rule); the outer ticks overhang ≤ 0.75 pt | Needle x and tick `i` then share one formula. |
+| P2-D5 | `textTertiary` 45 % on the boards | 48 % (PR 1's token) | Already D-a; the ruler labels use it. |
+
+None of these contradicts the brief. Derived, not measured (the boards give no number; ios-developer must not tune them without asking): compact ruler height
+32 and row 18; compact needle triangle = regular; glow-tile bottom padding 14; ticks vertically centred in their row; ruler labels space-between; TickRow column gap 12;
+primary pill text leading-aligned and secondary centred; pill icon 14 pt (the circle's); `today` as a filled dot; the `,` glyph; the plain `0`.
