@@ -44,6 +44,7 @@ struct ReadinessWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: ReadinessSnapshot.widgetKind, provider: ReadinessProvider()) { entry in
             ReadinessWidgetView(entry: entry)
+                .environment(\.colorScheme, .dark)
                 .containerBackground(for: .widget) { WidgetBackground() }
                 .widgetURL(URL(string: "ryft://today"))
         }
@@ -53,11 +54,9 @@ struct ReadinessWidget: Widget {
     }
 }
 
-/// Graphite in dark, Mist in light, like the app.
+/// Graphite, like the app: the widget is dark-only.
 private struct WidgetBackground: View {
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View { Brand.background(scheme) }
+    var body: some View { Brand.background }
 }
 
 struct ReadinessWidgetView: View {
@@ -189,10 +188,9 @@ private struct SlotLine: View {
 private struct SmallReadiness: View {
     let snapshot: ReadinessSnapshot?
     var bedtime: Date?
-    @Environment(\.colorScheme) private var scheme
     @Environment(\.redactionReasons) private var redaction
 
-    private var ink: Color { Brand.ink(scheme) }
+    private var ink: Color { Brand.ink }
     private var locked: Bool { redaction.hidesValues }
 
     var body: some View {
@@ -411,11 +409,11 @@ extension ReadinessSnapshot {
     ReadinessEntry(date: .now, snapshot: .preview(.score))
 }
 
-/// The families side by side in dark and light, outside the system's widget chrome (for screenshots).
+/// The families side by side, outside the system's widget chrome (for screenshots).
 struct ReadinessWidgetGallery: View {
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
-            ForEach([ColorScheme.dark, .light], id: \.self) { scheme in
+            ForEach([ColorScheme.dark], id: \.self) { scheme in
                 VStack(spacing: 16) {
                     let snapshots: [ReadinessSnapshot] = [.preview(.score), .previewHundred, .previewSleepMissing,
                                                           .previewBeforeOrbit, .preview(.pending), .previewWaitingWithoutOrbit,
@@ -424,7 +422,7 @@ struct ReadinessWidgetGallery: View {
                         SmallReadiness(snapshot: snapshots[i])
                             .padding(16)
                             .frame(width: 158, height: 158)
-                            .background(Brand.background(scheme), in: RoundedRectangle(cornerRadius: 22))
+                            .background(Brand.background, in: RoundedRectangle(cornerRadius: 22))
                     }
                     HStack(spacing: 12) {
                         CircularReadiness(snapshot: .preview(.score))
@@ -444,13 +442,13 @@ struct ReadinessWidgetGallery: View {
                         RectangularReadiness(snapshot: .preview(kind))
                             .padding(8)
                             .frame(width: 170, height: 76)
-                            .background(Brand.background(scheme).opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+                            .background(Brand.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
                     }
                     InlineReadiness(snapshot: .preview(.score))
                         .font(.caption)
                 }
                 .padding(16)
-                .background(Brand.background(scheme).opacity(0.5))
+                .background(Brand.background.opacity(0.5))
                 .environment(\.colorScheme, scheme)
             }
         }
@@ -458,7 +456,7 @@ struct ReadinessWidgetGallery: View {
     }
 }
 
-#Preview("Families · dark and light") {
+#Preview("Families") {
     ReadinessWidgetGallery()
 }
 
@@ -481,13 +479,13 @@ struct ReadinessWidgetLockedGallery: View {
                     SmallReadiness(snapshot: snapshot, bedtime: bedtime)
                         .padding(12)
                         .frame(width: 120, height: 120)
-                        .background(Brand.background(scheme), in: RoundedRectangle(cornerRadius: 18))
+                        .background(Brand.background, in: RoundedRectangle(cornerRadius: 18))
                     CircularReadiness(snapshot: snapshot)
                         .frame(width: 68, height: 68)
                     RectangularReadiness(snapshot: snapshot, bedtime: bedtime)
                         .padding(8)
                         .frame(width: 170, height: 76)
-                        .background(Brand.background(scheme).opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+                        .background(Brand.background.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
                     InlineReadiness(snapshot: snapshot, bedtime: bedtime)
                         .font(.caption)
                         .frame(width: 150, alignment: .leading)
@@ -495,7 +493,7 @@ struct ReadinessWidgetLockedGallery: View {
             }
         }
         .padding(16)
-        .background(Brand.background(scheme).opacity(0.5))
+        .background(Brand.background.opacity(0.5))
         .environment(\.colorScheme, scheme)
         .redacted(reason: .privacy)
     }
@@ -504,7 +502,6 @@ struct ReadinessWidgetLockedGallery: View {
 #Preview("Families · locked (values hidden)") {
     HStack(alignment: .top, spacing: 16) {
         ReadinessWidgetLockedGallery(scheme: .dark)
-        ReadinessWidgetLockedGallery(scheme: .light)
     }
     .padding()
 }

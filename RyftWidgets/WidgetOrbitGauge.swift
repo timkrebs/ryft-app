@@ -19,7 +19,6 @@ struct WidgetOrbitGauge: View {
     /// The lock screen's circle: the number in the system's primary ink and a heavier weight.
     var prominentNumber = false
 
-    @Environment(\.colorScheme) private var scheme
     @Environment(\.widgetRenderingMode) private var renderingMode
     @Environment(\.redactionReasons) private var redaction
 
@@ -71,9 +70,9 @@ struct WidgetOrbitGauge: View {
 
     /// The ink of the centre: full, or dimmed for a dash, a previous day's number and the " / 7".
     private func numberStyle(dimmed: Bool) -> AnyShapeStyle {
-        if locked { return prominentNumber ? AnyShapeStyle(.primary) : AnyShapeStyle(Brand.ink(scheme)) }
+        if locked { return prominentNumber ? AnyShapeStyle(.primary) : AnyShapeStyle(Brand.ink) }
         if prominentNumber { return AnyShapeStyle(dimmed ? .secondary : .primary) }
-        return AnyShapeStyle(dimmed ? Brand.ink(scheme).opacity(0.4) : Brand.ink(scheme))
+        return AnyShapeStyle(dimmed ? Brand.ink.opacity(0.4) : Brand.ink)
     }
 
     /// The app's colours in full colour. Tinted, clear and lock-screen renderings turn every colour into one ink
@@ -87,7 +86,7 @@ struct WidgetOrbitGauge: View {
 
 #Preview("WidgetOrbitGauge", traits: .sizeThatFitsLayout) {
     HStack(spacing: 16) {
-        ForEach([ColorScheme.dark, .light], id: \.self) { scheme in
+        ForEach([ColorScheme.dark], id: \.self) { scheme in
             VStack(spacing: 12) {
                 WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 71, recovery: 0.71, sleep: 0.88, strain: 9.6)))
                 WidgetOrbitGauge(mode: .scored(OrbitGaugeValues(readiness: 64, recovery: 0.62, strain: 6.2)))
@@ -104,7 +103,7 @@ struct WidgetOrbitGauge: View {
                                  size: .custom(dial: 44), showsNumber: false)
             }
             .padding(16)
-            .background(Brand.background(scheme))
+            .background(Brand.background)
             .environment(\.colorScheme, scheme)
         }
     }

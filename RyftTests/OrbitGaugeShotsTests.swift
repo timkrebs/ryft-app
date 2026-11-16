@@ -4,7 +4,7 @@ import CoreImage
 import UIKit
 @testable import Ryft
 
-/// Writes the gauge's screenshots (light and dark) when `ORBIT_SHOTS_DIR` is set; otherwise does nothing.
+/// Writes the gauge's screenshots (dark, the only appearance) when `ORBIT_SHOTS_DIR` is set; otherwise does nothing.
 /// `make orbit-shots` runs it. The images are for the design note, not a golden-file test.
 @MainActor
 @Suite struct OrbitGaugeShotsTests {
@@ -59,7 +59,7 @@ import UIKit
     @Test func writeShots() throws {
         guard let dir = ProcessInfo.processInfo.environment["ORBIT_SHOTS_DIR"] else { return }
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        for scheme in [ColorScheme.dark, .light] {
+        for scheme in [ColorScheme.dark] {
             write("sizes", scheme: scheme, dir: dir) {
                 HStack(alignment: .center, spacing: 16) {
                     OrbitGauge(mode: .scored(.previewScored), size: .large)

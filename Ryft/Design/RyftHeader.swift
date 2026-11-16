@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Small mark + wide-tracked "RYFT" wordmark, centred at the top of every screen.
+/// Small mark + "RYFT" wordmark, centred at the top of every screen.
 struct RyftHeader: View {
     var markSize: CGFloat = 20
 
@@ -17,14 +17,37 @@ struct RyftHeader: View {
     }
 }
 
-/// "RYFT" in wide-tracked uppercase.
+/// "RYFT" in Satoshi Light, tracked 0.32 em. The tracking is added after the last letter too, so the word is
+/// pulled back by that much on the right and sits optically where its letters are.
 struct Wordmark: View {
-    var size: CGFloat = 17
+    /// The wordmark style's size: `RyftTextStyle.wordmark` is the source of truth.
+    var size: CGFloat = RyftTextStyle.wordmark.size
+
+    /// Tracking in em.
+    static let tracking: CGFloat = 0.32
 
     var body: some View {
         Text(verbatim: "RYFT")
-            .font(.ryftNumber(size: size, weight: .medium))
-            .tracking(size * 0.32)
+            .font(.ryftNumber(size: size, weight: .light))
+            .tracking(size * Self.tracking)
+            .padding(.trailing, -size * Self.tracking)
+    }
+}
+
+/// The Nocturne header lock-up: the orbit mark, 10 pt of air, then the wordmark. At the default `markSize` of 26 pt
+/// the wordmark is 15 pt; both scale with `markSize`. Not yet on the screens (PR 4 puts it in their headers).
+struct WordmarkLockup: View {
+    var markSize: CGFloat = 26
+
+    var body: some View {
+        HStack(spacing: markSize * 10 / 26) {
+            RyftMark().frame(width: markSize, height: markSize)
+            Wordmark(size: markSize * RyftTextStyle.wordmark.size / 26)
+        }
+        .foregroundStyle(Theme.textPrimary)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "RYFT"))
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -38,7 +61,6 @@ struct BrandLockup: View {
             }
             Text("Your whole health.")
                 .ryftLabelStyle()
-                .tracking(4)
         }
         .foregroundStyle(Theme.textPrimary)
         .accessibilityElement(children: .ignore)
@@ -47,10 +69,30 @@ struct BrandLockup: View {
 }
 
 #Preview("Header", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 28) {
             RyftHeader()
             BrandLockup()
         }
     }
+}
+
+#Preview("Wordmark lock-up", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        VStack(alignment: .leading, spacing: 28) {
+            WordmarkLockup()
+            WordmarkLockup(markSize: 44)
+            Wordmark(size: 15)
+            Wordmark(size: 32)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+#Preview("Wordmark lock-up · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        WordmarkLockup()
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .environment(\.dynamicTypeSize, .accessibility3)
 }

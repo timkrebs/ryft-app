@@ -195,7 +195,7 @@ struct OrbitGaugeBandTests {
         return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
     }
 
-    private static let styles: [(String, UIUserInterfaceStyle)] = [("dark", .dark), ("light", .light)]
+    private static let styles: [(String, UIUserInterfaceStyle)] = [("dark", .dark)]
 
     @MainActor
     @Test func theColourPastTheBandIsAlertAndReachesThreeToOneOnTheTrack() {

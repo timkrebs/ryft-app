@@ -162,7 +162,7 @@ struct StrainPill: View {
         Text(Fmt.strain(strain))
             .font(.ryft(.callout))
             .monospacedDigit()
-            .foregroundStyle(strain == nil ? Theme.textTertiary : Theme.accent)
+            .foregroundStyle(strain == nil ? Theme.textSecondary : Theme.accent)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background((strain == nil ? Theme.surfaceRaised : Theme.accent.opacity(0.14)), in: Capsule())

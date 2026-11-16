@@ -23,7 +23,7 @@ final class JumpToNextUITests: XCTestCase {
     @MainActor
     func testCheckingTheLastSetJumpsToTheNextExerciseUnderThePinnedRestBar() throws {
         let app = XCUIApplication(bundleIdentifier: "dev.timkrebs.ryft")
-        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "strain", "-appearance", "dark",
+        app.launchArguments = ["-demoMode", "YES", "-RyftTab", "strain",
                                "-coachMarks.today.done", "YES", "-RyftResetTrain", "YES"]
         app.launch()
 

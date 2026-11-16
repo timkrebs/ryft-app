@@ -3,7 +3,7 @@ import Testing
 import UIKit
 @testable import Ryft
 
-/// PR 2 rendered: the app's `OrbitGauge` drawn by `ImageRenderer` in both appearances at the three sizes, and the
+/// PR 2 rendered: the app's `OrbitGauge` drawn by `ImageRenderer` (dark, the only appearance) at the three sizes, and the
 /// pixels read at the places the geometry says things are. There are no golden images in this repo (the shots in
 /// `OrbitGaugeShotsTests` are written, not compared), so each assertion names the colour that must be at a point.
 /// Static: `animatesFill: false`, `breathes: false`, nothing depends on time.
@@ -33,7 +33,7 @@ import UIKit
     }
 
     private static let sizes: [(String, OrbitGauge.Size)] = [("small", .small), ("medium", .medium), ("large", .large)]
-    private static let schemes: [(String, ColorScheme, UIUserInterfaceStyle)] = [("dark", .dark, .dark), ("light", .light, .light)]
+    private static let schemes: [(String, ColorScheme, UIUserInterfaceStyle)] = [("dark", .dark, .dark)]
 
     private func render(_ mode: OrbitGaugeMode, _ size: OrbitGauge.Size, _ scheme: ColorScheme,
                         animatesFill: Bool = false) -> Shot? {
