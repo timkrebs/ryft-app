@@ -108,6 +108,12 @@ launch, because the sequence is on the cold start path.
 ### PR 4 — `today and sleep in nocturne`; PR 5 — `strain, insights, profile in nocturne`
 The §4 screens; the new tab bar is in PR 5. Missing data (the Insights hint, among others) comes from MockData
 placeholders plus `docs/API_REQUESTS.md`. localization-editor for the new copy. ui-validator against each board.
+Carried over from the PR 2 review (`review.md` rows 9–13):
+- `DotRow`: `today` is the trailing mark, and the caller's summary names it (position is the non-colour cue).
+- Glow tiles wider than 350 pt or taller than 176 pt in recovery (Insights "An idea") set labels in full `textPrimary`;
+  `paddedRectContrast` is extended to each concrete tile.
+- Build zones from server data with `RulerScale.zone(lo:hi:)`, never `lo...hi`.
+- The glow edge brightness (P2-D1) is open for the user: the PR 2 body shows the alternative.
 
 ## Risks
 - **The string catalog.** A local Xcode build re-serialised it in the user's checkout (8.7k lines, uncommitted on

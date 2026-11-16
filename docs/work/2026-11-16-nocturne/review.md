@@ -52,3 +52,9 @@ measured value matches the plan's table.
 
 Not checked: AX1 itself (the catalog offers XS, L and AX3; AX3 shows the fallback), Reduce Motion with a moving
 needle, pressed states, VoiceOver focus order, wide devices (440 pt), anything on a device.
+
+**Fix round (884a9a8…6949eaf):** rows 1 and 3–10 are fixed as decided; row 2 is done in `design.md` (P2-D6 to P2-D13).
+The compact edge labels went from 3.13–3.44:1 to 5.52–6.32:1 (L) and ≥ 7.65:1 (AX3). The Unit plan stays at 2806 green.
+Accepted as is: in the Light fallback (AX1+) the pending "–:––" is wider than "7:48" (231 vs 174 pt at AX3), because an
+en dash is wider than a digit; only the dot grid keeps the width. A figure dash (U+2012) would fix it if Satoshi has
+the glyph: follow-up, not PR 2.

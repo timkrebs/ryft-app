@@ -268,10 +268,11 @@ struct DotNumeral: View {
     static let dot: CGFloat = 5, dotGap: CGFloat = 2, height: CGFloat = 47      // 7·5 + 6·2
     static let glyphGapToday: CGFloat = 8, glyphGapDetail: CGFloat = 7          // Today / Sleep, Strain
     static let offOpacity = 0.10, lightSize: CGFloat = 52
-    static func size(of text: String?, placeholderGlyphs: Int = 2, glyphGap: CGFloat) -> CGSize?   // nil = not in the table
+    static func size(of text: String?, placeholder: String = "00", glyphGap: CGFloat) -> CGSize?   // nil = not in the table
+    static func pendingText(for template: String) -> String                     // "0:00" → "–:––" (P2-D10)
     static func rendersDots(_ text: String?, style: Style, typeSize: DynamicTypeSize) -> Bool
     init(_ text: String?, style: Style = .dots, glyphGap: CGFloat = DotNumeral.glyphGapToday,
-         placeholderGlyphs: Int = 2, accessibilityLabel: Text)
+         placeholder: String = "00", accessibilityLabel: Text)
 }
 ```
 
@@ -294,7 +295,7 @@ struct DotNumeral: View {
 |---|---|---|
 | Value | every character in the table, `style == .dots`, size below AX1 | the dot grid |
 | Light | `style == .light`, **or** `typeSize.isAccessibilitySize` (AX1 and up), **or** any character outside the table (also a space, an empty string) | `Text(text)` in `Font.ryftNumber(size: s, weight: .light)`, `textPrimary`, `lineLimit(1)`, `minimumScaleFactor(0.5)`. `s` is `@ScaledMetric(relativeTo: .largeTitle) 52`: exactly 52 at the default size, larger from AX1 (about 1.5× at AX3) |
-| Pending | `text == nil` | `placeholderGlyphs` blank cells, every dot at 10 %, same size as digits; in the Light fallback `–` repeated `placeholderGlyphs` times at `textTertiary`. The caller's label says "no value yet" |
+| Pending | `text == nil` | the `placeholder` template's glyphs (`DotGlyphs.pendingGlyphs(for:)`), every dot at 10 %, so pending is as wide as the loaded value (`"0:00"` = `"7:48"`); characters outside the table are dropped, an empty result draws one blank digit cell. In the Light fallback `pendingText(for:)` (digits → `–`, separators kept) at `textTertiary`. The caller's label says "no value yet" |
 
 **Accessibility.** `accessibilityElement(children: .ignore)` + `accessibilityLabel(accessibilityLabel)`, in every state and in the fallback
 ("Readiness 84 of 100", "7 hours 48 minutes asleep", "Strain 12.4 of 21"). No traits, no value.
@@ -308,17 +309,22 @@ struct RulerScale: View {
     enum Ticks { static let today = 61, sleep = 61, strain = 64, strainCompact = 43 }
     static let needleColor = Theme.signal
     init(range: ClosedRange<Double>, value: Double?, zone: ClosedRange<Double>? = nil,
-         zoneTint: Color = Theme.textPrimary, zoneOpacity: Double? = nil, tickCount: Int,
+         zoneStyle: ZoneStyle = .standard, tickCount: Int,
          labels: [String] = [], size: Size = .regular,
          accessibilityLabel: Text, accessibilityValue: Text, reduceMotion: Bool? = nil)
 
     static func tickCentres(count: Int, width: CGFloat) -> [CGFloat]
     static func zoneTickIndices(count: Int, range: ClosedRange<Double>, zone: ClosedRange<Double>?) -> [Int]
+    static func zone(lo: Double?, hi: Double?) -> ClosedRange<Double>?   // nil unless both finite and lo ≤ hi: use for server data
+    static func labelOpacity(size: Size, dynamicTypeSize: DynamicTypeSize) -> Double?   // nil = textTertiary
+    static let labelMinGap: CGFloat = 16
+    struct ZoneStyle { let tint: Color; let opacity: Double?   // .standard, .sleep, .strain
+        func opacity(for size: Size) -> Double }
     static func needleX(value: Double?, range: ClosedRange<Double>, width: CGFloat) -> CGFloat?
 }
 ```
 
-`zoneOpacity: nil` means 0.55 regular, 0.60 compact; callers pass 0.85 (Sleep, `metricSleep`) and 0.95 (Strain, `metricStrain`).
+`ZoneStyle.standard` is `textPrimary` at 0.55 regular, 0.60 compact; `.sleep` is `metricSleep` at 0.85, `.strain` `metricStrain` at 0.95 (P2-D11).
 Width is whatever is proposed (the ruler fills it); height is fixed per size.
 
 **Geometry** (y from the top of the ruler; ticks and needle are fixed-size graphics, never scaled):
@@ -328,16 +334,18 @@ Width is whatever is proposed (the ruler fills it); height is fixed per size.
 | Ruler height | 36 = 8 top + 22 tick row + 6 bottom | 32 = 8 + 18 + 6 (**derived**, not measured) |
 | Tick row | y 8…30, ticks centred vertically | y 8…26 |
 | Outside the zone | 1 × 8, `textPrimary` 22 % (compact: 1 × 7, 26 %) | |
-| Inside the zone | 1.5 × 14, `zoneTint` at `zoneOpacity` (compact: 1.5 × 12, 60 %) | |
+| Inside the zone | 1.5 × 14, `zoneStyle.tint` at `zoneStyle.opacity(for:)` (compact: 1.5 × 12, 60 %) | |
 | Needle | triangle 12 × 8 pointing down, apex y 8; line 1.5 × 20, y 8…28; `Theme.signal` | line 16 (y 8…24); triangle as regular (**derived**) |
-| Labels | under the ruler, `Font.ryft(.axis)` (11), `textTertiary` | same |
+| Labels | under the ruler, `Font.ryft(.axis)` (11), `textTertiary`, spread edge to edge, at least `labelMinGap` (16) apart, else one joined " · " line | `textPrimary` at `GlowTileSpec.labelOpacity(for:)`, because the compact ruler sits in a glow tile (P2-D12) |
 
 - **Ticks.** `n = max(tickCount, 2)`. Tick `i` is centred at `x_i = i / (n − 1) × width`; its rect is `x_i − w/2`. The outer ticks
   overhang by ≤ 0.75 pt, so the view must not clip. Drawing snaps the rect's x to the device pixel; `tickCentres` returns the unsnapped values.
 - **Value of tick `i`:** `lo + Double(i) · (hi − lo) / Double(n − 1)` (multiply first: 30·21/63 = 10 exactly). Tick counts are chosen so zone
   edges land on ticks.
 - **Zone ticks:** `v_i` in `zone` ± 1e-9. Today (0…100, 67…100) → indices 41…60 (20 ticks). Sleep (0…10, 7.5…8.3) → 45…49 (5). Strain
-  (0…21, 10…14) → 30…42 (13). Compact strain (43 ticks) → 20…28 (9). `zone == nil` → none.
+  (0…21, 10…14) → 30…42 (13). Compact strain (43 ticks) → 20…28 (9). `zone == nil` → none. A zone that overlaps the range but contains
+  no tick value marks the one tick nearest its midpoint (clamped into the range; a tie goes to the higher tick), so the zone never
+  disappears while VoiceOver names it: `(61, 0...100, 50.5...51)` → `[31]`. A zone wholly outside the range marks none.
 - **Needle x:** `clamp((value − lo) / (hi − lo), 0, 1) · width`; `nil` for `value == nil`, NaN or `hi ≤ lo`. The needle's centre is clamped, its
   triangle may overhang 6 pt (padding of the parent contains it).
 - **Labels:** `[String]` in one line, distributed edge to edge (first leading, last trailing, the rest evenly spaced), the board's
@@ -348,7 +356,7 @@ Width is whatever is proposed (the ruler fills it); height is fixed per size.
 **no zone**: all ticks outside; **clamped**: a value outside the range sits on the end, and the caller's value text keeps the real number.
 State is never colour alone: the needle's position, the zone's longer and thicker ticks, the band word in `labels` and the sentence.
 
-**Motion.** Only the needle moves: `.animation(Theme.Motion.respecting(reduceMotion ?? system, .quick), value: value)` on its x (250 ms
+**Motion.** Only the needle moves: `.animation(Theme.Motion.respecting(reduceMotion ?? system, Theme.Motion.quick), value: value)` on its x (250 ms
 ease-out); first appearance does not animate; Reduce Motion: it jumps.
 
 **Accessibility.** One element (`children: .ignore`): label = the subject ("Readiness scale"), value = the caller's sentence, which
@@ -373,7 +381,7 @@ struct GlowTile<Content: View>: View {
     init(_ metric: Color, radius: GlowTileSpec.Radius = .tile, minHeight: CGFloat? = nil,
          reduceTransparency: Bool? = nil, @ViewBuilder content: () -> Content)
 }
-extension View { func ryftGlowLabelStyle() -> some View }       // Font.ryft(.label), textPrimary at 78 %
+extension View { func ryftGlowLabelStyle() -> some View }       // Font.ryft(.label), textPrimary at GlowTileSpec.labelOpacity(for:): 78 %, 100 % from AX1
 ```
 
 **Drawing, back to front.** `RoundedRectangle(cornerRadius: radius.points, style: .continuous)` filled with `metric`; the overlay;
@@ -449,9 +457,9 @@ struct PillButton: View {
 | | Geometry | States | Dynamic Type | Accessibility |
 |---|---|---|---|---|
 | **DotRow** | `n` circles 6 pt, gap 4, left to right, one row; 7 dots = 66 × 6 | `full`: `textPrimary` fill. `missed`: 1 pt `strokeBorder` in `textPrimary` 50 %, no fill. `today`: `Theme.signal` fill. Empty array draws nothing | fixed (graphic) | one element, `children: .ignore`, the caller's summary ("Slept enough on 5 of the last 7 nights; tonight is marked"). `today` is a position marker (put it last); full/missed differ by shape, not colour. Volt vs `textPrimary` is the same luminance (17.1 / 17.4), so the summary names today |
-| **TickRow** | One zone row: `label` (74 wide, leading, `Font.ryft(.caption)`, `textSecondary` = 62 %) · 30 ticks of 3 × 12, radius 1.5, gap 3 (177 wide) · `value` (40 wide, trailing, `.caption`, `textPrimary`); columns `Theme.Metrics.itemSpacing` (12) apart, so 315 pt; value pushed to the trailing edge. Row height 12 (ticks); text may overhang. Five rows are the caller's `VStack(spacing: TickRow.rowSpacing)` (9) | Lit = first `litCount` ticks in `textPrimary`, rest 12 %. `litCount = clamp(Int((minutes·30 / scaleMax).rounded()), 0…30)`; `nil`, negative, NaN or `scaleMax ≤ 0` → 0 (the caller's `value` says "–" or "no data"). All five rows share one `scaleMax` | Label/value widths and row height are `@ScaledMetric(relativeTo: .caption)`. If the row no longer fits, `ViewThatFits` stacks: label · spacer · value above, ticks (177 fixed) below (always at AX1+) | one element per row, `.ignore`, the caller's label ("Zone 3, 24 minutes"). The caller groups the five with `.contain` |
+| **TickRow** | One zone row: `label` (at least 74 wide and as wide as its one-line ideal width, so a longer label makes the row stack instead of truncating; leading, `Font.ryft(.caption)`, `textSecondary` = 62 %) · 30 ticks of 3 × 12, radius 1.5, gap 3 (177 wide) · `value` (40 wide, trailing, `.caption`, `textPrimary`); columns `Theme.Metrics.itemSpacing` (12) apart, so 315 pt; value pushed to the trailing edge. Row height 12 (ticks); text may overhang. Five rows are the caller's `VStack(spacing: TickRow.rowSpacing)` (9) | Lit = first `litCount` ticks in `textPrimary`, rest 12 %. `litCount = clamp(Int((minutes·30 / scaleMax).rounded()), 0…30)`; `nil`, negative, NaN or `scaleMax ≤ 0` → 0 (the caller's `value` says "–" or "no data"). All five rows share one `scaleMax` | Label/value widths and row height are `@ScaledMetric(relativeTo: .caption)`. If the row no longer fits, `ViewThatFits` stacks: label · spacer · value above, ticks (177 fixed) below (always at AX1+) | one element per row, `.ignore`, the caller's label ("Zone 3, 24 minutes"). The caller groups the five with `.contain` |
 | **CircleButton** | 40 circle, no fill, `strokeBorder` 1 pt `textPrimary` 16 %; `Image(systemName:)` 14 pt, `.regular` (≈ 1.3 pt stroke), `textPrimary`. **Layout box 44 × 44** (the circle centred, 2 pt transparent each side, `contentShape(Rectangle())`) | normal; pressed: circle filled `textPrimary` 8 %, no scale, no animation; disabled (`isEnabled` false): icon `textPrimary` 35 %, border unchanged | fixed (icon-only) | `Button` trait, the caller's label (required: there is no text); disabled is exposed by SwiftUI as not enabled |
-| **PillButton** | `Capsule`, height ≥ 52 (`minHeight`), full proposed width. **Primary:** fill `textPrimary`; leading 20, trailing 6; title `Font.ryft(.button)` in `Theme.background`, leading-aligned; trailing 40 pt `Theme.background` circle with the icon (14 pt, `textPrimary`). **Secondary:** fill none, `strokeBorder` 1 pt `textPrimary` 20 %; padding 22 horizontal; title `Font.ryft(.button)`, `textPrimary`, centred; no icon | normal; pressed: primary fill at 85 %, secondary filled `textPrimary` 8 %, no animation; disabled: whole pill at 35 % opacity. No busy state: the caller disables and changes the title | title scales (`.button` is relative to `.body`), no line limit, vertical padding 12 so it grows past 52 and wraps at AX3 without clipping; the 40 circle stays 40 and is vertically centred | the title is the label, the icon `accessibilityHidden`, `Button` trait; the whole pill is the target (≥ 52 high) |
+| **PillButton** | `RoundedRectangle(cornerRadius: 26, style: .circular)` (P2-D6), height ≥ 52 (`minHeight`), full proposed width. **Primary:** fill `textPrimary`; leading 20, trailing 6; title `Font.ryft(.button)` in `Theme.background`, leading-aligned; trailing 40 pt `Theme.background` circle with the icon (14 pt, `textPrimary`). **Secondary:** fill none, `strokeBorder` 1 pt `textPrimary` 20 %; padding 22 horizontal; title `Font.ryft(.button)`, `textPrimary`, centred; no icon | normal; pressed: primary fill at 85 %, secondary filled `textPrimary` 8 %, no animation; disabled: whole pill at 35 % opacity. No busy state: the caller disables and changes the title | title scales (`.button` is relative to `.body`), no line limit, vertical padding 12 so it grows past 52 and wraps at AX3 without clipping; the 40 circle stays 40 and is vertically centred | the title is the label, the icon `accessibilityHidden`, `Button` trait; the whole pill is the target (≥ 52 high) |
 
 ### P2-5. The glyph table
 
@@ -558,7 +566,7 @@ static let pillHeight: CGFloat = 52
 static let itemSpacing: CGFloat = 12         // §2 "Abstand 12"
 ```
 
-`screenPadding` 20 already exists. The pill radius is `Capsule()` (26 at 52 pt). Per-component measurements (dot 5, gap 2, tick 3 × 12, …) stay
+`screenPadding` 20 already exists. The pill radius is 26 (`RoundedRectangle`, P2-D6), a capsule at 52 pt. Per-component measurements (dot 5, gap 2, tick 3 × 12, …) stay
 `static let` on their component: they are not shared.
 
 ### P2-9. Overlaps with existing components
@@ -587,7 +595,15 @@ PR 2 touches none of them.
 | P2-D2 | Pill text 15 pt Medium | `Font.ryft(.button)` = 16 pt Medium | There is no 15 Medium role; §2 allows body 15–17 and buttons Medium. |
 | P2-D3 | Circle button 40 pt | 40 pt circle in a 44 pt layout box | Hit target ≥ 44 (§6, HIG). The two transparent points count in the caller's spacing. |
 | P2-D4 | Ticks "edge to edge" (CSS space-between puts the edges at 0 and W) | centres at `i/(n−1)·W` (lead's rule); the outer ticks overhang ≤ 0.75 pt | Needle x and tick `i` then share one formula. |
-| P2-D5 | `textTertiary` 45 % on the boards | 48 % (PR 1's token) | Already D-a; the ruler labels use it. |
+| P2-D5 | `textTertiary` 45 % on the boards | 48 % (PR 1's token) | Already D-a; the regular ruler labels use it. |
+| P2-D6 | Pill as `Capsule()` | `RoundedRectangle(cornerRadius: 26, style: .circular)` | At AX3 a three-line pill is 155 pt tall; a capsule's ends are then 77 pt round and the first and last letters fall off the fill. Identical at 52 pt. |
+| P2-D7 | Glow labels always 78 % | 78 % below AX1, full `textPrimary` from AX1 (`GlowTileSpec.labelOpacity(for:)`) | Lead decision: tiles grow tall at accessibility sizes, and a 78 % label in an outer corner can fall under 4.5:1 (§P2-3 known limit). |
+| P2-D8 | `.quick` | `Theme.Motion.quick` | `Animation` has no member `quick`; the spec's call did not compile. |
+| P2-D9 | `nonisolated static func` reading `static let` | the constants they read are `nonisolated static let` | `View` conformance makes the types main-actor isolated; without it the helpers warned (6 warnings). |
+| P2-D10 | `placeholderGlyphs: Int` | `placeholder: String` template, drawn unlit | Review row 7: the pending Sleep numeral was 74 pt wide against 125 for "7:48", so the row jumped. In the Light fallback the dashes are wider than digits; only the dot grid keeps the width. |
+| P2-D11 | `zoneTint` + `zoneOpacity` | `zoneStyle: ZoneStyle` presets | Review row 3: PRs 4–5 must not repeat 0.85 / 0.95 as literals. |
+| P2-D12 | Compact labels in `textTertiary` | `textPrimary` at the glow label opacity | Review row 1: inside a recovery glow tile the edge labels reached 3.13–3.44:1; now 5.52–6.32 (L) and ≥ 7.65 (AX3). |
+| P2-D13 | Ruler labels ≥ 8 pt apart | ≥ 16 pt | Review row 10: at AX3 the five Today labels read as one run. |
 
 None of these contradicts the brief. Derived, not measured (the boards give no number; ios-developer must not tune them without asking): compact ruler height
 32 and row 18; compact needle triangle = regular; glow-tile bottom padding 14; ticks vertically centred in their row; ruler labels space-between; TickRow column gap 12;
