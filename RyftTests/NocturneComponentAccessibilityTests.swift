@@ -54,6 +54,35 @@ struct NocturneComponentAccessibilityTests {
         }
     }
 
+    /// P2-D10: a pending numeral draws a template now, and the element is still only the caller's words.
+    @Test("A pending numeral with a \"0:00\" template is one element: the caller's label, no value, the 125 × 47 grid")
+    func pendingTemplateKeepsTheCallersLabel() async throws {
+        let label = "Time asleep, no value yet"
+        try await host(DotNumeral(nil, glyphGap: DotNumeral.glyphGapDetail, placeholder: "0:00", accessibilityLabel: Text(verbatim: label))) { w in
+            try await w.settle()
+            let nodes = w.nodes()
+            #expect(nodes.map(\.label) == [label], "elements: \(nodes.map(\.label))")
+            let node = try #require(nodes.first)
+            #expect((node.value ?? "").isEmpty, "no value: \(String(describing: node.value))")
+            #expect(near(node.frame.width, 125) && near(node.frame.height, 47), "as wide as 7:48: \(node.frame)")
+            // Neither the template nor the dashes of the fallback are read out.
+            for text in ["0:00", "–:––", "–"] { #expect(w.node(text, exactly: true) == nil, "'\(text)' is not an element") }
+        }
+    }
+
+    @Test("The same pending numeral in the Light fallback (AX3) keeps the caller's label, not the dashes")
+    func pendingTemplateLightKeepsTheCallersLabel() async throws {
+        let label = "Time asleep, no value yet"
+        let view = DotNumeral(nil, glyphGap: DotNumeral.glyphGapDetail, placeholder: "0:00", accessibilityLabel: Text(verbatim: label))
+        try await host(view, typeSize: .accessibility3, category: .accessibilityExtraLarge) { w in
+            try await w.settle()
+            #expect(w.nodes().map(\.label) == [label], "elements: \(w.nodes().map(\.label))")
+            let value = w.nodes().first?.value ?? ""
+            #expect(value.isEmpty)
+            #expect(w.node("–:––", exactly: true) == nil)
+        }
+    }
+
     struct NumeralCase: Sendable, CustomTestStringConvertible {
         let text: String?
         let style: DotNumeral.Style

@@ -340,6 +340,51 @@ import UIKit
         for c in cells.unlit { #expect(near(shot.at(c.x, c.y), off), "(\(c.x), \(c.y)): \(describe(shot.at(c.x, c.y)))") }
     }
 
+    /// P2-D10. The pending Sleep numeral: the cells of "0:00", every one at 10 %, the colon column among them.
+    @Test("A pending \"0:00\" is 125 × 47 with every cell unlit, the colon column included, and no dot lit anywhere")
+    func pendingTemplatePixels() throws {
+        let view = DotNumeral(nil, glyphGap: 7, placeholder: "0:00", accessibilityLabel: Text(verbatim: "no value"))
+            .background(Theme.background)
+        let shot = try #require(render(view))
+        #expect(shot.size == CGSize(width: 125, height: 47))
+        let cells = try #require(DotNumeral.cells(nil, placeholder: "0:00", glyphGap: 7))
+        #expect(cells.lit.isEmpty && cells.unlit.count == 35 * 3 + 7)
+        let off = inkOverScreen(0.10)
+        for c in cells.unlit { #expect(near(shot.at(c.x, c.y), off), "(\(c.x), \(c.y)): \(describe(shot.at(c.x, c.y)))") }
+        // The colon is the second glyph: x₀ = 33 + 7 = 40, so its one column is centred at x 42.5, on all seven rows.
+        for row in 0..<7 {
+            let y = Double(row) * 7 + 2.5
+            #expect(near(shot.at(42.5, y), off), "colon cell, row \(row): \(describe(shot.at(42.5, y)))")
+        }
+        // Where a value lights its colon (rows 3 and 5), the pending one is as dim as every other cell.
+        for y in [16.5, 30.5] { #expect(!near(shot.at(42.5, y), ink, 8), "the colon's dots are lit at y \(y)") }
+        // Nothing brighter than the unlit dots anywhere in the image.
+        var brightest = 0.0
+        for iy in 0..<shot.height { for ix in 0..<shot.width { brightest = max(brightest, shot.px(ix, iy).r) } }
+        #expect(brightest <= off.r + 2.0 / 255, "the brightest pixel is \(brightest), an unlit dot is \(off.r)")
+    }
+
+    @Test("A pending \"0:00\" and \"7:48\" are the same size, and the value only lights dots the template left unlit")
+    func pendingAndValueShareTheirCells() throws {
+        let pending = try #require(DotNumeral.cells(nil, placeholder: "0:00", glyphGap: 7))
+        let value = try #require(DotNumeral.cells("7:48", glyphGap: 7))
+        #expect(pending.size == value.size)
+        // Every dot of the value, lit or not, is a cell of the template, and the other way round.
+        let valueCells = value.lit + value.unlit
+        #expect(valueCells.count == pending.unlit.count)
+        for c in pending.unlit { #expect(valueCells.contains(c), "(\(c.x), \(c.y)) is not a cell of 7:48") }
+    }
+
+    @Test("Pending in the Light fallback (AX3, \"0:00\") draws the dashes: no grid, and ink on the screen colour")
+    func pendingLightIsDrawn() throws {
+        let view = DotNumeral(nil, glyphGap: 7, placeholder: "0:00", accessibilityLabel: Text(verbatim: "no value"))
+            .background(Theme.background)
+            .environment(\.dynamicTypeSize, .accessibility3)
+        let shot = try #require(render(view))
+        #expect(shot.size != CGSize(width: 125, height: 47), "\(shot.size)")
+        #expect(shot.bounds(xs: 0...Double(shot.size.width), ys: 0...Double(shot.size.height)) { self.distance($0, self.screen) > 0.1 } != nil)
+    }
+
     @Test("Spec 20: from AX1 the dot grid is gone — the Light text is drawn instead", arguments: [
         DynamicTypeSize.accessibility1, .accessibility3,
     ])
@@ -555,8 +600,8 @@ import UIKit
 
     // MARK: TickRow
 
-    private func tickRow(minutes: Double? = 24, scaleMax: Double = 60) -> some View {
-        TickRow(label: Text(verbatim: "Zone 3"), minutes: minutes, scaleMax: scaleMax, value: Text(verbatim: "24"),
+    private func tickRow(minutes: Double? = 24, scaleMax: Double = 60, label: String = "Zone 3") -> some View {
+        TickRow(label: Text(verbatim: label), minutes: minutes, scaleMax: scaleMax, value: Text(verbatim: "24"),
                 accessibilityLabel: Text(verbatim: "Zone 3, 24 minutes"))
     }
 
@@ -633,6 +678,170 @@ import UIKit
             self.near($0, self.ink, 2)
         }
         #expect(ticks != nil)
+    }
+
+    /// P2-D12 / review row 1. A long label stacks the row instead of truncating (its ideal width decides), and a short one keeps
+    /// the column at exactly 74. The ticks are the first full-ink pixels after the label column, so the label's own (62 %)
+    /// pixels never count: they cannot reach `textPrimary`.
+    @Test("A label wider than its 74 pt column stacks the row: taller than 12, the ticks below the label, the label not cut")
+    func longLabelStacks() throws {
+        let view = tickRow(label: "Zone 5 · maximum effort").frame(width: 350).background(Theme.background)
+        let shot = try #require(render(view))
+        let height = Double(shot.size.height)
+        #expect(height > 12, "the row is \(height) high")
+        #expect(height >= 12 + 4 + 10, "a text line and the 4 pt gap sit above the ticks: \(height)")
+        // Ticks: the last 12 pt, from the leading edge, 177 wide.
+        let ticks = try #require(shot.bounds(xs: 0...350, ys: height - 12...height) { self.near($0, self.ink, 2) }, "the ticks")
+        #expect(abs(ticks.minY - (height - 12)) <= 0.5, "ticks start at \(ticks.minY)")
+        #expect(abs(ticks.minX - 0) <= 0.5 && ticks.width <= 177 + 0.5, "ticks \(ticks)")
+        // The label is above them, on its own line, wider than the 74 pt column (not truncated to it).
+        let label = try #require(shot.bounds(xs: 0...350, ys: 0...(height - 12 - 1)) { self.distance($0, self.screen) > 0.2 }, "label ink")
+        #expect(label.maxY <= ticks.minY, "the label ends at \(label.maxY), the ticks start at \(ticks.minY)")
+        #expect(label.minX <= 2 && label.maxX > 74 + 20, "the label spans \(label.minX)…\(label.maxX), not cut to 74")
+        // The value is on that line too, at the trailing edge.
+        let value = try #require(shot.bounds(xs: 300...350, ys: 0...(height - 12 - 1)) { self.distance($0, self.screen) > 0.2 }, "value ink")
+        #expect(value.maxX >= 347, "value ends at \(value.maxX)")
+    }
+
+    @Test("A short label (\"Zone 3\") stays on one line in 350 pt: 12 high, the first tick at x 86")
+    func shortLabelStaysOnOneLine() throws {
+        let shot = try #require(render(tickRow().frame(width: 350).background(Theme.background)))
+        #expect(shot.size == CGSize(width: 350, height: 12))
+        // The column is exactly 74: the first tick spans 86…89, with the screen colour just before it.
+        #expect(near(shot.at(87.5, 6), ink), "first tick: \(describe(shot.at(87.5, 6)))")
+        #expect(near(shot.at(85.5, 6), screen), "before the first tick: \(describe(shot.at(85.5, 6)))")
+        let ticks = try #require(shot.bounds(xs: 80...300, ys: 0...12) { self.near($0, self.ink, 2) || self.near($0, self.inkOverScreen(0.12), 2) })
+        #expect(abs(ticks.minX - 86) <= 0.5, "ticks start at \(ticks.minX)")
+    }
+
+    // MARK: Compact ruler labels in a glow tile (P2-D12, review row 1)
+
+    /// A strain tile as Today draws it, `width` × 124, with the compact ruler at the bottom of the padded area. `ruler: false`
+    /// is the same tile empty: the background under the labels, since the glow depends only on the tile's size.
+    private func labelTile(_ metric: Color, width: CGFloat, ruler: Bool) -> some View {
+        GlowTile(metric) {
+            VStack(alignment: .leading, spacing: 0) {
+                Spacer(minLength: 0)
+                if ruler {
+                    RulerScale(range: 0...21, value: 12.4, zone: 10...14, tickCount: RulerScale.Ticks.strainCompact,
+                               labels: ["0", "21"], size: .compact, accessibilityLabel: Text(verbatim: "Strain scale"),
+                               accessibilityValue: Text(verbatim: "12.4"), reduceMotion: true)
+                }
+            }
+        }
+        .frame(width: width, height: 124)
+    }
+
+    private struct EdgeLabel {
+        /// The label's box in points and the lightest background pixel under it.
+        let box: CGRect
+        let lightestBackground: RGBA
+        /// The label's opacity as drawn: the strongest `(drawn − background) / (ink − background)` in the box, which a fully
+        /// covered pixel of a stem gives exactly.
+        let opacity: Double
+    }
+
+    /// The box of the pixels in `xs` × `ys` that the labels changed, read against the empty tile.
+    private func edgeLabel(_ full: Shot, _ empty: Shot, xs: ClosedRange<Double>, ys: ClosedRange<Double>) -> EdgeLabel? {
+        var (minX, minY, maxX, maxY) = (Int.max, Int.max, Int.min, Int.min)
+        for iy in 0..<full.height {
+            let y = (Double(iy) + 0.5) / Double(full.scale)
+            guard ys.contains(y) else { continue }
+            for ix in 0..<full.width {
+                let x = (Double(ix) + 0.5) / Double(full.scale)
+                guard xs.contains(x), distance(full.px(ix, iy), empty.px(ix, iy)) > 0.02 else { continue }
+                minX = min(minX, ix); maxX = max(maxX, ix); minY = min(minY, iy); maxY = max(maxY, iy)
+            }
+        }
+        guard minX <= maxX else { return nil }
+        var (lightest, lightestLuminance, opacity) = (empty.px(minX, minY), -1.0, 0.0)
+        let channels: [(RGBA) -> Double] = [{ $0.r }, { $0.g }, { $0.b }]
+        for iy in minY...maxY {
+            for ix in minX...maxX {
+                let bg = empty.px(ix, iy), drawn = full.px(ix, iy)
+                if Tokens.luminance(bg) > lightestLuminance { (lightest, lightestLuminance) = (bg, Tokens.luminance(bg)) }
+                // The channel where the ink is farthest from the background reads the opacity best.
+                guard let read = channels.max(by: { $0(ink) - $0(bg) < $1(ink) - $1(bg) }), read(ink) - read(bg) > 0.3 else { continue }
+                opacity = max(opacity, (read(drawn) - read(bg)) / (read(ink) - read(bg)))
+            }
+        }
+        let scale = Double(full.scale)
+        return EdgeLabel(box: CGRect(x: Double(minX) / scale, y: Double(minY) / scale,
+                                     width: Double(maxX - minX + 1) / scale, height: Double(maxY - minY + 1) / scale),
+                         lightestBackground: lightest, opacity: opacity)
+    }
+
+    /// The label colour is read from the drawn pixels, not from the component's constants: a regression to `textTertiary`
+    /// (48 %) changes the drawn opacity, and the contrast follows. The expected numbers are written here: 4.5 (WCAG AA), the
+    /// opacity 0.78 (± 0.04 for 8-bit pixels and a stem that may not cover a pixel fully).
+    @Test("The compact ruler's edge labels read 4.5:1 or more against the lightest pixel under them, inside a glow tile at L",
+          arguments: [Metric.recovery, .strain], [CGFloat(169), CGFloat(350)])
+    func compactEdgeLabelContrast(_ metric: Metric, _ width: CGFloat) throws {
+        let full = try #require(render(labelTile(metric.colour, width: width, ruler: true), scale: 4))
+        let empty = try #require(render(labelTile(metric.colour, width: width, ruler: false), scale: 4))
+        #expect(full.width == empty.width && full.height == empty.height)
+        // The labels are the bottom line of the padded area (y up to 110); the ticks end 6 pt above them.
+        let ys = 94.0...111.0
+        let left = try #require(edgeLabel(full, empty, xs: 0...Double(width) / 2, ys: ys), "the \"0\" label")
+        let right = try #require(edgeLabel(full, empty, xs: Double(width) / 2...Double(width), ys: ys), "the \"21\" label")
+        // Each box is a label: a few points wide, a text line high, at the padding's edge.
+        #expect(left.box.minX >= 15 && left.box.minX < 20 && left.box.width > 3 && left.box.width < 14, "\"0\" at \(left.box)")
+        #expect(right.box.maxX <= Double(width) - 14 && right.box.maxX > Double(width) - 20 && right.box.width > 6 && right.box.width < 24,
+                "\"21\" at \(right.box)")
+        for label in [left, right] { #expect(label.box.height > 5 && label.box.height < 14 && label.box.maxY <= 111, "\(label.box)") }
+        for (name, label) in [("0", left), ("21", right)] {
+            #expect(abs(label.opacity - 0.78) <= 0.04, "\"\(name)\" is drawn at \(label.opacity), not 0.78")
+            let contrast = Tokens.ratio(with(ink, alpha: label.opacity), on: label.lightestBackground)
+            #expect(contrast >= 4.5, "\"\(name)\" on \(metric) at \(Int(width)) pt: \(contrast):1")
+        }
+    }
+
+    // MARK: Ruler label gap (P2-D13, review row 10)
+
+    private let todayLabels = ["0", "low", "moderate", "high", "100"]
+
+    /// Today's ruler at AX3 in `width`, and the height of the label ink under the 36 pt graphic: one line, or the joined line wrapped.
+    private func todayLabelInk(width: CGFloat) throws -> CGRect {
+        let view = RulerScale(range: 0...100, value: nil, zone: 67...100, tickCount: RulerScale.Ticks.today, labels: todayLabels,
+                              accessibilityLabel: Text(verbatim: "Scale"), accessibilityValue: Text(verbatim: "value"), reduceMotion: true)
+            .frame(width: width).environment(\.dynamicTypeSize, .accessibility3).background(Theme.background)
+        let shot = try #require(render(view))
+        return try #require(shot.bounds(xs: 0...Double(width), ys: 36...Double(shot.size.height)) { self.distance($0, self.screen) > 0.1 },
+                            "label ink at \(width) pt")
+    }
+
+    /// The five labels side by side at AX3 take `natural` points; with the 16 pt minimum between them, four gaps, the one-line row
+    /// needs `natural + 64`. Under that the row falls back to the joined " · " line (407 pt at AX3, so it wraps in any of the widths
+    /// here); at or over it, the labels sit on one line. The natural width is measured, so the bracket holds when the font moves.
+    @Test("Today's five labels at AX3: one line from natural + 4 × 16 pt, the joined, wrapping line just below")
+    func labelsFallBackWhenTheGapsGetUnderSixteen() throws {
+        let natural = HStack(spacing: 0) {
+            ForEach(Array(todayLabels.enumerated()), id: \.offset) { Text(verbatim: $1).lineLimit(1).fixedSize() }
+        }
+        .font(.ryft(.axis)).fixedSize().environment(\.dynamicTypeSize, .accessibility3)
+        let t = Double(try #require(render(natural)).size.width)
+        let oneLine = try todayLabelInk(width: CGFloat(t + 4 * 16 + 6))
+        let fallback = try todayLabelInk(width: CGFloat(t + 4 * 16 - 6))
+        // One line of AX3 11 pt text is about 29 pt of ink (a digit's box, not a line's); a wrapped joined line is two lines or more.
+        #expect(oneLine.height < 40, "at natural + 70: \(oneLine)")
+        #expect(fallback.height > 40, "at natural + 58 (gaps of 13 pt) the labels fall back and wrap: \(fallback)")
+        // On one line the last label ends at the trailing edge; the joined line is leading-aligned and ragged.
+        #expect(oneLine.maxX >= t + 4 * 16 + 6 - 4, "the last label is at the trailing edge: \(oneLine)")
+    }
+
+    /// The case review row 10 describes: Today at AX3 in a 350 pt column. With the old 8 pt gap (340 pt needed) the labels sat
+    /// on one line and read as one run; with 16 (372 pt) they fall back. The window below is the measured width of the labels
+    /// (308 pt now); if the font changes enough to leave it, the test says so instead of passing for the wrong reason.
+    @Test("Today's five labels at AX3 in 350 pt fall back to the joined line (they would fit on one line at an 8 pt gap)")
+    func todayLabelsAtAX3In350() throws {
+        let natural = HStack(spacing: 0) {
+            ForEach(Array(todayLabels.enumerated()), id: \.offset) { Text(verbatim: $1).lineLimit(1).fixedSize() }
+        }
+        .font(.ryft(.axis)).fixedSize().environment(\.dynamicTypeSize, .accessibility3)
+        let t = Double(try #require(render(natural)).size.width)
+        #expect(t + 4 * 8 <= 350 && 350 < t + 4 * 16, "the labels are \(t) pt wide: 350 no longer separates an 8 pt gap from a 16 pt one")
+        let ink = try todayLabelInk(width: 350)
+        #expect(ink.height > 40, "wrapped, not one line: \(ink)")
     }
 
     // MARK: CircleButton

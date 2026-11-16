@@ -591,4 +591,254 @@ import Testing
         let want = size >= .accessibility1 ? 1.0 : 0.78
         #expect(GlowTileSpec.labelOpacity(for: size) == want, "\(size)")
     }
+
+    // MARK: Review-fix round (design.md P2-D10 to P2-D13, review.md "PR 2" rows 1, 3, 4, 5, 7, 10)
+
+    // MARK: Compact ruler labels (P2-D12)
+
+    @Test("The regular ruler keeps textTertiary: no label opacity at any size", arguments: DynamicTypeSize.allCases)
+    func regularLabelsAreTertiary(_ size: DynamicTypeSize) {
+        #expect(RulerScale.labelOpacity(size: .regular, dynamicTypeSize: size) == nil, "\(size)")
+    }
+
+    @Test("The compact ruler's labels are textPrimary at 0.78 below AX1 and 1.0 from AX1", arguments: DynamicTypeSize.allCases)
+    func compactLabelOpacity(_ size: DynamicTypeSize) {
+        let want = size >= .accessibility1 ? 1.0 : 0.78
+        #expect(RulerScale.labelOpacity(size: .compact, dynamicTypeSize: size) == want, "\(size)")
+    }
+
+    @Test("The compact label's step is between xxxLarge (0.78) and AX1 (1.0), named and not derived")
+    func compactLabelBoundary() {
+        #expect(RulerScale.labelOpacity(size: .compact, dynamicTypeSize: .xxxLarge) == 0.78)
+        #expect(RulerScale.labelOpacity(size: .compact, dynamicTypeSize: .accessibility1) == 1.0)
+    }
+
+    @Test("The label colour: textTertiary for regular, textPrimary at the opacity for compact")
+    func labelColours() {
+        let regular = Tokens.resolve(RulerScale.labelColor(size: .regular, dynamicTypeSize: .large))
+        #expect(Tokens.matches(regular, Tokens.resolve(Theme.textTertiary)), "regular: \(Tokens.describe(regular))")
+        let compact = Tokens.resolve(RulerScale.labelColor(size: .compact, dynamicTypeSize: .large))
+        #expect(Tokens.matches(compact, Tokens.rgba(0xF2F1EC, 0.78)), "compact L: \(Tokens.describe(compact))")
+        let compactAX = Tokens.resolve(RulerScale.labelColor(size: .compact, dynamicTypeSize: .accessibility3))
+        #expect(Tokens.matches(compactAX, Tokens.rgba(0xF2F1EC, 1)), "compact AX3: \(Tokens.describe(compactAX))")
+    }
+
+    // MARK: ZoneStyle (P2-D11)
+
+    @Test("ZoneStyle.standard is textPrimary with no opacity of its own: 0.55 regular, 0.60 compact")
+    func standardZoneStyle() {
+        let style = RulerScale.ZoneStyle.standard
+        #expect(Tokens.matches(Tokens.resolve(style.tint), Tokens.resolve(Theme.textPrimary)))
+        #expect(style.opacity == nil)
+        #expect(style.opacity(for: .regular) == 0.55)
+        #expect(style.opacity(for: .compact) == 0.60)
+    }
+
+    @Test("ZoneStyle.sleep is metricSleep at 0.85 and .strain is metricStrain at 0.95, in both sizes")
+    func sleepAndStrainZoneStyles() {
+        let sleep = RulerScale.ZoneStyle.sleep, strain = RulerScale.ZoneStyle.strain
+        #expect(Tokens.matches(Tokens.resolve(sleep.tint), Tokens.resolve(Theme.metricSleep)))
+        #expect(Tokens.matches(Tokens.resolve(strain.tint), Tokens.resolve(Theme.metricStrain)))
+        #expect(sleep.opacity == 0.85 && strain.opacity == 0.95)
+        for size in [RulerScale.Size.regular, .compact] {
+            #expect(sleep.opacity(for: size) == 0.85, "sleep, \(size)")
+            #expect(strain.opacity(for: size) == 0.95, "strain, \(size)")
+        }
+    }
+
+    @Test("The three presets are distinct, and a custom style with an explicit opacity ignores the size")
+    func zoneStylesAreDistinct() {
+        let tints = [RulerScale.ZoneStyle.standard, .sleep, .strain].map { Tokens.resolve($0.tint) }
+        #expect(!Tokens.matches(tints[0], tints[1]) && !Tokens.matches(tints[1], tints[2]) && !Tokens.matches(tints[0], tints[2]))
+        let custom = RulerScale.ZoneStyle(tint: Theme.metricSleep, opacity: 0.4)
+        #expect(custom.opacity(for: .regular) == 0.4 && custom.opacity(for: .compact) == 0.4)
+        #expect(custom != .sleep && RulerScale.ZoneStyle.sleep == RulerScale.ZoneStyle(tint: Theme.metricSleep, opacity: 0.85))
+    }
+
+    // MARK: zone(lo:hi:) (review row 4)
+
+    struct ZoneBoundsCase: Sendable, CustomTestStringConvertible {
+        let lo: Double?, hi: Double?
+        let zone: ClosedRange<Double>?
+        var testDescription: String { "\(lo.map { "\($0)" } ?? "nil") … \(hi.map { "\($0)" } ?? "nil")" }
+    }
+
+    @Test("zone(lo:hi:) is the range for finite bounds with lo ≤ hi, a single point when they are equal, and nil otherwise", arguments: [
+        ZoneBoundsCase(lo: 10, hi: 14, zone: 10...14), ZoneBoundsCase(lo: 7.5, hi: 8.3, zone: 7.5...8.3),
+        ZoneBoundsCase(lo: -3, hi: 4, zone: -3...4),
+        ZoneBoundsCase(lo: 12, hi: 12, zone: 12...12), ZoneBoundsCase(lo: 0, hi: 0, zone: 0...0),
+        ZoneBoundsCase(lo: 14, hi: 10, zone: nil), ZoneBoundsCase(lo: 0.1, hi: 0.09, zone: nil),
+        ZoneBoundsCase(lo: nil, hi: 14, zone: nil), ZoneBoundsCase(lo: 10, hi: nil, zone: nil), ZoneBoundsCase(lo: nil, hi: nil, zone: nil),
+        ZoneBoundsCase(lo: .nan, hi: 14, zone: nil), ZoneBoundsCase(lo: 10, hi: .nan, zone: nil), ZoneBoundsCase(lo: .nan, hi: .nan, zone: nil),
+        ZoneBoundsCase(lo: .infinity, hi: 14, zone: nil), ZoneBoundsCase(lo: 10, hi: .infinity, zone: nil),
+        ZoneBoundsCase(lo: -.infinity, hi: 14, zone: nil), ZoneBoundsCase(lo: 10, hi: -.infinity, zone: nil),
+        ZoneBoundsCase(lo: -.infinity, hi: .infinity, zone: nil),
+    ])
+    func zoneFromServerBounds(_ c: ZoneBoundsCase) {
+        #expect(RulerScale.zone(lo: c.lo, hi: c.hi) == c.zone)
+    }
+
+    @Test("A one-point zone from zone(lo:hi:) marks the tick it sits on, and is usable where lo...hi would have trapped")
+    func onePointZoneMarksItsTick() throws {
+        // 0…21 over 64 ticks: tick 30 is exactly 10.
+        let zone = try #require(RulerScale.zone(lo: 10, hi: 10))
+        #expect(RulerScale.zoneTickIndices(count: 64, range: 0...21, zone: zone) == [30])
+        #expect(RulerScale.zoneTickIndices(count: 64, range: 0...21, zone: RulerScale.zone(lo: 14, hi: 10)).isEmpty)
+    }
+
+    // MARK: Narrow zones (review row 5)
+
+    struct NarrowCase: Sendable, CustomTestStringConvertible {
+        let count: Int
+        let range: ClosedRange<Double>
+        let zone: ClosedRange<Double>
+        let ticks: [Int]
+        var testDescription: String { "\(count) ticks over \(range), zone \(zone)" }
+    }
+
+    /// 61 ticks over 0…100 are 1.667 apart: tick 30 is 50, tick 31 is 51.667. The midpoint of 50.5…51 is 50.75 (position 30.45), nearer
+    /// tick 30; 50.9…51.1 has midpoint 51.0 (position 30.6), nearer tick 31. Exact ties are not pinned here (float rounding).
+    @Test("A zone narrower than the tick pitch marks the one tick nearest its midpoint", arguments: [
+        NarrowCase(count: 61, range: 0...100, zone: 50.5...51, ticks: [30]),
+        NarrowCase(count: 61, range: 0...100, zone: 51.2...51.4, ticks: [31]),
+        NarrowCase(count: 61, range: 0...100, zone: 50.9...51.1, ticks: [31]),      // midpoint 51.0: 1.0 from 50, 0.667 from 51.667
+        NarrowCase(count: 61, range: 0...100, zone: 50.1...50.3, ticks: [30]),
+        NarrowCase(count: 64, range: 0...21, zone: 10.05...10.15, ticks: [30]),      // 64 ticks over 21: tick 30 is 10, pitch 0.333
+        NarrowCase(count: 64, range: 0...21, zone: 10.2...10.3, ticks: [31]),        // tick 31 is 10.333
+        NarrowCase(count: 61, range: 0...10, zone: 7.52...7.55, ticks: [45]),       // pitch 0.1667: tick 45 is 7.5, tick 46 is 7.667
+        NarrowCase(count: 61, range: 0...10, zone: 7.58...7.62, ticks: [46]),
+    ])
+    func narrowZone(_ c: NarrowCase) {
+        #expect(RulerScale.zoneTickIndices(count: c.count, range: c.range, zone: c.zone) == c.ticks)
+    }
+
+    @Test("A narrow zone near the end of the range marks the end tick; one on the end marks that tick")
+    func narrowZoneAtTheEdge() {
+        #expect(RulerScale.zoneTickIndices(count: 61, range: 0...100, zone: 0.2...0.4) == [0])
+        #expect(RulerScale.zoneTickIndices(count: 61, range: 0...100, zone: 99.6...99.8) == [60])
+        // Overlapping the end: the zone holds the end tick itself, so no nearest-tick rule is needed. Never more than that tick.
+        #expect(RulerScale.zoneTickIndices(count: 61, range: 0...100, zone: 99.9...100.4) == [60])
+        #expect(RulerScale.zoneTickIndices(count: 61, range: 0...100, zone: -0.4...0.1) == [0])
+        // Within the 1e-9 tolerance of the end counts as on it.
+        #expect(RulerScale.zoneTickIndices(count: 61, range: 0...100, zone: 100.0000000005...100.4) == [60])
+        #expect(RulerScale.zoneTickIndices(count: 61, range: 0...100, zone: -0.4...(-5e-10)) == [0])
+    }
+
+    @Test("A narrow zone wholly outside the range marks nothing", arguments: [
+        100.2...100.4, -0.4...(-0.2), 100.00001...100.00002, -0.00002...(-0.00001), 1e6...2e6, (-2e6)...(-1e6),
+    ])
+    func narrowZoneOutside(_ zone: ClosedRange<Double>) {
+        #expect(RulerScale.zoneTickIndices(count: 61, range: 0...100, zone: zone) == [], "\(zone)")
+    }
+
+    @Test("The nearest-tick rule is only for a zone with no tick in it: a wider zone keeps exactly its own ticks")
+    func widerZonesAreUnchanged() {
+        // 1.6…3.4 holds ticks 1 (1.667) and 2 (3.333): both, and not a third from the midpoint rule.
+        #expect(RulerScale.zoneTickIndices(count: 61, range: 0...100, zone: 1.6...3.4) == [1, 2])
+        // One tick inside: just that one, even when the midpoint is nearer another.
+        #expect(RulerScale.zoneTickIndices(count: 61, range: 0...100, zone: 1.6...1.7) == [1])
+        // The board's zones, once more through the same entry point.
+        #expect(RulerScale.zoneTickIndices(count: 61, range: 0...100, zone: 67...100) == Array(41...60))
+        #expect(RulerScale.zoneTickIndices(count: 61, range: 0...100, zone: 66.9...100) == Array(41...60))
+        #expect(RulerScale.zoneTickIndices(count: 61, range: 0...10, zone: 7.5...8.3) == Array(45...49))
+        #expect(RulerScale.zoneTickIndices(count: 64, range: 0...21, zone: 10...14) == Array(30...42))
+        #expect(RulerScale.zoneTickIndices(count: 43, range: 0...21, zone: 10...14) == Array(20...28))
+    }
+
+    @Test("A narrow zone never marks more than one tick, and it is always inside the tick range")
+    func narrowZoneIsOneTick() {
+        for lo in stride(from: -1.0, through: 101.0, by: 0.37) {
+            let zone = lo...(lo + 0.05)
+            let ticks = RulerScale.zoneTickIndices(count: 61, range: 0...100, zone: zone)
+            #expect(ticks.count <= 1, "\(zone): \(ticks)")
+            #expect(ticks.allSatisfy { (0...60).contains($0) }, "\(zone): \(ticks)")
+            // Overlapping the range (to within the tolerance) means one tick; outside it means none.
+            #expect(ticks.isEmpty == (zone.upperBound < 0 || zone.lowerBound > 100), "\(zone): \(ticks)")
+        }
+    }
+
+    // MARK: Label gap (P2-D13)
+
+    @Test("The smallest gap between two ruler labels is 16 pt")
+    func labelMinGap() {
+        #expect(RulerScale.labelMinGap == 16)
+    }
+
+    // MARK: Pending template (P2-D10)
+
+    struct PendingCase: Sendable, CustomTestStringConvertible {
+        let template: String, value: String
+        let gap: CGFloat
+        let width: CGFloat
+        var testDescription: String { "\"\(template)\" against \"\(value)\", gap \(Int(gap))" }
+    }
+
+    @Test("A pending numeral is exactly as big as the value its template stands for", arguments: [
+        PendingCase(template: "0:00", value: "7:48", gap: 7, width: 125),
+        PendingCase(template: "00:00", value: "12:34", gap: 7, width: 165),
+        PendingCase(template: "0:00", value: "7:48", gap: 8, width: 128),
+        PendingCase(template: "00", value: "84", gap: 8, width: 74),
+        PendingCase(template: "00", value: "84", gap: 7, width: 73),
+        PendingCase(template: "000", value: "100", gap: 8, width: 115),
+        PendingCase(template: "0.0", value: "1.2", gap: 7, width: 85),
+        PendingCase(template: "00.0", value: "12.4", gap: 7, width: 125),
+    ])
+    func pendingMatchesTheValue(_ c: PendingCase) {
+        let pending = DotNumeral.size(of: nil, placeholder: c.template, glyphGap: c.gap)
+        #expect(pending == DotNumeral.size(of: c.value, glyphGap: c.gap))
+        #expect(pending == CGSize(width: c.width, height: 47))
+    }
+
+    @Test("Sleep's pending \"0:00\" at gap 7 is 125 × 47, the width of \"7:48\" (the row no longer jumps)")
+    func pendingSleepIsAsWideAsTheTime() {
+        #expect(DotNumeral.size(of: nil, placeholder: "0:00", glyphGap: 7) == CGSize(width: 125, height: 47))
+        #expect(DotNumeral.size(of: "7:48", glyphGap: 7) == CGSize(width: 125, height: 47))
+        // The default template is still the two-digit score.
+        #expect(DotNumeral.size(of: nil, glyphGap: 7) == CGSize(width: 73, height: 47))
+    }
+
+    @Test("A pending \"0:00\" lights nothing: every cell of the three digits and the colon is unlit")
+    func pendingTemplateCells() throws {
+        let cells = try #require(DotNumeral.cells(nil, placeholder: "0:00", glyphGap: 7))
+        #expect(cells.lit.isEmpty)
+        // Three digits of 35 cells and the colon's 7.
+        #expect(cells.unlit.count == 35 * 3 + 7)
+        // The colon column is drawn, unlit: x₀ = 33 + 7 = 40, so its centre is x 42.5 on all seven rows.
+        let colon = cells.unlit.filter { $0.x > 39 && $0.x < 46 }
+        #expect(colon.count == 7 && colon.allSatisfy { $0.x == 42.5 }, "\(colon)")
+        #expect(colon.map(\.y) == (0..<7).map { CGFloat($0) * 7 + 2.5 })
+        #expect(cells.size == CGSize(width: 125, height: 47))
+    }
+
+    @Test("DotGlyphs.pendingGlyphs(for:) is one blank glyph per character in the table, with the table's width")
+    func pendingGlyphsFromTheTemplate() {
+        let glyphs = DotGlyphs.pendingGlyphs(for: "0:00")
+        #expect(glyphs.map(\.width) == [5, 1, 5, 5])
+        for glyph in glyphs { #expect(glyph.rows == Array(repeating: 0, count: 7), "\(glyph)") }
+        #expect(DotGlyphs.pendingGlyphs(for: "0.0,0").map(\.width) == [5, 1, 5, 1, 5])
+    }
+
+    @Test("pendingGlyphs drops characters outside the table; nothing left is one blank 5-wide cell", arguments: [
+        ("0h:0", [5, 1, 5]), ("h0", [5]), (" 0 0 ", [5, 5]), ("−0", [5]), ("٣", [5]),     // an Arabic-Indic digit is not in the table
+        ("", [5]), ("h", [5]), ("   ", [5]), ("--", [5]), ("–:––", [1]),
+    ] as [(String, [Int])])
+    func pendingGlyphsDropsTheRest(_ template: String, _ widths: [Int]) {
+        let glyphs = DotGlyphs.pendingGlyphs(for: template)
+        #expect(glyphs.map(\.width) == widths, "\"\(template)\"")
+        #expect(glyphs.allSatisfy { $0.rows == Array(repeating: 0, count: 7) })
+    }
+
+    @Test("An empty result is the shared blank digit cell")
+    func emptyTemplateIsThePlaceholder() {
+        #expect(DotGlyphs.pendingGlyphs(for: "") == [DotGlyphs.placeholder])
+        #expect(DotGlyphs.placeholder.width == 5 && DotGlyphs.placeholder.rows == Array(repeating: 0, count: 7))
+    }
+
+    @Test("The Light fallback's pending text: digits become dashes, separators stay, and it is never empty", arguments: [
+        ("0:00", "–:––"), ("00", "––"), ("", "–"), ("0h:0", "–:–"), ("0", "–"), ("00.0", "––.–"), ("0,0", "–,–"),
+        ("h", "–"), ("  ", "–"), ("7:48", "–:––"), (":", ":"),
+    ])
+    func pendingText(_ template: String, _ text: String) {
+        #expect(DotNumeral.pendingText(for: template) == text, "\"\(template)\"")
+    }
 }
