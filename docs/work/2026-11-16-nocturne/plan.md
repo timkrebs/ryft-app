@@ -50,12 +50,54 @@ Verify: code-reviewer and ui-validator (dark, en, AX3, icon at 60 and 40 px), in
 No security-privacy-reviewer: the only Info.plist changes are a font entry and the interface style, with no
 auth, data or network.
 
-### PR 2 — `design: dot numeral, ruler, glow tile`
+### PR 2 — `design: dot numeral, ruler, glow tile` (branch `feat/nocturne-components`)
 `DotNumeral` (5×7, dots 5 pt, gap 2 pt; falls back to Light digits from AX1), `RulerScale` (band zone, Volt
 needle), `GlowTile` (§2 gradient, flat `surface` + 2-pt metric border under Reduce Transparency), `DotRow`,
 `TickRow` (zones), pill and circle buttons. Catalog entries and tests: the digit matrix, luminance under text in
-the glow core (§6). ui-designer specs, then ios-developer. test-engineer writes the tests from the criteria in
-parallel.
+the glow core (§6).
+
+| Ticket | Owner | Files |
+|---|---|---|
+| T2.1 Component spec: API, geometry, states, accessibility, glyph table | ui-designer | `design.md` §PR 2 |
+| T2.2 Components, previews, catalog entries | ios-developer | new files in `Ryft/Design/`, `DebugComponentCatalog.swift` |
+| T2.3 Tests from the criteria below | test-engineer | new files in `RyftTests/` |
+
+T2.2 and T2.3 run one after the other in the same worktree, because both need builds. No screen uses the components
+before PRs 4 and 5.
+
+**Measurements from the canvas boards** (390 pt wide; CSS px = pt):
+
+| Component | Values |
+|---|---|
+| DotNumeral | Glyphs are 5 × 7 dots; `:` and `.` are 1 × 7 (`:` lights rows 3 and 5, `.` lights row 7). Dots are 5 pt with a 2 pt gap, so a digit is 33 × 47 pt. Glyph gap is 8 pt (Today) or 7 pt (Sleep, Strain). On `textPrimary`, off `textPrimary` at 10 %. Matrices in the boards: `1` 00100 01100 00100 00100 00100 00100 01110 · `2` 01110 10001 00001 00010 00100 01000 11111 · `4` 00010 00110 01010 10010 11111 00010 00010 · `7` 11111 00001 00010 00100 01000 01000 01000 · `8` 01110 10001 10001 01110 10001 10001 01110. One accessibility element: "Readiness 84 of 100", "7 hours 48 minutes asleep", "Strain 12.4 of 21". |
+| RulerScale | 36 pt high. A tick row of 22 pt under 8 pt of top padding, ticks spread edge to edge: Today 61 (0–100), Sleep 61 (0–10 h), Strain 64 (0–21). Outside the zone: 1 × 8 pt, `textPrimary` at 22 %. Inside: 1.5 × 14 pt in `textPrimary` at 55 % (Today "high" ≥ 67), sleep at 85 % (need 7.5–8.3 h) or strain at 95 % (target 10–14). Needle: a Volt triangle 12 wide × 8 high pointing down at the top, then a 1.5 × 20 pt line, at the value. Labels below in 11 pt `textTertiary`: "0 · low · moderate · high · 100", "0 h · need 8:18 · 10 h", "0 · target 10–14 · 21". Compact variant inside the strain glow tile on Today: 43 ticks; zone ticks 1.5 × 12 at 60 %, others 1 × 7 at 26 %, needle line 16 pt. |
+| GlowTile | Fill = the metric colour, under a radial overlay of `background`: 97 % at the centre, 92 % at 34 %, 55 % at 68 %, 10 % at the edge. Ellipse 85–90 % wide × 80–110 % high, centred at 50 % / 50–55 %. Radius 24 (Today 2-up tiles, 124 high) or 28 (Sleep and Strain hero tiles, 168–176 high); padding 14 top, 16 sides; no shadow, no border. Labels in it are 13 pt at 78 %. |
+| DotRow | Dots are 6 pt with a 4 pt gap. Full = `textPrimary`, missed = 1 pt outline at 50 %, today = signal. |
+| TickRow | Heart-rate zones: 5 rows, 9 pt apart. Each row: label 12 pt at 62 % (74 pt wide), 30 ticks of 3 × 12 pt with radius 1.5 and a 3 pt gap (lit `textPrimary`, unlit 12 %), value 12 pt with tabular digits (40 pt wide, trailing). Lit ticks = round(minutes / scale max × 30). |
+| CircleButton | 40 pt circle with a 1 pt border in `textPrimary` at 16 %, no fill; icon 14 pt, stroke 1.3, `textPrimary` (disabled 35 %). Hit target 44. |
+| PillButton | 52 pt high, radius 26. **Primary:** `textPrimary` fill, 15 pt Medium text in `background`, with a 40 pt `background` circle on the trailing side holding a `textPrimary` icon (padding 20 leading, 6 trailing). **Secondary:** outline 1 pt at 20 %, 15 pt `textPrimary`, padding 22. |
+
+**Acceptance criteria**
+1. `DotNumeral`:
+   - Draws `0`–`9`, `:`, `.` and `,` (region decimal separators) from a pinned glyph table, with the sizes above. It is drawn as shapes, not a font.
+   - One accessibility element, with a label the caller provides.
+   - At AX1 and above, and with `style: .light`, it renders Light digits (52 pt at the default size). Any character outside the table falls back the same way.
+2. `RulerScale`:
+   - Takes the range, value, zone, zone tint, tick count and labels. The value is clamped and the needle is Volt.
+   - Has a regular and a compact size.
+   - Is one accessibility element whose sentence carries the value, the band word and the range (§6: never colour alone).
+3. `GlowTile`:
+   - Takes the metric colour, draws the §2 gradient, and comes in radius 24 or 28.
+   - Its content sits in the dark core. A test proves `textPrimary`, and 13 pt labels at 78 %, reach ≥ 4.5:1 over the core for all three metric colours.
+   - Under Reduce Transparency it draws flat `surface` with a 2 pt border in the metric colour.
+4. `DotRow` and `TickRow` render as measured above and expose a summary accessibility label from the caller.
+5. Buttons:
+   - `CircleButton` has a hit target of at least 44 pt.
+   - `PillButton` primary and secondary have disabled states and grow with Dynamic Type without clipping at AX3.
+6. Every component has a dark `#Preview` at default size and AX3, and an entry in `DebugComponentCatalog`.
+7. Zero warnings, Unit plan and `make lint` green. No user-facing strings inside the components beyond what callers pass in.
+
+Verify: ui-validator (the catalog and previews against the measurements, AX3, Reduce Transparency) and code-reviewer.
 
 ### PR 3 — `design: orbit gauge v3 and launch`
 §3 rendering without model changes. ios-architect design note first, because the launch sequence is a state
@@ -66,6 +108,16 @@ launch, because the sequence is on the cold start path.
 ### PR 4 — `today and sleep in nocturne`; PR 5 — `strain, insights, profile in nocturne`
 The §4 screens; the new tab bar is in PR 5. Missing data (the Insights hint, among others) comes from MockData
 placeholders plus `docs/API_REQUESTS.md`. localization-editor for the new copy. ui-validator against each board.
+Carried over from the PR 2 review (`review.md` rows 4, 9–13 and 17):
+- `DotRow`: `today` is the trailing mark, and the caller's summary names it (position is the non-colour cue).
+- Glow tiles wider than 350 pt or taller than 176 pt in recovery (Insights "An idea") set labels in full `textPrimary`;
+  `paddedRectContrast` is extended to each concrete tile.
+- Build zones from server data with `RulerScale.zone(lo:hi:)`, never `lo...hi`.
+- Sleep's pending numeral passes `placeholder: "0:00"`, so the row keeps its width.
+- The heart-rate zone block (five `TickRow`s) keeps one tick column: measure the longest label and stack all rows
+  together if it is wider than 74 pt. `TickRow` has no hook for that yet: PR 5 adds one (e.g. `stacked: Bool` or an
+  environment value), because each row's own `ViewThatFits` picks one line whenever that row fits. At AX3 the stacked ticks stay 177 pt wide, left-aligned: decide whether they span the width.
+- The glow edge brightness (P2-D1) is open for the user: the PR 2 body shows the alternative.
 
 ## Risks
 - **The string catalog.** A local Xcode build re-serialised it in the user's checkout (8.7k lines, uncommitted on

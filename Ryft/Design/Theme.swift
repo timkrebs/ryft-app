@@ -112,6 +112,23 @@ enum Theme {
         static let screenPadding: CGFloat = 20
         static let sectionSpacing: CGFloat = 24
         static let hairline: CGFloat = 1
+
+        // Nocturne form (brief §2 "Form", design.md §P2-8). Additive: PRs 4–5 move the callers of the radii above.
+
+        /// Neutral tiles and lists on `surface`.
+        static let neutralTileRadius: CGFloat = 22
+        /// Today's 2-up glow tiles (`GlowTileSpec.Radius.tile`).
+        static let glowTileRadius: CGFloat = 24
+        /// The Sleep and Strain hero glow tiles (`GlowTileSpec.Radius.hero`).
+        static let heroTileRadius: CGFloat = 28
+        /// The diameter of a circle button (`CircleButton`).
+        static let circleButton: CGFloat = 40
+        /// The smallest tap target (HIG, brief §6): a 40 pt circle sits in a 44 pt box.
+        static let minHitTarget: CGFloat = 44
+        /// The minimum height of a pill button (`PillButton`); its ends are round (radius 26).
+        static let pillHeight: CGFloat = 52
+        /// The gap between items in a row or a stack (§2 "Abstand 12").
+        static let itemSpacing: CGFloat = 12
     }
 
     // MARK: motion
