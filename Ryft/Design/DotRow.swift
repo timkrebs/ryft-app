@@ -5,6 +5,9 @@ import SwiftUI
 /// Dots of 6 pt with a 4 pt gap, in one row. One accessibility element: the caller's summary ("Slept enough on 5 of
 /// the last 7 nights; tonight is marked"), which names today because Volt and `textPrimary` have the same luminance.
 struct DotRow: View {
+    /// `today` differs from `full` only by hue (Volt against `textPrimary`, the same size, shape and luminance). Its
+    /// non-colour cue is position (brief §6): `today` is always the trailing mark, so the caller puts it last, and the
+    /// caller's accessibility summary must name today.
     enum Mark { case full, missed, today }
 
     /// Dot diameter, the gap between dots, the missed dot's outline (`textPrimary` at 50 %, 1 pt).
