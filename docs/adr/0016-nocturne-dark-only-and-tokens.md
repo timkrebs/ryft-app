@@ -1,14 +1,15 @@
 # 0016 — Nocturne: dark-only, one value per token, the wordmark icon
 
 - Status: accepted (2026-11-16, Nocturne PR 1 `design: nocturne tokens, type and icon`; `docs/work/2026-11-16-nocturne/brief.md`
-  §1, §2, §6, `plan.md` D1–D7, `design.md` §PR 1), with one open item (Open, below)
+  §1, §2, §6, `plan.md` D1–D7, `design.md` §PR 1)
 - Deciders: Tim Krebs (NOCTURNE_STYLE v0.2, approved 2026-11-16); ios-lead (D1–D7), on ui-designer's token table; recorded by
   ios-architect
 - Applies to: every colour set in `Ryft/Assets.xcassets` and `RyftWidgets/Assets.xcassets`, `Ryft/Design/Theme.swift`,
   `Ryft/Design/Typography.swift`, `Ryft/Design/RyftHeader.swift` (`Wordmark`, `WordmarkLockup`), `Shared/OrbitGaugePalette.swift`,
   `RyftWidgets/RyftWidgets.swift` (`Brand`), `RyftWidgets/ReadinessWidget.swift`, `Ryft/Info.plist` (`UIUserInterfaceStyle`,
   `UIAppFonts`), `Ryft/App/RyftApp.swift`, `Ryft/App/Settings.swift`, `Ryft/Features/Profile/ProfileView.swift` (the appearance
-  picker), `Ryft/Features/Profile/LicensesView.swift`, `scripts/render-icon.swift`, `scripts/icon-spec.swift`, `scripts/mark-svg.swift`,
+  picker, the report form's prompt), `Ryft/Features/Strain/StrainComponents.swift` (the strain pill's placeholder),
+  `Ryft/Features/Profile/LicensesView.swift`, `scripts/render-icon.swift`, `scripts/icon-spec.swift`, `scripts/mark-svg.swift`,
   `scripts/fetch-fonts.sh`, `Makefile`, `CLAUDE.md` (the preview rule), `RyftTests/NocturneTokenTests.swift`
 
 ## Context
@@ -153,17 +154,29 @@
   - No colour fixes this. For 48 % to reach 4.5:1, the fill would have to be under 5 % ink, which is 1.02:1 on `surface` and no
     longer raised.
   - Before PR 1 the pair was 4.40:1, already short.
+  - PR 1 applies it at the two places that broke it. The strain pill's placeholder when there is no strain
+    (`StrainComponents.swift`) and the report form's prompt "What happened? What did you expect?" (`ProfileView.swift`) are
+    now `textSecondary`, 5.50:1.
+  - `NocturneTokenTests.raisedFillsCarryPrimaryAndSecondaryText` pins it: `surfaceRaised` is opaque, `textPrimary` and
+    `textSecondary` reach 4.5:1 on it, and `textTertiary` stays under 4.5:1 there but reaches 3:1, so it may still be a glyph.
+  - Four places put a `textTertiary` glyph on a raised fill. Graphics need 3:1, and these get 3.94:
+    - `SourceBadge` (decorative, beside the name);
+    - `MyDayRow` (missing sleep);
+    - `ExerciseCard.checkFill` (the List layout's unchecked set);
+    - Profile's disabled circle button (exempt).
+  - The List layout's empty set field (`textTertiary` at 70 % on the fill at 55 %) is faint on purpose and predates Nocturne.
 - **The value is derived but stored as a literal**, because an asset catalog cannot compute. The pin keeps it derived:
   `NocturneTokenTests` pins it as `over(rgba(ink, 0.16), rgba(0x0A0C0B))`, so a change to `background` that leaves `SurfaceRaised`
   alone fails.
 - **Once PR 3 draws the orbit's tracks from `textPrimary.opacity(…)`, `SurfaceRaised` is a fill.** Until their own PRs, it also stays
   the track of `ScoreRing`, `MetricGauge` and the bars (`RangeBar`, `ZoneBar`, `StageBar`).
-- **What changes in PR 1:**
-  - Both `SurfaceRaised.colorset/Contents.json` files (app and widget, identical) take `0x2F 0x31 0x2F` at alpha `1.000`.
-  - The token pin becomes the composite.
-  - `Theme.surfaceRaised`'s doc comment says opaque.
-  - The re-pinned gauge and `FocusedPolishTests` composite the track over its ground. Compositing an opaque colour changes nothing,
-    so those tests stay as they are and print the same numbers.
+- **What PR 1 ships:**
+  - Both `SurfaceRaised.colorset/Contents.json` files (app and widget, identical) carry `0x2F 0x31 0x2F` at alpha `1.000`.
+  - The token pin is the composite, and `Theme.surfaceRaised`'s doc comment says opaque.
+  - No test composites the track or a fill over a ground. The gauge tests and `FocusedPolishTests` read `surfaceRaised` as it
+    resolves, which is right only because the token is opaque.
+  - The one guard is the alpha check in `raisedFillsCarryPrimaryAndSecondaryText`. If the set turns translucent again, that check
+    fails; the other ratios would otherwise go wrong silently.
 
 ### 3. Typography
 
@@ -174,8 +187,12 @@
   - `LicensesView`'s Satoshi entry, which now names the four weights.
 
   It is the same family under the same licence as the existing entry, the ITF Free Font License (Indian Type Foundry, via
-  Fontshare). There is no new licence entry and no new dependency. The files stay git-ignored. Without them, previews and CI fall
-  back to SF Pro Rounded Light.
+  Fontshare). There is no new licence entry and no new dependency. The files stay git-ignored.
+- **CI has the fonts.** `.github/actions/setup/action.yml` runs `make fonts` for the test, CodeQL and TestFlight jobs. Only the
+  Lint job has none, and lint does not need them.
+- **The gap is a local or agent run without `make fonts`.** It falls back to SF Pro Rounded, and that fallback takes the system
+  text style's size, not the role's (the `.system(textStyle, …)` branch of `Font.ryft` in `Typography.swift`). `metric`, for
+  example, is drawn at 22 pt instead of 26. That is a follow-up, not part of this PR.
 - **Weights and digits.** Titles and numbers are Light, text is Regular, and buttons and row titles are Medium. Every `Font.ryft`
   and `Font.ryftNumber` is `.monospacedDigit()`.
 - **The scale moves each role only to the nearest end of its §2 range:**
@@ -189,11 +206,15 @@
   | `headline` | 18 | 17 |
   | `axis` | 10 | 11 |
   | `label` | 11 | 13 |
+  | `wordmark` | 17 | 15 |
 
-  `title` (26), `body` (16) and `caption` (12) were already in range. The new roles `button` (16 Medium) and `tab` (11 Regular)
-  have no callers until PRs 2 and 5.
+  `title` (26), `body` (16) and `caption` (12) were already in range. §2 gives the wordmark no size; 15 pt is its size in the
+  lock-up (the wordmark bullet below, `design.md` §PR 1 → 6). The new roles `button` (16 Medium) and `tab` (11 Regular) have
+  no callers until PRs 2 and 5.
 - **One deviation: `ryftNumber(size:)` without a weight is Light from 20 pt and Regular below** (`RyftFonts.lightFloor`). A Light
   stroke under 20 pt is about one device pixel on `#0A0C0B`. Callers that pass a weight keep it.
+  - The exception is `ExerciseCard`'s set inputs: the kg and reps fields and their read-only values. They pass `weight: .regular`,
+    so they stay Regular at 20 pt and above too (`design.md` D-f).
 - **Labels are sentence case.**
   - `ryftLabelStyle` loses `.textCase(.uppercase)` and `.tracking(2)`. `label` is 13 pt Regular in `textSecondary`.
   - MetricGauge's centre title goes from 9 pt uppercase and tracked to 11 pt sentence case.
@@ -215,41 +236,22 @@
 - **How it is drawn.** `make icon` renders it with CoreText from `Ryft/Resources/Fonts/Satoshi-Light.otf` (git-ignored,
   `make fonts`).
   - It reads both colours from the asset catalog (`Background`, `TextPrimary`), so the icon cannot drift from the tokens.
-  - It never falls back to another face. It exits 1 on any of these: a missing or wrong font, a word under 4.5:1, ink more than
-    half a pixel off centre, or an alpha channel.
+  - It never falls back to another face. It exits 1 on any of these:
+    - a missing or wrong font;
+    - a word under 4.5:1;
+    - an alpha channel;
+    - ink off centre. The ink box is measured on the rendered bitmap, on all four sides, and the left and right (or top and
+      bottom) margins may differ by at most 1 px.
   - It also writes 180, 120, 60 and 40 px versions into `build/icon-preview/` for review.
-- **The PNGs are committed.** CI has no font and does not render.
+- **The PNGs are committed.** No CI job runs `make icon`.
 - **`design/ryft-app-icon-{light,dark}.svg` are deleted and no longer generated.**
   - They have no consumer. A grep over `app/` and `plattform/` finds only docs, history and a comment in `scripts/mark-svg.swift`.
-  - Generating them from the wordmark would need either glyph outlines from the git-ignored font in `make lint`, which runs on CI
-    without the font, or a committed outline that could drift from the PNGs.
+  - Generating them from the wordmark would need either glyph outlines from the git-ignored font in `make lint`, whose CI job has no
+    fonts, or a committed outline that could drift from the PNGs.
 - **`design/ryft-mark.svg` stays.** The mark is still the logo, in the header lock-up and the launch (§5).
   - It is still generated from `RyftMarkGeometry` and checked by `make lint` (`check-mark-svg`).
   - `mark-svg.swift` no longer includes `icon-spec.swift`.
   - The old comparison variants (`--ring-span`, `--dots`, `--mono`, `--suffix`) are gone.
-
-## Open
-
-**Two places put `textTertiary` text on a raised fill.** They stay under 4.5:1 whatever `SurfaceRaised` is: 3.94:1 opaque, or
-3.72–3.95:1 translucent. Before PR 1 they were 4.40:1.
-
-| File | What | Fix |
-|---|---|---|
-| `Ryft/Features/Strain/StrainComponents.swift` | the strain pill's placeholder when there is no strain (`strain == nil ? Theme.textTertiary : Theme.accent`) | `Theme.textSecondary` (5.50:1) |
-| `Ryft/Features/Profile/ProfileView.swift` | the report form's prompt "What happened? What did you expect?" | `Theme.textSecondary` (5.50:1) |
-
-- `NocturneTokenTests` gains a contract row: `textPrimary` and `textSecondary` ≥ 4.5:1 on `surfaceRaised`.
-- Owner: ios-lead. The fix belongs in PR 1, which turns a 4.40:1 shortfall into a 3.94:1 one; `ProfileView.swift` is already in
-  T1.2's files. Otherwise it lands with the screens in PR 4 or 5.
-
-**Recorded, but not open:**
-- Four places put a `textTertiary` glyph on a raised fill. Graphics need 3:1 and these get 3.94 (3.72 at worst with the translucent
-  value).
-  - `SourceBadge` (decorative, beside the name);
-  - `MyDayRow` (missing sleep);
-  - `ExerciseCard.checkFill` (the List layout's unchecked set);
-  - Profile's disabled circle button (exempt).
-- The List layout's empty set field (`textTertiary` at 70 % on the fill at 55 %) is faint on purpose and predates Nocturne.
 
 ## Consequences
 
@@ -267,13 +269,15 @@
 - **The gauge tests are re-pinned to dark-only.**
   - `OrbitGaugeContrastTests`, `OrbitGaugeBandTests`, `OrbitGaugeRenderTests`, `OrbitGaugeBandRenderTests`, `OrbitGaugeShotsTests`,
     `OrbitGaugeEntranceTests` and `OrbitEntranceTimelineTests` loop over dark only.
-  - The track is composited over `background` before a ratio.
+  - They read the track as it resolves. Nothing composites it, because the token is opaque (2.5).
   - The light-only expectation is removed (Sleep and Strain pending at 0.6 under 3:1), because the case no longer exists.
   - The thresholds are unchanged (3:1, 4.5:1).
-  - `FocusedPolishTests.theActiveField` composites the field over the row's tint.
-  - Some tests still render a light branch: the `Light:` cases in `FocusedPolishTests`, `FocusedSessionShotsTests`,
-    `HostedAccessibility`, `ImportScreenshotTests` and `FocusedPolishHostedTests`. They pass because light now resolves to the dark
-    values, and T1.2 and PR 5 remove them.
+  - `FocusedPolishTests.theActiveField` reads the field as it resolves, as on `main`.
+- **PR 1 removes the dead light branches.**
+  - These are the light conditions in `FocusedRowInk`, `ExerciseCard.raisedFill` and `SourceBadge`, and the light cases in
+    `FocusedPolishTests`.
+  - Two screenshot suites still write a light variant, `FocusedSessionShotsTests` and `ImportScreenshotTests`. It shows the same
+    dark tokens, and a later PR drops it (PR 5 at the latest, D3).
 - **Text gets larger.** `callout` grows 1 pt at 236 uses and `label` goes from 11 to 13 pt, so more text wraps at accessibility
   sizes. The AX3 previews and tests were run.
 - **On `surface`, the raised fill is a little quieter.** It is 1.40:1 instead of the translucent value's 1.56:1, so chips inside a card
@@ -286,8 +290,9 @@
   `textTertiary`.
 - **Light below 20 pt.** A caller that passes `.light` under `lightFloor` gets it anyway. Review check.
 - **Signal as text.** No contrast test fails on it (17:1). Review check: no `Theme.signal` as a text foreground.
-- **The fonts are local.** CI previews and shots show SF Pro Rounded, not Satoshi. `make archive` refuses to run without all four
-  weights, and `make icon` without Light.
+- **A run without the fonts looks different.** A local or agent run without `make fonts` draws SF Pro Rounded at the system text
+  styles' sizes, not the roles' (3, the follow-up). `make archive` refuses to run without all four weights, and `make icon` without
+  Light.
 - **Not seen yet** (`design.md` §PR 1 → 11): the widget on a device in system-light mode (forced in code), the tinted icon on the Home
   Screen, and the App Store's icon mask.
 - **An appearance option later** would split every set again and double every pin. If it comes back, it gets its own ADR rather
