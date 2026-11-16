@@ -74,6 +74,7 @@ Store "What's New".
   dots, and the score in dot numerals on large gauges. The widget draws the same gauge.
 - A short launch animation on a cold start: the gauge folds into the RYFT mark. Tap to skip; it doesn't play when you
   return to the app within ten minutes, and Reduce Motion or VoiceOver show the still mark instead.
+- RYFT's tagline is now "Engineered for peak.", on the launch, Welcome and About.
 - A new app icon and RYFT mark: three orbits, three moons.
 - Today's readiness is now the RYFT orbit: readiness in the centre, Recovery and Sleep on the inner ring, Strain on
   the outer. The readiness widget on the home and lock screen draws the same orbit.
