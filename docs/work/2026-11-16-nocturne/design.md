@@ -16,7 +16,7 @@ Mixed look on `main` until PR 5 is accepted (D5).
 | T1 | **One value per colour set, no appearances.** Every `Contents.json` has a single `universal` entry. | Dark-only (§1, D6). A light/dark split would be dead data, and `check-shared-types.py` compares whole files, so one shape keeps the two catalogs trivially equal. |
 | T2 | **Asset names stay.** `Accent` becomes the recovery teal. `Theme.recovery` is added as an alias of `Color("Accent")`; no `MetricRecovery` set. | No renames in PR 1. A second set for the same colour could drift. The alias lets PRs 2–5 write `recovery`, `metricSleep`, `metricStrain` as the legend. Callers of `accent` keep working: "one accent per screen" and "recovery" are the same teal. |
 | T3 | **Legacy tokens are remapped, not removed.** Graphite, Mist, Slate and Teal take the Nocturne values of `background`, `textPrimary`, `surface`, `accent`. Sage and AccentSecondary keep their dark value. Nothing is deleted. | `Theme.graphite` (PlatformConfig, RestTimerView), `Theme.mist`/`sage` (RestTimerView) and `Color("…")` names in `Shared/` are still used. Remapping removes the old cooler greys without touching call sites. |
-| T4 | **The track is one token at 16 %.** `SurfaceRaised` = `#F2F1EC` @ 16 %. | §2 gives 7–16 %; the mock-up uses 16 % outer, 7 % middle, 13 % inner. Until PR 3 the gauge has one track. 16 % on `background` is 1.49:1, the old opaque `#263137` was 1.5:1, so today's gauge keeps its weight. PR 3 draws the 7 % and 13 % rings from `textPrimary.opacity(…)`. |
+| T4 | **The track is one opaque token: `SurfaceRaised` = `#2F312F`, the 16 % track (`#F2F1EC`) composited over `background`.** | §2 gives 7–16 %; the mock-up uses 16 % outer, 7 % middle, 13 % inner. Until PR 3 the gauge has one track. `SurfaceRaised` has two jobs, track and fill behind content (27 of its 34 references are fills); opaque, it is the same pixel on every ground, so a fill's text contrast belongs to the token. 1.50:1 on `background` (1.49 for the exact 16 % composite before 8-bit rounding), the old opaque `#263137` was 1.45:1, so today's gauge keeps its weight. A translucent value (my first one) made every fill depend on what is underneath (ADR 0016 §2.5). PR 3 draws the 7 % and 13 % rings from `textPrimary.opacity(…)`. **Rule: a raised fill carries `textPrimary` or `textSecondary`, never `textTertiary`.** The catalog stores a literal; `NocturneTokenTests` pins it as `over(rgba(ink, 0.16), rgba(0x0A0C0B))`, so a change to `background` fails the test. |
 | T5 | **Signal is for marks, never text** (§1). It has a doc comment saying so on `Theme.signal`. `OnSignal` exists for a filled signal dot with a glyph. | Rule from §1. |
 | T6 | **The widget follows.** The widget catalog carries the same values (identical `Contents.json` where `Shared/` names a set), `Signal`/`OnSignal` are added to it for PR 3, and `Brand` in `RyftWidgets.swift` takes the Nocturne hexes and loses its light branch; the Readiness widget forces `.dark`. | D6. Without it a system-light widget would draw the now single-valued dark arcs on a Mist background. |
 | T7 | **Titles and numbers Light, text Regular, buttons and row titles Medium; tabular digits on every style.** | §2. |
@@ -36,7 +36,7 @@ names the sets marked ◆ in both).
 | `TextSecondary` | `#0B0F0E`@60 % / `#E8E7E3`@60 % | `#F2F1EC`@62 % | |
 | `TextTertiary` ◆ | `#0B0F0E`@60 % / `#E8E7E3`@55 % | `#F2F1EC`@**48 %** | Deviation D7, §4. Widget catalog too. |
 | `Separator` | `#0B0F0E`@8 % / `#E8E7E3`@8 % | `#F2F1EC`@8 % | §2 gives 6–8 %; the upper end, the mock-up's. |
-| `SurfaceRaised` (track) ◆ | `#DAD9D4` / `#263137` | `#F2F1EC`@16 % | T4. Widget catalog too. |
+| `SurfaceRaised` (track, raised fill) ◆ | `#DAD9D4` / `#263137` | `#2F312F`, opaque | T4: the 16 % track flattened over `background`. 1.40:1 on `surface`. Widget catalog too. |
 | `Accent` ◆ (recovery) | `#107561` / `#3FD1B4` | `#63D2B4` | §2 `recovery`. `Theme.recovery` aliases it. Widget catalog too. |
 | `MetricSleep` ◆ | `#5B4FC9` / `#8F87F1` | `#9B8AF0` | §2 `sleep`. Widget catalog too. |
 | `MetricStrain` ◆ | `#2E5BBF` / `#5B8DEF` | `#5E8BEA` | §2 `strain`. Widget catalog too. |
@@ -86,8 +86,10 @@ not changed for contrast; see D-b.
 Outside the contract, known: `StageDeep` `#2F55D4` is 3.15:1 on `background` and **2.95:1 on `surface`** (under 3).
 It was this value in both appearances before. The hypnogram is redrawn in PR 4 in the sleep colour; that PR fixes or drops it.
 
-Track and arcs (the gauge's own test prints the numbers): the 16 % track over `background` is 1.49:1; recovery, sleep,
-strain on that track are 7.15, 4.57, 3.98 (alert 4.09, warning 7.60), all over 3:1.
+Track and raised fill, `SurfaceRaised` `#2F312F` (the gauge's own test prints the arc numbers): 1.50:1 on `background`, 1.40:1 on
+`surface`. On it: `textPrimary` 11.60, `textSecondary` 5.50 (both ≥ 4.5), **`textTertiary` 3.94 (under 4.5)**; recovery, sleep, strain
+arcs 7.12, 4.55, 3.97 and alert, warning 4.07, 7.58, all over 3:1. Hence the rule in T4: no `textTertiary` text on a raised fill.
+Glyphs and outlines in `textTertiary` on it pass as graphics (3:1).
 
 ### 4. Deviations
 
@@ -95,7 +97,7 @@ strain on that track are 7.15, 4.57, 3.98 (alert 4.09, warning 7.60), all over 3
 |---|---|---|---|
 | D-a | §2 `textTertiary` @45 % (plan D7) | **@48 %** | 45 % is 4.12:1 on `background` and 4.13:1 on `surface`: under 4.5 for 11–12 pt. The step ratio is 4.26 at 46 %, 4.40 at 47 %, **4.54 at 48 %** (both grounds), so 48 % is the lowest whole percent that passes on both. A ±1/255 rounding of the composite moves the ratio by about 0.04, so 48 % has a small margin; do not go below it. Today's catalog had 55 % dark, so the secondary-to-tertiary step is still deliberate but smaller than the mock-up's. |
 | D-b | §2 "the three metric colours are today's ring colours, slightly desaturated; check against the assets and change only where contrast or consistency demands" | The mock-up's hexes `#63D2B4`, `#9B8AF0`, `#5E8BEA` (Δ to today's dark: teal +36 R, +1 G, 0 B; sleep +12 R, +3 G, −1 B; strain +3 R, −2 G, −5 B) | Not forced by contrast (today's pass 6+). Taken for consistency with the approved canvas, which is what the screens and the icon are measured against. If the lead wants today's values back, change the three `Contents.json` and the pins in `NocturneTokenTests`; nothing else depends on them. |
-| D-c | §2 `track` @7–16 % | one token @16 % | T4. 7 % and 13 % come in PR 3. |
+| D-c | §2 `track` @7–16 % | one opaque token, `#2F312F` (16 % over `background`) | T4. Opaque rather than alpha so fills behind text have one contrast on every ground; the pixel on the screen is the same as §2's 16 % track. 7 % and 13 % come in PR 3. |
 | D-d | §2 `separator` @6–8 % | @8 % | The mock-up's. |
 | D-e | §2 "Tile value 26–34", "Body 15–17", "Caption/scale 11–12": the sizes of the roles | `callout` 14 → 15, `metric` 22 → 26, `numberLarge` 40 → 34, `display` 56 → 52, `headline` 18 → 17, `axis` 10 → 11, `label` 11 → 13 | Each moved only as far as the nearest end of its §2 range. `callout` is used 236 times and grows 1 pt; the AX3 previews and tests were run. `display` 52 is §3's "Light digits 52 pt". |
 | D-f | §2 "numbers Light" | `ryftNumber(size:)` without a weight: Light from 20 pt, Regular below (`RyftFonts.lightFloor`) | Light strokes under 20 pt on `#0A0C0B` are about one device pixel: the 9–19 pt scale labels and set inputs stay Regular. Callers that pass a weight keep it. |
@@ -177,24 +179,28 @@ a committed outline that can drift from the PNGs. `design/ryft-mark.svg` stays (
 New: `RyftTests/NocturneTokenTests.swift` (token values ±1/255 and alpha, appearance independence, the legend, text ≥ 4.5:1 and
 metric/signal ≥ 3:1 on both grounds, the 45 → 48 % derivation, the type scale, `Satoshi-Light` in `UIAppFonts`).
 
-Re-pinned (reasons are the colour and appearance change only; no assertion is weakened otherwise):
+Re-pinned (reasons are the appearance change only; no assertion is weakened otherwise). `SurfaceRaised` is opaque, so no test needs to
+composite the track over a ground:
 
 | Test | Change | Reason |
 |---|---|---|
-| `OrbitGaugeContrastTests` | Dark only; the track is composited over `background` before the ratio; the light-only expectation (Sleep/Strain at 0.6 under 3:1) is removed | The track is `#F2F1EC` @ 16 %: its raw RGB is near-white, its pixel is `#2F312F`. There is no light scheme. Thresholds unchanged (3:1, 4.5:1). Numbers now: recovery 7.15, sleep 4.57, strain 3.98, alert 4.09, warning 7.60 on the track; track on `background` 1.49. |
-| `OrbitGaugeBandTests` | Dark only; the past-band track composited over `background` | Same. |
-| `OrbitGaugeRenderTests` | Dark only; `rgb()` flattens a translucent token over `Theme.background` (what `render` draws on) | Pixel expectations (nearest-colour classes, tolerances 0.04/0.06) unchanged; the expected track pixel is now the flattened colour. |
-| `OrbitGaugeBandRenderTests`, `OrbitGaugeShotsTests`, `OrbitGaugeEntranceTests`, `OrbitEntranceTimelineTests` | Scheme loops dark only | There is no second appearance; the "light" shots were the same colours. |
-| `FocusedPolishTests.theActiveField` | The field is `surfaceRaised` over the row's tint, as drawn | `surfaceRaised` is translucent; before it was an opaque `#263137`. Threshold unchanged (4.5:1) and met. |
+| `OrbitGaugeContrastTests`, `OrbitGaugeBandTests` | Dark only; the light-only expectation (Sleep/Strain at 0.6 under 3:1) is removed | There is no light scheme. Thresholds unchanged (3:1, 4.5:1). The 16 % track pixel is `#2F312F`: recovery, sleep, strain 7.12, 4.55, 3.97 on it. |
+| `OrbitGaugeRenderTests`, `OrbitGaugeBandRenderTests`, `OrbitGaugeShotsTests`, `OrbitGaugeEntranceTests`, `OrbitEntranceTimelineTests` | Scheme loops dark only | There is no second appearance; the "light" shots were the same colours. Pixel expectations unchanged. |
+
+`NocturneTokenTests` pins `surfaceRaised` as `over(rgba(ink, 0.16), rgba(0x0A0C0B))` and has a contract row: `textPrimary` and
+`textSecondary` ≥ 4.5:1 on it (and `textTertiary` under 4.5 and over 3, the reason for the rule).
 
 Not changed: the `Light:` tests in `FocusedPolishTests`, and the screenshot tests that render a light variant (`FocusedSessionShotsTests`,
 `HostedAccessibility`, `ImportScreenshotTests`, `FocusedPolishHostedTests`). They pass (light now resolves to the same dark tokens);
 removing the light branches is T1.2's and PR 5's.
 
-Consequence of the translucent `SurfaceRaised`, for ui-validator: 35 call sites use it as a fill behind text (chips, capsules, pills,
-toasts, the segment control). It is now `#2F312F` on `background` and `#363836` on `surface`, close to the old `#263137` in brightness but
-neutral instead of blue-grey. `textSecondary` on it stays above 4.5:1; `textTertiary` on it is about 3.7:1, which the contract does not
-cover (text tokens are measured on `background` and `surface`). A raised pill should not carry tertiary text.
+`textTertiary` on a raised fill (the rule in T4), rechecked against `#2F312F`:
+- **Text, changed to `textSecondary` (5.50:1; `textTertiary` was 3.94:1 there, 4.40:1 before PR 1):** the strain pill's empty
+  placeholder (`StrainComponents.swift`, `StrainPill`) and the report form's prompt (`ProfileView.swift`, "What happened? …").
+- **Glyphs and outlines, cleared as graphics at 3:1 (3.94:1):** the radio circle in `Card.swift`'s selectable row, `SourceBadge`'s
+  glyph (decorative), `MyDayRow`'s missing-sleep icon (hidden from VoiceOver), `ExerciseCard`'s unchecked-set mark, `ProfileView`'s
+  disabled stepper glyph (a disabled control is exempt anyway).
+- Fields and other raised fills that carry `textPrimary` or `textSecondary` are above 4.5:1 by the contract row.
 
 `RyftTests/NocturneShotsTests.swift` writes the board (swatches, type scale, wordmark lock-up at default size and AX3) into
 `NOCTURNE_SHOTS_DIR` when `TEST_RUNNER_NOCTURNE_SHOTS_DIR` is set; otherwise it does nothing.
