@@ -108,11 +108,14 @@ launch, because the sequence is on the cold start path.
 ### PR 4 — `today and sleep in nocturne`; PR 5 — `strain, insights, profile in nocturne`
 The §4 screens; the new tab bar is in PR 5. Missing data (the Insights hint, among others) comes from MockData
 placeholders plus `docs/API_REQUESTS.md`. localization-editor for the new copy. ui-validator against each board.
-Carried over from the PR 2 review (`review.md` rows 9–13):
+Carried over from the PR 2 review (`review.md` rows 4, 9–13 and 17):
 - `DotRow`: `today` is the trailing mark, and the caller's summary names it (position is the non-colour cue).
 - Glow tiles wider than 350 pt or taller than 176 pt in recovery (Insights "An idea") set labels in full `textPrimary`;
   `paddedRectContrast` is extended to each concrete tile.
 - Build zones from server data with `RulerScale.zone(lo:hi:)`, never `lo...hi`.
+- Sleep's pending numeral passes `placeholder: "0:00"`, so the row keeps its width.
+- The heart-rate zone block (five `TickRow`s) keeps one tick column: measure the longest label and stack all rows
+  together if it is wider than 74 pt. At AX3 the stacked ticks stay 177 pt wide, left-aligned: decide whether they span the width.
 - The glow edge brightness (P2-D1) is open for the user: the PR 2 body shows the alternative.
 
 ## Risks

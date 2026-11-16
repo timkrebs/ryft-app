@@ -53,8 +53,19 @@ measured value matches the plan's table.
 Not checked: AX1 itself (the catalog offers XS, L and AX3; AX3 shows the fallback), Reduce Motion with a moving
 needle, pressed states, VoiceOver focus order, wide devices (440 pt), anything on a device.
 
-**Fix round (884a9a8…6949eaf):** rows 1 and 3–10 are fixed as decided; row 2 is done in `design.md` (P2-D6 to P2-D13).
-The compact edge labels went from 3.13–3.44:1 to 5.52–6.32:1 (L) and ≥ 7.65:1 (AX3). The Unit plan stays at 2806 green.
+**Fix round (884a9a8…6949eaf):** rows 1, 3–5 and 7–10 are fixed as decided; row 2 is done in `design.md` (P2-D6 to P2-D14).
+The compact edge labels went from 3.68–3.90:1 to 6.99–7.65:1 in the strain tile, and from 3.13–3.44 to 5.52–6.32 in a
+recovery tile (worst case), at L; ≥ 7.65 at AX3. The Unit plan stays at 2806 green.
+
+**Re-review of the fix round (code-reviewer, 95d7260..fe1be90):**
+
+| # | Finding | Decision |
+|---|---|---|
+| 17 | Blocking: row 6 isn't met. A mid-length `TickRow` label (about 75–120 pt) stays on one line and is drawn over the ticks, because the value column takes the space first. | `layoutPriority(1)` on the label column: the label widens its own column instead of overlapping, and the row stacks only when it no longer fits. A block that must keep one tick column decides stacking for all rows (PR 5). Render test with a ~100 pt label in a 361 pt row. |
+| 18 | `design.md` gave `[31]` for `(61, 0...100, 50.5...51)`; the code gives `[30]`. | Doc fixed (`[30]`; `50.9...51.1` → `[31]`). |
+| 19 | A floating-point tie (25.499999999999996) rounds down, against the documented "tie goes up". | Round `position + 1e-9`. |
+| 20 | `ZoneStyle`'s implicit init lets callers write literals again; `.standard.opacity` reads nil next to `opacity(for:)`. | A private init; the stored value is renamed `fixedOpacity`. |
+| 21 | Doc drift: the DotGlyphs API block, tests 4/9/15, the Large Content Viewer, the contrast figures, plan carry-overs. | Fixed in the docs. |
 Accepted as is: in the Light fallback (AX1+) the pending "–:––" is wider than "7:48" (231 vs 174 pt at AX3), because an
 en dash is wider than a digit; only the dot grid keeps the width. A figure dash (U+2012) would fix it if Satoshi has
 the glyph: follow-up, not PR 2.
