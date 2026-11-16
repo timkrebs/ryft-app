@@ -6,7 +6,8 @@ English only (`chore/english-only`): the app has no German, the catalogs carry n
 
 2026-11-16: Nocturne approved (NOCTURNE_STYLE v0.2, `docs/work/2026-11-16-nocturne/`), five PRs. PR 1 (tokens, type,
 icon, dark-only; ADR 0016) is merged (#112). PR 2 (dot numeral, ruler, glow tile, dot and tick rows, circle and pill
-buttons; in the debug catalog only, no screen uses them yet) is open. PRs 3–5 follow, and `main` shows the new colours on the old layouts until PR 5.
+buttons; in the debug catalog only, no screen uses them yet) is merged (#113). PR 3 (orbit gauge v3, launch sequence;
+ADR 0017) is in progress on `feat/nocturne-gauge`. PRs 4–5 follow, and `main` shows the new colours on the old layouts until PR 5.
 Simulator-verified only: the icon on a device Home Screen and the widget in system-light mode are not checked yet.
 
 ## Focused session screen (`CLAUDE_FOLLOWUP_FOCUSED_SESSION.md`, merged, flag off)

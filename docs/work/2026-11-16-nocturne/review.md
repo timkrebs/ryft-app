@@ -69,3 +69,25 @@ recovery tile (worst case), at L; ≥ 7.65 at AX3. The Unit plan stays at 2806 g
 Accepted as is: in the Light fallback (AX1+) the pending "–:––" is wider than "7:48" (231 vs 174 pt at AX3), because an
 en dash is wider than a digit; only the dot grid keeps the width. A figure dash (U+2012) would fix it if Satoshi has
 the glyph: follow-up, not PR 2.
+
+## PR 3 — gauge v3 and launch
+
+**Code review of gauge v3 (code-reviewer, 9953a8e..79bcfd8).** No blockers. Checked fine: geometry (code angle = board
++ 90°, ±6° / 160°, lit-tick rounding over 0–100, tiers, omitted ticks at the board values), the cut scoping per ring,
+every contrast number recomputed, `Shared/` compiling for the widget, the API additive, the widget `Brand` hexes against
+the app catalog (PR 1 row 13: no drift; `check-shared-types.py` now checks them in `make lint`).
+
+| # | Finding | Decision | Owner |
+|---|---|---|---|
+| 1 | Should fix: the halo-not-clipped test samples at 212.6°, inside the frame square, so a `.clipped()` would pass. | Render strain 10.5 or 21, sample 2 pt outside the frame on the axis, rect guard. | test-engineer |
+| 2 | Should fix: "entrance last frame = static" renders at `end`, which takes the settled branch; the choreography is never drawn. | Render at `end − 1e-4`, plus a pure scene test at `end` and at 0.4 s (no Volt yet, halo = flight). | test-engineer |
+| 3 | Should fix: `design.md` lags the code (centre weight, the "–" placeholder, layer order, caption, entrance Volt fade, `<=`, removals). | P3-10 rows 20–29 and the P3-1 text. | lead |
+| 4 | Nit: pending strain contrast is pinned over the 7 % ring, a pairing never drawn. | Pin 2.34 over the 16 % ticks. | test-engineer |
+| 5 | Nit: by centre distance a whole tick reaches 0.59 pt into a dot's cleared ring (strain 20.3). | Omit by rect distance; sweep test (P3-8 case 7). | ios-developer |
+| 6 | Nit: dead code (`Tracks`/`Marks` inits, palette band colours, `stroke(of:)`'s argument). | Delete. | ios-developer |
+| 7 | Nit: the Light numeral rolls on `quick` while the arcs move on `slow`. | Scope `quick` to the dots. | ios-developer |
+| 8 | Nit: `colorset_rgba` misreads integer components; `without_comments` cuts `"ryft://…"`. | Handle both; re-prove with planted drift. | ios-developer |
+| 9 | Heads-up: dots by size alone would draw "100" over the inner ticks. | Size gate AND width check (row 20). | ios-developer |
+| 10 | Heads-up: the widget track override must not go through `ink`, which the lit ticks use. | A separate optional track colour. | ios-developer |
+
+For PR 4: `GlowTile` clips its content, so a gauge inside one needs ≥ 3 pt inset for the halo.

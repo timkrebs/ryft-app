@@ -698,17 +698,20 @@ Re-pinned in `OrbitGaugeGeometryTests`: `innerInset` 6, the span 160, `recoveryR
   tinted modes. On `background` it is pixel-identical to the board's 3 pt `background` ring.
 - Halo: r 15, the metric colour at 16 %, behind the ring (so only r 10…15 shows). Strain past its band: arc, dot and halo in `alert`.
 - Order, back to front. *Tracks layer* (one `compositingGroup`): outer ticks or ring, middle ring, inner unlit ticks or ring, ring cuts. *Marks layer* (one group, `pendingOpacity`
-  applies to it): band rail, arcs, lit inner ticks, halos, ring cuts, dots, the Volt dot last. Dots are drawn after all cuts, so two close dots never cut each other.
+  applies to it): band rail, arcs, halos, ring cuts, lit inner ticks, dots, the Volt dot last. Dots are drawn after all cuts, so two close dots never cut each other.
+  Ticks are never cut: a tick whose rect comes closer to a dot than its cleared ring is left out (§P3-10 row 23).
 
 **Centre.** In a frame of `centreSlot = 0.86 × 2 × (0.2231 S − tickLength/2)` wide (93.7 pt at 260, 62 at 172, solid tier `arcW/2` instead of `tickLength/2`).
-- Scored with a readiness: `DotNumeral(String(readiness), style: .dots, glyphGap: 8, accessibilityLabel:)` **only when it fits**: `DotNumeral.size(of:).width ≤ centreSlot`.
-  "84" is 74 × 47: dots at S ≥ 205 (so the 260 gauge, not `.large` 172). "100" is 115 wide and never fits: Light. Below that, and at AX1 and up (the numeral's own
-  fallback), and when a caller asks for thin digits: Light `Font.ryftNumber(size: 0.2 × S, weight: .light)`, `textPrimary`, tabular, `lineLimit(1)`,
+- Scored with a readiness: `DotNumeral(String(readiness), style: .dots, glyphGap: 8, accessibilityLabel:)` **only at S ≥ 205 and when it fits**:
+  `DotNumeral.size(of:).width ≤ centreSlot`. The size gate decides the look per gauge, so a single digit at `.large` is Light like "84" (L, row 20).
+  "84" is 74 × 47: dots at 260. "100" is 115 wide and never fits: Light. Below that, and at AX1 and up (the numeral's own
+  fallback), and when a caller asks for thin digits: Light `Font.ryftNumber(size: 0.2 × S)` (ADR 0016's floor: Regular below 20 pt, row 21), `textPrimary`, tabular, `lineLimit(1)`,
   `minimumScaleFactor(0.5)` in the `centreSlot` frame (52 pt at 260). At AX3 `DotNumeral`'s fallback scales to about 78 pt; the slot's minimum scale keeps "100" inside.
 - Calibrating: Light "3" with " / 7" at 55 % size in `textTertiary` (as today, count only below a 100 pt dial). Pending: the previous readiness as the numeral at 48 % opacity (= `textTertiary` on
   `background`) or `DotNumeral(nil)` — the unlit grid, "pending is an outline" — without one. Readiness missing in a scored mode: the same unlit grid.
+  Below S 205, where the grid isn't used, both show a Light "–" in `textTertiary` (row 22).
 - Shown from a 56 pt dial up (`minDialForNumber`, unchanged), as today.
-- A numeral change cross-fades (`Theme.Motion.quick`, `.transition(.opacity)` on `.id(readiness)`) for the dots; the Light numeral keeps `.numericText`. Reduce Motion: no transition.
+- A numeral change cross-fades (`Theme.Motion.quick`, `.transition(.opacity)` on `.id(readiness)`) for the dots only; the Light numeral keeps `.numericText` and moves with the arcs (`slow`). Reduce Motion: no transition.
 - Additive API for Today's thin-digit switch (§1 of the brief): `numeral: DotNumeral.Style = .dots` on the initialiser, default behaviour unchanged (Q5).
 
 **Minimum size.** Supported down to **S = 56** (widget dial 44, the smallest user in the repo; `OrbitGaugeDrawing` is shared with the widget, so it gets v3 too, Q2).
@@ -907,9 +910,11 @@ Swift Testing, `@MainActor`; pure first. Names are suggestions. Files: `OrbitGau
 4. **Arc end angles (board convention), ±0.01:** strain 12.4 → 122.571, 0 → −90, 21 → 269.99, 25 → 269.99; recovery 0.82 → −227.2, 0 → −96, 1 → −256, 0.5 → −176; sleep 0.94 → 66.4, 0 → −84, 1 → 76, 0.5 → −4. Each also within 0.5° of the board's 122.6, −227, 66.
 5. **Split vs today:** `innerInset` 6, span 160; start dots (±6°) 18.4 pt apart at 260 and ≥ 2 × dot r at every S in 56…260; heads at 100 % 42.6 pt apart; code angles ±6 and ±166 at 100 %.
 6. **Readiness:** 84 → lit 50 (60 ticks) / 25 (30), Volt at 212.4° board (−147.6°); 0 → 0 and the top; 100 → 60 and the top; 1 → 1; 120 → 60; −5 → 0; nil → 0 and no dot.
-7. **Omitted ticks:** at 12.4 / 84: outer {74, 75, 76, 77}, inner {50, 51}; tick 49 stays; thresholds 4.857° and 7.41° (±0.01); no tick is partly cut.
+7. **Omitted ticks:** at 12.4 / 84: outer {74, 75, 76, 77}, inner {50, 51}; tick 49 stays; thresholds 4.857° and 7.41° (±0.01); no tick's rect reaches into a cleared ring,
+   swept over strain 0…21 (0.1 steps) and readiness 0…100 at 260 and `.large`.
 8. **Strain rail** present from S ≥ 102 with a usable band, absent below or without; `strainSplitDegrees` unchanged.
-9. **Centre rule:** "84" dots at 260, Light at 172; "100" Light at 260; AX1 → Light; `numeral: .light` → Light; missing readiness → the unlit grid.
+9. **Centre rule:** "84" dots at 260, Light at 172; "7" Light at 172 and dots at 260; "100" Light at 260; AX1 → Light; `numeral: .light` → Light; missing readiness →
+   the unlit grid at 260, a Light "–" below 205.
 10. **Sizes unchanged:** `.small` 84, `.medium` 124, `.large` 172 (`sizesKeepMetricGaugeFrames`), `minDialForNumber` 56.
 11. **Calibrating segments:** 7, seam 9° and gap 5° visible, no tick ring; filled = `counted`.
 12. **Palette:** `ink` and `signal` present; the arc colours resolve to `#63D2B4`, `#9B8AF0`, `#5E8BEA`, `alert` to `#E36B5B`; the entrance timings (`OrbitEntranceFrame`) are unchanged.
@@ -972,7 +977,24 @@ Both go through `Ryft/Resources/Localizable.xcstrings`, English only (CLAUDE.md,
 | 18 | No readiness marker for a missing value | | none | Volt marks a value |
 | 19 | Tracks as `SurfaceRaised` (PR 1 T4) | 7–16 % | `ink` at 7 / 13 / 16 % (16 % = the same pixel as `SurfaceRaised` on `background`) | T4 said PR 3 draws 7 and 13 % this way |
 
+Recorded from the implementation (T3.2) and the code review, 2026-11-16:
+
+| # | Spec said | Code does | Why |
+|---|---|---|---|
+| 20 | Dots whenever the numeral fits | dots only at S ≥ 205 *and* when it fits | one look per gauge size: a single digit at `.large` fitted and drew dots next to a Light "84" (lead) |
+| 21 | Light `weight: .light` | `ryftNumber(size:)` under ADR 0016's floor | Regular below 20 pt, so `.small` (16.8) and the 56–60 dials (13.6–14.4) draw Regular, as everywhere else |
+| 22 | The unlit grid for pending or missing readiness | the grid at S ≥ 205; a Light "–" in `textTertiary` below | the grid isn't used below 205 (row 20) |
+| 23 | Lit inner ticks before the halos and cuts; ticks omitted by centre distance | lit ticks after the cuts; a tick is omitted when its rect comes within a dot's cleared ring | ticks are never cut, only whole or absent; by centre distance a whole tick reached 0.59 pt into the strain dot's ring (strain 20.3) |
+| 24 | Light numeral in the slot at `minimumScaleFactor(0.5)` | it also scales with Dynamic Type from `.largeTitle`, never below 0.2 × S; the calibrating count gets the same 0.5 minimum | "about 78 pt at AX3" (P3-1); "84" measures 78.7 × 51.3 at AX3 on 260, and "100" fits at AX5 |
+| 25 | Caption at `.large` only | from a 160 dial up | so the 260 board shows it; Today (`.large`) is unchanged |
+| 26 | Entrance unchanged | the Volt dot fades in over the first quarter of the glide; the halo follows the flight | the Volt dot is new in v3 and must not appear before its value |
+| 27 | Band stroke < outer stroke | ≤ | both sit at the 1.5 pt floor up to S 111 |
+| 28 | — | `OrbitGaugeBandRail` and `palette.track` removed; static gauge and entrance draw one `OrbitGaugeScene` | the entrance's last frame is the static render by construction |
+| 29 | Tracks in `ink` in every rendering mode | the widget's non-full-colour modes keep white 25 % tracks | a 7 % ring vanishes on the Lock Screen (lead) |
+
 ### P3-11. Open questions
+
+Answered by the lead on 2026-11-16: Q1 → L3, Q2 → L4, Q3 → L5, Q4 → L6, Q5 → L7, Q7–Q9 → L8 (`plan.md`); Q6 → `launch-design.md`.
 
 For the lead:
 - **Q1.** Keep `OrbitGaugeSize` as is (`.large` = 172, v3 scaled) and reach the 260 board with `.custom(dial: 248)`, adding a `.hero` size in PR 4? The alternative (`.large` becomes 260 now) grows Today by 88 pt before PR 4 lays it out.
