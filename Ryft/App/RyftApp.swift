@@ -46,10 +46,14 @@ struct RyftApp: App {
     @State private var trainSync = TrainSyncService.shared
     @State private var trainCoordinator = TrainCoordinator.shared
     @State private var connectivity = ConnectivityMonitor.shared
+    /// The launch sequence, for the life of the process (ADR 0017): a re-created scene reads it terminal.
+    @State private var launch: LaunchSequenceModel
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
         LaunchSignpost.begin()
+        // Read once: the coordinator and the launch sequence's decision both use it.
+        let launchedInBackground = UIApplication.shared.applicationState == .background
         let state = AppState(env: .live)
         // The JSON response cache of earlier versions moves into SwiftData once.
         LegacyCacheMigration.runOnce(into: state.repository, train: .shared, defaults: .standard)
@@ -64,7 +68,7 @@ struct RyftApp: App {
         // coordinator starts there; the scene's activation brings it to the foreground.
         let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: .shared),
                                           clock: AppEnvironment.live.clock,
-                                          inBackground: UIApplication.shared.applicationState == .background) {
+                                          inBackground: launchedInBackground) {
             // A run in the background left a backlog: the backfill task takes it.
             if let left = SyncService.shared.backlogBytes { BackgroundWork.scheduleBackfill(backlogBytes: left) }
         }
@@ -112,7 +116,17 @@ struct RyftApp: App {
         WorkoutLauncher.hasAccount = { AuthService.shared.isSignedIn || Settings.shared.demoMode }
         WorkoutLauncher.isRestoring = { AuthService.shared.state == .restoring }
         TrainCoordinator.shared.onActiveChange = { WorkoutLauncher.updateShortcutItems(resume: $0) }
-        WorkoutLauncher.updateShortcutItems(resume: TrainCoordinator.shared.active != nil)
+        let workoutActive = TrainCoordinator.shared.active != nil
+        WorkoutLauncher.updateShortcutItems(resume: workoutActive)
+        // The launch sequence: decided now from a few reads, armed (the launch screen's colour) until the scene's
+        // first `.active`; nothing waits for it. Links, notifications and quick actions at connect end it
+        // (`QuickActionSceneDelegate`).
+        let launch = LaunchSequenceModel(
+            decision: LaunchPolicy.decide(.current(launchedInBackground: launchedInBackground,
+                                                   workoutActive: workoutActive)),
+            clock: AppEnvironment.live.clock)
+        _launch = State(initialValue: launch)
+        LaunchInterruptions.post = { [launch] in launch.send(.interrupted($0)) }
         // "Open in" never interrupts a workout: the file waits (ui.md E7).
         screens.importer.isWorkoutActive = { TrainCoordinator.shared.active != nil }
         Self.configureAppearance()
@@ -132,7 +146,8 @@ struct RyftApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            // The launch sequence over the root, never instead of it (ADR 0017).
+            LaunchHost(model: launch) { RootView() }
                 .environment(\.appEnvironment, env)
                 .environment(screens)
                 .environment(settings)
@@ -329,6 +344,8 @@ struct RyftApp: App {
                     await screens.trainImport.appBecameActive()
                 }
             } else if phase == .background {
+                // A reopen within 10 minutes, even of an evicted process, shows no launch sequence (L9).
+                LaunchContext.recordBackground(at: env.clock.now())
                 // What failed in the last 1.5 s is still waiting for its coalesced save: write it
                 // before iOS may suspend (or kill) the app.
                 state.env.reads.savePendingNow()
@@ -432,6 +449,7 @@ struct RootView: View {
     @Environment(AuthService.self) private var auth
     @Environment(Settings.self) private var settings
     @Environment(TrainCoordinator.self) private var train
+    @Environment(\.launchInterrupt) private var launchInterrupt
 
     var body: some View {
         Group {
@@ -449,6 +467,16 @@ struct RootView: View {
         }
         // "Send to RYFT" on the refresh Details sheet (Today's error card).
         .environment(\.reportProblemDestination, reportProblem)
+        // A sheet or cover never slides over the launch sequence: it skips it, or hands off at once (ADR 0017).
+        .onChange(of: presentsSomething, initial: true) { _, presents in
+            if presents { launchInterrupt(.presentation) }
+        }
+    }
+
+    /// Everything RootView presents. A new root sheet or cover joins this list (ADR 0017).
+    private var presentsSomething: Bool {
+        onboarding.accountHint != nil || train.live != nil || auth.needsNewPassword || onboarding.sheetStep != nil
+            || screens.importer.flow != nil || screens.importer.showsUnavailable
     }
 
     /// Report a problem, pre-filled with what failed, pushed onto the Details sheet's stack.
@@ -828,6 +856,8 @@ enum LaunchSignpost {
     static func screenAppeared() {
         guard !presented else { return }
         NextFrame.after {
+            // Once: `presented` is set here. Under a playing launch sequence too, which proves startup doesn't wait.
+            if !presented { Signposts.launch.emitEvent("first-screen") }
             presented = true
             let resumed = waiting
             waiting = []

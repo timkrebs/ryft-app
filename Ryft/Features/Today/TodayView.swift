@@ -10,6 +10,8 @@ struct TodayView: View {
     @Environment(\.appEnvironment) private var env
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The launch sequence covers Today: its gauge is built without the entrance, which plays at the hand-off.
+    @Environment(\.launchCoversRoot) private var launchCovers
 
     private var model: TodayViewModel { screens.today }
     /// The error card's scroll target (the status line's "Couldn't load today · Details").
@@ -198,8 +200,10 @@ struct TodayView: View {
 
     /// A gauge with something to show assembles until one has been seen in this process (`TodayGaugeEntrance`).
     /// A gauge latches this when it is built, so a later change (another hero row, a refresh) builds a plain one.
+    /// Under the launch sequence it is built static, with no hidden entrance during the launch's busiest frames.
     private func gaugeEntrance(_ mode: OrbitGaugeMode) -> OrbitGauge.Entrance {
-        TodayGaugeEntrance.entrance(flag: model.assemblesGauge, mode: mode, placeholderSeen: gaugePlaceholderSeen)
+        TodayGaugeEntrance.entrance(flag: model.assemblesGauge && !launchCovers, mode: mode,
+                                    placeholderSeen: gaugePlaceholderSeen)
     }
 
     private func gaugeEntranceConsumer(_ mode: OrbitGaugeMode) -> GaugeEntranceConsumer {
@@ -365,7 +369,8 @@ extension TodayHero {
 ///   Not at init: a process launched in the background (HealthKit delivery, `BGAppRefreshTask`) and opened later
 ///   still plays it once.
 /// - A gauge that played where nobody could see it (drawn in the background, or the scene went to the background
-///   before it was ever active) is built again once when it is next seen.
+///   before it was ever active) is built again once when it is next seen. Covered by the launch sequence counts as
+///   unseen, like the background (`launchCoversRoot`, ADR 0017): the entrance plays at the hand-off.
 /// - The import card shows no gauge and consumes nothing.
 enum TodayGaugeEntrance {
     enum Event: Equatable {
@@ -453,6 +458,7 @@ private struct GaugeEntranceConsumer: ViewModifier {
     /// Today remembers that a placeholder was on screen (`Outcome.placeholderSeen`).
     let placeholderSeen: () -> Void
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.launchCoversRoot) private var launchCovers
     /// Bumped only to build again a gauge that played unseen.
     @State private var run = 0
     @State private var playedUnseen = false
@@ -466,13 +472,18 @@ private struct GaugeEntranceConsumer: ViewModifier {
 
     private var showable: Bool { TodayGaugeEntrance.hasSomethingToShow(mode) }
 
+    /// The phase as the gauge is seen: covered by the launch sequence is the background.
+    private func seen(_ phase: ScenePhase) -> ScenePhase { launchCovers ? .background : phase }
+
     func body(content: Content) -> some View {
         content
             // Inside the identity: a gauge built again appears again.
-            .onAppear { apply(.appeared, phase: scenePhase) }
+            .onAppear { apply(.appeared, phase: seen(scenePhase)) }
             .id(Identity(run: run,
                          showable: TodayGaugeEntrance.identityShowable(flag: model.assemblesGauge, showable: showable)))
-            .onChange(of: scenePhase) { _, phase in apply(.phaseChanged, phase: phase) }
+            .onChange(of: scenePhase) { _, phase in apply(.phaseChanged, phase: seen(phase)) }
+            // Uncovered at the hand-off: a phase change into what the scene is in now.
+            .onChange(of: launchCovers) { apply(.phaseChanged, phase: seen(scenePhase)) }
     }
 
     private func apply(_ event: TodayGaugeEntrance.Event, phase: ScenePhase) {

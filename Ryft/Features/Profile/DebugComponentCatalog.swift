@@ -26,6 +26,7 @@ struct DebugComponentCatalog: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 28) {
                     section("Nocturne · gauge") { OrbitGaugePreviewBoard() }
+                    section("Nocturne · launch") { LaunchCatalogEntry() }
                     section("MetricGauge") { gauges }
                     section("RangeBar") { rangeBars }
                     section("DeltaLabel") { deltas }
@@ -375,6 +376,81 @@ struct DebugComponentCatalog: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(verbatim: label).ryftGlowLabelStyle()
             Text(verbatim: value).font(.ryft(.metric))
+        }
+    }
+}
+
+/// The launch at 60 % (design.md §P3-7): scrub t, jump to a keyframe, the reduced variant, and Play, which replays the
+/// sequence from a local `LaunchSequence` (not the process's model) with its hand-off; a tap on the stage skips it.
+private struct LaunchCatalogEntry: View {
+    @Environment(\.appEnvironment) private var env
+    @Environment(\.self) private var environment
+    @State private var t = 1.0
+    @State private var reduced = false
+    /// A replay in progress.
+    @State private var run: LaunchSequence?
+
+    private static let scale: CGFloat = 0.6
+    private static let keyframes: [Double] = [0, 0.26, 0.5, 0.76, 1]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            stage
+                .frame(width: 390, height: 844)
+                .scaleEffect(Self.scale, anchor: .topLeading)
+                .frame(width: 390 * Self.scale, height: 844 * Self.scale, alignment: .topLeading)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .onTapGesture { run?.send(.tap, at: env.clock.now()) }
+            Slider(value: $t, in: 0...1) { Text(verbatim: "t") }
+                .disabled(reduced || run != nil)
+            Text(verbatim: String(format: "t = %.3f · %.2f s", reduced ? 1 : t, (reduced ? 1 : t) * LaunchFrame.duration))
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(Theme.textTertiary)
+            HStack(spacing: 8) {
+                ForEach(Self.keyframes, id: \.self) { value in
+                    Button { t = value } label: { Text(verbatim: String(format: "%.2f", value)) }
+                        .buttonStyle(.bordered)
+                        .disabled(reduced || run != nil)
+                }
+            }
+            Toggle(isOn: $reduced) { Text(verbatim: "Reduce Motion (the t = 1 frame, faded)") }
+            Button {
+                let now = env.clock.now()
+                var sequence = LaunchSequence(decision: .play(reduced ? .reduced : .full), createdAt: now)
+                sequence.send(.scene(.active), at: now)
+                t = 1
+                run = sequence
+            } label: { Text(verbatim: run == nil ? "Play" : "Playing… tap the stage to skip") }
+                .buttonStyle(.borderedProminent)
+                .disabled(run != nil)
+        }
+        // The replay's end: back to the scrubbed (last) frame.
+        .task(id: run?.doneAt) {
+            guard let done = run?.doneAt else { return }
+            let wait = done.timeIntervalSince(env.clock.now())
+            if wait > 0 { try? await env.clock.sleep(for: .seconds(wait)) }
+            guard !Task.isCancelled else { return }
+            run = nil
+        }
+    }
+
+    @ViewBuilder
+    private var stage: some View {
+        let palette = LaunchFrame.Palette.resolved(in: environment)
+        if let run {
+            TimelineView(.animation) { context in
+                ZStack {
+                    Theme.background
+                    LaunchStage(frame: LaunchFrame(t: run.frameProgress(at: context.date), palette: palette))
+                        .opacity(run.contentOpacity(at: context.date))
+                }
+                .opacity(1 - run.handOff(at: context.date))
+            }
+        } else {
+            ZStack {
+                Theme.background
+                LaunchStage(frame: LaunchFrame(t: reduced ? 1 : t, palette: palette))
+            }
         }
     }
 }

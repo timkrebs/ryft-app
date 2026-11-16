@@ -2107,6 +2107,9 @@
     "Loading My Day" : {
       "comment" : "VoiceOver: My Day's outline rows while nothing is cached."
     },
+    "Loading RYFT" : {
+      "comment" : "VoiceOver status while the launch animation plays."
+    },
     "Loading the exercise library…" : {
       "comment" : "Training import M4."
     },
