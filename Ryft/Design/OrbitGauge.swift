@@ -291,7 +291,8 @@ struct OrbitGauge: View {
     static let pendingNumeralOpacity = 0.48
 
     /// The readiness as the dot grid or in Light; nil is the unlit grid ("pending is an outline") or the Light dash. A new
-    /// number cross-fades in the grid (`Theme.Motion.quick`) and rolls in Light; neither moves under Reduce Motion.
+    /// number cross-fades in the grid (`Theme.Motion.quick`, its own animation) and rolls in Light with the arcs (the
+    /// column's `slow`, no animation of its own); neither moves under Reduce Motion.
     private func numeralView(_ text: String?, pending: Bool) -> some View {
         Group {
             switch Self.centreLook(text, side: size.frame, style: numeral, typeSize: typeSize) {
@@ -300,6 +301,7 @@ struct OrbitGauge: View {
                     .opacity(pending && text != nil ? Self.pendingNumeralOpacity : 1)
                     .id(text)
                     .transition(reduceMotion ? .identity : .opacity)
+                    .animation(reduceMotion ? nil : Theme.Motion.quick, value: text)
             case .light:
                 Text(verbatim: text ?? Fmt.placeholder)
                     .font(.ryftNumber(size: Self.lightNumeralSize(side: size.frame, scale: numeralScale)))
@@ -310,7 +312,6 @@ struct OrbitGauge: View {
                     .contentTransition(reduceMotion ? .identity : .numericText(value: Double(text.flatMap { Int($0) } ?? 0)))
             }
         }
-        .animation(reduceMotion ? nil : Theme.Motion.quick, value: text)
     }
 
     /// "3 / 7" at the Light numeral's size, the "/ 7" smaller and tertiary; from a 100 pt dial up. Below it ("small")

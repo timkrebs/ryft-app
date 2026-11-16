@@ -227,8 +227,9 @@ struct OrbitGaugeV3GeometryTests {
         #expect(OrbitGauge.centreLook("84", side: 206, style: .dots, typeSize: .large) == Look.dots)
         #expect(OrbitGauge.centreLook("84", side: 205, style: .dots, typeSize: .large) == Look.light)
         // The gauge's size decides, not the value: a single digit (33 pt) would fit the 172 slot, and is Light there
-        // like "84"; on the board it is dots like "84".
-        #expect(OrbitGauge.centreLook("7", side: 172, style: .dots, typeSize: .large) == Look.light)
+        // like "84"; on the board it is dots like "84". The size gate and the width check both hold: "100" stays Light.
+        #expect(OrbitGauge.centreLook("7", side: OrbitGauge.Size.medium.frame, style: .dots, typeSize: .large) == Look.light)
+        #expect(OrbitGauge.centreLook("7", side: OrbitGauge.Size.large.frame, style: .dots, typeSize: .large) == Look.light)
         #expect(OrbitGauge.centreLook("7", side: 205, style: .dots, typeSize: .large) == Look.light)
         #expect(OrbitGauge.centreLook("7", side: 206, style: .dots, typeSize: .large) == Look.dots)
         #expect(OrbitGauge.centreLook("7", side: 260, style: .dots, typeSize: .large) == Look.dots)
