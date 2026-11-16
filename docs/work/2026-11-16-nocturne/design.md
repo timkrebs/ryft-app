@@ -100,13 +100,13 @@ Glyphs and outlines in `textTertiary` on it pass as graphics (3:1).
 | D-c | §2 `track` @7–16 % | one opaque token, `#2F312F` (16 % over `background`) | T4. Opaque rather than alpha so fills behind text have one contrast on every ground; the pixel on the screen is the same as §2's 16 % track. 7 % and 13 % come in PR 3. |
 | D-d | §2 `separator` @6–8 % | @8 % | The mock-up's. |
 | D-e | §2 "Tile value 26–34", "Body 15–17", "Caption/scale 11–12": the sizes of the roles | `callout` 14 → 15, `metric` 22 → 26, `numberLarge` 40 → 34, `display` 56 → 52, `headline` 18 → 17, `axis` 10 → 11, `label` 11 → 13 | Each moved only as far as the nearest end of its §2 range. `callout` is used 236 times and grows 1 pt; the AX3 previews and tests were run. `display` 52 is §3's "Light digits 52 pt". |
-| D-f | §2 "numbers Light" | `ryftNumber(size:)` without a weight: Light from 20 pt, Regular below (`RyftFonts.lightFloor`) | Light strokes under 20 pt on `#0A0C0B` are about one device pixel: the 9–19 pt scale labels and set inputs stay Regular. Callers that pass a weight keep it. |
+| D-f | §2 "numbers Light" | `ryftNumber(size:)` without a weight: Light from 20 pt, Regular below (`RyftFonts.lightFloor`) | Light strokes under 20 pt on `#0A0C0B` are about one device pixel: the 9–19 pt scale labels stay Regular. Callers that pass a weight keep it: the kg and reps inputs and read-only values in `ExerciseCard` pass `.regular` at their 20–30 pt `numeral` sizes, so one set row does not mix Light kg/reps with Regular RPE. |
 | D-g | §2 "Label 13 (`textSecondary`)" and "keine Versal-Labels" | `.label` is 13 Regular, sentence case, no tracking; `ryftLabelStyle` loses `.textCase(.uppercase)` and `.tracking(2)`; MetricGauge's centre title (was 9 pt uppercase tracked) is 11 pt sentence case | 9 pt is under the scale's 11. The BrandLockup tagline lost its `.tracking(4)`. |
 | D-h | §1 Wordmark "Laufweite 0.32 em" | 0.32 em, and the trailing tracking is pulled back with a negative trailing padding | CSS letter-spacing adds space after the last letter; without the pull-back a centred wordmark sits 0.32 em left of centre. The icon uses the same rule (ink centred). |
 | D-i | Icon "Dark/Tinted identical" | Three PNGs, byte-identical | The appiconset keeps its three slots so Xcode needs no change. |
 
 Not deviations, recorded so ADR 0016 has them: `Theme.Metrics` radii and padding are untouched (PR 2). The
-two `.textCase(.uppercase)` in `Features/Train/Session/ExercisePage.swift` (lines ~436, 504) are in a file owned by T1.2.
+two `.textCase(.uppercase)` in `Features/Train/Session/ExercisePage.swift` were T1.2'"'"'s and are gone with its merge.
 
 ### 5. Type scale → roles (`Typography.swift`)
 
@@ -158,7 +158,7 @@ The mock-up: 220 px tile, "RYFT" 60 px Light, letter-spacing 0.02 em, left paddi
 
 Placement: the ink (the letters' outline) is centred horizontally, which is what the mock-up's equal left padding does for the
 advance box; the cap height (198.3 px) is centred vertically (R, Y, F, T are flat: ink = cap height). Measured margins:
-left 209.0 / right 209.0 / top 412.9 / bottom 412.9 px; the renderer fails if either pair differs by more than 1 px. The word is
+left 209 / right 209 / top 413 / bottom 413 px, read off the rendered bitmap (the ink is the pixels at least half way to the word colour); the renderer fails if either pair differs by more than 1 px. The glyph origin is rounded to whole pixels because a bitmap context snaps it. The word is
 606 px wide, 59 % of the tile.
 
 Light, Dark, Tinted: the same image (`cmp` equal). The tinted slot gets a near-black tile with a light word, which iOS
@@ -180,19 +180,24 @@ New: `RyftTests/NocturneTokenTests.swift` (token values ±1/255 and alpha, appea
 metric/signal ≥ 3:1 on both grounds, the 45 → 48 % derivation, the type scale, `Satoshi-Light` in `UIAppFonts`).
 
 Re-pinned (reasons are the appearance change only; no assertion is weakened otherwise). `SurfaceRaised` is opaque, so no test needs to
-composite the track over a ground:
+composite the track over a ground (the token is opaque, and the alpha check in `NocturneTokenTests` is what guards that):
 
 | Test | Change | Reason |
 |---|---|---|
-| `OrbitGaugeContrastTests`, `OrbitGaugeBandTests` | Dark only; the light-only expectation (Sleep/Strain at 0.6 under 3:1) is removed | There is no light scheme. Thresholds unchanged (3:1, 4.5:1). The 16 % track pixel is `#2F312F`: recovery, sleep, strain 7.12, 4.55, 3.97 on it. |
+| `OrbitGaugeContrastTests`, `OrbitGaugeBandTests` | Dark only; the light-only expectation (Sleep/Strain at 0.6 under 3:1) is replaced by its dark equivalent: Sleep and Strain at 0.6 over the track (2.58, 2.34) and Strain on the background (2.81) are under 3:1, Recovery is not | There is no light scheme, and the pending test keeps asserting what its name says. Thresholds unchanged (3:1, 4.5:1). The 16 % track pixel is `#2F312F`: recovery, sleep, strain 7.12, 4.55, 3.97 on it. |
 | `OrbitGaugeRenderTests`, `OrbitGaugeBandRenderTests`, `OrbitGaugeShotsTests`, `OrbitGaugeEntranceTests`, `OrbitEntranceTimelineTests` | Scheme loops dark only | There is no second appearance; the "light" shots were the same colours. Pixel expectations unchanged. |
 
-`NocturneTokenTests` pins `surfaceRaised` as `over(rgba(ink, 0.16), rgba(0x0A0C0B))` and has a contract row: `textPrimary` and
+`NocturneTokenTests` pins `surfaceRaised` as `over(rgba(ink, 0.16), rgba(screen))`, where `screen` is the constant the `background` row uses, and has a contract row: `textPrimary` and
 `textSecondary` ≥ 4.5:1 on it (and `textTertiary` under 4.5 and over 3, the reason for the rule).
 
-Not changed: the `Light:` tests in `FocusedPolishTests`, and the screenshot tests that render a light variant (`FocusedSessionShotsTests`,
-`HostedAccessibility`, `ImportScreenshotTests`, `FocusedPolishHostedTests`). They pass (light now resolves to the same dark tokens);
-removing the light branches is T1.2's and PR 5's.
+Dead `.light` branches removed in PR 1 (the app is dark-only, so they could only mislead): `FocusedRowInk` (`estimate()`,
+`upcomingOutline()` lose their scheme parameter), `ExerciseCard.raisedFill` (now `Theme.surfaceRaised`) and its `colorScheme`
+environment, `SourceBadge`'s light outline. The "Light:" cases in `FocusedPolishTests` are gone; its dark cases stay, as dark-only
+tests. The comment in `FocusedRowInk.value` now says 3.94:1 (it said 4.40:1).
+
+Not changed: the screenshot tests that render a light variant (`FocusedSessionShotsTests`, `HostedAccessibility`,
+`ImportScreenshotTests`, `FocusedPolishHostedTests`). They pass (light resolves to the same dark tokens); removing the light
+variants is PR 5's.
 
 `textTertiary` on a raised fill (the rule in T4), rechecked against `#2F312F`:
 - **Text, changed to `textSecondary` (5.50:1; `textTertiary` was 3.94:1 there, 4.40:1 before PR 1):** the strain pill's empty
@@ -213,6 +218,12 @@ later PRs: `RyftMark.swift`'s "Mark · light" preview (PR 3).
 
 ### 11. What PR 1 does not verify
 
-The widget on a device in system-light mode (forced `.dark` in code, not seen). Satoshi Light on screen needs the font files:
-previews and tests fall back to SF Pro Rounded Light when they are absent (CI). The App Store's icon mask and the tinted icon on the
+The widget on a device in system-light mode (forced `.dark` in code, not seen). The App Store's icon mask and the tinted icon on the
 Home Screen were not seen.
+
+Fonts: the test and TestFlight jobs run `make fonts` (`.github/actions/setup/action.yml`), so CI has Satoshi; only the Lint job has no
+fonts, and lint does not need them. The real gap is a local or agent run without the font files: `Font.ryft` then falls back to SF Pro
+Rounded and its fallback branch (`Typography.swift`, the `.system(…)` returns) takes the role's weight but ignores the role's
+size for the Dynamic-Type-relative styles, so a screenshot from such a run does not show the §2 sizes. **Follow-up, not PR 1.**
+
+Not in PR 1: the widget `Brand` hexes are not checked against the catalog (PR 3); the Sleep segment control truncates at AX3 (PR 4).
