@@ -17,7 +17,7 @@ struct NocturneComponentAccessibilityTests {
     /// Counts the taps a button's action receives.
     @MainActor
     private final class Taps {
-        var count = 0
+        var total = 0
     }
 
     /// `view` at the top-leading corner of a 390 × 700 window on the screen colour.
@@ -274,7 +274,7 @@ struct NocturneComponentAccessibilityTests {
     @Test("Spec 24: the circle button is a 44 × 44 button with the caller's label; a tap runs the action once")
     func circleButton() async throws {
         let taps = Taps()
-        let button = CircleButton(systemImage: "chevron.left", accessibilityLabel: Text(verbatim: "Previous day")) { taps.count += 1 }
+        let button = CircleButton(systemImage: "chevron.left", accessibilityLabel: Text(verbatim: "Previous day")) { taps.total += 1 }
         try await host(button) { w in
             try await w.settle()
             let nodes = w.nodes()
@@ -284,21 +284,21 @@ struct NocturneComponentAccessibilityTests {
             #expect(node.traits.contains(.button))
             #expect(node.isEnabled)
             node.activate()
-            #expect(taps.count == 1)
+            #expect(taps.total == 1)
         }
     }
 
     @Test("Spec 24: disabled, the circle button is not enabled and does not run its action")
     func disabledCircleButton() async throws {
         let taps = Taps()
-        let button = CircleButton(systemImage: "plus", accessibilityLabel: Text(verbatim: "Add")) { taps.count += 1 }.disabled(true)
+        let button = CircleButton(systemImage: "plus", accessibilityLabel: Text(verbatim: "Add")) { taps.total += 1 }.disabled(true)
         try await host(button) { w in
             try await w.settle()
             let node = try #require(w.node("Add", exactly: true))
             #expect(!node.isEnabled, "traits \(node.traits)")
             #expect(node.traits.contains(.button))
             node.activate()
-            #expect(taps.count == 0)
+            #expect(taps.total == 0)
         }
     }
 
@@ -323,7 +323,7 @@ struct NocturneComponentAccessibilityTests {
           arguments: [PillCase(style: .primary), PillCase(style: .secondary)])
     func pillButton(_ c: PillCase) async throws {
         let taps = Taps()
-        let pill = PillButton(Text(verbatim: "Continue"), style: c.style) { taps.count += 1 }.padding(.horizontal, 20)
+        let pill = PillButton(Text(verbatim: "Continue"), style: c.style) { taps.total += 1 }.padding(.horizontal, 20)
         try await host(pill) { w in
             try await w.settle()
             let nodes = w.nodes()
@@ -334,21 +334,21 @@ struct NocturneComponentAccessibilityTests {
             #expect(near(node.frame.width, 350), "the width it is given: \(node.frame)")
             #expect(node.traits.contains(.button) && node.isEnabled)
             node.activate()
-            #expect(taps.count == 1)
+            #expect(taps.total == 1)
         }
     }
 
     @Test("Spec 25: disabled, a pill is not enabled and does not run its action", arguments: [PillCase(style: .primary), PillCase(style: .secondary)])
     func disabledPill(_ c: PillCase) async throws {
         let taps = Taps()
-        let pill = PillButton(Text(verbatim: "Continue"), style: c.style) { taps.count += 1 }.disabled(true)
+        let pill = PillButton(Text(verbatim: "Continue"), style: c.style) { taps.total += 1 }.disabled(true)
         try await host(pill) { w in
             try await w.settle()
             let node = try #require(w.node("Continue", exactly: true))
             #expect(!node.isEnabled, "traits \(node.traits)")
             #expect(node.frame.height >= 52 - 0.5, "a disabled pill keeps its size")
             node.activate()
-            #expect(taps.count == 0)
+            #expect(taps.total == 0)
         }
     }
 

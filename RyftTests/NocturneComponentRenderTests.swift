@@ -528,7 +528,7 @@ import UIKit
 
     // MARK: Signal: Volt only in the needle and the today dot
 
-    private func voltPixels(_ shot: Shot) -> (count: Int, box: CGRect?) {
+    private func voltPixels(_ shot: Shot) -> (pixels: Int, box: CGRect?) {
         var count = 0
         let isVolt: (RGBA) -> Bool = { self.distance($0, self.volt) < 0.12 }
         for iy in 0..<shot.height {
@@ -552,11 +552,11 @@ import UIKit
 
     @Test("Signal: with no value, or any zone tint, the ruler has no Volt at all")
     func rulerWithoutNeedleHasNoVolt() throws {
-        #expect(voltPixels(try #require(render(ruler(value: nil)))).count == 0)
+        #expect(voltPixels(try #require(render(ruler(value: nil)))).pixels == 0)
         let strain = ruler(value: nil, zone: 10...14, range: 0...21, ticks: 64, style: .strain)
-        #expect(voltPixels(try #require(render(strain))).count == 0)
+        #expect(voltPixels(try #require(render(strain))).pixels == 0)
         let sleep = ruler(value: nil, zone: 7.5...8.3, range: 0...10, ticks: 61, style: .sleep)
-        #expect(voltPixels(try #require(render(sleep))).count == 0)
+        #expect(voltPixels(try #require(render(sleep))).pixels == 0)
     }
 
     // MARK: DotRow
@@ -588,7 +588,7 @@ import UIKit
         #expect(count > 0)
         #expect(found.minX >= 30 - 0.5 && found.maxX <= 36.5 && found.minY >= -0.5 && found.maxY <= 6.5, "Volt at \(found)")
         let none = try #require(render(dotRow([.full, .missed, .full, .missed, .full])))
-        #expect(voltPixels(none).count == 0)
+        #expect(voltPixels(none).pixels == 0)
     }
 
     @Test("An empty dot row draws nothing and has no size")
@@ -632,7 +632,7 @@ import UIKit
     func tickRowFull() throws {
         let shot = try #require(render(tickRow(minutes: 60).frame(width: 315).background(Theme.background)))
         for i in [0, 15, 29] { #expect(near(shot.at(86 + Double(i) * 6 + 1.5, 6), ink)) }
-        #expect(voltPixels(shot).count == 0)
+        #expect(voltPixels(shot).pixels == 0)
     }
 
     @Test("The label is a 74 pt column on the left, the value is pushed to the trailing edge")
