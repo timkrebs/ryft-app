@@ -3,7 +3,8 @@
 import SwiftUI
 
 /// A 40 pt outlined circle with a 14 pt symbol, inside a 44 × 44 layout box that is all tappable. The caller's label is
-/// required: there is no text. Pressed fills the circle at 8 %; disabled dims the icon to 35 %.
+/// required: there is no text. Pressed fills the circle at 8 %; disabled dims the icon to 35 %. The icon does not scale
+/// with Dynamic Type; at accessibility sizes a long press shows the Large Content Viewer with the icon and the label.
 struct CircleButton: View {
     /// 40 and 44: `Theme.Metrics.circleButton` and `minHitTarget`.
     static let diameter = Theme.Metrics.circleButton, hitSize = Theme.Metrics.minHitTarget, iconSize: CGFloat = 14
@@ -27,6 +28,9 @@ struct CircleButton: View {
         }
         .buttonStyle(CircleButtonStyle())
         .accessibilityLabel(accessibilityLabel)
+        .accessibilityShowsLargeContentViewer {
+            Label { accessibilityLabel } icon: { Image(systemName: systemImage) }
+        }
     }
 }
 
