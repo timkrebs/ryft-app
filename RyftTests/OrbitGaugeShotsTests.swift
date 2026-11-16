@@ -83,6 +83,15 @@ import UIKit
                     }
                 }
             }
+            // Pending beside the scored gauge it should look like, only dimmer (the outer ticks under the strain arc, review
+            // PR 3 row 20): the board at 260 and Today's `.large`.
+            for (name, size) in [("260", OrbitGaugeSize.previewBoard), ("large", .large)] {
+                for (state, mode) in [("pending", OrbitGaugeMode.pending(previous: .previewBoard)), ("scored", .scored(.previewBoard))] {
+                    write("v3-\(state)-\(name)", scheme: scheme, dir: dir) {
+                        OrbitGauge(mode: mode, size: size, animatesFill: false, breathes: false)
+                    }
+                }
+            }
             // The widget's dials, as the shared drawing it uses (the widget sets its own number in the system face).
             write("v3-widget", scheme: scheme, dir: dir) {
                 HStack(alignment: .center, spacing: 16) {

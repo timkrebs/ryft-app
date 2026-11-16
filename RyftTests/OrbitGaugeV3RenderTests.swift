@@ -255,6 +255,72 @@ struct OrbitGaugeV3RenderTests {
         #expect(close(scored.pixel(tick), outer, 2) && close(pending.pixel(tick), outer, 2), "tracks at full strength")
     }
 
+    /// The pixels inside the strain arc's stroke at S, clear of its antialiased edges (0.5 pt in from each), from past the
+    /// start cap to before the head's halo, and how many are not `colour` (±3).
+    private func strainStroke(_ shot: Shot, side: CGFloat, colour: RGBA) -> (inside: Int, off: Int, first: String) {
+        let m = G.metrics(forSide: side)
+        let head = G.Orbit.strain.headDegrees(for: 12.4 / 21)
+        // The halo (it reaches past the dot's cut) ends this far from the head along the ring, plus a degree.
+        let haloClear = G.clearDegrees(cut: m.haloRadius, radius: m.outerRadius) + 1
+        var inside = 0, off = 0, first = ""
+        shot.forEachPixel { p, c in
+            let (dx, dy) = (Double(p.x - shot.centre.x), Double(p.y - shot.centre.y))
+            guard abs(hypot(dx, dy) - Double(m.outerRadius)) <= Double(m.outerStroke) / 2 - 0.5 else { return }
+            // Code degrees: clockwise from the top.
+            let degrees = (atan2(dx, -dy) * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
+            guard degrees > 4, degrees < head - haloClear else { return }
+            inside += 1
+            if !close(c, colour, 3) {
+                off += 1
+                if first.isEmpty { first = "\(c) at \(String(format: "%.1f", degrees)) deg" }
+            }
+        }
+        return (inside, off, first)
+    }
+
+    /// Pending dims the marks to 0.6 over full-strength 16 % ticks, so the strain arc showed them through as a ladder
+    /// (review PR 3 row 20). While pending the outer ring is cut under the arc: every pixel inside its stroke is the dimmed
+    /// arc over the background, as the scored arc there is its colour; the ticks' ends still show beside it in both.
+    @Test("Pending shows no ticks through the strain arc, and reads as scored, only dimmer",
+          arguments: [OrbitGaugeSize.previewBoard, .large])
+    func pendingShowsNoTicksThroughTheStrainArc(_ size: OrbitGaugeSize) throws {
+        let strain = rgba(Theme.metricStrain)
+        let pending = try #require(render(.pending(previous: .previewBoard), size))
+        let dimmed = strainStroke(pending, side: size.frame, colour: over(strain, OrbitGaugeMarks.pendingOpacity, background))
+        #expect(dimmed.inside > 400, "pixels sampled: \(dimmed.inside)")
+        #expect(dimmed.off == 0, "\(dimmed.off) of \(dimmed.inside) pixels in the pending strain stroke are not the dimmed arc, first \(dimmed.first)")
+        let scored = try #require(render(.scored(.previewBoard), size))
+        let opaque = strainStroke(scored, side: size.frame, colour: strain)
+        #expect(opaque.inside == dimmed.inside && opaque.off == 0, "scored: \(opaque.off) of \(opaque.inside), first \(opaque.first)")
+        // A tick's outer end beside the arc, at 3 o'clock (tick 32), at the board's 260: the 16 % track, pending or not.
+        if size == .previewBoard {
+            let m = G.metrics(forSide: size.frame)
+            let end = (m.outerStroke / 2 + m.outerTick.height / 2) / 2
+            for (name, shot) in [("pending", pending), ("scored", scored)] {
+                for radius in [m.outerRadius + end, m.outerRadius - end] {
+                    #expect(close(shot.pixel(shot.at(radius: radius, degrees: 90)), rgba(Theme.surfaceRaised), 2),
+                            "\(name): tick 32's end at r \(radius)")
+                }
+            }
+        }
+    }
+
+    /// The cut is pending's alone, follows the arc's sweep (the entrance's too) and needs a tick ring.
+    @Test func onlyPendingCutsTheTicksUnderTheStrainArc() {
+        let sweep = G.Orbit.strain.sweep(for: 12.4 / 21)
+        #expect(OrbitGaugeScene(mode: .pending(previous: .previewBoard), size: .previewBoard).strainTickCut == sweep)
+        #expect(OrbitGaugeScene(mode: .pending(previous: .previewBoard), size: .medium).strainTickCut == sweep, "64 ticks")
+        #expect(OrbitGaugeScene(mode: .pending(previous: .previewBoard), size: .small).strainTickCut == nil, "solid ring")
+        #expect(OrbitGaugeScene(mode: .pending(previous: nil), size: .previewBoard).strainTickCut == nil, "no arc")
+        #expect(OrbitGaugeScene(mode: .pending(previous: OrbitGaugeValues(readiness: 60, recovery: 0.5)),
+                                size: .previewBoard).strainTickCut == nil, "no strain")
+        #expect(OrbitGaugeScene(mode: .scored(.previewBoard), size: .previewBoard).strainTickCut == nil, "scored")
+        #expect(OrbitGaugeScene(mode: .calibrating(OrbitGaugeCalibration(nights: 3)), size: .previewBoard).strainTickCut == nil)
+        var entering = OrbitGaugeScene(mode: .pending(previous: .previewBoard), size: .previewBoard)
+        entering.progress = 0.5
+        #expect(entering.strainTickCut == sweep * 0.5, "it grows with the arc")
+    }
+
     @Test func aMissingScoreIsAHollowDot() throws {
         let shot = try #require(render(.scored(OrbitGaugeValues(readiness: 64))))
         for (orbit, radius) in [(G.Orbit.strain, 118.0), (.recovery, 88), (.sleep, 88)] as [(G.Orbit, CGFloat)] {

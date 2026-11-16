@@ -9,8 +9,9 @@
 // at the entrance's values, so its last frame is the static gauge by construction.
 //
 // LAYERS, back to front. Tracks (one group): the outer solid ring or the calibrating segments, the middle ring, the inner
-// solid ring, each cut around the dots of its own ring; then the tick rings, which are never cut (a tick is whole or
-// absent: `OrbitGaugeGeometry.drawnTicks` leaves out the ones too close to a dot). Marks (one group, dimmed while
+// solid ring, each cut around the dots of its own ring; then the tick rings, which are never cut around a dot (a tick is
+// whole or absent: `OrbitGaugeGeometry.drawnTicks` leaves out the ones too close to a dot); only while pending is the
+// outer one cut under the dimmed strain arc, which would otherwise show it through. Marks (one group, dimmed while
 // pending): the band rail, the arcs, the solid tier's lit readiness arc, the halos, the cuts (each dot clears its ring
 // through everything under it, so the gauge reads the same on any ground and in the widget's tinted modes), the lit
 // readiness ticks, the dots, the Volt dot last. Dots come after every cut, so two close dots never cut each other.
@@ -162,6 +163,15 @@ struct OrbitGaugeScene {
     /// The outer tick ring: not while calibrating (the segments take the orbit) and not in the solid tier (a ring).
     var drawsOuterTicks: Bool { calibration == nil && metrics.tier != .solid }
 
+    /// Pending only: the strain arc's sweep, cut out of the outer tick ring with the arc's own path and width. The dimmed
+    /// arc would otherwise show the full-strength ticks through it as a ladder; cut, it reads as the scored gauge, only
+    /// dimmer (review PR 3 row 20). The scored arc is opaque and hides them itself (their ends show 1.25 pt either side at
+    /// 260), so it needs none. nil: no cut.
+    var strainTickCut: Double? {
+        guard mode?.isPending == true, drawsOuterTicks, let fraction = fraction(.strain) else { return nil }
+        return OrbitGaugeGeometry.Orbit.strain.sweep(for: fraction) * progress
+    }
+
     /// An orbit's fraction, nil when its score is missing (a hollow dot).
     func fraction(_ orbit: OrbitGaugeGeometry.Orbit) -> Double? {
         values.flatMap { orbit.fraction(of: $0) }
@@ -189,7 +199,7 @@ struct OrbitGaugeScene {
 
 /// The tracks: `ink` at 16 % (the outer ticks, ring or segments), 7 % (the middle ring) and 13 % (the inner ticks or
 /// ring). Each ring is cut around the dots of its own ring only, so a dot on its way in leaves no gap in the rings it
-/// crosses; the tick rings leave out their ticks instead.
+/// crosses; the tick rings leave out their ticks instead. Pending cuts the outer ticks under the strain arc.
 struct OrbitGaugeTracks: View {
     let scene: OrbitGaugeScene
     let palette: OrbitGaugePalette
@@ -219,9 +229,19 @@ struct OrbitGaugeTracks: View {
                 .compositingGroup()
             } else {
                 if scene.drawsOuterTicks {
-                    OrbitTicks(count: m.outerTickCount, radius: m.outerRadius, tick: m.outerTick, fraction: scene.outerTrack,
-                               lit: false, dot: scene.drawsDots ? scene.strainDot : nil, cut: m.dotCut)
-                        .fill(palette.outerTrack)
+                    ZStack {
+                        OrbitTicks(count: m.outerTickCount, radius: m.outerRadius, tick: m.outerTick,
+                                   fraction: scene.outerTrack, lit: false, dot: scene.drawsDots ? scene.strainDot : nil,
+                                   cut: m.dotCut)
+                            .fill(palette.outerTrack)
+                        // Pending: no ticks under the dimmed strain arc (`strainTickCut`).
+                        if let sweep = scene.strainTickCut {
+                            OrbitArc(radius: m.outerRadius, start: OrbitGaugeGeometry.Orbit.strain.startDegrees, sweep: sweep)
+                                .stroke(.black, style: StrokeStyle(lineWidth: m.outerStroke, lineCap: .round))
+                                .blendMode(.destinationOut)
+                        }
+                    }
+                    .compositingGroup()
                 }
                 OrbitTicks(count: m.innerTickCount, radius: m.centreRadius, tick: m.innerTick, fraction: scene.innerTrack,
                            lit: false, dot: scene.showsVolt ? scene.voltDot : nil, cut: m.voltCut)
