@@ -48,11 +48,64 @@ def block(text, start):
     return None
 
 
+STRING_START = re.compile(r'#*"')
+
+
+def string_end(text, i):
+    """Just past the Swift string literal at `i`: `"…"`, `\"\"\"…\"\"\"` or raw (`#"…"#`), interpolations included (they may
+    hold strings of their own)."""
+    pounds = STRING_START.match(text, i).end() - i - 1
+    quote = '"""' if text.startswith('"""', i + pounds) else '"'
+    close, escape = quote + "#" * pounds, "\\" + "#" * pounds
+    j = i + pounds + len(quote)
+    while j < len(text) and not text.startswith(close, j):
+        if text.startswith(escape + "(", j):
+            j, depth = j + len(escape) + 1, 1
+            while j < len(text) and depth:
+                if STRING_START.match(text, j):
+                    j = string_end(text, j)
+                    continue
+                depth += {"(": 1, ")": -1}.get(text[j], 0)
+                j += 1
+        elif text.startswith(escape, j):
+            j += len(escape) + 1
+        else:
+            j += 1
+    return min(j + len(close), len(text))
+
+
+def without_comments(text):
+    """Swift without `//` and (nested) `/* */` comments, line breaks kept; string literals kept whole, so a `//` inside
+    one ("ryft://today") is not a comment."""
+    out, i = [], 0
+    while i < len(text):
+        if text.startswith("//", i):
+            end = text.find("\n", i)
+            i = len(text) if end < 0 else end
+        elif text.startswith("/*", i):
+            i, depth = i + 2, 1
+            while i < len(text) and depth:
+                if text.startswith("/*", i) or text.startswith("*/", i):
+                    depth += 1 if text[i] == "/" else -1
+                    i += 2
+                else:
+                    out.append("\n" if text[i] == "\n" else "")
+                    i += 1
+        elif STRING_START.match(text, i):
+            end = string_end(text, i)
+            out.append(text[i:end])
+            i = end
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
 def code(lines):
     """Without comments and blank lines, trimmed."""
     out = []
-    for line in lines.splitlines():
-        line = line.split("//")[0].strip()
+    for line in without_comments(lines).splitlines():
+        line = line.strip()
         if line:
             out.append(line)
     return out
@@ -84,12 +137,6 @@ ALLOWED_IMPORTS = {"Foundation", "CoreGraphics", "SwiftUI"}
 USER_FACING = re.compile(r'String\(localized|NSLocalizedString|LocalizedStringKey|LocalizedStringResource|\bText\(|\bLabel\('
                          r'|\.accessibility(Label|Value|Hint)\(|\.navigationTitle\(|\.help\(')
 APP_CATALOG, WIDGET_CATALOG = "Ryft/Assets.xcassets", "RyftWidgets/Assets.xcassets"
-
-
-def without_comments(text):
-    """Swift without `//` and `/* */` comments; string literals kept (good enough for these rules)."""
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    return "\n".join(line.split("//")[0] for line in text.splitlines())
 
 
 def check_shared():
@@ -146,8 +193,13 @@ def colorset_rgba(path):
         c = colour.get("components", {})
 
         def channel(v):
-            v = str(v)
-            return int(v, 16) if v.lower().startswith("0x") else round(float(v) * 255)
+            # Xcode writes a component three ways: "0xF2" (hex), "0.949" (0...1) or "242" (8-bit, no point).
+            v = str(v).strip()
+            if v.lower().startswith("0x"):
+                return int(v, 16)
+            if re.fullmatch(r"\d+", v):
+                return int(v)
+            return round(float(v) * 255)
         try:
             return tuple(channel(c[k]) for k in ("red", "green", "blue")) + (round(float(c.get("alpha", 1)) * 255),)
         except (KeyError, ValueError):
