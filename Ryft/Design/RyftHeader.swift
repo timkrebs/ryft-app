@@ -61,12 +61,12 @@ struct BrandLockup: View {
                 RyftMark().frame(width: 44, height: 44)
                 Wordmark(size: 32)
             }
-            Text("Your whole health.")
+            Text("Engineered for peak.", comment: "RYFT's tagline: under the wordmark on the launch screen and in the brand lock-up.")
                 .ryftLabelStyle()
         }
         .foregroundStyle(Theme.textPrimary)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("RYFT — Your whole health."))
+        .accessibilityLabel(Text("RYFT — Engineered for peak.", comment: "The brand lock-up's VoiceOver label: the wordmark and the tagline."))
     }
 }
 

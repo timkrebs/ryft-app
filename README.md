@@ -1,6 +1,6 @@
 # RYFT — iOS app
 
-*Your whole health.* RYFT reads your watch's data out of Apple Health, syncs it to the
+*Engineered for peak.* RYFT reads your watch's data out of Apple Health, syncs it to the
 RYFT platform (`https://api.ryftapp.de`, source in `../plattform`) and shows daily
 **Readiness, Sleep, Recovery and Strain**. You create an account (email + password, or
 **Continue with Apple**), allow Health access, and see your data: no server address, no

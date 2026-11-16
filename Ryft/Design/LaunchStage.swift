@@ -50,7 +50,7 @@ struct LaunchStage: View {
                         .foregroundStyle(ink)
                         .opacity(frame.wordmarkOpacity)
                     Spacer(minLength: Self.taglineMinGap)
-                    Text("Engineered for peak.", comment: "The tagline under the wordmark on the launch screen.")
+                    Text("Engineered for peak.", comment: "RYFT's tagline: under the wordmark on the launch screen and in the brand lock-up.")
                         .font(.ryft(.label))
                         .foregroundStyle(ink.opacity(LaunchFrame.taglineInk))
                         .multilineTextAlignment(.center)

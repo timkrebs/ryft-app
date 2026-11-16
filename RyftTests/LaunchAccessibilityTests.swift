@@ -133,7 +133,7 @@ struct LaunchAccessibilityTests {
 
     @Test("The launch's strings are in the catalog, in English, with a comment for the translator", arguments: [
         ("Loading RYFT", "VoiceOver status while the launch animation plays."),
-        ("Engineered for peak.", "The tagline under the wordmark on the launch screen."),
+        ("Engineered for peak.", "RYFT's tagline: under the wordmark on the launch screen and in the brand lock-up."),
     ])
     private func theLaunchStringsAreInTheCatalog(_ key: String, _ comment: String) throws {
         let catalog = try catalog()
