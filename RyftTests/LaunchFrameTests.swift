@@ -237,7 +237,10 @@ struct LaunchFrameTests {
         let outerGap = G.halfGap(ringRadius: G.outer.radius, metrics: metrics)
         let middleGap = G.halfGap(ringRadius: G.middle.radius, metrics: metrics)
         let f = Self.frame(0.26)
-        #expect(close(f.strain.dot, g.strain.startDegrees - 90 + 360 * 12.4 / 21, 1e-9))
+        // One mapping for the gauge and the launch (review PR 3 row 14): the head on the gauge's 359.99 track, 122.5655,
+        // not a second 360 x fraction (122.5714).
+        #expect(close(f.strain.dot, g.strain.headDegrees(for: 12.4 / 21) - 90, 1e-9))
+        #expect(close(f.strain.dot, 122.5655, 1e-4), "\(f.strain.dot)")
         #expect(close(f.sleep.dot, g.sleep.headDegrees(for: 0.94) - 90, 1e-9))
         #expect(close(f.recovery.dot, g.recovery.headDegrees(for: 0.82) - 90, 1e-9))
         #expect(close(f.strain.arc.end, f.strain.dot - outerGap, 1e-9))

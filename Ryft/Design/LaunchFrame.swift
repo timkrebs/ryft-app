@@ -149,11 +149,12 @@ struct LaunchFrame: Equatable {
         let phaseB = e1(Self.progress(t, Key.holdEnd, Key.morphEnd))
         let mix = e1(Self.progress(t, Key.morphEnd, Key.colourTo))
 
-        // The gauge's starts and its heads for the reading, in board angles (code - 90).
+        // The gauge's starts and its heads for the reading, in board angles (code - 90): the gauge's own mapping, so the
+        // hold shows the strain head where the gauge draws it (its track is 359.99, as CoreGraphics draws no arc of
+        // exactly 360: 122.5655, not 360 x 12.4 / 21's 122.5714).
         let gauge = OrbitGaugeGeometry.Orbit.self
         let strainStart = gauge.strain.startDegrees - 90
-        // A whole turn: the gauge stops at 359.99 only because CoreGraphics draws no arc of exactly 360.
-        let strainHead = strainStart + 360 * min(max(Reading.strain / OrbitGaugeValues.strainScale, 0), 1)
+        let strainHead = gauge.strain.headDegrees(for: Reading.strain / OrbitGaugeValues.strainScale) - 90
         let sleepStart = gauge.sleep.startDegrees - 90
         let sleepHead = gauge.sleep.headDegrees(for: Reading.sleep) - 90
         let recoveryStart = gauge.recovery.startDegrees - 90 + 360
