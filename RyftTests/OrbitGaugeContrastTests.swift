@@ -73,8 +73,9 @@ import UIKit
 
     /// Pending draws the previous day at `pendingOpacity` on purpose below 3:1 in places (design.md, PR 2: "yesterday,
     /// not today"; the number carries the value at >= 4.5:1 and VoiceOver says it). Pinning the constant makes raising or
-    /// lowering it a decision, not an accident; this is not an assertion that 0.6 reaches 3:1. (The sub-3:1 case was the
-    /// light scheme's Sleep and Strain; with dark only the contrast is printed, not asserted.)
+    /// lowering it a decision, not an accident; this is not an assertion that 0.6 reaches 3:1. In dark, Sleep and Strain
+    /// over the track are under 3:1 at 0.6 (2.58 and 2.34) and Strain on the background is too (2.81): that is the
+    /// documented dimming, asserted below.
     @Test func pendingOpacityIsPinnedAndIntentionallyBelowThreeToOne() {
         #expect(OrbitGaugeMarks.pendingOpacity == 0.6)
         var lines: [String] = []
@@ -86,6 +87,13 @@ import UIKit
                 c.a = OrbitGaugeMarks.pendingOpacity
                 let onBackground = String(format: "%.2f", ratio(over(c, background), background))
                 let onTrack = String(format: "%.2f", ratio(over(c, track), track))
+                // Sleep and Strain at 0.6 are the documented sub-3:1 case; Recovery stays over 3:1.
+                if title != "accent" {
+                    #expect(ratio(over(c, track), track) < 3, "\(name) pending \(title) over the track")
+                }
+                if title == "strain" {
+                    #expect(ratio(over(c, background), background) < 3, "\(name) pending strain on the background")
+                }
                 lines.append("\(name) pending \(title): background \(onBackground), over track \(onTrack)")
             }
             // The previous day's number is text in textTertiary: that one must read.

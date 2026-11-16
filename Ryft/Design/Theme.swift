@@ -26,8 +26,8 @@ enum Theme {
     static let surface = Color("Surface")
     /// Ring tracks, unselected segments, empty bar backgrounds, raised chips and fields: the opaque `#2F312F`, the 16 %
     /// track (`#F2F1EC`) composited over `background`, so it is the same pixel on every ground. It carries `textPrimary`
-    /// (11.6:1) and `textSecondary` (5.5:1) text, never `textTertiary` (3.9:1). The middle and inner rings' 7 % and 13 %
-    /// tracks are drawn from `textPrimary` by the gauge.
+    /// (11.6:1) and `textSecondary` (5.5:1) text, never `textTertiary` (3.9:1). Today every ring's track uses it; PR 3
+    /// draws the middle and inner rings' 7 % and 13 % tracks from `textPrimary` and leaves it the outer ring's 16 %.
     static let surfaceRaised = Color("SurfaceRaised")
     /// Numbers and titles: `#F2F1EC`.
     static let textPrimary = Color("TextPrimary")

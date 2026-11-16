@@ -55,17 +55,19 @@ import UIKit
     // MARK: §2 tokens
 
     private static let ink: UInt32 = 0xF2F1EC
+    /// The screen colour, one constant for the `background` row and the `surfaceRaised` derivation: move one and the other has to move.
+    private static let screen: UInt32 = 0x0A0C0B
 
     /// Every colour of the style, with its value. `textTertiary` is the deviation: the style says 45 %.
     private static var tokens: [(String, Color, RGBA)] {
         [
-            ("background", Theme.background, rgba(0x0A0C0B)),
+            ("background", Theme.background, rgba(screen)),
             ("surface", Theme.surface, rgba(0x121514)),
             ("textPrimary", Theme.textPrimary, rgba(ink)),
             ("textSecondary", Theme.textSecondary, rgba(ink, 0.62)),
             ("textTertiary (ADR: 48 %, the style's 45 % is 4.1:1)", Theme.textTertiary, rgba(ink, 0.48)),
             ("separator", Theme.separator, rgba(ink, 0.08)),
-            ("surfaceRaised (the 16 % track flattened over background)", Theme.surfaceRaised, over(rgba(ink, 0.16), rgba(0x0A0C0B))),
+            ("surfaceRaised (the 16 % track flattened over background)", Theme.surfaceRaised, over(rgba(ink, 0.16), rgba(screen))),
             ("recovery", Theme.recovery, rgba(0x63D2B4)),
             ("accent", Theme.accent, rgba(0x63D2B4)),
             ("sleep", Theme.metricSleep, rgba(0x9B8AF0)),

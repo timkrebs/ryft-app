@@ -20,8 +20,8 @@ struct RyftHeader: View {
 /// "RYFT" in Satoshi Light, tracked 0.32 em. The tracking is added after the last letter too, so the word is
 /// pulled back by that much on the right and sits optically where its letters are.
 struct Wordmark: View {
-    /// The wordmark style's size (`RyftTextStyle.wordmark`).
-    var size: CGFloat = 15
+    /// The wordmark style's size: `RyftTextStyle.wordmark` is the source of truth.
+    var size: CGFloat = RyftTextStyle.wordmark.size
 
     /// Tracking in em.
     static let tracking: CGFloat = 0.32
@@ -42,7 +42,7 @@ struct WordmarkLockup: View {
     var body: some View {
         HStack(spacing: markSize * 10 / 26) {
             RyftMark().frame(width: markSize, height: markSize)
-            Wordmark(size: markSize * 15 / 26)
+            Wordmark(size: markSize * RyftTextStyle.wordmark.size / 26)
         }
         .foregroundStyle(Theme.textPrimary)
         .accessibilityElement(children: .ignore)
