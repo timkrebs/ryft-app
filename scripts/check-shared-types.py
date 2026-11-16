@@ -7,6 +7,12 @@
 - No fonts: the app has Satoshi, the widget the system's face; each wrapper sets its own.
 - Colours by asset name: every colorset `Shared/` names is in both asset catalogs, with the same Contents.json.
 
+The widget's colours stay the app's:
+- Every colorset in both catalogs has the same Contents.json, whether or not `Shared/` names it.
+- `WidgetBackground` is the app's `Background`.
+- Each hex literal in the widget's `enum Brand` (`RyftWidgets/RyftWidgets.swift`) is the app colorset of its name
+  (`graphite` is `Graphite.colorset`); a `Brand` colour without one fails.
+
 Types that predate `Shared/` still exist twice and must stay identical (each moves into `Shared/` when next touched):
 - `RestTimerAttributes`: the whole struct (ActivityKit matches it by name and Codable shape).
 - `OpenWorkoutIntent`: its `static let` declarations (the system performs the app's copy).
@@ -123,6 +129,76 @@ def check_shared():
 
 check_shared()
 
+
+# MARK: the widget's colours
+
+WIDGET_BRAND = "RyftWidgets/RyftWidgets.swift"
+
+
+def colorset_rgba(path):
+    """(r, g, b, a) in 0...255 of a colorset's universal sRGB colour, None when it is not one."""
+    for entry in json.loads(read(path)).get("colors", []):
+        if entry.get("appearances"):
+            continue
+        colour = entry.get("color", {})
+        if colour.get("color-space") not in ("srgb", None):
+            return None
+        c = colour.get("components", {})
+
+        def channel(v):
+            v = str(v)
+            return int(v, 16) if v.lower().startswith("0x") else round(float(v) * 255)
+        try:
+            return tuple(channel(c[k]) for k in ("red", "green", "blue")) + (round(float(c.get("alpha", 1)) * 255),)
+        except (KeyError, ValueError):
+            return None
+    return None
+
+
+def check_widget_colours():
+    if not (os.path.isdir(APP_CATALOG) and os.path.isdir(WIDGET_CATALOG)):
+        return
+    sets = lambda d: {n[:-len(".colorset")] for n in os.listdir(d) if n.endswith(".colorset")}
+    for name in sorted(sets(APP_CATALOG) & sets(WIDGET_CATALOG)):
+        a = os.path.join(APP_CATALOG, f"{name}.colorset", "Contents.json")
+        b = os.path.join(WIDGET_CATALOG, f"{name}.colorset", "Contents.json")
+        if json.loads(read(a)) != json.loads(read(b)):
+            problems.append(f"colorset {name}: {a} and {b} differ")
+    background = os.path.join(APP_CATALOG, "Background.colorset", "Contents.json")
+    widget_background = os.path.join(WIDGET_CATALOG, "WidgetBackground.colorset", "Contents.json")
+    if os.path.exists(background) and os.path.exists(widget_background) \
+            and colorset_rgba(background) != colorset_rgba(widget_background):
+        problems.append(f"{widget_background}: not the app's Background ({background})")
+    if not os.path.exists(WIDGET_BRAND):
+        return
+    brand = block(without_comments(read(WIDGET_BRAND)), "enum Brand")
+    if brand is None:
+        problems.append(f"{WIDGET_BRAND}: enum Brand not found")
+        return
+    hexes = re.compile(r"static\s+let\s+(\w+)\s*=\s*Color\(\s*red:\s*0x([0-9A-Fa-f]{2})\s*/\s*255\s*,"
+                       r"\s*green:\s*0x([0-9A-Fa-f]{2})\s*/\s*255\s*,\s*blue:\s*0x([0-9A-Fa-f]{2})\s*/\s*255\s*\)")
+    found = 0
+    for name, r, g, b in hexes.findall(brand):
+        found += 1
+        asset = name[:1].upper() + name[1:]
+        path = os.path.join(APP_CATALOG, f"{asset}.colorset", "Contents.json")
+        if not os.path.exists(path):
+            problems.append(f"{WIDGET_BRAND}: Brand.{name} has no app colorset {asset} to match")
+            continue
+        app = colorset_rgba(path)
+        widget = (int(r, 16), int(g, 16), int(b, 16), 255)
+        if app != widget:
+            problems.append(f"{WIDGET_BRAND}: Brand.{name} is #{r}{g}{b}, the app's {asset} is "
+                            + (f"#{app[0]:02X}{app[1]:02X}{app[2]:02X}" if app else "not an sRGB colour"))
+    # Any other colour literal in Brand escapes the check: name it after an app colorset in the form above.
+    if len(re.findall(r"Color\(", brand)) != found:
+        problems.append(f"{WIDGET_BRAND}: a Brand colour not written as Color(red: 0xRR / 255, green: ..., blue: ...)")
+
+
+check_widget_colours()
+
+# A colorset `Shared/` names is compared by both checks: say it once.
+problems = list(dict.fromkeys(problems))
 for p in problems:
     print(p)
 if problems:
