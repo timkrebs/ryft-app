@@ -32,7 +32,7 @@ struct MetricGauge: View {
     var target: ClosedRange<Double>? = nil
     var delta: MetricDelta? = nil
     var deltaReference: String = String(localized: "vs 7 d")
-    /// Small caps above the value (large gauges only).
+    /// A sentence-case label above the value (large gauges only).
     var title: String? = nil
     /// The orbit mark above the value (large gauges only).
     var showsMark = false
@@ -156,10 +156,10 @@ struct MetricGauge: View {
             }
             if size == .large, let title {
                 Text(title)
-                    .font(.ryftNumber(size: 9, weight: .medium))
-                    .textCase(.uppercase)
-                    .tracking(1.4)
+                    .font(.ryftNumber(size: 11, weight: .regular))
                     .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
             Text(value.map(spec.number) ?? Fmt.placeholder)
                 .font(.ryftNumber(size: size.valueSize))
@@ -270,7 +270,7 @@ struct GaugeNoteLink: View {
 }
 
 #Preview("MetricGauge", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 20) {
             MetricGauge(spec: .readiness, value: 84, size: .large,
                         delta: MetricDelta(current: 84, reference: 78),
@@ -287,7 +287,7 @@ struct GaugeNoteLink: View {
 }
 
 #Preview("Gauge notes", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 20) {
             VStack(spacing: 8) {
                 MetricGauge(spec: .readiness, value: 80, size: .large, title: String(localized: "Overall readiness"),
@@ -317,7 +317,7 @@ struct GaugeNoteLink: View {
 #Preview("Gauge note · one signal", traits: .sizeThatFitsLayout) {
     let progress = CalibrationProgress(nights: 3, signals: [.restingHR],
                                        absent: CalibrationBlocker(signals: [.hrv], source: .unknown, link: nil))
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 8) {
             OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 3, signal: .restingHR)), size: .large,
                        caption: OrbitGauge.Caption(title: String(localized: "Baselines")), animatesFill: false)
@@ -327,7 +327,7 @@ struct GaugeNoteLink: View {
 }
 
 #Preview("Gauge notes · de · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 12) {
             OrbitGauge(mode: .calibrating(OrbitGaugeCalibration(nights: 2, signal: .heartRateNights)), size: .large,
                        caption: OrbitGauge.Caption(title: String(localized: "Baselines")), animatesFill: false)
@@ -354,18 +354,18 @@ private func blockedNotePreview() -> some View {
 }
 
 #Preview("Gauge note · link", traits: .sizeThatFitsLayout) {
-    SchemePair { blockedNotePreview() }
+    DarkPreview { blockedNotePreview() }
 }
 
 #Preview("Gauge note · link · de · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair { blockedNotePreview() }
+    DarkPreview { blockedNotePreview() }
         .environment(\.locale, Locale(identifier: "de"))
         .environment(\.dynamicTypeSize, .accessibility3)
 }
 
 #Preview("MetricGauge · large caption · de · AX3", traits: .sizeThatFitsLayout) {
     // "Hoch · ▲ +11 ggü. 7 Tg." doesn't fit one line here: the band word over the change, wrapping.
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 16) {
             MetricGauge(spec: .readiness, value: 84, size: .large, delta: MetricDelta(current: 84, reference: 73),
                         title: String(localized: "Overall readiness"), showsMark: true)

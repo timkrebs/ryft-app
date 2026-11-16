@@ -18,6 +18,20 @@ struct SchemePair<Content: View>: View {
     }
 }
 
+/// The one appearance there is (Nocturne is dark-only): the content on the screen colour, 390 pt wide. Replaces
+/// `SchemePair` file by file as each file is touched (docs/work/2026-11-16-nocturne/plan.md, D3).
+struct DarkPreview<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        content()
+            .padding(20)
+            .frame(width: 390)
+            .background(Theme.background)
+            .environment(\.colorScheme, .dark)
+    }
+}
+
 extension View {
     /// Injects the environment objects every screen expects, backed by mock
     /// data and a fake signed-in session (no Supabase, no network).
