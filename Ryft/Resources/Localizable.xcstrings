@@ -1002,7 +1002,7 @@
       "comment" : "Add activity: the end is on the day after the start."
     },
     "+kg" : {
-      "comment" : "Set table's column in a workout: load added to bodyweight. Shown uppercase."
+      "comment" : "Set table's column in a workout: load added to bodyweight."
     },
     "0 workouts in this range" : {
       "comment" : "Training import C4."
@@ -1836,10 +1836,10 @@
       "comment" : "Training import, step 5: the offline duplicate check."
     },
     "Last time" : {
-      "comment" : "Heading of the last-time card in a workout, without a date. Shown uppercase."
+      "comment" : "Heading of the last-time card in a workout, without a date."
     },
     "Last time · %@" : {
-      "comment" : "Heading of the last-time card in a workout. 1: the date, e.g. Tue 3 Nov. Shown uppercase."
+      "comment" : "Heading of the last-time card in a workout. 1: the date, e.g. Tue 3 Nov."
     },
     "Last time, %@: %@" : {
       "comment" : "VoiceOver: the last-time card. 1: the date, 2: its sets."
