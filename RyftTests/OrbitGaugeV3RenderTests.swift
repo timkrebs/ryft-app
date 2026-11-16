@@ -167,13 +167,29 @@ struct OrbitGaugeV3RenderTests {
         }
     }
 
-    /// The strain halo reaches 3 pt past the 260 frame, and the gauge does not clip it.
-    @Test func theHaloIsNotClippedToTheFrame() throws {
-        let shot = try #require(render(.scored(.previewBoard)))
-        let (_, colour, radius, degrees) = boardDots[0]
-        let p = shot.at(radius: radius + 14, degrees: degrees)
-        #expect(hypot(p.x - shot.centre.x, p.y - shot.centre.y) > 130, "the sample is outside the frame")
-        #expect(close(shot.pixel(p), over(rgba(colour), OrbitGaugePalette.haloOpacity, background), 3))
+    /// The strain halo reaches 3 pt past the 260 frame (r 15 around a dot on the r 118 ring: 133 against 130), and the gauge
+    /// does not clip it. The head sits on an axis, so the halo's outermost point is straight out of the frame's edge: 10.5 of
+    /// 21 is the bottom (180 deg), 21 the top (the arc stops a hundredth of a degree short of the whole turn). The sample is
+    /// 2 pt outside the frame's square on that axis, between the dot's cut (r 10) and the halo's edge (r 15) at 14 pt from
+    /// the dot's centre, and must be the 16 % halo. A sample inside the square, as 212.6 deg was, would pass a `.clipped()`.
+    @Test("The halo is not clipped to the frame", arguments: [(10.5, 180.0, "bottom"), (21.0, 360.0, "top")])
+    func theHaloIsNotClippedToTheFrame(_ strain: Double, _ head: Double, _ edge: String) throws {
+        let shot = try #require(render(.scored(OrbitGaugeValues(readiness: 84, recovery: 0.82, sleep: 0.94, strain: strain))))
+        let (_, colour, radius, _) = boardDots[0]
+        let degrees = G.Orbit.strain.headDegrees(for: strain / 21)
+        // On the axis: the head is at the bottom (180) or, a hundredth short of a turn, at the top.
+        #expect(abs(degrees - head) < 0.02 || abs(degrees - head + 360) < 0.02, "the head is on the \(edge) axis: \(degrees)")
+        let frame = CGRect(x: shot.centre.x - 130, y: shot.centre.y - 130, width: 260, height: 260)
+        let sample = shot.at(radius: radius + 14, degrees: degrees)
+        #expect(!frame.contains(sample), "the sample \(sample) is outside the frame \(frame)")
+        let outside = edge == "bottom" ? sample.y - frame.maxY : frame.minY - sample.y
+        #expect(abs(outside - 2) < 0.05, "2 pt outside the \(edge) edge: \(outside)")
+        #expect(abs(sample.x - frame.midX) < 0.05, "on the vertical axis")
+        let halo = over(rgba(colour), OrbitGaugePalette.haloOpacity, background)
+        #expect(close(shot.pixel(sample), halo, 3), "the halo at \(edge): \(shot.pixel(sample)) against \(halo)")
+        // And a point beyond its reach is the background again: the halo ends at 133 (3 pt out), not at the edge of the image.
+        let beyond = shot.at(radius: radius + 16, degrees: degrees)
+        #expect(close(shot.pixel(beyond), background, 2), "past the halo")
     }
 
     @Test func noHaloBelowS110() throws {
@@ -268,6 +284,80 @@ struct OrbitGaugeV3RenderTests {
                                      entrance: .assemble, frozenAt: OrbitEntranceFrame.end))
             #expect(still != nil && still == end, "\(mode) at \(size)")
         }
+    }
+
+    /// `end` takes the settled branch of `OrbitEntranceStage`, so the test above never draws the choreography. A hair
+    /// earlier (0.1 ms, the glide's cubic 6e-11 short of done) the choreography's own drawing must already be the static one.
+    @Test(arguments: [OrbitGaugeSize.previewBoard, .large])
+    func theChoreographysLastFrameIsTheStaticRender(_ size: OrbitGaugeSize) {
+        let justBefore = OrbitEntranceFrame.end - 1e-4
+        #expect(justBefore < OrbitEntranceFrame.end, "this frame is the choreography's, not the settled branch")
+        for mode in [OrbitGaugeMode.scored(.previewBoard), .calibrating(OrbitGaugeCalibration(nights: 3)),
+                     .pending(previous: .previewBoard)] {
+            let still = png(OrbitGauge(mode: mode, size: size, animatesFill: false, breathes: false))
+            let late = png(OrbitGauge(mode: mode, size: size, animatesFill: false, breathes: false,
+                                      entrance: .assemble, frozenAt: justBefore))
+            #expect(still != nil && still == late, "\(mode) at \(size), end - 1e-4")
+        }
+    }
+
+    // MARK: the entrance as numbers: the scene at one moment
+
+    private func sameDot(_ a: OrbitGaugeScene.Dot, _ b: OrbitGaugeScene.Dot) -> Bool {
+        abs(a.radius - b.radius) < 1e-9 && abs(a.start - b.start) < 1e-9 && abs(a.sweep - b.sweep) < 1e-9
+            && a.opacity == b.opacity && a.halo == b.halo
+    }
+
+    /// At `end` the entrance's scene is the static scene, field by field (the drawing then is by construction).
+    @Test(arguments: [OrbitGaugeSize.previewBoard, .large, .medium, .small])
+    func theSceneAtTheEntrancesEndIsTheStaticScene(_ size: OrbitGaugeSize) {
+        for mode in [OrbitGaugeMode.scored(.previewBoard), .scored(OrbitGaugeValues(recovery: 0.82, sleep: 0.94, strain: 12.4)),
+                     .calibrating(OrbitGaugeCalibration(nights: 3)), .pending(previous: .previewBoard)] {
+            let still = OrbitGaugeScene(mode: mode, size: size)
+            let end = OrbitGaugeScene(mode: mode, size: size, entrance: OrbitEntranceFrame(seconds: OrbitEntranceFrame.end))
+            #expect(end.mode == still.mode && end.dial == still.dial && end.metrics == still.metrics, "\(mode) at \(size)")
+            #expect(end.outerTrack == still.outerTrack && end.middleTrack == still.middleTrack
+                        && end.innerTrack == still.innerTrack, "tracks, \(mode) at \(size)")
+            #expect(end.progress == still.progress, "progress, \(mode) at \(size)")
+            #expect(end.voltOpacity == still.voltOpacity && end.railOpacity == still.railOpacity, "volt and rail, \(mode) at \(size)")
+            for orbit in G.Orbit.allCases {
+                #expect(sameDot(end.dot(orbit), still.dot(orbit)), "\(orbit) dot, \(mode) at \(size): \(end.dot(orbit)) against \(still.dot(orbit))")
+            }
+            #expect(end.showsVolt == still.showsVolt && end.readiness == still.readiness)
+        }
+    }
+
+    /// At 0.4 s the dots are in flight: arcs unfilled, no Volt dot yet (it fades in with the glide, from 0.6 s), and each
+    /// dot's halo is as far along as its flight.
+    @Test func theSceneMidFlightHasNoVoltAndAHaloAsFarAsTheFlight() {
+        let mode = OrbitGaugeMode.scored(.previewBoard)
+        let frame = OrbitEntranceFrame(seconds: 0.4)
+        let scene = OrbitGaugeScene(mode: mode, size: .previewBoard, entrance: frame)
+        #expect(scene.voltOpacity == 0 && !scene.showsVolt, "no Volt dot before its value glides in")
+        #expect(scene.progress == 0 && scene.readiness == 0, "nothing filled yet")
+        for orbit in G.Orbit.allCases {
+            let flight = frame.flight(orbit)
+            #expect(flight > 0 && flight < 1, "\(orbit) is in flight at 0.4 s: \(flight)")
+            #expect(scene.dot(orbit).halo == flight, "\(orbit) halo follows the flight")
+            #expect(scene.dot(orbit).opacity == min(flight * 4, 1), "\(orbit) dot opacity")
+            #expect(scene.dot(orbit).sweep == 0, "\(orbit) arc not drawn yet")
+            #expect(scene.dot(orbit).radius > OrbitGaugeScene(mode: mode, size: .previewBoard).dot(orbit).radius,
+                    "\(orbit) still outside its ring")
+        }
+        // The halos differ by the stagger: strain leads, then recovery, then sleep.
+        #expect(scene.strainDot.halo > scene.recoveryDot.halo && scene.recoveryDot.halo > scene.sleepDot.halo)
+        // The tracks are all drawn by 0.25 s.
+        #expect(scene.outerTrack == 1 && scene.middleTrack == 1 && scene.innerTrack == 1 && scene.railOpacity == 1)
+    }
+
+    @Test func theVoltDotFadesInOverTheFirstQuarterOfTheGlide() {
+        let mode = OrbitGaugeMode.scored(.previewBoard)
+        func volt(_ seconds: Double) -> Double {
+            OrbitGaugeScene(mode: mode, size: .previewBoard, entrance: OrbitEntranceFrame(seconds: seconds)).voltOpacity
+        }
+        #expect(volt(0.5) == 0 && volt(OrbitEntranceFrame.glideStart) == 0)
+        #expect(volt(OrbitEntranceFrame.glideStart + 0.01) > 0 && volt(OrbitEntranceFrame.glideStart + 0.01) < 1)
+        #expect(volt(OrbitEntranceFrame.end) == 1)
     }
 
     @Test func reduceMotionIsA250msCrossFade() {
