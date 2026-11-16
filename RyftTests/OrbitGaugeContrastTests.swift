@@ -123,37 +123,49 @@ import UIKit
 
     /// Pending draws the previous day at `pendingOpacity` on purpose below 3:1 in places (design.md, PR 2: "yesterday,
     /// not today"; the number carries the value and VoiceOver says it). Pinning the constant makes raising or lowering it
-    /// a decision, not an accident; this is not an assertion that 0.6 reaches 3:1. On gauge v3, in dark: Strain on the
-    /// background (2.80), Strain over the 7 % ring (2.71) and Sleep over it (2.98) are under 3:1 at 0.6; Sleep on the
-    /// background (3.11) and Recovery (4.38, 4.16) stay over it. That is the documented dimming, asserted below.
+    /// a decision, not an accident; this is not an assertion that 0.6 reaches 3:1. Each mark is measured over the track it
+    /// is drawn on: Recovery and Sleep on the 7 % middle ring, Strain on the 16 % outer ticks (never on the 7 % ring, a pairing
+    /// the gauge does not draw). On gauge v3, in dark: Strain on the background (2.80) and over its ticks (2.34), and Sleep
+    /// over its ring (2.98), are under 3:1 at 0.6; Sleep on the background (3.11) and Recovery (4.38, 4.16) stay over it.
+    /// While it breathes the marks dip to 0.75 of that (0.45): Strain over its ticks is then 1.90. That is the documented
+    /// dimming, asserted below.
     @Test func pendingOpacityIsPinnedAndIntentionallyBelowThreeToOne() {
         #expect(OrbitGaugeMarks.pendingOpacity == 0.6)
         var lines: [String] = []
         for (name, style) in [("dark", UIUserInterfaceStyle.dark)] {
             let background = resolve(Theme.background, style)
-            let ring = tracks(style).middle
-            let cases: [(String, Color, Double, Double)] = [
-                ("recovery", Theme.accent, 4.38, 4.16), ("sleep", Theme.metricSleep, 3.11, 2.98),
-                ("strain", Theme.metricStrain, 2.80, 2.71),
+            let t = tracks(style)
+            // title, colour, on the background, over its track, the track and its name.
+            let cases: [(String, Color, Double, Double, RGBA, String)] = [
+                ("recovery", Theme.accent, 4.38, 4.16, t.middle, "7 % ring"),
+                ("sleep", Theme.metricSleep, 3.11, 2.98, t.middle, "7 % ring"),
+                ("strain", Theme.metricStrain, 2.80, 2.34, t.outer, "16 % ticks"),
             ]
-            for (title, colour, onBackgroundExpected, onRingExpected) in cases {
+            for (title, colour, onBackgroundExpected, onTrackExpected, track, trackName) in cases {
                 let c = resolve(colour, style)
                 let onBackground = ratio(over(c, OrbitGaugeMarks.pendingOpacity, background), background)
-                let onRing = ratio(over(c, OrbitGaugeMarks.pendingOpacity, ring), ring)
+                let onTrack = ratio(over(c, OrbitGaugeMarks.pendingOpacity, track), track)
                 #expect(printed(onBackground, onBackgroundExpected), "\(name) pending \(title) on background: \(two(onBackground))")
-                #expect(printed(onRing, onRingExpected), "\(name) pending \(title) over the 7 % ring: \(two(onRing))")
+                #expect(printed(onTrack, onTrackExpected), "\(name) pending \(title) over the \(trackName): \(two(onTrack))")
                 switch title {
                 case "strain":
                     #expect(onBackground < 3, "\(name) pending strain on the background")
-                    #expect(onRing < 3, "\(name) pending strain over the 7 % ring")
+                    #expect(onTrack < 3, "\(name) pending strain over the \(trackName)")
                 case "sleep":
-                    #expect(onRing < 3, "\(name) pending sleep over the 7 % ring")
+                    #expect(onTrack < 3, "\(name) pending sleep over the \(trackName)")
                     #expect(onBackground >= 3, "\(name) pending sleep on the background")
                 default:
-                    #expect(onBackground >= 3 && onRing >= 3, "\(name) pending recovery")
+                    #expect(onBackground >= 3 && onTrack >= 3, "\(name) pending recovery")
                 }
-                lines.append("\(name) pending \(title): background \(two(onBackground)), over the 7 % ring \(two(onRing))")
+                lines.append("\(name) pending \(title): background \(two(onBackground)), over the \(trackName) \(two(onTrack))")
             }
+            // The breathing low (`phaseAnimator`'s 0.75 of the dimmed marks): the strain is lower still, over the ticks it is on.
+            let breathingLow = OrbitGaugeMarks.pendingOpacity * 0.75
+            let strain = resolve(Theme.metricStrain, style)
+            let low = ratio(over(strain, breathingLow, t.outer), t.outer)
+            #expect(abs(breathingLow - 0.45) < 1e-12)
+            #expect(printed(low, 1.90) && low < 3, "\(name) breathing strain over the 16 % ticks: \(two(low))")
+            lines.append("\(name) pending strain at the breathing low (0.45): over the 16 % ticks \(two(low))")
             // The previous day's number is text in textTertiary: that one must read.
             let tertiary = resolve(Theme.textTertiary, style)
             #expect(ratio(over(tertiary, tertiary.a, background), background) >= 4.5, "\(name) pending number")
