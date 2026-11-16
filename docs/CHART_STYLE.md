@@ -92,7 +92,7 @@ baseline (or to the window's mean). There is a selection haptic on each day chan
 | `MiniHypnogram` | last night, 20:00–12:00 |
 | `Hypnogram` | Sleep tab |
 
-Every component has dark and light `#Preview`s.
+Every component has dark `#Preview`s (the app is dark-only, ADR 0016).
 
 ### OrbitGauge
 
