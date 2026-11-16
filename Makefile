@@ -72,7 +72,7 @@ strings: build
 # String catalogs English only and complete, nothing stale; the bundled tracker catalog current; the GPS
 # fixture tracks match scripts/make-tracks.py; the built-in exercise snapshot matches the platform's seed (only
 # where ../plattform is checked out); the import's source-key golden file agrees with an independent fold (ADR 0007);
-# the mark's SVGs match the Swift geometry (needs swiftc, i.e. macOS).
+# the mark's SVG matches the Swift geometry (needs swiftc, i.e. macOS).
 lint: check-entitlements check-mark-svg
 	python3 scripts/lint-strings.py
 	python3 scripts/check-shared-types.py

@@ -12,7 +12,7 @@
 // every appearance). The colours come from the asset catalog (IconSpec): the tile is Background, the word TextPrimary.
 // The word is drawn with CoreText from Ryft/Resources/Fonts/Satoshi-Light.otf, which is git-ignored (`make fonts`).
 // There is no fallback face: a missing or wrong font file exits 1. It also exits 1 if the word is under 4.5:1 on the
-// tile, if its ink is off-centre by more than half a pixel, or if a written PNG has an alpha channel.
+// tile, if its ink, measured on the rendered bitmap, is off-centre by more than 1 px, or if a written PNG has an alpha channel.
 //
 // Placement: the ink (the letters' own outline, not their advance boxes) is centred horizontally, so the tracking after
 // the last letter does not pull the word to the left; the cap height is centred vertically (R, Y, F and T are flat
@@ -123,22 +123,45 @@ struct RenderIcon {
 
         let ink = CTLineGetImageBounds(line, ctx)
         let cap = Double(CTFontGetCapHeight(font))
-        let x = Double(side) / 2 - Double(ink.midX)
-        let baseline = Double(side) / 2 - cap / 2
+        // Whole pixels: a bitmap context snaps the glyph origin to the pixel grid, so rounding here decides which way.
+        let x = (Double(side) / 2 - Double(ink.midX)).rounded()
+        let baseline = (Double(side) / 2 - cap / 2).rounded()
         ctx.textPosition = CGPoint(x: x, y: baseline)
         CTLineDraw(line, ctx)
 
-        let left = x + Double(ink.minX), right = Double(side) - (x + Double(ink.maxX))
-        let bottom = baseline + Double(ink.minY), top = Double(side) - (baseline + Double(ink.maxY))
+        // The margins are read off the bitmap, not computed from the placement: the ink is where the pixels are at least
+        // half way from the tile colour to the word colour.
+        let (left, right, top, bottom) = inkMargins(of: ctx, tile: tileHex, word: wordHex)
         print(String(format: "font %@ %.1f px (%.2f%% of the tile), tracking %.2f em, cap height %.1f px",
                      IconSpec.fontPostScriptName, size, 100 * size / IconSpec.tile, IconSpec.trackingEm, cap))
-        print(String(format: "ink margins: left %.1f, right %.1f, top %.1f, bottom %.1f px (ink %.1f x %.1f px)",
+        print(String(format: "ink margins on the bitmap: left %.0f, right %.0f, top %.0f, bottom %.0f px (ink %.1f x %.1f px)",
                      left, right, top, bottom, ink.width, ink.height))
         guard abs(left - right) <= 1, abs(top - bottom) <= 1 else {
             fail("the word is off-centre: left \(left) / right \(right), top \(top) / bottom \(bottom) px")
         }
         guard let image = ctx.makeImage() else { fail("render failed") }
         return image
+    }
+
+    /// The distance (px) from the tile's edges to the word's ink, read from the context's bitmap: the ink is every pixel at
+    /// least half way from the tile's red to the word's red (both are neutral, so one channel says it).
+    static func inkMargins(of ctx: CGContext, tile: String, word: String) -> (left: Double, right: Double, top: Double, bottom: Double) {
+        guard let data = ctx.data else { fail("the bitmap has no pixel data") }
+        let pixels = data.assumingMemoryBound(to: UInt8.self)
+        let (w, h, stride) = (ctx.width, ctx.height, ctx.bytesPerRow)
+        let tileRed = IconSpec.rgb(tile).r * 255, wordRed = IconSpec.rgb(word).r * 255
+        var (minX, maxX, minY, maxY) = (w, -1, h, -1)
+        for y in 0..<h {
+            for x in 0..<w {
+                let coverage = (Double(pixels[y * stride + x * 4]) - tileRed) / (wordRed - tileRed)
+                if coverage >= 0.5 {
+                    minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+                }
+            }
+        }
+        guard maxX >= 0 else { fail("no ink on the tile") }
+        // Rows run from the top of the image.
+        return (Double(minX), Double(w - 1 - maxX), Double(minY), Double(h - 1 - maxY))
     }
 
     /// The icon scaled to `side` px with high-quality interpolation (what the Home Screen shows at 60 pt and below).
