@@ -155,6 +155,16 @@ are Today's layout (PR 4), not part of the gauge.
   Today's switch to it.
 - **L8 (Q7–Q9):** `Wordmark` gets an additive `tracking` parameter. `RyftMarkShape`'s arc and dot path builders become
   shared statics on `RyftMarkGeometry`, so the launch uses the same geometry. The wordmark is 28 pt below the 184 pt box.
+- **L9 (architect O1):** The launch also skips when the app went to the background less than 10 minutes ago
+  (`launch.lastBackgroundAt`). iOS often evicts a suspended app, and a reopen that feels like a return must not
+  play 5.2 s; this is §5's intent.
+- **L10 (O2):** Confirmed: launches with a purpose (URL, user activity, shortcut, notification), an open workout, root
+  presentations, system UI and late activation skip or hand off at once; VoiceOver users get the reduced variant.
+- **L11:** The reduced (Reduce Motion / VoiceOver) frame is the t = 1 frame: mark, wordmark and tagline.
+- **L12:** Plain Xcode runs play the sequence (a tap skips); the shared scheme stays unchanged.
+- To PR 4: the splash as the launch's last frame; whether only the mark or the whole lock-up moves into the header; and
+  whether the gauge entrance starts with the move or after it lands (`launch-design.md` §14, questions 5–7).
+  To the user: the launch tagline "Engineered for peak." next to Welcome's "Your whole health.".
 
 **Acceptance criteria**
 1. **Gauge v3 renders the table above** for any `OrbitGauge` input, with the model unchanged. The tick rings scale with the
