@@ -290,11 +290,11 @@ struct DebugComponentCatalog: View {
             RulerScale(range: 0...100, value: 84, zone: 67...100, tickCount: RulerScale.Ticks.today,
                        labels: ["0", "low", "moderate", "high", "100"], accessibilityLabel: Text("Readiness scale"),
                        accessibilityValue: Text("84, high, on a scale from 0 to 100"))
-            RulerScale(range: 0...10, value: 7.8, zone: 7.5...8.3, zoneTint: Theme.metricSleep, zoneOpacity: 0.85,
+            RulerScale(range: 0...10, value: 7.8, zone: 7.5...8.3, zoneStyle: .sleep,
                        tickCount: RulerScale.Ticks.sleep, labels: ["0 h", "need 8:18", "10 h"],
                        accessibilityLabel: Text("Sleep scale"),
                        accessibilityValue: Text("7 hours 48 minutes, need 8 hours 18 minutes, on a scale from 0 to 10 hours"))
-            RulerScale(range: 0...21, value: 12.4, zone: 10...14, zoneTint: Theme.metricStrain, zoneOpacity: 0.95,
+            RulerScale(range: 0...21, value: 12.4, zone: 10...14, zoneStyle: .strain,
                        tickCount: RulerScale.Ticks.strain, labels: ["0", "target 10–14", "21"],
                        accessibilityLabel: Text("Strain scale"),
                        accessibilityValue: Text("12.4, in target 10 to 14, on a scale from 0 to 21"))
@@ -307,7 +307,7 @@ struct DebugComponentCatalog: View {
                         catalogTileText("Strain", "12.4")
                         Spacer(minLength: 0)
                         RulerScale(range: 0...21, value: 12.4, zone: 10...14, tickCount: RulerScale.Ticks.strainCompact,
-                                   size: .compact, accessibilityLabel: Text("Strain scale"),
+                                   labels: ["0", "21"], size: .compact, accessibilityLabel: Text("Strain scale"),
                                    accessibilityValue: Text("12.4, in target 10 to 14, on a scale from 0 to 21"))
                     }
                 }
@@ -315,7 +315,7 @@ struct DebugComponentCatalog: View {
             RulerScale(range: 0...100, value: nil, zone: 67...100, tickCount: RulerScale.Ticks.today,
                        labels: ["0", "low", "moderate", "high", "100"], accessibilityLabel: Text("Readiness scale"),
                        accessibilityValue: Text("No value yet, on a scale from 0 to 100"))
-            RulerScale(range: 0...21, value: 23.5, zone: 10...14, zoneTint: Theme.metricStrain, zoneOpacity: 0.95,
+            RulerScale(range: 0...21, value: 23.5, zone: 10...14, zoneStyle: .strain,
                        tickCount: RulerScale.Ticks.strain, labels: ["0", "target 10–14", "21"],
                        accessibilityLabel: Text("Strain scale"),
                        accessibilityValue: Text("23.5, above target, on a scale from 0 to 21"))

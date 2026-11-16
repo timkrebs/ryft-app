@@ -380,9 +380,9 @@ import UIKit
     // MARK: 22. RulerScale
 
     private func ruler(value: Double?, zone: ClosedRange<Double>? = 67...100, range: ClosedRange<Double> = 0...100,
-                       ticks: Int = RulerScale.Ticks.today, tint: Color = Theme.textPrimary, opacity: Double? = nil,
+                       ticks: Int = RulerScale.Ticks.today, style: RulerScale.ZoneStyle = .standard,
                        size: RulerScale.Size = .regular, width: CGFloat = 300) -> some View {
-        RulerScale(range: range, value: value, zone: zone, zoneTint: tint, zoneOpacity: opacity, tickCount: ticks, size: size,
+        RulerScale(range: range, value: value, zone: zone, zoneStyle: style, tickCount: ticks, size: size,
                    accessibilityLabel: Text(verbatim: "Scale"), accessibilityValue: Text(verbatim: "value"), reduceMotion: true)
             .frame(width: width)
             .background(Theme.background)
@@ -461,7 +461,7 @@ import UIKit
 
     @Test("The zone's tint and opacity: Sleep draws its ticks in the sleep colour at 85 %")
     func zoneTintAndOpacity() throws {
-        let shot = try #require(render(ruler(value: nil, zone: 7.5...8.3, range: 0...10, ticks: 61, tint: Theme.metricSleep, opacity: 0.85)))
+        let shot = try #require(render(ruler(value: nil, zone: 7.5...8.3, range: 0...10, ticks: 61, style: .sleep)))
         let c = RulerScale.tickCentres(count: 61, width: 300)
         let centre = shot.at(Double(c[47]), 19)
         let expected = Tokens.over(with(Tokens.resolve(Theme.metricSleep), alpha: 0.85), screen)
@@ -508,9 +508,9 @@ import UIKit
     @Test("Signal: with no value, or any zone tint, the ruler has no Volt at all")
     func rulerWithoutNeedleHasNoVolt() throws {
         #expect(voltPixels(try #require(render(ruler(value: nil)))).count == 0)
-        let strain = ruler(value: nil, zone: 10...14, range: 0...21, ticks: 64, tint: Theme.metricStrain, opacity: 0.95)
+        let strain = ruler(value: nil, zone: 10...14, range: 0...21, ticks: 64, style: .strain)
         #expect(voltPixels(try #require(render(strain))).count == 0)
-        let sleep = ruler(value: nil, zone: 7.5...8.3, range: 0...10, ticks: 61, tint: Theme.metricSleep, opacity: 0.85)
+        let sleep = ruler(value: nil, zone: 7.5...8.3, range: 0...10, ticks: 61, style: .sleep)
         #expect(voltPixels(try #require(render(sleep))).count == 0)
     }
 

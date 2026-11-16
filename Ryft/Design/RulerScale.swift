@@ -31,16 +31,33 @@ struct RulerScale: View {
     /// Tick counts per board, chosen so the zone edges land on ticks.
     enum Ticks { static let today = 61, sleep = 61, strain = 64, strainCompact = 43 }
 
+    /// The zone ticks' ink: a tint at an opacity. Callers pick a preset, never a literal.
+    struct ZoneStyle: Equatable {
+        let tint: Color
+        /// `nil` is the size's default: 0.55 regular, 0.60 compact.
+        let opacity: Double?
+
+        /// Today's readiness band and the compact strain tile: `textPrimary` at the size's default.
+        static let standard = ZoneStyle(tint: Theme.textPrimary, opacity: nil)
+        /// Sleep's need zone: `metricSleep` at 85 %.
+        static let sleep = ZoneStyle(tint: Theme.metricSleep, opacity: 0.85)
+        /// Strain's target zone: `metricStrain` at 95 %.
+        static let strain = ZoneStyle(tint: Theme.metricStrain, opacity: 0.95)
+
+        /// The opacity the zone ticks are drawn at in `size`.
+        func opacity(for size: Size) -> Double { opacity ?? size.defaultZoneOpacity }
+    }
+
     /// Volt: the needle is one of the signal's five marks (brief §1).
     static let needleColor = Theme.signal
-    /// The smallest gap between two labels before they no longer fit on one line.
-    static let labelMinGap: CGFloat = 8
+    /// The smallest gap between two labels before they no longer fit on one line: at large sizes the row then falls
+    /// back to the joined " · " line before the labels run together.
+    static let labelMinGap: CGFloat = 16
 
     private let range: ClosedRange<Double>
     private let value: Double?
     private let zone: ClosedRange<Double>?
-    private let zoneTint: Color
-    private let zoneOpacity: Double?
+    private let zoneStyle: ZoneStyle
     private let tickCount: Int
     private let labels: [String]
     private let size: Size
@@ -50,20 +67,22 @@ struct RulerScale: View {
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     /// - Parameters:
-    ///   - zoneOpacity: `nil` is 0.55 (compact 0.60); Sleep passes 0.85 with `metricSleep`, Strain 0.95 with `metricStrain`.
+    ///   - zone: the band or target in the range's units. Build one from server data with `RulerScale.zone(lo:hi:)`,
+    ///     which is `nil` where `lo...hi` would trap (a missing, non-finite or reversed bound).
+    ///   - zoneStyle: `.standard` (`textPrimary` at 0.55, compact 0.60), `.sleep` or `.strain`.
     ///   - labels: already localized, spread edge to edge under the ruler ("0", "low", "moderate", "high", "100").
     ///   - reduceMotion: previews and tests; `nil` follows the system.
     init(range: ClosedRange<Double>, value: Double?, zone: ClosedRange<Double>? = nil,
-         zoneTint: Color = Theme.textPrimary, zoneOpacity: Double? = nil, tickCount: Int,
+         zoneStyle: ZoneStyle = .standard, tickCount: Int,
          labels: [String] = [], size: Size = .regular,
          accessibilityLabel: Text, accessibilityValue: Text, reduceMotion: Bool? = nil) {
         self.range = range
         self.value = value
         self.zone = zone
-        self.zoneTint = zoneTint
-        self.zoneOpacity = zoneOpacity
+        self.zoneStyle = zoneStyle
         self.tickCount = tickCount
         self.labels = labels
         self.size = size
@@ -92,7 +111,7 @@ struct RulerScale: View {
             RulerTicks(count: count, indices: outside, tick: size.outsideTick, midY: size.tickRowMidY, scale: displayScale)
                 .fill(Theme.textPrimary.opacity(size.outsideOpacity))
             RulerTicks(count: count, indices: inZone, tick: size.zoneTick, midY: size.tickRowMidY, scale: displayScale)
-                .fill(zoneTint.opacity(zoneOpacity ?? size.defaultZoneOpacity))
+                .fill(zoneStyle.tint.opacity(zoneStyle.opacity(for: size)))
             if let fraction {
                 RulerNeedle(fraction: fraction, head: size.needleHead, line: size.needleLine, top: size.tickRowTop)
                     .fill(Self.needleColor)
@@ -118,10 +137,32 @@ struct RulerScale: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .font(.ryft(.axis))
-        .foregroundStyle(Theme.textTertiary)
+        .foregroundStyle(Self.labelColor(size: size, dynamicTypeSize: typeSize))
     }
 
     // MARK: layout (pure)
+
+    /// The labels' ink as an opacity of `textPrimary`; `nil` is `textTertiary`. A regular ruler sits on the screen and
+    /// keeps `textTertiary`. The compact ruler only lives inside a glow tile, where its edge labels sit in the lighter
+    /// outer region: it uses the glow label's `GlowTileSpec.labelOpacity(for:)`, 78 %, full `textPrimary` from AX1.
+    nonisolated static func labelOpacity(size: Size, dynamicTypeSize: DynamicTypeSize) -> Double? {
+        switch size {
+        case .regular: return nil
+        case .compact: return GlowTileSpec.labelOpacity(for: dynamicTypeSize)
+        }
+    }
+
+    /// The labels' colour: `textPrimary` at `labelOpacity(size:dynamicTypeSize:)`, or `textTertiary` where that is `nil`.
+    nonisolated static func labelColor(size: Size, dynamicTypeSize: DynamicTypeSize) -> Color {
+        labelOpacity(size: size, dynamicTypeSize: dynamicTypeSize).map { Theme.textPrimary.opacity($0) } ?? Theme.textTertiary
+    }
+
+    /// A zone from server data (the strain target, a sleep need): `nil` unless both bounds are present and finite and
+    /// `lo ≤ hi`, so a reversed or missing bound draws no zone instead of trapping in `lo...hi`.
+    nonisolated static func zone(lo: Double?, hi: Double?) -> ClosedRange<Double>? {
+        guard let lo, let hi, lo.isFinite, hi.isFinite, lo <= hi else { return nil }
+        return lo...hi
+    }
 
     /// Tick `i` of `max(count, 2)` is centred at `i / (n − 1) × width`: the outer ticks' centres are the edges.
     nonisolated static func tickCentres(count: Int, width: CGFloat) -> [CGFloat] {
@@ -129,15 +170,25 @@ struct RulerScale: View {
         return (0..<n).map { CGFloat($0) * width / CGFloat(n - 1) }
     }
 
-    /// The ticks whose value `lo + i·(hi − lo)/(n − 1)` lies in `zone` (± 1e-9). None without a zone or for an empty range.
+    /// The ticks whose value `lo + i·(hi − lo)/(n − 1)` lies in `zone` (± 1e-9). A zone that overlaps the range but is
+    /// narrower than the tick pitch still marks one tick: the one nearest the zone's midpoint (clamped into the range;
+    /// a tie goes to the higher tick), so the graphic agrees with a sentence that says "in target". None without a
+    /// zone, for a zone entirely outside the range, or for an empty range.
     nonisolated static func zoneTickIndices(count: Int, range: ClosedRange<Double>, zone: ClosedRange<Double>?) -> [Int] {
         let n = max(count, 2)
         let lo = range.lowerBound, hi = range.upperBound
+        let tolerance = 1e-9
         guard let zone, hi > lo else { return [] }
-        return (0..<n).filter { i in
+        let inside = (0..<n).filter { i in
             let v = lo + Double(i) * (hi - lo) / Double(n - 1)
-            return v >= zone.lowerBound - 1e-9 && v <= zone.upperBound + 1e-9
+            return v >= zone.lowerBound - tolerance && v <= zone.upperBound + tolerance
         }
+        guard inside.isEmpty else { return inside }
+        guard zone.upperBound >= lo - tolerance, zone.lowerBound <= hi + tolerance else { return [] }
+        let middle = min(max((zone.lowerBound + zone.upperBound) / 2, lo), hi)
+        let position = (middle - lo) / (hi - lo) * Double(n - 1)
+        guard position.isFinite else { return [] }
+        return [min(max(Int(position.rounded()), 0), n - 1)]
     }
 
     /// The needle's centre: `clamp((value − lo) / (hi − lo), 0, 1) · width`. `nil` without a value, for NaN, or when
@@ -207,11 +258,11 @@ private struct RulerNeedle: Shape {
                        labels: ["0", "low", "moderate", "high", "100"],
                        accessibilityLabel: Text("Readiness scale"),
                        accessibilityValue: Text("84, high, on a scale from 0 to 100"))
-            RulerScale(range: 0...10, value: 7.8, zone: 7.5...8.3, zoneTint: Theme.metricSleep, zoneOpacity: 0.85,
+            RulerScale(range: 0...10, value: 7.8, zone: 7.5...8.3, zoneStyle: .sleep,
                        tickCount: RulerScale.Ticks.sleep, labels: ["0 h", "need 8:18", "10 h"],
                        accessibilityLabel: Text("Sleep scale"),
                        accessibilityValue: Text("7 hours 48 minutes, need 8 hours 18 minutes, on a scale from 0 to 10 hours"))
-            RulerScale(range: 0...21, value: 12.4, zone: 10...14, zoneTint: Theme.metricStrain, zoneOpacity: 0.95,
+            RulerScale(range: 0...21, value: 12.4, zone: 10...14, zoneStyle: .strain,
                        tickCount: RulerScale.Ticks.strain, labels: ["0", "target 10–14", "21"],
                        accessibilityLabel: Text("Strain scale"),
                        accessibilityValue: Text("12.4, in target 10 to 14, on a scale from 0 to 21"))
@@ -221,7 +272,7 @@ private struct RulerNeedle: Shape {
                     Text(verbatim: "12.4").font(.ryft(.metric))
                     Spacer(minLength: 0)
                     RulerScale(range: 0...21, value: 12.4, zone: 10...14, tickCount: RulerScale.Ticks.strainCompact,
-                               size: .compact, accessibilityLabel: Text("Strain scale"),
+                               labels: ["0", "21"], size: .compact, accessibilityLabel: Text("Strain scale"),
                                accessibilityValue: Text("12.4, in target 10 to 14, on a scale from 0 to 21"))
                 }
             }
@@ -230,7 +281,7 @@ private struct RulerNeedle: Shape {
                        labels: ["0", "low", "moderate", "high", "100"],
                        accessibilityLabel: Text("Readiness scale"),
                        accessibilityValue: Text("No value yet, on a scale from 0 to 100"))
-            RulerScale(range: 0...21, value: 23.5, zone: 10...14, zoneTint: Theme.metricStrain, zoneOpacity: 0.95,
+            RulerScale(range: 0...21, value: 23.5, zone: 10...14, zoneStyle: .strain,
                        tickCount: RulerScale.Ticks.strain, labels: ["0", "target 10–14", "21"],
                        accessibilityLabel: Text("Strain scale"),
                        accessibilityValue: Text("23.5, above target, on a scale from 0 to 21"))
@@ -245,7 +296,7 @@ private struct RulerNeedle: Shape {
                        labels: ["0", "low", "moderate", "high", "100"],
                        accessibilityLabel: Text("Readiness scale"),
                        accessibilityValue: Text("84, high, on a scale from 0 to 100"))
-            RulerScale(range: 0...10, value: 7.8, zone: 7.5...8.3, zoneTint: Theme.metricSleep, zoneOpacity: 0.85,
+            RulerScale(range: 0...10, value: 7.8, zone: 7.5...8.3, zoneStyle: .sleep,
                        tickCount: RulerScale.Ticks.sleep, labels: ["0 h", "need 8:18", "10 h"],
                        accessibilityLabel: Text("Sleep scale"),
                        accessibilityValue: Text("7 hours 48 minutes, need 8 hours 18 minutes, on a scale from 0 to 10 hours"))
