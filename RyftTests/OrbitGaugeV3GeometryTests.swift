@@ -181,14 +181,37 @@ struct OrbitGaugeV3GeometryTests {
             if moves != drawn.count { problems.append("\(label): \(moves) rectangles for \(drawn.count) ticks") }
             let d = G.point(centre: centre, radius: dot.radius, degrees: dot.degrees)
             let kept = Set(drawn)
-            for i in shown {
-                // The dot's centre in the tick's own frame (tick centred at the origin, its length along y).
-                let a = G.tickDegrees(i, count: shape.count) * .pi / 180
-                let t = G.point(centre: centre, radius: shape.radius, degrees: G.tickDegrees(i, count: shape.count))
-                let (dx, dy) = (d.x - t.x, d.y - t.y)
-                let local = CGPoint(x: dx * CGFloat(cos(a)) + dy * CGFloat(sin(a)), y: -dx * CGFloat(sin(a)) + dy * CGFloat(cos(a)))
-                let ox = max(abs(local.x) - shape.tick.width / 2, 0), oy = max(abs(local.y) - shape.tick.height / 2, 0)
-                let reaches = hypot(ox, oy) < shape.cut
+            // The oracle is the drawn geometry, not `distance(fromTick:)`: each rectangle's four transformed corners as the
+            // shape's path has them (the same ticks without a dot), and the dot's distance to that polygon.
+            let all = OrbitTicks(count: shape.count, radius: shape.radius, tick: shape.tick, fraction: shape.fraction,
+                                 lit: shape.lit, dot: nil, cut: 0)
+            var polygons: [[CGPoint]] = []
+            all.path(in: rect).forEach { element in
+                switch element {
+                case .move(let p): polygons.append([p])
+                case .line(let p): polygons[polygons.count - 1].append(p)
+                default: break
+                }
+            }
+            if polygons.count != shown.count || polygons.contains(where: { $0.count != 4 }) {
+                problems.append("\(label): \(polygons.count) polygons for \(shown.count) ticks")
+                return problems
+            }
+            func distance(from p: CGPoint, to polygon: [CGPoint]) -> CGFloat {
+                // Inside a convex polygon: every cross product has the same sign.
+                var signs = Set<Bool>()
+                var nearest = CGFloat.infinity
+                for k in 0..<polygon.count {
+                    let (a, b) = (polygon[k], polygon[(k + 1) % polygon.count])
+                    signs.insert((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) >= 0)
+                    let (ex, ey) = (b.x - a.x, b.y - a.y)
+                    let u = min(max(((p.x - a.x) * ex + (p.y - a.y) * ey) / (ex * ex + ey * ey), 0), 1)
+                    nearest = min(nearest, hypot(p.x - (a.x + u * ex), p.y - (a.y + u * ey)))
+                }
+                return signs.count == 1 ? 0 : nearest
+            }
+            for (k, i) in shown.enumerated() {
+                let reaches = distance(from: d, to: polygons[k]) < shape.cut
                 if reaches == kept.contains(i) {
                     problems.append("\(label): tick \(i) " + (reaches ? "reaches into the cut" : "left out but clear of it"))
                 }
