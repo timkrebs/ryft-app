@@ -1,0 +1,304 @@
+import SwiftUI
+import Testing
+import UIKit
+@testable import Ryft
+
+/// Gauge v3 rendered (docs/work/2026-11-16-nocturne/design.md §P3-8, cases 13, 14, 16 and 17; 15 is
+/// `OrbitGaugeContrastTests`). `ImageRenderer` at 3x, dark, static (`animatesFill: false`, `breathes: false`), the
+/// pixels read where the geometry says things are. The board's values at S = 260 unless a case says otherwise.
+@MainActor
+@Suite("OrbitGauge v3: rendered")
+struct OrbitGaugeV3RenderTests {
+    typealias G = OrbitGaugeGeometry
+
+    /// 0...255 per channel, premultiplied (only opaque pixels are compared by colour).
+    private struct RGBA: Equatable { var r, g, b, a: Int }
+
+    /// Room around the gauge for what reaches past its frame (the strain halo, 3 pt at 260).
+    private static let pad: CGFloat = 8
+    nonisolated private static let scale: CGFloat = 3
+
+    private struct Shot {
+        let width: Int, height: Int, bytes: [UInt8]
+        /// The gauge's centre in points of the image.
+        let centre: CGPoint
+
+        /// The pixel that contains a point (points of the image).
+        func pixel(_ p: CGPoint) -> RGBA {
+            let x = min(max(Int((p.x * OrbitGaugeV3RenderTests.scale).rounded(.down)), 0), width - 1)
+            let y = min(max(Int((p.y * OrbitGaugeV3RenderTests.scale).rounded(.down)), 0), height - 1)
+            let i = (y * width + x) * 4
+            return RGBA(r: Int(bytes[i]), g: Int(bytes[i + 1]), b: Int(bytes[i + 2]), a: Int(bytes[i + 3]))
+        }
+
+        /// A point on a ring of the gauge.
+        func at(radius: CGFloat, degrees: Double) -> CGPoint { G.point(centre: centre, radius: radius, degrees: degrees) }
+
+        /// Every pixel with its centre in points of the image.
+        func forEachPixel(_ body: (CGPoint, RGBA) -> Void) {
+            for y in 0..<height {
+                for x in 0..<width {
+                    let i = (y * width + x) * 4
+                    body(CGPoint(x: (CGFloat(x) + 0.5) / OrbitGaugeV3RenderTests.scale,
+                                 y: (CGFloat(y) + 0.5) / OrbitGaugeV3RenderTests.scale),
+                         RGBA(r: Int(bytes[i]), g: Int(bytes[i + 1]), b: Int(bytes[i + 2]), a: Int(bytes[i + 3])))
+                }
+            }
+        }
+    }
+
+    /// A view of side `frame`, padded, over the background (or transparent), as RGBA bytes.
+    private func shot<V: View>(_ content: V, frame: CGFloat, opaque: Bool = true) -> Shot? {
+        let view = content
+            .padding(Self.pad)
+            .background(opaque ? Theme.background : Color.clear)
+            .environment(\.colorScheme, .dark)
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = Self.scale
+        guard let cg = renderer.cgImage else { return nil }
+        let (w, h) = (cg.width, cg.height)
+        var bytes = [UInt8](repeating: 0, count: w * h * 4)
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: &bytes, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let c = Self.pad + frame / 2
+        return Shot(width: w, height: h, bytes: bytes, centre: CGPoint(x: c, y: c))
+    }
+
+    private func render(_ mode: OrbitGaugeMode, _ size: OrbitGaugeSize = .previewBoard, opaque: Bool = true) -> Shot? {
+        shot(OrbitGauge(mode: mode, size: size, animatesFill: false, breathes: false), frame: size.frame, opaque: opaque)
+    }
+
+    private func rgba(_ colour: Color) -> RGBA {
+        let ui = UIColor(colour).resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark))
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        ui.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return RGBA(r: Int((r * 255).rounded()), g: Int((g * 255).rounded()), b: Int((b * 255).rounded()),
+                    a: Int((a * 255).rounded()))
+    }
+
+    /// `top` at `alpha` over an opaque `bottom`.
+    private func over(_ top: RGBA, _ alpha: Double, _ bottom: RGBA) -> RGBA {
+        func mix(_ t: Int, _ b: Int) -> Int { Int((Double(t) * alpha + Double(b) * (1 - alpha)).rounded()) }
+        return RGBA(r: mix(top.r, bottom.r), g: mix(top.g, bottom.g), b: mix(top.b, bottom.b), a: 255)
+    }
+
+    private func close(_ a: RGBA, _ b: RGBA, _ tolerance: Int) -> Bool {
+        max(abs(a.r - b.r), abs(a.g - b.g), abs(a.b - b.b)) <= tolerance
+    }
+
+    private var background: RGBA { rgba(Theme.background) }
+
+    /// The board's three dots: orbit, its colour, centre radius and angle (code) at S = 260.
+    private var boardDots: [(G.Orbit, Color, CGFloat, Double)] {
+        let v = OrbitGaugeValues.previewBoard
+        return [(.strain, Theme.metricStrain, 118, G.Orbit.strain.headDegrees(for: v.strainFraction ?? 0)),
+                (.recovery, Theme.recovery, 88, G.Orbit.recovery.headDegrees(for: v.recoveryFraction ?? 0)),
+                (.sleep, Theme.metricSleep, 88, G.Orbit.sleep.headDegrees(for: v.sleepFraction ?? 0))]
+    }
+
+    // MARK: 13. colours in pixels
+
+    @Test func arcsDotsAndLitTicksAreTheirColours() throws {
+        let shot = try #require(render(.scored(.previewBoard)))
+        for (orbit, colour, radius, degrees) in boardDots {
+            let c = rgba(colour)
+            #expect(close(shot.pixel(shot.at(radius: radius, degrees: degrees)), c, 2), "\(orbit) dot")
+            // The arc behind the head, past the halo: 12 deg back along the orbit.
+            let behind = orbit == .recovery ? degrees + 12 : degrees - 12
+            #expect(close(shot.pixel(shot.at(radius: radius, degrees: behind)), c, 2), "\(orbit) arc")
+        }
+        // Lit readiness ticks are the ink: tick 15 (3 o'clock) and tick 0 (the top) of 50.
+        let ink = rgba(Theme.textPrimary)
+        #expect(close(shot.pixel(shot.at(radius: 58, degrees: 90)), ink, 2), "lit tick 15")
+        #expect(close(shot.pixel(shot.at(radius: 58, degrees: 0)), ink, 2), "lit tick 0")
+        // An unlit one (tick 55, 330 deg) is the ink at 13 %.
+        let unlit = over(ink, OrbitGaugePalette.innerTrackOpacity, background)
+        #expect(close(shot.pixel(shot.at(radius: 58, degrees: 330)), unlit, 2), "unlit tick 55")
+    }
+
+    /// Volt appears only at the Volt dot: its centre is `signal`, and no pixel outside r 7.5 around it is within 4/255 of
+    /// it; without a readiness there is none at all.
+    @Test func voltIsOnlyTheReadinessDot() throws {
+        let signal = rgba(Theme.signal)
+        let shot = try #require(render(.scored(.previewBoard)))
+        let volt = shot.at(radius: 58, degrees: try #require(G.voltDegrees(readiness: 84)))
+        #expect(close(shot.pixel(volt), signal, 2), "the Volt dot's centre")
+        var stray = 0, found = 0
+        shot.forEachPixel { p, c in
+            guard c.a == 255, close(c, signal, 4) else { return }
+            found += 1
+            if hypot(p.x - volt.x, p.y - volt.y) > 7.5 { stray += 1 }
+        }
+        #expect(found > 0 && stray == 0, "\(stray) Volt pixels away from the dot")
+        let none = try #require(render(.scored(OrbitGaugeValues(recovery: 0.82, sleep: 0.94, strain: 12.4))))
+        var any = 0
+        none.forEachPixel { _, c in if c.a == 255, close(c, signal, 4) { any += 1 } }
+        #expect(any == 0, "no Volt without a readiness")
+    }
+
+    // MARK: 14. the cleared ring and the halo
+
+    @Test func eachDotHasAClearedRingAndAHalo() throws {
+        let opaque = try #require(render(.scored(.previewBoard)))
+        let clear = try #require(render(.scored(.previewBoard), opaque: false))
+        for (orbit, colour, radius, degrees) in boardDots {
+            let dot = opaque.at(radius: radius, degrees: degrees)
+            // r 7...10: the background, all the way round; nothing at all in a transparent render.
+            for direction in stride(from: 0.0, to: 360, by: 22.5) {
+                let p = G.point(centre: dot, radius: 8.5, degrees: direction)
+                #expect(close(opaque.pixel(p), background, 2), "\(orbit) ring at \(direction) deg")
+                #expect(clear.pixel(p).a <= 2, "\(orbit) ring at \(direction) deg is transparent")
+            }
+            // r 10...15, across the orbit (in and out): the colour at 16 % over the background.
+            let halo = over(rgba(colour), OrbitGaugePalette.haloOpacity, background)
+            for direction in [degrees, degrees + 180] {
+                let p = G.point(centre: dot, radius: 12.5, degrees: direction)
+                #expect(close(opaque.pixel(p), halo, 3), "\(orbit) halo at \(direction) deg")
+            }
+        }
+        // The Volt dot's ring, r 5...7.5.
+        let volt = opaque.at(radius: 58, degrees: try #require(G.voltDegrees(readiness: 84)))
+        for direction in stride(from: 0.0, to: 360, by: 22.5) {
+            let p = G.point(centre: volt, radius: 6.25, degrees: direction)
+            #expect(close(opaque.pixel(p), background, 2), "Volt ring at \(direction) deg")
+            #expect(clear.pixel(p).a <= 2, "Volt ring at \(direction) deg is transparent")
+        }
+    }
+
+    /// The strain halo reaches 3 pt past the 260 frame, and the gauge does not clip it.
+    @Test func theHaloIsNotClippedToTheFrame() throws {
+        let shot = try #require(render(.scored(.previewBoard)))
+        let (_, colour, radius, degrees) = boardDots[0]
+        let p = shot.at(radius: radius + 14, degrees: degrees)
+        #expect(hypot(p.x - shot.centre.x, p.y - shot.centre.y) > 130, "the sample is outside the frame")
+        #expect(close(shot.pixel(p), over(rgba(colour), OrbitGaugePalette.haloOpacity, background), 3))
+    }
+
+    @Test func noHaloBelowS110() throws {
+        #expect(!G.metrics(forSide: 109.9).showsHalo && G.metrics(forSide: 110).showsHalo)
+        func haloSample(_ size: OrbitGaugeSize) throws -> RGBA {
+            let shot = try #require(render(.scored(.previewBoard), size))
+            let m = G.metrics(forSide: size.frame)
+            let degrees = G.Orbit.strain.headDegrees(for: 12.4 / 21)
+            // Inward, between the cut and the halo's edge.
+            let dot = shot.at(radius: m.outerRadius, degrees: degrees)
+            return shot.pixel(G.point(centre: dot, radius: (m.dotCut + m.haloRadius) / 2, degrees: degrees + 180))
+        }
+        #expect(close(try haloSample(.custom(dial: 96)), background, 2), "S 108: no halo")
+        #expect(!close(try haloSample(.custom(dial: 100)), background, 2), "S 112: a halo")
+    }
+
+    // MARK: 16. every state renders
+
+    private static let states: [(String, OrbitGaugeMode)] = [
+        ("scored", .scored(.previewBoard)),
+        ("sleep missing", .scored(OrbitGaugeValues(readiness: 64, recovery: 0.62, strain: 6.2))),
+        ("no readiness", .scored(OrbitGaugeValues(recovery: 0.82, sleep: 0.94, strain: 12.4))),
+        ("zeros", .scored(OrbitGaugeValues(readiness: 0, recovery: 0, sleep: 0, strain: 0))),
+        ("out of range", .scored(OrbitGaugeValues(readiness: 120, recovery: 1.4, sleep: -0.2, strain: 25))),
+        ("band", .scored(.previewBanded(strain: 16.5))),
+        ("no data", .scored(.empty)),
+        ("calibrating", .calibrating(OrbitGaugeCalibration(nights: 3))),
+        ("pending", .pending(previous: .previewBoard)),
+        ("pending, none", .pending(previous: nil)),
+    ]
+
+    @Test(arguments: [248, 160, 112, 72, 44] as [CGFloat])
+    func everyStateDrawsAtEverySize(_ dial: CGFloat) throws {
+        let size = OrbitGaugeSize.custom(dial: dial)
+        let bg = background
+        for (name, mode) in Self.states {
+            let s = try #require(render(mode, size), "\(name) at \(dial)")
+            var ink = 0
+            s.forEachPixel { _, c in if !close(c, bg, 1) { ink += 1 } }
+            #expect(ink > 0, "\(name) at dial \(dial) draws something")
+        }
+        // The widget's unknown mode: the tracks only.
+        let unknown = try #require(shot(OrbitGaugeDrawing(mode: nil, size: size), frame: size.frame))
+        var ink = 0
+        unknown.forEachPixel { _, c in if !close(c, bg, 1) { ink += 1 } }
+        #expect(ink > 0, "unknown at dial \(dial)")
+    }
+
+    @Test func pendingDimsTheMarksAndNotTheTracks() throws {
+        let scored = try #require(render(.scored(.previewBoard)))
+        let pending = try #require(render(.pending(previous: .previewBoard)))
+        // The sleep arc at 3 o'clock (94 % ends at 156.4) over the 7 % ring.
+        let at = scored.at(radius: 88, degrees: 90)
+        let track = over(rgba(Theme.textPrimary), OrbitGaugePalette.middleTrackOpacity, background)
+        let s = scored.pixel(at), p = pending.pixel(at)
+        for (sc, pc, tc) in [(s.r, p.r, track.r), (s.g, p.g, track.g), (s.b, p.b, track.b)] where abs(sc - tc) > 40 {
+            let ratio = Double(pc - tc) / Double(sc - tc)
+            #expect(abs(ratio - OrbitGaugeMarks.pendingOpacity) < 0.03, "marks at \(ratio)")
+        }
+        // The outer tick at 9 o'clock (tick 96, past strain's 212.6) is the 16 % track in both.
+        let tick = scored.at(radius: 118, degrees: 270)
+        let outer = rgba(Theme.surfaceRaised)
+        #expect(close(scored.pixel(tick), outer, 2) && close(pending.pixel(tick), outer, 2), "tracks at full strength")
+    }
+
+    @Test func aMissingScoreIsAHollowDot() throws {
+        let shot = try #require(render(.scored(OrbitGaugeValues(readiness: 64))))
+        for (orbit, radius) in [(G.Orbit.strain, 118.0), (.recovery, 88), (.sleep, 88)] as [(G.Orbit, CGFloat)] {
+            let centre = shot.at(radius: radius, degrees: orbit.startDegrees)
+            #expect(close(shot.pixel(centre), background, 2), "\(orbit): the hollow dot's middle")
+            // Its outline is the metric colour (r 7, 1.5 wide: r 6.25...7.75 at 260).
+            let colour = rgba(Theme.color(for: orbit))
+            let edge = G.point(centre: centre, radius: 7, degrees: orbit.startDegrees + 180)
+            #expect(close(shot.pixel(edge), colour, 3), "\(orbit): the outline")
+        }
+    }
+
+    // MARK: 17. the entrance and the sentences
+
+    private func png<V: View>(_ view: V) -> Data? {
+        let r = ImageRenderer(content: view.padding(20).background(Theme.background).environment(\.colorScheme, .dark))
+        r.scale = 2
+        return r.uiImage?.pngData()
+    }
+
+    @Test(arguments: [OrbitGaugeSize.previewBoard, .large])
+    func theEntrancesLastFrameIsTheStaticRender(_ size: OrbitGaugeSize) {
+        for mode in [OrbitGaugeMode.scored(.previewBoard), .calibrating(OrbitGaugeCalibration(nights: 3)),
+                     .pending(previous: .previewBoard)] {
+            let still = png(OrbitGauge(mode: mode, size: size, animatesFill: false, breathes: false))
+            let end = png(OrbitGauge(mode: mode, size: size, animatesFill: false, breathes: false,
+                                     entrance: .assemble, frozenAt: OrbitEntranceFrame.end))
+            #expect(still != nil && still == end, "\(mode) at \(size)")
+        }
+    }
+
+    @Test func reduceMotionIsA250msCrossFade() {
+        #expect(OrbitEntranceFrame.fadeDuration == 0.25)
+        let mode = OrbitGaugeMode.scored(.previewBoard)
+        let size = OrbitGaugeSize.previewBoard
+        func stage(_ elapsed: Double) -> some View {
+            OrbitEntranceStage(elapsed: elapsed, reduced: true, mode: mode, size: size, palette: .assets,
+                               settled: OrbitGaugeDrawing(mode: mode, size: size), centre: EmptyView())
+        }
+        let still = png(OrbitGaugeDrawing(mode: mode, size: size))
+        #expect(png(stage(0.125)) != still, "half way through the fade")
+        #expect(png(stage(0.25)) == still, "at 250 ms")
+    }
+
+    @Test func theSpokenSentencesAreThePR2Strings() {
+        let spoken = OrbitGauge.spokenValue(.previewScored).replacingOccurrences(of: "9,6", with: "9.6")
+        #expect(spoken == "71, High. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21")
+        #expect(OrbitGauge.spokenPending(.previewScored).replacingOccurrences(of: "9,6", with: "9.6")
+                == "Not scored yet. Last scored: 71. Recovery 71 percent, Sleep 88 percent, Strain 9.6 of 21")
+        #expect(OrbitGauge.spokenValue(OrbitGaugeCalibration(nights: 3))
+                == "3 of 7 nights. Readiness appears once the baselines are complete.")
+    }
+}
+
+private extension Theme {
+    static func color(for orbit: OrbitGaugeGeometry.Orbit) -> Color {
+        switch orbit {
+        case .recovery: return Theme.recovery
+        case .sleep: return Theme.metricSleep
+        case .strain: return Theme.metricStrain
+        }
+    }
+}
