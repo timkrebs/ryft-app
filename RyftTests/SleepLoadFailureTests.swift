@@ -33,6 +33,17 @@ struct SleepLoadFailureTests {
         }
     }
 
+    /// As on Today's card: Sign in when signed out, no button for an outdated app; trying again fixes neither.
+    @Test func theButtonIsTodays() {
+        #expect(RefreshIssue.Reason.signedOut.action == .signIn && RefreshIssue.Reason.appTooOld.action == .noButton)
+        for reason in [RefreshIssue.Reason.busy, .unreachable, .unexpected] { #expect(reason.action == .retry, "\(reason)") }
+        #expect(SleepLoadFailure(APIError.signedOut, isOnline: true, at: at).action == .signIn)
+        #expect(SleepLoadFailure(APIError.http(401, "", requestID: "r-401"), isOnline: true, at: at).action == .signIn)
+        #expect(SleepLoadFailure(reason: .appTooOld).action == .noButton)
+        #expect(SleepLoadFailure(APIError.http(503, ""), isOnline: true, at: at).action == .retry)
+        #expect(SleepLoadFailure(APIError.signedOut, isOnline: false, at: at).action == .retry, "offline: No connection, Try again")
+    }
+
     @Test func aFailedBoardHasAnEmptyCaption() {
         let board = SleepBoard(sleep: nil, score: nil, error: noConnection)
         #expect(board.look == .failed(noConnection) && board.caption.isEmpty && board.numeralLabel == nil)
@@ -52,6 +63,12 @@ struct SleepLoadFailureTests {
         #expect(vm.board.look == .failed(unexpected) && vm.board.caption.isEmpty)
         #expect(vm.stepAnnouncement == "\(vm.header.spokenValue). \(unexpected)", "\(vm.stepAnnouncement)")
     }
+}
+
+/// What a tap on the failed night's button did.
+@MainActor
+final class SleepFailureTaps {
+    var names: [String] = []
 }
 
 /// The same in a window: the failed previews (`SleepPreviewScene.Night.failed`, `.failedBusy`).
@@ -74,6 +91,34 @@ struct SleepLoadFailureTests {
                 } else {
                     #expect(!nodes.contains { $0.label == "Details" }, "no Details without a response")
                 }
+            }
+        }
+    }
+
+    /// Signed out: "Sign in", which signs in (Today's action), never a retry. An outdated app: no button.
+    @Test func signedOutSignsInAndAnOutdatedAppHasNoButton() async throws {
+        for (failure, title) in [(SleepLoadFailure(APIError.signedOut, isOnline: true, at: .now), "Sign in"),
+                                 (SleepLoadFailure(reason: .appTooOld), nil)] {
+            let taps = SleepFailureTaps()
+            let board = SleepBoard(sleep: nil, score: nil, error: failure.message)
+            let page = ScrollView {
+                SleepDay(board: board, sleep: nil, score: nil, night: .now, failure: failure,
+                         retry: { taps.names.append("retry") }, signIn: { taps.names.append("signIn") })
+            }
+            try await HostedWindow.run(width: 390, height: 1200, bottomInset: 0, page) { w in
+                try await w.wait("the message") { w.node(failure.message, exactly: true) != nil }
+                try await w.settle()
+                let nodes = w.nodes()
+                #expect(!nodes.contains { $0.label == "Try again" }, "\(failure.message)")
+                guard let title else {
+                    #expect(!nodes.contains { $0.identifier == "sleep.failure.retry" }, "no button for an outdated app")
+                    return
+                }
+                let button = try #require(nodes.first { $0.identifier == "sleep.failure.retry" })
+                #expect(button.label == title)
+                _ = button.activate()
+                try await w.wait("the tap") { !taps.names.isEmpty }
+                #expect(taps.names == ["signIn"])
             }
         }
     }

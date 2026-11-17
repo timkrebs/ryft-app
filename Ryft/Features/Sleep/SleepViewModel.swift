@@ -124,6 +124,11 @@ final class SleepViewModel {
         return "\(header.spokenValue). \(board.numeralLabel ?? board.spokenCaption ?? board.caption)"
     }
 
+    /// A signed-out failure's "Sign in": Today's (`AppState.signInAgain`).
+    func signIn() async {
+        await state.signInAgain()
+    }
+
     /// A deep link: Day mode on that night, clamped to the nights there are (never past today).
     func show(night: Date) {
         mode = .day
@@ -176,17 +181,29 @@ struct SleepLoadFailure: Equatable {
     let systemImage: String
     /// "HTTP 503 · Request ID 01a1…"; nil without a response.
     let details: String?
+    /// The button, as on Today's card: Sign in when signed out, none for an outdated app, else Try again.
+    let action: RefreshIssue.Reason.Action
 
     init(_ error: Error, isOnline: Bool, at date: Date) {
-        details = error.diagnosticDetails
         if !isOnline || Self.lostConnection(error) {
-            message = String(localized: "No connection. Check your internet and try again.")
-            systemImage = "wifi.exclamationmark"
+            self.init(message: String(localized: "No connection. Check your internet and try again."),
+                      systemImage: "wifi.exclamationmark", details: error.diagnosticDetails, action: .retry)
         } else {
             let reason = RefreshIssue.reason(for: ResourceError(error, kind: FailureKind.of(error), attempts: 1, at: date))
-            message = reason.message
-            systemImage = reason.systemImage
+            self.init(reason: reason, details: error.diagnosticDetails)
         }
+    }
+
+    /// A reason's sentence, symbol and button (previews and tests: nothing produces `appTooOld` yet).
+    init(reason: RefreshIssue.Reason, details: String? = nil) {
+        self.init(message: reason.message, systemImage: reason.systemImage, details: details, action: reason.action)
+    }
+
+    private init(message: String, systemImage: String, details: String?, action: RefreshIssue.Reason.Action) {
+        self.message = message
+        self.systemImage = systemImage
+        self.details = details
+        self.action = action
     }
 
     /// The phone has no connection: URLSession says so, whatever the connectivity monitor last heard.

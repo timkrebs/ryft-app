@@ -444,6 +444,19 @@ extension RefreshIssue.Reason {
         }
     }
 
+    /// What the message's button does (ui.md §3), on Today's card and Sleep's failed night: Sign in when signed out;
+    /// none for an outdated app until the platform says how to tell (no store link to guess); else Try again. Trying
+    /// again fixes neither of the first two.
+    enum Action: Equatable, Sendable { case retry, signIn, noButton }
+
+    var action: Action {
+        switch self {
+        case .signedOut: return .signIn
+        case .appTooOld: return .noButton
+        case .busy, .unreachable, .unexpected: return .retry
+        }
+    }
+
     var systemImage: String {
         switch self {
         case .busy: return "clock.arrow.circlepath"
@@ -468,7 +481,7 @@ struct RefreshIssueCard: View {
 
     var body: some View {
         InlineMessage(message: issue.reason.message, systemImage: issue.reason.systemImage,
-                      retryTitle: issue.reason == .signedOut ? "Sign in" : "Try again",
+                      retryTitle: issue.reason.action == .signIn ? "Sign in" : "Try again",
                       retry: action, caption: age, retryingTitle: "Trying again…", isRetrying: isRetrying,
                       onDetails: { showsDetails = true }, identifier: "refreshIssue")
             .sheet(isPresented: $showsDetails) { RefreshDetailsSheet(issue: issue) }
@@ -477,12 +490,12 @@ struct RefreshIssueCard: View {
             .accessibilityIdentifier("today.refreshIssue")
     }
 
-    /// No action for an outdated app until the platform says how to tell (no store link to guess).
+    /// `RefreshIssue.Reason.action`'s.
     private var action: (() async -> Void)? {
-        switch issue.reason {
-        case .signedOut: return signIn
-        case .appTooOld: return nil
-        case .busy, .unreachable, .unexpected: return retry
+        switch issue.reason.action {
+        case .signIn: return signIn
+        case .noButton: return nil
+        case .retry: return retry
         }
     }
 

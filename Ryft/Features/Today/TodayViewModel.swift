@@ -145,7 +145,7 @@ final class TodayViewModel {
 
     /// The signed-out card's action: back to Welcome to sign in again.
     func signIn() async {
-        await env.auth.signOut(reason: .sessionExpired)
+        await state.signInAgain()
     }
 
     /// With onboarding, its facts decide (a sync paused only until the account is known

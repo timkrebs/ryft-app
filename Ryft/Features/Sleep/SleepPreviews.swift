@@ -14,6 +14,8 @@ struct SleepPreviewScene {
         case waitingForSleep
         /// A failed load the platform answered (503 with a request ID): the busy sentence, Details.
         case failedBusy
+        /// Failed signed out: Sign in instead of Try again; an outdated app: no button (trying again fixes neither).
+        case failedSignedOut, failedTooOld
     }
 
     /// Apple Health's night for `pendingRaw`: 7:17 asleep, woken at 06:52 (Today's pending scenario's night).
@@ -69,6 +71,12 @@ struct SleepPreviewScene {
         case .failedBusy:
             detail = nil
             failure = SleepLoadFailure(APIError.http(503, "", requestID: "01JD8K2V9Q7M3X"), isOnline: true, at: .now)
+        case .failedSignedOut:
+            detail = nil
+            failure = SleepLoadFailure(APIError.signedOut, isOnline: true, at: .now)
+        case .failedTooOld:
+            detail = nil
+            failure = SleepLoadFailure(reason: .appTooOld)
         case .noSleep:
             detail?.sleep = nil
         case .pending:
@@ -129,7 +137,8 @@ struct SleepPreviewPage: View {
             SleepPage(header: scene.header, mode: .constant(.day), modes: SleepMode.allCases, step: { _ in }) {
                 SleepDay(board: scene.board, sleep: scene.sleep, score: scene.score, night: scene.date,
                          numeralStyle: scene.numeralStyle, reduceTransparency: scene.reduceTransparency,
-                         failure: scene.failure, retry: scene.failure != nil ? {} : nil)
+                         failure: scene.failure, retry: scene.failure != nil ? {} : nil,
+                         signIn: scene.failure != nil ? {} : nil)
             }
         }
     }
@@ -165,6 +174,8 @@ private extension View {
 #Preview("Sleep · load error · AX3") { SleepPreviewPage(.failed).previewEnvironment().ax3() }
 #Preview("Sleep · load error, the platform busy") { SleepPreviewPage(.failedBusy).previewEnvironment() }
 #Preview("Sleep · load error, the platform busy · AX3") { SleepPreviewPage(.failedBusy).previewEnvironment().ax3() }
+#Preview("Sleep · load error, signed out") { SleepPreviewPage(.failedSignedOut).previewEnvironment() }
+#Preview("Sleep · load error, app too old") { SleepPreviewPage(.failedTooOld).previewEnvironment() }
 #Preview("Sleep · no sleep") { SleepPreviewPage(.noSleep).previewEnvironment() }
 #Preview("Sleep · no sleep · AX3") { SleepPreviewPage(.noSleep).previewEnvironment().ax3() }
 #Preview("Sleep · pending score") { SleepPreviewPage(.pending).previewEnvironment() }

@@ -49,7 +49,7 @@ struct SleepView: View {
                 case .day:
                     SleepDay(board: model.board, sleep: model.sleep, score: model.score, night: model.date,
                              numeralStyle: model.numeralStyle, showsHealthHint: model.hasNoHealthData,
-                             failure: model.failure, retry: { await model.load() })
+                             failure: model.failure, retry: { await model.load() }, signIn: { await model.signIn() })
                 case .week, .month: SleepRangeSection(range: model.range, isLoading: model.isLoading)
                 case .plan: SleepPlannerSection(model: model.planner)
                 }
@@ -194,9 +194,11 @@ struct SleepDay: View {
     var showsHealthHint = false
     /// Previews and tests; `nil` follows the system.
     var reduceTransparency: Bool?
-    /// A failed load's symbol and Details (the board has its sentence).
+    /// A failed load's symbol, Details and button (the board has its sentence).
     var failure: SleepLoadFailure?
     var retry: (() async -> Void)?
+    /// A signed-out failure's button instead of Try again.
+    var signIn: (() async -> Void)?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -254,6 +256,15 @@ struct SleepDay: View {
             .accessibilityHidden(board.spokenCaption == nil)
     }
 
+    /// What the failed night's button does: Try again, Sign in (signed out), or nothing (an outdated app).
+    private var failureAction: (() async -> Void)? {
+        switch failure?.action ?? .retry {
+        case .retry: return retry
+        case .signIn: return signIn
+        case .noButton: return nil
+        }
+    }
+
     /// The glow tile with a night; an outline while there is none; the message and Try again after a failed load.
     @ViewBuilder private var hypnogram: some View {
         switch board.look {
@@ -263,7 +274,8 @@ struct SleepDay: View {
             }
         case .failed(let message):
             InlineMessage(message: message, systemImage: failure?.systemImage ?? "wifi.exclamationmark",
-                          details: failure?.details, retry: retry, identifier: "sleep.failure")
+                          retryTitle: failure?.action == .signIn ? "Sign in" : "Try again",
+                          details: failure?.details, retry: failureAction, identifier: "sleep.failure")
         case .loading, .noSleep, .pending, .awaitingNight:
             SleepHypnogramOutline()
         }

@@ -317,6 +317,11 @@ final class AppState {
         return RefreshPolicy.staleSince(for: refreshInputs, now: now, online: readsOnline)
     }
 
+    /// A signed-out error's "Sign in" (Today's card, Sleep's failed night): back to Welcome to sign in again.
+    func signInAgain() async {
+        await env.auth.signOut(reason: .sessionExpired)
+    }
+
     /// Forget what's shown (account changed, demo mode switched): reads in flight stop, their
     /// record goes. Sign-out wipes the account's store; demo data is cleared here.
     func reset() {
