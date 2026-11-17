@@ -73,6 +73,8 @@ struct RulerScale: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.displayScale) private var displayScale
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// Inside a glow tile: its label ink (`GlowTile` sets it), which the compact ruler's labels take.
+    @Environment(\.glowLabelOpacity) private var glowLabelOpacity
 
     /// - Parameters:
     ///   - zone: the band or target in the range's units. Build one from server data with `RulerScale.zone(lo:hi:)`,
@@ -142,24 +144,27 @@ struct RulerScale: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .font(.ryft(.axis))
-        .foregroundStyle(Self.labelColor(size: size, dynamicTypeSize: typeSize))
+        .foregroundStyle(Self.labelColor(size: size, dynamicTypeSize: typeSize, glowLabelOpacity: glowLabelOpacity))
     }
 
     // MARK: layout (pure)
 
     /// The labels' ink as an opacity of `textPrimary`; `nil` is `textTertiary`. A regular ruler sits on the screen and
     /// keeps `textTertiary`. The compact ruler only lives inside a glow tile, where its edge labels sit in the lighter
-    /// outer region: it uses the glow label's `GlowTileSpec.labelOpacity(for:)`, 78 %, full `textPrimary` from AX1.
-    nonisolated static func labelOpacity(size: Size, dynamicTypeSize: DynamicTypeSize) -> Double? {
+    /// outer region: it takes the tile's label ink (`glowLabelOpacity`: full in a recovery tile, else 78 %, full from AX1;
+    /// §P4-3), or without a tile the glow label's `GlowTileSpec.labelOpacity(for:)`.
+    nonisolated static func labelOpacity(size: Size, dynamicTypeSize: DynamicTypeSize, glowLabelOpacity: Double? = nil) -> Double? {
         switch size {
         case .regular: return nil
-        case .compact: return GlowTileSpec.labelOpacity(for: dynamicTypeSize)
+        case .compact: return glowLabelOpacity ?? GlowTileSpec.labelOpacity(for: dynamicTypeSize)
         }
     }
 
-    /// The labels' colour: `textPrimary` at `labelOpacity(size:dynamicTypeSize:)`, or `textTertiary` where that is `nil`.
-    nonisolated static func labelColor(size: Size, dynamicTypeSize: DynamicTypeSize) -> Color {
-        labelOpacity(size: size, dynamicTypeSize: dynamicTypeSize).map { Theme.textPrimary.opacity($0) } ?? Theme.textTertiary
+    /// The labels' colour: `textPrimary` at `labelOpacity(size:dynamicTypeSize:glowLabelOpacity:)`, or `textTertiary`
+    /// where that is `nil`.
+    nonisolated static func labelColor(size: Size, dynamicTypeSize: DynamicTypeSize, glowLabelOpacity: Double? = nil) -> Color {
+        labelOpacity(size: size, dynamicTypeSize: dynamicTypeSize, glowLabelOpacity: glowLabelOpacity)
+            .map { Theme.textPrimary.opacity($0) } ?? Theme.textTertiary
     }
 
     /// A zone from server data (the strain target, a sleep need): `nil` unless both bounds are present and finite and
@@ -272,17 +277,15 @@ private struct RulerNeedle: Shape {
                        tickCount: RulerScale.Ticks.strain, labels: ["0", "target 10–14", "21"],
                        accessibilityLabel: Text("Strain scale"),
                        accessibilityValue: Text("12.4, in target 10 to 14, on a scale from 0 to 21"))
-            GlowTile(Theme.metricStrain, minHeight: GlowTileSpec.twoUpMinHeight) {
+            GlowTile(Theme.metricStrain, kind: .strain) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Strain").ryftGlowLabelStyle()
-                    Text(verbatim: "12.4").font(.ryft(.metric))
                     Spacer(minLength: 0)
                     RulerScale(range: 0...21, value: 12.4, zone: 10...14, tickCount: RulerScale.Ticks.strainCompact,
                                labels: ["0", "21"], size: .compact, accessibilityLabel: Text("Strain scale"),
                                accessibilityValue: Text("12.4, in target 10 to 14, on a scale from 0 to 21"))
                 }
             }
-            .frame(width: 169)
             RulerScale(range: 0...100, value: nil, zone: 67...100, tickCount: RulerScale.Ticks.today,
                        labels: ["0", "low", "moderate", "high", "100"],
                        accessibilityLabel: Text("Readiness scale"),
