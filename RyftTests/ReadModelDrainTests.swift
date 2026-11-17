@@ -49,8 +49,8 @@ final class Recorded<T: Sendable>: Sendable {
 
 /// A Repository whose first write is held in the writer: its `settled()` returns once the test opens `hold`.
 @MainActor
-func repositoryWithAHeldWrite() async -> (repository: Repository, hold: WriterHold) {
-    let repository = Repository(env: .test())
+func repositoryWithAHeldWrite(clock: TestClock = TestClock()) async -> (repository: Repository, hold: WriterHold) {
+    let repository = Repository(env: .test(clock: clock))
     let hold = WriterHold()
     repository.writeHooks.job = { _ in hold.pass() }
     repository.store(detail: DayDetail(score: DailyScore(day: "2026-10-19", strain: 7), sleep: nil, workouts: []))
@@ -66,6 +66,34 @@ private func detail(_ day: String, strain: Double) -> DayDetail {
 @MainActor
 private func cachedDays(in store: any Persistence) throws -> [CachedDay] {
     try ModelContext(store.container).fetch(FetchDescriptor<CachedDay>()).sorted { $0.day < $1.day }
+}
+
+/// The users a fresh context finds.
+@MainActor
+private func cachedUsers(in store: any Persistence) throws -> [User] {
+    try ModelContext(store.container).fetch(FetchDescriptor<CachedUser>()).compactMap { WireCoding.decode(User.self, $0.data) }
+}
+
+/// A row's strain as `Repository.score` reads it: the detail's when opened, else the list's.
+private func strain(of row: CachedDay) -> Double? {
+    WireCoding.decode(DayDetail.self, row.detailData)?.score.strain ?? WireCoding.decode(DailyScore.self, row.scoreData)?.strain
+}
+
+/// `eventually` for a condition that awaits (the drain's state): polled, never a fixed sleep.
+private func eventuallyAwaiting(timeout: Duration = .seconds(30), _ condition: () async -> Bool) async -> Bool {
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
+        if await condition() { return true }
+        try? await Task.sleep(for: .milliseconds(1))
+    }
+    return await condition()
+}
+
+/// A flag the writer's hooks read from their thread.
+private final class Armed: Sendable {
+    private let value = OSAllocatedUnfairLock(initialState: false)
+    var isOn: Bool { value.withLock { $0 } }
+    func arm() { value.withLock { $0 = true } }
 }
 
 @Suite("Read-model writes: off the main thread")
@@ -367,53 +395,353 @@ struct ReadModelWipeRaceTests {
         #expect(h.repository.user() == nil)
     }
 
-    /// 200 writes from ten main-actor tasks and a sign-out among them, five times. The sign-out starts once 30, 55, …
-    /// are in, and each writer's last five wait for its wipe, so writes are pending on both sides of it. Exactly the
-    /// days submitted after the wipe are in the store, none from before it.
-    @Test(.timeLimit(.minutes(1)), arguments: 0..<5) // a lock held across an await would hang here
-    func manyWritersAndASignOutLeaveOnlyWhatCameAfterIt(round: Int) async throws {
-        let h = WipeHarness()
+    /// 200 writes from ten main-actor tasks and a sign-out among them, five times, without and with demo data on. The
+    /// sign-out starts once 30, 55, … are in, and each writer's last five wait for its wipe, so writes are pending on
+    /// both sides of it; the sign-out's own last write is held in the writer across the wipe, so at least one from
+    /// before it is dropped, not only overwritten. Days repeat (60 for 200 writes) and every seventh write is the
+    /// user's; with demo data on, every other one goes to the account's store, the rest to demo data's (which the
+    /// sign-out's reset replaces). Each store ends with exactly what was submitted to it after its wipe or its
+    /// replacement, the last of it per user, and no value from before.
+    @Test(.timeLimit(.minutes(1)), arguments: 0..<5, [false, true]) // a lock held across an await would hang here
+    func manyWritersAndASignOutLeaveOnlyWhatCameAfterIt(round: Int, demo: Bool) async throws {
+        let h = WipeHarness(demo: demo)
         let start = h.clock.now()
         let epoch = h.persistence.epoch.current
+        let account = h.persistence.epoch.store
         let log = SubmitLog()
+        let armed = Armed(), held = WriterHold()
+        h.repository.writeHooks.job = { _ in if armed.isOn { held.pass() } }
+        func submit(_ n: Int, toAccount: Bool) {
+            let day = DayFormat.string(from: DayFormat.shift(start, days: -(n % 60)))
+            var ticket: WriteTicket?
+            let write = {
+                if n % 7 == 3 {
+                    var user = MockData.user
+                    user.birthYear = 1800 + n
+                    ticket = h.repository.store(user: user)
+                } else {
+                    // Unique per write: a value from before the wipe can't pass for one after it.
+                    let strain = Double(n)
+                    ticket = n % 3 == 0
+                        ? h.repository.store(detail: detail(day, strain: strain))
+                        : h.repository.store(scores: [DailyScore(day: day, strain: strain)])
+                }
+            }
+            if toAccount, demo { h.repository.writingToAccountStore(write) } else { write() }
+            let store = toAccount ? account : h.repository.storeID
+            log.submitted.append(.init(n: n, day: day, user: n % 7 == 3, store: store,
+                                       afterWipe: h.persistence.epoch.current != epoch))
+            if let ticket { log.tickets.append(ticket) }
+        }
         // Main-actor tasks (this suite is `@MainActor`), interleaved at their awaits.
         var tasks = (0..<10).map { writer in
             Task {
                 for i in 0..<20 {
                     while i >= 15, h.persistence.epoch.current == epoch { await Task.yield() }
                     let n = writer * 20 + i
-                    let day = DayFormat.string(from: DayFormat.shift(start, days: -n))
-                    let ticket = n % 3 == 0
-                        ? h.repository.store(detail: detail(day, strain: Double(n % 21)))
-                        : h.repository.store(scores: [DailyScore(day: day, strain: Double(n % 21))])
-                    log.submitted.append((day, h.persistence.epoch.current != epoch))
-                    log.tickets.append(ticket)
+                    submit(n, toAccount: !demo || n % 2 == 0)
                     if (i + round) % 4 == 0 { await Task.yield() }
                 }
             }
         }
         tasks.append(Task {
             while log.submitted.count < 30 + round * 25 { await Task.yield() }
+            // The next batch to reach the writer, this write's or one before it, waits there for the wipe.
+            armed.arm()
+            submit(200, toAccount: true)
             await h.auth.signOut()
+            held.open()
         })
         for task in tasks { await task.value }
-        for ticket in log.tickets { await ticket.committed() }
+        var receipts: [WriteReceipt] = []
+        for ticket in log.tickets { receipts.append(await ticket.committed()) }
 
-        let expected = Set(log.submitted.filter(\.afterWipe).map(\.day))
         #expect(h.persistence.epoch.current == epoch + 1)
-        #expect(Set(try cachedDays(in: h.persistence).map(\.day)) == expected)
-        #expect(log.submitted.count == 200)
-        #expect(log.submitted.filter { !$0.afterWipe }.count >= 30 + round * 25)
-        #expect(expected.count >= 50) // the sign-out landed among the writes, not after the last one
-        for (day, afterWipe) in log.submitted where !afterWipe {
-            #expect(h.repository.score(day) == nil)
+        #expect(log.submitted.count == 201)
+        let before = log.submitted.filter { !$0.afterWipe }
+        #expect(before.count >= 31 + round * 25)
+        #expect(log.submitted.filter(\.afterWipe).count >= 50) // the sign-out landed among the writes
+        let accountBefore = Set(log.submitted.enumerated().filter { $0.element.store == account && !$0.element.afterWipe }
+            .map(\.offset))
+        #expect(receipts.enumerated().contains { accountBefore.contains($0.offset) && $0.element.dropped })
+
+        // The account's store: what came after the wipe.
+        let accountAfter = log.submitted.filter { $0.store == account && $0.afterWipe }
+        let rows = try cachedDays(in: h.persistence)
+        #expect(Set(rows.map(\.day)) == Set(accountAfter.filter { !$0.user }.map(\.day)))
+        for row in rows {
+            let allowed = Set(accountAfter.filter { !$0.user && $0.day == row.day }.map { Double($0.n) })
+            #expect(strain(of: row).map { allowed.contains($0) } == true, "\(row.day): \(String(describing: strain(of: row)))")
         }
+        let lastAccountUser = accountAfter.last(where: \.user).map { 1800 + $0.n }
+        #expect(try cachedUsers(in: h.persistence).map(\.birthYear) == [lastAccountUser].compactMap { $0 })
+
+        // What reads see: the account's store, or with demo data on demo data's newest store.
+        let read = demo ? h.repository.storeID : account
+        let readable = log.submitted.filter { $0.store == read && ($0.store != account || $0.afterWipe) }
+        for day in Set(log.submitted.filter { !$0.user }.map(\.day)) {
+            let allowed = Set(readable.filter { !$0.user && $0.day == day }.map { Double($0.n) })
+            if allowed.isEmpty {
+                #expect(h.repository.score(day) == nil, "\(day)")
+            } else {
+                #expect(h.repository.score(day)?.strain.map { allowed.contains($0) } == true, "\(day)")
+            }
+        }
+        #expect(h.repository.user()?.birthYear == readable.last(where: \.user).map { 1800 + $0.n })
     }
 }
 
 /// The stress test's submissions, in main-actor order.
 @MainActor
 private final class SubmitLog {
-    var submitted: [(day: String, afterWipe: Bool)] = []
+    struct Submitted {
+        let n: Int
+        let day: String
+        let user: Bool
+        let store: StoreID
+        let afterWipe: Bool
+    }
+
+    var submitted: [Submitted] = []
     var tickets: [WriteTicket] = []
+}
+
+@Suite("Read-model writes: the epoch's locks, the drain's priority, the stores")
+@MainActor
+struct ReadModelLockAndPriorityTests {
+    /// The main actor reads the epoch at every submit: a save in progress (held inside its critical section) holds up
+    /// neither the read nor the submit. `current` takes a lock of its own, never the save gate.
+    @Test func neitherTheEpochNorASubmitWaitsForASaveInProgress() async {
+        let env = AppEnvironment.test()
+        let repo = Repository(env: env)
+        let hold = WriterHold()
+        repo.writeHooks = .init(insideSave: { hold.pass() })
+        let key = DayFormat.string(from: .now)
+        let first = repo.store(detail: detail(key, strain: 1))
+        #expect(await eventually { hold.entered == 1 })
+        // Opens it anyway, so a reader that does wait (the bug) is measured, not hung.
+        DispatchQueue.global().asyncAfter(deadline: .now() + .milliseconds(500)) { hold.open() }
+
+        let start = ContinuousClock.now
+        let epoch = env.persistence.epoch.current
+        let ticket = repo.store(scores: [DailyScore(day: DayFormat.string(from: DayFormat.shift(.now, days: -1)), strain: 2)])
+        let blocked = ContinuousClock.now - start
+        hold.open()
+
+        #expect(blocked < .milliseconds(100), "main waited \(blocked)")
+        #expect(epoch == env.persistence.epoch.current)
+        let saved = (await first.committed().saved, await ticket.committed().saved)
+        #expect(saved == (true, true))
+    }
+
+    /// The drain runs at `.userInitiated`, whoever submitted first: a background sync's first write doesn't hold the
+    /// queue (a pull's write behind it included) at its own priority, and awaiting a ticket doesn't raise it.
+    @Test func theDrainRunsAtUserInitiatedWhoeverSubmittedFirst() async {
+        let repo = Repository(env: .test())
+        let priorities = Recorded<TaskPriority>()
+        repo.writeHooks.job = { _ in priorities.append(Task.currentPriority) }
+        let key = DayFormat.string(from: .now)
+        let ticket = await Task(priority: .utility) { @MainActor in repo.store(detail: detail(key, strain: 1)) }.value
+        await ticket.committed()
+        #expect(priorities.count == 1)
+        #expect(priorities.all.allSatisfy { $0 >= .userInitiated }, "\(priorities.all)")
+    }
+
+    /// A seeded user is the newest, written through as `store(user:)` writes it: read back without a decode.
+    @Test func aSeededUserIsWrittenThrough() {
+        let repo = Repository(env: .test())
+        var user = MockData.user
+        user.birthYear = 1977
+        repo.seed(.user(user))
+        let decodes = repo.decodes
+        #expect(repo.user()?.birthYear == 1977)
+        #expect(repo.decodes == decodes)
+    }
+
+    /// The legacy import seeds the account's store while demo data is on: its user is the account's, never demo's.
+    @Test func theAccountStoresSeedIsntDemoDatasUser() async {
+        let repo = Repository(env: .preview()) // demo on
+        repo.widgetFile = nil
+        var demo = MockData.user
+        demo.birthYear = 1980
+        await repo.store(user: demo).committed()
+        var account = MockData.user
+        account.birthYear = 1990
+        repo.writingToAccountStore { repo.seed(.user(account)) }
+        #expect(repo.user()?.birthYear == 1980)
+        var read: Int?
+        repo.writingToAccountStore { read = repo.user()?.birthYear }
+        #expect(read == 1990)
+    }
+
+    /// Writers, read contexts and seeds are keyed per store by an ID no other store gets (an object's address can
+    /// come back as another's).
+    @Test func everyStoreHasAnIDOfItsOwn() {
+        let ids = (0..<100).map { _ in StoreEpoch().store }
+        #expect(Set(ids).count == 100)
+    }
+}
+
+@Suite("Read-model writes: the Demo data switch")
+@MainActor
+struct ReadModelDemoSwitchTests {
+    private func demo() async -> (AppState, String) {
+        let env = AppEnvironment.preview() // demo on
+        let state = AppState(env: env)
+        state.repository.widgetFile = nil
+        await state.refresh()
+        return (state, DayFormat.string(from: env.clock.now()))
+    }
+
+    /// `ProfileViewModel.setDemoMode` resets, then refreshes. The refresh mustn't find demo data's old rows fresh (and
+    /// skip its reads) while a clear of them is still queued: Today fills again, every time (a queued clear lost every
+    /// one of 20 runs).
+    @Test func aRefreshAfterTheSwitchFillsTodayAgain() async {
+        var empty = 0
+        for _ in 0..<5 {
+            let (state, key) = await demo()
+            #expect(state.repository.day(key) != nil)
+            state.reset()
+            await state.refresh()
+            await state.repository.settled()
+            if state.repository.day(key) == nil { empty += 1 }
+        }
+        #expect(empty == 0)
+    }
+
+    /// The same with the refresh's writes held in the writer: they land in demo data's new store.
+    @Test func aRefreshHeldInTheWriterAfterTheSwitchFillsToday() async {
+        let (state, key) = await demo()
+        let hold = WriterHold()
+        state.repository.writeHooks.job = { _ in hold.pass() }
+        state.reset()
+        let refresh = Task { await state.refresh() }
+        #expect(await eventually { hold.entered >= 1 })
+        hold.open()
+        await refresh.value
+        await state.repository.settled()
+        #expect(state.repository.day(key) != nil)
+    }
+
+    /// Nothing of demo data's old rows shows between the switch and the next refresh: its store is empty at once.
+    @Test func demoDatasOldRowsAreGoneAtTheSwitch() async {
+        let (state, key) = await demo()
+        #expect(state.repository.day(key) != nil && !state.history.isEmpty)
+        state.reset()
+        #expect(state.repository.day(key) == nil)
+        #expect(state.history.isEmpty)
+    }
+
+    /// Demo data's old store is let go of: a write still queued for it drops, and its writer goes.
+    @Test func theOldStoresQueuedWriteDropsAndItsWriterGoes() async {
+        let repo = Repository(env: .preview())
+        repo.widgetFile = nil
+        let hold = WriterHold()
+        repo.writeHooks.job = { _ in hold.pass() }
+        let old = repo.storeID
+        let held = repo.store(detail: detail("2026-11-01", strain: 1))
+        #expect(await eventually { hold.entered == 1 })
+        let queued = repo.store(detail: detail("2026-11-02", strain: 2))
+
+        repo.reset()
+        #expect(repo.storeID != old)
+        hold.open()
+
+        #expect(!(await held.committed()).dropped) // in the writer already: saved into the old store
+        #expect(await queued.committed().dropped)
+        #expect(hold.entered == 1)
+        #expect(await repo.writerEpochs()[old] == nil)
+        #expect(repo.day("2026-11-01") == nil && repo.day("2026-11-02") == nil)
+    }
+}
+
+extension ReadModelWipeRaceTests {
+    /// The wiped epoch's writer goes at the invalidate, not at the next write: its context registered the account's
+    /// rows.
+    @Test func theWipedWriterGoesAtTheInvalidate() async throws {
+        let h = WipeHarness()
+        let store = h.persistence.epoch.store
+        let epoch = h.persistence.epoch.current
+        await h.repository.store(detail: detail(h.today, strain: 12)).committed()
+        #expect(await h.repository.writerEpochs()[store] == epoch)
+
+        h.persistence.wipe(parkingActivitiesOf: nil, at: h.clock.now())
+        h.repository.invalidate()
+
+        #expect(await eventuallyAwaiting(timeout: .seconds(5)) { await h.repository.writerEpochs()[store] == nil })
+    }
+
+    /// A batch saved before the wipe and committed after it: its rows are gone, so it doesn't publish the widget (the
+    /// sign-out's own publish does).
+    @Test func aCommitAfterTheWipeDoesntPublishTheWidget() async throws {
+        let h = WipeHarness()
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("ryft-widget-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        h.repository.widgetFile = file
+        var reloads = 0
+        h.repository.reloadWidget = { reloads += 1 }
+        let hold = WriterHold()
+        h.repository.writeHooks.beforeCommit = { hold.pass() }
+        let written = h.repository.store(detail: detail(h.today, strain: 12))
+        #expect(await eventually { hold.entered == 1 })
+
+        h.persistence.wipe(parkingActivitiesOf: nil, at: h.clock.now())
+        h.repository.invalidate()
+        hold.open()
+
+        let receipt = await written.committed()
+        #expect(receipt.saved && !receipt.dropped)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        #expect(reloads == 0)
+    }
+}
+
+@Suite("Read-model writes: before a system completion")
+@MainActor
+struct ReadModelCompletionWaitTests {
+    /// A write that hangs holds a completion for 2 s at most: iOS may end the app's time soon after.
+    @Test func theWaitEndsAtTwoSeconds() async {
+        let clock = TestClock()
+        let (repository, hold) = await repositoryWithAHeldWrite(clock: clock)
+        let ended = Recorded<Bool>()
+        let wait = Task {
+            await repository.settledBeforeCompletion()
+            ended.append(true)
+        }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        clock.advance(by: .milliseconds(1_500))
+        #expect(await eventually(timeout: .milliseconds(200)) { ended.count == 1 } == false)
+        clock.advance(by: .milliseconds(500))
+        #expect(await eventually(timeout: .seconds(2)) { ended.count == 1 })
+        #expect(hold.entered == 1) // still held
+        hold.open()
+        await wait.value
+    }
+
+    @Test func theWaitEndsWhenTheWritesSettle() async {
+        let clock = TestClock()
+        let (repository, hold) = await repositoryWithAHeldWrite(clock: clock)
+        let wait = Task { await repository.settledBeforeCompletion() }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        hold.open()
+        await wait.value
+        #expect(repository.day("2026-10-19") != nil)
+        #expect(await eventually { clock.pendingSleeps == 0 }) // the bound's sleep ended with it
+    }
+
+    /// The system's time ran out (the caller is cancelled): the wait ends at once.
+    @Test func aCancelledWaitEndsAtOnce() async {
+        let clock = TestClock()
+        let (repository, hold) = await repositoryWithAHeldWrite(clock: clock)
+        let ended = Recorded<Bool>()
+        let wait = Task {
+            await repository.settledBeforeCompletion()
+            ended.append(true)
+        }
+        #expect(await eventually { clock.pendingSleeps == 1 })
+        wait.cancel()
+        #expect(await eventually(timeout: .seconds(2)) { ended.count == 1 })
+        hold.open()
+        await wait.value
+    }
 }
