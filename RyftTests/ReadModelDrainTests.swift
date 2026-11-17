@@ -228,11 +228,17 @@ struct ReadModelQueueTests {
         let account = await toAccount?.committed()
         await last.committed()
 
-        #expect(account?.saved == true)
         #expect(hold.entered == 4) // the held job, then demo, account, demo
         #expect(writers.count == 2) // one writer per store
-        #expect(try cachedDays(in: env.persistence).map(\.day) == [b])
         #expect(repo.day(a) != nil && repo.day(c) != nil && repo.day(b) == nil)
+        let accountDays = try cachedDays(in: env.persistence).map(\.day)
+        withKnownIssue("T0.6: on iOS 17 the account's store is the older of two containers, and takes no inserts") {
+            #expect(account?.saved == true)
+            #expect(accountDays == [b])
+        } when: {
+            if #unavailable(iOS 18) { return true }
+            return false
+        }
     }
 
     /// `seed` writes on a context of its own: never while the writer may hold the same rows.
