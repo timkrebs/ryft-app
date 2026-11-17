@@ -52,7 +52,7 @@ struct NocturneStringsTests {
     /// The keys the spec removes, with no other caller after the change.
     static let removed: [String] = [
         "Total sleep", "Performance", "asleep in bed", "of your need", "last 7 nights", "deep + REM",
-        "Good morning,", "Good afternoon,", "Good evening,",
+        "Good morning,", "Good afternoon,", "Good evening,", "in bed %@ to %@",
     ]
 
     /// Kept on purpose (§P4-9, last paragraph).
@@ -70,15 +70,8 @@ struct NocturneStringsTests {
     @Test("§P4-9: every key carries a comment for the translator")
     func everyKeyHasAComment() throws {
         let strings = try catalog()
-        // "Display" (Profile's section title, `ProfileSection(title: "Display")`) has no comment in the catalog: the spec lists it
-        // with one. Known until the copy pass adds it; this wrapper then reports "passed unexpectedly", the cue to drop it.
         let bare = Self.keys.filter { strings[$0]?.comment?.isEmpty != false }
-        withKnownIssue("\"Display\" has no comment in the catalog (design.md §P4-9 lists it with one)") {
-            #expect(bare == [], "keys without a comment: \(bare)")
-        } when: {
-            bare == ["Display"]
-        }
-        #expect(bare.filter { $0 != "Display" } == [], "keys without a comment: \(bare)")
+        #expect(bare == [], "keys without a comment: \(bare)")
     }
 
     @Test("§P4-9: the removed keys are gone", arguments: removed)
