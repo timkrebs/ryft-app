@@ -7,6 +7,15 @@ import SwiftUI
 struct SleepPreviewScene {
     enum Night: String, CaseIterable {
         case latest, thin, oldest, older, loading, failed, noSleep, pending, noStages, noTimeline, noNeed, reduceTransparency
+        /// Pending with `sleep: null` (the API's placeholder day): Apple Health's raw night; and without one either.
+        case pendingRaw, pendingEmpty
+    }
+
+    /// Apple Health's night for `pendingRaw`: 7:17 asleep, woken at 06:52 (Today's pending scenario's night).
+    static func rawNight(today: Date) -> RawNight {
+        let wake = today.addingTimeInterval(6 * 3_600 + 52 * 60)
+        return RawNight(asleepMin: 437, bedtime: wake.addingTimeInterval(-8 * 3_600 + 25 * 60), wake: wake,
+                        source: "Garmin Connect")
     }
 
     let night: Night
@@ -28,6 +37,7 @@ struct SleepPreviewScene {
         var date = today
         var detail: DayDetail? = MockData.todayDetail
         var isLoading = false, error: String?
+        var rawNight: RawNight?
         switch night {
         case .latest, .thin, .reduceTransparency:
             break
@@ -53,6 +63,11 @@ struct SleepPreviewScene {
         case .pending:
             // The raw night is in, the score isn't.
             detail?.score = DailyScore(day: DayFormat.string(from: today), sleepActualMin: 468, scoringState: .pending)
+        case .pendingRaw, .pendingEmpty:
+            // What `GET /v1/days/{day}` answers while the night is scored: the placeholder score, `sleep: null`.
+            detail = DayDetail(score: DailyScore(day: DayFormat.string(from: today), scoringState: .pending), sleep: nil,
+                               workouts: [])
+            rawNight = night == .pendingRaw ? Self.rawNight(today: today) : nil
         case .noStages:
             detail?.sleep?.stages = []
             detail?.sleep?.hasStages = false
@@ -71,7 +86,8 @@ struct SleepPreviewScene {
                                     canStepBack: night != .oldest, canStepForward: date < today)
         board = SleepBoard(sleep: detail?.sleep, score: score,
                            previousDebt: Self.score(DayFormat.shift(date, days: -1))?.sleepDebtMin,
-                           weekConsistency: week, isPending: marker == .pending, isLoading: isLoading, error: error)
+                           weekConsistency: week, isPending: marker == .pending, isLoading: isLoading, error: error,
+                           rawNight: rawNight)
         sleep = detail?.sleep
         self.score = score
     }
@@ -133,6 +149,10 @@ private extension View {
 #Preview("Sleep · no sleep · AX3") { SleepPreviewPage(.noSleep).previewEnvironment().ax3() }
 #Preview("Sleep · pending score") { SleepPreviewPage(.pending).previewEnvironment() }
 #Preview("Sleep · pending score · AX3") { SleepPreviewPage(.pending).previewEnvironment().ax3() }
+#Preview("Sleep · pending, Apple Health's night") { SleepPreviewPage(.pendingRaw).previewEnvironment() }
+#Preview("Sleep · pending, Apple Health's night · AX3") { SleepPreviewPage(.pendingRaw).previewEnvironment().ax3() }
+#Preview("Sleep · pending, no night yet") { SleepPreviewPage(.pendingEmpty).previewEnvironment() }
+#Preview("Sleep · pending, no night yet · AX3") { SleepPreviewPage(.pendingEmpty).previewEnvironment().ax3() }
 #Preview("Sleep · no stages") { SleepPreviewPage(.noStages).previewEnvironment() }
 #Preview("Sleep · no stages · AX3") { SleepPreviewPage(.noStages).previewEnvironment().ax3() }
 #Preview("Sleep · no timeline") { SleepPreviewPage(.noTimeline).previewEnvironment() }

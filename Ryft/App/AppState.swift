@@ -24,6 +24,10 @@ final class AppState {
     }
     /// Today in one in-between state on mock data (previews; `-RyftScenario` in demo mode).
     var todayScenario: TodayScenario?
+    /// Last night as Apple Health has it (`RawNight`), which Today reads after each sync (`TodayViewModel.loadHealthFacts`):
+    /// Today's raw-night card and Sleep's pending night (design.md §P4-5) show the same night. Unscored, so wherever it
+    /// shows it says so. Not stored: the next launch reads it again.
+    var lastNight: RawNight?
     private(set) var dismissedInsightIDs: Set<String> = []
 
     static let historyDays = 90
@@ -319,6 +323,7 @@ final class AppState {
         pullPhases?.cancel()
         env.reads.reset()
         if isDemo { repository.clear() } else { repository.invalidate() }
+        lastNight = nil
         // Activities typed in demo mode, on the phone and on the demo platform, go with the account or the switch,
         // and so does an upload of them (or of the account's) in flight.
         env.uploader.accountChanged()

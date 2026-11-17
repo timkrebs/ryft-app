@@ -95,16 +95,25 @@ final class SleepViewModel {
         } + [shown?.sleepConsistency]
         return SleepBoard(sleep: sleep, score: score,
                           previousDebt: state.score(for: DayFormat.shift(date, days: -1))?.sleepDebtMin,
-                          weekConsistency: week, isPending: marker == .pending, isLoading: isLoading, error: error)
+                          weekConsistency: week, isPending: marker == .pending, isLoading: isLoading, error: error,
+                          rawNight: rawNight)
+    }
+
+    /// Apple Health's last night (`AppState.lastNight`, what Today shows) when it is the night shown: it ended this
+    /// morning, and the night shown is last night.
+    var rawNight: RawNight? {
+        guard isToday, let night = state.lastNight, Calendar.current.isDate(night.wake, inSameDayAs: date) else { return nil }
+        return night
     }
 
     /// The hero numeral's style (Profile → Display → Hero numbers, design.md §P4-6).
     var numeralStyle: DotNumeral.Style { state.env.settings.heroNumerals.style }
 
-    /// What VoiceOver hears after a step (design.md §P4-8): the night, then its duration or what is known of it.
+    /// What VoiceOver hears after a step (design.md §P4-8): the night as the title says it ("…, not scored yet" while
+    /// pending), then its duration or what is known of it.
     var stepAnnouncement: String {
         let board = board
-        return "\(header.spokenSubtitle). \(board.numeralLabel ?? board.caption)"
+        return "\(header.spokenValue). \(board.numeralLabel ?? board.spokenCaption ?? board.caption)"
     }
 
     /// A deep link: Day mode on that night, clamped to the nights there are (never past today).
@@ -250,6 +259,10 @@ struct SleepBoard: Equatable {
         case failed(String)
         /// The day has no night.
         case noSleep
+        /// The night is being scored and the platform has no sleep for it yet (`sleep: null`, `DayMarker.pending`):
+        /// the numeral and the ruler from Apple Health's raw night when there is one, labelled unscored; the outline
+        /// hypnogram and tiles. Never "No sleep recorded".
+        case pending
     }
 
     /// The consistency dots: this many nights, the last the night shown.
@@ -261,7 +274,8 @@ struct SleepBoard: Equatable {
     /// The numeral's VoiceOver label ("7 hours 48 minutes asleep", "Loading this night"); `nil` hides it, the caption
     /// says it.
     let numeralLabel: String?
-    /// "Asleep · 94 % of your need", "Asleep", "Loading this night", "No sleep recorded for this night."
+    /// "Asleep · 94 % of your need", "Asleep", "Loading this night", "No sleep recorded for this night.", "From Apple
+    /// Health · not scored yet", "Your night is being scored."
     let caption: String
     /// The caption's VoiceOver text ("94 percent of your need"); `nil` hides it where the numeral says it.
     let spokenCaption: String?
@@ -271,10 +285,10 @@ struct SleepBoard: Equatable {
     /// Consistency, Sleep debt, Efficiency, Restorative.
     let tiles: [SleepTile]
 
-    /// Loading and a failed load draw the tiles as outlines (§P4-5).
+    /// Loading, a failed load and a pending night without the platform's sleep draw the tiles as outlines (§P4-5).
     var isOutline: Bool {
         switch look {
-        case .loading, .failed: return true
+        case .loading, .failed, .pending: return true
         case .night, .noSleep: return false
         }
     }
@@ -283,14 +297,18 @@ struct SleepBoard: Equatable {
     ///   - previousDebt: the night before's `sleepDebtMin`, for the debt's change.
     ///   - weekConsistency: `sleepConsistency` of the last seven nights, oldest first, the last the night shown.
     ///   - isPending: the night's score is still being made (`DayMarker.pending`): what needs a score shows "–".
+    ///   - rawNight: last night as Apple Health has it (`AppState.lastNight`), when it is the night shown: a pending night
+    ///     the platform has no sleep for yet shows its time asleep, labelled unscored (§P4-5 "Pending score").
     init(sleep: SleepDetail?, score: DailyScore?, previousDebt: Int? = nil, weekConsistency: [Int?] = [],
-         isPending: Bool = false, isLoading: Bool = false, error: String? = nil, locale: Locale = .autoupdatingCurrent) {
+         isPending: Bool = false, isLoading: Bool = false, error: String? = nil, rawNight: RawNight? = nil,
+         locale: Locale = .autoupdatingCurrent) {
         let scored = isPending ? nil : score
         let need = scored?.sleepNeedMin ?? sleep?.need?.total
         guard let sleep else {
-            let empty: Look = isLoading ? .loading : error.map(Look.failed) ?? .noSleep
+            let empty: Look = isLoading ? .loading : error.map(Look.failed) ?? (isPending ? .pending : .noSleep)
             look = empty
-            clock = nil
+            let raw = empty == .pending ? rawNight : nil
+            clock = raw.map { Fmt.clock(minutes: $0.asleepMin) }
             switch empty {
             case .loading:
                 let loading = String(localized: "Loading this night",
@@ -303,13 +321,25 @@ struct SleepBoard: Equatable {
                 numeralLabel = nil
                 caption = String(localized: "Asleep")
                 spokenCaption = nil
+            case .pending:
+                if let raw {
+                    // Apple Health's total before the platform has scored it: said to be unscored (as Today's card).
+                    numeralLabel = String(localized: "\(Fmt.spokenDuration(minutes: raw.asleepMin, locale: locale)) asleep")
+                    caption = String(localized: "From Apple Health · not scored yet")
+                    spokenCaption = String(localized: "Last night, from Apple Health, not scored yet")
+                } else {
+                    let scoring = String(localized: "Your night is being scored.")
+                    numeralLabel = nil
+                    caption = scoring
+                    spokenCaption = scoring
+                }
             case .night, .noSleep:
                 let none = String(localized: "No sleep recorded for this night.")
                 numeralLabel = nil
                 caption = none
                 spokenCaption = none
             }
-            ruler = SleepRuler(totalMin: nil, needMin: need, locale: locale)
+            ruler = SleepRuler(totalMin: raw?.asleepMin, needMin: need, locale: locale)
             hypnogram = nil
             tiles = SleepTile.placeholders(locale: locale)
             return

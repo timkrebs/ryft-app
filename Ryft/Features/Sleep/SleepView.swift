@@ -260,7 +260,7 @@ struct SleepDay: View {
             }
         case .failed(let message):
             InlineMessage(message: message, retry: retry)
-        case .loading, .noSleep:
+        case .loading, .noSleep, .pending:
             SleepHypnogramOutline()
         }
     }

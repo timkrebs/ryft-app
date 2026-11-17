@@ -30,8 +30,9 @@ final class TodayViewModel {
     /// First-run coach marks: gauge → physiology → trends.
     let coachMarks: CoachMarks
 
-    /// Last night as Apple Health has it, and the newest record per source (`loadHealthFacts`).
-    private(set) var lastNightRaw: RawNight?
+    /// Last night as Apple Health has it (`loadHealthFacts`), kept on `AppState` so Sleep's pending night shows the same.
+    var lastNightRaw: RawNight? { state.lastNight }
+    /// The newest record per source (`loadHealthFacts`).
     private(set) var freshness: [SourceFreshness] = []
 
     init(state: AppState, sync: SyncService, coordinator: SyncCoordinator, push: PushRegistrar? = nil,
@@ -283,7 +284,7 @@ final class TodayViewModel {
         let sources = (try? await health.newestRecords(since: now.addingTimeInterval(-TodayStates.freshnessWindow))) ?? []
         // The catalog's first parse off the main actor, before the facts name these sources.
         if night != nil || !sources.isEmpty { _ = await TrackerCatalog.loadBundled() }
-        lastNightRaw = night
+        state.lastNight = night
         freshness = sources
     }
 
