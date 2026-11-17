@@ -166,12 +166,13 @@ final class WipeHarness {
     let env: AppEnvironment
     let state: AppState
 
-    init(persistence given: TrainStore? = nil) {
+    /// `demo`: the Demo data switch on (reads and writes go to demo data's store, the account signed in beside it).
+    init(persistence given: TrainStore? = nil, demo: Bool = false) {
         let persistence = given ?? TrainStore(inMemory: true)
         self.persistence = persistence
         let defaults = UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)") ?? .standard
         let settings = Settings(defaults: defaults)
-        settings.demoMode = false
+        settings.demoMode = demo
         let clock = clock
         auth = AuthService(client: client, settings: settings, defaults: defaults,
                            wipeLocalData: { wipe in persistence.wipe(parkingActivitiesOf: wipe.parking, at: clock.now()) },
@@ -182,10 +183,12 @@ final class WipeHarness {
         env = AppEnvironment(settings: settings, health: MockHealthStore(), liveAPI: api, demoAPI: MockPlatformAPI(),
                              auth: auth, persistence: persistence, clock: clock, notifier: MockNotifier(),
                              flags: StaticFlags([:]), connectivity: .preview(online: true), defaults: defaults,
-                             demoOverride: false)
+                             demoOverride: demo ? nil : false)
         env.reads.random = { $0.lowerBound }
         env.reads.budget = RequestBudget(clock: clock, maxStarts: .max)
         state = AppState(env: env)
+        // Without an override the Repository would publish to the app group's widget file.
+        state.repository.widgetFile = nil
         state.bindAccountHooks(auth, apiStatus: APIStatus())
     }
 
@@ -370,5 +373,132 @@ struct ReadModelOtherWritersTests {
         #expect(env.persistence.document([String].self, key: "train.history.old") == nil)
         #expect(env.persistence.document([String].self, key: "train.history.new") == ["new"])
         #expect(repo.activitiesFetchedAt(day: key(-400)) == nil && repo.activitiesFetchedAt(day: key(-30)) != nil)
+    }
+}
+
+extension ReadModelReaderTests {
+    /// A refresh returns what the store has once its flight resolves, not its own answer: a later write for the same
+    /// day, in the same batch, is newer.
+    @Test func aRefreshReturnsWhatTheStoreHas() async throws {
+        let (repo, env) = repository(HeldDayAnswers(detail: [12], list: 4))
+        let key = DayFormat.string(from: env.clock.now())
+        let hold = WriterHold()
+        repo.writeHooks.job = { _ in hold.pass() }
+        // An earlier write in the writer: the refresh's queues behind it, and so does the later one below.
+        repo.store(insights: MockData.insights)
+        #expect(await eventually { hold.entered == 1 })
+        let refresh = Task { try await repo.refreshDay(env.clock.now()) }
+        // Succeeded, so its write is submitted (the same main-actor step).
+        #expect(await eventually { env.reads.states[.today]?.fetchedAt != nil })
+        repo.store(detail: DayDetail(score: DailyScore(day: key, strain: 19), sleep: nil, workouts: []))
+        hold.open()
+
+        #expect(try await refresh.value?.score.strain == 19)
+    }
+}
+
+extension ReadModelWipeTests {
+    /// A refresh whose write the sign-out dropped resolves for no one: its answer is the signed-out account's.
+    @Test func aRefreshWrittenAcrossTheSignOutReturnsNothing() async throws {
+        let h = WipeHarness()
+        let hold = WriterHold()
+        h.repository.writeHooks.job = { _ in hold.pass() }
+        let refresh = Task { try await h.repository.refreshDay(h.clock.now()) }
+        #expect(await eventually { hold.entered == 1 })
+
+        await h.auth.signOut()
+        hold.open()
+
+        let result = await refresh.result
+        #expect(throws: CancellationError.self) { try result.get() }
+        #expect(try h.rowCount() == 0)
+        #expect(h.repository.day(h.today) == nil)
+    }
+
+    /// The `PATCH /v1/me` writers: Profile's (`AppState.patchUser`) and onboarding's birth year.
+    enum MePatch: CaseIterable, Sendable { case profile, aboutYou }
+
+    /// A `PATCH /v1/me` answered after the sign-out isn't written or read back: not on the signed-out phone, not for
+    /// the next account.
+    @Test(arguments: MePatch.allCases)
+    func aPatchAnsweredAfterTheSignOutIsDropped(_ patch: MePatch) async throws {
+        let h = WipeHarness()
+        let api = try #require(h.env.api as? MockPlatformAPI)
+        try await h.repository.refreshUser()
+        let hold = RequestHold()
+        api.beforePatchMe = { await hold.wait() }
+        let onboarding = OnboardingCoordinator(state: h.state, apiStatus: APIStatus()) {}
+        let request = Task {
+            switch patch {
+            case .profile: try? await h.state.patchUser(UserPatch(birthYear: 1971))
+            case .aboutYou: _ = await onboarding.saveAboutYou(birthYear: 1971)
+            }
+        }
+        #expect(await eventually { hold.waiting == 1 })
+
+        await h.auth.signOut()
+        hold.release()
+        await request.value
+        await h.repository.settled()
+
+        #expect(try h.rowCount() == 0)
+        #expect(h.repository.user() == nil)
+        await h.signIn(WipeHarness.b)
+        #expect(h.repository.user() == nil)
+    }
+
+    /// The notifications' `PATCH` answered once another account is in: the next account's user keeps its own settings.
+    @Test func aNotificationsPatchAnsweredForTheLastAccountIsntTheNextOnes() async throws {
+        let h = WipeHarness()
+        let api = try #require(h.env.api as? MockPlatformAPI)
+        try await h.repository.refreshUser()
+        let hold = RequestHold()
+        api.beforePatchNotifications = { await hold.wait() }
+        let model = NotificationSettingsViewModel(state: h.state, push: PushRegistrar(env: h.env))
+        let request = Task { await model.set(.pr, on: false) }
+        #expect(await eventually { hold.waiting == 1 })
+
+        await h.auth.signOut()
+        await h.signIn(WipeHarness.b)
+        try await h.repository.refreshUser()
+        let next = try #require(h.repository.user())
+        hold.release()
+        await request.value
+        await h.repository.settled()
+
+        #expect(h.repository.user()?.notifications == next.notifications)
+        #expect(h.repository.user()?.notifications.isOn(.pr) == true)
+    }
+}
+
+extension ReadModelOtherWritersTests {
+    /// A confirmed (or removed) activity whose write the wipe dropped starts no run: its days aren't the next account's.
+    @Test(arguments: [true, false])
+    func aFollowUpWrittenAcrossTheWipeStartsNoRun(confirmed: Bool) async throws {
+        let clock = TestClock(now: ReadModelReaderTests.morning)
+        let env = AppEnvironment.test(clock: clock)
+        let state = AppState(env: env)
+        let steps = AcceptedDaysSteps()
+        let coordinator = SyncCoordinator(steps: steps, clock: clock)
+        env.uploader.connect(repository: state.repository, coordinator: coordinator)
+        let hold = WriterHold()
+        state.repository.writeHooks.job = { _ in hold.pass() }
+        let now = clock.now()
+        let id = UUID()
+        if confirmed {
+            env.uploader.onConfirmed?(Self.activity(id, on: now), [DayFormat.string(from: now)])
+        } else {
+            env.uploader.onRemoved?(id, [DayFormat.string(from: now)])
+        }
+        #expect(await eventually { hold.entered == 1 })
+
+        let store = try #require(env.persistence as? TrainStore)
+        store.wipe(parkingActivitiesOf: nil, at: now)
+        state.repository.invalidate()
+        hold.open()
+        await state.repository.settled()
+
+        #expect(await eventually(timeout: .milliseconds(300)) { !steps.accepted.isEmpty } == false)
+        await coordinator.cancel()
     }
 }
