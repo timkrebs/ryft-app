@@ -1624,15 +1624,28 @@ extension ConsentWriterTests {
         #expect(relaunched.api.count("sync") == 0 && health.pageReads == 0 && health.committed.isEmpty)
     }
 
-    /// The store refuses every save, and the platform can't be reached after the withdrawal: Demo data on and off,
-    /// twice (each switch reads the store again), and the gate stays closed. Two things hold it here: the withdrawal
-    /// kept beside the store, and the refusal in the consent record's memory (its save refused too).
+    /// The reviewer's iOS 17 path: the user with consent stored on a launch before; this launch's demo data makes the
+    /// account's store the older container (on iOS 17.0 it takes no save then, T0.6, and here the hook refuses every
+    /// save on any OS); Demo data off, the withdrawal, the platform out of reach; then Demo data on and off twice, each
+    /// switch reading the store again, whose user still has the consent. The gate stays closed. Two things hold it: the
+    /// withdrawal kept beside the store, and the refusal in the consent record's memory (its save refused too).
     @Test func aRefusedWithdrawalHoldsAcrossTwoDemoSwitches() async throws {
-        let h = ConsentHarness(refusingDocuments: true, demo: true)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ryft-consent-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("Train.store")
+        let defaults = try #require(UserDefaults(suiteName: "ryft.test.\(UUID().uuidString)"))
+        do {
+            let before = ConsentHarness(persistence: TrainStore(url: url), defaults: defaults)
+            try await before.cachedUser()
+        }
+
+        let h = ConsentHarness(persistence: TrainStore(url: url), refusingDocuments: true, defaults: defaults, demo: true)
         h.settings.demoMode = false
         h.state.repository.widgetFile = nil
-        try await h.cachedUser()
+        h.state.reset()
         h.answer()
+        #expect(h.state.user?.consent != nil) // the launch before's
         #expect(h.onboarding.uploadGate(for: .healthKit) == nil)
         h.documents?.refuses = true
         h.state.repository.writeHooks.refusesSave = { true }
