@@ -98,8 +98,9 @@ struct RyftApp: App {
                                     }
                                 },
                                 expired: { [uploader = state.env.uploader] in uploader.stopReplay() },
+                                settled: { [repository = state.repository] in await repository.settled() },
                                 compact: { [repository = state.repository, activities = state.env.activities] in
-                                    repository.compact()
+                                    await repository.compact()
                                     // Rows a session expiry parked more than 30 days ago.
                                     activities.deleteExpiredParked()
                                 })
@@ -107,7 +108,8 @@ struct RyftApp: App {
         // scene's tasks don't run: the observers exist before launch finishes. Only for an
         // account that has seen the Health explanation (bootstrap covers the first time).
         if AuthService.shared.isSignedIn, Settings.shared.healthIntroDone, HealthKitManager.isAvailable {
-            Self.observeHealthKit(HealthKitManager.shared, coordinator: coordinator)
+            Self.observeHealthKit(HealthKitManager.shared, coordinator: coordinator,
+                                  settled: { [repository = state.repository] in await repository.settled() })
         }
         // A sync that found HealthKit locked runs again once the phone is unlocked.
         BackgroundWork.resumeOnUnlock(coordinator: coordinator) { SyncService.shared.waitingForUnlock }
@@ -259,7 +261,10 @@ struct RyftApp: App {
                 }
                 .task {
                     appDelegate.handlers = PushHandlers(registrar: screens.push, router: screens.router,
-                                                        coordinator: coordinator, reads: state.env.reads)
+                                                        coordinator: coordinator, reads: state.env.reads,
+                                                        settled: { [repository = state.repository] in
+                                                            await repository.settled()
+                                                        })
                 }
                 // Back online: upload what HealthKit collected meanwhile, then reload.
                 .onChange(of: connectivity.isOnline) { _, online in
@@ -352,7 +357,10 @@ struct RyftApp: App {
                 // Not a cancel: the page in flight finishes (in a background task), and what's
                 // left of an import goes to the backfill task.
                 _ = BackgroundWork.finishInBackground(coordinator: coordinator, app: UIApplication.shared,
-                                                      backlogBytes: { sync.backlogBytes })
+                                                      backlogBytes: { sync.backlogBytes },
+                                                      settled: { [repository = state.repository] in
+                                                          await repository.settled()
+                                                      })
                 // An activity upload in flight finishes too; the rest waits for the next trigger.
                 env.uploader.finishInBackground(app: UIApplication.shared)
                 screens.trainImport.finishInBackground(app: UIApplication.shared)
@@ -394,16 +402,26 @@ struct RyftApp: App {
             return
         }
         try? await env.health.requestAuthorization()
-        Self.observeHealthKit(env.health, coordinator: coordinator)
+        Self.observeHealthKit(env.health, coordinator: coordinator,
+                              settled: { [repository = state.repository] in await repository.settled() })
         await coordinator.run(.appActive)
     }
 
     /// The observers (once; launch or bootstrap, whichever comes first) and `.immediate`
-    /// delivery (every launch, idempotent). A delivery completes right after its upload.
+    /// delivery (every launch, idempotent). A delivery completes right after its upload, once the read-model writes
+    /// submitted so far are readable (`settled`): iOS may suspend the app at its completion.
     @MainActor
-    static func observeHealthKit(_ health: HealthStore, coordinator: SyncCoordinator) {
+    static func observeHealthKit(_ health: HealthStore, coordinator: SyncCoordinator,
+                                 settled: @escaping @MainActor @Sendable () async -> Void = {}) {
         health.startObserving { done in
-            Task { await coordinator.run(.healthKit, afterUpload: done) }
+            Task {
+                await coordinator.run(.healthKit, afterUpload: {
+                    Task { @MainActor in
+                        await settled()
+                        done()
+                    }
+                })
+            }
         }
         Task { await health.enableBackgroundDelivery() }
     }

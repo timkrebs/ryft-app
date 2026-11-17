@@ -23,12 +23,13 @@ struct ActivityReadModelTests {
 
         func day(_ days: Int = 0) -> String { DayFormat.string(from: DayFormat.shift(clock.now(), days: days)) }
 
-        /// The raw cached JSON of `day`'s activities.
+        /// The raw cached JSON of `day`'s activities, as the store holds it (a fresh context).
         func document(_ day: String) -> String? {
             let key = Repository.activitiesKey(day)
             var d = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key == key })
             d.fetchLimit = 1
-            return (try? env.persistence.context.fetch(d))?.first.flatMap { String(bytes: $0.data, encoding: .utf8) }
+            return (try? ModelContext(env.persistence.container).fetch(d))?.first
+                .flatMap { String(bytes: $0.data, encoding: .utf8) }
         }
     }
 
@@ -53,10 +54,10 @@ struct ActivityReadModelTests {
 
     // MARK: no route at rest
 
-    @Test func storingADaysListDropsRouteAndSamples() throws {
+    @Test func storingADaysListDropsRouteAndSamples() async throws {
         let g = graph()
         let a = run(at: g.at(7))
-        g.repo.store(activities: [a], day: g.day())
+        await g.repo.store(activities: [a], day: g.day()).committed()
         let cached = try #require(g.repo.activities(day: g.day()).first)
         #expect(cached == a.withoutRouteOrHeartRate)
         #expect(cached.route == nil && cached.hrSamples == nil && cached.strain == 8.8)
@@ -64,10 +65,10 @@ struct ActivityReadModelTests {
         #expect(!json.contains("route") && !json.contains("hr_samples") && !json.contains("_p~iF"))
     }
 
-    @Test func storingOneAnswerDropsRouteAndSamples() throws {
+    @Test func storingOneAnswerDropsRouteAndSamples() async throws {
         let g = graph()
         let a = run(at: g.at(7))
-        g.repo.store(activity: a)
+        await g.repo.store(activity: a).committed()
         #expect(g.repo.activities(day: g.day()) == [a.withoutRouteOrHeartRate])
         let json = try #require(g.document(g.day()))
         #expect(!json.contains("route") && !json.contains("hr_samples"))
@@ -140,7 +141,7 @@ struct ActivityReadModelTests {
     @Test func beforeTheContractNothingIsAskedOrRecorded() async throws {
         let g = graph()
         let cached = run(at: g.at(7), track: false)
-        g.repo.store(activities: [cached], day: g.day())
+        await g.repo.store(activities: [cached], day: g.day()).committed()
         g.api.activitySource.publishesActivities = false
         #expect(try await g.repo.refreshActivities(g.day()).map(\.id) == [cached.id])
         #expect(try await g.repo.refreshActivities(g.day(-1), mode: .latest, userInitiated: true).isEmpty)
@@ -168,7 +169,7 @@ struct ActivityReadModelTests {
         _ = g.repo.activities(day: g.day())
         #expect(g.repo.decodes == decodes)
         let revision = g.repo.activitiesRevision
-        g.repo.store(activity: run(at: g.at(9), track: false))
+        await g.repo.store(activity: run(at: g.at(9), track: false)).committed()
         #expect(g.repo.activitiesRevision == revision + 1)
         #expect(g.repo.activities(day: g.day()).count == 2)
         _ = g.repo.activities(day: g.day())
@@ -177,18 +178,18 @@ struct ActivityReadModelTests {
 
     // MARK: single answers
 
-    @Test func oneAnswerReplacesItsCopyAndMovesWithItsDay() throws {
+    @Test func oneAnswerReplacesItsCopyAndMovesWithItsDay() async throws {
         let g = graph()
         var a = run(at: g.at(7), track: false)
         let other = run(at: g.at(9), track: false)
-        g.repo.store(activities: [a, other], day: g.day())
+        await g.repo.store(activities: [a, other], day: g.day()).committed()
         a.notes = "Edited"
-        g.repo.store(activity: a)
+        await g.repo.store(activity: a).committed()
         #expect(g.repo.activities(day: g.day()).map(\.notes) == ["Edited", nil])
         // Its start moved to yesterday: gone from today, in yesterday's list.
         a.start = g.at(18, days: -1)
         a.end = a.start.addingTimeInterval(1_800)
-        g.repo.store(activity: a)
+        await g.repo.store(activity: a).committed()
         #expect(g.repo.activities(day: g.day()).map(\.id) == [other.id])
         #expect(g.repo.activities(day: g.day(-1)).map(\.id) == [a.id])
         // A single answer doesn't make yesterday's list fresh.
@@ -196,42 +197,43 @@ struct ActivityReadModelTests {
     }
 
     /// A confirmed `DELETE` (A2): the activity leaves every cached day; another id changes nothing.
-    @Test func forgettingAnActivityRemovesItFromEveryDay() throws {
+    @Test func forgettingAnActivityRemovesItFromEveryDay() async throws {
         let g = graph()
         let gone = run(at: g.at(7), track: false)
         let stays = run(at: g.at(9), track: false)
         let yesterday = run(at: g.at(18, days: -1), track: false)
         g.repo.store(activities: [gone, stays], day: g.day())
-        g.repo.store(activities: [yesterday], day: g.day(-1))
+        await g.repo.store(activities: [yesterday], day: g.day(-1)).committed()
         let fetchedAt = g.repo.activitiesFetchedAt(day: g.day())
         let revision = g.repo.activitiesRevision
-        g.repo.forget(activity: gone.id)
+        await g.repo.forget(activity: gone.id).committed()
         #expect(g.repo.activities(day: g.day()).map(\.id) == [stays.id])
         #expect(g.repo.activities(day: g.day(-1)).map(\.id) == [yesterday.id])
         #expect(g.repo.activitiesRevision == revision + 1)
         // Its list stays as fresh as it was.
         #expect(g.repo.activitiesFetchedAt(day: g.day()) == fetchedAt)
-        g.repo.forget(activity: UUID())
+        await g.repo.forget(activity: UUID()).committed()
         #expect(g.repo.activitiesRevision == revision + 1)
     }
 
     // MARK: housekeeping
 
-    @Test func compactionDropsActivitiesWithTheirDays() {
+    @Test func compactionDropsActivitiesWithTheirDays() async {
         let g = graph()
         g.repo.store(activities: [run(at: g.at(7, days: -400), track: false)], day: g.day(-400))
         g.repo.store(activities: [run(at: g.at(7, days: -30), track: false)], day: g.day(-30))
-        g.repo.compact()
+        await g.repo.compact()
         #expect(g.document(g.day(-400)) == nil)
         #expect(g.repo.activities(day: g.day(-30)).count == 1)
     }
 
-    @Test func clearAndTheSignOutWipeDropThem() {
+    @Test func clearAndTheSignOutWipeDropThem() async {
         let g = graph()
         g.repo.store(activities: [run(at: g.at(7), track: false)], day: g.day())
-        g.repo.clear()
+        await g.repo.clear().committed()
         #expect(g.repo.activities(day: g.day()).isEmpty && g.document(g.day()) == nil)
-        g.repo.store(activities: [run(at: g.at(7), track: false)], day: g.day())
+        await g.repo.store(activities: [run(at: g.at(7), track: false)], day: g.day()).committed()
+        #expect(g.repo.activities(day: g.day()).count == 1)
         g.env.persistence.wipe()
         g.repo.invalidate()
         #expect(g.repo.activities(day: g.day()).isEmpty)

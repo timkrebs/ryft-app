@@ -21,11 +21,15 @@ enum BackgroundWork {
 
     /// Before launch finishes (App.init). `backlogBytes` is `SyncService.backlogBytes`. `expired`: the refresh
     /// task's time ran out; work `afterRefresh` started outside its own task stops there (the activity uploads).
+    /// `settled`: every read-model write submitted so far is readable (`Repository.settled`); each task completes after
+    /// it, so the widget and Today are current before iOS suspends the app (ADR 0013, 0018). `compact` returns once its
+    /// write committed.
     @MainActor
     static func register(coordinator: SyncCoordinator, backlogBytes: @escaping @MainActor () -> Int?,
                          afterRefresh: @escaping @MainActor () async -> Void = {},
                          expired: @escaping @MainActor () -> Void = {},
-                         compact: @escaping @MainActor () -> Void) {
+                         settled: @escaping @MainActor () async -> Void = {},
+                         compact: @escaping @MainActor () async -> Void) {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: refreshTaskID, using: nil) { task in
             guard let task = task as? BGAppRefreshTask else { return }
             scheduleRefresh()
@@ -40,22 +44,24 @@ enum BackgroundWork {
                 Task { await coordinator.cancel() }
                 Task { @MainActor in expired() }
             }
-            Task {
+            Task { @MainActor in
                 let outcome = await work.value
+                await settled()
                 task.setTaskCompleted(success: !outcome.cancelled && outcome.error == nil)
             }
         }
         BGTaskScheduler.shared.register(forTaskWithIdentifier: backfillTaskID, using: nil) { task in
             guard let task = task as? BGProcessingTask else { return }
             Task { @MainActor in
-                await runBackfill(task, coordinator: coordinator, backlogBytes: backlogBytes)
+                await runBackfill(task, coordinator: coordinator, backlogBytes: backlogBytes, settled: settled)
             }
         }
         BGTaskScheduler.shared.register(forTaskWithIdentifier: compactionTaskID, using: nil) { task in
             guard let task = task as? BGProcessingTask else { return }
             scheduleCompaction()
             Task { @MainActor in
-                compact()
+                await compact()
+                await settled()
                 task.setTaskCompleted(success: true)
             }
         }
@@ -101,7 +107,8 @@ enum BackgroundWork {
     @MainActor
     static func runBackfill(_ task: BackgroundTaskHandle, coordinator: SyncCoordinator,
                             backlogBytes: @escaping @MainActor () -> Int?,
-                            schedule: @escaping (Int) -> Void = scheduleBackfill(backlogBytes:)) async {
+                            schedule: @escaping (Int) -> Void = scheduleBackfill(backlogBytes:),
+                            settled: @MainActor () async -> Void = {}) async {
         let expired = ExpiryFlag()
         task.expirationHandler = {
             expired.set()
@@ -113,6 +120,7 @@ enum BackgroundWork {
             outcome = await coordinator.run(.processing)
         }
         if let left = backlogBytes() { schedule(left) }
+        await settled()
         task.setTaskCompleted(success: outcome.error == nil && !outcome.cancelled)
     }
 
@@ -124,7 +132,8 @@ enum BackgroundWork {
     @MainActor
     static func finishInBackground(coordinator: SyncCoordinator, app: BackgroundTaskRunning,
                                    backlogBytes: @escaping @MainActor () -> Int?,
-                                   schedule: @escaping (Int) -> Void = scheduleBackfill(backlogBytes:)) -> Task<Void, Never> {
+                                   schedule: @escaping (Int) -> Void = scheduleBackfill(backlogBytes:),
+                                   settled: @escaping @MainActor () async -> Void = {}) -> Task<Void, Never> {
         let token = BackgroundTaskToken(app: app)
         token.begin {
             Task { await coordinator.cancel() }
@@ -132,6 +141,7 @@ enum BackgroundWork {
         return Task { @MainActor in
             await coordinator.windDown()
             if let left = backlogBytes() { schedule(left) }
+            await settled()
             token.end()
         }
     }

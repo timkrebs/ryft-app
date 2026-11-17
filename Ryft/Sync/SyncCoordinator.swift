@@ -795,8 +795,8 @@ final class LiveSyncSteps: SyncSteps {
         } catch is CancellationError {
             throw CancellationError()
         } catch {}
-        // Other series refetch when Insights shows them.
-        state.repository.markTrendsStale()
+        // Other series refetch when Insights shows them; the stage ends with that written.
+        await state.repository.markTrendsStale().committed()
     }
 
     func refreshInsights() async throws {

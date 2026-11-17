@@ -412,7 +412,7 @@ struct MyDayReviewFixTests {
         let draft = ActivityDraft(sport: .yoga, start: start, end: start.addingTimeInterval(1_800))
         let saved = try #require(g.env.activities.save(manual: draft))
         // The platform has it on yesterday (cached there); then the user moves it to today on this iPhone.
-        g.state.repository.store(activities: [saved.activity], day: DayFormat.string(from: yesterday))
+        g.state.repository.seed(.activities([saved.activity], day: DayFormat.string(from: yesterday)))
         let moved = ActivityDraft(sport: .yoga, start: start.addingTimeInterval(86_400),
                                   end: start.addingTimeInterval(86_400 + 1_800))
         #expect(g.env.activities.update(saved.id, moved) != nil)

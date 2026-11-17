@@ -387,7 +387,7 @@ private enum DetailPreview {
         let state = given ?? Self.state
         let all = demo
         for day in Set(all.map { DayFormat.string(from: $0.start) }) {
-            state.repository.store(activities: all.filter { DayFormat.string(from: $0.start) == day }, day: day)
+            state.repository.seed(.activities(all.filter { DayFormat.string(from: $0.start) == day }, day: day))
         }
         var id = pick?(all)?.id ?? UUID()
         var day = pick?(all)?.start ?? .now

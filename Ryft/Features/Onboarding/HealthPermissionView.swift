@@ -318,7 +318,8 @@ final class OnboardingCoordinator {
         let answer = await fetchWithTimeout()
         // Signed out or another account meanwhile: that answer isn't theirs.
         guard env.auth.accountID == account else { return }
-        if let user = answer.user { state.user = user }
+        // Written through: the gates below decide from it in this step (ADR 0008, 0018).
+        if let user = answer.user { state.repository.store(user: user) }
         // The config was recorded inside its read (`ConsentState.fetchConfig`).
         if let status = answer.status {
             syncStatus = status
@@ -366,7 +367,9 @@ final class OnboardingCoordinator {
         return await withTaskGroup(of: Answer?.self) { group in
             group.addTask {
                 // The user is stored inside the read, so it lands even when the timeout wins.
-                async let me = try? reads.run(ReadKey(.me), store: { (user: User) in state.user = user }) {
+                async let me = try? reads.run(ReadKey(.me), store: { (user: User) in
+                    await state.repository.store(user: user).committed()
+                }) {
                     try await api.me()
                 }
                 // The one door for the config: recorded inside the read, so it lands even when the timeout wins.
@@ -459,7 +462,8 @@ final class OnboardingCoordinator {
     @discardableResult
     func saveAboutYou(birthYear: Int) async -> Bool {
         await perform {
-            self.state.user = try await self.api.patchMe(UserPatch(birthYear: birthYear))
+            let patched = try await self.api.patchMe(UserPatch(birthYear: birthYear))
+            await self.state.repository.store(user: patched).committed()
             self.aboutYouSaved = true
         } message: { error in
             (error as? APIError)?.isFieldError == true
@@ -476,7 +480,8 @@ final class OnboardingCoordinator {
             // Withdrawn now, whatever the re-check below manages: sync stops at once.
             if var u = self.user {
                 u.consent = nil
-                self.state.user = u
+                // Written through: every upload gate is closed from this step on, before the commit (ADR 0008, 0018).
+                self.state.repository.store(user: u)
             }
             // Asked again only when the user wants to (Profile → Privacy, Today's action).
             self.deferred.insert(.consent)

@@ -55,6 +55,8 @@ final class AppEnvironment {
     var isDemo: Bool { demoOverride ?? settings.demoMode }
     /// The live graph (previews and tests pin demo mode): only it writes what the widget reads.
     var sharesWithWidget: Bool { demoOverride == nil }
+    /// `.live` itself, not a graph built like it (tests of the demo switch): previews' and tests' shortcuts check it.
+    private(set) var isLive = false
     var api: PlatformAPI { isDemo ? demoAPI : liveAPI }
 
     init(settings: Settings, health: HealthStore, liveAPI: PlatformAPI, demoAPI: PlatformAPI, auth: AuthService,
@@ -88,6 +90,7 @@ final class AppEnvironment {
         // The consent record counts only on disk: `TrainStore`'s in-memory fallback (a launch before the first
         // unlock) holds every upload instead (ADR 0008).
         env.consent.requiresDurableStore = true
+        env.isLive = true
         return env
     }()
 

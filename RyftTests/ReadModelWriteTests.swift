@@ -340,7 +340,7 @@ struct ReadModelOtherWritersTests {
     }
 
     /// Nightly compaction: what goes, and its count.
-    @Test func compactionRemovesWhatItRemovedBefore() throws {
+    @Test func compactionRemovesWhatItRemovedBefore() async throws {
         let clock = TestClock(now: ReadModelReaderTests.morning)
         let env = AppEnvironment.test(clock: clock)
         let repo = Repository(env: env)
@@ -357,7 +357,8 @@ struct ReadModelOtherWritersTests {
         repo.store(trend: MockData.trend(.hrv, range: .month), metric: .hrv, range: .month)
         env.persistence.saveDocument(["new"], key: "train.history.new", at: clock.now())
 
-        let removed = repo.compact()
+        // Queued behind the writes above: the queue keeps submit order.
+        let removed = await repo.compact()
 
         // Two days beyond a year, the workout and the week's series unopened for 30 and 7 days, one Train document,
         // one day's activities.

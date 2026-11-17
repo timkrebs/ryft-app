@@ -178,10 +178,40 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
 - `Repository` (`Ryft/Persistence/Repository.swift`) is the only writer: it fetches from the
   `PlatformAPI` and writes the store.
 - `AppState` exposes the cached values (`today`, `history`, `user`, `insights`,
-  `readinessWeek`, `cachedDayDetail(for:)`, …) as reads of the Repository.
+  `readinessWeek`, `cachedDayDetail(for:)`, …) as reads of the Repository. Their setters
+  are for previews and tests only (`seed`); Debug stops at one on the live graph.
 - View models compute what they show from those reads; `load()` only *revalidates*.
 - The Repository bumps an observable `revision` on every write. Reads touch it, so SwiftUI
   re-renders when the store changes. Decoded values are memoized per revision.
+
+**Writes run off the main actor** (ADR 0018).
+- A write is a `Sendable` value (`ReadModelWrite`), and `ReadModelWrites.apply` is the one
+  implementation of each. Batch fetches only: one `#Predicate` per write, and deletes go
+  through the context (never `delete(model:)`, which misses the batch's unsaved inserts).
+- `Repository.store…` submits in the same main-actor step as the read pipeline's account
+  check and returns a `WriteTicket`. `ReadModelDrain` applies the queue in submit order,
+  one batch at a time, on the store's `ReadModelWriter` (a `@ModelActor`, private to the
+  drain's file, so no main-actor code can await it). A batch never spans a store, an epoch
+  or a seed, and it saves once.
+- At the commit the Repository replaces its read context (one per store, never written),
+  bumps each written kind's revision once, and publishes the widget. `committed()` resolves
+  after that: a refresh's flight awaits it, so a refresh, and each sync stage, returns with
+  its rows readable.
+- `.user` is written through: `user()` returns it from the submit on, because the upload
+  gate reads it back in that step (ADR 0008). It stays until `invalidate()`.
+- The writer owns `CachedDay`, `CachedTrend`, `CachedInsight`, `CachedUser`,
+  `CachedSleepRange`, `CachedWorkout` and the `activities.*` documents. Train's tables and
+  every other document stay on the main context (`compact()` deletes Train's histories
+  there). Only `ReadModelWrites` and `TrainStore.wipe` insert or delete writer-owned rows.
+- `seed` writes at once on a context of its own, on main: previews, tests and the legacy
+  import. Only while the queue is idle (`onMisuse` otherwise); the next write gets a new
+  writer.
+- `settled()` returns once every write submitted so far has committed. A `BGTask`'s
+  completion, the end of the background time after leaving the app, a silent push's
+  handler and a HealthKit delivery's `completion()` wait for it: iOS may suspend the app
+  there.
+- Debug asserts every writer job runs off main (`ReadModelOffMainTests` proves it through
+  the real path); `OSSignposter` interval `write` on `reads` covers each batch.
 
 **Freshness** (`Repository.Policy`): cache-first, stale-while-revalidate.
 
@@ -206,7 +236,11 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
 
 **Accounts and demo.**
 - Sign-out wipes the whole store (`Persistence.wipe`), and `AppState.reset()` invalidates
-  the Repository's memo.
+  the Repository's memo, its read contexts and the user written through.
+- The wipe's first step advances `StoreEpoch`. A write submitted before it is dropped
+  unwritten; the writer saves inside the same lock, so a save in progress finishes first
+  and the wipe then deletes it. The first write after a wipe gets a new writer, so no
+  context keeps a deleted row (`ReadModelWipeRaceTests`).
 - Demo data goes to a separate in-memory store, so it never mixes with an account's.
 - Train's outbox (`PendingTrainOp`) is in the shared store, so each op records whose it is (the account, or demo):
   it goes only through that binding's client, and another binding's ops wait, uncounted (ADR 0008). A session's

@@ -156,83 +156,83 @@ struct RepositoryOfflineTests {
 @Suite("Repository: storage")
 @MainActor
 struct RepositoryStorageTests {
-    @Test func historyIsRangedSortedAndCapped() {
+    @Test func historyIsRangedSortedAndCapped() async {
         let (repo, clock, _) = makeRepo()
         let now = clock.now()
-        repo.store(scores: (0..<450).map { DailyScore(day: DayFormat.string(from: shift(now, -$0)), strain: Double($0 % 21)) })
+        await repo.store(scores: (0..<450).map { DailyScore(day: DayFormat.string(from: shift(now, -$0)), strain: Double($0 % 21)) }).committed()
         let week = repo.history(from: shift(now, -6), to: now)
         #expect(week.count == 7)
         #expect(week.map(\.day) == week.map(\.day).sorted())
         #expect(repo.history(from: shift(now, -449), to: now).count == Repository.maxHistoryRows)
     }
 
-    @Test func aDetailWinsOverTheListScore() {
+    @Test func aDetailWinsOverTheListScore() async {
         let (repo, clock, _) = makeRepo()
         let key = DayFormat.string(from: clock.now())
-        repo.store(scores: [DailyScore(day: key, strain: 4)])
+        await repo.store(scores: [DailyScore(day: key, strain: 4)]).committed()
         var detail = MockData.todayDetail
         detail.score = DailyScore(day: key, strain: 12)
-        repo.store(detail: detail)
+        await repo.store(detail: detail).committed()
         #expect(repo.score(key)?.strain == 12)
     }
 
-    @Test func readsAreObservableThroughTheRevision() {
+    @Test func readsAreObservableThroughTheRevision() async {
         let (repo, clock, _) = makeRepo()
         let before = repo.revision
-        repo.store(scores: [DailyScore(day: DayFormat.string(from: clock.now()), strain: 4)])
+        await repo.store(scores: [DailyScore(day: DayFormat.string(from: clock.now()), strain: 4)]).committed()
         #expect(repo.revision == before + 1)
     }
 
-    @Test func wipingTheStoreEmptiesEveryReadModel() throws {
+    @Test func wipingTheStoreEmptiesEveryReadModel() async throws {
         let (repo, clock, env) = makeRepo()
-        repo.store(detail: MockData.todayDetail)
-        repo.store(user: MockData.user)
-        repo.store(insights: MockData.insights)
+        await repo.store(detail: MockData.todayDetail).committed()
+        await repo.store(user: MockData.user).committed()
+        await repo.store(insights: MockData.insights).committed()
         env.persistence.wipe()
         repo.invalidate()
         #expect(repo.day(DayFormat.string(from: clock.now())) == nil)
         #expect(repo.user() == nil && repo.insights().isEmpty)
     }
 
-    @Test func demoDataNeverReachesTheAccountStore() throws {
+    @Test func demoDataNeverReachesTheAccountStore() async throws {
         let env = AppEnvironment.preview()   // demo on
         let repo = Repository(env: env)
-        repo.store(detail: MockData.todayDetail)
+        await repo.store(detail: MockData.todayDetail).committed()
         #expect(repo.day(MockData.todayDetail.score.day) != nil)
         let rows = try env.persistence.context.fetch(FetchDescriptor<CachedDay>())
         #expect(rows.isEmpty)
     }
 
-    @Test func everyCachedTypeRoundTrips() throws {
+    @Test func everyCachedTypeRoundTrips() async throws {
         let (repo, _, _) = makeRepo()
         let detail = try Fixture.decode(DayDetail.self, "day_detail")
-        repo.store(detail: detail)
+        await repo.store(detail: detail).committed()
         #expect(try json(repo.day(detail.score.day)) == json(detail))
 
         let days = try Fixture.decode([DailyScore].self, "days")
-        repo.store(scores: days)
+        await repo.store(scores: days).committed()
         #expect(try json(days.compactMap { repo.score($0.day) }) == json(days.map { d in
             d.day == detail.score.day ? detail.score : d
         }))
 
         let trend = try Fixture.decode(TrendSeries.self, "trends")
-        repo.store(trend: trend, metric: .hrv, range: .week)
+        await repo.store(trend: trend, metric: .hrv, range: .week).committed()
         #expect(try json(repo.trend(.hrv, .week)) == json(trend))
 
         let insights = try Fixture.decode([Insight].self, "insights")
-        repo.store(insights: insights)
+        await repo.store(insights: insights).committed()
         #expect(try json(repo.insights()) == json(insights))
 
         let user = try Fixture.decode(User.self, "me")
-        repo.store(user: user)
+        await repo.store(user: user).committed()
         #expect(try json(repo.user()) == json(user))
 
         let sleep = try Fixture.decode(SleepRange.self, "sleep_range")
-        repo.store(sleepRange: sleep)
+        await repo.store(sleepRange: sleep).committed()
         #expect(try json(repo.sleepRange(SleepRangeKind(rawValue: sleep.range) ?? .week)) == json(sleep))
 
         let workout = try Fixture.decode(WorkoutDetail.self, "workout_detail")
-        repo.store(workout: workout)
+        await repo.store(workout: workout).committed()
         #expect(try json(repo.workout(workout.workout.id)) == json(workout))
     }
 
@@ -258,7 +258,7 @@ struct RepositoryStorageTests {
 @Suite("Legacy cache migration")
 @MainActor
 struct LegacyCacheMigrationTests {
-    @Test func importsOnceAndDeletesTheFiles() throws {
+    @Test func importsOnceAndDeletesTheFiles() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let snapshot = LegacyCacheMigration.TodaySnapshot(
@@ -282,7 +282,7 @@ struct LegacyCacheMigrationTests {
         #expect(defaults.bool(forKey: LegacyCacheMigration.doneKey))
 
         // A second launch doesn't touch anything.
-        repo.clear()
+        await repo.clear().committed()
         LegacyCacheMigration.runOnce(into: repo, train: store, defaults: defaults, directory: dir)
         #expect(repo.user() == nil)
     }
@@ -291,16 +291,16 @@ struct LegacyCacheMigrationTests {
 @Suite("Repository: invalidation per kind")
 @MainActor
 struct RepositoryInvalidationTests {
-    @Test func aTrendsWriteKeepsTheDecodedDays() {
+    @Test func aTrendsWriteKeepsTheDecodedDays() async {
         let env = AppEnvironment.test()
         let repo = Repository(env: env)
         let key = DayFormat.string(from: env.clock.now())
-        repo.store(detail: MockData.todayDetail.with(day: key))
+        await repo.store(detail: MockData.todayDetail.with(day: key)).committed()
         _ = repo.day(key)
         let decoded = repo.decodes
         let days = repo.daysRevision
 
-        repo.store(trend: MockData.trend(.readiness, range: .week), metric: .readiness, range: .week)
+        await repo.store(trend: MockData.trend(.readiness, range: .week), metric: .readiness, range: .week).committed()
 
         _ = repo.day(key)
         #expect(repo.decodes == decoded) // the day wasn't decoded again
@@ -308,16 +308,16 @@ struct RepositoryInvalidationTests {
         #expect(repo.trendsRevision > 0)
     }
 
-    @Test func aDayWriteDecodesThatKindAgain() {
+    @Test func aDayWriteDecodesThatKindAgain() async {
         let env = AppEnvironment.test()
         let repo = Repository(env: env)
         let key = DayFormat.string(from: env.clock.now())
-        repo.store(detail: MockData.todayDetail.with(day: key))
+        await repo.store(detail: MockData.todayDetail.with(day: key)).committed()
         _ = repo.day(key)
         _ = repo.user()
         let decoded = repo.decodes
 
-        repo.store(scores: [DailyScore(day: key, strain: 3)])
+        await repo.store(scores: [DailyScore(day: key, strain: 3)]).committed()
         _ = repo.day(key)
         _ = repo.user()
 
@@ -327,7 +327,8 @@ struct RepositoryInvalidationTests {
     @Test func invalidatingForgetsEveryKind() {
         let env = AppEnvironment.test()
         let repo = Repository(env: env)
-        repo.store(user: MockData.user)
+        // Seeded, not written through: the user read below is the memo's, which `invalidate()` must forget.
+        repo.seed(.user(MockData.user))
         _ = repo.user()
         let before = repo.revision
         repo.invalidate()
@@ -550,18 +551,18 @@ struct CalibrationSourceTests {
 
     // MARK: (c) the app's own round trip: negative results
 
-    @Test func theWireFieldsSurviveTheReadModelRoundTrip() throws {
+    @Test func theWireFieldsSurviveTheReadModelRoundTrip() async throws {
         let env = AppEnvironment.test()
         let repo = Repository(env: env)
         for (days, calibrating) in [(0, true), (3, true), (30, false), (0, false)] {
             let key = "2026-10-21"
             let score = DailyScore(day: key, readiness: 80, recovery: 75, baselineDays: days, calibrating: calibrating,
                                    computedAt: env.clock.now(), scoringState: .scored)
-            repo.store(detail: DayDetail(score: score, sleep: nil, workouts: []))
+            await repo.store(detail: DayDetail(score: score, sleep: nil, workouts: [])).committed()
             let viaDetail = try #require(repo.day(key)).score
             #expect(viaDetail.baselineDays == days && viaDetail.calibrating == calibrating)
             // The history list reads the same row; the detail wins over the list score, and both agree.
-            repo.store(scores: [score])
+            await repo.store(scores: [score]).committed()
             let viaList = try #require(repo.history(from: DayFormat.date(from: key)!, to: DayFormat.date(from: key)!).first)
             #expect(viaList.baselineDays == days && viaList.calibrating == calibrating)
             #expect(repo.score(key)?.calibrating == calibrating)

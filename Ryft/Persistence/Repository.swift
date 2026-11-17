@@ -19,6 +19,13 @@ import os
 /// Offline nothing is requested. A response that arrives after the account
 /// changed is dropped. Demo data lives in its own in-memory store, so it never
 /// mixes with an account's.
+///
+/// **Writes run off the main actor** (ADR 0018). A write is submitted as a value (`ReadModelWrite`) in the same
+/// main-actor step that checked the account, and `ReadModelDrain` applies it in submit order on the store's writer. The
+/// returned `WriteTicket` resolves at the commit: then the store has it, its kinds' memo entries are gone and their
+/// revisions bumped once per batch, and reads go through a new read context. A refresh awaits its ticket, so it returns
+/// with its rows readable. `.user` is written through: the memo takes it at submit, because the upload gate reads it
+/// back in that step (ADR 0008). `seed` writes at once on the main actor, for previews, tests and the legacy import.
 @MainActor
 @Observable
 final class Repository {
@@ -38,10 +45,24 @@ final class Repository {
     @ObservationIgnored private var demoStoreInstance: TrainStore?
     /// Set while importing the legacy cache: writes go to the account's store even in demo mode.
     @ObservationIgnored private var forceLive = false
-    /// What a write changes. Each kind has its own revision and memo entries, so a
-    /// trends write neither re-decodes the days nor re-renders a view that only shows days.
-    enum Kind: String, CaseIterable {
-        case days, trends, insights, user, sleep, workouts, activities
+    /// What a write changes (`ReadModelKind`).
+    typealias Kind = ReadModelKind
+
+    /// The write queue and the stores' writers (ADR 0018).
+    @ObservationIgnored private let drain: ReadModelDrain
+    /// What the Repository reads through, one per store: a context of its own that nothing writes, replaced at every
+    /// commit and at `invalidate()`, so no row it fetched before a write or a wipe survives them.
+    @ObservationIgnored private var readContexts: [ObjectIdentifier: ModelContext] = [:]
+    /// `seed`s per store: the writer after one is a new one (it may hold rows the seed changed).
+    @ObservationIgnored private var seeds: [ObjectIdentifier: Int] = [:]
+    /// The last user submitted (`store(user:)`), until `invalidate()`: the upload gate reads it back in the same step.
+    @ObservationIgnored private var writtenThroughUser: User?
+    /// A misuse Debug builds stop at (`seed` while writes are pending, a preview setter on the live graph); tests
+    /// record it instead.
+    @ObservationIgnored var onMisuse: (String) -> Void = { assertionFailure($0) }
+    /// Tests watch and hold the writer through these.
+    @ObservationIgnored var writeHooks = ReadModelDrain.Hooks() {
+        didSet { drain.setHooks(writeHooks) }
     }
 
     // One observed revision per kind; reads touch theirs, writes bump theirs.
@@ -72,6 +93,11 @@ final class Repository {
         liveStore = store ?? env.persistence
         self.policy = policy
         widgetFile = env.sharesWithWidget ? ReadinessSnapshot.sharedFile : nil
+        let link = RepositoryLink()
+        drain = ReadModelDrain { receipt, target, epoch in
+            link.repository?.committed(receipt, store: target.store, current: target.epoch.current == epoch)
+        }
+        link.repository = self
     }
 
     private var store: Persistence {
@@ -82,7 +108,17 @@ final class Repository {
         return s
     }
 
-    private var context: ModelContext { store.context }
+    /// The current store's read context (never written).
+    private var context: ModelContext {
+        let s = store
+        let id = ObjectIdentifier(s.container)
+        if let c = readContexts[id] { return c }
+        let c = ModelContext(s.container)
+        c.autosaveEnabled = false
+        readContexts[id] = c
+        return c
+    }
+
     private var now: Date { env.clock.now() }
     private var calendar: Calendar { .current }
     private var canFetch: Bool { env.isDemo || env.connectivity.isOnline }
@@ -165,7 +201,11 @@ final class Repository {
     }
 
     func user() -> User? {
-        memoized(.user, "current") {
+        if let writtenThroughUser {
+            touch(.user)
+            return writtenThroughUser
+        }
+        return memoized(.user, "current") {
             var d = FetchDescriptor<CachedUser>(sortBy: [SortDescriptor(\.fetchedAt, order: .reverse)])
             d.fetchLimit = 1
             return WireCoding.decode(User.self, (try? context.fetch(d))?.first?.data)
@@ -265,10 +305,11 @@ final class Repository {
     /// `fetch` through the read pipeline (`env.reads`): coalesced, retried, budgeted and recorded per
     /// resource; offline nothing is sent. `store` runs inside the flight, once, whoever started or
     /// joined it and even if this caller is cancelled; an answer for an account that's gone
-    /// meanwhile is dropped unwritten.
+    /// meanwhile is dropped unwritten. It submits at once and awaits the commit, so the flight
+    /// ends with its rows readable.
     private func scheduled<T: Sendable>(_ key: ReadKey, mode: ReadMode, userInitiated: Bool,
                                         fetch: @escaping @MainActor () async throws -> T,
-                                        store: @escaping @MainActor (T) -> Void) async throws -> T? {
+                                        store: @escaping @MainActor (T) async -> Void) async throws -> T? {
         try await env.reads.run(key, mode: mode, userInitiated: userInitiated, store: store, fetch)
     }
 
@@ -282,7 +323,7 @@ final class Repository {
         do {
             let fetched = try await scheduled(ReadKey(resource, id: key), mode: mode, userInitiated: userInitiated,
                                               fetch: { [env] in try await env.api.day(date) },
-                                              store: { [weak self] in self?.store(detail: $0) })
+                                              store: { [weak self] in await self?.store(detail: $0).committed() })
             return fetched ?? day(key)
         } catch {
             if let cached = day(key) { return cached }
@@ -314,7 +355,7 @@ final class Repository {
         let id = "\(DayFormat.string(from: from))…\(DayFormat.string(from: to))"
         _ = try await scheduled(ReadKey(.history, id: id), mode: mode, userInitiated: userInitiated,
                                 fetch: { [env] in try await env.api.days(from: from, to: to) },
-                                store: { [weak self] in self?.store(scores: $0) })
+                                store: { [weak self] in await self?.store(scores: $0).committed() })
     }
 
     func refreshHistory(from: Date, to: Date, force: Bool) async throws {
@@ -331,7 +372,9 @@ final class Repository {
         }
         _ = try await scheduled(ReadKey(.trends, id: key), mode: mode, userInitiated: userInitiated,
                                 fetch: { [env] in try await env.api.trends(metric: metric, range: range) },
-                                store: { [weak self] in self?.store(trend: $0, metric: metric, range: range) })
+                                store: { [weak self] in
+                                    await self?.store(trend: $0, metric: metric, range: range).committed()
+                                })
     }
 
     func refreshTrend(_ metric: TrendMetric, _ range: TrendRange, force: Bool) async throws {
@@ -346,7 +389,7 @@ final class Repository {
         }
         _ = try await scheduled(ReadKey(.insights), mode: mode, userInitiated: userInitiated,
                                 fetch: { [env] in try await env.api.insights() },
-                                store: { [weak self] in self?.store(insights: $0) })
+                                store: { [weak self] in await self?.store(insights: $0).committed() })
     }
 
     func refreshInsights(force: Bool) async throws {
@@ -361,7 +404,7 @@ final class Repository {
         }
         _ = try await scheduled(ReadKey(.me), mode: mode, userInitiated: userInitiated,
                                 fetch: { [env] in try await env.api.me() },
-                                store: { [weak self] in self?.store(user: $0) })
+                                store: { [weak self] in await self?.store(user: $0).committed() })
     }
 
     func refreshUser(force: Bool) async throws {
@@ -377,7 +420,7 @@ final class Repository {
         }
         _ = try await scheduled(ReadKey(.sleepRange, id: k), mode: mode, userInitiated: false,
                                 fetch: { [env] in try await env.api.sleep(range: kind) },
-                                store: { [weak self] in self?.store(sleepRange: $0) })
+                                store: { [weak self] in await self?.store(sleepRange: $0).committed() })
     }
 
     func refreshSleepRange(_ kind: SleepRangeKind, force: Bool) async throws {
@@ -398,7 +441,7 @@ final class Repository {
         do {
             _ = try await scheduled(ReadKey(.activities, id: day), mode: mode, userInitiated: userInitiated,
                                     fetch: { [env] in try await env.api.activities(from: start, to: end) },
-                                    store: { [weak self] in self?.store(activities: $0, day: day) })
+                                    store: { [weak self] in await self?.store(activities: $0, day: day).committed() })
             // What was stored (stripped), not the answer itself: no caller holds a route from a list read.
             return activities(day: day)
         } catch {
@@ -414,16 +457,11 @@ final class Repository {
             if fresh((try? context.fetch(d))?.first?.fetchedAt, ttl: policy.workout) { return }
         }
         guard let w = try await fetching({ try await env.api.workout(id: id) }) else { return }
-        store(workout: w)
+        // `fetching` checked the account; no await since.
+        await store(workout: w).committed()
     }
 
     // MARK: writes
-
-    /// After a write of `kinds`: saved, their decoded values dropped, their readers told.
-    private func changed(_ kinds: Kind...) {
-        store.save()
-        forget(kinds)
-    }
 
     /// The days changed (a score or a day's detail stored, the cache cleared): AppState recomputes
     /// what Today's card and stale line read from them.
@@ -446,32 +484,65 @@ final class Repository {
         if kinds.contains(.days) { onDaysChanged?() }
     }
 
-    private func row(for key: String) -> CachedDay {
-        if let row = dayRow(key) { return row }
-        let row = CachedDay(day: key, date: DayFormat.date(from: key) ?? now)
-        context.insert(row)
-        return row
+    /// Queues `op` for the current store. Never awaits: the caller's account check and this are one step.
+    private func submit(_ op: ReadModelWrite) -> WriteTicket {
+        let s = store
+        let id = ObjectIdentifier(s.container)
+        return drain.submit(op, to: ReadModelDrain.Target(container: s.container, epoch: s.epoch,
+                                                          generation: seeds[id, default: 0]), now: now)
     }
 
-    func store(detail: DayDetail) {
-        let r = row(for: detail.score.day)
-        r.detailData = WireCoding.encode(detail)
-        r.detailFetchedAt = now
-        r.scoreData = WireCoding.encode(detail.score)
-        r.scoreFetchedAt = now
-        changed(.days)
-        publishWidget()
+    /// A batch landed in `store` (the drain, on the main actor; `seed`): reads see it from here on. `current`: no wipe
+    /// since its save (one after it deleted what it saved, and the widget isn't published from that).
+    fileprivate func committed(_ receipt: WriteReceipt, store id: ObjectIdentifier, current: Bool = true) {
+        // A wipe came first: `invalidate()` already replaced the contexts and forgot everything.
+        guard !receipt.dropped else { return }
+        readContexts[id] = nil
+        let kinds = Kind.allCases.filter(receipt.kinds.contains)
+        guard !kinds.isEmpty else { return }
+        forget(kinds)
+        if receipt.publishesWidget, current { publishWidget() }
     }
 
-    func store(scores: [DailyScore]) {
-        for s in scores {
-            let r = row(for: s.day)
-            r.scoreData = WireCoding.encode(s)
-            r.scoreFetchedAt = now
+    /// Every write submitted so far has committed or was dropped.
+    func settled() async {
+        await drain.lastSubmitted?.committed()
+    }
+
+    /// `ops` written at once on a context of their own, then committed as one batch: previews, tests and the legacy
+    /// import, never the app's own writes. Only while no write is pending (two contexts must not write one row).
+    func seed(_ ops: ReadModelWrite...) {
+        seed(ops)
+    }
+
+    func seed(_ ops: [ReadModelWrite]) {
+        if !drain.isIdle { onMisuse("Repository.seed while read-model writes are pending: await settled() first") }
+        let s = store
+        let id = ObjectIdentifier(s.container)
+        let context = ModelContext(s.container)
+        context.autosaveEnabled = false
+        var receipt = WriteReceipt()
+        let at = now
+        for op in ops { ReadModelWrites.apply(op, in: context, now: at, into: &receipt) }
+        do {
+            try context.save()
+            receipt.saved = true
+        } catch {
+            let e = error as NSError
+            TrainStore.log.error("Read-model seed failed: \(e.domain, privacy: .public) \(e.code, privacy: .public)")
         }
-        changed(.days)
-        publishWidget()
+        // The writer may hold rows this context changed: the next write gets a new one.
+        seeds[id, default: 0] += 1
+        // The store has the user now; a user written through before is older.
+        if ops.contains(where: { if case .user = $0 { return true } else { return false } }) { writtenThroughUser = nil }
+        committed(receipt, store: id)
     }
+
+    @discardableResult
+    func store(detail: DayDetail) -> WriteTicket { submit(.detail(detail)) }
+
+    @discardableResult
+    func store(scores: [DailyScore]) -> WriteTicket { submit(.scores(scores)) }
 
     // MARK: widget
 
@@ -532,214 +603,97 @@ final class Repository {
         return facts
     }
 
-    /// The cached scores become exactly `scores` (previews, tests); opened details stay.
-    func replaceScores(_ scores: [DailyScore]) {
-        let keep = Set(scores.map(\.day))
-        var d = FetchDescriptor<CachedDay>()
-        d.fetchLimit = 10_000
-        for row in (try? context.fetch(d)) ?? [] where !keep.contains(row.day) {
-            if row.detailData == nil { context.delete(row) } else { row.scoreData = nil }
-        }
-        store(scores: scores)
-    }
+    /// The cached scores become exactly `scores`; opened details stay.
+    @discardableResult
+    func replaceScores(_ scores: [DailyScore]) -> WriteTicket { submit(.replaceScores(scores)) }
 
-    func store(trend: TrendSeries, metric: TrendMetric, range: TrendRange) {
-        guard let data = WireCoding.encode(trend) else { return }
-        let key = Self.trendKey(metric, range)
-        var d = FetchDescriptor<CachedTrend>(predicate: #Predicate { $0.key == key })
-        d.fetchLimit = 1
-        if let row = (try? context.fetch(d))?.first {
-            row.data = data
-            row.fetchedAt = now
-        } else {
-            context.insert(CachedTrend(key: key, data: data, fetchedAt: now))
-        }
-        changed(.trends)
+    @discardableResult
+    func store(trend: TrendSeries, metric: TrendMetric, range: TrendRange) -> WriteTicket {
+        submit(.trend(trend, key: Self.trendKey(metric, range)))
     }
 
     /// Replaces the cards (the platform's list is the whole truth).
-    func store(insights: [Insight]) {
-        try? context.delete(model: CachedInsight.self)
-        for (i, insight) in insights.enumerated() {
-            guard let data = WireCoding.encode(insight) else { continue }
-            context.insert(CachedInsight(id: insight.id, position: i, data: data, fetchedAt: now))
-        }
-        changed(.insights)
+    @discardableResult
+    func store(insights: [Insight]) -> WriteTicket { submit(.insights(insights)) }
+
+    /// Written through (ADR 0018 decision 5): `user()` returns it from this step on, before the commit, because the
+    /// upload gate decides from it in the same step (ADR 0008). A commit never replaces it; `invalidate()` does.
+    @discardableResult
+    func store(user: User) -> WriteTicket {
+        writtenThroughUser = user
+        forget([.user])
+        return submit(.user(user))
     }
 
-    func store(user: User) {
-        guard let data = WireCoding.encode(user) else { return }
-        try? context.delete(model: CachedUser.self)
-        context.insert(CachedUser(id: user.id, data: data, fetchedAt: now))
-        changed(.user)
-    }
+    @discardableResult
+    func store(sleepRange: SleepRange) -> WriteTicket { submit(.sleepRange(sleepRange)) }
 
-    func store(sleepRange: SleepRange) {
-        guard let data = WireCoding.encode(sleepRange) else { return }
-        let k = sleepRange.range
-        var d = FetchDescriptor<CachedSleepRange>(predicate: #Predicate { $0.kind == k })
-        d.fetchLimit = 1
-        if let row = (try? context.fetch(d))?.first {
-            row.data = data
-            row.fetchedAt = now
-        } else {
-            context.insert(CachedSleepRange(kind: k, data: data, fetchedAt: now))
-        }
-        changed(.sleep)
-    }
-
-    func store(workout: WorkoutDetail) {
-        guard let data = WireCoding.encode(workout) else { return }
-        let id = workout.workout.id
-        var d = FetchDescriptor<CachedWorkout>(predicate: #Predicate { $0.id == id })
-        d.fetchLimit = 1
-        if let row = (try? context.fetch(d))?.first {
-            row.data = data
-            row.fetchedAt = now
-        } else {
-            context.insert(CachedWorkout(id: id, data: data, fetchedAt: now))
-        }
-        changed(.workouts)
-    }
+    @discardableResult
+    func store(workout: WorkoutDetail) -> WriteTicket { submit(.workout(workout)) }
 
     /// `day`'s activities as the platform listed them, replacing the cached ones. `route` and `hr_samples`
     /// are dropped first: list reads are expected without them (R16), and none is kept at rest if one
     /// arrives anyway (ADR 0006).
-    func store(activities: [SportActivity], day: String) {
-        let list = activities.map(\.withoutRouteOrHeartRate).sorted { $0.start < $1.start }
-        guard let data = WireCoding.encode(list) else { return }
-        writeActivities(data, day: day)
-        changed(.activities)
-    }
+    @discardableResult
+    func store(activities: [SportActivity], day: String) -> WriteTicket { submit(.activities(activities, day: day)) }
 
     /// One activity the platform answered (a confirmed `PUT`, a detail read), into the list of the day it
     /// starts on, without `route` and `hr_samples`. A copy cached under another day (its start was edited)
-    /// is removed there.
-    func store(activity: SportActivity) {
-        let day = DayFormat.string(from: activity.start)
-        let id = activity.id
-        removeCached(id, keeping: Self.activitiesKey(day))
-        var list = self.activities(day: day).filter { $0.id != id }
-        list.append(activity.withoutRouteOrHeartRate)
-        list.sort { $0.start < $1.start }
-        guard let data = WireCoding.encode(list) else { return }
-        // A single answer doesn't make the day's list fresh: its fetch time stays (a new row's is the past).
-        writeActivities(data, day: day, fetchedAt: activitiesFetchedAt(day: day) ?? .distantPast)
-        changed(.activities)
-    }
-
-    /// The day whose cached list holds activity `id`: `day` (where it starts now) when that list has it, else one of
-    /// My Day's strip days (the day an edit moved it from, rescored too). Bounded: at most the strip's lists are
-    /// read, and only those that mention the id are decoded.
-    func cachedDay(ofActivity id: UUID, startingOn day: String?) -> String? {
-        if let day, activities(day: day).contains(where: { $0.id == id }) { return day }
-        let needle = Data(id.uuidString.utf8)
-        for candidate in DayFormat.days(endingAt: now, count: DateStrip.length) where candidate != day {
-            guard let row = activitiesDocument(candidate), row.data.range(of: needle) != nil,
-                  WireCoding.decode([SportActivity].self, row.data)?.contains(where: { $0.id == id }) == true
-            else { continue }
-            return candidate
-        }
-        return nil
-    }
-
-    /// A deleted activity (the platform confirmed the `DELETE`): out of every cached day.
-    func forget(activity id: UUID) {
-        guard removeCached(id, keeping: nil) else { return }
-        changed(.activities)
-    }
-
-    /// Takes `id` out of every cached day's list but `keeping`'s. Only lists that mention it are decoded.
-    /// True when one changed.
+    /// is removed there. `cachedUnder[activity.id]`: the day whose list held it before, its own day first, then My
+    /// Day's strip (the day an edit moved it from, rescored too).
     @discardableResult
-    private func removeCached(_ id: UUID, keeping key: String?) -> Bool {
-        let needle = Data(id.uuidString.utf8)
-        let prefix = Self.activitiesPrefix
-        let keep = key ?? ""
-        let docs = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key.starts(with: prefix) && $0.key != keep })
-        var removed = false
-        for row in (try? context.fetch(docs)) ?? [] where row.data.range(of: needle) != nil {
-            guard let list = WireCoding.decode([SportActivity].self, row.data) else { continue }
-            let kept = list.filter { $0.id != id }
-            guard kept.count != list.count, let data = WireCoding.encode(kept) else { continue }
-            row.data = data
-            removed = true
-        }
-        return removed
+    func store(activity: SportActivity) -> WriteTicket {
+        submit(.activity(activity, strip: DayFormat.days(endingAt: now, count: DateStrip.length)))
     }
 
-    private func writeActivities(_ data: Data, day: String, fetchedAt: Date? = nil) {
-        let key = Self.activitiesKey(day)
-        if let row = activitiesDocument(day) {
-            row.data = data
-            row.fetchedAt = fetchedAt ?? now
-        } else {
-            context.insert(CachedDocument(key: key, data: data, fetchedAt: fetchedAt ?? now))
-        }
+    /// A deleted activity (the platform confirmed the `DELETE`): out of every cached day. `cachedUnder[id]`: the day
+    /// whose list held it, `hint` first, then My Day's strip.
+    @discardableResult
+    func forget(activity id: UUID, hint: String? = nil) -> WriteTicket {
+        submit(.forgetActivity(id, strip: DayFormat.days(endingAt: now, count: DateStrip.length), hint: hint))
     }
 
     /// Every cached series refetches the next time it's shown (new scores came in).
-    func markTrendsStale() {
-        var d = FetchDescriptor<CachedTrend>()
-        d.fetchLimit = 500
-        for row in (try? context.fetch(d)) ?? [] { row.fetchedAt = .distantPast }
-        changed(.trends)
-    }
+    @discardableResult
+    func markTrendsStale() -> WriteTicket { submit(.markTrendsStale) }
 
     /// Nightly (`BGProcessingTask`): days beyond a year, workouts and Train
     /// documents nobody opened for 30 days, series older than a week. What's
-    /// gone is fetched again when needed.
+    /// gone is fetched again when needed. Returns once it's committed.
     @discardableResult
-    func compact() -> Int {
+    func compact() async -> Int {
         let cutoffDay = calendar.startOfDay(for: DayFormat.shift(now, days: -365))
         let month = now.addingTimeInterval(-30 * 86_400)
         let week = now.addingTimeInterval(-7 * 86_400)
-        var removed = 0
-        func count<T: PersistentModel>(_ d: FetchDescriptor<T>) -> Int { (try? context.fetchCount(d)) ?? 0 }
-        let oldDays = FetchDescriptor<CachedDay>(predicate: #Predicate { $0.date < cutoffDay })
-        removed += count(oldDays)
-        try? context.delete(model: CachedDay.self, where: #Predicate { $0.date < cutoffDay })
-        let oldWorkouts = FetchDescriptor<CachedWorkout>(predicate: #Predicate { $0.fetchedAt < month })
-        removed += count(oldWorkouts)
-        try? context.delete(model: CachedWorkout.self, where: #Predicate { $0.fetchedAt < month })
-        let oldTrends = FetchDescriptor<CachedTrend>(predicate: #Predicate { $0.fetchedAt < week })
-        removed += count(oldTrends)
-        try? context.delete(model: CachedTrend.self, where: #Predicate { $0.fetchedAt < week })
+        // Train's exercise histories are the main context's documents (design.md §5.1).
+        let s = store
         let prefix = "train.history."
         let oldDocs = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key.starts(with: prefix) && $0.fetchedAt < month })
-        removed += count(oldDocs)
-        try? context.delete(model: CachedDocument.self, where: #Predicate { $0.key.starts(with: prefix) && $0.fetchedAt < month })
-        // Activities go with their days (keys sort by day: "activities.2025-10-22").
-        let cutoffKey = Self.activitiesKey(DayFormat.string(from: cutoffDay))
-        let activityPrefix = Self.activitiesPrefix
-        let activityDocs = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key.starts(with: activityPrefix) })
-        for row in (try? context.fetch(activityDocs)) ?? [] where row.key < cutoffKey {
-            context.delete(row)
-            removed += 1
-        }
-        changed(.days, .trends, .workouts, .activities)
+        var removed = (try? s.context.fetchCount(oldDocs)) ?? 0
+        try? s.context.delete(model: CachedDocument.self, where: #Predicate { $0.key.starts(with: prefix) && $0.fetchedAt < month })
+        if removed > 0 { s.save() }
+        removed += await submit(.compact(dayCutoff: cutoffDay, month: month, week: week)).committed().removed
         return removed
     }
 
-    /// The store changed underneath (sign-out wiped it): forget decoded values.
+    /// The store changed underneath (sign-out wiped it): forget decoded values, the read contexts and the user
+    /// written through.
     func invalidate() {
+        readContexts = [:]
+        writtenThroughUser = nil
         forget(Kind.allCases)
     }
 
-    /// Every read model (demo toggle; sign-out wipes the whole store via `Persistence.wipe`).
-    func clear() {
-        try? context.delete(model: CachedDay.self)
-        try? context.delete(model: CachedTrend.self)
-        try? context.delete(model: CachedInsight.self)
-        try? context.delete(model: CachedUser.self)
-        try? context.delete(model: CachedSleepRange.self)
-        try? context.delete(model: CachedWorkout.self)
-        let activityPrefix = Self.activitiesPrefix
-        try? context.delete(model: CachedDocument.self, where: #Predicate { $0.key.starts(with: activityPrefix) })
-        changed(.days, .trends, .insights, .user, .sleep, .workouts, .activities)
+    /// Every read model (demo toggle; sign-out wipes the whole store via `Persistence.wipe`). Nothing decoded before
+    /// it is read again from here on; the store is empty at the commit.
+    @discardableResult
+    func clear() -> WriteTicket {
+        let ticket = submit(.clear)
+        invalidate()
+        return ticket
     }
 
-    /// Runs `body` against the account's store, whatever the Demo data switch says.
+    /// Runs `body` against the account's store, whatever the Demo data switch says (its `seed`s land there).
     func writingToAccountStore(_ body: () -> Void) {
         forceLive = true
         defer { forceLive = false; forget(Kind.allCases) }
@@ -749,6 +703,12 @@ final class Repository {
     static func trendKey(_ metric: TrendMetric, _ range: TrendRange) -> String {
         "\(metric.rawValue)-\(range.rawValue)"
     }
+}
+
+/// The drain's way back to its Repository (weak: the Repository owns the drain).
+@MainActor
+private final class RepositoryLink {
+    weak var repository: Repository?
 }
 
 // MARK: - widget snapshot
@@ -1066,8 +1026,9 @@ final class ReadScheduler {
     }
 
     /// Writes an answer into the read models; any caller's, since every store for one key is the same. With the
-    /// flight's start: when the answer was asked for, on this phone's clock (retries only ask later).
-    typealias Store = @MainActor (any Sendable, Date) -> Void
+    /// flight's start: when the answer was asked for, on this phone's clock (retries only ask later). It submits
+    /// before its first await (the account was checked in that step) and returns once the write is readable.
+    typealias Store = @MainActor (any Sendable, Date) async -> Void
 
     @MainActor
     private final class Flight {
@@ -1110,7 +1071,7 @@ final class ReadScheduler {
     /// Try again) ignores `retryNotBefore`.
     @discardableResult
     func run<T: Sendable>(_ key: ReadKey, mode: ReadMode = .latest, userInitiated: Bool = false,
-                          store: (@MainActor (T) -> Void)? = nil,
+                          store: (@MainActor (T) async -> Void)? = nil,
                           _ fetch: @escaping @MainActor () async throws -> T) async throws -> T? {
         // Cancelled already (a screen that went away, a deadline that passed): no flight for it.
         try Task.checkCancellation()
@@ -1124,10 +1085,10 @@ final class ReadScheduler {
     /// that flight's start, not its own (`SyncService.receive(_:requestedAt:)`).
     @discardableResult
     func run<T: Sendable>(_ key: ReadKey, mode: ReadMode = .latest, userInitiated: Bool = false,
-                          storeAsked: @escaping @MainActor (T, Date) -> Void,
+                          storeAsked: @escaping @MainActor (T, Date) async -> Void,
                           _ fetch: @escaping @MainActor () async throws -> T) async throws -> T? {
         try Task.checkCancellation()
-        let store: Store = { value, started in if let value = value as? T { storeAsked(value, started) } }
+        let store: Store = { value, started in if let value = value as? T { await storeAsked(value, started) } }
         guard let outcome = enter(key, mode: mode, userInitiated: userInitiated, store: store, fetch) else { return nil }
         return try await outcome.value() as? T
     }
@@ -1211,12 +1172,13 @@ final class ReadScheduler {
             do {
                 guard let self else { throw CancellationError() }
                 let value = try await self.attempts(key, account: account, fetch)
-                // `attempts` checked the account and cancellation; no await since.
+                // `attempts` checked the account and cancellation; no await since. The store submits before its
+                // first await, then waits for the commit.
                 if let store = flight.store {
                     let signposts = Signposts.reads
                     let interval = signposts.beginInterval("store", id: signposts.makeSignpostID(),
                                                            "\(key.resource.rawValue, privacy: .public)")
-                    store(value, flight.started)
+                    await store(value, flight.started)
                     signposts.endInterval("store", interval)
                 }
                 result = .success(value)
@@ -1262,9 +1224,9 @@ final class ReadScheduler {
         changed(.record)
     }
 
-    private static func erase<T: Sendable>(_ store: (@MainActor (T) -> Void)?) -> Store? {
+    private static func erase<T: Sendable>(_ store: (@MainActor (T) async -> Void)?) -> Store? {
         guard let store else { return nil }
-        return { value, _ in if let value = value as? T { store(value) } }
+        return { value, _ in if let value = value as? T { await store(value) } }
     }
 
     /// The tries for one flight: single attempts through the budget, backoff between them.

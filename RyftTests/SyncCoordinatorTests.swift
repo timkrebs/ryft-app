@@ -619,16 +619,16 @@ struct ScheduledWorkTests {
         #expect(notifier.requests.isEmpty)
     }
 
-    @Test func compactionDropsOldDaysAndUnusedDetails() throws {
+    @Test func compactionDropsOldDaysAndUnusedDetails() async throws {
         let clock = TestClock(now: .now)
         let env = AppEnvironment.test(clock: clock)
         let repo = Repository(env: env)
         let now = clock.now()
         repo.store(scores: [DailyScore(day: DayFormat.string(from: DayFormat.shift(now, days: -400))),
                             DailyScore(day: DayFormat.string(from: now))])
-        repo.store(workout: MockData.workoutDetail(MockData.todayDetail.workouts[0]))
+        await repo.store(workout: MockData.workoutDetail(MockData.todayDetail.workouts[0])).committed()
         clock.advance(by: .seconds(31 * 86_400))
-        let removed = repo.compact()
+        let removed = await repo.compact()
         #expect(removed >= 2)
         #expect(repo.history(from: DayFormat.shift(clock.now(), days: -500), to: clock.now()).count == 1)
         #expect(repo.workout(MockData.todayDetail.workouts[0].id) == nil)
@@ -1911,7 +1911,7 @@ struct ReadSchedulerWaiterTests {
         let api = MockPlatformAPI()
         let (env, state, clock) = readGraph(api: api)
         let yesterday = DayFormat.string(from: DayFormat.shift(clock.now(), days: -1))
-        state.repository.store(scores: [DailyScore(day: yesterday)])
+        await state.repository.store(scores: [DailyScore(day: yesterday)]).committed()
         #expect(env.reads.states[.history] == nil)
         #expect(state.resourceStates[.history]?.fetchedAt == clock.now())
 

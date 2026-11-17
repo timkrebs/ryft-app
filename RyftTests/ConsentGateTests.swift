@@ -576,10 +576,14 @@ struct ConsentWriterTests {
         var withdrawn = try #require(h.state.user)
         withdrawn.consent = nil
 
-        h.state.user = withdrawn // the write `withdrawConsent()` makes
+        let written = h.state.repository.store(user: withdrawn) // the write `withdrawConsent()` makes
 
         #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
         #expect(h.onboarding.uploadGate(for: .activities) == .gate(.consentRequired))
+        // Its commit, off the main actor, changes nothing about it.
+        #expect(await written.committed().saved)
+        #expect(h.onboarding.uploadGate(for: .healthKit) == .gate(.consentRequired))
+        #expect(h.state.user?.consent == nil)
     }
 
     @Test func withdrawingConsentHoldsTheSyncAfterItReturns() async throws {

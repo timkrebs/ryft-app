@@ -2099,7 +2099,7 @@ struct ReportProblemTests {
         let env = AppEnvironment.test(flags: [.devicesSetup: true]) // every key, the trackers' ids included
         let state = AppState(env: env)
         await state.refresh() // MockData's scores in the read models
-        state.repository.store(scores: try Fixture.decode([DailyScore].self, "days"))
+        await state.repository.store(scores: try Fixture.decode([DailyScore].self, "days")).committed()
         // Streams whose newest records end at a wake time and after a workout, to the second.
         let wake = try #require(Calendar.current.date(bySettingHour: 6, minute: 42, second: 17, of: env.clock.now()))
         let workoutEnd = try #require(Calendar.current.date(bySettingHour: 18, minute: 31, second: 5, of: env.clock.now()))

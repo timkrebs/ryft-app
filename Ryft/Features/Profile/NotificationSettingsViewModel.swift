@@ -127,7 +127,7 @@ final class NotificationSettingsViewModel {
             prefs = saved
             if var user = state.user {
                 user.notifications = saved
-                state.user = user
+                await state.repository.store(user: user).committed()
             }
         } catch where error.isCancellation {
             // Not confirmed, not failed: the platform's answer on the next load decides.

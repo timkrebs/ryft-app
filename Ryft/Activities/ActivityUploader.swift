@@ -651,18 +651,24 @@ extension ActivityUploader {
     /// (`.daysChanged`: the scoring wait, then the refresh). An edit that moved an activity from a day My Day's strip
     /// shows rescores that day too.
     func connect(repository: Repository, coordinator: SyncCoordinator) {
+        // Submitted now, before anything the coordinator reads for those days; the run starts once it's readable, with
+        // the day the write found it cached under (`WriteReceipt.cachedUnder`).
         onConfirmed = { [weak repository] activity, days in
             guard let repository else { return }
-            let left = repository.cachedDay(ofActivity: activity.id, startingOn: DayFormat.string(from: activity.start))
-            repository.store(activity: activity)
-            let all = Set(days + [left].compactMap { $0 }).sorted()
-            Task { await coordinator.run(.daysChanged(days: all)) }
+            let written = repository.store(activity: activity)
+            Task {
+                let left = await written.committed().cachedUnder[activity.id]
+                let all = Set(days + [left].compactMap { $0 }).sorted()
+                await coordinator.run(.daysChanged(days: all))
+            }
         }
         onRemoved = { [weak repository] id, days in
-            let left = repository?.cachedDay(ofActivity: id, startingOn: days.first)
-            repository?.forget(activity: id)
-            let all = Set(days + [left].compactMap { $0 }).sorted()
-            Task { await coordinator.run(.daysChanged(days: all)) }
+            let written = repository?.forget(activity: id, hint: days.first)
+            Task {
+                let left = await written?.committed().cachedUnder[id]
+                let all = Set(days + [left].compactMap { $0 }).sorted()
+                await coordinator.run(.daysChanged(days: all))
+            }
         }
         onSleepConfirmed = { day in
             Task { await coordinator.run(.daysChanged(days: [day])) }
