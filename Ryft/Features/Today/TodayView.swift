@@ -1,17 +1,26 @@
 import OSLog
 import SwiftUI
 
-/// Greeting and the sync's status line, readiness gauge (or what's true while data is on
-/// its way: the first import, a night being scored, the baseline being learned), Sleep /
-/// Recovery / Strain tiles, Train, 7-day trend. Layout only: everything shown comes from
-/// `TodayViewModel`.
+/// Today in Nocturne (docs/work/2026-11-16-nocturne/design.md §P4-1): the header lock-up and the calendar, the greeting
+/// and the sub-line, the sync's status row, the hero gauge with its label row and ruler (or what's true while data is on
+/// its way: the first import, a night being scored, the baselines being learned), the attention cards, the glow tiles
+/// (Recovery and Sleep, then Strain), and the cards below. Layout only: everything shown comes from `TodayViewModel`.
 struct TodayView: View {
+    /// Previews and tests: the hero numerals and Reduce Transparency; `nil` follows the setting and the system.
+    var heroNumerals: HeroNumerals?
+    var reduceTransparency: Bool?
+
     @Environment(ScreenModels.self) private var screens
+    @Environment(Settings.self) private var settings
     @Environment(\.appEnvironment) private var env
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The launch sequence covers Today: its gauge is built without the entrance, which plays at the hand-off.
+    @Environment(\.locale) private var locale
+    /// The launch sequence covers Today (taps, VoiceOver): its gauge is built without the entrance.
     @Environment(\.launchCoversRoot) private var launchCovers
+    /// The launch still reveals Today: covered, or its mark still flying into the header (design.md §P4-7). The gauge's
+    /// entrance waits for it; during the move the gauge's slot is empty.
+    @Environment(\.launchRevealsRoot) private var launchReveals
 
     private var model: TodayViewModel { screens.today }
     /// The error card's scroll target (the status line's "Couldn't load today · Details").
@@ -27,57 +36,42 @@ struct TodayView: View {
     /// assembles over its tracks (`TodayGaugeEntrance`).
     @State private var gaugePlaceholderSeen = false
 
+    private var numeral: DotNumeral.Style { (heroNumerals ?? settings.heroNumerals).style }
+
     var body: some View {
         // The day's facts and decision, read once for the whole body.
         let day = model.content
         NavigationStack {
             ScrollViewReader { proxy in
-                ScreenScaffold {
-                    if model.hasDataSource {
-                        greeting(day)
-                        if let row = day.importRow { ImportRow(progress: row) }
-                        hero(day)
-                            .coachMarkTarget(.gauges)
-                            .id(CoachMarkTarget.gauges)
-                        if let night = day.rawNight { RawNightCard(night: night, sourceName: day.rawNightSource) }
-                        if let hint = day.watchHint { WatchSyncHintCard(hint: hint, showsAction: !model.showsRefreshIssue) }
-                        if day.showsTiles {
-                            tiles(day)
+                ScreenScaffold(showsHeader: false) {
+                    VStack(spacing: 0) {
+                        TodayHeader()
+                        intro(day)
+                            .padding(.top, TodayLayout.headerToGreeting)
+                        if model.hasDataSource {
+                            if let row = day.importRow {
+                                ImportRow(progress: row)
+                                    .padding(.top, TodayLayout.statusToImportRow)
+                            }
+                            hero(day)
+                                .padding(.top, TodayLayout.statusToGauge)
+                                .coachMarkTarget(.gauges)
+                                .id(CoachMarkTarget.gauges)
+                            attentionCards(day)
+                            if day.showsTiles {
+                                TodayTiles(content: TodayTilesContent(day), reduceTransparency: reduceTransparency) {
+                                    model.open($0)
+                                }
+                                .padding(.top, hasAttentionCard(day) ? TodayLayout.cardGap : TodayLayout.rulerToTiles)
                                 .coachMarkTarget(.physiology)
                                 .id(CoachMarkTarget.physiology)
-                        }
-                        if model.showsRedesign, let night = model.lastNight {
-                            Card { MiniHypnogram(sleep: night) { model.open(.sleep) } }
-                        }
-                        if model.showsHealthHint { HealthAccessHint() }
-                        if model.showsPushPrompt {
-                            PushPrePromptCard {
-                                Task { await model.enablePush() }
-                            } dismiss: {
-                                withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick)) {
-                                    model.dismissPushPrompt()
-                                }
                             }
-                            .transition(.opacity)
+                            cardsBelow(day)
+                                .padding(.top, TodayLayout.glowToCards)
+                        } else {
+                            SetupCard { model.open(.profile) }
+                                .padding(.top, TodayLayout.statusToGauge)
                         }
-                        if screens.myDay.isEnabled { MyDayCard(model: screens.myDay) }
-                        if screens.journal.isLive {
-                            JournalCard(store: screens.journal) { showsJournal = true }
-                        }
-                        // From 17:00: when to be in bed tonight (Bedtime & wake).
-                        if screens.bedtime.isEnabled, screens.bedtime.isEvening(), !day.hero.isImporting {
-                            TonightCard(planner: screens.bedtime)
-                        }
-                        if model.showsTrain, !day.hero.isImporting { TrainTodayCard() }
-                        if !day.hero.isImporting {
-                            trends(day)
-                                .coachMarkTarget(.trends)
-                                .id(CoachMarkTarget.trends)
-                        }
-                        status
-                    } else {
-                        greeting(day)
-                        SetupCard { model.open(.profile) }
                     }
                 }
                 .coachMarks(model.coachMarks, enabled: model.showsCoachMarks)
@@ -124,33 +118,48 @@ struct TodayView: View {
         }
     }
 
-    // MARK: sections
+    // MARK: rows 2–4: greeting, sub-line, status
 
-    private func greeting(_ day: TodayContent) -> some View {
-        VStack(spacing: 8) {
-            VStack(spacing: 6) {
-                Text(model.greeting)
+    /// "Good evening, Tim", then "Sunday, Nov 15 · Your health is in balance." (one VoiceOver element, a header), then
+    /// the sync's status row, all leading.
+    private func intro(_ day: TodayContent) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: TodayLayout.greetingToSubLine) {
+                Text(verbatim: model.greeting)
                     .font(.ryft(.title))
+                    .tracking(TodayLayout.greetingTracking)
                     .foregroundStyle(Theme.textPrimary)
-                Text(day.sentence)
-                    .font(.ryft(.callout))
+                    .lineLimit(2)
+                Text(verbatim: day.subLine(locale: locale))
+                    .font(.ryft(.label))
                     .foregroundStyle(Theme.textSecondary)
-                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .accessibilityElement(children: .combine)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: Self.spokenIntro(greeting: model.greeting, day: day, locale: locale)))
+            .accessibilityAddTraits(.isHeader)
             if model.hasDataSource {
                 // While anything is being scored, the line is asked again every 15 s: "Taking longer than usual"
                 // comes with time alone. One read of the line per tick.
                 TimelineView(.periodic(from: .now, by: day.facts.scoringSince != nil ? 15 : 3_600)) { _ in
-                    SyncStatusLineView(line: model.syncLine, action: { model.resolveLine() }, retry: { await model.refresh() })
+                    SyncStatusLineView(line: model.syncLine, action: { model.resolveLine() },
+                                       retry: { await model.refresh() }, alignment: .leading)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, TodayLayout.subLineToStatus)
             }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 8)
     }
 
-    /// The gauge, or what takes its place while data is on its way.
+    /// "Good evening, Tim. Sunday, November 15. Your health is in balance." (§P4-8 row 3).
+    static func spokenIntro(greeting: String, day: TodayContent, locale: Locale) -> String {
+        "\(greeting). \(TodayContent.spokenDate(day.facts.now, locale: locale)). \(day.sentence)"
+    }
+
+    // MARK: rows 6–9: the hero
+
+    /// The gauge with its label row, note and ruler, or what takes their place while data is on its way.
     @ViewBuilder
     private func hero(_ day: TodayContent) -> some View {
         Group {
@@ -166,30 +175,39 @@ struct TodayView: View {
                 // While scoring, asked again every 15 s, like the line: slow scoring stops the breathing.
                 let ticking = day.facts.scoringSince != nil
                 TimelineView(.periodic(from: .now, by: ticking ? 15 : 3_600)) { _ in
-                    pendingOrbit(ticking ? model.content : day)
+                    pendingHero(ticking ? model.content : day)
                 }
-                .padding(.vertical, 4)
             case .calibrating:
-                VStack(spacing: 8) {
+                VStack(spacing: 0) {
                     // The outer orbit fills night by night. What it counts comes from the mapping (`OrbitGaugeMode
                     // +Today`): the heart-rate nights over a long history without HRV, the one signal that fills
                     // while the other is absent (F3), else any night.
-                    OrbitGauge(mode: day.orbit, size: .large,
-                               caption: OrbitGauge.Caption(title: String(localized: "Baselines")),
-                               identifier: "today.baselineGauge", entrance: gaugeEntrance(day.orbit))
-                        .modifier(gaugeEntranceConsumer(day.orbit))
+                    gaugeSlot {
+                        OrbitGauge(mode: day.orbit, size: .hero,
+                                   caption: OrbitGauge.Caption(title: String(localized: "Baselines")), showsCaption: false,
+                                   identifier: "today.baselineGauge", numeral: numeral, entrance: gaugeEntrance(day.orbit))
+                            .modifier(gaugeEntranceConsumer(day.orbit))
+                    }
+                    labelRow(day)
                     // Why the nights don't fill (row B over a long history without HRV), or why only one signal's
                     // count (F3); read on its own after the gauge.
-                    if let note = day.gaugeNote { noteBlock(note, readWithGauge: false) }
+                    if let note = day.gaugeNote {
+                        noteBlock(note, readWithGauge: false)
+                            .padding(.top, TodayLayout.labelToNote)
+                    }
+                    ruler(day)
                 }
-                .padding(.vertical, 4)
             case .score:
-                VStack(spacing: 8) {
-                    readinessRing(day)
-                    // Rows D and B: in the band/delta line's place, read as part of the gauge.
-                    if let note = day.gaugeNote { noteBlock(note, readWithGauge: day.gaugeSpokenNote != nil) }
+                VStack(spacing: 0) {
+                    gaugeSlot { readinessGauge(day) }
+                    labelRow(day)
+                    // Rows D and B: under the label row, read as part of the gauge.
+                    if let note = day.gaugeNote {
+                        noteBlock(note, readWithGauge: day.gaugeSpokenNote != nil)
+                            .padding(.top, TodayLayout.labelToNote)
+                    }
+                    ruler(day)
                 }
-                .padding(.vertical, 4)
             }
         }
         .transition(.opacity)
@@ -198,11 +216,29 @@ struct TodayView: View {
         .animation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick), value: day.gaugeNote)
     }
 
+    /// The gauge's 260 × 260 place. While the launch's mark flies into the header (handing off, the root uncovered but
+    /// not yet revealed) it stays empty; at the landing the gauge is built and its entrance plays (design.md §P4-7).
+    @ViewBuilder
+    private func gaugeSlot(@ViewBuilder _ gauge: () -> some View) -> some View {
+        if Self.gaugeSlotIsEmpty(covers: launchCovers, reveals: launchReveals) {
+            Color.clear
+                .frame(width: TodayLayout.heroFrame, height: TodayLayout.heroFrame)
+                .accessibilityHidden(true)
+        } else {
+            gauge()
+        }
+    }
+
+    /// The slot is empty only between the hand-off's start and the landing of a matched move: uncovered, not revealed.
+    nonisolated static func gaugeSlotIsEmpty(covers: Bool, reveals: Bool) -> Bool {
+        reveals && !covers
+    }
+
     /// A gauge with something to show assembles until one has been seen in this process (`TodayGaugeEntrance`).
     /// A gauge latches this when it is built, so a later change (another hero row, a refresh) builds a plain one.
-    /// Under the launch sequence it is built static, with no hidden entrance during the launch's busiest frames.
+    /// Until the launch has revealed Today it is built static: the entrance plays at the landing.
     private func gaugeEntrance(_ mode: OrbitGaugeMode) -> OrbitGauge.Entrance {
-        TodayGaugeEntrance.entrance(flag: model.assemblesGauge && !launchCovers, mode: mode,
+        TodayGaugeEntrance.entrance(flag: model.assemblesGauge && !launchReveals, mode: mode,
                                     placeholderSeen: gaugePlaceholderSeen)
     }
 
@@ -212,35 +248,59 @@ struct TodayView: View {
         }
     }
 
-    /// The orbit: readiness in the centre, Recovery and Sleep on the inner orbit, Strain on the outer; under it the
-    /// caption, the band word and the change against the days before (from the 7-day trend, row A only).
-    private func readinessRing(_ day: TodayContent) -> some View {
-        OrbitGauge(mode: day.orbit, size: .large,
+    /// The orbit at the hero size: readiness in the centre, Recovery and Sleep on the inner orbit, Strain on the outer.
+    /// Its caption (the band and the change) is drawn by the label row; the gauge keeps it for its spoken sentence.
+    private func readinessGauge(_ day: TodayContent) -> some View {
+        OrbitGauge(mode: day.orbit, size: .hero,
                    caption: OrbitGauge.Caption(title: String(localized: "Overall readiness"), delta: day.readinessDelta,
                                                showsBand: day.showsReadinessBand),
-                   accessibilityNote: day.gaugeSpokenNote, identifier: "today.readinessGauge",
-                   entrance: gaugeEntrance(day.orbit))
+                   showsCaption: false, accessibilityNote: day.gaugeSpokenNote, identifier: "today.readinessGauge",
+                   numeral: numeral, entrance: gaugeEntrance(day.orbit))
             .modifier(gaugeEntranceConsumer(day.orbit))
     }
 
-    /// A night not scored yet: the latest scored day's orbit, dimmed, breathing until scoring takes longer
-    /// than usual; the day it's from, then "Scoring your night…" and when to expect it. VoiceOver hears the title
-    /// and the day in the gauge's value; the line under them is read on its own.
-    private func pendingOrbit(_ day: TodayContent) -> some View {
-        VStack(spacing: 8) {
-            OrbitGauge(mode: day.orbit, size: .large, accessibilityNote: day.pendingSpokenNote,
-                       identifier: "today.pendingGauge", breathes: !day.pendingIsStatic,
-                       entrance: gaugeEntrance(day.orbit))
-                .modifier(gaugeEntranceConsumer(day.orbit))
-            if let scored = day.pendingScoredDay {
-                Text(scored)
-                    .font(.ryft(.caption))
-                    .foregroundStyle(Theme.textTertiary)
-                    .accessibilityHidden(true)
+    /// Row 7: "Readiness · High" and "▲ +11 vs 7 d", 10 apart, centred; stacked at accessibility sizes. Hidden from
+    /// VoiceOver: the gauge says both.
+    private func labelRow(_ day: TodayContent) -> some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .center, spacing: TodayLayout.pendingLineGap))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: TodayLayout.labelGap))
+        return layout {
+            Text(verbatim: day.readinessLabel)
+                .font(.ryft(.label))
+                .foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if let delta = day.readinessDelta {
+                DeltaLabel(spec: .readiness, delta: delta, reference: String(localized: "vs 7 d"), font: .ryft(.label),
+                           referenceColor: DeltaLabel.color(delta, spec: .readiness))
             }
-            VStack(spacing: 2) {
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, TodayLayout.gaugeToLabel)
+        .accessibilityHidden(true)
+    }
+
+    /// A night not scored yet (§P4-5): the latest scored day's orbit, dimmed, breathing until scoring takes longer than
+    /// usual; in the label row's place the day it's from, "Scoring your night…" and when to expect it; then the ruler
+    /// without a needle. VoiceOver hears the title and the day in the gauge's value; the detail is read on its own.
+    private func pendingHero(_ day: TodayContent) -> some View {
+        VStack(spacing: 0) {
+            gaugeSlot {
+                OrbitGauge(mode: day.orbit, size: .hero, showsCaption: false, accessibilityNote: day.pendingSpokenNote,
+                           identifier: "today.pendingGauge", breathes: !day.pendingIsStatic, numeral: numeral,
+                           entrance: gaugeEntrance(day.orbit))
+                    .modifier(gaugeEntranceConsumer(day.orbit))
+            }
+            VStack(spacing: TodayLayout.pendingLineGap) {
+                if let scored = day.pendingScoredDay {
+                    Text(scored)
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textTertiary)
+                        .accessibilityHidden(true)
+                }
                 Text(day.pendingTitle)
-                    .font(.ryft(.callout))
+                    .font(.ryft(.label))
                     .foregroundStyle(Theme.textPrimary)
                     .accessibilityHidden(true)
                 // None while a card under the gauge says it (the night hint).
@@ -252,15 +312,31 @@ struct TodayView: View {
             }
             .multilineTextAlignment(.center)
             .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity)
+            .padding(.top, TodayLayout.gaugeToLabel)
+            ruler(day)
         }
     }
 
-    /// The note under the gauge and, under it, its link when there is one (a blocked baseline with
-    /// `devices.setup` on). `readWithGauge`: VoiceOver hears the note in the gauge's value, so the line itself is
-    /// hidden; the link stays its own button either way.
+    /// Row 9: 0–100, the high band marked (not "the current band"), the needle at the readiness. No zone and only the
+    /// ends labelled where the number isn't placed in a band; no needle without a number.
+    private func ruler(_ day: TodayContent) -> some View {
+        RulerScale(range: 0...100, value: day.rulerValue, zone: day.rulerZone, zoneStyle: .standard,
+                   tickCount: RulerScale.Ticks.today, labels: day.rulerLabels, size: .regular,
+                   accessibilityLabel: Text("Readiness scale", comment: "VoiceOver label of Today's readiness ruler (0 to 100)."),
+                   accessibilityValue: Text(verbatim: day.rulerSpoken))
+            .accessibilityIdentifier("today.ruler")
+            .padding(.top, TodayLayout.labelToRuler)
+    }
+
+    /// The note under the label row and, under it, its link when there is one (a blocked baseline with `devices.setup`
+    /// on). `readWithGauge`: VoiceOver hears the note in the gauge's value, so the line itself is hidden; the link stays
+    /// its own button either way.
     private func noteBlock(_ note: TodayPresentation.Note, readWithGauge: Bool) -> some View {
         VStack(spacing: 0) {
-            gaugeNote(note)
+            GaugeNote(text: note.text, systemImage: note.systemImage)
+                .transition(.opacity)
+                .accessibilityIdentifier("today.gaugeNote")
                 .accessibilityHidden(readWithGauge)
             if let link = note.link {
                 GaugeNoteLink(title: link.title) { open(link) }
@@ -268,12 +344,7 @@ struct TodayView: View {
                     .accessibilityIdentifier("today.gaugeNote.link")
             }
         }
-    }
-
-    private func gaugeNote(_ note: TodayPresentation.Note) -> some View {
-        GaugeNote(text: note.text, systemImage: note.systemImage)
-            .transition(.opacity)
-            .accessibilityIdentifier("today.gaugeNote")
+        .frame(maxWidth: .infinity)
     }
 
     /// The note's link: Check sync's model is made here, on the tap, for the sheet to keep.
@@ -282,28 +353,56 @@ struct TodayView: View {
         calibrationLink = link
     }
 
-    /// One day for all three (ui.md §1): today's, or the latest scored day dimmed with its date.
-    private func tiles(_ day: TodayContent) -> some View {
-        // Three columns truncate at accessibility sizes; stack the tiles there.
-        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
-        return layout {
-            MetricTile(title: "Sleep", value: day.sleepText, systemImage: "moon.fill",
-                       tint: Theme.metricSleep, caption: day.tileCaption, isDimmed: day.tilesDimmed,
-                       accessibilityHint: "Opens Sleep") {
-                model.open(.sleep)
+    // MARK: row 10: attention cards
+
+    private func hasAttentionCard(_ day: TodayContent) -> Bool {
+        day.rawNight != nil || day.watchHint != nil
+    }
+
+    /// Last night from Apple Health and the night hint (pending only), 12 below the ruler and 12 apart.
+    @ViewBuilder
+    private func attentionCards(_ day: TodayContent) -> some View {
+        if hasAttentionCard(day) {
+            VStack(spacing: TodayLayout.cardGap) {
+                if let night = day.rawNight { RawNightCard(night: night, sourceName: day.rawNightSource) }
+                if let hint = day.watchHint { WatchSyncHintCard(hint: hint, showsAction: !model.showsRefreshIssue) }
             }
-            MetricTile(title: "Recovery", value: day.recoveryText, systemImage: "heart",
-                       tint: Theme.band(forScore: day.recovery),
-                       caption: day.recoveryCaption, isDimmed: day.tilesDimmed, accessibilityHint: "Opens Insights") {
-                model.open(.insights)
-            }
-            MetricTile(title: "Strain", value: day.strainText, systemImage: "bolt.fill",
-                       tint: Theme.metricStrain, caption: day.tileCaption, isDimmed: day.tilesDimmed,
-                       accessibilityHint: "Opens Strain") {
-                model.open(.strain)
-            }
+            .padding(.top, TodayLayout.rulerToCards)
         }
-        .fixedSize(horizontal: false, vertical: !typeSize.isAccessibilitySize)
+    }
+
+    // MARK: row 13: the cards below
+
+    /// In today's order, 12 apart; the error cards last (the status line's "Details" scrolls to them).
+    private func cardsBelow(_ day: TodayContent) -> some View {
+        VStack(spacing: TodayLayout.cardGap) {
+            if model.showsHealthHint { HealthAccessHint() }
+            if model.showsPushPrompt {
+                PushPrePromptCard {
+                    Task { await model.enablePush() }
+                } dismiss: {
+                    withAnimation(Theme.Motion.respecting(reduceMotion, Theme.Motion.quick)) {
+                        model.dismissPushPrompt()
+                    }
+                }
+                .transition(.opacity)
+            }
+            if screens.myDay.isEnabled { MyDayCard(model: screens.myDay) }
+            if screens.journal.isLive {
+                JournalCard(store: screens.journal) { showsJournal = true }
+            }
+            // From 17:00: when to be in bed tonight (Bedtime & wake).
+            if screens.bedtime.isEnabled, screens.bedtime.isEvening(), !day.hero.isImporting {
+                TonightCard(planner: screens.bedtime)
+            }
+            if model.showsTrain, !day.hero.isImporting { TrainTodayCard() }
+            if !day.hero.isImporting {
+                trends(day)
+                    .coachMarkTarget(.trends)
+                    .id(CoachMarkTarget.trends)
+            }
+            status
+        }
     }
 
     private func trends(_ day: TodayContent) -> some View {
@@ -369,8 +468,9 @@ extension TodayHero {
 ///   Not at init: a process launched in the background (HealthKit delivery, `BGAppRefreshTask`) and opened later
 ///   still plays it once.
 /// - A gauge that played where nobody could see it (drawn in the background, or the scene went to the background
-///   before it was ever active) is built again once when it is next seen. Covered by the launch sequence counts as
-///   unseen, like the background (`launchCoversRoot`, ADR 0017): the entrance plays at the hand-off.
+///   before it was ever active) is built again once when it is next seen. Not yet revealed by the launch sequence
+///   counts as unseen, like the background (`launchRevealsRoot`, ADR 0017, design.md §P4-7): the entrance plays at the
+///   hand-off, or when the lock-up has landed in the header after the matched move.
 /// - The import card shows no gauge and consumes nothing.
 enum TodayGaugeEntrance {
     enum Event: Equatable {
@@ -458,7 +558,7 @@ private struct GaugeEntranceConsumer: ViewModifier {
     /// Today remembers that a placeholder was on screen (`Outcome.placeholderSeen`).
     let placeholderSeen: () -> Void
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.launchCoversRoot) private var launchCovers
+    @Environment(\.launchRevealsRoot) private var launchReveals
     /// Bumped only to build again a gauge that played unseen.
     @State private var run = 0
     @State private var playedUnseen = false
@@ -472,8 +572,8 @@ private struct GaugeEntranceConsumer: ViewModifier {
 
     private var showable: Bool { TodayGaugeEntrance.hasSomethingToShow(mode) }
 
-    /// The phase as the gauge is seen: covered by the launch sequence is the background.
-    private func seen(_ phase: ScenePhase) -> ScenePhase { launchCovers ? .background : phase }
+    /// The phase as the gauge is seen: not yet revealed by the launch sequence is the background.
+    private func seen(_ phase: ScenePhase) -> ScenePhase { launchReveals ? .background : phase }
 
     func body(content: Content) -> some View {
         content
@@ -482,8 +582,8 @@ private struct GaugeEntranceConsumer: ViewModifier {
             .id(Identity(run: run,
                          showable: TodayGaugeEntrance.identityShowable(flag: model.assemblesGauge, showable: showable)))
             .onChange(of: scenePhase) { _, phase in apply(.phaseChanged, phase: seen(phase)) }
-            // Uncovered at the hand-off: a phase change into what the scene is in now.
-            .onChange(of: launchCovers) { apply(.phaseChanged, phase: seen(scenePhase)) }
+            // Revealed (at the hand-off, or when the matched move lands): a phase change into what the scene is in now.
+            .onChange(of: launchReveals) { apply(.phaseChanged, phase: seen(scenePhase)) }
     }
 
     private func apply(_ event: TodayGaugeEntrance.Event, phase: ScenePhase) {
@@ -864,253 +964,124 @@ struct OfflinePill: View {
     }
 }
 
-#Preview("Today · offline") {
-    TodayView().previewEnvironment(.preview(online: false), online: false)
+// MARK: - previews (dark only, default and AX3; design.md §P4-10)
+
+/// A state of Today on mock data, at the default size or AX3.
+private struct TodayPreview: View {
+    var state: AppState = .preview()
+    var online = true
+    var heroNumerals: HeroNumerals?
+    var reduceTransparency: Bool?
+    var ax3 = false
+
+    var body: some View {
+        TodayView(heroNumerals: heroNumerals, reduceTransparency: reduceTransparency)
+            .previewEnvironment(state, online: online)
+            .environment(\.dynamicTypeSize, ax3 ? .accessibility3 : .large)
+    }
 }
 
-#Preview("Today · dark") {
-    TodayView().previewEnvironment()
+/// Row E: signed in (demo data source), nothing scored and nothing cached yet: the empty gauge, no tiles.
+@MainActor
+private func noScoresState() -> AppState {
+    let state = AppState(env: .preview())
+    state.user = MockData.user
+    return state
 }
 
-#Preview("Today · light") {
-    TodayView().previewEnvironment(scheme: .light)
+/// The account without a name (Sign in with Apple may deliver none, R-N2): "Good evening", no comma.
+@MainActor
+private func namelessState() -> AppState {
+    let state = AppState.preview()
+    let user = MockData.user
+    state.user = User(id: user.id, name: "", tz: user.tz, maxHr: user.maxHr, sleepBaseMin: user.sleepBaseMin)
+    return state
 }
 
-#Preview("Today · calibrating") {
-    TodayView().previewEnvironment(.preview(calibrating: true))
+#Preview("Today · scored") { TodayPreview() }
+#Preview("Today · scored · AX3") { TodayPreview(ax3: true) }
+#Preview("Today · thin digits") { TodayPreview(heroNumerals: .thin) }
+#Preview("Today · thin digits · AX3") { TodayPreview(heroNumerals: .thin, ax3: true) }
+#Preview("Today · pending with a previous day") { TodayPreview(state: .preview(scenario: .pending)) }
+#Preview("Today · pending with a previous day · AX3") { TodayPreview(state: .preview(scenario: .pending), ax3: true) }
+#Preview("Today · pending slow") { TodayPreview(state: .preview(scenario: .scoringSlow)) }
+#Preview("Today · pending slow · AX3") { TodayPreview(state: .preview(scenario: .scoringSlow), ax3: true) }
+#Preview("Today · pending, nothing scored") { TodayPreview(state: .preview(scenario: .pendingNoPrevious)) }
+#Preview("Today · pending, nothing scored · AX3") { TodayPreview(state: .preview(scenario: .pendingNoPrevious), ax3: true) }
+#Preview("Today · calibrating") { TodayPreview(state: .preview(scenario: .calibrating)) }
+#Preview("Today · calibrating · AX3") { TodayPreview(state: .preview(scenario: .calibrating), ax3: true) }
+#Preview("Today · calibrating with a readiness") { TodayPreview(state: .preview(scenario: .learningHRV)) }
+#Preview("Today · calibrating with a readiness · AX3") { TodayPreview(state: .preview(scenario: .learningHRV), ax3: true) }
+#Preview("Today · blocked, with a readiness") { TodayPreview(state: .preview(scenario: .blockedHRV)) }
+#Preview("Today · blocked, with a readiness · AX3") { TodayPreview(state: .preview(scenario: .blockedHRV), ax3: true) }
+#Preview("Today · recalculating, yesterday") { TodayPreview(state: .preview(scenario: .recalculatingYesterday)) }
+#Preview("Today · recalculating, yesterday · AX3") {
+    TodayPreview(state: .preview(scenario: .recalculatingYesterday), ax3: true)
+}
+#Preview("Today · first import") { TodayPreview(state: .preview(scenario: .importing)) }
+#Preview("Today · first import · AX3") { TodayPreview(state: .preview(scenario: .importing), ax3: true) }
+#Preview("Today · baselines without a readiness") { TodayPreview(state: .preview(scenario: .needsVitalsBaselines)) }
+#Preview("Today · baselines without a readiness · AX3") {
+    TodayPreview(state: .preview(scenario: .needsVitalsBaselines), ax3: true)
+}
+#Preview("Today · no scores yet") { TodayPreview(state: noScoresState()) }
+#Preview("Today · no scores yet · AX3") { TodayPreview(state: noScoresState(), ax3: true) }
+#Preview("Today · not set up") { TodayPreview(state: .preview(empty: true)) }
+#Preview("Today · not set up · AX3") { TodayPreview(state: .preview(empty: true), ax3: true) }
+#Preview("Today · offline") { TodayPreview(state: .preview(online: false), online: false) }
+#Preview("Today · offline · AX3") { TodayPreview(state: .preview(online: false), online: false, ax3: true) }
+#Preview("Today · demo") { TodayPreview(state: .preview(coachMarks: true)) }
+#Preview("Today · demo · AX3") { TodayPreview(state: .preview(coachMarks: true), ax3: true) }
+#Preview("Today · with attention cards (night hint)") { TodayPreview(state: .preview(scenario: .nightGap)) }
+#Preview("Today · with attention cards (night hint) · AX3") { TodayPreview(state: .preview(scenario: .nightGap), ax3: true) }
+#Preview("Today · quiet tracker hint") { TodayPreview(state: .preview(scenario: .watch)) }
+#Preview("Today · quiet tracker hint · AX3") { TodayPreview(state: .preview(scenario: .watch), ax3: true) }
+#Preview("Today · without a name") { TodayPreview(state: namelessState()) }
+#Preview("Today · without a name · AX3") { TodayPreview(state: namelessState(), ax3: true) }
+#Preview("Today · Reduce Transparency") { TodayPreview(reduceTransparency: true) }
+#Preview("Today · Reduce Transparency · AX3") { TodayPreview(reduceTransparency: true, ax3: true) }
+#Preview("Today · My Day") { TodayPreview(state: .preview(flags: [.todayMyDay: true])) }
+#Preview("Today · My Day · AX3") { TodayPreview(state: .preview(flags: [.todayMyDay: true]), ax3: true) }
+
+/// The matched move over the Today layout at one moment (design.md §P4-7): the header's lock-up hidden, the gauge's slot
+/// empty, the background and tagline fading by elapsed time; τ 1 is the landing (the overlay is gone after it).
+private struct TodayHandOffPreview: View {
+    var time: Double
+    @Environment(\.self) private var environment
+
+    var body: some View {
+        let palette = LaunchFrame.Palette.resolved(in: environment)
+        let elapsed = time * LaunchSequence.Timing.moveHandOff
+        let fade = 1 - LaunchFrame.Easing.easeOut(elapsed / LaunchSequence.Timing.moveFade)
+        ZStack {
+            TodayView()
+                .environment(\.launchRevealsRoot, time < 1)
+                .environment(\.launchHidesHandOffTargets, time < 1)
+            if time < 1 {
+                LaunchFullScreen { bottom in
+                    ZStack {
+                        Theme.background.opacity(fade)
+                        // The header's mark as Today reports it in the `.launch` space: the 20 pt inset, centred in 40.
+                        LaunchStage(frame: LaunchFrame(t: 1, palette: palette), safeAreaBottom: bottom,
+                                    move: LaunchStage.Move(mark: CGRect(x: 20, y: 7, width: 26, height: 26), wordmark: nil,
+                                                           time: time, taglineOpacity: fade, palette: palette))
+                    }
+                }
+                .allowsHitTesting(false)
+            }
+        }
+        .previewEnvironment()
+    }
 }
 
-#Preview("Today · coach marks") {
-    TodayView().previewEnvironment(.preview(coachMarks: true))
-}
-
-#Preview("Today · redesign (flags on)") {
-    TodayView().previewEnvironment(.preview(flags: [.todayRedesign: true]))
-}
-
-#Preview("Today · redesign · light") {
-    TodayView().previewEnvironment(.preview(flags: [.todayRedesign: true]), scheme: .light)
-}
-
-#Preview("Today · not set up") {
-    TodayView().previewEnvironment(.preview(empty: true))
-}
-
-#Preview("Today · first import") {
-    TodayView().previewEnvironment(.preview(scenario: .importing))
-}
-
-#Preview("Today · first import · light · de") {
-    TodayView().previewEnvironment(.preview(scenario: .importing), scheme: .light)
-        .environment(\.locale, Locale(identifier: "de"))
-}
-
-#Preview("Today · night pending") {
-    TodayView().previewEnvironment(.preview(scenario: .pending))
-}
-
-#Preview("Today · night pending · light · de") {
-    TodayView().previewEnvironment(.preview(scenario: .pending), scheme: .light)
-        .environment(\.locale, Locale(identifier: "de"))
-}
-
-#Preview("Today · calibrating · light") {
-    TodayView().previewEnvironment(.preview(scenario: .calibrating), scheme: .light)
-}
-
-#Preview("Today · watch hasn't synced") {
-    TodayView().previewEnvironment(.preview(scenario: .watch))
-}
-
-#Preview("Today · watch hasn't synced · light") {
-    TodayView().previewEnvironment(.preview(scenario: .watch), scheme: .light)
-}
-
-// MARK: one preview per Today row (ui.md §1.6): A scored, B calibrating, C pending, D recalculating, E first import
-
-#Preview("Today · A scored") {
-    TodayView().previewEnvironment()
-}
-
-#Preview("Today · A scored · light") {
-    TodayView().previewEnvironment(scheme: .light)
-}
-
-#Preview("Today · B calibrating") {
-    TodayView().previewEnvironment(.preview(scenario: .calibrating))
-}
-
-#Preview("Today · B needs HRV (note)") {
-    TodayView().previewEnvironment(.preview(scenario: .needsVitals))
-}
-
-#Preview("Today · B needs HRV (note) · light · de") {
-    TodayView().previewEnvironment(.preview(scenario: .needsVitals), scheme: .light)
-        .environment(\.locale, Locale(identifier: "de"))
-}
-
-#Preview("Today · B needs HRV, no readiness") {
-    TodayView().previewEnvironment(.preview(scenario: .needsVitalsBaselines))
-}
-
-#Preview("Today · B needs HRV, no readiness · light · de") {
-    TodayView().previewEnvironment(.preview(scenario: .needsVitalsBaselines), scheme: .light)
-        .environment(\.locale, Locale(identifier: "de"))
-}
-
-#Preview("Today · B needs HRV, no readiness · AX3") {
-    TodayView().previewEnvironment(.preview(scenario: .needsVitalsBaselines))
-        .environment(\.dynamicTypeSize, .accessibility3)
-}
-
-#Preview("Today · C pending") {
-    TodayView().previewEnvironment(.preview(scenario: .pending))
-}
-
-#Preview("Today · C pending · light") {
-    TodayView().previewEnvironment(.preview(scenario: .pending), scheme: .light)
-}
-
-#Preview("Today · C waiting for sleep") {
-    TodayView().previewEnvironment(.preview(scenario: .waitingForSleep))
-}
-
-#Preview("Today · C waiting for sleep · light") {
-    TodayView().previewEnvironment(.preview(scenario: .waitingForSleep), scheme: .light)
-}
-
-#Preview("Today · C pending, no previous") {
-    TodayView().previewEnvironment(.preview(scenario: .pendingNoPrevious))
-}
-
-#Preview("Today · C pending, no previous · light") {
-    TodayView().previewEnvironment(.preview(scenario: .pendingNoPrevious), scheme: .light)
-}
-
-#Preview("Today · D recalculating (note)") {
-    TodayView().previewEnvironment(.preview(scenario: .recalculating))
-}
-
-#Preview("Today · D recalculating (note) · light") {
-    TodayView().previewEnvironment(.preview(scenario: .recalculating), scheme: .light)
-}
-
-#Preview("Today · D recalculating · de") {
-    TodayView().previewEnvironment(.preview(scenario: .recalculating))
-        .environment(\.locale, Locale(identifier: "de"))
-}
-
-#Preview("Today · D recalculating, yesterday") {
-    TodayView().previewEnvironment(.preview(scenario: .recalculatingYesterday))
-}
-
-#Preview("Today · D recalculating, yesterday · light · de") {
-    TodayView().previewEnvironment(.preview(scenario: .recalculatingYesterday), scheme: .light)
-        .environment(\.locale, Locale(identifier: "de"))
-}
-
-// MARK: honest calibration (design.md §7 rev. 2): S2 learning, N1 blocked with a readiness, N2 without one
-
-#Preview("Today · N1 blocked HRV (Garmin)") {
-    TodayView().previewEnvironment(.preview(scenario: .blockedHRV))
-}
-
-#Preview("Today · N1 blocked HRV (Garmin) · light") {
-    TodayView().previewEnvironment(.preview(scenario: .blockedHRV), scheme: .light)
-}
-
-#Preview("Today · N1 blocked HRV (Garmin) · de") {
-    TodayView().previewEnvironment(.preview(scenario: .blockedHRV))
-        .environment(\.locale, Locale(identifier: "de"))
-}
-
-#Preview("Today · N1 blocked HRV (Garmin) · light · de") {
-    TodayView().previewEnvironment(.preview(scenario: .blockedHRV), scheme: .light)
-        .environment(\.locale, Locale(identifier: "de"))
-}
-
-#Preview("Today · N1 blocked HRV (Garmin) · AX3") {
-    TodayView().previewEnvironment(.preview(scenario: .blockedHRV))
-        .environment(\.dynamicTypeSize, .accessibility3)
-}
-
-#Preview("Today · N1 blocked both (Oura)") {
-    TodayView().previewEnvironment(.preview(scenario: .blockedOura))
-}
-
-#Preview("Today · N1 blocked both (Oura) · light · de") {
-    TodayView().previewEnvironment(.preview(scenario: .blockedOura), scheme: .light)
-        .environment(\.locale, Locale(identifier: "de"))
-}
-
-#Preview("Today · N2 blocked, no night") {
-    TodayView().previewEnvironment(.preview(scenario: .blockedNoNight))
-}
-
-#Preview("Today · N2 blocked, no night · light") {
-    TodayView().previewEnvironment(.preview(scenario: .blockedNoNight), scheme: .light)
-}
-
-#Preview("Today · S2 learning HRV") {
-    TodayView().previewEnvironment(.preview(scenario: .learningHRV))
-}
-
-#Preview("Today · S2 learning HRV · light") {
-    TodayView().previewEnvironment(.preview(scenario: .learningHRV), scheme: .light)
-}
-
-// MARK: F3: the counter counts what is filling, one story between gauge and tiles, N1 as soon as the setup knows
-
-#Preview("Today · S1 counting resting HR") {
-    TodayView().previewEnvironment(.preview(scenario: .learningRestingHR))
-}
-
-#Preview("Today · S1 counting resting HR · light") {
-    TodayView().previewEnvironment(.preview(scenario: .learningRestingHR), scheme: .light)
-}
-
-#Preview("Today · S1 counting resting HR · AX3") {
-    TodayView().previewEnvironment(.preview(scenario: .learningRestingHR))
-        .environment(\.dynamicTypeSize, .accessibility3)
-}
-
-#Preview("Today · S2 resting HR, readiness") {
-    TodayView().previewEnvironment(.preview(scenario: .learningRestingHRScored))
-}
-
-#Preview("Today · S2 resting HR, readiness · light") {
-    TodayView().previewEnvironment(.preview(scenario: .learningRestingHRScored), scheme: .light)
-}
-
-#Preview("Today · N1 early (Garmin, first week)") {
-    TodayView().previewEnvironment(.preview(scenario: .blockedEarly))
-}
-
-#Preview("Today · N1 early (Garmin, first week) · light") {
-    TodayView().previewEnvironment(.preview(scenario: .blockedEarly), scheme: .light)
-}
-
-#Preview("Today · E first import · light") {
-    TodayView().previewEnvironment(.preview(scenario: .importing), scheme: .light)
-}
-
-#Preview("Today · B · AX3") {
-    TodayView().previewEnvironment(.preview(scenario: .calibrating))
-        .environment(\.dynamicTypeSize, .accessibility3)
-}
-
-#Preview("Today · C · AX3") {
-    TodayView().previewEnvironment(.preview(scenario: .pending))
-        .environment(\.dynamicTypeSize, .accessibility3)
-}
-
-#Preview("Today · D yesterday · AX3") {
-    TodayView().previewEnvironment(.preview(scenario: .recalculatingYesterday))
-        .environment(\.dynamicTypeSize, .accessibility3)
-}
+#Preview("Today · hand-off τ 0") { TodayHandOffPreview(time: 0) }
+#Preview("Today · hand-off τ 0.25") { TodayHandOffPreview(time: 0.25) }
+#Preview("Today · hand-off τ 0.5") { TodayHandOffPreview(time: 0.5) }
+#Preview("Today · hand-off τ 0.79") { TodayHandOffPreview(time: 0.79) }
+#Preview("Today · hand-off τ 1") { TodayHandOffPreview(time: 1) }
 
 #Preview("Import, raw night, hint", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 16) {
             ImportCard(progress: TodayStates.progress(TodayScenario.importing.apply(to: TodaySyncFacts(now: .now))),
                        asksForPush: true)
@@ -1158,16 +1129,11 @@ private struct HintStates: View {
 }
 
 #Preview("Quiet hint · open, store, Apple device", traits: .sizeThatFitsLayout) {
-    SchemePair { HintStates() }
-}
-
-#Preview("Quiet hint · de", traits: .sizeThatFitsLayout) {
-    SchemePair { HintStates() }
-        .environment(\.locale, Locale(identifier: "de"))
+    DarkPreview { HintStates() }
 }
 
 #Preview("Quiet hint · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 16) {
             WatchSyncHintCard(hint: PreviewHint.quiet)
                 .environment(\.appInstalled, .installed)
@@ -1179,7 +1145,7 @@ private struct HintStates: View {
 }
 
 #Preview("Night hint · app, watch, unknown, quiet", traits: .sizeThatFitsLayout) {
-    SchemePair {
+    DarkPreview {
         VStack(spacing: 16) {
             WatchSyncHintCard(hint: PreviewHint.night(.app, name: "Garmin Connect"))
                 .environment(\.appInstalled, .installed)
@@ -1195,60 +1161,10 @@ private struct HintStates: View {
     }
 }
 
-#Preview("Night hint · de · AX3", traits: .sizeThatFitsLayout) {
-    SchemePair {
+#Preview("Night hint · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview {
         WatchSyncHintCard(hint: PreviewHint.night(.app, name: "Garmin Connect"))
             .environment(\.appInstalled, .installed)
     }
-    .environment(\.locale, Locale(identifier: "de"))
     .environment(\.dynamicTypeSize, .accessibility3)
-}
-
-#Preview("Today · night hasn't arrived") {
-    TodayView().previewEnvironment(.preview(scenario: .nightGap))
-}
-
-#Preview("Today · night hasn't arrived · light") {
-    TodayView().previewEnvironment(.preview(scenario: .nightGap), scheme: .light)
-}
-
-#Preview("Today · night hasn't arrived · light · de") {
-    TodayView().previewEnvironment(.preview(scenario: .nightGap), scheme: .light)
-        .environment(\.locale, Locale(identifier: "de"))
-}
-
-#Preview("Today · night hasn't arrived · AX3") {
-    TodayView().previewEnvironment(.preview(scenario: .nightGap))
-        .environment(\.dynamicTypeSize, .accessibility3)
-}
-
-#Preview("Today · taking longer") {
-    TodayView().previewEnvironment(.preview(scenario: .scoringSlow))
-}
-
-#Preview("Today · taking longer · light") {
-    TodayView().previewEnvironment(.preview(scenario: .scoringSlow), scheme: .light)
-}
-
-#Preview("Today · taking longer · de") {
-    TodayView().previewEnvironment(.preview(scenario: .scoringSlow))
-        .environment(\.locale, Locale(identifier: "de"))
-}
-
-// MARK: My Day (today.my_day): between the scores and Journal, Train and Trends (ui.md §14.4)
-
-#Preview("Today · My Day") {
-    TodayView().previewEnvironment(.preview(flags: [.todayMyDay: true]))
-}
-
-#Preview("Today · My Day · light") {
-    TodayView().previewEnvironment(.preview(flags: [.todayMyDay: true]), scheme: .light)
-}
-
-#Preview("Today · My Day · watch hasn't synced") {
-    TodayView().previewEnvironment(.preview(flags: [.todayMyDay: true], scenario: .watch))
-}
-
-#Preview("Today · My Day · watch hasn't synced · light") {
-    TodayView().previewEnvironment(.preview(flags: [.todayMyDay: true], scenario: .watch), scheme: .light)
 }

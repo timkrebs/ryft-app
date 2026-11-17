@@ -91,10 +91,13 @@ final class CalibrationNoteUITests: XCTestCase {
         let recovery = app.buttons["Recovery"]
         for _ in 0..<12 where !(recovery.exists && recovery.isHittable) { app.swipeUp() }
         XCTAssertTrue(recovery.isHittable, "the Recovery tile scrolls into view")
-        XCTAssertEqual(recovery.value as? String, "No data, calibrating")
+        // The tile's value starts with its own words; the HRV week's sentence may follow (Nocturne, design.md §P4-8).
+        let recoveryValue = recovery.value as? String ?? ""
+        XCTAssertTrue(recoveryValue.hasPrefix("No data, calibrating"), recoveryValue)
         // No readiness means no night on the day: Sleep has no number either.
         // (The tab bar has a "Sleep" button too: the tile is the one with a value.)
-        let sleepTile = app.buttons.matching(NSPredicate(format: "label == %@ AND value == %@", "Sleep", "No data, calibrating"))
+        // Its value goes on with the week's nights ("No data, calibrating. Slept enough on …").
+        let sleepTile = app.buttons.matching(NSPredicate(format: "label == %@ AND value BEGINSWITH %@", "Sleep", "No data, calibrating"))
         XCTAssertTrue(sleepTile.firstMatch.exists, "the Sleep tile says No data, calibrating")
         keep(app, "today-ax3-tiles")
         for _ in 0..<12 where !(note.exists && note.isHittable) { app.swipeDown() }

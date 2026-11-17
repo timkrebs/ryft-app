@@ -55,9 +55,12 @@ struct TodayViewModelTests {
             let sync = SyncService.ungated(env: env)
             return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
         }()
-        #expect(vm.greeting == String(localized: "Good morning,"))
+        // No account name in this state: the greeting goes without one (Nocturne, R-N2).
+        #expect(vm.greeting == String(localized: "Good morning"))
         clock.set(Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: .now)!)
-        #expect(vm.greeting == String(localized: "Good evening,"))
+        #expect(vm.greeting == String(localized: "Good evening"))
+        state.user = MockData.user
+        #expect(vm.greeting == String(localized: "Good evening, \("Tim")"))
     }
 
     /// Nothing cached at all: the card shows after one failed pass (a blank Today is the alternative).
@@ -497,7 +500,7 @@ struct TodayStatesTests {
         #expect(vm.rawNight?.source == "Garmin Connect")
         // Nothing pretends to be today's: the gauge is an outline, the tiles are yesterday's, dimmed and dated.
         #expect(vm.readiness == nil && vm.tilesDimmed && vm.tileCaption == String(localized: "Yesterday"))
-        #expect(vm.sleepText == Fmt.duration(minutes: 430) && vm.recoveryCaption == String(localized: "Yesterday"))
+        #expect(vm.sleepText == Fmt.clock(minutes: 430) && vm.recoveryCaption == String(localized: "Yesterday"))
         #expect(vm.sentence == String(localized: "Yesterday's readiness, until last night is scored."))
         state.todayScenario = .importing
         #expect(vm.hero.isImporting && vm.showsImportPushPrompt)
@@ -1353,7 +1356,7 @@ struct TodayPresentationTests {
         let c = model(today: try placeholder(), history: history(), status: .pending)
         #expect(c.hero.isPending && c.readiness == nil && c.readinessDelta == nil)
         #expect(c.tilesDimmed && c.tileCaption == yesterdayTitle && c.recoveryCaption == yesterdayTitle)
-        #expect(c.sleepText == Fmt.duration(minutes: 430) && c.recoveryText == Fmt.percent(75) && c.strainText == Fmt.strain(0.9))
+        #expect(c.sleepText == Fmt.clock(minutes: 430) && c.recoveryText == Fmt.percent(75) && c.strainText == Fmt.strain(0.9))
         #expect(c.sentence == String(localized: "Yesterday's readiness, until last night is scored."))
         #expect(c.gaugeNote == nil)
         // D, today: the score without a delta, the note, today's tiles.
