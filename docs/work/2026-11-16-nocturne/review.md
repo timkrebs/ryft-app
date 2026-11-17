@@ -136,3 +136,20 @@ targeted edits). Row 18's evidence: the first drawn frame is t = 0 with group op
 t ≈ 0.03 at 77 %); Debug stalls of 60–280 ms in the first 0.3 s can still swallow part of the 0.25 s fade, which is
 performance-profiler's (row 19). Row 20: the scored shots are byte-identical; only pending shots change. Unit 3010
 passed + 2 skipped, UISmoke 41 + 1 skipped, zero warnings, `make lint` and `make style` green.
+
+**performance-profiler (84bccc8, Release, iPhone 17 Pro simulator, 60 Hz, demo mode; A = skip, B = play, C = reduced; n = 12
+each, medians).** Criterion 5: the sequence adds nothing to the critical path. App.init → `first-screen` 442.4 ms (A) vs
+447.6 ms (B), bootstrap CI of the difference [−7.7, +14.0] ms; Today's first reads and stores start at the same time
+underneath; the only new work before the first frame is §9.1's list, 3.3 ms; `.active` → first frame 6.1 ms; first frame →
+hand-off 5214 ms; nothing ticks after done. The overlay costs 0.06 ms per frame to build and draw (`LaunchFrame` 0.009 ms,
+`drawMark` 0.045 ms p50).
+
+| # | Finding | Decision | Owner |
+|---|---|---|---|
+| 22 | "No dropped frames" fails: about 14 frames per run, 10 of them in the first 0.3 s (longest gap 123 ms), 3 in the draw-in, 1–2 at the hand-off. The same main-thread stalls happen **without** the sequence (A: 11 dropped in the first 312 ms): the demo refresh encodes JSON and writes SwiftData on the main actor right after `.active` (`Repository.store(scores:/detail:/user:/trend:/activities:)`, `publishWidget`, `TrainStore.save`), then Today re-renders. The sequence makes the existing stall visible as a jumpy fade-in. | Not a PR 3 defect; PR 3 merges. Follow-up PR "persistence writes off the main actor" (ios-architect note first, then sync-engineer): encode and upsert on a `@ModelActor`. It also helps every launch without the sequence. The interim mitigation E1 (start the clock after 4 steady frames: 10 → 2 drops in the fade-in, +245 ms to the hand-off) is not taken: it only moves the start, and with real data the stores land mid-animation anyway. | follow-up |
+| 23 | The hand-off stall (40–50 ms): the uncovered gauge is built a second time (ADR 0017's accepted cost). | Follow-up with the persistence work: build the entrance gauge armed under the cover, flip it at the hand-off. | follow-up |
+| 24 | Nit: the hand-off event fires 14 ms late (p90 23) and the reduced variant stays 1.262 s (spec ≤ 1.25), from `Task.sleep`'s default tolerance; the fade itself is on time (timeline dates). | Follow-up: a tolerance parameter on `AppClock.sleep`. | follow-up |
+
+Device-only: absolute numbers, 120 Hz (stall frame counts double, per-frame cost holds), signed-in launches with real data
+(stores land mid-animation), Animation Hitches (not supported on the simulator; main-thread vsync and `TimelineView` tick
+gaps used instead).
