@@ -126,7 +126,7 @@ final class ActivityUploader {
 
     var generation: Generation {
         Generation(count: accountCount, account: store.account, demo: env?.isDemo ?? false,
-                   store: (env?.persistence as? TrainStore)?.epoch ?? 0)
+                   store: env?.persistence.epoch.current ?? 0)
     }
 
     /// The earliest automatic attempt waiting after a transient failure; nil when none is.
@@ -649,20 +649,31 @@ extension ActivityUploader {
     /// The app's follow-ups (ScreenModels): a confirmed activity into the read model (without route and samples),
     /// a confirmed delete out of it, and the platform's rescoring of the days through the sync pipeline
     /// (`.daysChanged`: the scoring wait, then the refresh). An edit that moved an activity from a day My Day's strip
-    /// shows rescores that day too.
+    /// shows rescores that day too. A write a wipe dropped (another account since) starts no run: those days aren't the
+    /// next account's.
     func connect(repository: Repository, coordinator: SyncCoordinator) {
+        // Submitted now, before anything the coordinator reads for those days; the run starts once it's readable, with
+        // the day the write found it cached under (`WriteReceipt.cachedUnder`).
         onConfirmed = { [weak repository] activity, days in
             guard let repository else { return }
-            let left = repository.cachedDay(ofActivity: activity.id, startingOn: DayFormat.string(from: activity.start))
-            repository.store(activity: activity)
-            let all = Set(days + [left].compactMap { $0 }).sorted()
-            Task { await coordinator.run(.daysChanged(days: all)) }
+            let written = repository.store(activity: activity)
+            Task {
+                let receipt = await written.committed()
+                guard !receipt.dropped else { return }
+                let left = receipt.cachedUnder[activity.id]
+                let all = Set(days + [left].compactMap { $0 }).sorted()
+                await coordinator.run(.daysChanged(days: all))
+            }
         }
         onRemoved = { [weak repository] id, days in
-            let left = repository?.cachedDay(ofActivity: id, startingOn: days.first)
-            repository?.forget(activity: id)
-            let all = Set(days + [left].compactMap { $0 }).sorted()
-            Task { await coordinator.run(.daysChanged(days: all)) }
+            let written = repository?.forget(activity: id, hint: days.first)
+            Task {
+                let receipt = await written?.committed()
+                guard receipt?.dropped != true else { return }
+                let left = receipt?.cachedUnder[id]
+                let all = Set(days + [left].compactMap { $0 }).sorted()
+                await coordinator.run(.daysChanged(days: all))
+            }
         }
         onSleepConfirmed = { day in
             Task { await coordinator.run(.daysChanged(days: [day])) }

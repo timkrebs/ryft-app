@@ -122,13 +122,15 @@ final class NotificationSettingsViewModel {
         error = nil
         saving = true
         defer { saving = false }
+        // The account's answer: a sign-out (another account) or the Demo data switch while the PATCH is out drops it.
+        let binding = AccountBinding(state.env)
         do {
             let saved = try await state.env.api.patchNotifications(patch)
+            guard binding.isCurrent(in: state.env) else { return }
             prefs = saved
-            if var user = state.user {
-                user.notifications = saved
-                state.user = user
-            }
+            // The user as the platform has it now, these settings with it: asked again, not assembled here from the
+            // cached user, which a change of the user stored meanwhile (the withdrawal) may already have replaced.
+            try? await state.repository.refreshUser(mode: .changed(since: state.env.clock.now()))
         } catch where error.isCancellation {
             // Not confirmed, not failed: the platform's answer on the next load decides.
             prefs = previous

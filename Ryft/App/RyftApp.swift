@@ -98,8 +98,11 @@ struct RyftApp: App {
                                     }
                                 },
                                 expired: { [uploader = state.env.uploader] in uploader.stopReplay() },
+                                settled: { [repository = state.repository] in
+                                    await repository.settledBeforeCompletion()
+                                },
                                 compact: { [repository = state.repository, activities = state.env.activities] in
-                                    repository.compact()
+                                    await repository.compact()
                                     // Rows a session expiry parked more than 30 days ago.
                                     activities.deleteExpiredParked()
                                 })
@@ -259,7 +262,10 @@ struct RyftApp: App {
                 }
                 .task {
                     appDelegate.handlers = PushHandlers(registrar: screens.push, router: screens.router,
-                                                        coordinator: coordinator, reads: state.env.reads)
+                                                        coordinator: coordinator, reads: state.env.reads,
+                                                        settled: { [repository = state.repository] in
+                                                            await repository.settledBeforeCompletion()
+                                                        })
                 }
                 // Back online: upload what HealthKit collected meanwhile, then reload.
                 .onChange(of: connectivity.isOnline) { _, online in
@@ -291,6 +297,8 @@ struct RyftApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
+                // Writes paused at a background completion go on: iOS doesn't suspend the app in the foreground.
+                state.repository.resumeWrites()
                 (env.flags as? FlagStore)?.applyPending()
                 Task {
                     await coordinator.enterForeground()
@@ -352,7 +360,10 @@ struct RyftApp: App {
                 // Not a cancel: the page in flight finishes (in a background task), and what's
                 // left of an import goes to the backfill task.
                 _ = BackgroundWork.finishInBackground(coordinator: coordinator, app: UIApplication.shared,
-                                                      backlogBytes: { sync.backlogBytes })
+                                                      backlogBytes: { sync.backlogBytes },
+                                                      settled: { [repository = state.repository] in
+                                                          await repository.settledBeforeCompletion()
+                                                      })
                 // An activity upload in flight finishes too; the rest waits for the next trigger.
                 env.uploader.finishInBackground(app: UIApplication.shared)
                 screens.trainImport.finishInBackground(app: UIApplication.shared)
@@ -399,7 +410,9 @@ struct RyftApp: App {
     }
 
     /// The observers (once; launch or bootstrap, whichever comes first) and `.immediate`
-    /// delivery (every launch, idempotent). A delivery completes right after its upload.
+    /// delivery (every launch, idempotent). A delivery completes right after its upload: HealthKit stops delivering
+    /// after three late completions, and the run's own read-model writes come after it anyway (the refreshes follow
+    /// the upload), so waiting for the writes would delay it for none of them.
     @MainActor
     static func observeHealthKit(_ health: HealthStore, coordinator: SyncCoordinator) {
         health.startObserving { done in

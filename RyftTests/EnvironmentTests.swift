@@ -399,6 +399,31 @@ struct SyncEngineBackgroundTests {
         #expect(api.count("sync") == 1) // the completion came after the upload
     }
 
+    /// Not after the read-model writes (P1 review CR5): HealthKit stops delivering after late completions, and the
+    /// run's own writes come after the upload anyway. A write held in the writer doesn't hold the completion.
+    @Test func aDeliveryCompletesRightAfterItsUploadWhileAWriteIsHeld() async {
+        let health = MockHealthStore(streams: [.quantity(.heartRate)], pages: [.quantity(.heartRate): [samples(1)]])
+        let api = MockPlatformAPI()
+        let env = AppEnvironment.test(api: api, health: health)
+        let state = AppState(env: env)
+        let coordinator = SyncCoordinator(steps: LiveSyncSteps(state: state, sync: SyncService.ungated(env: env)),
+                                          clock: env.clock, inBackground: true)
+        // The app's own Repository, its writer held: the run's writes queue behind it.
+        let hold = WriterHold()
+        state.repository.writeHooks.job = { _ in hold.pass() }
+        state.repository.store(detail: DayDetail(score: DailyScore(day: "2026-10-19", strain: 7), sleep: nil, workouts: []))
+        #expect(await eventually { hold.entered == 1 })
+        RyftApp.observeHealthKit(health, coordinator: coordinator)
+        #expect(await eventually { health.backgroundDeliveryEnabled })
+
+        let completed = SyncCoordinatorBackgroundTests.Completions()
+        health.deliverChange { completed.done() }
+        #expect(await eventually { completed.calls == 1 })
+        #expect(api.count("sync") == 1) // after the upload
+        #expect(hold.entered == 1) // the held write is still in the writer
+        hold.open()
+    }
+
     @Test func backgroundRunsFailFastInsteadOfWaitingForANetwork() {
         let c = APIClient.backgroundConfiguration
         #expect(!c.waitsForConnectivity)
@@ -2099,7 +2124,7 @@ struct ReportProblemTests {
         let env = AppEnvironment.test(flags: [.devicesSetup: true]) // every key, the trackers' ids included
         let state = AppState(env: env)
         await state.refresh() // MockData's scores in the read models
-        state.repository.store(scores: try Fixture.decode([DailyScore].self, "days"))
+        await state.repository.store(scores: try Fixture.decode([DailyScore].self, "days")).committed()
         // Streams whose newest records end at a wake time and after a workout, to the second.
         let wake = try #require(Calendar.current.date(bySettingHour: 6, minute: 42, second: 17, of: env.clock.now()))
         let workoutEnd = try #require(Calendar.current.date(bySettingHour: 18, minute: 31, second: 5, of: env.clock.now()))

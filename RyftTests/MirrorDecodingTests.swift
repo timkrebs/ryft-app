@@ -340,12 +340,12 @@ struct CalibratingReasonTests {
         }
     }
 
-    @MainActor @Test func readModelRoundTrip() throws {
+    @MainActor @Test func readModelRoundTrip() async throws {
         let env = AppEnvironment.test()
         let repo = Repository(env: env)
         let score = DailyScore(day: "2026-10-22", readiness: 70, baselineDays: 0, calibrating: true, computedAt: env.clock.now(),
                                scoringState: .scored, baselineHrvDays: 28, baselineRhrDays: 0, calibratingReason: .noRhr)
-        repo.store(scores: [score])
+        await repo.store(scores: [score]).committed()
         let got = try #require(repo.score("2026-10-22"))
         #expect(got.calibratingReason == .noRhr && got.baselineHrvDays == 28 && got.baselineRhrDays == 0)
     }

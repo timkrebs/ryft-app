@@ -375,7 +375,8 @@ struct CachedActivityDayTests {
                       movingSec: 600, clientUpdatedAt: day)
     }
 
-    @Test func theNewDaysListFirstThenOnlyTheStrip() {
+    /// `WriteReceipt.cachedUnder`, read and decided inside the write (it replaced `cachedDay(ofActivity:)`).
+    @Test func theNewDaysListFirstThenOnlyTheStrip() async {
         let env = AppEnvironment.test()
         let repository = AppState(env: env).repository
         let now = env.clock.now()
@@ -383,17 +384,25 @@ struct CachedActivityDayTests {
         let today = DayFormat.string(from: now)
         let twoDaysAgo = DayFormat.shift(now, days: -2)
         let monthAgo = DayFormat.shift(now, days: -30)
-        // On the new day's list already: that day.
+        // On the new day's list already (and on the strip's day before it): that day.
+        repository.store(activities: [Self.activity(id, on: twoDaysAgo)], day: DayFormat.string(from: twoDaysAgo))
         repository.store(activities: [Self.activity(id, on: now)], day: today)
-        #expect(repository.cachedDay(ofActivity: id, startingOn: today) == today)
-        // Moved from two days ago (in the strip): found there.
+        #expect(await repository.store(activity: Self.activity(id, on: now)).committed().cachedUnder[id] == today)
+        // Moved from two days ago (in the strip) to today: found there.
         let moved = UUID()
         repository.store(activities: [Self.activity(moved, on: twoDaysAgo)], day: DayFormat.string(from: twoDaysAgo))
-        #expect(repository.cachedDay(ofActivity: moved, startingOn: today) == DayFormat.string(from: twoDaysAgo))
+        #expect(await repository.store(activity: Self.activity(moved, on: now)).committed().cachedUnder[moved]
+            == DayFormat.string(from: twoDaysAgo))
         // Cached a month ago: outside the strip, not searched.
         let old = UUID()
         repository.store(activities: [Self.activity(old, on: monthAgo)], day: DayFormat.string(from: monthAgo))
-        #expect(repository.cachedDay(ofActivity: old, startingOn: today) == nil)
-        #expect(repository.cachedDay(ofActivity: UUID(), startingOn: nil) == nil)
+        #expect(await repository.store(activity: Self.activity(old, on: now)).committed().cachedUnder[old] == nil)
+        // A confirmed delete: the hint first, then the strip; nothing for an id no list holds.
+        let deleted = UUID()
+        repository.store(activities: [Self.activity(deleted, on: twoDaysAgo)], day: DayFormat.string(from: twoDaysAgo))
+        #expect(await repository.forget(activity: deleted, hint: today).committed().cachedUnder[deleted]
+            == DayFormat.string(from: twoDaysAgo))
+        let unknown = UUID()
+        #expect(await repository.forget(activity: unknown).committed().cachedUnder[unknown] == nil)
     }
 }
