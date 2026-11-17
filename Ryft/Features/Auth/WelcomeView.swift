@@ -27,7 +27,22 @@ struct WelcomeView: View {
         .environment(\.colorScheme, .dark)
     }
 
+    /// Where it fits (the default sizes), the first child lays it out as it always was: the spacers share what's left and
+    /// the ways in sit at the bottom. Where it doesn't (the accessibility sizes, or a notice too many), the same content
+    /// scrolls at its own height instead of being squeezed, so the privacy line wraps whole and its link stays reachable.
     private var welcome: some View {
+        ViewThatFits(in: .vertical) {
+            content
+            ScrollView { content }
+        }
+        // Here, not on the privacy line: only one of the two children above is shown, and the sheet belongs to the screen.
+        .safariSheet($legal)
+        .background(Theme.background.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+        .onAppear { auth.errorMessage = nil }
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 32)
             BrandLockup()
@@ -47,9 +62,6 @@ struct WelcomeView: View {
         .padding(.horizontal, Theme.Metrics.screenPadding + 8)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.background.ignoresSafeArea())
-        .toolbar(.hidden, for: .navigationBar)
-        .onAppear { auth.errorMessage = nil }
     }
 
     private var actions: some View {
@@ -86,7 +98,6 @@ struct WelcomeView: View {
                 .foregroundStyle(Theme.textTertiary)
                 .tint(Theme.textSecondary)
                 .multilineTextAlignment(.center)
-                .safariSheet($legal)
             #if DEBUG
             Button {
                 settings.apiKeyMode = true
@@ -135,6 +146,14 @@ private struct ValueLine: View {
     WelcomeView()
         .environment(AuthService.preview(signedIn: false))
         .environment(Settings.shared)
+}
+
+/// Scrolls: the privacy line wraps whole under the ways in.
+#Preview("Welcome · AX3") {
+    WelcomeView()
+        .environment(AuthService.preview(signedIn: false))
+        .environment(Settings.shared)
+        .dynamicTypeSize(.accessibility3)
 }
 
 #Preview("Welcome · signed out notice") {

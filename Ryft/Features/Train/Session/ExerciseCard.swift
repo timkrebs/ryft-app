@@ -651,6 +651,12 @@ struct ExerciseCard: View {
             Text("").frame(width: 56)
         }
         .ryftLabelStyle(Theme.textTertiary)
+        // As Focused's `SetTableHeader`: the titles share the rows' columns, whose numbers have a fixed size, so they stop
+        // growing at XXXL and keep one line. At AX3 they broke inside the word ("S/et", "Rep/s", "RP/E"). VoiceOver reads
+        // each row as one element with its values named, so the titles are hidden from it.
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .accessibilityHidden(true)
     }
 
@@ -723,4 +729,15 @@ private struct BracketShape: Shape {
     .frame(width: 390)
     .background(Theme.background)
     .preferredColorScheme(.dark)
+}
+
+/// The column titles stay on one line, in the rows' columns.
+#Preview("Exercise card · AX3", traits: .sizeThatFitsLayout) {
+    let c = TrainPreview.liveController()
+    return ExerciseCard(controller: c, exercise: c.exercises[0], onPlates: {}, onHistory: {})
+        .padding(20)
+        .frame(width: 390)
+        .background(Theme.background)
+        .preferredColorScheme(.dark)
+        .dynamicTypeSize(.accessibility3)
 }

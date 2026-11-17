@@ -37,6 +37,25 @@ final class HostedWindow {
         /// The names VoiceOver's actions rotor offers.
         var actionNames: [String] { (object.accessibilityCustomActions ?? []).map(\.name) }
 
+        /// What VoiceOver's Links rotor reaches inside this element, in order: a `Text`'s inline links, each with its own
+        /// label and frame.
+        var links: [Node] {
+            guard let rotor = object.accessibilityCustomRotors?.first(where: { $0.systemRotorType == .link }) else { return [] }
+            var found: [Node] = []
+            var current = UIAccessibilityCustomRotorItemResult(targetElement: object, targetRange: nil)
+            for _ in 0..<20 {
+                let predicate = UIAccessibilityCustomRotorSearchPredicate()
+                predicate.searchDirection = .next
+                predicate.currentItem = current
+                guard let next = rotor.itemSearchBlock(predicate), let element = next.targetElement as? NSObject,
+                      !found.contains(where: { $0.object === element }) else { break }
+                found.append(Node(label: element.accessibilityLabel ?? "", value: element.accessibilityValue,
+                                  frame: element.accessibilityFrame, traits: element.accessibilityTraits, object: element))
+                current = next
+            }
+            return found
+        }
+
         @discardableResult
         func perform(action name: String) -> Bool {
             guard let action = object.accessibilityCustomActions?.first(where: { $0.name == name }) else { return false }
