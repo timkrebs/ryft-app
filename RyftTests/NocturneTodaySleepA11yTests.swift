@@ -219,6 +219,15 @@ struct NocturneTodaySleepA11yTests {
         }
     }
 
+    @Test("The hero gauge is centred on the screen and inside it (test 4)")
+    func theGaugeIsCentred() async throws {
+        try await today { w in
+            let frame = try node(w, "today.readinessGauge").frame
+            #expect(abs(frame.midX - Self.width / 2) < 0.5, "centred: \(frame)")
+            #expect(frame.minX >= 0 && frame.maxX <= Self.width, "inside: \(frame)")
+        }
+    }
+
     // MARK: Today at AX3 (test 49, Today's half)
 
     @Test("At AX3 nothing leaves the screen, the tiles stack in one column and the header and the gauge keep their size")
