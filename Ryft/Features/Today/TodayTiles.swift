@@ -458,10 +458,7 @@ struct TodayStrainTile: View {
                 if typeSize.isAccessibilitySize {
                     VStack(alignment: .leading, spacing: TodayLayout.tileRowGap) {
                         label.fixedSize(horizontal: false, vertical: true)
-                        HStack(alignment: .firstTextBaseline, spacing: TodayLayout.strainCaptionGap) {
-                            value
-                            caption
-                        }
+                        TodayStrainValueRow(value: content.strainText, caption: content.strainCaption)
                         ruler
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -494,19 +491,24 @@ struct TodayStrainTile: View {
             .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
     }
 
-    private var value: some View {
-        Text(verbatim: content.strainText)
+    private var value: some View { Self.value(content.strainText) }
+
+    private var caption: some View {
+        Self.caption(content.strainCaption)
+            .lineLimit(1)
+            .fixedSize()
+    }
+
+    static func value(_ text: String) -> some View {
+        Text(verbatim: text)
             .font(.ryftNumber(size: TodayLayout.strainNumeral, weight: .light))
             .foregroundStyle(Theme.textPrimary)
             .lineLimit(1)
             .fixedSize()
     }
 
-    private var caption: some View {
-        Text(verbatim: content.strainCaption)
-            .ryftGlowLabelStyle()
-            .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-            .fixedSize(horizontal: typeSize.isAccessibilitySize ? false : true, vertical: true)
+    static func caption(_ text: String) -> some View {
+        Text(verbatim: text).ryftGlowLabelStyle()
     }
 
     /// No labels on Today (the row says the scale); the zone and the needle only. Inside the tile's element: VoiceOver
@@ -516,6 +518,29 @@ struct TodayStrainTile: View {
                    zoneStyle: .standard, tickCount: RulerScale.Ticks.strainCompact, size: .compact,
                    accessibilityLabel: Text("Strain scale", comment: "VoiceOver label of a strain ruler (0 to 21)."),
                    accessibilityValue: Text(verbatim: content.strainSpoken))
+    }
+}
+
+/// The strain tile's value and caption at accessibility sizes: the caption beside the value on its baseline when the
+/// line fits, else under the value from the tile's leading edge, wrapping there (VN4), never a ragged column beside it.
+struct TodayStrainValueRow: View {
+    let value: String
+    let caption: String
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: TodayLayout.strainCaptionGap) {
+                TodayStrainTile.value(value)
+                TodayStrainTile.caption(caption).lineLimit(1).fixedSize()
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                TodayStrainTile.value(value)
+                TodayStrainTile.caption(caption)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 

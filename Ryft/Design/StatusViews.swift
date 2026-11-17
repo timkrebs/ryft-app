@@ -224,8 +224,14 @@ struct SyncStatusLineView: View {
     var retry: (() async -> Void)? = nil
     var alignment: Alignment = .centered
 
-    /// `leading`: the tap target's outset past the text on every side; a 12 pt line (about 16 pt high) gets 44.
+    /// `leading`: the tap target's least outset past the text above and below; a line under 16 pt gets more, so the
+    /// target is always 44 pt or more (`verticalOutset`, VN5).
     nonisolated static let hitOutset: CGFloat = 14
+
+    /// `leading`: the outset above and below a label `textHeight` high: `hitOutset`, or what makes the target 44.
+    nonisolated static func verticalOutset(textHeight: CGFloat) -> CGFloat {
+        max(hitOutset, (44 - textHeight) / 2)
+    }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -351,14 +357,14 @@ struct SyncStatusLineView: View {
     }
 
     /// A button's label as its tap target: at least 44 pt high (`centered`), or as high as the text with the target
-    /// `hitOutset` above and below it (`leading`: 16 + 28 = 44 for one line), so the row's height is the text's.
+    /// `verticalOutset` above and below it (`leading`: 44 or more for one line), so the row's height is the text's.
     @ViewBuilder
     private func tapTarget(_ label: some View) -> some View {
         switch alignment {
         case .centered:
             label.frame(minHeight: 44).contentShape(Rectangle())
         case .leading:
-            label.padding(.vertical, Self.hitOutset).contentShape(Rectangle()).padding(.vertical, -Self.hitOutset)
+            label.modifier(LeadingTapTarget())
         }
     }
 
@@ -374,6 +380,21 @@ struct SyncStatusLineView: View {
             retried = false
             AccessibilityNotification.Announcement(new.text(now: now)).post()
         }
+    }
+}
+
+/// `SyncStatusLineView`'s `leading` tap target: the label keeps its own height in the layout, its tap target reaches
+/// `verticalOutset` past it above and below (a 15.5 pt line: 14.25 each side, 44).
+private struct LeadingTapTarget: ViewModifier {
+    @State private var textHeight: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        let outset = SyncStatusLineView.verticalOutset(textHeight: textHeight)
+        content
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { textHeight = $0 }
+            .padding(.vertical, outset)
+            .contentShape(Rectangle())
+            .padding(.vertical, -outset)
     }
 }
 
