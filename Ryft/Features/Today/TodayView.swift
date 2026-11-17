@@ -154,7 +154,9 @@ struct TodayView: View {
 
     /// "Good evening, Tim. Sunday, November 15. Your health is in balance." (§P4-8 row 3).
     static func spokenIntro(greeting: String, day: TodayContent, locale: Locale) -> String {
-        "\(greeting). \(TodayContent.spokenDate(day.facts.now, locale: locale)). \(day.sentence)"
+        let intro = "\(greeting). \(TodayContent.spokenDate(day.facts.now, locale: locale))."
+        let sentence = day.sentence
+        return sentence.isEmpty ? intro : "\(intro) \(sentence)"
     }
 
     // MARK: rows 6–9: the hero

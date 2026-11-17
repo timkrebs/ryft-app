@@ -362,7 +362,8 @@ struct TodayContent {
 
     private var tiles: TodayPresentation.Tiles { presentation.tiles }
 
-    /// Says what the gauge shows, about the same day (ui.md §1.5).
+    /// Says what the gauge shows, about the same day (ui.md §1.5). Empty when today couldn't load and nothing is cached:
+    /// the status row and the error card say why, and nothing has been shown to describe (VN2).
     var sentence: String {
         guard hasDataSource else { return String(localized: "Let's get you set up.") }
         if hero.isImporting { return String(localized: "Your history is on its way.") }
@@ -399,9 +400,9 @@ struct TodayContent {
             let date = day.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
             return String(localized: "Readiness from \(date), while your baselines are recalculated.")
         case .readiness, .firstImport:
-            // Nothing to show because the day couldn't load: the issue's own sentence, not "Your scores appear after
-            // the first synced night" (VN2), which a failed load can't know.
-            if facts.today == nil, let issue = facts.loadIssue { return issue.message }
+            // Nothing to show because the day couldn't load: no sentence. "Your scores appear after the first synced
+            // night" is what a failed load can't know, and the status row and the card already say why (VN2).
+            if facts.today == nil, facts.loadIssue != nil { return "" }
             return ReadinessCopy.sentence(score: facts.today)
         }
     }
@@ -589,9 +590,11 @@ struct TodayContent {
         date.formatted(Date.FormatStyle(locale: locale).weekday(.wide).month(.wide).day())
     }
 
-    /// "Sunday, Nov 15 · Your health is in balance." (§P4-1 row 3).
+    /// "Sunday, Nov 15 · Your health is in balance." (§P4-1 row 3); the date alone without a sentence.
     func subLine(locale: Locale = .autoupdatingCurrent) -> String {
-        "\(Self.subLineDate(facts.now, locale: locale)) · \(sentence)"
+        let date = Self.subLineDate(facts.now, locale: locale)
+        let sentence = sentence
+        return sentence.isEmpty ? date : "\(date) · \(sentence)"
     }
 
     /// Last night from Apple Health beside the pending gauge (raw totals, not a score); not while
@@ -664,7 +667,7 @@ struct TodaySyncFacts: Equatable {
     var gate: OnboardingCoordinator.Step?
     var syncFailed = false
     /// Why a read failed past `RefreshPolicy`'s threshold (`AppState.refreshIssue`: the status line's "Couldn't load
-    /// today"), or nil: with nothing to show, the sub-line says it instead of claiming nothing has synced (VN2).
+    /// today" and the error card), or nil. With nothing to show, the sub-line is the date alone (VN2).
     var loadIssue: RefreshIssue.Reason?
     var isLoading = false
     var isDemo = false

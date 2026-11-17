@@ -84,9 +84,9 @@ struct TodayViewModelTests {
         #expect(api.count("day") == 3) // two silent retries first
     }
 
-    /// VN2: with nothing to show because the day couldn't load, the sub-line says why (the card's reason), not "Your
-    /// scores appear after the first synced night", which a failed load can't know. With the day cached, the issue
-    /// changes nothing there: the score's own sentence.
+    /// VN2: with nothing to show because the day couldn't load, the sub-line is the date alone: not "Your scores appear
+    /// after the first synced night", which a failed load can't know, and not the reason again (the status row and the
+    /// card say it). VoiceOver hears the greeting and the date. With the day cached, the score's own sentence.
     @Test func aFailedLoadWithoutDataNeverSaysNothingHasSynced() async throws {
         let api = MockPlatformAPI()
         api.failure = APIError.transport(URLError(.timedOut))
@@ -106,17 +106,21 @@ struct TodayViewModelTests {
             return
         }
         #expect(issue.reason == .unreachable && vm.hero == .score, "\(issue.reason), \(vm.hero)")
-        #expect(vm.sentence == RefreshIssue.Reason.unreachable.message, "\(vm.sentence)")
-        #expect(vm.sentence != String(localized: "Your scores appear after the first synced night."))
+        let english = Locale(identifier: "en_US")
+        let date = TodayContent.subLineDate(env.clock.now(), locale: english)
+        #expect(vm.content.subLine(locale: english) == date, "\(vm.content.subLine(locale: english))")
+        #expect(vm.sentence.isEmpty && vm.sentence != String(localized: "Your scores appear after the first synced night."))
+        let spoken = TodayView.spokenIntro(greeting: "Good morning", day: vm.content, locale: english)
+        #expect(spoken == "Good morning. \(TodayContent.spokenDate(env.clock.now(), locale: english)).", "\(spoken)")
 
-        // The same facts with the day cached: the score's sentence.
+        // The same facts with the day cached: the score's sentence after the date.
         var cached = vm.content.facts
         cached.today = MockData.todayScore
         let p = TodayPresentation.decide(cached.scores)
         let content = TodayContent(facts: cached, presentation: p, hero: TodayStates.hero(cached, presentation: p),
                                    hasDataSource: true, readinessWeek: [], detailSleepMin: nil)
-        #expect(cached.loadIssue == .unreachable)
-        #expect(content.sentence != RefreshIssue.Reason.unreachable.message, "\(content.sentence)")
+        #expect(cached.loadIssue == .unreachable && !content.sentence.isEmpty)
+        #expect(content.subLine(locale: english) == "\(date) · \(content.sentence)")
     }
 
     /// Criterion 8/9 from the failure itself: status, code, request ID and resource reach the card's issue,
