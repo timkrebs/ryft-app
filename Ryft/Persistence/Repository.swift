@@ -849,7 +849,7 @@ final class Repository {
         let s = store
         let prefix = "train.history."
         let oldDocs = FetchDescriptor<CachedDocument>(predicate: #Predicate { $0.key.starts(with: prefix) && $0.fetchedAt < month })
-        var removed = (try? s.context.fetchCount(oldDocs)) ?? 0
+        let removed = (try? s.context.fetchCount(oldDocs)) ?? 0
         try? s.context.delete(model: CachedDocument.self, where: #Predicate { $0.key.starts(with: prefix) && $0.fetchedAt < month })
         if removed > 0 { s.save() }
         // Waited for as a completion waits (`completionWait`), and not once the task is cancelled (its time ran out):
