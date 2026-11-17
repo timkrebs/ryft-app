@@ -98,8 +98,9 @@ private final class TicketBox: Sendable {
 ///   a seed gets a new writer, so no context keeps rows the wipe deleted or a seed changed. A writer whose epoch is
 ///   over goes when the drain falls idle and at `retireWiped()` (the Repository's `invalidate()`), so the rows its
 ///   context registered don't outlive the wipe in memory either. A store the Repository let go of (`retire(_:)`, demo
-///   data's at the switch) has its epoch moved on: its writes still queued drop, a batch in its writer doesn't save (or
-///   commits as not current), and its writer goes.
+///   data's at the switch) has its epoch moved on, so the same holds: its writes still queued drop, a batch in its
+///   writer doesn't save (or commits as not current), and its writer goes. Nothing is submitted to it afterwards: the
+///   Repository builds each write's `Target` from its current store, in the step that submits it.
 /// - **Paused** (`pause()`, before a system completion whose wait ran out): no batch starts until `resume()`, so none
 ///   is mid-save in the App Group's store when iOS suspends the app (0xdead10cc); the batch in progress finishes
 ///   (`batchInProgress`).
@@ -148,8 +149,6 @@ actor ReadModelDrain {
         var draining = false
         var last: TicketBox?
         var hooks = Hooks()
-        /// Stores the Repository let go of (`retire(_:)`): their writes drop. Never reused (`StoreID`).
-        var retired: Set<StoreID> = []
         /// `pause()` until `resume()`: no batch starts.
         var paused = false
         /// The batch being written, by its last ticket; nil between batches.
@@ -201,11 +200,11 @@ actor ReadModelDrain {
 
     /// The store of `epoch` is gone (the Repository let go of demo data's): its epoch moves on, so a batch in its writer
     /// doesn't save (or, saved, commits as not current: no widget, no second try), a write still queued for it drops,
-    /// and its writer and container go too. On the main actor this waits for a save of that store in progress (an
-    /// in-memory one: milliseconds), as a wipe's `advance()` does.
+    /// and its writer and container go too. Every write for it was submitted before this, at an epoch from then: the
+    /// epoch alone tells them apart. On the main actor this waits for a save of that store in progress (an in-memory
+    /// one: milliseconds), as a wipe's `advance()` does.
     nonisolated func retire(_ epoch: StoreEpoch) {
         epoch.advance()
-        queue.withLock { _ = $0.retired.insert(epoch.store) }
         Task(priority: .userInitiated) { await self.retireWipedWriters() }
     }
 
@@ -262,10 +261,9 @@ actor ReadModelDrain {
         retireWipedWriters()
     }
 
-    /// Drops the writers of a wiped epoch or a retired store.
+    /// Drops the writers whose epoch is over: a wipe's, or a retired store's.
     private func retireWipedWriters() {
-        let retired = queue.withLock { $0.retired }
-        writers = writers.filter { !retired.contains($0.key) && $0.value.epoch.current == $0.value.key.epoch }
+        writers = writers.filter { $0.value.epoch.current == $0.value.key.epoch }
     }
 
     /// Everything pending up to the first change of store, epoch or seed; nil, and the drain idle, when nothing is or
@@ -290,9 +288,8 @@ actor ReadModelDrain {
 
     private func write(_ batch: [Submitted]) async -> WriteReceipt {
         guard let first = batch.first else { return WriteReceipt() }
-        // A wipe since it was submitted, or its store let go of: nothing to write, and no writer for it.
-        guard first.target.epoch.current == first.epoch, !queue.withLock({ $0.retired.contains(first.target.store) })
-        else { return WriteReceipt(dropped: true) }
+        // A wipe since it was submitted, or its store let go of (`retire`): nothing to write, and no writer for it.
+        guard first.target.epoch.current == first.epoch else { return WriteReceipt(dropped: true) }
         let key = WriterKey(epoch: first.epoch, generation: first.target.generation)
         let writer: ReadModelWriter
         if let cached = writers[first.target.store], cached.key == key {

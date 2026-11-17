@@ -883,8 +883,8 @@ final class Repository {
     }
 
     /// `AppState.reset` (another account, the Demo data switch): demo data's store starts over, empty at once, so no
-    /// read decides from (or shows) rows a queued clear would still have to delete; its next use makes a new one. Then
-    /// everything is read again (`invalidate()`).
+    /// read decides from (or shows) its old rows; its next use makes a new one, and the old one is retired
+    /// (`ReadModelDrain.retire`). Then everything is read again (`invalidate()`).
     func reset() {
         if let demo = demoStoreInstance {
             demoStoreInstance = nil

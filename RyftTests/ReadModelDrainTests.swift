@@ -666,6 +666,20 @@ struct ReadModelDemoSwitchTests {
         #expect(await repo.writerEpochs()[old] == nil)
         #expect(repo.day("2026-11-01") == nil && repo.day("2026-11-02") == nil)
     }
+
+    /// Its writer goes also when its last batch was saved: idle, it still holds the old store's container and the rows
+    /// its context registered. Only its epoch tells (a batch that isn't saved lets go of its writer anyway).
+    @Test func theOldStoresIdleWriterGoesAtTheSwitch() async {
+        let repo = Repository(env: .preview())
+        repo.widgetFile = nil
+        let old = repo.storeID
+        #expect(await repo.store(detail: detail("2026-11-01", strain: 1)).committed().saved)
+        #expect(await repo.writerEpochs()[old] != nil) // saved: kept for the store's next write
+
+        repo.reset()
+
+        #expect(await eventuallyAwaiting(timeout: .seconds(5)) { await repo.writerEpochs()[old] == nil })
+    }
 }
 
 extension ReadModelWipeRaceTests {
