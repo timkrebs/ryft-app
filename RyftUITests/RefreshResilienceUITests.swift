@@ -94,6 +94,26 @@ final class RefreshResilienceUITests: XCTestCase {
         XCTAssertTrue(requestID.label.contains("fault-"), requestID.label)
     }
 
+    /// Demo data with a 401 (only fault injection makes one there): no Sign in on Today's card or on Sleep → Day's
+    /// failed night, since Sign in signs out and demo data needs no account (`RefreshIssue.Reason.action(isDemo:)`).
+    /// Details stays on both.
+    @MainActor
+    func testADemo401OffersNoSignInOnTodayOrSleep() throws {
+        let app = launch(fault: "/v1/days/today=401,/v1/days=401")
+        let issueLine = app.buttons["today.syncLine.issue"]
+        XCTAssertTrue(issueLine.waitForExistence(timeout: 20), "the line points to the card")
+        wait(for: "label BEGINSWITH \"You're signed out\"", on: issueLine, timeout: 5, "the line's words")
+        issueLine.tap()
+        wait(for: "isHittable == true", on: app.buttons["refreshIssue.details"], timeout: 5, "the card's Details")
+        XCTAssertFalse(app.buttons["refreshIssue.retry"].exists, "no Sign in on Today's card")
+
+        app.tabBars.buttons["Sleep"].tap()
+        let message = app.staticTexts["You're signed out, so new data can't load."]
+        XCTAssertTrue(message.waitForExistence(timeout: 20), "Sleep → Day's failed night")
+        XCTAssertFalse(app.buttons["sleep.failure.retry"].exists, "no Sign in on Sleep")
+        XCTAssertTrue(app.buttons["Details"].exists, "Sleep's Details")
+    }
+
     /// The Details sheet's "Send to RYFT" (Report a problem is wired on the root view) is reachable at the
     /// opening detent and opens Report a problem pre-filled: a bug report about today, its status and request ID.
     @MainActor

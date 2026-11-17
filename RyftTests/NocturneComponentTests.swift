@@ -502,23 +502,13 @@ import Testing
         #expect(GlowTileSpec.Radius.hero.points == Theme.Metrics.heroTileRadius)
     }
 
-    // MARK: 13. The gradient
+    // MARK: 13. The gradient (re-pinned in PR 4: one shape per kind, design.md §P4-3; PR 2's single ellipse is `panel`)
 
-    @Test("Spec 13: the stops are `background` at 0.97 / 0.92 / 0.55 / 0.10, at 0 / 0.34 / 0.68 / 1")
-    func gradientStops() throws {
-        let stops = GlowTileSpec.stops
-        #expect(stops.count == 4)
-        let expected: [(location: CGFloat, alpha: Double)] = [(0, 0.97), (0.34, 0.92), (0.68, 0.55), (1, 0.10)]
-        for (stop, want) in zip(stops, expected) {
-            #expect(abs(stop.location - want.location) < 1e-9, "location \(want.location)")
-            let colour = Tokens.resolve(stop.color)
-            let bg = Tokens.resolve(Theme.background)
-            // Alpha to within the catalog's 0.005; the colour channels are `background`'s.
-            #expect(abs(colour.a - want.alpha) <= 0.005, "alpha at \(want.location): \(colour.a)")
-            #expect(abs(colour.r - bg.r) <= 1.0 / 255 && abs(colour.g - bg.g) <= 1.0 / 255 && abs(colour.b - bg.b) <= 1.0 / 255)
-        }
-        #expect(GlowTileSpec.stopOpacities.map(\.location) == [0, 0.34, 0.68, 1])
-        #expect(GlowTileSpec.stopOpacities.map(\.opacity) == [0.97, 0.92, 0.55, 0.10])
+    @Test("Spec 13: the panel's stops (PR 2's) are `background` at 0.97 / 0.92 / 0.55 / 0.10, at 0 / 0.34 / 0.68 / 1")
+    func gradientStops() {
+        let stops = GlowTileSpec.shape(for: .panel).stops
+        #expect(stops.map(\.location) == [0, 0.34, 0.68, 1])
+        #expect(stops.map(\.opacity) == [0.97, 0.92, 0.55, 0.10])
     }
 
     struct OverlayCase: Sendable, CustomTestStringConvertible {
@@ -527,30 +517,33 @@ import Testing
         var testDescription: String { "t \(t)" }
     }
 
-    @Test("Spec 13: the overlay opacity at a radius fraction", arguments: [
+    @Test("Spec 13: the panel's overlay opacity at a radius fraction", arguments: [
         OverlayCase(t: 0, opacity: 0.97), OverlayCase(t: 0.34, opacity: 0.92), OverlayCase(t: 0.5, opacity: 0.7459),
         OverlayCase(t: 0.68, opacity: 0.55), OverlayCase(t: 1, opacity: 0.10), OverlayCase(t: 2, opacity: 0.10),
         OverlayCase(t: -0.5, opacity: 0.97), OverlayCase(t: 0.17, opacity: 0.945), OverlayCase(t: 0.84, opacity: 0.325),
     ])
     func overlayOpacity(_ c: OverlayCase) {
         // ±0.001: the spec rounds 0.745882… to 0.7459; the other points are exact on the stops or on a straight segment.
-        #expect(abs(GlowTileSpec.overlayOpacity(atRadiusFraction: c.t) - c.opacity) <= 0.001)
+        #expect(abs(GlowTileSpec.shape(for: .panel).overlayOpacity(atRadiusFraction: c.t) - c.opacity) <= 0.001)
     }
 
-    @Test("The overlay only gets lighter from the core to the edge")
-    func overlayIsMonotonic() {
+    @Test("Every kind's overlay only gets lighter from the core to the edge", arguments: GlowTileSpec.Kind.allCases)
+    func overlayIsMonotonic(_ kind: GlowTileSpec.Kind) {
+        let shape = GlowTileSpec.shape(for: kind)
         var last = 1.0
         for t in stride(from: 0.0, through: 1.2, by: 0.01) {
-            let o = GlowTileSpec.overlayOpacity(atRadiusFraction: t)
+            let o = shape.overlayOpacity(atRadiusFraction: t)
             #expect(o <= last + 1e-12, "t \(t)")
             last = o
         }
     }
 
-    @Test("Spec 13: the ellipse is 90 % × 110 % at 55 % and the padding 14 / 16 / 14 / 16")
+    @Test("Spec 13: the panel's ellipse is 90 % × 110 % at 55 %; the shim's padding 14 / 16 / 14 / 16")
     func ellipseAndPadding() {
-        #expect(GlowTileSpec.ellipse.rx == 0.90 && GlowTileSpec.ellipse.ry == 1.10 && GlowTileSpec.ellipse.cy == 0.55)
+        let panel = GlowTileSpec.shape(for: .panel)
+        #expect(panel.rx == 0.90 && panel.ry == 1.10 && panel.cy == 0.55)
         #expect(GlowTileSpec.padding == EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
+        #expect(GlowTileSpec.padding(for: .panel) == GlowTileSpec.padding)
         #expect(GlowTileSpec.twoUpMinHeight == 124 && GlowTileSpec.heroMinHeight == 172)
         #expect(GlowTileSpec.flatBorder == 2)
     }

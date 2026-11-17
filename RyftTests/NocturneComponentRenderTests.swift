@@ -789,7 +789,8 @@ import UIKit
 
     /// The label colour is read from the drawn pixels, not from the component's constants: a regression to `textTertiary`
     /// (48 %) changes the drawn opacity, and the contrast follows. The expected numbers are written here: 4.5 (WCAG AA), the
-    /// opacity 0.78 (± 0.04 for 8-bit pixels and a stem that may not cover a pixel fully).
+    /// opacity 0.78 in the strain tile and 1.0 in the recovery tile (L23, PR 4: the tile's `glowLabelOpacity`; ± 0.04 for
+    /// 8-bit pixels and a stem that may not cover a pixel fully).
     @Test("The compact ruler's edge labels read 4.5:1 or more against the lightest pixel under them, inside a glow tile at L",
           arguments: [Metric.recovery, .strain], [CGFloat(169), CGFloat(350)])
     func compactEdgeLabelContrast(_ metric: Metric, _ width: CGFloat) throws {
@@ -805,8 +806,9 @@ import UIKit
         #expect(right.box.maxX <= Double(width) - 14 && right.box.maxX > Double(width) - 20 && right.box.width > 6 && right.box.width < 24,
                 "\"21\" at \(right.box)")
         for label in [left, right] { #expect(label.box.height > 5 && label.box.height < 14 && label.box.maxY <= 111, "\(label.box)") }
+        let want = metric == .recovery ? 1.0 : 0.78
         for (name, label) in [("0", left), ("21", right)] {
-            #expect(abs(label.opacity - 0.78) <= 0.04, "\"\(name)\" is drawn at \(label.opacity), not 0.78")
+            #expect(abs(label.opacity - want) <= 0.04, "\"\(name)\" is drawn at \(label.opacity), not \(want)")
             let contrast = Tokens.ratio(with(ink, alpha: label.opacity), on: label.lightestBackground)
             #expect(contrast >= 4.5, "\"\(name)\" on \(metric) at \(Int(width)) pt: \(contrast):1")
         }

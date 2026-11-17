@@ -5,13 +5,18 @@ import UIKit
 /// background, pull-to-refresh (sync + reload).
 struct ScreenScaffold<Content: View>: View {
     @Environment(ScreenModels.self) private var screens
+    /// The centred `RyftHeader` above the content. Today and Sleep in Nocturne draw their own `ScreenHeader` as the
+    /// content's first row and pass `false` (design.md §P4-1, §P4-2); the content then starts at the safe-area top.
+    var showsHeader = true
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         ScrollView {
             VStack(spacing: Theme.Metrics.sectionSpacing) {
-                RyftHeader()
-                    .padding(.top, 6)
+                if showsHeader {
+                    RyftHeader()
+                        .padding(.top, 6)
+                }
                 content()
             }
             .padding(.horizontal, Theme.Metrics.screenPadding)
@@ -207,11 +212,31 @@ struct UpdatedLabel: View {
 /// numbers are. Never a modal. Tapping it opens what's needed (a gate) or Sync details; a stale
 /// line ("Showing data from 14:05") has its own "Try again" unless the error card shows one.
 struct SyncStatusLineView: View {
+    /// `centered`: centred, each button 44 pt high (Today before Nocturne). `leading`: Nocturne's status row (design.md
+    /// §P4-1, row 4), leading-aligned and as high as its text, each button's tap target 44 pt or more around it
+    /// (`hitOutset` past the text above and below), so the row adds one text line to the board, not 44 pt.
+    enum Alignment: Sendable { case centered, leading }
+
     let line: SyncLine
     /// The line's tap: the gate's screen, or Sync details. Without it the line is plain text.
     var action: (() -> Void)? = nil
     /// "Try again" on a stale line.
     var retry: (() async -> Void)? = nil
+    var alignment: Alignment = .centered
+
+    /// `leading`: the tap target's least outset past the text above and below; a shorter line gets more, so the
+    /// target is always 44 pt or more (`verticalOutset`, VN5).
+    nonisolated static let hitOutset: CGFloat = 14
+
+    /// `leading`: the outset above and below a label `textHeight` high: `hitOutset`, or what makes the target a device
+    /// pixel (`scale`) over 44, on the pixel grid. The target's edges snap to the grid: one exactly 44 tall, its edges on
+    /// half pixels, came out 43.67 on the fault line (R3-E); with a pixel to spare it snaps to 44 or more.
+    nonisolated static func verticalOutset(textHeight: CGFloat, scale: CGFloat) -> CGFloat {
+        let scale = max(scale, 1)
+        let outset = max(hitOutset, (44 + 1 / scale - textHeight) / 2)
+        // Up to the grid; 1e-6 keeps an outset already on it (14.67 × 3 = 44.000…01) where it is.
+        return (outset * scale - 1e-6).rounded(.up) / scale
+    }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -258,10 +283,7 @@ struct SyncStatusLineView: View {
         case .actionNeeded:
             if let action {
                 Button(action: action) {
-                    label(now: now)
-                        .foregroundStyle(Theme.accent)
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
+                    tapTarget(label(now: now).foregroundStyle(Theme.accent))
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint(Text("Opens what's needed"))
@@ -271,7 +293,8 @@ struct SyncStatusLineView: View {
             }
         case .stale:
             let layout = typeSize.isAccessibilitySize
-                ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 6))
+                ? AnyLayout(VStackLayout(alignment: alignment == .leading ? .leading : .center, spacing: 0))
+                : AnyLayout(HStackLayout(spacing: 6))
             layout {
                 tappable(now: now, hint: "Opens sync details")
                     .accessibilityIdentifier("today.syncLine.line")
@@ -284,19 +307,17 @@ struct SyncStatusLineView: View {
                         retried = true
                         Task { await retry() }
                     } label: {
-                        Text("Try again")
+                        tapTarget(Text("Try again")
                             .font(.ryft(.caption))
                             .fontWeight(.medium)
-                            .foregroundStyle(Theme.accent)
-                            .frame(minHeight: 44)
-                            .contentShape(Rectangle())
+                            .foregroundStyle(Theme.accent))
                     }
                     .buttonStyle(.plain)
                     .accessibilityHint(Text("Tries to load your data again"))
                     .accessibilityIdentifier("today.syncLine.retry")
                 }
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .center)
         case .waitingForUnlock:
             label(now: now).foregroundStyle(Theme.textTertiary)
         case .issue:
@@ -315,10 +336,7 @@ struct SyncStatusLineView: View {
         let color = current.isActive || current.isIssue || current == .scoringSlow ? Theme.textSecondary : Theme.textTertiary
         if let action {
             Button(action: action) {
-                label(now: now)
-                    .foregroundStyle(color)
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
+                tapTarget(label(now: now).foregroundStyle(color))
             }
             .buttonStyle(.plain)
             .accessibilityHint(Text(hint))
@@ -336,11 +354,23 @@ struct SyncStatusLineView: View {
             // Wraps at every size, never truncates ("Demodaten · Aktuell · gerade eben" at AX3 is
             // three lines); the fixed vertical size keeps a parent from squeezing it into an ellipsis.
             Text(current.text(now: now))
-                .multilineTextAlignment(.center)
+                .multilineTextAlignment(alignment == .leading ? .leading : .center)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .font(.ryft(.caption))
-        .frame(maxWidth: current.isStale ? nil : .infinity)
+        .frame(maxWidth: current.isStale ? nil : .infinity, alignment: alignment == .leading ? .leading : .center)
+    }
+
+    /// A button's label as its tap target: at least 44 pt high (`centered`), or as high as the text with the target
+    /// `verticalOutset` above and below it (`leading`: 44 or more for one line), so the row's height is the text's.
+    @ViewBuilder
+    private func tapTarget(_ label: some View) -> some View {
+        switch alignment {
+        case .centered:
+            label.frame(minHeight: 44).contentShape(Rectangle())
+        case .leading:
+            label.modifier(LeadingTapTarget())
+        }
     }
 
     /// VoiceOver hears the stale claim, slow scoring once, and the return to "Up to date" after a manual
@@ -355,6 +385,22 @@ struct SyncStatusLineView: View {
             retried = false
             AccessibilityNotification.Announcement(new.text(now: now)).post()
         }
+    }
+}
+
+/// `SyncStatusLineView`'s `leading` tap target: the label keeps its own height in the layout, its tap target reaches
+/// `verticalOutset` past it above and below (a 15.67 pt line at 3x: 14.33 each side, 44.33).
+private struct LeadingTapTarget: ViewModifier {
+    @State private var textHeight: CGFloat = 0
+    @Environment(\.displayScale) private var displayScale
+
+    func body(content: Content) -> some View {
+        let outset = SyncStatusLineView.verticalOutset(textHeight: textHeight, scale: displayScale)
+        content
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { textHeight = $0 }
+            .padding(.vertical, outset)
+            .contentShape(Rectangle())
+            .padding(.vertical, -outset)
     }
 }
 
@@ -386,13 +432,56 @@ extension RefreshIssue.Reason {
     /// ui.md §3.3: one plain sentence per class.
     var message: String {
         switch self {
-        case .busy: return String(localized: "RYFT is busy right now. Your data is safe; try again in a moment.")
+        case .busy:
+            return String(localized: "RYFT is busy right now. Your data is safe; try again in a moment.",
+                          comment: "Error card on Today and Sleep → Day's failed night. Server busy or failing (429, 5xx, 408) after retries. Try again.")
         case .unreachable:
-            return String(localized: "RYFT can't be reached right now. Your connection looks fine, so this isn't on your side.")
-        case .unexpected: return String(localized: "Part of your data couldn't be loaded. The details help us find out why.")
-        case .signedOut: return String(localized: "You're signed out, so new data can't load.")
-        case .appTooOld: return String(localized: "This version of RYFT is too old to load new data. Update it to continue.")
+            return String(localized: "RYFT can't be reached right now. Your connection looks fine, so this isn't on your side.",
+                          comment: "Error card on Today and Sleep → Day's failed night. No HTTP response. Try again. Offline, Sleep shows No connection.")
+        case .unexpected:
+            return String(localized: "Part of your data couldn't be loaded. The details help us find out why.",
+                          comment: "Error card on Today and Sleep → Day's failed night. Any other failure. Try again.")
+        case .signedOut:
+            return String(localized: "You're signed out, so new data can't load.",
+                          comment: "Error card on Today and Sleep → Day's failed night (Sign in). The session ended; new data can't load.")
+        case .appTooOld:
+            return String(localized: "This version of RYFT is too old to load new data. Update it to continue.",
+                          comment: "Error card on Today and Sleep → Day's failed night (no button). App too old for the server; an update helps.")
         }
+    }
+
+    /// What the message's button does (ui.md §3), on Today's card and Sleep's failed night: Sign in when signed out;
+    /// none for an outdated app until the platform says how to tell (no store link to guess); else Try again. Trying
+    /// again fixes neither of the first two.
+    enum Action: Equatable, Sendable {
+        case retry, signIn, noButton
+
+        /// The button's title: "Sign in", else "Try again" (unused without a button).
+        var title: LocalizedStringKey { self == .signIn ? "Sign in" : "Try again" }
+
+        /// The button's action from the caller's two: `retry`, `signIn`, or none for `noButton`.
+        func button(retry: (() async -> Void)?, signIn: (() async -> Void)?) -> (() async -> Void)? {
+            switch self {
+            case .retry: return retry
+            case .signIn: return signIn
+            case .noButton: return nil
+            }
+        }
+    }
+
+    var action: Action {
+        switch self {
+        case .signedOut: return .signIn
+        case .appTooOld: return .noButton
+        case .busy, .unreachable, .unexpected: return .retry
+        }
+    }
+
+    /// The button on Today's card and Sleep's failed night, decided once for both: `action`, except no Sign in with
+    /// demo data on. Demo data needs no account, and a 401 there only comes from fault injection (DEBUG); Sign in signs
+    /// out (`AppState.signInAgain`), which would end a real session behind the demo, or do nothing. Details stays.
+    func action(isDemo: Bool) -> Action {
+        isDemo && action == .signIn ? .noButton : action
     }
 
     var systemImage: String {
@@ -410,6 +499,8 @@ extension RefreshIssue.Reason {
 /// and Details. Only past `RefreshPolicy`'s threshold, or for something the user can act on.
 struct RefreshIssueCard: View {
     let issue: RefreshIssue
+    /// Demo data is on: no Sign in (`RefreshIssue.Reason.action(isDemo:)`).
+    var isDemo = false
     var retry: () async -> Void = {}
     var signIn: () async -> Void = {}
     /// Previews: the "Trying again…" state.
@@ -418,23 +509,15 @@ struct RefreshIssueCard: View {
     @State private var showsDetails = false
 
     var body: some View {
+        let action = issue.reason.action(isDemo: isDemo)
         InlineMessage(message: issue.reason.message, systemImage: issue.reason.systemImage,
-                      retryTitle: issue.reason == .signedOut ? "Sign in" : "Try again",
-                      retry: action, caption: age, retryingTitle: "Trying again…", isRetrying: isRetrying,
+                      retryTitle: action.title, retry: action.button(retry: retry, signIn: signIn), caption: age,
+                      retryingTitle: "Trying again…", isRetrying: isRetrying,
                       onDetails: { showsDetails = true }, identifier: "refreshIssue")
             .sheet(isPresented: $showsDetails) { RefreshDetailsSheet(issue: issue) }
             // A container: Try again (or Sign in) and Details stay separate buttons for VoiceOver.
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("today.refreshIssue")
-    }
-
-    /// No action for an outdated app until the platform says how to tell (no store link to guess).
-    private var action: (() async -> Void)? {
-        switch issue.reason {
-        case .signedOut: return signIn
-        case .appTooOld: return nil
-        case .busy, .unreachable, .unexpected: return retry
-        }
     }
 
     private var age: String? {
@@ -1364,6 +1447,31 @@ struct NumberedStep: View {
             }
         }
     }
+}
+
+/// Nocturne's status row (design.md §P4-1, row 4): leading, the text's height; the borders show the layout boxes.
+#Preview("Sync status line · leading", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        VStack(alignment: .leading, spacing: 12) {
+            SyncStatusLineView(line: .upToDate(.now.addingTimeInterval(-120), demo: false), action: {}, alignment: .leading)
+                .border(Theme.separator)
+            SyncStatusLineView(line: .scoring(night: true), action: {}, alignment: .leading)
+            SyncStatusLineView(line: .offline, action: {}, alignment: .leading)
+            SyncStatusLineView(line: .stale(since: PreviewIssue.at(14, 5)), action: {}, retry: {}, alignment: .leading)
+                .border(Theme.separator)
+            SyncStatusLineView(line: .actionNeeded(.consent), action: {}, alignment: .leading)
+        }
+    }
+}
+
+#Preview("Sync status line · leading · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        VStack(alignment: .leading, spacing: 12) {
+            SyncStatusLineView(line: .upToDate(.now.addingTimeInterval(-120), demo: true), action: {}, alignment: .leading)
+            SyncStatusLineView(line: .stale(since: PreviewIssue.at(14, 5)), action: {}, retry: {}, alignment: .leading)
+        }
+    }
+    .environment(\.dynamicTypeSize, .accessibility3)
 }
 
 #Preview("Sync status line · de", traits: .sizeThatFitsLayout) {

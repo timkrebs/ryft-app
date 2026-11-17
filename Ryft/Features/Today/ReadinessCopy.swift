@@ -2,13 +2,37 @@
 import Foundation
 
 enum ReadinessCopy {
-    /// "Good morning," (05–12), "Good afternoon," (12–18), "Good evening," otherwise.
-    static func greeting(at date: Date = .now, calendar: Calendar = .current) -> String {
-        switch calendar.component(.hour, from: date) {
-        case 5..<12: return String(localized: "Good morning,")
-        case 12..<18: return String(localized: "Good afternoon,")
-        default: return String(localized: "Good evening,")
+    /// "Good morning, Tim" (05–12), "Good afternoon, Tim" (12–18), "Good evening, Tim" otherwise (Nocturne, design.md
+    /// §P4-1 row 2). Without a name (`firstName(_:)` found none: Sign in with Apple may deliver none, R-N2) the same words
+    /// with no comma: "Good evening".
+    static func greeting(at date: Date = .now, name: String? = nil, calendar: Calendar = .current) -> String {
+        let hour = calendar.component(.hour, from: date)
+        guard let name else {
+            switch hour {
+            case 5..<12:
+                return String(localized: "Good morning", comment: "Today's greeting before 12:00 when no first name is known.")
+            case 12..<18:
+                return String(localized: "Good afternoon", comment: "Today's greeting from 12:00 to 18:00 when no first name is known.")
+            default:
+                return String(localized: "Good evening", comment: "Today's greeting from 18:00 (and before 05:00) when no first name is known.")
+            }
         }
+        switch hour {
+        case 5..<12:
+            return String(localized: "Good morning, \(name)", comment: "Today's greeting before 12:00, with the user's first name.")
+        case 12..<18:
+            return String(localized: "Good afternoon, \(name)", comment: "Today's greeting from 12:00 to 18:00, with the user's first name.")
+        default:
+            return String(localized: "Good evening, \(name)",
+                          comment: "Today's greeting from 18:00 (and before 05:00), with the user's first name.")
+        }
+    }
+
+    /// The first word of the account's name (`User.name`, the sign-in's `full_name`), trimmed: "Tim" of "Tim Krebs".
+    /// nil for an empty or blank name, so the greeting goes without one (R-N2).
+    static func firstName(_ fullName: String?) -> String? {
+        guard let word = fullName?.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).first else { return nil }
+        return String(word)
     }
 
     /// The state sentence. `calibrating` covers two cases (API.md, D4): the

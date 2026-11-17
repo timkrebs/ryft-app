@@ -12,6 +12,9 @@ struct DeltaLabel: View {
     /// After the change, e.g. "vs 7 d".
     var reference: String? = nil
     var font: Font = .ryft(.caption)
+    /// The reference's ink; `nil` is `textTertiary`. Today's label row passes the change's own colour
+    /// (`DeltaLabel.color(_:spec:)`), so "▲ +11 vs 7 d" is one colour (design.md §P4-1, row 7).
+    var referenceColor: Color?
 
     /// The change stays whole ("▲ +11"); the reference wraps beside it when the line is too long
     /// (German at large text sizes), never cut off. A caller that needs one line limits it.
@@ -26,7 +29,7 @@ struct DeltaLabel: View {
                 if let reference {
                     Text(reference)
                         .font(font)
-                        .foregroundStyle(Theme.textTertiary)
+                        .foregroundStyle(referenceColor ?? Theme.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -80,6 +83,18 @@ struct DeltaLabel: View {
             DeltaLabel(spec: .strain, delta: MetricDelta(current: 14.2, reference: 11.0), reference: "vs 7 d")
             DeltaLabel(spec: .sleepMin, delta: MetricDelta(current: 468, reference: 443), reference: "vs 7 d")
             DeltaLabel(spec: .hrv, delta: MetricDelta(current: 52.5, reference: 52), reference: "vs 7 d")
+        }
+    }
+}
+
+#Preview("DeltaLabel · reference in the change's colour", traits: .sizeThatFitsLayout) {
+    DarkPreview {
+        VStack(alignment: .leading, spacing: 10) {
+            let up = MetricDelta(current: 84, reference: 73), down = MetricDelta(current: 66, reference: 73)
+            DeltaLabel(spec: .readiness, delta: up, reference: String(localized: "vs 7 d"), font: .ryft(.label),
+                       referenceColor: DeltaLabel.color(up, spec: .readiness))
+            DeltaLabel(spec: .readiness, delta: down, reference: String(localized: "vs 7 d"), font: .ryft(.label),
+                       referenceColor: DeltaLabel.color(down, spec: .readiness))
         }
     }
 }

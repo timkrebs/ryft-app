@@ -45,6 +45,10 @@ struct DebugComponentCatalog: View {
                     section("Nocturne · glow tile") { nocturneGlowTiles }
                     section("Nocturne · rows") { nocturneRows }
                     section("Nocturne · buttons") { nocturneButtons }
+                    section("Nocturne · glow kinds") { nocturneGlowKinds }
+                    section("Nocturne · sparkline") { nocturneSparklines }
+                    section("Nocturne · hypnogram") { nocturneHypnograms }
+                    section("Nocturne · header") { nocturneHeaders }
                 }
                 .padding(Theme.Metrics.screenPadding)
             }
@@ -137,12 +141,11 @@ struct DebugComponentCatalog: View {
     @ViewBuilder
     private var sleep: some View {
         if let night = MockData.todayDetail.sleep {
-            VStack(spacing: 16) {
-                Card { MiniHypnogram(sleep: night, action: {}) }
-                Card { Hypnogram(segments: night.segments) }
-                StageBar(stages: night.displayStages)
-                StageBar(stages: [])
-                ForEach(night.displayStages) { StageRow(share: $0) }
+            // The hypnogram is the glow tile further down (`CatalogHypnogramTile`).
+            Card {
+                VStack(spacing: 14) {
+                    ForEach(night.displayStages) { StageRow(share: $0) }
+                }
             }
         }
     }
@@ -273,10 +276,10 @@ struct DebugComponentCatalog: View {
                        accessibilityLabel: Text("Strain scale"),
                        accessibilityValue: Text("12.4, in target 10 to 14, on a scale from 0 to 21"))
             HStack(alignment: .top, spacing: Theme.Metrics.itemSpacing) {
-                GlowTile(Theme.recovery, minHeight: GlowTileSpec.twoUpMinHeight) {
+                GlowTile(Theme.recovery, kind: .twoUp) {
                     catalogTileText("Recovery", "82")
                 }
-                GlowTile(Theme.metricStrain, minHeight: GlowTileSpec.twoUpMinHeight) {
+                GlowTile(Theme.metricStrain, kind: .twoUp) {
                     VStack(alignment: .leading, spacing: 6) {
                         catalogTileText("Strain", "12.4")
                         Spacer(minLength: 0)
@@ -296,30 +299,30 @@ struct DebugComponentCatalog: View {
         }
     }
 
-    /// The three legend colours at both radii, and one tile forced flat (Reduce Transparency).
+    /// The three legend colours as 2-up tiles and as panels, and one tile forced flat (Reduce Transparency).
     private var nocturneGlowTiles: some View {
         VStack(spacing: Theme.Metrics.itemSpacing) {
             HStack(spacing: Theme.Metrics.itemSpacing) {
-                GlowTile(Theme.recovery, minHeight: GlowTileSpec.twoUpMinHeight) { catalogTileText("Recovery", "82") }
-                GlowTile(Theme.metricSleep, minHeight: GlowTileSpec.twoUpMinHeight) { catalogTileText("Sleep", "7:48") }
+                GlowTile(Theme.recovery, kind: .twoUp) { catalogTileText("Recovery", "82") }
+                GlowTile(Theme.metricSleep, kind: .twoUp) { catalogTileText("Sleep", "7:48") }
             }
             HStack(spacing: Theme.Metrics.itemSpacing) {
-                GlowTile(Theme.metricStrain, minHeight: GlowTileSpec.twoUpMinHeight) { catalogTileText("Strain", "12.4") }
-                GlowTile(Theme.recovery, minHeight: GlowTileSpec.twoUpMinHeight, reduceTransparency: true) {
+                GlowTile(Theme.metricStrain, kind: .twoUp) { catalogTileText("Strain", "12.4") }
+                GlowTile(Theme.recovery, kind: .twoUp, reduceTransparency: true) {
                     catalogTileText("Flat", "82")
                 }
             }
-            GlowTile(Theme.recovery, radius: .hero, minHeight: GlowTileSpec.heroMinHeight) {
+            GlowTile(Theme.recovery, kind: .panel) {
                 catalogTileText("Recovery", "82")
             }
-            GlowTile(Theme.metricSleep, radius: .hero, minHeight: GlowTileSpec.heroMinHeight) {
+            GlowTile(Theme.metricSleep, kind: .panel) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Time asleep").ryftGlowLabelStyle()
                     DotNumeral("7:48", glyphGap: DotNumeral.glyphGapDetail,
                                accessibilityLabel: Text("7 hours 48 minutes asleep"))
                 }
             }
-            GlowTile(Theme.metricStrain, radius: .hero, minHeight: GlowTileSpec.heroMinHeight) {
+            GlowTile(Theme.metricStrain, kind: .panel) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Strain").ryftGlowLabelStyle()
                     DotNumeral("12.4", glyphGap: DotNumeral.glyphGapDetail, accessibilityLabel: Text("Strain 12.4 of 21"))
@@ -337,6 +340,8 @@ struct DebugComponentCatalog: View {
                        accessibilityLabel: Text("Slept enough on 4 of the last 6 nights; tonight is marked"))
                 DotRow(Array(repeating: .missed, count: 7), accessibilityLabel: Text("Slept enough on none of the last 7 nights"))
                 DotRow([.today], accessibilityLabel: Text("Tonight is marked"))
+                DotRow([.full, .missed, .full, .noData, .missed, .full, .today],
+                       accessibilityLabel: Text(verbatim: "Slept enough on 4 of the last 7 nights; 1 night has no data"))
             }
             VStack(alignment: .leading, spacing: TickRow.rowSpacing) {
                 ForEach(Array(Self.catalogZoneMinutes.enumerated()), id: \.offset) { index, minutes in
@@ -369,6 +374,85 @@ struct DebugComponentCatalog: View {
         }
     }
 
+    /// The four kinds at the board's sizes (design.md §P4-3), the 2-up at 350 wide (the panel's ellipse takes over), and
+    /// each kind flat (Reduce Transparency).
+    private var nocturneGlowKinds: some View {
+        VStack(spacing: Theme.Metrics.itemSpacing) {
+            ForEach([false, true], id: \.self) { flat in
+                HStack(spacing: Theme.Metrics.itemSpacing) {
+                    GlowTile(Theme.recovery, kind: .twoUp, reduceTransparency: flat) { catalogTileText("Recovery", "82") }
+                    GlowTile(Theme.metricSleep, kind: .twoUp, reduceTransparency: flat) { catalogTileText("Sleep", "7:48") }
+                }
+                GlowTile(Theme.metricStrain, kind: .strain, reduceTransparency: flat) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(verbatim: "Strain").ryftGlowLabelStyle()
+                            Spacer(minLength: 0)
+                            Text(verbatim: "12.4").font(.ryftNumber(size: 30, weight: .light))
+                            Text(verbatim: "of 21 · moderate").ryftGlowLabelStyle()
+                        }
+                        RulerScale(range: 0...21, value: 12.4, zone: 10...14, tickCount: RulerScale.Ticks.strainCompact,
+                                   size: .compact, accessibilityLabel: Text(verbatim: "Strain scale"),
+                                   accessibilityValue: Text(verbatim: "12.4, moderate, on a scale from 0 to 21"))
+                            .padding(.top, 8)
+                    }
+                }
+                CatalogHypnogramTile(variant: .full, flat: flat)
+                GlowTile(Theme.recovery, kind: .panel, reduceTransparency: flat) { catalogTileText("An idea", "64") }
+            }
+            GlowTile(Theme.recovery, kind: .twoUp) { catalogTileText("Recovery · 2-up at 350, panel ellipse", "82") }
+        }
+    }
+
+    /// The HRV week (the board's: lowest 51, highest 66), a missing day, no value on the last day, one value (pending).
+    private var nocturneSparklines: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(Array(Self.catalogSparklines.enumerated()), id: \.offset) { _, entry in
+                HStack(spacing: 16) {
+                    Sparkline(values: entry.values)
+                    Text(verbatim: entry.title).font(.ryft(.caption)).foregroundStyle(Theme.textTertiary)
+                }
+            }
+        }
+    }
+
+    private static let catalogSparklines: [(title: String, values: [Double?])] = [
+        ("week", [58, 51, 60, 55, 62, 57, 66]), ("a missing day", [58, 51, nil, 55, 62, 57, 66]),
+        ("lone days", [58, nil, 60, nil, 62, 57, 66]), ("no value today", [58, 51, 60, 55, 62, 57, nil]),
+        ("flat", [60, 60, 60, 60, 60, 60, 60]), ("pending", [nil, nil, nil, nil, nil, nil, 66]),
+    ]
+
+    /// The board's night, a night without its timeline (header and totals), a night without stages.
+    private var nocturneHypnograms: some View {
+        VStack(spacing: Theme.Metrics.itemSpacing) {
+            CatalogHypnogramTile(variant: .full)
+            CatalogHypnogramTile(variant: .noTimeline)
+            CatalogHypnogramTile(variant: .noStages)
+        }
+    }
+
+    /// Today's (lock-up and calendar; without My Day), Sleep's three slots, the next night disabled.
+    private var nocturneHeaders: some View {
+        VStack(spacing: 18) {
+            ScreenHeader {
+                CircleButton(systemImage: "calendar", iconSize: 16, accessibilityLabel: Text(verbatim: "Calendar")) {}
+            }
+            ScreenHeader { EmptyView() }
+            ScreenHeader {
+                CircleButton(systemImage: "chevron.left", accessibilityLabel: Text(verbatim: "Previous night")) {}
+            } center: {
+                VStack(spacing: 2) {
+                    Text(verbatim: "Sleep").font(.ryft(.callout)).foregroundStyle(Theme.textPrimary)
+                    Text(verbatim: "Last night · Sun, Nov 15").font(.ryft(.caption)).foregroundStyle(Theme.textTertiary)
+                }
+                .multilineTextAlignment(.center)
+            } trailing: {
+                CircleButton(systemImage: "chevron.right", accessibilityLabel: Text(verbatim: "Next night")) {}
+                    .disabled(true)
+            }
+        }
+    }
+
     /// Minutes per heart-rate zone; the last has no data.
     private static let catalogZoneMinutes: [Double?] = [12, 31, 24, 7, nil]
 
@@ -377,6 +461,55 @@ struct DebugComponentCatalog: View {
             Text(verbatim: label).ryftGlowLabelStyle()
             Text(verbatim: value).font(.ryft(.metric))
         }
+    }
+}
+
+/// Sleep's hypnogram glow tile as the catalog composes it from `HypnogramPlot` and the board's night (`MockData`): the
+/// screen's own tile is `SleepHypnogramTile` (T4.3), with its strings and VoiceOver.
+private struct CatalogHypnogramTile: View {
+    enum Variant { case full, noTimeline, noStages }
+    let variant: Variant
+    var flat = false
+
+    var body: some View {
+        let sleep = MockData.todayDetail.sleep
+        GlowTile(Theme.metricSleep, kind: .hypnogram, minHeight: variant == .full ? nil : 96, reduceTransparency: flat) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(verbatim: "Hypnogram").ryftGlowLabelStyle()
+                    Spacer(minLength: 8)
+                    Text(verbatim: "\(Fmt.time(sleep?.start)) – \(Fmt.time(sleep?.end))").ryftGlowLabelStyle(.caption)
+                }
+                switch variant {
+                case .full:
+                    if let sleep, let start = sleep.start, let end = sleep.end {
+                        HypnogramPlot(segments: sleep.segments, start: start, end: end,
+                                      stageNames: ["Awake", "REM", "Light", "Deep"])
+                            .padding(.top, 10)
+                    }
+                    totals(sleep).padding(.top, 8)
+                case .noTimeline:
+                    Text(verbatim: "The timeline isn't available for this night.").ryftGlowLabelStyle(.caption).padding(.top, 10)
+                    Spacer(minLength: 8)
+                    totals(sleep)
+                case .noStages:
+                    Text(verbatim: "Your watch didn't record sleep stages for this night — only the total.")
+                        .ryftGlowLabelStyle(.caption)
+                        .padding(.top, 10)
+                }
+            }
+        }
+    }
+
+    private func totals(_ sleep: SleepDetail?) -> some View {
+        let minutes = Dictionary((sleep?.stages ?? []).map { ($0.stage, $0.min) }, uniquingKeysWith: { a, _ in a })
+        return HStack(spacing: 0) {
+            ForEach(Array([SleepStageKind.deep, .rem, .light, .awake].enumerated()), id: \.offset) { index, stage in
+                if index > 0 { Spacer(minLength: 6) }
+                Text(verbatim: "\(stage.title) \(Fmt.clock(minutes: minutes[stage]))")
+            }
+        }
+        .ryftGlowLabelStyle(.caption)
     }
 }
 

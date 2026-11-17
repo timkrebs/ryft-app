@@ -13,6 +13,8 @@ final class HostedWindow {
     struct Node {
         let label: String
         let value: String?
+        /// What VoiceOver reads after the label and value, nil or empty when the element has none.
+        let hint: String?
         let frame: CGRect
         let traits: UIAccessibilityTraits
         fileprivate let object: NSObject
@@ -36,6 +38,26 @@ final class HostedWindow {
 
         /// The names VoiceOver's actions rotor offers.
         var actionNames: [String] { (object.accessibilityCustomActions ?? []).map(\.name) }
+
+        /// What VoiceOver's Links rotor reaches inside this element, in order: a `Text`'s inline links, each with its own
+        /// label and frame.
+        var links: [Node] {
+            guard let rotor = object.accessibilityCustomRotors?.first(where: { $0.systemRotorType == .link }) else { return [] }
+            var found: [Node] = []
+            var current = UIAccessibilityCustomRotorItemResult(targetElement: object, targetRange: nil)
+            for _ in 0..<20 {
+                let predicate = UIAccessibilityCustomRotorSearchPredicate()
+                predicate.searchDirection = .next
+                predicate.currentItem = current
+                guard let next = rotor.itemSearchBlock(predicate), let element = next.targetElement as? NSObject,
+                      !found.contains(where: { $0.object === element }) else { break }
+                found.append(Node(label: element.accessibilityLabel ?? "", value: element.accessibilityValue,
+                                  hint: element.accessibilityHint, frame: element.accessibilityFrame,
+                                  traits: element.accessibilityTraits, object: element))
+                current = next
+            }
+            return found
+        }
 
         @discardableResult
         func perform(action name: String) -> Bool {
@@ -135,8 +157,8 @@ final class HostedWindow {
         func walk(_ object: NSObject, depth: Int) {
             guard depth < 40, seen.insert(ObjectIdentifier(object)).inserted else { return }
             if String(describing: type(of: object)) == "AccessibilityNode", let label = object.accessibilityLabel, !label.isEmpty {
-                found.append(Node(label: label, value: object.accessibilityValue, frame: object.accessibilityFrame,
-                                  traits: object.accessibilityTraits, object: object))
+                found.append(Node(label: label, value: object.accessibilityValue, hint: object.accessibilityHint,
+                                  frame: object.accessibilityFrame, traits: object.accessibilityTraits, object: object))
             }
             if let elements = object.accessibilityElements {
                 for case let child as NSObject in elements { walk(child, depth: depth + 1) }

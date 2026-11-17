@@ -58,12 +58,19 @@ struct BedtimeLayoutTests {
 // MARK: - summaries
 
 struct SleepSummaryTests {
+    /// Nocturne (design.md §P4-2): performance is the caption, consistency and restorative are tiles; the nap and the
+    /// need stay in the cards under them.
     @Test func nightSummaryHasTilesNapAndNeed() throws {
         let detail = try Fixture.decode(DayDetail.self, "day_detail")
-        let s = SleepNightSummary(sleep: try #require(detail.sleep), score: detail.score)
-        #expect(s.performance == "87%" && s.restorative == "100%" && s.consistency == "81")
+        let sleep = try #require(detail.sleep)
+        let s = SleepNightSummary(sleep: sleep, score: detail.score)
         #expect(s.nap == "Nap · \(Fmt.duration(minutes: 25))")
         #expect(s.needBreakdown?.total == 538)
+        let board = SleepBoard(sleep: sleep, score: detail.score, locale: Locale(identifier: "en_US"))
+        #expect(board.caption == String(localized: "Asleep · \(87) % of your need"))
+        let tiles = Dictionary(uniqueKeysWithValues: board.tiles.map { ($0.kind, $0) })
+        #expect(tiles[.consistency]?.value == "81")
+        #expect(tiles[.restorative]?.spokenValue.contains(String(localized: "\(100) percent of the target")) == true)
     }
 
     @Test func rangeSummaryUsesThePlatformsConsistency() throws {

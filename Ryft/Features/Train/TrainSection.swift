@@ -55,6 +55,7 @@ struct StartWorkoutSheet: View {
     @Environment(ScreenModels.self) private var screens
     @Environment(TrainCoordinator.self) private var coordinator
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var showsDays = false
 
     private var model: TrainTodayViewModel { screens.trainToday }
@@ -141,7 +142,8 @@ struct StartWorkoutSheet: View {
                     .background(prominent ? Theme.onAccent.opacity(0.12) : Theme.accent.opacity(0.12), in: Circle())
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title).font(.ryft(.headline))
-                    Text(detail).font(.ryft(.caption)).lineLimit(2)
+                    // Two lines at the default sizes. At the accessibility sizes two cut it short ("~…"): it takes what it needs.
+                    Text(detail).font(.ryft(.caption)).lineLimit(typeSize.isAccessibilitySize ? nil : 2)
                         .opacity(0.8)
                 }
                 .foregroundStyle(prominent ? Theme.onAccent : Theme.textPrimary)
@@ -272,6 +274,14 @@ struct TrainTodayCard: View {
 #Preview("Start workout") {
     Text("").sheet(isPresented: .constant(true)) { StartWorkoutSheet().previewEnvironment() }
         .previewEnvironment()
+}
+
+/// Each option's detail wraps whole.
+#Preview("Start workout · AX3") {
+    Text("").sheet(isPresented: .constant(true)) {
+        StartWorkoutSheet().previewEnvironment().dynamicTypeSize(.accessibility3)
+    }
+    .previewEnvironment()
 }
 
 #Preview("Today card", traits: .sizeThatFitsLayout) {

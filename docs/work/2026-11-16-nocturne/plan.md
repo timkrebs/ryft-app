@@ -208,6 +208,132 @@ Carried over from the PR 2 review (`review.md` rows 4, 9–13 and 17):
   (about 70 % metric colour in the 2-up corners) and sets labels in recovery glow tiles in full `textPrimary` instead of
   78 %, so §6's 4.5:1 still holds; the contrast tests are re-pinned. P2-D1 is superseded.
 
+### PR 4 in detail — `today and sleep in nocturne` (branch `feat/nocturne-today`)
+Today and Sleep per brief §4, built from the PR 2 components and gauge v3. The tab bar stays as it is until PR 5. No model,
+sync or API change: data the screens show but the app doesn't have gets a `MockData` placeholder and an entry in
+`docs/API_REQUESTS.md`.
+
+| Ticket | Owner | Output |
+|---|---|---|
+| T4.1 Spec: Today and Sleep layout, states, data inventory, accessibility, the launch's matched move, the thin-digit switch | ui-designer | `design.md` "PR 4" |
+| T4.2 Today | ios-developer | `Features/Today/`, the hero gauge size, the header lock-up, the launch's matched move |
+| T4.3 Sleep | ios-developer | `Features/Sleep/` |
+| T4.4 Copy | localization-editor | `Localizable.xcstrings` (English only) |
+| T4.5 Tests from the criteria | test-engineer | `RyftTests/`, `RyftUITests/` |
+| T4.6 Data gaps | api-contract-keeper | `docs/API_REQUESTS.md` |
+
+T4.1 starts now on the PR 3 head; T4.2 onwards start after PR 3 is merged (the branch is rebased onto `main` first).
+T4.2 and T4.3 can run in parallel worktrees if the spec assigns the shared files (`GlowTileSpec`, the catalog, `MockData`).
+
+**Measurements from the Today board** (390 × 844; content inset 56 top, 20 sides; 0.62 / 0.55 / 0.45 = `textPrimary` alpha):
+- **Header**, 40 high: the mark at 26 (stroke 5.2 and dots r 7.7 in the 100 box), gap 10, "RYFT" 15 pt Light at 0.32 em;
+  a 40 pt `CircleButton` "Calendar" (16 pt glyph, 1.2 stroke) on the right.
+- **Greeting**, 18 below: "Good evening, ‹first name›" 26 pt Light, tracking −0.01 em; 4 below it "Sunday, Nov 15 · Your
+  health is in balance", 13 pt at 0.62.
+- **Gauge v3** at 260 × 260, 14 below, centred; `DotNumeral` "84", glyph gap 8 (or Light 52 with the thin-digit switch).
+- **Label row**, 8 below, 13 pt, gap 10: "Readiness · High" at 0.62, then "▲ +11 vs 7 d" in the recovery colour.
+- **Ruler**, 12 below, 36 high: `RulerScale` 0–100, `Ticks.today` (61), zone ≥ 67 (high), needle at the readiness;
+  labels "0 · low · moderate · high · 100", 11 pt at 0.45.
+- **Two glow tiles**, 22 below, gap 12, 124 high, radius 24, padding 14 / 16. The board's glow: ellipse 85 % × 80 % at
+  50 % / 50 %, `background` at 0.97 / 0.92 @ 30 % / 0.55 @ 65 % / 0.10 @ 100 % (user decision: as bright as the board).
+  - Recovery (teal): "Recovery" 13 pt; an HRV sparkline 58 × 20 (1.3 stroke, ink 0.8) ending in a Volt dot r 3 with a
+    1.5 `background` ring; the value "82" 34 pt Light + "%" 13 pt at 0.62, bottom-left at 16 / 12.
+  - Sleep (violet): "Sleep" and a `DotRow` of 7 nights (6 pt dots, gap 4; today trailing in Volt); "7:48" 34 pt Light + "h".
+- **Strain glow tile**, full width, 12 below, 96 high, radius 24; ellipse 90 % × 110 %, stops 0.97 / 0.92 @ 32 % /
+  0.55 @ 66 % / 0.10. One row: "Strain" 13 pt, "12.4" 30 pt Light pushed right, "of 21 · moderate" 13 pt at 0.62; a
+  compact `RulerScale` 0–21 (`Ticks.strainCompact`, 43), zone 10–14, needle at the strain, 16 in from the sides, 12 up.
+- **My Day** follows below on `surface` when scrolling (brief §4), unchanged in content.
+
+**Measurements from the Sleep board** (same frame):
+- **Header**, 40 high: `CircleButton` "Previous night" (chevron 14, 1.3 stroke) · centre "Sleep" 15 pt and "Last night ·
+  Sun, Nov 15" 12 pt at 0.55, 2 below · `CircleButton` "Next night", its chevron at 0.35 when there is no next night.
+- **Numeral**, 22 below: `DotNumeral` "7:48", glyph gap 7 (`:` is one column), `placeholder: "0:00"`; "Asleep · 94 % of
+  your need" 13 pt at 0.62, 12 below.
+- **Ruler**, 14 below, 36 high: 0–10 h, `Ticks.sleep` (61), the need zone in the sleep style (7.5–8.3 h on the board,
+  from server data via `zone(lo:hi:)`), needle at the duration; labels "0 h · need 8:18 · 10 h".
+- **Hypnogram glow tile**, 20 below, 168 high, radius 28; ellipse 90 % × 95 % at 50 % / 55 %, stops 0.97 / 0.92 @ 34 % /
+  0.55 @ 68 % / 0.10. Header "Hypnogram" 13 pt and "22:50 – 07:00" 12 pt at 0.55. 10 below: a 38 pt column "Awake, REM,
+  Light, Deep" (11 pt at 0.55) and the chart (90 high): four grid lines (ink 0.08), deep spans as sleep-colour bars 8 high
+  (radius 4) on the bottom line, the stage step line (ink 0.85, 1.4). 8 below: "Deep 1:35 · REM 1:45 · Light 4:28 · Awake
+  0:22", 12 pt at 0.62, spread.
+- **2 × 2 neutral tiles**, 12 below, gap 12, 88 high, radius 22, `surface`, padding 14 / 16; label 13 pt at 0.62; value
+  26 pt Light + unit 12 pt at 0.55, bottom-left at 16 / 12:
+  Consistency "86 %" + a 7-night `DotRow` bottom-right · Sleep debt "0:30 h" + "▼ 0:42" 12 pt in the sleep colour ·
+  Efficiency "95 %" · Restorative "3:20 h" + "Deep + REM" 12 pt at 0.55.
+
+**Lead decisions for PR 4**
+- **L14:** Today's gauge gets a hero size: frame 260 (dial 248), the size PR 3 previewed as `.custom`.
+- **L15:** The launch hands off with the matched move (brief §5 "dann"): the mark and "RYFT" fly into Today's header
+  lock-up through PR 3's seam (`LaunchStage`, the `.launch` space, `handOff(at:)`), the tagline fades with the overlay,
+  and the gauge entrance starts when the lock-up has landed. Any other root, the reduced variant or a skip before the
+  mark has formed cross-fades as in PR 3. The splash is not made the last frame (rare; not worth a second path).
+- **L16:** The board's thin-digit switch is a user preference. T4.1 proposes where it lives; the lead decides.
+- **L17:** The brief's Volt list doesn't name the HRV sparkline's end dot. It is the "today" mark of a series, like
+  `DotRow`'s today, so it is allowed; nowhere else.
+- **L18:** Anything the boards show that the app has no data for (e.g. the 7-day readiness delta, the HRV series, nightly
+  stages, consistency, efficiency) is inventoried by T4.1 against the view models; gaps get placeholders and
+  `API_REQUESTS.md` entries, not invented values.
+
+**Decisions on the spec (`design.md` "PR 4", questions 1–10), 2026-11-17**
+- **L19 (user):** the hero-number switch lives in Profile → a new "Display" section, "Hero numbers: Dots / Thin"
+  (`ui.heroNumerals`); it applies to Today, Sleep and (PR 5) Strain. AX1 and up stay Light.
+- **L20 (user):** Sleep keeps its Day / Week / Month / Bedtime picker, under the header; the board's content follows 48 pt
+  lower.
+- **L21:** Today keeps the sync status row under the sub-line: freshness stays visible.
+- **L22:** Dropped: Today's `MiniHypnogram` card (behind `today.redesign`, default off), Sleep's `StageBar`, and the
+  Efficiency and Sleep debt rows in Details (the new tiles show them).
+- **L23:** Inside a glow tile there are two inks only: full `textPrimary` and the label opacity (100 % in recovery tiles,
+  78 % otherwise). The board's 0.62 and 0.55 fail 4.5:1 in the core, so §6 wins.
+- **L24:** A night counts as "enough" at ≥ 90 % of its need, the same band the ruler's need zone shows (90–100 % of the
+  need; the board's 7.5–8.3 h is exactly that for an 8:18 need). No platform flag (R-N3 is not filed).
+- **L25:** The matched move's lifecycle as proposed: a 0.5 s hand-off when the mark moves (0.4 s otherwise), the 250 ms
+  motion rule makes an exception for it, a new `launchRevealsRoot` with an empty gauge slot until the lock-up lands,
+  and no splash as the last frame. code-reviewer checks it against ADR 0017.
+- **L26:** `DotRow.Mark.noData` (additive) and the board night in `MockData` are accepted; tests pinning the old mock
+  values are re-pinned in the PR, each listed.
+- **Order:** T4.0 (shared components, Settings, MockData, catalog) first, then T4.2 Today and T4.3 Sleep in parallel on
+  disjoint files (`design.md` §P4-12), then T4.4 strings, T4.6 `API_REQUESTS.md` (R-N1 strain target, R-N2 display
+  name), T4.5 tests.
+
+**Acceptance criteria**
+1. Today and Sleep match the measurements above (ui-validator from 3x pixels, ±1 pt, colours exact) at default size,
+   and stay usable at AX3 (nothing clipped, stacks where needed, `DotNumeral` falls back to Light).
+2. One glow tile per section, text only in the dark core at ≥ 4.5:1 (labels in recovery glow tiles in full
+   `textPrimary`); Reduce Transparency draws flat `surface` with a 2 pt metric border.
+3. Every state keeps working: pending, calibrating, no data, offline, gated, demo, and the previous and next night on
+   Sleep. Missing data shows a placeholder, never a made-up number.
+4. VoiceOver: one sentence per gauge and ruler, header traits, the buttons labelled, focus order top to bottom; Volt never
+   carries meaning alone.
+5. The launch's matched move per L15, tested on its pure rect interpolation; criterion 5 of PR 3 still holds.
+6. Zero warnings; Unit, UISmoke, `make lint` and `make style` green; strings English only, catalog edits targeted.
+
+### After the screen audit — PR 5 widened, PR 6 added (2026-11-17)
+
+The ui-validator captured every user-reachable screen against the brief (`audit.md` in this folder; the ~140
+screenshots stay in the lead's scratchpad). Only Launch, Sleep → Day and the Welcome lock-up are Nocturne; Today is
+PR 4. The user decided L27–L30 on 2026-11-17.
+
+- **L27 (user): teal is recovery only.** The primary button is the light `PillButton(.primary)` with the dark icon
+  circle; `PrimaryButton` (24 files) and `TealButtonStyle` (33 uses) move to the Nocturne buttons, and links, toggles,
+  checkmarks and icon tints go neutral (`textPrimary`), Volt only for the one marked thing. One central change, the
+  **first ticket of PR 5**, so every screen inherits it before its own restyle.
+- **L28 (user): screens without a board are designed by ui-designer from the Nocturne components**, and the lead shows
+  the user screenshots for approval before they are built. Welcome and the live workout first; no new canvas boards.
+- **L29 (user): PR 5 finishes all five tabs.** Besides Strain, Insights, Profile and the dot tab bar it takes Sleep →
+  Week, Month and Bedtime (Day's header, stage bars in the sleep violet family, no blue) and the Workout detail (Strain
+  family).
+- **L30 (user): the two AX3 failures are fixed now**, in a small `fix:` PR from `main` that ships with PR 4: Welcome
+  scrolls so the privacy line and its link stay reachable, and the live workout's header, Finish and set table have an
+  AX layout. PR 6 restyles both on top.
+
+| PR | Scope |
+|---|---|
+| 5 `strain, insights, profile in nocturne` | T5.0 the accent change (L27); Strain, Workout detail; Insights; Profile (the main list); the dot tab bar; Sleep → Week, Month, Bedtime |
+| 6 `the remaining screens in nocturne` | Signed out (Welcome, Log in, Create account, Reset password, Check inbox, Set new password); onboarding (invite, consent, about you, Apple Health, What do you wear, tracker setup, account hint); My Day, Add activity, Add sleep, activity detail; Train (start sheet, live workout, finish, summary, plans, plan builder, history, session detail, exercise page); Profile's subpages (Display, About, Report a problem, Devices & sync, Check sync, Sync details, Notifications, Journal, Sign-in methods, Licences, CSV import, sleep baseline); Sleep's sheets (need, baseline, Bedtime & wake, Tonight); the Journal sheet; status and error sheets; splash and misconfigured build |
+
+Not covered by the audit (device or session only): the confirmation dialogs, real sign-in errors, the widget on the
+home and lock screens, Live Activities, the HealthKit sheet, push.
+
 ## Risks
 - **The string catalog.** A local Xcode build re-serialised it in the user's checkout (8.7k lines, uncommitted on
   `chore/domain-ryftlab`). Every brief requires `make strings` or targeted edits, and a `--stat` check.

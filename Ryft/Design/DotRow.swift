@@ -1,5 +1,6 @@
-// A row of day dots (Nocturne, docs/work/2026-11-16-nocturne/design.md §P2-4): one per night or day, left to right.
-// Full and missed differ by shape (fill or outline), not colour; `today` is the Volt position marker, put last.
+// A row of day dots (Nocturne, docs/work/2026-11-16-nocturne/design.md §P2-4, §P4-11 test 32): one per night or day, left
+// to right. Full, missed and no data differ by shape (fill, outline, a small dot), not colour; `today` is the Volt position
+// marker, put last.
 import SwiftUI
 
 /// Dots of 6 pt with a 4 pt gap, in one row. One accessibility element: the caller's summary ("Slept enough on 5 of
@@ -7,12 +8,15 @@ import SwiftUI
 struct DotRow: View {
     /// `today` differs from `full` only by hue (Volt against `textPrimary`, the same size, shape and luminance). Its
     /// non-colour cue is position (brief §6): `today` is always the trailing mark, so the caller puts it last, and the
-    /// caller's accessibility summary must name today.
-    enum Mark { case full, missed, today }
+    /// caller's accessibility summary must name today. `noData`: a night without the numbers to tell (L26), so it is not
+    /// drawn as a miss; the summary counts it.
+    enum Mark: Sendable { case full, missed, today, noData }
 
     /// Dot diameter, the gap between dots, the missed dot's outline (`textPrimary` at 50 %, 1 pt).
     nonisolated static let dot: CGFloat = 6, gap: CGFloat = 4, outlineOpacity = 0.5
     static let outlineWidth: CGFloat = 1
+    /// A night without data: a 2 pt dot at 35 %, centred in its 6 pt cell (the row keeps its width).
+    nonisolated static let noDataDot: CGFloat = 2, noDataOpacity = 0.35
 
     private let marks: [Mark]
     private let accessibilityLabel: Text
@@ -38,6 +42,9 @@ struct DotRow: View {
         case .full: Circle().fill(Theme.textPrimary)
         case .missed: Circle().strokeBorder(Theme.textPrimary.opacity(Self.outlineOpacity), lineWidth: Self.outlineWidth)
         case .today: Circle().fill(Theme.signal)
+        case .noData:
+            Circle().fill(Theme.textPrimary.opacity(Self.noDataOpacity))
+                .frame(width: Self.noDataDot, height: Self.noDataDot)
         }
     }
 
@@ -56,6 +63,8 @@ struct DotRow: View {
                    accessibilityLabel: Text("Slept enough on 4 of the last 6 nights; tonight is marked"))
             DotRow(Array(repeating: .missed, count: 7), accessibilityLabel: Text("Slept enough on none of the last 7 nights"))
             DotRow([.today], accessibilityLabel: Text("Tonight is marked"))
+            DotRow([.full, .missed, .full, .noData, .missed, .full, .today],
+                   accessibilityLabel: Text(verbatim: "Slept enough on 4 of the last 7 nights; 1 night has no data"))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

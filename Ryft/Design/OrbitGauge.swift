@@ -28,6 +28,9 @@ struct OrbitGauge: View {
     let mode: OrbitGaugeMode
     var size: Size = .large
     var caption: Caption?
+    /// Draws `caption` under the gauge. Nocturne's Today passes `false` and draws the band and the change in its own
+    /// label row (design.md §P4-1, row 7); the caption still makes the spoken sentence (band, change).
+    var showsCaption = true
     /// Read after the value, e.g. a `GaugeNote` shown under the gauge ("Recalculating your baselines").
     var accessibilityNote: String?
     /// Today uses `today.readinessGauge`.
@@ -74,12 +77,13 @@ struct OrbitGauge: View {
 
     /// `entrance: .assemble` plays the launch entrance once for this view instance, from its first frame, into the
     /// real mode (design.md section 10). `frozenAt` is for previews and tests only.
-    init(mode: OrbitGaugeMode, size: Size = .large, caption: Caption? = nil, accessibilityNote: String? = nil,
-         identifier: String = "orbitGauge", animatesFill: Bool = true, breathes: Bool = true,
-         numeral: DotNumeral.Style = .dots, entrance: Entrance = .none, frozenAt: Double? = nil) {
+    init(mode: OrbitGaugeMode, size: Size = .large, caption: Caption? = nil, showsCaption: Bool = true,
+         accessibilityNote: String? = nil, identifier: String = "orbitGauge", animatesFill: Bool = true,
+         breathes: Bool = true, numeral: DotNumeral.Style = .dots, entrance: Entrance = .none, frozenAt: Double? = nil) {
         self.mode = mode
         self.size = size
         self.caption = caption
+        self.showsCaption = showsCaption
         self.accessibilityNote = accessibilityNote
         self.identifier = identifier
         self.animatesFill = animatesFill
@@ -97,8 +101,9 @@ struct OrbitGauge: View {
     private var reducesEntrance: Bool { reduceMotion || lowPower }
 
     private var values: OrbitGaugeValues? { mode.scoredValues }
-    /// `.large` and the larger custom sizes (the 260 board); never under a medium or small gauge.
-    private var shownCaption: Caption? { size.dial >= Size.large.dial ? caption : nil }
+    /// `.large` and the larger custom sizes (the 260 board); never under a medium or small gauge, nor with
+    /// `showsCaption` off.
+    private var shownCaption: Caption? { showsCaption && size.dial >= Size.large.dial ? caption : nil }
 
     var body: some View {
         Group {
@@ -637,6 +642,15 @@ struct OrbitGaugePreviewBoard: View {
 
 #Preview("OrbitGauge · numeral", traits: .sizeThatFitsLayout) {
     DarkPreview { OrbitGaugePreviewBoard(parts: [.numeral]) }
+}
+
+#Preview("OrbitGauge · caption hidden", traits: .sizeThatFitsLayout) {
+    // Nocturne's Today: the 260 gauge without its caption (the label row under it is the screen's); the sentence keeps
+    // the band and the change.
+    DarkPreview {
+        OrbitGauge(mode: .scored(.previewBoard), size: .previewBoard, caption: .previewBoard, showsCaption: false)
+            .border(Theme.separator)
+    }
 }
 
 #Preview("OrbitGauge · AX3", traits: .sizeThatFitsLayout) {

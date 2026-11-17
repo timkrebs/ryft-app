@@ -27,7 +27,27 @@ struct WelcomeView: View {
         .environment(\.colorScheme, .dark)
     }
 
+    /// Where it fits (the default sizes), the first child lays it out as it always was: the spacers share what's left and
+    /// the ways in sit at the bottom. Where it doesn't (the accessibility sizes, or a notice too many), the same content
+    /// scrolls at its own height instead of being squeezed, so the privacy line wraps whole and its link stays reachable.
     private var welcome: some View {
+        // Looked up once here: both children are built, and each lookup reads the activity store.
+        let parked = ParkedActivitiesNotice.parkedToMention(in: env)
+        return ViewThatFits(in: .vertical) {
+            content(parked: parked)
+            ScrollView { content(parked: parked) }
+        }
+        // No text field here, but popping back from Log in can arrive with the keyboard still up: a height shortened by it
+        // would switch the two children mid-transition.
+        .ignoresSafeArea(.keyboard)
+        // Here, not on the privacy line: only one of the two children above is shown, and the sheet belongs to the screen.
+        .safariSheet($legal)
+        .background(Theme.background.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+        .onAppear { auth.errorMessage = nil }
+    }
+
+    private func content(parked: ParkedActivitiesNotice.Parked?) -> some View {
         VStack(spacing: 0) {
             Spacer(minLength: 32)
             BrandLockup()
@@ -42,17 +62,14 @@ struct WelcomeView: View {
             }
             .frame(maxWidth: 360, alignment: .leading)
             Spacer(minLength: 32)
-            actions
+            actions(parked: parked)
         }
         .padding(.horizontal, Theme.Metrics.screenPadding + 8)
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.background.ignoresSafeArea())
-        .toolbar(.hidden, for: .navigationBar)
-        .onAppear { auth.errorMessage = nil }
     }
 
-    private var actions: some View {
+    private func actions(parked: ParkedActivitiesNotice.Parked?) -> some View {
         VStack(spacing: 12) {
             if let problem = SupabaseConfig.problem {
                 InlineMessage(message: problem, systemImage: "key")
@@ -63,7 +80,7 @@ struct WelcomeView: View {
             }
             // Activities and nights a session expiry kept on this iPhone (design.md §8.4). Not behind
             // `activities.manual`: only an enabled feature parks rows, and signed out the flag reads its default.
-            if let parked = ParkedActivitiesNotice.parkedToMention(in: env) {
+            if let parked {
                 ParkedActivitiesNotice(parked: parked) { env.activities.purgeParked() }
             }
             VStack(spacing: 12) {
@@ -86,7 +103,6 @@ struct WelcomeView: View {
                 .foregroundStyle(Theme.textTertiary)
                 .tint(Theme.textSecondary)
                 .multilineTextAlignment(.center)
-                .safariSheet($legal)
             #if DEBUG
             Button {
                 settings.apiKeyMode = true
@@ -135,6 +151,14 @@ private struct ValueLine: View {
     WelcomeView()
         .environment(AuthService.preview(signedIn: false))
         .environment(Settings.shared)
+}
+
+/// Scrolls: the privacy line wraps whole under the ways in.
+#Preview("Welcome · AX3") {
+    WelcomeView()
+        .environment(AuthService.preview(signedIn: false))
+        .environment(Settings.shared)
+        .dynamicTypeSize(.accessibility3)
 }
 
 #Preview("Welcome · signed out notice") {

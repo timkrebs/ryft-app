@@ -36,6 +36,7 @@ struct ProfileView: View {
                 if model.showsTraining { training }
                 if model.showsNotifications { notifications }
                 if screens.journal.isLive { journal }
+                display
                 about
                 #if DEBUG
                 developer
@@ -596,6 +597,20 @@ struct ProfileView: View {
         }
     }
 
+    // MARK: display
+
+    /// The hero numbers' look (L19, design.md §P4-6): it applies at once, the screens read the observable `Settings`.
+    private var display: some View {
+        ProfileSection(title: "Display") {
+            HeroNumeralsRow(selection: Bindable(settings).heroNumerals)
+            Text("Large numbers on Today, Sleep and Strain.",
+                 comment: "Footer under Profile → Display → Hero numbers: where the dots or thin digits show.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     // MARK: about
 
     private var about: some View {
@@ -848,6 +863,33 @@ extension View {
             }
             .presentationDetents([.large])
         }
+    }
+}
+
+/// Profile → Display → "Hero numbers": a two-way menu, Dots or Thin, in `SettingRow`'s type; the title and the menu are
+/// read one after the other, as Birth year's are. At accessibility sizes the menu goes under the title.
+struct HeroNumeralsRow: View {
+    @Binding var selection: HeroNumerals
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(spacing: 8))
+        layout {
+            Text("Hero numbers", comment: "Profile → Display: how the large numbers on Today, Sleep and Strain are drawn.")
+                .font(.ryft(.body))
+                .foregroundStyle(Theme.textPrimary)
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
+            Picker(selection: $selection) {
+                ForEach(HeroNumerals.allCases) { Text($0.title).tag($0) }
+            } label: {
+                Text("Hero numbers", comment: "Profile → Display: how the large numbers on Today, Sleep and Strain are drawn.")
+            }
+            .pickerStyle(.menu)
+            .tint(Theme.accent)
+            .accessibilityIdentifier("profile.heroNumerals")
+        }
+        .frame(minHeight: 44)
     }
 }
 
@@ -1412,6 +1454,15 @@ private enum SyncDetailsPreview {
     .previewEnvironment(state)
     .environment(\.locale, Locale(identifier: "de"))
     .environment(\.dynamicTypeSize, .accessibility3)
+}
+
+#Preview("Hero numbers row", traits: .sizeThatFitsLayout) {
+    DarkPreview { Card { HeroNumeralsRow(selection: .constant(.dots)) } }
+}
+
+#Preview("Hero numbers row · AX3", traits: .sizeThatFitsLayout) {
+    DarkPreview { Card { HeroNumeralsRow(selection: .constant(.thin)) } }
+        .environment(\.dynamicTypeSize, .accessibility3)
 }
 
 #Preview("Profile · dark") {

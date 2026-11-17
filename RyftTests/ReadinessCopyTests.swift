@@ -63,8 +63,9 @@ struct ReadinessCopyTests {
         #expect(DailyScore(day: "2026-10-18", readiness: 90, state: .strained).resolvedState == .strained)
     }
 
-    @Test(arguments: [(6, "Good morning,"), (11, "Good morning,"), (12, "Good afternoon,"), (17, "Good afternoon,"),
-                      (18, "Good evening,"), (2, "Good evening,")])
+    /// Without a name (none known): the words alone, no comma (Nocturne; with a name in `TodayNocturneTests`).
+    @Test(arguments: [(6, "Good morning"), (11, "Good morning"), (12, "Good afternoon"), (17, "Good afternoon"),
+                      (18, "Good evening"), (2, "Good evening")])
     func greeting(hour: Int, expected: String) {
         let d = Calendar.current.date(bySettingHour: hour, minute: 30, second: 0, of: .now)!
         #expect(ReadinessCopy.greeting(at: d) == expected)

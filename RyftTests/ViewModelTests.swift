@@ -55,9 +55,12 @@ struct TodayViewModelTests {
             let sync = SyncService.ungated(env: env)
             return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
         }()
-        #expect(vm.greeting == String(localized: "Good morning,"))
+        // No account name in this state: the greeting goes without one (Nocturne, R-N2).
+        #expect(vm.greeting == String(localized: "Good morning"))
         clock.set(Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: .now)!)
-        #expect(vm.greeting == String(localized: "Good evening,"))
+        #expect(vm.greeting == String(localized: "Good evening"))
+        state.user = MockData.user
+        #expect(vm.greeting == String(localized: "Good evening, \("Tim")"))
     }
 
     /// Nothing cached at all: the card shows after one failed pass (a blank Today is the alternative).
@@ -79,6 +82,45 @@ struct TodayViewModelTests {
         #expect(issue.reason == .busy && issue.resource == .today && issue.failures == 1 && issue.dataFrom == nil)
         #expect(issue.error.status == 500 && issue.error.requestID == "rid-500" && issue.error.attempts == 3)
         #expect(api.count("day") == 3) // two silent retries first
+    }
+
+    /// VN2: with nothing to show because the day couldn't load, the sub-line is the date alone: not "Your scores appear
+    /// after the first synced night", which a failed load can't know, and not the reason again (the status row and the
+    /// card say it). VoiceOver hears the greeting and the date. With the day cached, the score's own sentence.
+    @Test func aFailedLoadWithoutDataNeverSaysNothingHasSynced() async throws {
+        let api = MockPlatformAPI()
+        api.failure = APIError.transport(URLError(.timedOut))
+        let (env, state, _) = makeState(api: api)
+        // The first import is over (else the import card stands in, with its own sentence).
+        let account = try #require(env.auth.accountID)
+        var engine = SyncEngineState()
+        engine.backfillDone = true
+        engine.save(account: account, defaults: env.defaults)
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
+        await state.refresh()
+        guard case .refreshIssue(let issue) = vm.status else {
+            Issue.record("expected the card, got \(String(describing: vm.status))")
+            return
+        }
+        #expect(issue.reason == .unreachable && vm.hero == .score, "\(issue.reason), \(vm.hero)")
+        let english = Locale(identifier: "en_US")
+        let date = TodayContent.subLineDate(env.clock.now(), locale: english)
+        #expect(vm.content.subLine(locale: english) == date, "\(vm.content.subLine(locale: english))")
+        #expect(vm.sentence.isEmpty && vm.sentence != String(localized: "Your scores appear after the first synced night."))
+        let spoken = TodayView.spokenIntro(greeting: "Good morning", day: vm.content, locale: english)
+        #expect(spoken == "Good morning. \(TodayContent.spokenDate(env.clock.now(), locale: english)).", "\(spoken)")
+
+        // The same facts with the day cached: the score's sentence after the date.
+        var cached = vm.content.facts
+        cached.today = MockData.todayScore
+        let p = TodayPresentation.decide(cached.scores)
+        let content = TodayContent(facts: cached, presentation: p, hero: TodayStates.hero(cached, presentation: p),
+                                   hasDataSource: true, readinessWeek: [], detailSleepMin: nil)
+        #expect(cached.loadIssue == .unreachable && !content.sentence.isEmpty)
+        #expect(content.subLine(locale: english) == "\(date) · \(content.sentence)")
     }
 
     /// Criterion 8/9 from the failure itself: status, code, request ID and resource reach the card's issue,
@@ -497,7 +539,7 @@ struct TodayStatesTests {
         #expect(vm.rawNight?.source == "Garmin Connect")
         // Nothing pretends to be today's: the gauge is an outline, the tiles are yesterday's, dimmed and dated.
         #expect(vm.readiness == nil && vm.tilesDimmed && vm.tileCaption == String(localized: "Yesterday"))
-        #expect(vm.sleepText == Fmt.duration(minutes: 430) && vm.recoveryCaption == String(localized: "Yesterday"))
+        #expect(vm.sleepText == Fmt.clock(minutes: 430) && vm.recoveryCaption == String(localized: "Yesterday"))
         #expect(vm.sentence == String(localized: "Yesterday's readiness, until last night is scored."))
         state.todayScenario = .importing
         #expect(vm.hero.isImporting && vm.showsImportPushPrompt)
@@ -1353,7 +1395,7 @@ struct TodayPresentationTests {
         let c = model(today: try placeholder(), history: history(), status: .pending)
         #expect(c.hero.isPending && c.readiness == nil && c.readinessDelta == nil)
         #expect(c.tilesDimmed && c.tileCaption == yesterdayTitle && c.recoveryCaption == yesterdayTitle)
-        #expect(c.sleepText == Fmt.duration(minutes: 430) && c.recoveryText == Fmt.percent(75) && c.strainText == Fmt.strain(0.9))
+        #expect(c.sleepText == Fmt.clock(minutes: 430) && c.recoveryText == Fmt.percent(75) && c.strainText == Fmt.strain(0.9))
         #expect(c.sentence == String(localized: "Yesterday's readiness, until last night is scored."))
         #expect(c.gaugeNote == nil)
         // D, today: the score without a delta, the note, today's tiles.
@@ -1620,11 +1662,12 @@ struct SleepViewModelTests {
         let (_, state, _) = makeState()
         let vm = SleepViewModel(state: state)
         vm.mode = .day
-        #expect(vm.subtitle == String(localized: "Last night"))
+        // Nocturne's subtitle carries the night's date (design.md §P4-2 row 1).
+        #expect(vm.subtitle.hasPrefix("Last night · "))
         #expect(!vm.canStepForward)
 
         await vm.step(by: -1)
-        #expect(vm.subtitle == String(localized: "Yesterday"))
+        #expect(vm.subtitle.hasPrefix("Yesterday · "))
         #expect(vm.canStepForward)
         #expect(vm.sleep != nil)
 
@@ -1658,9 +1701,9 @@ struct SleepViewModelTests {
         let score = DailyScore(day: day(0), sleepNeedMin: 500, sleepActualMin: 450, sleepDebtMin: 60)
         let summary = SleepNightSummary(sleep: sleep, score: score)
         #expect(summary.actualOfNeed == String(localized: "90% of need"))
-        #expect(summary.debtIsHigh)
-        #expect(SleepNightSummary(sleep: sleep, score: DailyScore(day: day(0), sleepDebtMin: 0)).debt
-            == String(localized: "None"))
+        // The debt is a tile in Nocturne (design.md §P4-2 row 7): high above 45 minutes, "None" at 0.
+        #expect(SleepTile.debt(60, before: nil).notes.map(\.ink) == [.warning])
+        #expect(SleepTile.debt(0, before: nil).value == String(localized: "None"))
     }
 
     @Test func rangeSummaryBuildsBarsAndRegularity() {
