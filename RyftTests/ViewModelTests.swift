@@ -84,6 +84,41 @@ struct TodayViewModelTests {
         #expect(api.count("day") == 3) // two silent retries first
     }
 
+    /// VN2: with nothing to show because the day couldn't load, the sub-line says why (the card's reason), not "Your
+    /// scores appear after the first synced night", which a failed load can't know. With the day cached, the issue
+    /// changes nothing there: the score's own sentence.
+    @Test func aFailedLoadWithoutDataNeverSaysNothingHasSynced() async throws {
+        let api = MockPlatformAPI()
+        api.failure = APIError.transport(URLError(.timedOut))
+        let (env, state, _) = makeState(api: api)
+        // The first import is over (else the import card stands in, with its own sentence).
+        let account = try #require(env.auth.accountID)
+        var engine = SyncEngineState()
+        engine.backfillDone = true
+        engine.save(account: account, defaults: env.defaults)
+        let vm = {
+            let sync = SyncService.ungated(env: env)
+            return TodayViewModel(state: state, sync: sync, coordinator: coordinator(state, sync), apiStatus: APIStatus())
+        }()
+        await state.refresh()
+        guard case .refreshIssue(let issue) = vm.status else {
+            Issue.record("expected the card, got \(String(describing: vm.status))")
+            return
+        }
+        #expect(issue.reason == .unreachable && vm.hero == .score, "\(issue.reason), \(vm.hero)")
+        #expect(vm.sentence == RefreshIssue.Reason.unreachable.message, "\(vm.sentence)")
+        #expect(vm.sentence != String(localized: "Your scores appear after the first synced night."))
+
+        // The same facts with the day cached: the score's sentence.
+        var cached = vm.content.facts
+        cached.today = MockData.todayScore
+        let p = TodayPresentation.decide(cached.scores)
+        let content = TodayContent(facts: cached, presentation: p, hero: TodayStates.hero(cached, presentation: p),
+                                   hasDataSource: true, readinessWeek: [], detailSleepMin: nil)
+        #expect(cached.loadIssue == .unreachable)
+        #expect(content.sentence != RefreshIssue.Reason.unreachable.message, "\(content.sentence)")
+    }
+
     /// Criterion 8/9 from the failure itself: status, code, request ID and resource reach the card's issue,
     /// and the line then reads "Couldn't load today · Details".
     @Test func theCardCarriesTheFailuresStatusCodeAndRequestID() async {

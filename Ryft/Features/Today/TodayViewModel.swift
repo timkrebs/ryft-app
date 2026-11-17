@@ -178,6 +178,7 @@ final class TodayViewModel {
         f.online = env.connectivity.isOnline
         f.gate = gate
         f.syncFailed = !state.isDemo && sync.lastError != nil && env.settings.isConfigured
+        f.loadIssue = state.refreshIssue?.reason
         f.isLoading = state.isLoading
         f.isDemo = state.isDemo
         f.syncs = !state.isDemo && env.auth.isSignedIn && env.settings.isConfigured && env.health.isAvailable
@@ -398,6 +399,9 @@ struct TodayContent {
             let date = day.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
             return String(localized: "Readiness from \(date), while your baselines are recalculated.")
         case .readiness, .firstImport:
+            // Nothing to show because the day couldn't load: the issue's own sentence, not "Your scores appear after
+            // the first synced night" (VN2), which a failed load can't know.
+            if facts.today == nil, let issue = facts.loadIssue { return issue.message }
             return ReadinessCopy.sentence(score: facts.today)
         }
     }
@@ -659,6 +663,9 @@ struct TodaySyncFacts: Equatable {
     /// The gate the account is behind (onboarding's word, or a refused upload's).
     var gate: OnboardingCoordinator.Step?
     var syncFailed = false
+    /// Why a read failed past `RefreshPolicy`'s threshold (`AppState.refreshIssue`: the status line's "Couldn't load
+    /// today"), or nil: with nothing to show, the sub-line says it instead of claiming nothing has synced (VN2).
+    var loadIssue: RefreshIssue.Reason?
     var isLoading = false
     var isDemo = false
     /// A signed-in account on a configured platform with Apple Health: its data syncs.
