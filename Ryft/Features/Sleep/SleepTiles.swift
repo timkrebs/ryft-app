@@ -167,7 +167,7 @@ struct SleepTile: Equatable, Identifiable {
 
     /// The unit after a clock value ("0:30 h").
     private static var hours: String {
-        String(localized: "h", comment: "Hours unit after a clock value on Sleep's tiles (\"0:30 h\", \"3:20 h\").")
+        String(localized: "h", comment: "Hours, the unit after a clock duration on Today's Sleep tile and on Sleep's tiles: \"7:48 h\", \"0:30 h\".")
     }
 }
 

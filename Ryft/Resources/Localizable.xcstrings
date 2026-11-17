@@ -2022,6 +2022,12 @@
     "No data, %@" : {
       "comment" : "VoiceOver value of a Today tile without a number, with the line under it, e.g. “No data, calibrating”."
     },
+    "No newer night to show" : {
+      "comment" : "VoiceOver hint on Sleep's disabled Next night button."
+    },
+    "No older night to show" : {
+      "comment" : "VoiceOver hint on Sleep's disabled Previous night button."
+    },
     "No readiness yet, on a scale from 0 to 100" : {
       "comment" : "VoiceOver value of Today's readiness ruler while there is no readiness (pending, calibrating, nothing scored)."
     },
@@ -2160,16 +2166,16 @@
         }
       }
     },
-    "Slept enough on %lld of the last 7 nights; the last mark is the night shown" : {
+    "Slept enough on %lld of the last 7 nights; the last is the night shown" : {
       "comment" : "VoiceOver on the 7 dots of Today's Sleep tile: nights asleep 90 % of the need or more; the last is the night shown."
     },
-    "Slept enough on %lld of the last 7 nights; the last mark is the night shown; %lld nights have no data" : {
+    "Slept enough on %lld of the last 7 nights; the last is the night shown; %lld nights have no data" : {
       "comment" : "VoiceOver on the 7-night dots of Today's Sleep tile, when some nights lack the numbers to tell (no sleep or no need).",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Slept enough on %1$lld of the last 7 nights; the last mark is the night shown; %#@nights@"
+            "value" : "Slept enough on %1$lld of the last 7 nights; the last is the night shown; %#@nights@"
           },
           "substitutions" : {
             "nights" : {
@@ -2238,12 +2244,6 @@
     },
     "Thin" : {
       "comment" : "Profile → Display → Hero numbers: large numbers in thin digits."
-    },
-    "This is your latest night" : {
-      "comment" : "VoiceOver hint on Sleep's disabled Next night button."
-    },
-    "This is your oldest night" : {
-      "comment" : "VoiceOver hint on Sleep's disabled Previous night button."
     },
     "This item uses an exercise RYFT doesn't know." : {
       "comment" : "Training import I4: the platform's code unknown_exercise."

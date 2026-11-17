@@ -347,12 +347,12 @@ struct TodayNocturneTests {
         #expect(vm.sleepNights == [.missed, .missed, .missed, .missed, .missed, .missed, .today])
         let week = vm.content.sleepWeek
         #expect(week.nights.count == 7 && week.enoughCount == 1 && week.unknownCount == 0)
-        #expect(week.summary == "Slept enough on 1 of the last 7 nights; the last mark is the night shown")
+        #expect(week.summary == "Slept enough on 1 of the last 7 nights; the last is the night shown")
         // Enough, unknown and a gap.
         let mixed = TodaySleepWeek(nights: [.enough, .unknown, .short, .enough, .unknown, .enough, .short])
         #expect(mixed.marks == [.full, .noData, .missed, .full, .noData, .full, .today])
         #expect(mixed.enoughCount == 3 && mixed.unknownCount == 2)
-        #expect(mixed.summary == String(localized: "Slept enough on \(3) of the last 7 nights; the last mark is the night shown; \(2) nights have no data"))
+        #expect(mixed.summary == String(localized: "Slept enough on \(3) of the last 7 nights; the last is the night shown; \(2) nights have no data"))
         var gap = history()
         gap.removeAll { $0.day == dayKey(-2) }
         let withGap = model(today: scored(84), history: gap, status: .scored).sleepNights

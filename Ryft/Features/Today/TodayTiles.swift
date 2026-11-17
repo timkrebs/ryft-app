@@ -46,15 +46,15 @@ struct TodaySleepWeek: Equatable, Sendable {
     var enoughCount: Int { nights.count { $0 == .enough } }
     var unknownCount: Int { nights.count { $0 == .unknown } }
 
-    /// "Slept enough on 4 of the last 7 nights; the last mark is the night shown", and "; 1 nights have no data" when
+    /// "Slept enough on 4 of the last 7 nights; the last is the night shown", and "; 1 nights have no data" when
     /// some can't be told (the catalog's plural variants say "1 night has").
     var summary: String {
         let enough = enoughCount, unknown = unknownCount
         guard unknown > 0 else {
-            return String(localized: "Slept enough on \(enough) of the last 7 nights; the last mark is the night shown",
+            return String(localized: "Slept enough on \(enough) of the last 7 nights; the last is the night shown",
                           comment: "VoiceOver on the 7 dots of Today's Sleep tile: nights asleep 90 % of the need or more; the last is the night shown.")
         }
-        return String(localized: "Slept enough on \(enough) of the last 7 nights; the last mark is the night shown; \(unknown) nights have no data",
+        return String(localized: "Slept enough on \(enough) of the last 7 nights; the last is the night shown; \(unknown) nights have no data",
                       comment: "VoiceOver on the 7-night dots of Today's Sleep tile, when some nights lack the numbers to tell (no sleep or no need).")
     }
 }
@@ -155,7 +155,9 @@ struct TodayTilesContent: Equatable {
             if isEarlierDay, let caption = recoveryCaption {
                 main = String(localized: "\(percent), \(caption), not today's score")
             } else if let caption = recoveryCaption {
-                main = String(localized: "\(recovery) percent, \(caption)")
+                main = String(localized: "\(recovery) percent, \(caption)",
+                              // swiftlint:disable:next line_length
+                              comment: "VoiceOver, two places. Training import: the progress value. Today's Recovery tile: the score, then its band or the day (\"82 percent, High\", \"75 percent, Yesterday, not today's score\").")
             } else {
                 main = percent
             }
@@ -165,7 +167,7 @@ struct TodayTilesContent: Equatable {
         return [main, hrvSentence].compactMap { $0 }.joined(separator: ". ")
     }
 
-    /// "7 hours 48 minutes. Slept enough on 4 of the last 7 nights; the last mark is the night shown".
+    /// "7 hours 48 minutes. Slept enough on 4 of the last 7 nights; the last is the night shown".
     var sleepSpoken: String {
         let main: String
         if let sleepMinutes {
@@ -282,7 +284,7 @@ struct TodayTwoUpTile<Series: View>: View {
 
     /// The unit after a clock value ("7:48 h").
     static var hoursUnit: String {
-        String(localized: "h", comment: "Hours, the unit after a clock duration such as \"7:48\" on Today's Sleep tile and Sleep's tiles.")
+        String(localized: "h", comment: "Hours, the unit after a clock duration on Today's Sleep tile and on Sleep's tiles: \"7:48 h\", \"0:30 h\".")
     }
 
     var body: some View {

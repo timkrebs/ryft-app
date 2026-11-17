@@ -102,7 +102,7 @@ struct SleepHeader: View {
     var body: some View {
         ScreenHeader {
             nightButton("chevron.left", label: Text("Previous night"), enabled: content.canStepBack,
-                        hint: Text("This is your oldest night", comment: "VoiceOver hint on Sleep's disabled Previous night button."),
+                        hint: Text("No older night to show", comment: "VoiceOver hint on Sleep's disabled Previous night button."),
                         identifier: "sleep.header.previous") { step(-1) }
         } center: {
             VStack(spacing: 2) {
@@ -123,7 +123,7 @@ struct SleepHeader: View {
             .accessibilityAddTraits(.isHeader)
         } trailing: {
             nightButton("chevron.right", label: Text("Next night"), enabled: content.canStepForward,
-                        hint: Text("This is your latest night", comment: "VoiceOver hint on Sleep's disabled Next night button."),
+                        hint: Text("No newer night to show", comment: "VoiceOver hint on Sleep's disabled Next night button."),
                         identifier: "sleep.header.next") { step(1) }
         }
     }
