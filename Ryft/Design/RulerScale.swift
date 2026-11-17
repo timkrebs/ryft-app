@@ -245,8 +245,19 @@ struct RulerScale: View {
 /// (`RulerScale.labelLines`), so no line starts or ends with a separator ("0 · low · moderate", "high · 100", never
 /// "· high · 100"); when a label doesn't fit on a line of its own either, one label per line, wrapping. The caller sets
 /// the font and ink.
+///
+/// Limits (N4): the candidates are every way to cut the labels into runs, 2^(n − 1) of them, which `ViewThatFits`
+/// measures in turn: fine for the rulers' 2 to 5 labels (16 at most), not for long lists, so it asserts 6 or fewer.
+/// Not mirrored for right-to-left: the ticks and the needle run left to right while the labels follow the layout
+/// direction (RYFT is English only).
 struct RulerLabels: View {
     let labels: [String]
+
+    init(labels: [String]) {
+        // 2^(n − 1) candidates, each measured by `ViewThatFits`: 6 labels is 32; more would make every layout pass slow.
+        assert(labels.count <= 6, "RulerLabels tries every cut of the labels into lines: keep a ruler to 6 or fewer")
+        self.labels = labels
+    }
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
