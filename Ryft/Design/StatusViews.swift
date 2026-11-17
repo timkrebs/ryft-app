@@ -224,13 +224,18 @@ struct SyncStatusLineView: View {
     var retry: (() async -> Void)? = nil
     var alignment: Alignment = .centered
 
-    /// `leading`: the tap target's least outset past the text above and below; a line under 16 pt gets more, so the
+    /// `leading`: the tap target's least outset past the text above and below; a shorter line gets more, so the
     /// target is always 44 pt or more (`verticalOutset`, VN5).
     nonisolated static let hitOutset: CGFloat = 14
 
-    /// `leading`: the outset above and below a label `textHeight` high: `hitOutset`, or what makes the target 44.
-    nonisolated static func verticalOutset(textHeight: CGFloat) -> CGFloat {
-        max(hitOutset, (44 - textHeight) / 2)
+    /// `leading`: the outset above and below a label `textHeight` high: `hitOutset`, or what makes the target a device
+    /// pixel (`scale`) over 44, on the pixel grid. The target's edges snap to the grid: one exactly 44 tall, its edges on
+    /// half pixels, came out 43.67 on the fault line (R3-E); with a pixel to spare it snaps to 44 or more.
+    nonisolated static func verticalOutset(textHeight: CGFloat, scale: CGFloat) -> CGFloat {
+        let scale = max(scale, 1)
+        let outset = max(hitOutset, (44 + 1 / scale - textHeight) / 2)
+        // Up to the grid; 1e-6 keeps an outset already on it (14.67 × 3 = 44.000…01) where it is.
+        return (outset * scale - 1e-6).rounded(.up) / scale
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -384,12 +389,13 @@ struct SyncStatusLineView: View {
 }
 
 /// `SyncStatusLineView`'s `leading` tap target: the label keeps its own height in the layout, its tap target reaches
-/// `verticalOutset` past it above and below (a 15.5 pt line: 14.25 each side, 44).
+/// `verticalOutset` past it above and below (a 15.67 pt line at 3x: 14.33 each side, 44.33).
 private struct LeadingTapTarget: ViewModifier {
     @State private var textHeight: CGFloat = 0
+    @Environment(\.displayScale) private var displayScale
 
     func body(content: Content) -> some View {
-        let outset = SyncStatusLineView.verticalOutset(textHeight: textHeight)
+        let outset = SyncStatusLineView.verticalOutset(textHeight: textHeight, scale: displayScale)
         content
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { textHeight = $0 }
             .padding(.vertical, outset)
