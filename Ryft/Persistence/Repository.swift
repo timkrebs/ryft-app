@@ -68,9 +68,9 @@ final class Repository {
     @ObservationIgnored private var userChanges = 0
     /// A refused save of the user went again (`committed`): a second refusal in a row isn't retried.
     @ObservationIgnored private var resubmittedUser = false
-    /// A misuse Debug builds stop at (`seed` while writes are pending, a preview setter on the live graph); tests
-    /// record it instead.
-    @ObservationIgnored var onMisuse: (String) -> Void = { assertionFailure($0) }
+    /// A misuse (`seed` while writes are pending, a preview setter on the live graph): Debug builds stop at it; in the
+    /// unit tests' host it fails the test that made it (`Misuse.report`). A test that expects one records it here.
+    @ObservationIgnored var onMisuse: (String) -> Void = { Misuse.report($0) }
     /// Tests watch and hold the writer through these.
     @ObservationIgnored var writeHooks = ReadModelDrain.Hooks() {
         didSet { drain.setHooks(writeHooks) }

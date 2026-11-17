@@ -219,7 +219,8 @@ holds every platform read model (`Ryft/Persistence/ReadModels.swift`):
   every other document stay on the main context (`compact()` deletes Train's histories
   there). Only `ReadModelWrites` and `TrainStore.wipe` insert or delete writer-owned rows.
 - `seed` writes at once on a context of its own, on main: previews, tests and the legacy
-  import. Only while the queue is idle (`onMisuse` otherwise); the next write gets a new
+  import. Only while the queue is idle (`onMisuse` otherwise: Debug stops there, the unit
+  tests' host fails the test that seeded, `Misuse.report`); the next write gets a new
   writer.
 - `settled()` returns once every write submitted so far has committed. A `BGTask`'s
   completion, the end of the background time after leaving the app and a silent push's

@@ -42,6 +42,10 @@ struct TodayGaugeEntranceTests {
         model.gaugeDidAssemble()
         await model.refresh()
         #expect(!model.assemblesGauge)
+        // The pull's last phase (history, user, trend, insights) goes on after it returns, and its writes after that:
+        // the setter seeds, which needs the queue idle.
+        await state.pullPhases?.value
+        await state.repository.settled()
         state.today = DayDetail(score: DailyScore(day: DayFormat.string(from: now), readiness: 74, recovery: 72, strain: 0.9,
                                                   rhr: 52, baselineDays: 30, calibrating: false, computedAt: now,
                                                   scoringState: .scored), sleep: nil, workouts: [])
