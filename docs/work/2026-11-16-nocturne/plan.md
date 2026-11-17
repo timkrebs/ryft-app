@@ -307,6 +307,33 @@ T4.2 and T4.3 can run in parallel worktrees if the spec assigns the shared files
 5. The launch's matched move per L15, tested on its pure rect interpolation; criterion 5 of PR 3 still holds.
 6. Zero warnings; Unit, UISmoke, `make lint` and `make style` green; strings English only, catalog edits targeted.
 
+### After the screen audit — PR 5 widened, PR 6 added (2026-11-17)
+
+The ui-validator captured every user-reachable screen against the brief (`audit.md` in this folder; the ~140
+screenshots stay in the lead's scratchpad). Only Launch, Sleep → Day and the Welcome lock-up are Nocturne; Today is
+PR 4. The user decided L27–L30 on 2026-11-17.
+
+- **L27 (user): teal is recovery only.** The primary button is the light `PillButton(.primary)` with the dark icon
+  circle; `PrimaryButton` (24 files) and `TealButtonStyle` (33 uses) move to the Nocturne buttons, and links, toggles,
+  checkmarks and icon tints go neutral (`textPrimary`), Volt only for the one marked thing. One central change, the
+  **first ticket of PR 5**, so every screen inherits it before its own restyle.
+- **L28 (user): screens without a board are designed by ui-designer from the Nocturne components**, and the lead shows
+  the user screenshots for approval before they are built. Welcome and the live workout first; no new canvas boards.
+- **L29 (user): PR 5 finishes all five tabs.** Besides Strain, Insights, Profile and the dot tab bar it takes Sleep →
+  Week, Month and Bedtime (Day's header, stage bars in the sleep violet family, no blue) and the Workout detail (Strain
+  family).
+- **L30 (user): the two AX3 failures are fixed now**, in a small `fix:` PR from `main` that ships with PR 4: Welcome
+  scrolls so the privacy line and its link stay reachable, and the live workout's header, Finish and set table have an
+  AX layout. PR 6 restyles both on top.
+
+| PR | Scope |
+|---|---|
+| 5 `strain, insights, profile in nocturne` | T5.0 the accent change (L27); Strain, Workout detail; Insights; Profile (the main list); the dot tab bar; Sleep → Week, Month, Bedtime |
+| 6 `the remaining screens in nocturne` | Signed out (Welcome, Log in, Create account, Reset password, Check inbox, Set new password); onboarding (invite, consent, about you, Apple Health, What do you wear, tracker setup, account hint); My Day, Add activity, Add sleep, activity detail; Train (start sheet, live workout, finish, summary, plans, plan builder, history, session detail, exercise page); Profile's subpages (Display, About, Report a problem, Devices & sync, Check sync, Sync details, Notifications, Journal, Sign-in methods, Licences, CSV import, sleep baseline); Sleep's sheets (need, baseline, Bedtime & wake, Tonight); the Journal sheet; status and error sheets; splash and misconfigured build |
+
+Not covered by the audit (device or session only): the confirmation dialogs, real sign-in errors, the widget on the
+home and lock screens, Live Activities, the HealthKit sheet, push.
+
 ## Risks
 - **The string catalog.** A local Xcode build re-serialised it in the user's checkout (8.7k lines, uncommitted on
   `chore/domain-ryftlab`). Every brief requires `make strings` or targeted edits, and a `--stat` check.
