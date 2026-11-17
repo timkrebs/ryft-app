@@ -122,12 +122,14 @@ final class NotificationSettingsViewModel {
         error = nil
         saving = true
         defer { saving = false }
+        // The account's user, as it was asked for: a sign-out while the PATCH is out drops the answer.
+        let change = state.repository.userChange()
         do {
             let saved = try await state.env.api.patchNotifications(patch)
             prefs = saved
             if var user = state.user {
                 user.notifications = saved
-                await state.repository.store(user: user).committed()
+                await state.repository.store(user: user, asOf: change).committed()
             }
         } catch where error.isCancellation {
             // Not confirmed, not failed: the platform's answer on the next load decides.

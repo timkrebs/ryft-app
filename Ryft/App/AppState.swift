@@ -325,12 +325,12 @@ final class AppState {
     }
 
     /// Forget what's shown (account changed, demo mode switched): reads in flight stop, their
-    /// record goes. Sign-out wipes the account's store; demo data is cleared here.
+    /// record goes. Sign-out wipes the account's store; demo data's starts over here, empty at once.
     func reset() {
         pullNow?.cancel()
         pullPhases?.cancel()
         env.reads.reset()
-        if isDemo { repository.clear() } else { repository.invalidate() }
+        repository.reset()
         // Activities typed in demo mode, on the phone and on the demo platform, go with the account or the switch,
         // and so does an upload of them (or of the account's) in flight.
         env.uploader.accountChanged()
@@ -410,10 +410,12 @@ final class AppState {
         onForgetAccountState?()
     }
 
-    /// `PATCH /v1/me`; a failure is the caller's to show (the setting's form, inline).
+    /// `PATCH /v1/me`; a failure is the caller's to show (the setting's form, inline). An answer that arrives after a
+    /// sign-out (another account, the Demo data switch) is dropped unwritten.
     func patchUser(_ patch: UserPatch) async throws {
+        let change = repository.userChange()
         let patched = try await source.patchMe(patch)
-        await repository.store(user: patched).committed()
+        await repository.store(user: patched, asOf: change).committed()
     }
 
     // MARK: per-screen data (cache-first, revalidated)

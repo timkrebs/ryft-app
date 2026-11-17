@@ -333,8 +333,12 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     func deletePush(deviceID: UUID) async throws { try enter("deletePush") }
 
+    /// Runs before each `PATCH /v1/me/notifications` answers (tests hold one open with it).
+    var beforePatchNotifications: (@Sendable () async -> Void)?
+
     func patchNotifications(_ patch: NotificationPatch) async throws -> NotificationPrefs {
         try enter("patchNotifications")
+        await beforePatchNotifications?()
         var categories = prefs.categories
         for (k, v) in patch.categories ?? [:] { categories[k] = v }
         let quiet = patch.quietHours.map { $0 } ?? prefs.quietHours
@@ -473,14 +477,20 @@ final class MockPlatformAPI: PlatformAPI, @unchecked Sendable {
 
     // MARK: screens
 
-    /// Runs before `me()` answers (tests hold an export's archive open with it).
+    /// Runs before `me()` answers (tests hold an export's archive open with it, or a read answered before a change).
     var beforeMe: (@Sendable () async -> Void)?
 
     func me() async throws -> User {
         try enter("me")
+        // Read when the request arrives, as the platform reads it: an answer held on its way back is from then.
+        let user: User
+        if let patched = lock.withLock({ patchedUser }) {
+            user = withAccount(patched)
+        } else {
+            user = withAccount(try await screens.me())
+        }
         await beforeMe?()
-        if let patched = lock.withLock({ patchedUser }) { return withAccount(patched) }
-        return withAccount(try await screens.me())
+        return user
     }
 
     func patchMe(_ p: UserPatch) async throws -> User {
