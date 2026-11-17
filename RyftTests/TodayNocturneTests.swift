@@ -145,7 +145,9 @@ struct TodayNocturneTests {
         }
     }
 
-    /// A long caption beside a clock value goes under it instead of breaking mid-word ("calibratin / g").
+    /// A long caption beside a clock value ("calibrating" by "7:11 h") keeps its one word and the unit: it shrinks beside
+    /// the value or goes above it (VF3), never "calibratin / g", never the unit pushed out; the pair keeps 124. The tile is
+    /// one VoiceOver element, so the parts are read on its content (`TwoUpHost`, `TodayTwoUpTileTests`).
     @Test func aLongCaptionKeepsItsWordsAndTheUnit() async throws {
         let content = TodayTilesContent(recovery: nil, recoveryCaption: "calibrating", hrvWeek: [], sleepMinutes: 431,
                                         caption: "calibrating", sleepWeek: TodaySleepWeek(nights: []), strain: nil,
@@ -154,6 +156,24 @@ struct TodayNocturneTests {
             try await w.settle()
             let sleep = try #require(w.nodes().first { $0.identifier == "today.tile.sleep" })
             #expect(sleep.frame.height == 124, "the pair keeps the board's height: \(sleep.frame)")
+        }
+        let frames = TwoUpFrames()
+        let tile = TwoUpCase(name: "calibrating", title: "Sleep", value: "7:11", unit: "h", caption: "calibrating")
+        try await HostedWindow.run(width: 390, height: 600, TwoUpHost.pair(tile, tile, frames: frames)) { w in
+            try await w.wait("the tile") { frames.byName["a"] != nil }
+            try await w.settle()
+            let box = try #require(frames.byName["a"])
+            let inside = w.nodes().filter { box.contains(CGPoint(x: $0.frame.midX, y: $0.frame.midY)) }
+            // One element with the whole word: not broken over lines, nor cut ("calibrat…").
+            let caption = try #require(inside.first { $0.label == "calibrating" }, "\(inside.map(\.label))")
+            #expect(caption.frame.height < 20, "one line: \(caption.frame)")
+            let value = try #require(inside.first { $0.label == "7:11" })
+            let unit = try #require(inside.first { $0.label == "h" }, "the unit stays")
+            #expect(unit.frame.minX > value.frame.maxX && unit.frame.maxX <= box.maxX - 16 + 0.5, "the unit in the tile: \(unit.frame)")
+            // Beside the value, after the unit; or above it: never over either.
+            #expect(caption.frame.minX >= unit.frame.maxX + TodayLayout.tileRowGap - 0.5 || caption.frame.maxY <= value.frame.minY + 0.5,
+                    "the caption \(caption.frame) clear of the value \(value.frame) and unit \(unit.frame)")
+            #expect(caption.frame.maxX <= box.maxX - 16 + 0.5, "inside the tile: \(caption.frame)")
         }
     }
 

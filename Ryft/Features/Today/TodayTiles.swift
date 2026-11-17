@@ -290,7 +290,11 @@ struct TodayTwoUpTile<Series: View>: View {
     var body: some View {
         Button(action: action) {
             GlowTile(metric, kind: .twoUp, reduceTransparency: reduceTransparency) {
-                if typeSize.isAccessibilitySize { stacked } else { board }
+                if typeSize.isAccessibilitySize {
+                    stacked
+                } else {
+                    TodayTwoUpBoard(title: title, value: value, unit: unit, caption: caption, series: series)
+                }
             }
         }
         .buttonStyle(PressableButtonStyle())
@@ -302,9 +306,36 @@ struct TodayTwoUpTile<Series: View>: View {
         .accessibilityIdentifier(identifier)
     }
 
-    /// The board's tile: two rows, the space between them flexible. The content asks for the board's 98 pt (124 less the
-    /// padding) and takes whatever height the pair is given, so both tiles of a row are as tall as the taller one.
-    private var board: some View {
+    /// AX1 and up: one under the other, nothing truncated; the numerals keep their size.
+    private var stacked: some View {
+        VStack(alignment: .leading, spacing: TodayLayout.tileRowGap) {
+            Text(verbatim: title)
+                .ryftGlowLabelStyle()
+                .fixedSize(horizontal: false, vertical: true)
+            series()
+            TodayTwoUpValue(value: value, unit: unit)
+            if let caption {
+                Text(verbatim: caption)
+                    .ryftGlowLabelStyle()
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A 2-up tile's content below AX1 (§P4-1 row 11): the label row on top, the value row on the bottom, the space between
+/// them flexible. At least the board's 98 pt (124 less the padding), and as tall as its content asks at larger text, so
+/// the pair (`TodayTiles`: the taller tile's height for both) never clips. The value sits on the bottom in every state:
+/// a caption never moves it (`TodayTwoUpValueRow`).
+struct TodayTwoUpBoard<Series: View>: View {
+    let title: String
+    let value: String
+    var unit: String?
+    var caption: String?
+    @ViewBuilder var series: () -> Series
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(verbatim: title)
                 .ryftGlowLabelStyle()
@@ -315,46 +346,26 @@ struct TodayTwoUpTile<Series: View>: View {
                 // tile's top padding (derived, not measured: the board names the content, not its place).
                 .overlay(alignment: Alignment(horizontal: .trailing, vertical: .firstTextBaseline)) { series() }
             Spacer(minLength: TodayLayout.tileRowGap)
-            // The value and the caption share the bottom row; when a long caption ("calibrating" beside "7:11 h")
-            // doesn't fit beside the value, it goes under it rather than breaking mid-word or pushing the unit out.
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .firstTextBaseline, spacing: 0) {
-                    valueText
-                    Spacer(minLength: TodayLayout.tileRowGap)
-                    if let caption { captionText(caption).fixedSize() }
-                }
-                VStack(alignment: .trailing, spacing: TodayLayout.pendingLineGap) {
-                    valueText.frame(maxWidth: .infinity, alignment: .leading)
-                    if let caption {
-                        captionText(caption)
-                            .multilineTextAlignment(.trailing)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+            TodayTwoUpValueRow {
+                TodayTwoUpValue(value: value, unit: unit)
+                if let caption {
+                    Text(verbatim: caption)
+                        .ryftGlowLabelStyle()
+                        .multilineTextAlignment(.trailing)
+                        .minimumScaleFactor(TodayTwoUpValueRow.minimumScale)
                 }
             }
         }
-        .frame(maxWidth: .infinity, minHeight: TodayLayout.twoUpContentHeight, idealHeight: TodayLayout.twoUpContentHeight,
-               maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: TodayLayout.twoUpContentHeight, maxHeight: .infinity, alignment: .topLeading)
     }
+}
 
-    /// AX1 and up: one under the other, nothing truncated; the numerals keep their size.
-    private var stacked: some View {
-        VStack(alignment: .leading, spacing: TodayLayout.tileRowGap) {
-            Text(verbatim: title)
-                .ryftGlowLabelStyle()
-                .fixedSize(horizontal: false, vertical: true)
-            series()
-            valueText
-            if let caption {
-                Text(verbatim: caption)
-                    .ryftGlowLabelStyle()
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
+/// The value (34 Light, a fixed size) and its unit on one baseline.
+struct TodayTwoUpValue: View {
+    let value: String
+    var unit: String?
 
-    private var valueText: some View {
+    var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: TodayLayout.unitGap) {
             Text(verbatim: value)
                 .font(.ryft(.numberLarge))
@@ -366,9 +377,68 @@ struct TodayTwoUpTile<Series: View>: View {
             }
         }
     }
+}
 
-    private func captionText(_ caption: String) -> some View {
-        Text(verbatim: caption).ryftGlowLabelStyle()
+/// A 2-up tile's bottom row (VF3): the value leading, the caption ("High", "Yesterday", "calibrating") trailing on the
+/// value's baseline. A caption that doesn't fit beside the value shrinks, to 80 % at most, on its one line; one that
+/// still doesn't goes above the value, trailing, wrapping if it must. The value's line is the row's bottom in every
+/// arrangement, so its baseline never moves and no word is broken.
+struct TodayTwoUpValueRow: Layout {
+    /// The least the caption shrinks to before it leaves the value's line.
+    static let minimumScale: CGFloat = 0.8
+
+    enum Arrangement: Equatable { case beside, besideScaled, above }
+
+    /// Where the caption goes for a row `width` wide, a value `value` wide and a caption `caption` wide on one line.
+    static func arrangement(width: CGFloat, value: CGFloat, caption: CGFloat) -> Arrangement {
+        let room = width - value - TodayLayout.tileRowGap
+        if caption <= room { return .beside }
+        return caption * minimumScale <= room ? .besideScaled : .above
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let value = subviews.first else { return .zero }
+        let valueSize = value.sizeThatFits(.unspecified)
+        let width = proposal.width ?? valueSize.width
+        guard subviews.count > 1 else { return CGSize(width: width, height: valueSize.height) }
+        let caption = subviews[1]
+        let line = caption.sizeThatFits(.unspecified)
+        switch Self.arrangement(width: width, value: valueSize.width, caption: line.width) {
+        case .beside, .besideScaled:
+            // On the value's baseline: the value's line box is the taller one (34 pt against 13).
+            let below = max(valueSize.height - value.dimensions(in: .unspecified)[.firstTextBaseline],
+                            line.height - caption.dimensions(in: .unspecified)[.firstTextBaseline])
+            let above = max(value.dimensions(in: .unspecified)[.firstTextBaseline],
+                            caption.dimensions(in: .unspecified)[.firstTextBaseline])
+            return CGSize(width: width, height: above + below)
+        case .above:
+            let wrapped = caption.sizeThatFits(ProposedViewSize(width: width, height: nil))
+            return CGSize(width: width, height: wrapped.height + TodayLayout.pendingLineGap + valueSize.height)
+        }
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let value = subviews.first else { return }
+        let valueDimensions = value.dimensions(in: .unspecified)
+        // The value's line at the bottom of the row, always.
+        let valueTop = bounds.maxY - valueDimensions.height
+        value.place(at: CGPoint(x: bounds.minX, y: valueTop), proposal: .unspecified)
+        guard subviews.count > 1 else { return }
+        let caption = subviews[1]
+        let line = caption.sizeThatFits(.unspecified)
+        switch Self.arrangement(width: bounds.width, value: valueDimensions.width, caption: line.width) {
+        case .beside, .besideScaled:
+            let room = bounds.width - valueDimensions.width - TodayLayout.tileRowGap
+            let offer = ProposedViewSize(width: min(line.width, room), height: line.height)
+            let placed = caption.dimensions(in: offer)
+            let baseline = valueTop + valueDimensions[.firstTextBaseline]
+            caption.place(at: CGPoint(x: bounds.maxX - placed.width, y: baseline - placed[.firstTextBaseline]), proposal: offer)
+        case .above:
+            let offer = ProposedViewSize(width: bounds.width, height: nil)
+            let placed = caption.dimensions(in: offer)
+            caption.place(at: CGPoint(x: bounds.maxX - placed.width, y: valueTop - TodayLayout.pendingLineGap - placed.height),
+                          proposal: offer)
+        }
     }
 }
 
