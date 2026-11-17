@@ -25,7 +25,10 @@
 1. **Every write of the platform's read models runs off the main actor.**
    - It goes through the store's `ReadModelWriter`, a `@ModelActor` on the store's own `ModelContainer`: never a second
      container.
-   - The writer is built off main (`@concurrent make`), and Debug asserts that it runs off main.
+   - **No main-actor code can reach the writer.** It is `private` to a plain `actor ReadModelDrain`. Main-actor
+     callers submit synchronously and await only a `WriteTicket`, never the writer. On iOS 27.2 a `@ModelActor` job runs
+     on the thread that awaits it, and blocks a waiting main thread, wherever the actor was made (T0.1). Debug asserts
+     that every writer job runs off main.
    - Each store has one writer, so the account's and demo's are two instances. Writers are not split by kind.
 2. **The writer owns its rows.** These are `CachedDay`, `CachedTrend`, `CachedInsight`, `CachedUser`, `CachedSleepRange`,
    `CachedWorkout`, and the `CachedDocument` keys `activities.*`.
