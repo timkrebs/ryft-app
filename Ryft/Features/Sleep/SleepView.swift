@@ -1,7 +1,41 @@
 import SwiftUI
 import Charts
 
-/// Sleep: Day (stages, quality, details) and Week / Month (nightly bars).
+/// Sleep's measurements in Day mode (Nocturne, docs/work/2026-11-16-nocturne/design.md §P4-2, §P4-11 test 1): the board's
+/// gaps and sizes, bottom of one element to the top of the next.
+enum SleepLayout {
+    /// The header row (`ScreenHeaderSpec.height`).
+    static let headerHeight: CGFloat = 40
+    /// The mode picker under the header (L20, D4-3).
+    static let pickerGap: CGFloat = 12
+    /// The numeral under the picker (the board's: under the header).
+    static let numeralGap: CGFloat = 22
+    static let captionGap: CGFloat = 12
+    static let rulerGap: CGFloat = 14
+    static let hypnogramGap: CGFloat = 20
+    /// The hypnogram tile, the `.hypnogram` glow kind's own: 168 high, radius 28. Its short variants (no timeline, no
+    /// stages) are 96.
+    static let hypnogramHeight: CGFloat = 168, hypnogramRadius: CGFloat = 28, hypnogramShortHeight: CGFloat = 96
+    /// Inside it: the plot 10 under the header row, the totals 8 under the plot.
+    static let plotGap: CGFloat = 10, totalsGap: CGFloat = 8
+    /// The 2 × 2 tiles under the hypnogram, and between them.
+    static let tilesGap: CGFloat = 12, tileGap: CGFloat = 12
+    static let tileHeight: CGFloat = 88, tileRadius: CGFloat = Theme.Metrics.neutralTileRadius
+    static let tilePadding = EdgeInsets(top: 14, leading: 16, bottom: 12, trailing: 16)
+    /// Inside a tile: the least space between the label and the value row, and between the value and a note at its right;
+    /// a note under the value (AX, or a row too narrow) is 4 under it.
+    static let tileInnerGap: CGFloat = 8, tileNoteGap: CGFloat = 4, tileStackGap: CGFloat = 4
+    /// A note on the value's row may shrink to 90 % (12 → 10.8 pt) before it drops under the value: "3:20 h  Deep + REM"
+    /// needs 140 pt and a 169 pt tile has 137 (the board's width, 390).
+    static let tileNoteMinimumScale: CGFloat = 0.9
+    /// The cards under the tiles (need, stages, details).
+    static let cardGap: CGFloat = 12
+    /// Week, Month and Bedtime keep their section spacing under the picker.
+    static let rangeGap: CGFloat = Theme.Metrics.sectionSpacing
+}
+
+/// Sleep: Day (the night in Nocturne: numeral, ruler, hypnogram, tiles, then the need, the stages and the details), Week /
+/// Month (nightly bars) and Bedtime, under one header and the mode picker.
 struct SleepView: View {
     @Environment(AppState.self) private var state
     @Environment(ScreenModels.self) private var screens
@@ -10,11 +44,12 @@ struct SleepView: View {
 
     var body: some View {
         NavigationStack {
-            ScreenScaffold {
-                titleRow
-                SegmentedPicker(selection: Bindable(model).mode, options: model.modes, title: \.title)
+            SleepPage(header: model.header, mode: Bindable(model).mode, modes: model.modes, step: step) {
                 switch model.mode {
-                case .day: day
+                case .day:
+                    SleepDay(board: model.board, sleep: model.sleep, score: model.score, night: model.date,
+                             numeralStyle: model.numeralStyle, showsHealthHint: model.hasNoHealthData,
+                             retry: { await model.load() })
                 case .week, .month: SleepRangeSection(range: model.range, isLoading: model.isLoading)
                 case .plan: SleepPlannerSection(model: model.planner)
                 }
@@ -28,67 +63,212 @@ struct SleepView: View {
         let refreshed: Date?
     }
 
-    // MARK: title with day picker
-
-    private var titleRow: some View {
-        HStack {
-            stepButton("chevron.left", label: "Previous night", days: -1, enabled: model.canStepBack)
-            Spacer()
-            VStack(spacing: 2) {
-                Text("Sleep")
-                    .font(.ryft(.title))
-                    .foregroundStyle(Theme.textPrimary)
-                    .accessibilityAddTraits(.isHeader)
-                HStack(spacing: 5) {
-                    Text(model.subtitle)
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textSecondary)
-                    if model.mode == .day, model.marker != nil { DayMarker(kind: model.marker) }
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityValue(Text(model.mode == .day ? model.marker?.spoken ?? "" : ""))
-            }
-            Spacer()
-            stepButton("chevron.right", label: "Next night", days: 1, enabled: model.canStepForward)
-        }
-    }
-
-    private func stepButton(_ icon: String, label: LocalizedStringKey, days: Int, enabled: Bool) -> some View {
-        Button {
-            Task { await model.step(by: days) }
-        } label: {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .medium))
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(enabled ? Theme.textPrimary : Theme.textTertiary.opacity(0.4))
-        .disabled(!enabled)
-        .opacity(model.mode == .day ? 1 : 0)
-        .accessibilityLabel(Text(label))
-    }
-
-    // MARK: day
-
-    @ViewBuilder
-    private var day: some View {
-        if let sleep = model.sleep {
-            SleepDaySection(sleep: sleep, score: model.score)
-        } else if model.isLoading {
-            ProgressView().tint(Theme.accent).padding(.top, 40)
-        } else if let error = model.error {
-            InlineMessage(message: error, retry: { await model.load() })
-        } else {
-            InlineMessage(message: String(localized: "No sleep recorded for this night."),
-                          systemImage: "moon.zzz")
-            if model.hasNoHealthData { HealthAccessHint() }
+    /// A step re-reads the new night once it has loaded (§P4-8).
+    private func step(_ days: Int) {
+        Task {
+            await model.step(by: days)
+            AccessibilityNotification.Announcement(model.stepAnnouncement).post()
         }
     }
 }
 
-/// Day mode content, separated so previews can feed it directly.
-struct SleepDaySection: View {
+/// The page: the header, the mode picker 12 under it, then the mode's content (Day 22 under the picker, the others 24).
+struct SleepPage<Content: View>: View {
+    let header: SleepHeaderContent
+    @Binding var mode: SleepMode
+    let modes: [SleepMode]
+    let step: (Int) -> Void
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        ScreenScaffold(showsHeader: false) {
+            VStack(spacing: 0) {
+                SleepHeader(content: header, step: step)
+                SleepModePicker(selection: $mode, modes: modes)
+                    .padding(.top, SleepLayout.pickerGap)
+                content()
+                    .padding(.top, mode == .day ? SleepLayout.numeralGap : SleepLayout.rangeGap)
+            }
+        }
+    }
+}
+
+/// Sleep's header row (§P4-2 row 1): Previous night · "Sleep" and the night · Next night. Outside Day mode the buttons
+/// keep their places, hidden and disabled. A disabled button stays labelled and says why in its hint.
+struct SleepHeader: View {
+    let content: SleepHeaderContent
+    let step: (Int) -> Void
+
+    var body: some View {
+        ScreenHeader {
+            nightButton("chevron.left", label: Text("Previous night"), enabled: content.canStepBack,
+                        hint: Text("This is your oldest night", comment: "VoiceOver hint on Sleep's disabled Previous night button."),
+                        identifier: "sleep.header.previous") { step(-1) }
+        } center: {
+            VStack(spacing: 2) {
+                Text("Sleep")
+                    .font(.ryft(.callout))
+                    .foregroundStyle(Theme.textPrimary)
+                HStack(spacing: 5) {
+                    Text(content.subtitle)
+                        .font(.ryft(.caption))
+                        .foregroundStyle(Theme.textTertiary)
+                    if let marker = content.marker { DayMarker(kind: marker) }
+                }
+            }
+            .multilineTextAlignment(.center)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("Sleep"))
+            .accessibilityValue(Text(content.spokenValue))
+            .accessibilityAddTraits(.isHeader)
+        } trailing: {
+            nightButton("chevron.right", label: Text("Next night"), enabled: content.canStepForward,
+                        hint: Text("This is your latest night", comment: "VoiceOver hint on Sleep's disabled Next night button."),
+                        identifier: "sleep.header.next") { step(1) }
+        }
+    }
+
+    private func nightButton(_ systemImage: String, label: Text, enabled: Bool, hint: Text, identifier: String,
+                             action: @escaping () -> Void) -> some View {
+        CircleButton(systemImage: systemImage, accessibilityLabel: label, action: action)
+            .disabled(!content.showsNightButtons || !enabled)
+            .opacity(content.showsNightButtons ? 1 : 0)
+            .accessibilityHidden(!content.showsNightButtons)
+            .accessibilityHint(enabled ? Text(verbatim: "") : hint)
+            .accessibilityIdentifier(identifier)
+    }
+}
+
+/// The mode picker (§P4-2 row 2): Day · Week · Month · Bedtime as segments; from AX1 one row, a menu with the current
+/// mode, because the segments truncate their titles there (§P4-8). PR 5 restyles both.
+struct SleepModePicker: View {
+    @Binding var selection: SleepMode
+    let modes: [SleepMode]
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        if typeSize.isAccessibilitySize {
+            Menu {
+                ForEach(modes) { mode in
+                    Button {
+                        selection = mode
+                    } label: {
+                        if mode == selection {
+                            Label(mode.title, systemImage: "checkmark")
+                        } else {
+                            Text(mode.title)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(selection.title)
+                    Image(systemName: "chevron.down")
+                        .imageScale(.small)
+                        .accessibilityHidden(true)
+                }
+                .font(.ryft(.callout))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(maxWidth: .infinity, minHeight: Theme.Metrics.minHitTarget)
+                .background(Theme.surface, in: Capsule())
+                .contentShape(Capsule())
+            }
+            .accessibilityIdentifier("sleep.mode")
+        } else {
+            SegmentedPicker(selection: $selection, options: modes, title: \.title)
+        }
+    }
+}
+
+/// Sleep → Day (§P4-2 rows 3–10, §P4-5): the numeral, its caption, the ruler, the hypnogram tile and the four tiles, then
+/// the need, the stages and the details. Fed with values, so previews and tests show every state.
+struct SleepDay: View {
+    let board: SleepBoard
+    let sleep: SleepDetail?
+    let score: DailyScore?
+    /// The night shown: a step cross-fades the numeral.
+    let night: Date
+    var numeralStyle: DotNumeral.Style = .dots
+    /// "No Health data yet" under a day without a night, when nothing came from Apple Health at all.
+    var showsHealthHint = false
+    /// Previews and tests; `nil` follows the system.
+    var reduceTransparency: Bool?
+    var retry: (() async -> Void)?
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(spacing: 0) {
+            numeral
+            caption
+                .padding(.top, SleepLayout.captionGap)
+            RulerScale(range: SleepRuler.range, value: board.ruler.value, zone: board.ruler.zone, zoneStyle: .sleep,
+                       tickCount: RulerScale.Ticks.sleep, labels: board.ruler.labels, size: .regular,
+                       accessibilityLabel: Text("Sleep duration scale", comment: "VoiceOver label of Sleep's ruler, 0 to 10 hours."),
+                       accessibilityValue: Text(board.ruler.spokenValue))
+                .accessibilityIdentifier("sleep.ruler")
+                .padding(.top, SleepLayout.rulerGap)
+            hypnogram
+                .padding(.top, SleepLayout.hypnogramGap)
+            SleepTileGrid(tiles: board.tiles, isOutline: board.isOutline)
+                .padding(.top, SleepLayout.tilesGap)
+            if showsHealthHint, board.look == .noSleep {
+                HealthAccessHint()
+                    .padding(.top, SleepLayout.cardGap)
+            }
+            if let sleep, board.look == .night {
+                SleepNightCards(sleep: sleep, score: score)
+                    .padding(.top, SleepLayout.cardGap)
+            }
+        }
+    }
+
+    /// The time asleep as the hero numeral, unlit "0:00" without one; a new night or value cross-fades (250 ms, none
+    /// under Reduce Motion).
+    private var numeral: some View {
+        let key = "\(DayFormat.string(from: night))|\(board.clock ?? "")"
+        return ZStack {
+            DotNumeral(board.clock, style: numeralStyle, glyphGap: DotNumeral.glyphGapDetail, placeholder: "0:00",
+                       accessibilityLabel: Text(board.numeralLabel ?? ""))
+                .accessibilityHidden(board.numeralLabel == nil)
+                .accessibilityIdentifier("sleep.numeral")
+                .id(key)
+                .transition(.opacity)
+        }
+        .frame(maxWidth: .infinity)
+        .animation(Theme.Motion.respecting(reduceMotion), value: key)
+    }
+
+    private var caption: some View {
+        Text(board.caption)
+            .font(.ryft(.label))
+            .foregroundStyle(Theme.textSecondary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel(Text(board.spokenCaption ?? board.caption))
+            .accessibilityHidden(board.spokenCaption == nil)
+    }
+
+    /// The glow tile with a night; an outline while there is none; the message and Try again after a failed load.
+    @ViewBuilder private var hypnogram: some View {
+        switch board.look {
+        case .night:
+            if let content = board.hypnogram {
+                SleepHypnogramTile(content: content, reduceTransparency: reduceTransparency)
+            }
+        case .failed(let message):
+            InlineMessage(message: message, retry: retry)
+        case .loading, .noSleep:
+            SleepHypnogramOutline()
+        }
+    }
+}
+
+/// Under the board (§P4-2 rows 8–10): the need card (→ the need sheet), the stages, and the details. The rows that repeat
+/// a tile (Efficiency, Sleep debt) are gone (L22); the nap moved here from under the numeral.
+struct SleepNightCards: View {
     let sleep: SleepDetail
     let score: DailyScore?
     @Environment(ScreenModels.self) private var screens
@@ -103,32 +283,7 @@ struct SleepDaySection: View {
     private var summary: SleepNightSummary { SleepNightSummary(sleep: sleep, score: score) }
 
     var body: some View {
-        VStack(spacing: Theme.Metrics.sectionSpacing) {
-            VStack(spacing: 4) {
-                Text(summary.total)
-                    .font(.ryft(.numberLarge))
-                    .monospacedDigit()
-                    .foregroundStyle(Theme.textPrimary)
-                Text("Total sleep")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .accessibilityElement(children: .combine)
-
-            if let nap = summary.nap {
-                VStack(spacing: 6) {
-                    Label(nap, systemImage: "powersleep")
-                        .font(.ryft(.callout))
-                        .foregroundStyle(Theme.textPrimary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Theme.surfaceRaised, in: Capsule())
-                    Text("A nap lowers tonight's sleep need.")
-                        .font(.ryft(.caption))
-                        .foregroundStyle(Theme.textTertiary)
-                }
-                .accessibilityElement(children: .combine)
-            }
+        VStack(spacing: SleepLayout.cardGap) {
             if let need = sleep.need {
                 Button { showsNeed = true } label: {
                     Card { SleepNeedBar(need: need) }
@@ -138,7 +293,6 @@ struct SleepDaySection: View {
                 .accessibilityIdentifier("sleep.need")
             }
             stages
-            scores
             details
         }
         .sheet(isPresented: $showsNeed) {
@@ -146,82 +300,41 @@ struct SleepDaySection: View {
         }
     }
 
-    /// Performance, efficiency, quality and restorative as tiles; consistency
-    /// as a fifth when the platform has it.
-    private var scores: some View {
-        let summary = summary
-        return VStack(alignment: .leading, spacing: 10) {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                SleepScoreTile(title: "Performance", value: summary.performance, detail: String(localized: "of your need"))
-                SleepScoreTile(title: "Efficiency", value: summary.efficiency, detail: String(localized: "asleep in bed"))
-                SleepScoreTile(title: "Quality", value: summary.quality, detail: summary.qualityLabel)
-                SleepScoreTile(title: "Restorative", value: summary.restorative, detail: String(localized: "deep + REM"))
-                if let consistency = summary.consistency {
-                    SleepScoreTile(title: "Consistency", value: consistency, detail: String(localized: "last 7 nights"))
-                }
-            }
-            Text("Quality is 60 % performance, 20 % efficiency and 20 % restorative sleep.")
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    @ViewBuilder
-    private var stages: some View {
+    /// Minutes and shares per stage; none without stages (the hypnogram tile says why).
+    @ViewBuilder private var stages: some View {
         let shares = sleep.displayStages
         if sleep.hasStages, shares.contains(where: { $0.min > 0 }) {
-            VStack(spacing: 14) {
-                StageBar(stages: shares, height: 28)
-                if !sleep.segments.isEmpty {
-                    Card {
-                        VStack(alignment: .leading, spacing: 12) {
-                            CardHeader(title: "Hypnogram")
-                            Hypnogram(segments: sleep.segments)
-                        }
-                    }
-                }
-                Card {
-                    VStack(spacing: 14) {
-                        ForEach(shares) { StageRow(share: $0) }
-                    }
+            Card {
+                VStack(spacing: 14) {
+                    ForEach(shares) { StageRow(share: $0) }
                 }
             }
-        } else {
-            InlineMessage(message: String(localized: "Your watch didn't record sleep stages for this night — only the total."),
-                          systemImage: "waveform.path")
         }
-    }
-
-    private var quality: some View {
-        let summary = summary
-        return Card {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Sleep quality")
-                    .font(.ryft(.callout))
-                    .foregroundStyle(Theme.textSecondary)
-                HStack(alignment: .firstTextBaseline) {
-                    Text(summary.qualityLabel)
-                        .font(.ryft(.headline))
-                        .foregroundStyle(Theme.accent)
-                    Spacer()
-                    Text(summary.quality)
-                        .font(.ryft(.headline))
-                        .monospacedDigit()
-                        .foregroundStyle(Theme.textPrimary)
-                }
-                ProgressBar(value: summary.qualityFraction)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Sleep quality"))
-        .accessibilityValue(Text("\(summary.qualityLabel), \(summary.quality)"))
     }
 
     private var details: some View {
         let summary = summary
         return Card {
             VStack(spacing: 14) {
+                if let nap = summary.nap {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label(nap, systemImage: "powersleep")
+                            .font(.ryft(.callout))
+                            .foregroundStyle(Theme.textPrimary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Theme.surfaceRaised, in: Capsule())
+                        Text("A nap lowers tonight's sleep need.")
+                            .font(.ryft(.caption))
+                            .foregroundStyle(Theme.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityElement(children: .combine)
+                    Divider().overlay(Theme.separator)
+                }
+                quality(summary)
+                Divider().overlay(Theme.separator)
                 StatRow(title: "Bedtime", value: summary.bedtime)
                 StatRow(title: "Wake time", value: summary.wake)
                 if let planned {
@@ -236,7 +349,6 @@ struct SleepDaySection: View {
                 }
                 Divider().overlay(Theme.separator)
                 StatRow(title: "Time in bed", value: summary.timeInBed)
-                StatRow(title: "Efficiency", value: summary.efficiency)
                 Divider().overlay(Theme.separator)
                 if summary.needBreakdown == nil {
                     Button { showsNeed = true } label: {
@@ -253,9 +365,24 @@ struct SleepDaySection: View {
                     .accessibilityHint(Text("Shows your baseline sleep need to change"))
                 }
                 StatRow(title: "Actual", value: summary.actual, detail: summary.actualOfNeed)
-                StatRow(title: "Sleep debt", value: summary.debt,
-                        valueColor: summary.debtIsHigh ? Theme.warning : Theme.textPrimary)
             }
+        }
+    }
+
+    /// "Quality 91 · Good", its bar and how it is made up.
+    private func quality(_ summary: SleepNightSummary) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 10) {
+                StatRow(title: "Quality", value: summary.quality)
+                ProgressBar(value: summary.qualityFraction)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("Sleep quality"))
+            .accessibilityValue(Text(summary.quality))
+            Text("Quality is 60 % performance, 20 % efficiency and 20 % restorative sleep.")
+                .font(.ryft(.caption))
+                .foregroundStyle(Theme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -310,32 +437,6 @@ struct SleepNeedSheet: View {
             }
         }
         .presentationDetents([.large])
-    }
-}
-
-/// A small score tile on Sleep → Day: title, number, one line of context.
-struct SleepScoreTile: View {
-    let title: LocalizedStringKey
-    let value: String
-    let detail: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).ryftLabelStyle().lineLimit(1).minimumScaleFactor(0.8)
-            Text(value)
-                .font(.ryft(.metric))
-                .monospacedDigit()
-                .foregroundStyle(Theme.textPrimary)
-                .contentTransition(.numericText())
-            Text(detail)
-                .font(.ryft(.caption))
-                .foregroundStyle(Theme.textSecondary)
-                .lineLimit(2)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Metrics.tileRadius, style: .continuous))
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -513,32 +614,4 @@ struct SleepRangeSection: View {
             }
         }
     }
-}
-
-#Preview("Sleep need · dark") {
-    let state = AppState.preview()
-    SleepNeedSheet(need: MockData.todayDetail.sleep?.need, total: "8h 58m", editor: BodySettingsEditor(state: state))
-        .previewEnvironment(state)
-}
-
-#Preview("Sleep need · light · de") {
-    let state = AppState.preview()
-    SleepNeedSheet(need: nil, total: "8h 10m", editor: BodySettingsEditor(state: state))
-        .previewEnvironment(state, scheme: .light)
-        .environment(\.locale, Locale(identifier: "de"))
-}
-
-#Preview("Sleep · dark") {
-    SleepView().previewEnvironment()
-}
-
-#Preview("Sleep · light") {
-    SleepView().previewEnvironment(scheme: .light)
-}
-
-#Preview("Sleep week", traits: .sizeThatFitsLayout) {
-    SchemePair {
-        SleepRangeSection(range: MockData.sleepRange(.week), isLoading: false)
-    }
-    .previewEnvironment()
 }

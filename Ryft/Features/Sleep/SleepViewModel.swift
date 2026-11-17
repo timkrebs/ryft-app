@@ -70,28 +70,53 @@ final class SleepViewModel {
     var marker: DayMarker.Kind? { DayMarker.kind(for: score ?? state.score(for: date)) }
     var hasNoHealthData: Bool { state.hasNoHealthData }
 
-    /// "Last night", "Yesterday", "Mon, 13 Oct"; "Last 7 nights" / "Last 30 nights".
-    var subtitle: String {
-        switch mode {
-        case .day: return isToday ? String(localized: "Last night") : Fmt.dayTitle(date, today: today)
-        case .week: return String(localized: "Last 7 nights")
-        case .month: return String(localized: "Last 30 nights")
-        case .plan: return String(localized: "Tonight")
-        }
+    /// The oldest night Previous reaches (design.md §P4-4 S2): the first cached day with a night, else the 90 days the
+    /// history covers.
+    var oldestNight: Date { SleepNights.oldest(in: state.history, today: today, reach: AppState.historyDays) }
+
+    /// "Last night · Sun, Nov 15", "Yesterday · Sat, Nov 14", "Wed, Nov 11"; "Last 7 nights" / "Last 30 nights" /
+    /// "Tonight".
+    var subtitle: String { SleepHeaderContent.subtitle(mode: mode, night: date, today: today) }
+
+    var canStepBack: Bool { mode == .day && date > oldestNight }
+    var canStepForward: Bool { mode == .day && date < today }
+
+    /// The header row: the night as shown and as spoken, its marker, the night buttons.
+    var header: SleepHeaderContent {
+        SleepHeaderContent(mode: mode, night: date, today: today, marker: mode == .day ? marker : nil,
+                           canStepBack: canStepBack, canStepForward: canStepForward)
     }
 
-    var canStepBack: Bool { mode == .day }
-    var canStepForward: Bool { mode == .day && !isToday }
+    /// Day mode's board for the night shown (design.md §P4-2 rows 3–7, §P4-5).
+    var board: SleepBoard {
+        let shown = score ?? state.score(for: date)
+        let week = (1..<SleepBoard.weekNights).reversed().map { back in
+            state.score(for: DayFormat.shift(date, days: -back))?.sleepConsistency
+        } + [shown?.sleepConsistency]
+        return SleepBoard(sleep: sleep, score: score,
+                          previousDebt: state.score(for: DayFormat.shift(date, days: -1))?.sleepDebtMin,
+                          weekConsistency: week, isPending: marker == .pending, isLoading: isLoading, error: error)
+    }
 
-    /// A deep link: Day mode on that night (never past today).
+    /// The hero numeral's style (Profile → Display → Hero numbers, design.md §P4-6).
+    var numeralStyle: DotNumeral.Style { state.env.settings.heroNumerals.style }
+
+    /// What VoiceOver hears after a step (design.md §P4-8): the night, then its duration or what is known of it.
+    var stepAnnouncement: String {
+        let board = board
+        return "\(header.spokenSubtitle). \(board.numeralLabel ?? board.caption)"
+    }
+
+    /// A deep link: Day mode on that night, clamped to the nights there are (never past today).
     func show(night: Date) {
         mode = .day
-        date = min(Calendar.current.startOfDay(for: night), today)
+        date = SleepNights.clamp(Calendar.current.startOfDay(for: night), oldest: oldestNight, today: today)
     }
 
+    /// The previous or next night, clamped to the oldest night and today; nothing at either end.
     func step(by days: Int) async {
-        let next = DayFormat.shift(date, days: days)
-        guard next <= today else { return }
+        let next = SleepNights.clamp(DayFormat.shift(date, days: days), oldest: oldestNight, today: today)
+        guard next != date else { return }
         date = next
         await load()
     }
@@ -123,27 +148,256 @@ final class SleepViewModel {
     }
 }
 
-/// What the Day section shows about one night, computed once (testable without a view).
+/// The nights Sleep → Day can show (design.md §P4-4 S2, §P4-11 test 27): from the oldest night to today.
+enum SleepNights {
+    /// The first day of `history` (oldest first) with a night (`sleepActualMin`); without one, `today − (reach − 1)`.
+    static func oldest(in history: [DailyScore], today: Date, reach: Int) -> Date {
+        guard let first = history.first(where: { $0.sleepActualMin != nil }), let day = DayFormat.date(from: first.day) else {
+            return DayFormat.shift(today, days: -(reach - 1))
+        }
+        return min(day, today)
+    }
+
+    /// `night` within `oldest…today`.
+    static func clamp(_ night: Date, oldest: Date, today: Date) -> Date {
+        min(max(night, min(oldest, today)), today)
+    }
+}
+
+/// Sleep's header (design.md §P4-2 row 1, §P4-8): the night as shown and as spoken, its scoring marker, and the night
+/// buttons. Pure.
+struct SleepHeaderContent: Equatable {
+    /// "Last night · Sun, Nov 15"; "Last 7 nights" in Week mode.
+    let subtitle: String
+    /// "Last night, Sunday, November 15": the title's VoiceOver value.
+    let spokenSubtitle: String
+    let marker: DayMarker.Kind?
+    /// Day mode: Previous and Next are there. Week, Month and Bedtime keep their places, hidden and disabled.
+    let showsNightButtons: Bool
+    let canStepBack: Bool
+    let canStepForward: Bool
+
+    init(mode: SleepMode, night: Date, today: Date, marker: DayMarker.Kind?, canStepBack: Bool, canStepForward: Bool,
+         locale: Locale = .autoupdatingCurrent, calendar: Calendar = .current) {
+        subtitle = Self.subtitle(mode: mode, night: night, today: today, locale: locale, calendar: calendar)
+        spokenSubtitle = Self.spokenSubtitle(mode: mode, night: night, today: today, locale: locale, calendar: calendar)
+        self.marker = marker
+        showsNightButtons = mode == .day
+        self.canStepBack = canStepBack
+        self.canStepForward = canStepForward
+    }
+
+    /// The title's VoiceOver value: the night, then "not scored yet" while it is pending.
+    var spokenValue: String { [spokenSubtitle, marker?.spoken].compactMap(\.self).joined(separator: ", ") }
+
+    /// Day mode: "Last night · Sun, Nov 15" (the night ending today), "Yesterday · Sat, Nov 14", "Wed, Nov 11". The
+    /// others: "Last 7 nights", "Last 30 nights", "Tonight".
+    static func subtitle(mode: SleepMode, night: Date, today: Date, locale: Locale = .autoupdatingCurrent,
+                         calendar: Calendar = .current) -> String {
+        guard mode == .day else { return rangeTitle(mode) }
+        let date = night.formatted(dateStyle(locale: locale, calendar: calendar).weekday(.abbreviated).month(.abbreviated).day())
+        switch Self.age(of: night, today: today, calendar: calendar) {
+        case 0: return String(localized: "Last night · \(date)",
+                              comment: "Sleep's header under \"Sleep\": the night that ended this morning, then its date (\"Sun, Nov 15\").")
+        case 1: return String(localized: "Yesterday · \(date)",
+                              comment: "Sleep's header under \"Sleep\": the night that ended yesterday morning, then its date (\"Sat, Nov 14\").")
+        default: return date
+        }
+    }
+
+    /// `subtitle` for VoiceOver, the date in full: "Last night, Sunday, November 15".
+    static func spokenSubtitle(mode: SleepMode, night: Date, today: Date, locale: Locale = .autoupdatingCurrent,
+                               calendar: Calendar = .current) -> String {
+        guard mode == .day else { return rangeTitle(mode) }
+        let date = night.formatted(dateStyle(locale: locale, calendar: calendar).weekday(.wide).month(.wide).day())
+        switch Self.age(of: night, today: today, calendar: calendar) {
+        case 0: return String(localized: "Last night, \(date)",
+                              comment: "VoiceOver: Sleep's title value for the night that ended this morning, the date in full (\"Sunday, November 15\").")
+        case 1: return String(localized: "Yesterday, \(date)",
+                              comment: "VoiceOver: Sleep's title value for the night that ended yesterday, the date in full (\"Saturday, November 14\").")
+        default: return date
+        }
+    }
+
+    private static func rangeTitle(_ mode: SleepMode) -> String {
+        switch mode {
+        case .day: return ""
+        case .week: return String(localized: "Last 7 nights")
+        case .month: return String(localized: "Last 30 nights")
+        case .plan: return String(localized: "Tonight")
+        }
+    }
+
+    /// Days from `night` to `today`: 0 for the night that ended this morning.
+    private static func age(of night: Date, today: Date, calendar: Calendar) -> Int {
+        calendar.dateComponents([.day], from: calendar.startOfDay(for: night), to: calendar.startOfDay(for: today)).day ?? 0
+    }
+
+    private static func dateStyle(locale: Locale, calendar: Calendar) -> Date.FormatStyle {
+        Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone)
+    }
+}
+
+/// Sleep → Day in Nocturne (design.md §P4-2 rows 3–7, §P4-5): the numeral, its caption, the ruler, the hypnogram tile and
+/// the four tiles of one night, every value formatted and every look decided. Pure: tests build it without a view.
+struct SleepBoard: Equatable {
+    enum Look: Equatable {
+        /// A night to show: scored, pending, or with parts missing.
+        case night
+        /// Nothing cached and the load in flight: the unlit numeral, the ruler's ticks, outline tiles. No spinner.
+        case loading
+        /// The load failed with nothing cached: as loading, and the message with Try again in the hypnogram's place.
+        case failed(String)
+        /// The day has no night.
+        case noSleep
+    }
+
+    /// The consistency dots: this many nights, the last the night shown.
+    static let weekNights = 7
+
+    let look: Look
+    /// "7:48"; `nil` draws the unlit "0:00".
+    let clock: String?
+    /// The numeral's VoiceOver label ("7 hours 48 minutes asleep", "Loading this night"); `nil` hides it, the caption
+    /// says it.
+    let numeralLabel: String?
+    /// "Asleep · 94 % of your need", "Asleep", "Loading this night", "No sleep recorded for this night."
+    let caption: String
+    /// The caption's VoiceOver text ("94 percent of your need"); `nil` hides it where the numeral says it.
+    let spokenCaption: String?
+    let ruler: SleepRuler
+    /// The hypnogram tile; `nil` outside `.night` (an outline slot, or the error's message).
+    let hypnogram: SleepHypnogramContent?
+    /// Consistency, Sleep debt, Efficiency, Restorative.
+    let tiles: [SleepTile]
+
+    /// Loading and a failed load draw the tiles as outlines (§P4-5).
+    var isOutline: Bool {
+        switch look {
+        case .loading, .failed: return true
+        case .night, .noSleep: return false
+        }
+    }
+
+    /// - Parameters:
+    ///   - previousDebt: the night before's `sleepDebtMin`, for the debt's change.
+    ///   - weekConsistency: `sleepConsistency` of the last seven nights, oldest first, the last the night shown.
+    ///   - isPending: the night's score is still being made (`DayMarker.pending`): what needs a score shows "–".
+    init(sleep: SleepDetail?, score: DailyScore?, previousDebt: Int? = nil, weekConsistency: [Int?] = [],
+         isPending: Bool = false, isLoading: Bool = false, error: String? = nil, locale: Locale = .autoupdatingCurrent) {
+        let scored = isPending ? nil : score
+        let need = scored?.sleepNeedMin ?? sleep?.need?.total
+        guard let sleep else {
+            let empty: Look = isLoading ? .loading : error.map(Look.failed) ?? .noSleep
+            look = empty
+            clock = nil
+            switch empty {
+            case .loading:
+                let loading = String(localized: "Loading this night",
+                                     comment: "Sleep → Day while a night that isn't cached loads: under the unlit numeral, and for VoiceOver.")
+                numeralLabel = loading
+                caption = loading
+                spokenCaption = nil
+            case .failed:
+                // The message in the hypnogram's place says what happened; the numeral and caption stay quiet.
+                numeralLabel = nil
+                caption = String(localized: "Asleep")
+                spokenCaption = nil
+            case .night, .noSleep:
+                let none = String(localized: "No sleep recorded for this night.")
+                numeralLabel = nil
+                caption = none
+                spokenCaption = none
+            }
+            ruler = SleepRuler(totalMin: nil, needMin: need, locale: locale)
+            hypnogram = nil
+            tiles = SleepTile.placeholders(locale: locale)
+            return
+        }
+        look = .night
+        clock = sleep.totalMin.map { Fmt.clock(minutes: $0) }
+        numeralLabel = sleep.totalMin.map {
+            String(localized: "\(Fmt.spokenDuration(minutes: $0, locale: locale)) asleep")
+        }
+        if let performance = scored?.sleepPerformance {
+            caption = String(localized: "Asleep · \(performance) % of your need",
+                             comment: "Under Sleep's numeral: the night's time asleep as a share of its sleep need (\"Asleep · 94 % of your need\").")
+            spokenCaption = String(localized: "\(performance) percent of your need",
+                                   comment: "VoiceOver: the caption under Sleep's numeral (\"94 percent of your need\").")
+        } else {
+            caption = String(localized: "Asleep")
+            spokenCaption = nil
+        }
+        ruler = SleepRuler(totalMin: sleep.totalMin, needMin: need, locale: locale)
+        hypnogram = SleepHypnogramContent(sleep: sleep, locale: locale)
+        var week = weekConsistency
+        if !week.isEmpty { week[week.count - 1] = scored?.sleepConsistency }
+        tiles = [SleepTile.consistency(scored?.sleepConsistency, week: week, locale: locale),
+                 SleepTile.debt(scored?.sleepDebtMin, before: isPending ? nil : previousDebt, locale: locale),
+                 SleepTile.efficiency(sleep.efficiencyPercent, locale: locale),
+                 SleepTile.restorative(sleep, locale: locale)]
+    }
+}
+
+/// Sleep's ruler (design.md §P4-2 row 5, §P4-11 test 28): 0 to 10 hours, the needle at the time asleep, the need zone
+/// over the last 10 % below the need (D4-6, L24), labels "0 h · need 8:18 · 10 h".
+struct SleepRuler: Equatable {
+    static let range: ClosedRange<Double> = 0...10
+    /// The zone starts at this share of the need: the night counts as enough from there (L24).
+    static let zoneShare = 0.9
+
+    /// Hours asleep; `nil` draws no needle.
+    let value: Double?
+    let zone: ClosedRange<Double>?
+    let labels: [String]
+    let spokenValue: String
+
+    init(totalMin: Int?, needMin: Int?, locale: Locale = .autoupdatingCurrent) {
+        let need = needMin.flatMap { $0 > 0 ? $0 : nil }
+        value = totalMin.map { Double($0) / 60 }
+        zone = need.flatMap { RulerScale.zone(lo: Self.zoneShare * Double($0) / 60, hi: Double($0) / 60) }
+        let low = String(localized: "0 h", comment: "Sleep's duration ruler: the scale's start, zero hours.")
+        let high = String(localized: "10 h", comment: "Sleep's duration ruler: the scale's end, ten hours.")
+        if let need {
+            labels = [low, String(localized: "need \(Fmt.clock(minutes: need))",
+                                  comment: "Sleep's duration ruler, the middle label: the night's sleep need as hours:minutes (\"need 8:18\")."),
+                      high]
+        } else {
+            labels = [low, high]
+        }
+        let spokenNeed = need.map { Fmt.spokenDuration(minutes: $0, locale: locale) }
+        switch (totalMin.map { Fmt.spokenDuration(minutes: $0, locale: locale) }, spokenNeed) {
+        case let (asleep?, need?):
+            spokenValue = String(localized: "\(asleep), on a scale from 0 to 10 hours. Your need is \(need).",
+                                 comment: "VoiceOver on Sleep's duration ruler: the time asleep, then the night's sleep need (both \"7 hours 48 minutes\").")
+        case let (asleep?, nil):
+            spokenValue = String(localized: "\(asleep), on a scale from 0 to 10 hours.",
+                                 comment: "VoiceOver on Sleep's duration ruler without a sleep need: the time asleep (\"7 hours 48 minutes\").")
+        case let (nil, need?):
+            spokenValue = String(localized: "No time asleep yet, on a scale from 0 to 10 hours. Your need is \(need).",
+                                 comment: "VoiceOver on Sleep's duration ruler before the night is known, with the sleep need (\"8 hours 18 minutes\").")
+        case (nil, nil):
+            spokenValue = String(localized: "No time asleep yet, on a scale from 0 to 10 hours.",
+                                 comment: "VoiceOver on Sleep's duration ruler before the night is known, without a sleep need.")
+        }
+    }
+}
+
+/// What the cards under Sleep → Day's board show about one night (computed once, testable without a view): the details
+/// card and the need sheet.
 struct SleepNightSummary: Equatable {
-    let total: String
-    let qualityLabel: String
+    /// "91 · Good"; "–" without a quality score.
     let quality: String
+    /// "Good"; "–" without one.
+    let qualityLabel: String
     let qualityFraction: Double?
     let bedtime: String
     let wake: String
     let timeInBed: String
-    let efficiency: String
     let need: String
     let actual: String
     /// "87% of need".
     let actualOfNeed: String?
-    let debt: String
-    /// More than 45 minutes of debt is worth a warning colour.
-    let debtIsHigh: Bool
-    let performance: String
-    let restorative: String
-    /// That day's consistency (7 nights); nil until there are 5.
-    let consistency: String?
     /// "Nap · 35m" when there was one that day.
     let nap: String?
     let needBreakdown: SleepNeedBreakdown?
@@ -151,25 +405,18 @@ struct SleepNightSummary: Equatable {
     init(sleep: SleepDetail, score: DailyScore?) {
         let need = score?.sleepNeedMin
         let actual = score?.sleepActualMin ?? sleep.totalMin
-        let debt = score?.sleepDebtMin
-        total = Fmt.duration(minutes: sleep.totalMin)
-        qualityLabel = sleep.resolvedQualityLabel ?? Fmt.placeholder
-        quality = Fmt.percent(sleep.quality)
+        let label = sleep.resolvedQualityLabel ?? Fmt.placeholder
+        qualityLabel = label
+        quality = sleep.quality.map { "\($0) · \(label)" } ?? Fmt.placeholder
         qualityFraction = sleep.quality.map { Double($0) / 100 }
         bedtime = Fmt.time(sleep.start)
         wake = Fmt.time(sleep.end)
         timeInBed = Fmt.duration(minutes: sleep.timeInBedMin)
-        efficiency = Fmt.percent(sleep.efficiencyPercent)
         self.need = Fmt.duration(minutes: need)
         self.actual = Fmt.duration(minutes: actual)
         actualOfNeed = need.flatMap { n in actual.map { a in
             String(localized: "\(Int((Double(a) / Double(max(n, 1)) * 100).rounded()))% of need")
         } }
-        self.debt = debt == 0 ? String(localized: "None") : Fmt.duration(minutes: debt)
-        debtIsHigh = (debt ?? 0) > 45
-        performance = Fmt.percent(score?.sleepPerformance)
-        restorative = Fmt.percent(sleep.restorative)
-        consistency = score?.sleepConsistency.map(String.init)
         nap = score?.napMin.flatMap { $0 > 0 ? String(localized: "Nap · \(Fmt.duration(minutes: $0))") : nil }
         needBreakdown = sleep.need.map(SleepNeedBreakdown.init)
     }

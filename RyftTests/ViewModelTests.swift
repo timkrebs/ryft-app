@@ -1620,11 +1620,12 @@ struct SleepViewModelTests {
         let (_, state, _) = makeState()
         let vm = SleepViewModel(state: state)
         vm.mode = .day
-        #expect(vm.subtitle == String(localized: "Last night"))
+        // Nocturne's subtitle carries the night's date (design.md §P4-2 row 1).
+        #expect(vm.subtitle.hasPrefix("Last night · "))
         #expect(!vm.canStepForward)
 
         await vm.step(by: -1)
-        #expect(vm.subtitle == String(localized: "Yesterday"))
+        #expect(vm.subtitle.hasPrefix("Yesterday · "))
         #expect(vm.canStepForward)
         #expect(vm.sleep != nil)
 
@@ -1658,9 +1659,9 @@ struct SleepViewModelTests {
         let score = DailyScore(day: day(0), sleepNeedMin: 500, sleepActualMin: 450, sleepDebtMin: 60)
         let summary = SleepNightSummary(sleep: sleep, score: score)
         #expect(summary.actualOfNeed == String(localized: "90% of need"))
-        #expect(summary.debtIsHigh)
-        #expect(SleepNightSummary(sleep: sleep, score: DailyScore(day: day(0), sleepDebtMin: 0)).debt
-            == String(localized: "None"))
+        // The debt is a tile in Nocturne (design.md §P4-2 row 7): high above 45 minutes, "None" at 0.
+        #expect(SleepTile.debt(60, before: nil).notes.map(\.ink) == [.warning])
+        #expect(SleepTile.debt(0, before: nil).value == String(localized: "None"))
     }
 
     @Test func rangeSummaryBuildsBarsAndRegularity() {
