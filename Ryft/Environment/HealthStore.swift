@@ -524,7 +524,9 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
     var onCommit: ((HealthStream) -> Void)?
 
     private(set) var authorizationRequests = 0
-    private(set) var backgroundDeliveryEnabled = false
+    /// Set off the main actor by `enableBackgroundDelivery()` and read by tests on it: under the lock.
+    var backgroundDeliveryEnabled: Bool { locked { _backgroundDeliveryEnabled } }
+    private var _backgroundDeliveryEnabled = false
     private(set) var observing = false
     private(set) var observerRegistrations = 0
     private(set) var resets = 0
@@ -564,7 +566,7 @@ final class MockHealthStore: HealthStore, @unchecked Sendable {
 
     func requestAuthorization() async throws { authorizationRequests += 1; access = .asked }
     func accessStatus() async -> HealthAccess { access }
-    func enableBackgroundDelivery() async { backgroundDeliveryEnabled = true }
+    func enableBackgroundDelivery() async { locked { _backgroundDeliveryEnabled = true } }
 
     func startObserving(onChange: @escaping @Sendable (_ done: @escaping @Sendable () -> Void) -> Void) {
         // Once, like the live store: launch and bootstrap both call it.
